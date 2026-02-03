@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useStats } from '@contexts/StatsContext';
+import { useStats } from '@contexts/DashboardDataContext';
 import { useNotifications } from '@contexts/notifications';
 import { useMockMode } from '@contexts/MockModeContext';
 import { useAuth } from '@contexts/AuthContext';

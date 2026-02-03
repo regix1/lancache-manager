@@ -8,30 +8,66 @@ import { useRefreshRate } from '../RefreshRateContext';
 import { useSignalR } from '../SignalRContext';
 import { useAuth } from '../AuthContext';
 import { SIGNALR_REFRESH_EVENTS } from '../SignalRContext/types';
-import type { CacheInfo, ClientStat, ServiceStat, DashboardStats } from '../../types';
-import type { StatsContextType, StatsProviderProps } from './types';
+import type { CacheInfo, ClientStat, ServiceStat, DashboardStats, Download } from '../../types';
+import type { DashboardDataContextType, DashboardDataProviderProps } from './types';
 
-const StatsContext = createContext<StatsContextType | undefined>(undefined);
+const DashboardDataContext = createContext<DashboardDataContextType | undefined>(undefined);
 
-export const useStats = () => {
-  const context = useContext(StatsContext);
+export const useDashboardData = () => {
+  const context = useContext(DashboardDataContext);
   if (!context) {
-    throw new Error('useStats must be used within StatsProvider');
+    throw new Error('useDashboardData must be used within DashboardDataProvider');
   }
   return context;
 };
 
-export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode = false }) => {
+// Compatibility exports for gradual migration
+export const useStats = () => {
+  const context = useDashboardData();
+  return {
+    cacheInfo: context.cacheInfo,
+    clientStats: context.clientStats,
+    serviceStats: context.serviceStats,
+    dashboardStats: context.dashboardStats,
+    loading: context.loading,
+    error: context.error,
+    connectionStatus: context.connectionStatus,
+    refreshStats: context.refreshData,
+    updateStats: (updater: {
+      cacheInfo?: (prev: CacheInfo | null) => CacheInfo | null;
+      clientStats?: (prev: ClientStat[]) => ClientStat[];
+      serviceStats?: (prev: ServiceStat[]) => ServiceStat[];
+      dashboardStats?: (prev: DashboardStats | null) => DashboardStats | null;
+    }) => context.updateData(updater)
+  };
+};
+
+export const useDownloads = () => {
+  const context = useDashboardData();
+  return {
+    latestDownloads: context.latestDownloads,
+    loading: context.loading,
+    error: context.error,
+    refreshDownloads: async () => context.refreshData(true),
+    updateDownloads: (updater: {
+      latestDownloads?: (prev: Download[]) => Download[];
+    }) => context.updateData(updater)
+  };
+};
+
+export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({ children, mockMode = false }) => {
   const { getTimeRangeParams, timeRange, customStartDate, customEndDate, selectedEventIds } = useTimeFilter();
   const { getRefreshInterval } = useRefreshRate();
   const signalR = useSignalR();
   const { isAuthenticated, authMode, isLoading: authLoading } = useAuth();
   const hasAccess = isAuthenticated || authMode === 'guest';
 
+  // State
   const [cacheInfo, setCacheInfo] = useState<CacheInfo | null>(null);
   const [clientStats, setClientStats] = useState<ClientStat[]>([]);
   const [serviceStats, setServiceStats] = useState<ServiceStat[]>([]);
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
+  const [latestDownloads, setLatestDownloads] = useState<Download[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [connectionStatus, setConnectionStatus] = useState('checking');
@@ -41,15 +77,14 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     end: null
   });
 
+  // Refs for tracking state
   const isInitialLoad = useRef(true);
   const hasData = useRef(false);
   const fetchInProgress = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const lastFetchTime = useRef<number>(0);
   const lastSignalRRefresh = useRef<number>(0);
-  // Track previous event IDs - initialize with current value to prevent double-fetch on mount
   const prevEventIdsRef = useRef<string>(JSON.stringify(selectedEventIds));
-  // Request ID to prevent race conditions - only the most recent request can set state
   const currentRequestIdRef = useRef(0);
 
   // IMPORTANT: These refs are updated on every render BEFORE effects run
@@ -101,9 +136,8 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     }
   };
 
-  // Single unified fetch function that ALWAYS reads current timeRange from ref
-  // This eliminates all stale closure issues - no timeRange is captured in closures
-  const fetchStats = useCallback(async (options: { showLoading?: boolean; isInitial?: boolean; forceRefresh?: boolean; trigger?: string } = {}) => {
+  // Single unified fetch function that fetches all data in parallel
+  const fetchAllData = useCallback(async (options: { showLoading?: boolean; isInitial?: boolean; forceRefresh?: boolean; trigger?: string } = {}) => {
     if (mockModeRef.current) return;
     if (authLoadingRef.current || !hasAccessRef.current) return;
 
@@ -117,19 +151,17 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     lastFetchTime.current = now;
 
     // Abort any in-flight request BEFORE checking concurrent flag
-    // This ensures time range changes always trigger new fetches
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
 
-    // Prevent concurrent fetches (except for initial load or force refresh which should always proceed)
+    // Prevent concurrent fetches (except for initial load or force refresh)
     if (fetchInProgress.current && !isInitial && !forceRefresh) {
       return;
     }
     fetchInProgress.current = true;
 
     // Generate unique request ID - only this request can modify state
-    // This prevents race conditions when rapid filter changes cause overlapping requests
     const thisRequestId = ++currentRequestIdRef.current;
 
     // Read current values from refs - these are always up-to-date
@@ -137,11 +169,10 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     const currentTimeRange = currentTimeRangeRef.current;
     const currentEventIds = [...selectedEventIdsRef.current]; // Copy to detect changes
     const { startTime, endTime } = getTimeRangeParamsRef.current();
-    // Support multiple event IDs - pass as array for API
     const eventIds = currentEventIds.length > 0 ? currentEventIds : undefined;
     const cacheBust = forceRefresh ? Date.now() : undefined;
 
-    console.log(`%c[STATS FETCH] requestId=${thisRequestId}`, 'color: #2563eb; font-weight: bold', {
+    console.log(`%c[DASHBOARD FETCH] requestId=${thisRequestId}`, 'color: #8b5cf6; font-weight: bold', {
       trigger,
       timeRange: currentTimeRange,
       startTime,
@@ -156,6 +187,7 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     });
 
     abortControllerRef.current = new AbortController();
+    const signal = abortControllerRef.current.signal;
 
     try {
       if (showLoading) {
@@ -173,19 +205,18 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
       const timeout = 10000;
       const timeoutId = setTimeout(() => abortControllerRef.current?.abort(), timeout);
 
-      // Pass eventIds to filter to only tagged downloads when events are selected
-      const [cache, clients, services, dashboard] = await Promise.allSettled([
-        ApiService.getCacheInfo(abortControllerRef.current.signal),
-        ApiService.getClientStats(abortControllerRef.current.signal, startTime, endTime, eventIds, undefined, cacheBust),
-        ApiService.getServiceStats(abortControllerRef.current.signal, startTime, endTime, eventIds, cacheBust),
-        ApiService.getDashboardStats(abortControllerRef.current.signal, startTime, endTime, eventIds, cacheBust)
+      // Fetch all data in parallel using Promise.allSettled
+      const [cache, clients, services, dashboard, downloads] = await Promise.allSettled([
+        ApiService.getCacheInfo(signal),
+        ApiService.getClientStats(signal, startTime, endTime, eventIds, undefined, cacheBust),
+        ApiService.getServiceStats(signal, startTime, endTime, eventIds, cacheBust),
+        ApiService.getDashboardStats(signal, startTime, endTime, eventIds, cacheBust),
+        ApiService.getLatestDownloads(signal, 'unlimited', startTime, endTime, eventIds, cacheBust)
       ]);
 
       clearTimeout(timeoutId);
 
       // CRITICAL: Check if we're still the current request before modifying ANY state
-      // This prevents race conditions where an old (aborted) request sets loading=false
-      // while a new request is still in progress
       if (currentRequestIdRef.current !== thisRequestId) {
         return; // A newer request has started, don't touch state
       }
@@ -201,7 +232,8 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
         if (cache.status === 'fulfilled' && cache.value !== undefined) {
           setCacheInfo(cache.value);
         }
-        // Client/service/dashboard stats depend on time range AND event filter
+
+        // All other data depends on time range AND event filter
         if (filtersStillValid) {
           if (clients.status === 'fulfilled' && clients.value !== undefined) {
             setClientStats(clients.value);
@@ -210,7 +242,7 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
             setServiceStats(services.value);
           }
           if (dashboard.status === 'fulfilled' && dashboard.value !== undefined) {
-            console.log(`[STATS CONTEXT] New dashboard data for timeRange=${currentTimeRange}`, {
+            console.log(`[DASHBOARD DATA] New dashboard data for timeRange=${currentTimeRange}`, {
               period: dashboard.value.period?.duration,
               bandwidthSaved: dashboard.value.period?.bandwidthSaved,
               addedToCache: dashboard.value.period?.addedToCache,
@@ -220,6 +252,9 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
             });
             setDashboardStats(dashboard.value);
             hasData.current = true;
+          }
+          if (downloads.status === 'fulfilled' && downloads.value !== undefined) {
+            setLatestDownloads(downloads.value);
           }
           setError(null);
           if (showLoading) {
@@ -234,7 +269,7 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
         return; // A newer request has started, don't touch state
       }
       if (!hasData.current && !isAbortError(err)) {
-        setError('Failed to fetch stats from API');
+        setError('Failed to fetch dashboard data from API');
       }
       if (showLoading) {
         setLoading(false);
@@ -251,17 +286,15 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
   }, []);
 
   // Public refresh function for manual refreshes
-  const refreshStats = useCallback(async (forceRefresh: boolean = false) => {
-    await fetchStats({ showLoading: true, forceRefresh });
-  }, [fetchStats]);
+  const refreshData = useCallback(async (forceRefresh: boolean = false) => {
+    await fetchAllData({ showLoading: true, forceRefresh });
+  }, [fetchAllData]);
 
-  // Subscribe to SignalR events for real-time updates
-  // IMPORTANT: Handlers read from refs, NOT closures - no stale data possible
+  // Subscribe to SignalR events for real-time updates - SINGLE subscription
   useEffect(() => {
     if (mockMode) return;
 
-    // Throttled handler that respects user's refresh rate setting
-    // This replaces polling - SignalR events are the only source of updates
+    // Throttled handler that respects user's refresh rate setting (500ms minimum in live mode)
     const handleRefreshEvent = (eventName?: string) => {
       const currentRange = currentTimeRangeRef.current;
       const maxRefreshRate = getRefreshIntervalRef.current();
@@ -275,7 +308,7 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
       // For historical ranges (not 'live'), skip SignalR refreshes to prevent flickering
       const isLiveMode = currentRange === 'live';
 
-      console.log(`%c[STATS SIGNALR] Event received`, 'color: #16a34a; font-weight: bold', {
+      console.log(`%c[DASHBOARD SIGNALR] Event received`, 'color: #16a34a; font-weight: bold', {
         event: eventName || 'unknown',
         timeSinceLastRefresh,
         minInterval,
@@ -287,20 +320,20 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
       // Only refresh in live mode - historical ranges should not react to real-time events
       if (isLiveMode && timeSinceLastRefresh >= minInterval) {
         lastSignalRRefresh.current = now;
-        fetchStats({ trigger: `signalr:${eventName || 'unknown'}` });
+        fetchAllData({ trigger: `signalr:${eventName || 'unknown'}` });
       }
     };
 
     // Handler for database reset completion - always refresh immediately
     const handleDatabaseResetProgress = (event: { status?: string }) => {
       const status = (event.status || '').toLowerCase();
-      console.log(`%c[STATS SIGNALR] DatabaseResetProgress`, 'color: #16a34a; font-weight: bold', { status });
+      console.log(`%c[DASHBOARD SIGNALR] DatabaseResetProgress`, 'color: #16a34a; font-weight: bold', { status });
       if (status === 'completed') {
-        setTimeout(() => fetchStats({ trigger: 'signalr:DatabaseResetCompleted' }), 500);
+        setTimeout(() => fetchAllData({ trigger: 'signalr:DatabaseResetCompleted' }), 500);
       }
     };
 
-    // Subscribe to all refresh events using centralized array
+    // Subscribe to all refresh events using centralized array - SINGLE subscription point
     SIGNALR_REFRESH_EVENTS.forEach(event => signalR.on(event, () => handleRefreshEvent(event)));
     signalR.on('DatabaseResetProgress', handleDatabaseResetProgress);
 
@@ -308,7 +341,7 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
       SIGNALR_REFRESH_EVENTS.forEach(event => signalR.off(event, () => handleRefreshEvent(event)));
       signalR.off('DatabaseResetProgress', handleDatabaseResetProgress);
     };
-  }, [mockMode, signalR, fetchStats]);
+  }, [mockMode, signalR, fetchAllData]);
 
   // Load mock data when mock mode is enabled
   useEffect(() => {
@@ -323,6 +356,7 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
         setClientStats(mockData.clientStats);
         setServiceStats(mockData.serviceStats);
         setDashboardStats(mockData.dashboardStats);
+        setLatestDownloads(mockData.latestDownloads);
         setError(null);
         setLoading(false);
       });
@@ -335,51 +369,44 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
   // Initial load
   useEffect(() => {
     if (!mockMode && !authLoading && hasAccess) {
-      console.log(`%c[STATS EFFECT] Initial load triggered`, 'color: #0891b2; font-weight: bold');
-      fetchStats({ showLoading: true, isInitial: true, trigger: 'initial' });
+      console.log(`%c[DASHBOARD EFFECT] Initial load triggered`, 'color: #0891b2; font-weight: bold');
+      fetchAllData({ showLoading: true, isInitial: true, trigger: 'initial' });
     }
 
     return () => {
       if (abortControllerRef.current) abortControllerRef.current.abort();
     };
-  }, [mockMode, authLoading, hasAccess, fetchStats]);
+  }, [mockMode, authLoading, hasAccess, fetchAllData]);
 
   // Handle time range changes - fetch new data
   useEffect(() => {
     if (!mockMode && hasAccess && !isInitialLoad.current) {
-      console.log(`%c[STATS EFFECT] Time range changed`, 'color: #0891b2; font-weight: bold', {
+      console.log(`%c[DASHBOARD EFFECT] Time range changed`, 'color: #0891b2; font-weight: bold', {
         newTimeRange: timeRange
       });
-      // Don't clear stats - let new data atomically replace old data
-      // This allows AnimatedValue to smoothly transition from old values to new values
-      // The Dashboard's periodMatchesTimeRange validation prevents showing mismatched data
       // Use forceRefresh to bypass debounce - time range changes should always trigger immediate fetch
-      fetchStats({ showLoading: true, forceRefresh: true, trigger: `timeRangeChange:${timeRange}` });
+      fetchAllData({ showLoading: true, forceRefresh: true, trigger: `timeRangeChange:${timeRange}` });
     }
-  }, [timeRange, mockMode, hasAccess, fetchStats]);
+  }, [timeRange, mockMode, hasAccess, fetchAllData]);
 
   // Event filter changes - refetch when event filter is changed
-  // Uses prevEventIdsRef (initialized with current value) to prevent double-fetch on mount
-  // NOTE: We intentionally DON'T check isInitialLoad.current here because:
-  // 1. prevEventIdsRef prevents double-fetch on mount (initialized with current value)
-  // 2. If user changes filter during initial load, we want to abort and fetch with new filter
   useEffect(() => {
     const currentEventIdsKey = JSON.stringify(selectedEventIds);
     if (!mockMode && hasAccess && prevEventIdsRef.current !== currentEventIdsKey) {
-      console.log(`%c[STATS EFFECT] Event filter changed`, 'color: #0891b2; font-weight: bold', {
+      console.log(`%c[DASHBOARD EFFECT] Event filter changed`, 'color: #0891b2; font-weight: bold', {
         prevEventIds: prevEventIdsRef.current,
         newEventIds: currentEventIdsKey
       });
       prevEventIdsRef.current = currentEventIdsKey;
-      // Clear stats immediately to prevent showing stale data from different event filter
-      setClientStats([]);
-      setServiceStats([]);
-      // Note: dashboardStats is NOT cleared here - it preserves old values until new data arrives
-      // This allows AnimatedValue to smoothly animate from old→new instead of 0→new
-      // The Dashboard's validation logic handles showing appropriate data during loading
-      fetchStats({ showLoading: true, forceRefresh: true, trigger: 'eventFilterChange' });
+      // Clear stats/downloads immediately to prevent showing stale data from different event filter
+      unstable_batchedUpdates(() => {
+        setClientStats([]);
+        setServiceStats([]);
+        setLatestDownloads([]);
+      });
+      fetchAllData({ showLoading: true, forceRefresh: true, trigger: 'eventFilterChange' });
     }
-  }, [selectedEventIds, mockMode, hasAccess, fetchStats]);
+  }, [selectedEventIds, mockMode, hasAccess, fetchAllData]);
 
   // Debounced custom date changes
   useEffect(() => {
@@ -390,7 +417,7 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
           lastCustomDates.end?.getTime() !== customEndDate.getTime();
 
         if (datesChanged) {
-          console.log(`%c[STATS EFFECT] Custom dates changed`, 'color: #0891b2; font-weight: bold', {
+          console.log(`%c[DASHBOARD EFFECT] Custom dates changed`, 'color: #0891b2; font-weight: bold', {
             prevStart: lastCustomDates.start?.toLocaleString(),
             prevEnd: lastCustomDates.end?.toLocaleString(),
             newStart: customStartDate.toLocaleString(),
@@ -399,7 +426,7 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
           setLoading(true);
           const debounceTimer = setTimeout(() => {
             setLastCustomDates({ start: customStartDate, end: customEndDate });
-            fetchStats({ showLoading: true, trigger: 'customDateChange' });
+            fetchAllData({ showLoading: true, trigger: 'customDateChange' });
           }, 50);
 
           return () => clearTimeout(debounceTimer);
@@ -408,13 +435,14 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     } else if (timeRange !== 'custom') {
       setLastCustomDates({ start: null, end: null });
     }
-  }, [customStartDate, customEndDate, timeRange, mockMode, hasAccess, fetchStats]);
+  }, [customStartDate, customEndDate, timeRange, mockMode, hasAccess, fetchAllData]);
 
-  const updateStats = useCallback((updater: {
+  const updateData = useCallback((updater: {
     cacheInfo?: (prev: CacheInfo | null) => CacheInfo | null;
     clientStats?: (prev: ClientStat[]) => ClientStat[];
     serviceStats?: (prev: ServiceStat[]) => ServiceStat[];
     dashboardStats?: (prev: DashboardStats | null) => DashboardStats | null;
+    latestDownloads?: (prev: Download[]) => Download[];
   }) => {
     // Batch all state updates to prevent multiple re-renders
     unstable_batchedUpdates(() => {
@@ -430,6 +458,9 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
       if (updater.dashboardStats) {
         setDashboardStats(updater.dashboardStats);
       }
+      if (updater.latestDownloads) {
+        setLatestDownloads(updater.latestDownloads);
+      }
     });
   }, []);
 
@@ -439,12 +470,24 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     clientStats,
     serviceStats,
     dashboardStats,
+    latestDownloads,
     loading,
     error,
     connectionStatus,
-    refreshStats,
-    updateStats
-  }), [cacheInfo, clientStats, serviceStats, dashboardStats, loading, error, connectionStatus, refreshStats, updateStats]);
+    refreshData,
+    updateData
+  }), [
+    cacheInfo,
+    clientStats,
+    serviceStats,
+    dashboardStats,
+    latestDownloads,
+    loading,
+    error,
+    connectionStatus,
+    refreshData,
+    updateData
+  ]);
 
-  return <StatsContext.Provider value={value}>{children}</StatsContext.Provider>;
+  return <DashboardDataContext.Provider value={value}>{children}</DashboardDataContext.Provider>;
 };

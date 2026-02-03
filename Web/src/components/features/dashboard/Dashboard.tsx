@@ -19,8 +19,7 @@ import {
   Check
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useStats } from '@contexts/StatsContext';
-import { useDownloads } from '@contexts/DownloadsContext';
+import { useStats, useDownloads } from '@contexts/DashboardDataContext';
 import { useTimeFilter } from '@contexts/TimeFilterContext';
 import { useEvents } from '@contexts/EventContext';
 import { useSpeed } from '@contexts/SpeedContext';
@@ -148,21 +147,6 @@ const Dashboard: React.FC = () => {
     forTimeRange: timeRange // Track which time range these values are from
   });
 
-  // Clear previousStatsRef when time range changes to prevent showing values from wrong period
-  useEffect(() => {
-    // Only clear if we're switching to a different time range
-    if (previousStatsRef.current.forTimeRange && previousStatsRef.current.forTimeRange !== timeRange) {
-      console.log(`[STATS DEBUG] TIME RANGE CHANGED: ${previousStatsRef.current.forTimeRange} → ${timeRange} (clearing ref)`);
-      previousStatsRef.current = {
-        bandwidthSaved: 0,
-        addedToCache: 0,
-        totalServed: 0,
-        cacheHitRatio: 0,
-        uniqueClients: 0,
-        forTimeRange: timeRange
-      };
-    }
-  }, [timeRange]);
 
   // Determine if we're viewing historical/filtered data (not live)
   // Any non-live mode should disable real-time only stats

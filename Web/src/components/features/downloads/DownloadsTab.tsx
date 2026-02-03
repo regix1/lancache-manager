@@ -11,7 +11,7 @@ import {
   X,
   Maximize2
 } from 'lucide-react';
-import { useDownloads } from '@contexts/DownloadsContext';
+import { useDownloads } from '@contexts/DashboardDataContext';
 import { useTimeFilter } from '@contexts/TimeFilterContext';
 import { useClientGroups } from '@contexts/ClientGroupContext';
 import { storage } from '@utils/storage';

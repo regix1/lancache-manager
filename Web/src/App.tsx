@@ -2,8 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { NotificationsProvider } from '@contexts/notifications';
 import { CacheSizeProvider } from '@contexts/CacheSizeContext';
-import { StatsProvider, useStats } from '@contexts/StatsContext';
-import { DownloadsProvider } from '@contexts/DownloadsContext';
+import { DashboardDataProvider, useStats } from '@contexts/DashboardDataContext';
 import { TimeFilterProvider } from '@contexts/TimeFilterContext';
 import { EventProvider } from '@contexts/EventContext';
 import { CalendarSettingsProvider } from '@contexts/CalendarSettingsContext';
@@ -55,14 +54,9 @@ import { PrefillPanel } from '@components/features/prefill';
 import ActiveEventBorder from '@components/common/ActiveEventBorder';
 
 // Wrapper components to inject mockMode from context into providers
-const StatsProviderWithMockMode: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+const DashboardDataProviderWithMockMode: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { mockMode } = useMockMode();
-  return <StatsProvider mockMode={mockMode}>{children}</StatsProvider>;
-};
-
-const DownloadsProviderWithMockMode: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { mockMode } = useMockMode();
-  return <DownloadsProvider mockMode={mockMode}>{children}</DownloadsProvider>;
+  return <DashboardDataProvider mockMode={mockMode}>{children}</DashboardDataProvider>;
 };
 
 const PicsProgressProviderWithMockMode: React.FC<{ children: React.ReactNode }> = ({
@@ -805,19 +799,17 @@ const App: React.FC = () => {
                           <PicsProgressProviderWithMockMode>
                             <NotificationsProvider>
                               <CacheSizeProvider>
-                                <StatsProviderWithMockMode>
-                                  <DownloadsProviderWithMockMode>
-                                    <CalendarSettingsProvider>
-                                      <EventProvider>
-                                        <ClientGroupProvider>
-                                        <DownloadAssociationsProvider>
-                                          <AppContent />
-                                        </DownloadAssociationsProvider>
-                                      </ClientGroupProvider>
-                                    </EventProvider>
-                                    </CalendarSettingsProvider>
-                                  </DownloadsProviderWithMockMode>
-                                </StatsProviderWithMockMode>
+                                <DashboardDataProviderWithMockMode>
+                                  <CalendarSettingsProvider>
+                                    <EventProvider>
+                                      <ClientGroupProvider>
+                                      <DownloadAssociationsProvider>
+                                        <AppContent />
+                                      </DownloadAssociationsProvider>
+                                    </ClientGroupProvider>
+                                  </EventProvider>
+                                  </CalendarSettingsProvider>
+                                </DashboardDataProviderWithMockMode>
                               </CacheSizeProvider>
                             </NotificationsProvider>
                           </PicsProgressProviderWithMockMode>

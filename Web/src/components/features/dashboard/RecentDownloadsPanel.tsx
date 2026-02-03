@@ -6,7 +6,7 @@ import { Card } from '@components/ui/Card';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
-import { useDownloads } from '@contexts/DownloadsContext';
+import { useDownloads } from '@contexts/DashboardDataContext';
 import { useDownloadAssociations } from '@contexts/DownloadAssociationsContext';
 import { useClientGroups } from '@contexts/ClientGroupContext';
 import { useSpeed } from '@contexts/SpeedContext';
