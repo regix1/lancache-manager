@@ -564,7 +564,7 @@ const Dashboard: React.FC = () => {
       cacheHitRatio: {
         key: 'cacheHitRatio',
         title: t('dashboard.cards.cacheHitRatio'),
-        value: formatPercent(stats.cacheHitRatio * 100),
+        value: formatPercent(Math.round(stats.cacheHitRatio * 1000) / 10),
         subtitle: getTimeRangeLabel().toLowerCase(),
         icon: Activity,
         color: 'cyan' as const,
@@ -916,7 +916,7 @@ const Dashboard: React.FC = () => {
                 color={card.color}
                 tooltip={card.tooltip}
                 glassmorphism={true}
-                animateValue={true}
+                animateValue={!loading}
                 sparklineData={
                   card.key === 'bandwidthSaved' ? sparklineData?.bandwidthSaved?.data :
                   card.key === 'cacheHitRatio' ? sparklineData?.cacheHitRatio?.data :

@@ -102,7 +102,7 @@ export function formatBytes(bytes: number, decimals = 2, zeroLabel = '0 B'): str
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   const unit = FILE_SIZE_UNITS[i] || 'B';
 
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + unit;
+  return (bytes / Math.pow(k, i)).toFixed(dm) + ' ' + unit;
 }
 
 /**
