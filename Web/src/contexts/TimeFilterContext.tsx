@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
 import { storage } from '@utils/storage';
 
 // Time range controls WHEN to look at data
@@ -164,12 +164,12 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
   }, [selectedEventIds]);
 
   // Set selected event IDs
-  const setSelectedEventIds = (ids: number[]) => {
+  const setSelectedEventIds = useCallback((ids: number[]) => {
     setSelectedEventIdsState(ids);
-  };
+  }, []);
 
   // Toggle a single event ID
-  const toggleEventId = (id: number) => {
+  const toggleEventId = useCallback((id: number) => {
     setSelectedEventIdsState(prev => {
       if (prev.includes(id)) {
         return prev.filter(eid => eid !== id);
@@ -177,12 +177,12 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
         return [...prev, id];
       }
     });
-  };
+  }, []);
 
   // Clear all event filters
-  const clearEventFilter = () => {
+  const clearEventFilter = useCallback(() => {
     setSelectedEventIdsState([]);
-  };
+  }, []);
 
   // Extend the time anchor forward (re-anchor to now)
   // Called by StatsContext/DownloadsContext when receiving SignalR events
@@ -192,7 +192,7 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
     }
   }, [timeRange]);
 
-  const getTimeRangeInHours = (): number => {
+  const getTimeRangeInHours = useCallback((): number => {
     switch (timeRange) {
       case '1h':
         return 1;
@@ -217,11 +217,9 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
       default:
         return 24;
     }
-  };
+  }, [timeRange, customStartDate, customEndDate]);
 
-  const getTimeRangeParams = (): { startTime?: number; endTime?: number } => {
-    const callTime = new Date().toISOString();
-
+  const getTimeRangeParams = useCallback((): { startTime?: number; endTime?: number } => {
     if (timeRange === 'custom' && customStartDate && customEndDate) {
       const startTime = Math.floor(customStartDate.getTime() / 1000);
       // Set end time to end of day (23:59:59) instead of start of day
@@ -232,28 +230,11 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
       const now = Date.now();
       const endTimestamp = Math.min(endDate.getTime(), now);
       const endTime = Math.floor(endTimestamp / 1000);
-
-      console.log(`%c[TIME PARAMS] ${callTime}`, 'color: #9333ea; font-weight: bold', {
-        timeRange,
-        mode: 'custom',
-        startTime,
-        endTime,
-        startDate: new Date(startTime * 1000).toLocaleString(),
-        endDate: new Date(endTime * 1000).toLocaleString()
-      });
-
       return { startTime, endTime };
     }
 
     // Return empty params for 'live' time to fetch everything
     if (timeRange === 'live') {
-      console.log(`%c[TIME PARAMS] ${callTime}`, 'color: #9333ea; font-weight: bold', {
-        timeRange,
-        mode: 'live',
-        startTime: undefined,
-        endTime: undefined,
-        note: 'No time bounds - fetching all data'
-      });
       return {};
     }
 
@@ -262,53 +243,51 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
     const hoursMs = getTimeRangeInHours() * 60 * 60 * 1000;
     const startTime = Math.floor((now - hoursMs) / 1000);
     const endTime = Math.floor(now / 1000);
-
-    console.log(`%c[TIME PARAMS] ${callTime}`, 'color: #9333ea; font-weight: bold', {
-      timeRange,
-      mode: 'rolling',
-      anchorTime: rangeAnchorTime,
-      usingAnchor: rangeAnchorTime !== null,
-      nowMs: now,
-      startTime,
-      endTime,
-      startDate: new Date(startTime * 1000).toLocaleString(),
-      endDate: new Date(endTime * 1000).toLocaleString(),
-      windowMs: hoursMs
-    });
-
     return { startTime, endTime };
-  };
+  }, [timeRange, customStartDate, customEndDate, rangeAnchorTime, getTimeRangeInHours]);
 
   // Wrapped setters with optional logging
-  const setCustomStartDateWithLogging = (date: Date | null) => {
-    // console.log('📅 Setting custom start date:', date?.toLocaleString() || 'null');
+  const setCustomStartDateWithLogging = useCallback((date: Date | null) => {
     setCustomStartDate(date);
-  };
+  }, []);
 
-  const setCustomEndDateWithLogging = (date: Date | null) => {
-    // console.log('📅 Setting custom end date:', date?.toLocaleString() || 'null');
+  const setCustomEndDateWithLogging = useCallback((date: Date | null) => {
     setCustomEndDate(date);
-  };
+  }, []);
+
+  const value = useMemo(() => ({
+    timeRange,
+    setTimeRange,
+    customStartDate,
+    customEndDate,
+    setCustomStartDate: setCustomStartDateWithLogging,
+    setCustomEndDate: setCustomEndDateWithLogging,
+    getTimeRangeInHours,
+    getTimeRangeParams,
+    rangeAnchorTime,
+    extendTimeAnchor,
+    selectedEventIds,
+    setSelectedEventIds,
+    toggleEventId,
+    clearEventFilter
+  }), [
+    timeRange,
+    customStartDate,
+    customEndDate,
+    setCustomStartDateWithLogging,
+    setCustomEndDateWithLogging,
+    getTimeRangeInHours,
+    getTimeRangeParams,
+    rangeAnchorTime,
+    extendTimeAnchor,
+    selectedEventIds,
+    setSelectedEventIds,
+    toggleEventId,
+    clearEventFilter
+  ]);
 
   return (
-    <TimeFilterContext.Provider
-      value={{
-        timeRange,
-        setTimeRange,
-        customStartDate,
-        customEndDate,
-        setCustomStartDate: setCustomStartDateWithLogging,
-        setCustomEndDate: setCustomEndDateWithLogging,
-        getTimeRangeInHours,
-        getTimeRangeParams,
-        rangeAnchorTime,
-        extendTimeAnchor,
-        selectedEventIds,
-        setSelectedEventIds,
-        toggleEventId,
-        clearEventFilter
-      }}
-    >
+    <TimeFilterContext.Provider value={value}>
       {children}
     </TimeFilterContext.Provider>
   );
