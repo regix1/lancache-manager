@@ -137,6 +137,7 @@ public class StatsController : ControllerBase
     /// <summary>
     /// Calculates sum of cache hit bytes excluding stats-excluded IPs.
     /// Used for calculations where excluded IPs should be visible but not counted.
+    /// Uses a single atomic query to prevent race conditions from concurrent data changes.
     /// </summary>
     private static async Task<long> SumCacheHitBytesExcludingAsync(
         IQueryable<Download> query,
@@ -147,18 +148,17 @@ public class StatsController : ControllerBase
             return await query.SumAsync(d => (long?)d.CacheHitBytes) ?? 0L;
         }
 
-        // Sum all values, then subtract excluded values
-        var total = await query.SumAsync(d => (long?)d.CacheHitBytes) ?? 0L;
-        var excluded = await query
-            .Where(d => statsExcludedIps.Contains(d.ClientIp))
+        // Single atomic query - filter out excluded IPs directly
+        // This prevents race conditions where data changes between queries
+        return await query
+            .Where(d => !statsExcludedIps.Contains(d.ClientIp))
             .SumAsync(d => (long?)d.CacheHitBytes) ?? 0L;
-        
-        return total - excluded;
     }
 
     /// <summary>
     /// Calculates sum of cache miss bytes excluding stats-excluded IPs.
     /// Used for calculations where excluded IPs should be visible but not counted.
+    /// Uses a single atomic query to prevent race conditions from concurrent data changes.
     /// </summary>
     private static async Task<long> SumCacheMissBytesExcludingAsync(
         IQueryable<Download> query,
@@ -169,18 +169,17 @@ public class StatsController : ControllerBase
             return await query.SumAsync(d => (long?)d.CacheMissBytes) ?? 0L;
         }
 
-        // Sum all values, then subtract excluded values
-        var total = await query.SumAsync(d => (long?)d.CacheMissBytes) ?? 0L;
-        var excluded = await query
-            .Where(d => statsExcludedIps.Contains(d.ClientIp))
+        // Single atomic query - filter out excluded IPs directly
+        // This prevents race conditions where data changes between queries
+        return await query
+            .Where(d => !statsExcludedIps.Contains(d.ClientIp))
             .SumAsync(d => (long?)d.CacheMissBytes) ?? 0L;
-        
-        return total - excluded;
     }
 
     /// <summary>
     /// Counts downloads excluding stats-excluded IPs.
     /// Used for calculations where excluded IPs should be visible but not counted.
+    /// Uses a single atomic query to prevent race conditions from concurrent data changes.
     /// </summary>
     private static async Task<int> CountExcludingAsync(
         IQueryable<Download> query,
@@ -191,13 +190,11 @@ public class StatsController : ControllerBase
             return await query.CountAsync();
         }
 
-        // Count all, then subtract excluded count
-        var total = await query.CountAsync();
-        var excluded = await query
-            .Where(d => statsExcludedIps.Contains(d.ClientIp))
+        // Single atomic query - filter out excluded IPs directly
+        // This prevents race conditions where data changes between queries
+        return await query
+            .Where(d => !statsExcludedIps.Contains(d.ClientIp))
             .CountAsync();
-        
-        return total - excluded;
     }
 
     private static List<string> NormalizeClientIps(IEnumerable<string>? ips, out List<string> invalidIps)
@@ -792,9 +789,13 @@ public class StatsController : ControllerBase
             }
         }
 
+        // Filter out excluded IPs BEFORE grouping to prevent race conditions
+        var filteredQuery = statsExcludedOnlyIps.Count > 0
+            ? query.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp))
+            : query;
+
         // Query downloads and group by local time hour (StartTimeLocal is already in configured timezone)
-        // Exclude stats-excluded IPs from calculations
-        var hourlyDataAll = await query
+        var hourlyData = await filteredQuery
             .GroupBy(d => d.StartTimeLocal.Hour)
             .Select(g => new HourlyActivityItem
             {
@@ -805,38 +806,6 @@ public class StatsController : ControllerBase
                 CacheMissBytes = g.Sum(d => d.CacheMissBytes)
             })
             .ToListAsync();
-
-        // Subtract excluded IPs from calculations if any
-        List<HourlyActivityItem> hourlyData;
-        if (statsExcludedOnlyIps.Count > 0)
-        {
-            var excludedHourlyData = await query
-                .Where(d => statsExcludedOnlyIps.Contains(d.ClientIp))
-                .GroupBy(d => d.StartTimeLocal.Hour)
-                .Select(g => new HourlyActivityItem
-                {
-                    Hour = g.Key,
-                    Downloads = g.Count(),
-                    BytesServed = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes),
-                    CacheHitBytes = g.Sum(d => d.CacheHitBytes),
-                    CacheMissBytes = g.Sum(d => d.CacheMissBytes)
-                })
-                .ToListAsync();
-
-            var excludedByHour = excludedHourlyData.ToDictionary(h => h.Hour);
-            hourlyData = hourlyDataAll.Select(h => new HourlyActivityItem
-            {
-                Hour = h.Hour,
-                Downloads = excludedByHour.TryGetValue(h.Hour, out var excl) ? h.Downloads - excl.Downloads : h.Downloads,
-                BytesServed = excludedByHour.TryGetValue(h.Hour, out var excl2) ? h.BytesServed - excl2.BytesServed : h.BytesServed,
-                CacheHitBytes = excludedByHour.TryGetValue(h.Hour, out var excl3) ? h.CacheHitBytes - excl3.CacheHitBytes : h.CacheHitBytes,
-                CacheMissBytes = excludedByHour.TryGetValue(h.Hour, out var excl4) ? h.CacheMissBytes - excl4.CacheMissBytes : h.CacheMissBytes
-            }).ToList();
-        }
-        else
-        {
-            hourlyData = hourlyDataAll;
-        }
 
         // Fill in missing hours with zeros and calculate averages
         var allHours = Enumerable.Range(0, 24)
@@ -923,14 +892,18 @@ public class StatsController : ControllerBase
                 baseQuery = baseQuery.Where(d => d.StartTimeUtc <= endDateTime.Value);
             }
 
+            // Filter out excluded IPs BEFORE grouping to prevent race conditions
+            var filteredQuery = statsExcludedOnlyIps.Count > 0
+                ? baseQuery.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp))
+                : baseQuery;
+
             // Get daily cache growth data points
-            // Exclude stats-excluded IPs from calculations
             List<CacheGrowthDataPoint> dataPoints;
 
             if (intervalMinutes >= 1440) // Daily or larger
             {
                 // Group by date
-                var allDataPoints = await baseQuery
+                dataPoints = await filteredQuery
                     .GroupBy(d => d.StartTimeUtc.Date)
                     .OrderBy(g => g.Key)
                     .Select(g => new CacheGrowthDataPoint
@@ -940,35 +913,11 @@ public class StatsController : ControllerBase
                         GrowthFromPrevious = g.Sum(d => d.CacheMissBytes)
                     })
                     .ToListAsync();
-
-                // Subtract excluded IPs if any
-                if (statsExcludedOnlyIps.Count > 0)
-                {
-                    var excludedDataPoints = await baseQuery
-                        .Where(d => statsExcludedOnlyIps.Contains(d.ClientIp))
-                        .GroupBy(d => d.StartTimeUtc.Date)
-                        .Select(g => new { Date = g.Key, Growth = g.Sum(d => d.CacheMissBytes) })
-                        .ToListAsync();
-
-                    var excludedByDate = excludedDataPoints.ToDictionary(d => d.Date, d => d.Growth);
-                    dataPoints = allDataPoints.Select(dp => new CacheGrowthDataPoint
-                    {
-                        Timestamp = dp.Timestamp,
-                        CumulativeCacheMissBytes = 0,
-                        GrowthFromPrevious = excludedByDate.TryGetValue(dp.Timestamp.Date, out var excl) 
-                            ? dp.GrowthFromPrevious - excl 
-                            : dp.GrowthFromPrevious
-                    }).ToList();
-                }
-                else
-                {
-                    dataPoints = allDataPoints;
-                }
             }
             else
             {
                 // Group by hour for smaller intervals
-                var allHourlyData = await baseQuery
+                dataPoints = await filteredQuery
                     .GroupBy(d => new { d.StartTimeUtc.Date, d.StartTimeUtc.Hour })
                     .OrderBy(g => g.Key.Date).ThenBy(g => g.Key.Hour)
                     .Select(g => new CacheGrowthDataPoint
@@ -978,33 +927,6 @@ public class StatsController : ControllerBase
                         GrowthFromPrevious = g.Sum(d => d.CacheMissBytes)
                     })
                     .ToListAsync();
-
-                // Subtract excluded IPs if any
-                if (statsExcludedOnlyIps.Count > 0)
-                {
-                    var excludedHourlyData = await baseQuery
-                        .Where(d => statsExcludedOnlyIps.Contains(d.ClientIp))
-                        .GroupBy(d => new { d.StartTimeUtc.Date, d.StartTimeUtc.Hour })
-                        .Select(g => new { Date = g.Key.Date, Hour = g.Key.Hour, Growth = g.Sum(d => d.CacheMissBytes) })
-                        .ToListAsync();
-
-                    var excludedByDateTime = excludedHourlyData.ToDictionary(
-                        d => d.Date.AddHours(d.Hour), 
-                        d => d.Growth);
-
-                    dataPoints = allHourlyData.Select(dp => new CacheGrowthDataPoint
-                    {
-                        Timestamp = dp.Timestamp,
-                        CumulativeCacheMissBytes = 0,
-                        GrowthFromPrevious = excludedByDateTime.TryGetValue(dp.Timestamp, out var excl) 
-                            ? dp.GrowthFromPrevious - excl 
-                            : dp.GrowthFromPrevious
-                    }).ToList();
-                }
-                else
-                {
-                    dataPoints = allHourlyData;
-                }
             }
 
             // Calculate cumulative values

@@ -1,3 +1,4 @@
+using System.Data;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services.Base;
 using Microsoft.EntityFrameworkCore;
@@ -169,68 +170,83 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
                 return 0;
             }
 
-            // Get unique services from Downloads table
-            var dbServices = await context.Downloads
-                .Select(d => d.Service.ToLower())
-                .Distinct()
-                .ToListAsync(stoppingToken);
-
-            Logger.LogInformation("Found {Count} services in database: {Services}",
-                dbServices.Count, string.Join(", ", dbServices.Take(10)));
-
-            // SAFETY CHECK: Don't delete if most services would be removed
-            // This protects against edge cases where log scanning returns partial results
-            var orphanedServices = dbServices
-                .Where(s => !logServiceNames.Contains(s.ToLowerInvariant()))
-                .ToList();
-
-            if (dbServices.Count > 0 && orphanedServices.Count >= dbServices.Count)
+            // Use a transaction to ensure consistency between querying and deleting
+            // This prevents race conditions where data changes between queries
+            using var transaction = await context.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, stoppingToken);
+            try
             {
-                Logger.LogWarning("All {Count} database services would be marked as orphaned - this looks like a log scanning issue. Skipping cleanup.", dbServices.Count);
-                return 0;
-            }
+                // Get unique services from Downloads table (within transaction)
+                var dbServices = await context.Downloads
+                    .Select(d => d.Service.ToLower())
+                    .Distinct()
+                    .ToListAsync(stoppingToken);
 
-            if (!orphanedServices.Any())
+                Logger.LogInformation("Found {Count} services in database: {Services}",
+                    dbServices.Count, string.Join(", ", dbServices.Take(10)));
+
+                // SAFETY CHECK: Don't delete if most services would be removed
+                // This protects against edge cases where log scanning returns partial results
+                var orphanedServices = dbServices
+                    .Where(s => !logServiceNames.Contains(s.ToLowerInvariant()))
+                    .ToList();
+
+                if (dbServices.Count > 0 && orphanedServices.Count >= dbServices.Count)
+                {
+                    Logger.LogWarning("All {Count} database services would be marked as orphaned - this looks like a log scanning issue. Skipping cleanup.", dbServices.Count);
+                    await transaction.RollbackAsync(stoppingToken);
+                    return 0;
+                }
+
+                if (!orphanedServices.Any())
+                {
+                    Logger.LogInformation("No orphaned services found");
+                    await transaction.CommitAsync(stoppingToken);
+                    return 0;
+                }
+
+                Logger.LogInformation("Found {Count} orphaned services to clean up: {Services}",
+                    orphanedServices.Count, string.Join(", ", orphanedServices));
+
+                var totalDeleted = 0;
+
+                foreach (var service in orphanedServices)
+                {
+                    var serviceLower = service.ToLowerInvariant();
+
+                    // Delete LogEntries first (foreign key constraint)
+                    var logEntriesDeleted = await context.LogEntries
+                        .Where(le => le.Service.ToLower() == serviceLower)
+                        .ExecuteDeleteAsync(stoppingToken);
+
+                    // Delete Downloads
+                    var downloadsDeleted = await context.Downloads
+                        .Where(d => d.Service.ToLower() == serviceLower)
+                        .ExecuteDeleteAsync(stoppingToken);
+
+                    // Delete ServiceStats
+                    var serviceStatsDeleted = await context.ServiceStats
+                        .Where(s => s.Service.ToLower() == serviceLower)
+                        .ExecuteDeleteAsync(stoppingToken);
+
+                    var serviceTotal = logEntriesDeleted + downloadsDeleted + serviceStatsDeleted;
+                    totalDeleted += serviceTotal;
+
+                    Logger.LogInformation("Cleaned up orphaned service '{Service}': {Downloads} downloads, {LogEntries} log entries, {ServiceStats} service stats",
+                        service, downloadsDeleted, logEntriesDeleted, serviceStatsDeleted);
+                }
+
+                await transaction.CommitAsync(stoppingToken);
+
+                Logger.LogInformation("Orphaned service cleanup complete: removed {Total} total records from {Count} services",
+                    totalDeleted, orphanedServices.Count);
+
+                return orphanedServices.Count;
+            }
+            catch
             {
-                Logger.LogInformation("No orphaned services found");
-                return 0;
+                await transaction.RollbackAsync(stoppingToken);
+                throw;
             }
-
-            Logger.LogInformation("Found {Count} orphaned services to clean up: {Services}",
-                orphanedServices.Count, string.Join(", ", orphanedServices));
-
-            var totalDeleted = 0;
-
-            foreach (var service in orphanedServices)
-            {
-                var serviceLower = service.ToLowerInvariant();
-
-                // Delete LogEntries first (foreign key constraint)
-                var logEntriesDeleted = await context.LogEntries
-                    .Where(le => le.Service.ToLower() == serviceLower)
-                    .ExecuteDeleteAsync(stoppingToken);
-
-                // Delete Downloads
-                var downloadsDeleted = await context.Downloads
-                    .Where(d => d.Service.ToLower() == serviceLower)
-                    .ExecuteDeleteAsync(stoppingToken);
-
-                // Delete ServiceStats
-                var serviceStatsDeleted = await context.ServiceStats
-                    .Where(s => s.Service.ToLower() == serviceLower)
-                    .ExecuteDeleteAsync(stoppingToken);
-
-                var serviceTotal = logEntriesDeleted + downloadsDeleted + serviceStatsDeleted;
-                totalDeleted += serviceTotal;
-
-                Logger.LogInformation("Cleaned up orphaned service '{Service}': {Downloads} downloads, {LogEntries} log entries, {ServiceStats} service stats",
-                    service, downloadsDeleted, logEntriesDeleted, serviceStatsDeleted);
-            }
-
-            Logger.LogInformation("Orphaned service cleanup complete: removed {Total} total records from {Count} services",
-                totalDeleted, orphanedServices.Count);
-
-            return orphanedServices.Count;
         }
         catch (Exception ex)
         {

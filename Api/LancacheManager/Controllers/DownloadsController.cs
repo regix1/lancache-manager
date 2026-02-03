@@ -74,17 +74,14 @@ public class DownloadsController : ControllerBase
                     // Apply event filter if provided (filters to only tagged downloads)
                     if (eventIdList.Count > 0)
                     {
-                        // Use explicit join for event filtering - support multiple event IDs
-                        var taggedDownloadIds = await _context.EventDownloads
-                            .AsNoTracking()
-                            .Where(ed => eventIdList.Contains(ed.EventId))
-                            .Select(ed => ed.DownloadId)
-                            .Distinct()
-                            .ToListAsync();
-
+                        // Use subquery to atomically fetch downloads with event associations
+                        // This eliminates the race condition by using a single query
                         downloads = await _context.Downloads
                             .AsNoTracking()
-                            .Where(d => taggedDownloadIds.Contains(d.Id))
+                            .Where(d => _context.EventDownloads
+                                .Where(ed => eventIdList.Contains(ed.EventId))
+                                .Select(ed => ed.DownloadId)
+                                .Contains(d.Id))
                             .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate)
                             .OrderByDescending(d => d.StartTimeUtc)
                             .Take(count)
@@ -253,8 +250,9 @@ public class DownloadsController : ControllerBase
             ? endTime.Value.FromUnixSeconds()
             : DateTime.UtcNow;
 
-        // Get downloads
-        var downloads = await _context.Downloads
+        // Use a single query with projection to atomically fetch downloads and their event associations
+        // This eliminates the race condition by avoiding separate queries
+        var downloadsWithEvents = await _context.Downloads
             .AsNoTracking()
             .Where(d => excludedClientIps.Count == 0 || !excludedClientIps.Contains(d.ClientIp))
             .Where(d => d.ClientIp != PrefillToken && d.ClientIp != "Prefill")
@@ -262,45 +260,36 @@ public class DownloadsController : ControllerBase
             .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate)
             .OrderByDescending(d => d.StartTimeUtc)
             .Take(count)
+            .Select(d => new
+            {
+                Download = d,
+                Events = _context.EventDownloads
+                    .AsNoTracking()
+                    .Where(ed => ed.DownloadId == d.Id)
+                    .Select(ed => new
+                    {
+                        ed.Event.Id,
+                        ed.Event.Name,
+                        ed.Event.ColorIndex,
+                        ed.AutoTagged
+                    })
+                    .ToList()
+            })
             .ToListAsync();
 
-        if (downloads.Count == 0)
+        if (downloadsWithEvents.Count == 0)
         {
             return Ok(new List<object>());
         }
 
-        var downloadIds = downloads.Select(d => d.Id).ToList();
-
-        // Get all events for these downloads
-        var eventDownloads = await _context.EventDownloads
-            .AsNoTracking()
-            .Include(ed => ed.Event)
-            .Where(ed => downloadIds.Contains(ed.DownloadId))
-            .ToListAsync();
-
-        // Group by download ID
-        var eventsLookup = eventDownloads
-            .GroupBy(ed => ed.DownloadId)
-            .ToDictionary(g => g.Key, g => g.Select(ed => new
-            {
-                ed.Event.Id,
-                ed.Event.Name,
-                ed.Event.ColorIndex,
-                ed.AutoTagged
-            }).ToList());
-
-        // Mark timestamps as UTC
-        downloads.WithUtcMarking();
-
-        // Build response
-        var result = downloads.Select(d =>
+        // Mark timestamps as UTC and build response
+        var result = downloadsWithEvents.Select(item =>
         {
-            eventsLookup.TryGetValue(d.Id, out var downloadEvents);
-
+            item.Download.WithUtcMarking();
             return new
             {
-                download = d,
-                events = downloadEvents ?? (object)Array.Empty<object>()
+                download = item.Download,
+                events = (object)item.Events
             };
         }).ToList();
 

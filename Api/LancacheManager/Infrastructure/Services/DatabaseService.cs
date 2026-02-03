@@ -8,6 +8,7 @@ using LancacheManager.Security;
 using Microsoft.EntityFrameworkCore;
 using System.Collections.Concurrent;
 using LancacheManager.Core.Services.SteamKit2;
+using System.Data;
 
 
 namespace LancacheManager.Infrastructure.Services;
@@ -92,26 +93,42 @@ public class DatabaseService : IDatabaseService
                 timestamp = DateTime.UtcNow
             });
 
-            // Count total rows for progress calculation - run all counts in parallel for speed
-            var countTasks = new[]
+            // Count total rows for progress calculation - wrap in transaction for consistent snapshot
+            int logEntriesCount, downloadsCount, clientStatsCount, serviceStatsCount, cachedGameDetectionsCount, depotMappingsCount;
+            using (var transaction = await _context.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted))
             {
-                _context.LogEntries.CountAsync(),
-                _context.Downloads.CountAsync(),
-                _context.ClientStats.CountAsync(),
-                _context.ServiceStats.CountAsync()
-            };
-            var counts = await Task.WhenAll(countTasks);
-            var logEntriesCount = counts[0];
-            var downloadsCount = counts[1];
-            var clientStatsCount = counts[2];
-            var serviceStatsCount = counts[3];
+                try
+                {
+                    // Run all counts in parallel for speed, but within a consistent transaction snapshot
+                    var countTasks = new[]
+                    {
+                        _context.LogEntries.CountAsync(),
+                        _context.Downloads.CountAsync(),
+                        _context.ClientStats.CountAsync(),
+                        _context.ServiceStats.CountAsync(),
+                        _context.CachedGameDetections.CountAsync(),
+                        _context.SteamDepotMappings.CountAsync()
+                    };
+                    var counts = await Task.WhenAll(countTasks);
+                    logEntriesCount = counts[0];
+                    downloadsCount = counts[1];
+                    clientStatsCount = counts[2];
+                    serviceStatsCount = counts[3];
+                    cachedGameDetectionsCount = counts[4];
+                    depotMappingsCount = counts[5];
+
+                    await transaction.CommitAsync();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Error getting consistent counts, rolling back transaction");
+                    await transaction.RollbackAsync();
+                    throw;
+                }
+            }
+
             var totalRows = logEntriesCount + downloadsCount + clientStatsCount + serviceStatsCount;
-
             _logger.LogInformation($"Deleting {totalRows:N0} total rows: LogEntries={logEntriesCount:N0}, Downloads={downloadsCount:N0}, ClientStats={clientStatsCount:N0}, ServiceStats={serviceStatsCount:N0}");
-
-            // Log what is being preserved
-            var cachedGameDetectionsCount = await _context.CachedGameDetections.CountAsync();
-            var depotMappingsCount = await _context.SteamDepotMappings.CountAsync();
             _logger.LogInformation($"Preserving {cachedGameDetectionsCount:N0} cached game detections and {depotMappingsCount:N0} depot mappings");
 
             // Delete LogEntries first (foreign key constraint - must be deleted before Downloads)
@@ -315,32 +332,46 @@ public class DatabaseService : IDatabaseService
                 return;
             }
 
-            // Count total rows for progress calculation
-            var totalRows = 0;
-            foreach (var tableName in tablesToClear)
+            // Count total rows for progress calculation - wrap in transaction for consistent snapshot
+            int totalRows = 0;
+            using (var transaction = await context.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted))
             {
-                var count = tableName switch
+                try
                 {
-                    "LogEntries" => await context.LogEntries.CountAsync(),
-                    "Downloads" => await context.Downloads.CountAsync(),
-                    "ClientStats" => await context.ClientStats.CountAsync(),
-                    "ServiceStats" => await context.ServiceStats.CountAsync(),
-                    "SteamDepotMappings" => await context.SteamDepotMappings.CountAsync(),
-                    "CachedGameDetections" => await context.CachedGameDetections.CountAsync(),
-                    "CachedServiceDetections" => await context.CachedServiceDetections.CountAsync(),
-                    "CachedCorruptionDetections" => await context.CachedCorruptionDetections.CountAsync(),
-                    "ClientGroups" => await context.ClientGroups.CountAsync(),
-                    "UserSessions" => await context.UserSessions.CountAsync(),
-                    "UserPreferences" => await context.UserPreferences.CountAsync(),
-                    "Events" => await context.Events.CountAsync(),
-                    "EventDownloads" => await context.EventDownloads.CountAsync(),
-                    "PrefillSessions" => await context.PrefillSessions.CountAsync(),
-                    "PrefillCachedDepots" => await context.PrefillCachedDepots.CountAsync(),
-                    "BannedSteamUsers" => await context.BannedSteamUsers.CountAsync(),
-                    "CacheSnapshots" => await context.CacheSnapshots.CountAsync(),
-                    _ => 0
-                };
-                totalRows += count;
+                    foreach (var tableName in tablesToClear)
+                    {
+                        var count = tableName switch
+                        {
+                            "LogEntries" => await context.LogEntries.CountAsync(),
+                            "Downloads" => await context.Downloads.CountAsync(),
+                            "ClientStats" => await context.ClientStats.CountAsync(),
+                            "ServiceStats" => await context.ServiceStats.CountAsync(),
+                            "SteamDepotMappings" => await context.SteamDepotMappings.CountAsync(),
+                            "CachedGameDetections" => await context.CachedGameDetections.CountAsync(),
+                            "CachedServiceDetections" => await context.CachedServiceDetections.CountAsync(),
+                            "CachedCorruptionDetections" => await context.CachedCorruptionDetections.CountAsync(),
+                            "ClientGroups" => await context.ClientGroups.CountAsync(),
+                            "UserSessions" => await context.UserSessions.CountAsync(),
+                            "UserPreferences" => await context.UserPreferences.CountAsync(),
+                            "Events" => await context.Events.CountAsync(),
+                            "EventDownloads" => await context.EventDownloads.CountAsync(),
+                            "PrefillSessions" => await context.PrefillSessions.CountAsync(),
+                            "PrefillCachedDepots" => await context.PrefillCachedDepots.CountAsync(),
+                            "BannedSteamUsers" => await context.BannedSteamUsers.CountAsync(),
+                            "CacheSnapshots" => await context.CacheSnapshots.CountAsync(),
+                            _ => 0
+                        };
+                        totalRows += count;
+                    }
+
+                    await transaction.CommitAsync();
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Error getting consistent counts, rolling back transaction");
+                    await transaction.RollbackAsync();
+                    throw;
+                }
             }
 
             _logger.LogInformation($"Clearing {totalRows:N0} total rows from {tablesToClear.Count} table(s)");
@@ -357,6 +388,8 @@ public class DatabaseService : IDatabaseService
             _logger.LogInformation("Disabling foreign key constraints for bulk deletion");
             await context.Database.ExecuteSqlRawAsync("PRAGMA foreign_keys = OFF;");
 
+            // Wrap all deletion operations in a transaction for atomicity
+            using var deleteTransaction = await context.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted);
             try
             {
                 // Delete tables based on selection
@@ -860,6 +893,9 @@ public class DatabaseService : IDatabaseService
 
                 _logger.LogInformation($"Selective database reset completed successfully. Cleared {tablesToClear.Count} table(s)");
 
+                // Commit the deletion transaction
+                await deleteTransaction.CommitAsync();
+
                 // Send completion update
                 await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
                 {
@@ -869,6 +905,13 @@ public class DatabaseService : IDatabaseService
                     message = $"Successfully cleared {tablesToClear.Count} table(s): {string.Join(", ", tablesToClear)}",
                     timestamp = DateTime.UtcNow
                 });
+            }
+            catch
+            {
+                // Rollback transaction on any error during deletion
+                _logger.LogWarning("Error during deletion operations, rolling back transaction");
+                await deleteTransaction.RollbackAsync();
+                throw;
             }
             finally
             {
