@@ -284,22 +284,15 @@ const Dashboard: React.FC = () => {
     });
   }, [clientStats, timeRange, getTimeRangeParams]);
   const [showLoading, setShowLoading] = useState(false); // Delayed loading state
-  const [hasInitialData, setHasInitialData] = useState(false); // Track if we've loaded data at least once
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Track when we first get data - after that, never show skeletons again
-  useEffect(() => {
-    if (dashboardStats && !hasInitialData) {
-      setHasInitialData(true);
-    }
-  }, [dashboardStats, hasInitialData]);
-
   // Delay showing loading state to avoid flashing for quick API responses
-  // Only show skeleton loading on initial load - subsequent loads use subtle opacity
+  // Only show skeleton loading on initial load when we have no data
+  // For subsequent loads (time range changes), use opacity change instead
   useEffect(() => {
-    if (loading && !hasInitialData) {
+    if (loading && !dashboardStats) {
       const timer = setTimeout(() => {
         setShowLoading(true);
       }, 200); // Wait 200ms before showing skeleton
@@ -307,7 +300,7 @@ const Dashboard: React.FC = () => {
     } else {
       setShowLoading(false); // Hide immediately when done
     }
-  }, [loading, hasInitialData]);
+  }, [loading, dashboardStats]);
 
   // Use drag-and-drop hook for card reordering
   const {
