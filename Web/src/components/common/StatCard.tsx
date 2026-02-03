@@ -1,7 +1,7 @@
 // StatCard.tsx - Enhanced component with glassmorphism, sparklines, and animations
 import React, { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { type LucideIcon, TrendingUp, TrendingDown, Minus, Loader2 } from 'lucide-react';
+import { type LucideIcon } from 'lucide-react';
 import { HelpPopover } from '@components/ui/HelpPopover';
 import Sparkline from '@components/features/dashboard/components/Sparkline';
 import AnimatedValue from '@components/features/dashboard/components/AnimatedValue';
@@ -17,8 +17,6 @@ interface StatCardProps {
   // Sparkline props
   sparklineData?: number[];
   sparklineColor?: string;
-  // Trend props
-  trend?: 'up' | 'down' | 'stable';
   // Tooltip shown next to title (help icon)
   tooltip?: React.ReactNode;
   // Animation props
@@ -27,8 +25,6 @@ interface StatCardProps {
   glassmorphism?: boolean;
   // Stagger index for entrance animation
   staggerIndex?: number;
-  // Transition loading state (shows subtle loader while time range changes)
-  isTransitioning?: boolean;
 }
 
 // Color to sparkline color mapping using theme variables
@@ -52,12 +48,10 @@ const StatCard: React.FC<StatCardProps> = ({
   color,
   sparklineData,
   sparklineColor,
-  trend,
   tooltip,
   animateValue = false,
   glassmorphism = false,
   staggerIndex,
-  isTransitioning = false,
 }) => {
   const { t } = useTranslation();
   // Map color names to CSS variables
@@ -78,21 +72,6 @@ const StatCard: React.FC<StatCardProps> = ({
 
   // Determine sparkline color
   const resolvedSparklineColor = sparklineColor || colorToSparklineColor[color];
-
-  // Get trend icon and class
-  const TrendIcon = useMemo(() => {
-    if (!trend) return null;
-    switch (trend) {
-      case 'up':
-        return TrendingUp;
-      case 'down':
-        return TrendingDown;
-      default:
-        return Minus;
-    }
-  }, [trend]);
-
-  const trendClass = trend ? `trend-${trend}` : '';
 
   // Build class names - animation classes only added when staggerIndex is provided
   const cardClasses = useMemo(() => {
@@ -135,7 +114,7 @@ const StatCard: React.FC<StatCardProps> = ({
           </div>
 
           {/* Main value with optional animation */}
-          <div className={`flex items-baseline gap-2 mt-1 transition-opacity duration-200 ${isTransitioning ? 'opacity-50' : ''}`}>
+          <div className="flex items-baseline gap-2 mt-1">
             {animateValue ? (
               <AnimatedValue
                 value={value}
@@ -148,18 +127,6 @@ const StatCard: React.FC<StatCardProps> = ({
               >
                 {value}
               </p>
-            )}
-
-            {/* Transition loading indicator */}
-            {isTransitioning && (
-              <Loader2 className="w-4 h-4 animate-spin text-[var(--theme-text-muted)]" />
-            )}
-
-            {/* Trend indicator - just show arrow, no percentage */}
-            {trend && trend !== 'stable' && TrendIcon && !isTransitioning && (
-              <div className={`flex items-center text-xs font-medium ${trendClass}`}>
-                <TrendIcon className="w-4 h-4" />
-              </div>
             )}
           </div>
 

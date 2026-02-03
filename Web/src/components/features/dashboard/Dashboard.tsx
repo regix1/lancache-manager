@@ -136,18 +136,6 @@ const Dashboard: React.FC = () => {
   const initialAnimationCompleteRef = useRef(false);
   const [initialAnimationComplete, setInitialAnimationComplete] = useState(false);
 
-  // Track previous stats to prevent values from flashing to 0 during timing issues
-  // Also track which time range the cached values belong to
-  const previousStatsRef = useRef({
-    bandwidthSaved: 0,
-    addedToCache: 0,
-    totalServed: 0,
-    cacheHitRatio: 0,
-    uniqueClients: 0,
-    forTimeRange: timeRange // Track which time range these values are from
-  });
-
-
   // Determine if we're viewing historical/filtered data (not live)
   // Any non-live mode should disable real-time only stats
   const isHistoricalView = timeRange !== 'live';
@@ -401,92 +389,18 @@ const Dashboard: React.FC = () => {
       0
     );
 
-    // Validate that the period data matches the current timeRange
-    // This prevents showing stale data when switching time ranges
-    // 'live' mode corresponds to 'all' duration, other modes match directly
-    // For 'custom' mode, the backend returns dynamic durations like "12h" or "5d",
-    // so we just check that we have period data (not 'all' which means no filter)
-    let periodMatchesTimeRange = false;
-    if (timeRange === 'live') {
-      periodMatchesTimeRange = dashboardStats?.period?.duration === 'all';
-    } else if (timeRange === 'custom') {
-      // For custom ranges, accept any duration that's not 'all' (since they always have time bounds)
-      // The duration will be dynamically calculated like "12h" or "5d"
-      periodMatchesTimeRange = !!dashboardStats?.period?.duration && dashboardStats.period.duration !== 'all';
-    } else {
-      // For preset ranges (1h, 6h, 24h, 7d, 30d), match exactly
-      periodMatchesTimeRange = dashboardStats?.period?.duration === timeRange;
-    }
-
-    // Determine if we're transitioning between time ranges (data doesn't match current range yet)
-    const isTransitioningTimeRange = !periodMatchesTimeRange && loading;
-
-    // While transitioning, keep showing previous values with a loading indicator
-    // This provides better UX than showing zeros
-    const shouldShowCurrentData = periodMatchesTimeRange;
-
-    // Build stats - use current data if available, otherwise use previous values during transition
-    // Previous values are shown with isTransitioning=true so StatCard can show a loader
-    const newStats = {
+    // Simply use dashboardStats directly - context handles time range filtering
+    return {
       activeClients,
       totalActiveDownloads,
       totalDownloads,
-      bandwidthSaved: shouldShowCurrentData
-        ? (dashboardStats?.period?.bandwidthSaved ?? previousStatsRef.current.bandwidthSaved)
-        : previousStatsRef.current.bandwidthSaved,
-      addedToCache: shouldShowCurrentData
-        ? (dashboardStats?.period?.addedToCache ?? previousStatsRef.current.addedToCache)
-        : previousStatsRef.current.addedToCache,
-      totalServed: shouldShowCurrentData
-        ? (dashboardStats?.period?.totalServed ?? previousStatsRef.current.totalServed)
-        : previousStatsRef.current.totalServed,
-      cacheHitRatio: shouldShowCurrentData
-        ? (dashboardStats?.period?.hitRatio ?? previousStatsRef.current.cacheHitRatio)
-        : previousStatsRef.current.cacheHitRatio,
-      uniqueClients: shouldShowCurrentData
-        ? (dashboardStats?.uniqueClients ?? filteredClientStats.length ?? previousStatsRef.current.uniqueClients)
-        : previousStatsRef.current.uniqueClients,
-      // Flag to indicate we're showing stale data during transition
-      isTransitioning: isTransitioningTimeRange
+      bandwidthSaved: dashboardStats?.period?.bandwidthSaved ?? 0,
+      addedToCache: dashboardStats?.period?.addedToCache ?? 0,
+      totalServed: dashboardStats?.period?.totalServed ?? 0,
+      cacheHitRatio: dashboardStats?.period?.hitRatio ?? 0,
+      uniqueClients: dashboardStats?.uniqueClients ?? filteredClientStats.length ?? 0
     };
-
-    // Update the ref with good values when we have matching data
-    // Also store which time range these values belong to
-    if (shouldShowCurrentData && dashboardStats?.period) {
-      previousStatsRef.current = {
-        bandwidthSaved: dashboardStats.period.bandwidthSaved || 0,
-        addedToCache: dashboardStats.period.addedToCache || 0,
-        totalServed: dashboardStats.period.totalServed || 0,
-        cacheHitRatio: dashboardStats.period.hitRatio || 0,
-        uniqueClients: dashboardStats.uniqueClients || 0,
-        forTimeRange: timeRange
-      };
-    }
-
-    // DEBUG LOGGING - track stat value changes
-    console.log(`[STATS DEBUG] timeRange=${timeRange} loading=${loading} isTransitioning=${isTransitioningTimeRange}`, {
-      raw: {
-        bandwidthSaved: newStats.bandwidthSaved,
-        addedToCache: newStats.addedToCache,
-        totalServed: newStats.totalServed,
-        cacheHitRatio: newStats.cacheHitRatio,
-        uniqueClients: newStats.uniqueClients
-      },
-      formatted: {
-        bandwidthSaved: formatBytes(newStats.bandwidthSaved),
-        addedToCache: formatBytes(newStats.addedToCache),
-        totalServed: formatBytes(newStats.totalServed),
-        cacheHitRatio: formatPercent(Math.round(newStats.cacheHitRatio * 1000) / 10),
-        uniqueClients: newStats.uniqueClients
-      },
-      source: shouldShowCurrentData ? 'dashboardStats' : 'previousStatsRef (transitioning)',
-      dashboardStatsPeriod: dashboardStats?.period?.duration,
-      previousRefTimeRange: previousStatsRef.current.forTimeRange,
-      periodMatchesTimeRange
-    });
-
-    return newStats;
-  }, [filteredServiceStats, dashboardStats, filteredClientStats, timeRange, loading, speedSnapshot, activeDownloadCount]);
+  }, [filteredServiceStats, dashboardStats, filteredClientStats, speedSnapshot, activeDownloadCount]);
 
   const allStatCards = useMemo<AllStatCards>(
     () => ({
@@ -526,8 +440,7 @@ const Dashboard: React.FC = () => {
         icon: TrendingUp,
         color: 'emerald' as const,
         visible: cardVisibility.bandwidthSaved,
-        tooltip: statTooltips.bandwidthSaved,
-        isTransitioning: stats.isTransitioning
+        tooltip: statTooltips.bandwidthSaved
       },
       addedToCache: {
         key: 'addedToCache',
@@ -537,8 +450,7 @@ const Dashboard: React.FC = () => {
         icon: Zap,
         color: 'purple' as const,
         visible: cardVisibility.addedToCache,
-        tooltip: statTooltips.addedToCache,
-        isTransitioning: stats.isTransitioning
+        tooltip: statTooltips.addedToCache
       },
       totalServed: {
         key: 'totalServed',
@@ -548,8 +460,7 @@ const Dashboard: React.FC = () => {
         icon: Server,
         color: 'indigo' as const,
         visible: cardVisibility.totalServed,
-        tooltip: statTooltips.totalServed,
-        isTransitioning: stats.isTransitioning
+        tooltip: statTooltips.totalServed
       },
       activeDownloads: {
         key: 'activeDownloads',
@@ -583,8 +494,7 @@ const Dashboard: React.FC = () => {
         icon: Activity,
         color: 'cyan' as const,
         visible: cardVisibility.cacheHitRatio,
-        tooltip: statTooltips.cacheHitRatio,
-        isTransitioning: stats.isTransitioning
+        tooltip: statTooltips.cacheHitRatio
       }
     }),
     [
@@ -932,19 +842,11 @@ const Dashboard: React.FC = () => {
                 tooltip={card.tooltip}
                 glassmorphism={true}
                 animateValue={!loading}
-                isTransitioning={card.isTransitioning}
                 sparklineData={
                   card.key === 'bandwidthSaved' ? sparklineData?.bandwidthSaved?.data :
                   card.key === 'cacheHitRatio' ? sparklineData?.cacheHitRatio?.data :
                   card.key === 'totalServed' ? sparklineData?.totalServed?.data :
                   card.key === 'addedToCache' ? sparklineData?.addedToCache?.data :
-                  undefined
-                }
-                trend={
-                  card.key === 'bandwidthSaved' ? sparklineData?.bandwidthSaved?.trend :
-                  card.key === 'cacheHitRatio' ? sparklineData?.cacheHitRatio?.trend :
-                  card.key === 'totalServed' ? sparklineData?.totalServed?.trend :
-                  card.key === 'addedToCache' ? sparklineData?.addedToCache?.trend :
                   undefined
                 }
                 staggerIndex={initialAnimationComplete ? undefined : visualIndex}

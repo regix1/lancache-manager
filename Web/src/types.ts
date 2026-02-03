@@ -278,7 +278,6 @@ export interface StatCardData {
   color: 'blue' | 'green' | 'emerald' | 'purple' | 'indigo' | 'orange' | 'yellow' | 'cyan';
   visible: boolean;
   tooltip?: ReactNode;
-  isTransitioning?: boolean;
 }
 
 export interface CorruptedChunkDetail {

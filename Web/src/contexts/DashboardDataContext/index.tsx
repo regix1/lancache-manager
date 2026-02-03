@@ -333,12 +333,19 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({ ch
       }
     };
 
-    // Subscribe to all refresh events using centralized array - SINGLE subscription point
-    SIGNALR_REFRESH_EVENTS.forEach(event => signalR.on(event, () => handleRefreshEvent(event)));
+    // Create stable handler references for proper cleanup
+    const eventHandlers: Record<string, () => void> = {};
+    SIGNALR_REFRESH_EVENTS.forEach(event => {
+      eventHandlers[event] = () => handleRefreshEvent(event);
+      signalR.on(event, eventHandlers[event]);
+    });
     signalR.on('DatabaseResetProgress', handleDatabaseResetProgress);
 
     return () => {
-      SIGNALR_REFRESH_EVENTS.forEach(event => signalR.off(event, () => handleRefreshEvent(event)));
+      // Use the same handler references for cleanup
+      SIGNALR_REFRESH_EVENTS.forEach(event => {
+        signalR.off(event, eventHandlers[event]);
+      });
       signalR.off('DatabaseResetProgress', handleDatabaseResetProgress);
     };
   }, [mockMode, signalR, fetchAllData]);
