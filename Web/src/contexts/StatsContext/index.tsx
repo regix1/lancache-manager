@@ -103,11 +103,11 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
 
   // Single unified fetch function that ALWAYS reads current timeRange from ref
   // This eliminates all stale closure issues - no timeRange is captured in closures
-  const fetchStats = useCallback(async (options: { showLoading?: boolean; isInitial?: boolean; forceRefresh?: boolean } = {}) => {
+  const fetchStats = useCallback(async (options: { showLoading?: boolean; isInitial?: boolean; forceRefresh?: boolean; trigger?: string } = {}) => {
     if (mockModeRef.current) return;
     if (authLoadingRef.current || !hasAccessRef.current) return;
 
-    const { showLoading = false, isInitial = false, forceRefresh = false } = options;
+    const { showLoading = false, isInitial = false, forceRefresh = false, trigger = 'unknown' } = options;
 
     // Debounce rapid calls (min 250ms between fetches) - skip for initial load or force refresh
     const now = Date.now();
@@ -140,6 +140,20 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     // Support multiple event IDs - pass as array for API
     const eventIds = currentEventIds.length > 0 ? currentEventIds : undefined;
     const cacheBust = forceRefresh ? Date.now() : undefined;
+
+    console.log(`%c[STATS FETCH] requestId=${thisRequestId}`, 'color: #2563eb; font-weight: bold', {
+      trigger,
+      timeRange: currentTimeRange,
+      startTime,
+      endTime,
+      startDate: startTime ? new Date(startTime * 1000).toLocaleString() : 'none',
+      endDate: endTime ? new Date(endTime * 1000).toLocaleString() : 'none',
+      eventIds,
+      forceRefresh,
+      showLoading,
+      isInitial,
+      cacheBust: cacheBust ? 'yes' : 'no'
+    });
 
     abortControllerRef.current = new AbortController();
 
@@ -248,7 +262,7 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
 
     // Throttled handler that respects user's refresh rate setting
     // This replaces polling - SignalR events are the only source of updates
-    const handleRefreshEvent = () => {
+    const handleRefreshEvent = (eventName?: string) => {
       const maxRefreshRate = getRefreshIntervalRef.current();
       const now = Date.now();
       const timeSinceLastRefresh = now - lastSignalRRefresh.current;
@@ -257,26 +271,35 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
       // LIVE mode (0) = 500ms minimum to prevent UI thrashing
       const minInterval = maxRefreshRate === 0 ? 500 : maxRefreshRate;
 
+      console.log(`%c[STATS SIGNALR] Event received`, 'color: #16a34a; font-weight: bold', {
+        event: eventName || 'unknown',
+        timeSinceLastRefresh,
+        minInterval,
+        willRefresh: timeSinceLastRefresh >= minInterval,
+        currentTimeRange: currentTimeRangeRef.current
+      });
+
       if (timeSinceLastRefresh >= minInterval) {
         lastSignalRRefresh.current = now;
-        fetchStats();
+        fetchStats({ trigger: `signalr:${eventName || 'unknown'}` });
       }
     };
 
     // Handler for database reset completion - always refresh immediately
     const handleDatabaseResetProgress = (event: { status?: string }) => {
       const status = (event.status || '').toLowerCase();
+      console.log(`%c[STATS SIGNALR] DatabaseResetProgress`, 'color: #16a34a; font-weight: bold', { status });
       if (status === 'completed') {
-        setTimeout(() => fetchStats(), 500);
+        setTimeout(() => fetchStats({ trigger: 'signalr:DatabaseResetCompleted' }), 500);
       }
     };
 
     // Subscribe to all refresh events using centralized array
-    SIGNALR_REFRESH_EVENTS.forEach(event => signalR.on(event, handleRefreshEvent));
+    SIGNALR_REFRESH_EVENTS.forEach(event => signalR.on(event, () => handleRefreshEvent(event)));
     signalR.on('DatabaseResetProgress', handleDatabaseResetProgress);
 
     return () => {
-      SIGNALR_REFRESH_EVENTS.forEach(event => signalR.off(event, handleRefreshEvent));
+      SIGNALR_REFRESH_EVENTS.forEach(event => signalR.off(event, () => handleRefreshEvent(event)));
       signalR.off('DatabaseResetProgress', handleDatabaseResetProgress);
     };
   }, [mockMode, signalR, fetchStats]);
@@ -287,11 +310,21 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     if (mockMode) return;
 
     const handleVisibilityChange = () => {
-      if (!document.hidden) {
+      const isVisible = !document.hidden;
+      console.log(`%c[STATS VISIBILITY] Tab visibility changed`, 'color: #ea580c; font-weight: bold', {
+        isVisible,
+        currentTimeRange: currentTimeRangeRef.current,
+        willRefresh: isVisible
+      });
+
+      if (isVisible) {
         // Page became visible - refresh data
         // Use a small delay to let SignalR reconnect first
         setTimeout(() => {
-          fetchStats({ showLoading: false, forceRefresh: true });
+          console.log(`%c[STATS VISIBILITY] Executing delayed refresh`, 'color: #ea580c; font-weight: bold', {
+            currentTimeRange: currentTimeRangeRef.current
+          });
+          fetchStats({ showLoading: false, forceRefresh: true, trigger: 'visibility' });
         }, 500);
       }
     };
@@ -328,7 +361,8 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
   // Initial load
   useEffect(() => {
     if (!mockMode && !authLoading && hasAccess) {
-      fetchStats({ showLoading: true, isInitial: true });
+      console.log(`%c[STATS EFFECT] Initial load triggered`, 'color: #0891b2; font-weight: bold');
+      fetchStats({ showLoading: true, isInitial: true, trigger: 'initial' });
     }
 
     return () => {
@@ -339,11 +373,14 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
   // Handle time range changes - fetch new data
   useEffect(() => {
     if (!mockMode && hasAccess && !isInitialLoad.current) {
+      console.log(`%c[STATS EFFECT] Time range changed`, 'color: #0891b2; font-weight: bold', {
+        newTimeRange: timeRange
+      });
       // Don't clear stats - let new data atomically replace old data
       // This allows AnimatedValue to smoothly transition from old values to new values
       // The Dashboard's periodMatchesTimeRange validation prevents showing mismatched data
       // Use forceRefresh to bypass debounce - time range changes should always trigger immediate fetch
-      fetchStats({ showLoading: true, forceRefresh: true });
+      fetchStats({ showLoading: true, forceRefresh: true, trigger: `timeRangeChange:${timeRange}` });
     }
   }, [timeRange, mockMode, hasAccess, fetchStats]);
 
@@ -355,6 +392,10 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
   useEffect(() => {
     const currentEventIdsKey = JSON.stringify(selectedEventIds);
     if (!mockMode && hasAccess && prevEventIdsRef.current !== currentEventIdsKey) {
+      console.log(`%c[STATS EFFECT] Event filter changed`, 'color: #0891b2; font-weight: bold', {
+        prevEventIds: prevEventIdsRef.current,
+        newEventIds: currentEventIdsKey
+      });
       prevEventIdsRef.current = currentEventIdsKey;
       // Clear stats immediately to prevent showing stale data from different event filter
       setClientStats([]);
@@ -362,7 +403,7 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
       // Note: dashboardStats is NOT cleared here - it preserves old values until new data arrives
       // This allows AnimatedValue to smoothly animate from old→new instead of 0→new
       // The Dashboard's validation logic handles showing appropriate data during loading
-      fetchStats({ showLoading: true, forceRefresh: true });
+      fetchStats({ showLoading: true, forceRefresh: true, trigger: 'eventFilterChange' });
     }
   }, [selectedEventIds, mockMode, hasAccess, fetchStats]);
 
@@ -375,10 +416,16 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
           lastCustomDates.end?.getTime() !== customEndDate.getTime();
 
         if (datesChanged) {
+          console.log(`%c[STATS EFFECT] Custom dates changed`, 'color: #0891b2; font-weight: bold', {
+            prevStart: lastCustomDates.start?.toLocaleString(),
+            prevEnd: lastCustomDates.end?.toLocaleString(),
+            newStart: customStartDate.toLocaleString(),
+            newEnd: customEndDate.toLocaleString()
+          });
           setLoading(true);
           const debounceTimer = setTimeout(() => {
             setLastCustomDates({ start: customStartDate, end: customEndDate });
-            fetchStats({ showLoading: true });
+            fetchStats({ showLoading: true, trigger: 'customDateChange' });
           }, 50);
 
           return () => clearTimeout(debounceTimer);

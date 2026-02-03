@@ -95,11 +95,11 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   // CORE DATA FETCHING
   // ============================================
 
-  const fetchDownloads = useCallback(async (options: { showLoading?: boolean; isInitial?: boolean; forceRefresh?: boolean } = {}) => {
+  const fetchDownloads = useCallback(async (options: { showLoading?: boolean; isInitial?: boolean; forceRefresh?: boolean; trigger?: string } = {}) => {
     if (mockModeRef.current) return;
     if (authLoadingRef.current || !hasAccessRef.current) return;
 
-    const { showLoading = false, isInitial = false, forceRefresh = false } = options;
+    const { showLoading = false, isInitial = false, forceRefresh = false, trigger = 'unknown' } = options;
 
     // Debounce rapid calls (min 250ms between fetches) - skip for initial load or force refresh
     const now = Date.now();
@@ -130,6 +130,19 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
     const { startTime, endTime } = getTimeRangeParamsRef.current();
     // Support multiple event IDs - pass as array for API
     const eventIds = currentEventIds.length > 0 ? currentEventIds : undefined;
+
+    console.log(`%c[DOWNLOADS FETCH] requestId=${thisRequestId}`, 'color: #dc2626; font-weight: bold', {
+      trigger,
+      timeRange: currentTimeRange,
+      startTime,
+      endTime,
+      startDate: startTime ? new Date(startTime * 1000).toLocaleString() : 'none',
+      endDate: endTime ? new Date(endTime * 1000).toLocaleString() : 'none',
+      eventIds,
+      forceRefresh,
+      showLoading,
+      isInitial
+    });
 
     abortControllerRef.current = new AbortController();
 
@@ -218,7 +231,7 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
 
     // Throttled handler that respects user's refresh rate setting
     // All data comes from the database via API to ensure consistency with stats
-    const handleDataRefresh = () => {
+    const handleDataRefresh = (eventName?: string) => {
       const maxRefreshRate = getRefreshIntervalRef.current();
       const now = Date.now();
       const timeSinceLastRefresh = now - lastSignalRRefresh.current;
@@ -227,27 +240,36 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
       // LIVE mode (0) = 500ms minimum to prevent UI thrashing
       const minInterval = maxRefreshRate === 0 ? 500 : maxRefreshRate;
 
+      console.log(`%c[DOWNLOADS SIGNALR] Event received`, 'color: #be185d; font-weight: bold', {
+        event: eventName || 'unknown',
+        timeSinceLastRefresh,
+        minInterval,
+        willRefresh: timeSinceLastRefresh >= minInterval,
+        currentTimeRange: currentTimeRangeRef.current
+      });
+
       if (timeSinceLastRefresh >= minInterval) {
         lastSignalRRefresh.current = now;
-        fetchDownloads();
+        fetchDownloads({ trigger: `signalr:${eventName || 'unknown'}` });
       }
     };
 
     // Handler for database reset completion
     const handleDatabaseResetProgress = (event: { status?: string }) => {
       const status = (event.status || '').toLowerCase();
+      console.log(`%c[DOWNLOADS SIGNALR] DatabaseResetProgress`, 'color: #be185d; font-weight: bold', { status });
       if (status === 'completed') {
-        setTimeout(() => fetchDownloads(), 500);
+        setTimeout(() => fetchDownloads({ trigger: 'signalr:DatabaseResetCompleted' }), 500);
       }
     };
 
     // Subscribe to events - all data comes from database via API for consistency
     signalR.on('DatabaseResetProgress', handleDatabaseResetProgress);
-    SIGNALR_REFRESH_EVENTS.forEach(event => signalR.on(event, handleDataRefresh));
+    SIGNALR_REFRESH_EVENTS.forEach(event => signalR.on(event, () => handleDataRefresh(event)));
 
     return () => {
       signalR.off('DatabaseResetProgress', handleDatabaseResetProgress);
-      SIGNALR_REFRESH_EVENTS.forEach(event => signalR.off(event, handleDataRefresh));
+      SIGNALR_REFRESH_EVENTS.forEach(event => signalR.off(event, () => handleDataRefresh(event)));
     };
   }, [mockMode, signalR, fetchDownloads]);
 
@@ -260,11 +282,21 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
     if (mockMode) return;
 
     const handleVisibilityChange = () => {
-      if (!document.hidden) {
+      const isVisible = !document.hidden;
+      console.log(`%c[DOWNLOADS VISIBILITY] Tab visibility changed`, 'color: #c026d3; font-weight: bold', {
+        isVisible,
+        currentTimeRange: currentTimeRangeRef.current,
+        willRefresh: isVisible
+      });
+
+      if (isVisible) {
         // Page became visible - refresh data
         // Use a small delay to let SignalR reconnect first
         setTimeout(() => {
-          fetchDownloads({ showLoading: false, forceRefresh: true });
+          console.log(`%c[DOWNLOADS VISIBILITY] Executing delayed refresh`, 'color: #c026d3; font-weight: bold', {
+            currentTimeRange: currentTimeRangeRef.current
+          });
+          fetchDownloads({ showLoading: false, forceRefresh: true, trigger: 'visibility' });
         }, 500);
       }
     };
@@ -296,7 +328,8 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   // Initial load
   useEffect(() => {
     if (!mockMode && !authLoading && hasAccess) {
-      fetchDownloads({ showLoading: true, isInitial: true });
+      console.log(`%c[DOWNLOADS EFFECT] Initial load triggered`, 'color: #7c3aed; font-weight: bold');
+      fetchDownloads({ showLoading: true, isInitial: true, trigger: 'initial' });
     }
 
     return () => {
@@ -307,8 +340,11 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   // Time range changes
   useEffect(() => {
     if (!mockMode && hasAccess && !isInitialLoad.current) {
+      console.log(`%c[DOWNLOADS EFFECT] Time range changed`, 'color: #7c3aed; font-weight: bold', {
+        newTimeRange: timeRange
+      });
       // Use forceRefresh to bypass debounce - time range changes should always trigger immediate fetch
-      fetchDownloads({ showLoading: true, forceRefresh: true });
+      fetchDownloads({ showLoading: true, forceRefresh: true, trigger: `timeRangeChange:${timeRange}` });
     }
   }, [timeRange, mockMode, hasAccess, fetchDownloads]);
 
@@ -319,10 +355,14 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   useEffect(() => {
     const currentEventIdsKey = JSON.stringify(selectedEventIds);
     if (!mockMode && hasAccess && prevEventIdsRef.current !== currentEventIdsKey) {
+      console.log(`%c[DOWNLOADS EFFECT] Event filter changed`, 'color: #7c3aed; font-weight: bold', {
+        prevEventIds: prevEventIdsRef.current,
+        newEventIds: currentEventIdsKey
+      });
       prevEventIdsRef.current = currentEventIdsKey;
       // Clear downloads immediately to prevent showing stale data from different event filter
       setLatestDownloads([]);
-      fetchDownloads({ showLoading: true, forceRefresh: true });
+      fetchDownloads({ showLoading: true, forceRefresh: true, trigger: 'eventFilterChange' });
     }
   }, [selectedEventIds, mockMode, hasAccess, fetchDownloads]);
 
@@ -335,10 +375,16 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
           lastCustomDates.end?.getTime() !== customEndDate.getTime();
 
         if (datesChanged) {
+          console.log(`%c[DOWNLOADS EFFECT] Custom dates changed`, 'color: #7c3aed; font-weight: bold', {
+            prevStart: lastCustomDates.start?.toLocaleString(),
+            prevEnd: lastCustomDates.end?.toLocaleString(),
+            newStart: customStartDate.toLocaleString(),
+            newEnd: customEndDate.toLocaleString()
+          });
           setLoading(true);
           const debounceTimer = setTimeout(() => {
             setLastCustomDates({ start: customStartDate, end: customEndDate });
-            fetchDownloads({ showLoading: true });
+            fetchDownloads({ showLoading: true, trigger: 'customDateChange' });
           }, 50);
 
           return () => clearTimeout(debounceTimer);

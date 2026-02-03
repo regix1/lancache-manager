@@ -191,6 +191,8 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
   };
 
   const getTimeRangeParams = (): { startTime?: number; endTime?: number } => {
+    const callTime = new Date().toISOString();
+
     if (timeRange === 'custom' && customStartDate && customEndDate) {
       const startTime = Math.floor(customStartDate.getTime() / 1000);
       // Set end time to end of day (23:59:59) instead of start of day
@@ -202,20 +204,47 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
       const endTimestamp = Math.min(endDate.getTime(), now);
       const endTime = Math.floor(endTimestamp / 1000);
 
+      console.log(`%c[TIME PARAMS] ${callTime}`, 'color: #9333ea; font-weight: bold', {
+        timeRange,
+        mode: 'custom',
+        startTime,
+        endTime,
+        startDate: new Date(startTime * 1000).toLocaleString(),
+        endDate: new Date(endTime * 1000).toLocaleString()
+      });
+
       return { startTime, endTime };
     }
 
     // Return empty params for 'live' time to fetch everything
     if (timeRange === 'live') {
+      console.log(`%c[TIME PARAMS] ${callTime}`, 'color: #9333ea; font-weight: bold', {
+        timeRange,
+        mode: 'live',
+        startTime: undefined,
+        endTime: undefined,
+        note: 'No time bounds - fetching all data'
+      });
       return {};
     }
 
     const now = Date.now();
     const hoursMs = getTimeRangeInHours() * 60 * 60 * 1000;
-    return {
-      startTime: Math.floor((now - hoursMs) / 1000),
-      endTime: Math.floor(now / 1000)
-    };
+    const startTime = Math.floor((now - hoursMs) / 1000);
+    const endTime = Math.floor(now / 1000);
+
+    console.log(`%c[TIME PARAMS] ${callTime}`, 'color: #9333ea; font-weight: bold', {
+      timeRange,
+      mode: 'rolling',
+      nowMs: now,
+      startTime,
+      endTime,
+      startDate: new Date(startTime * 1000).toLocaleString(),
+      endDate: new Date(endTime * 1000).toLocaleString(),
+      windowMs: hoursMs
+    });
+
+    return { startTime, endTime };
   };
 
   // Wrapped setters with optional logging
