@@ -310,41 +310,6 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     };
   }, [mockMode, signalR, fetchStats]);
 
-  // Page visibility - refresh when tab becomes visible
-  // Mobile browsers pause SignalR when backgrounded, so we need to refresh on return
-  useEffect(() => {
-    if (mockMode) return;
-
-    const handleVisibilityChange = () => {
-      const isVisible = !document.hidden;
-      const currentRange = currentTimeRangeRef.current;
-      const isLiveMode = currentRange === 'live';
-
-      console.log(`%c[STATS VISIBILITY] Tab visibility changed`, 'color: #ea580c; font-weight: bold', {
-        isVisible,
-        currentTimeRange: currentRange,
-        isLiveMode,
-        willRefresh: isVisible && isLiveMode
-      });
-
-      if (isVisible && isLiveMode) {
-        // Page became visible - refresh data (only in live mode)
-        setTimeout(() => {
-          console.log(`%c[STATS VISIBILITY] Executing delayed refresh`, 'color: #ea580c; font-weight: bold', {
-            currentTimeRange: currentTimeRangeRef.current
-          });
-          fetchStats({ showLoading: false, forceRefresh: true, trigger: 'visibility' });
-        }, 500);
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [mockMode, fetchStats]);
-
   // Load mock data when mock mode is enabled
   useEffect(() => {
     if (mockMode) {

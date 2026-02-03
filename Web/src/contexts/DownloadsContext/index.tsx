@@ -280,44 +280,6 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   }, [mockMode, signalR, fetchDownloads]);
 
   // ============================================
-  // PAGE VISIBILITY - Refresh when tab becomes visible
-  // ============================================
-
-  // Mobile browsers pause SignalR when backgrounded, so we need to refresh on return
-  useEffect(() => {
-    if (mockMode) return;
-
-    const handleVisibilityChange = () => {
-      const isVisible = !document.hidden;
-      const currentRange = currentTimeRangeRef.current;
-      const isLiveMode = currentRange === 'live';
-
-      console.log(`%c[DOWNLOADS VISIBILITY] Tab visibility changed`, 'color: #c026d3; font-weight: bold', {
-        isVisible,
-        currentTimeRange: currentRange,
-        isLiveMode,
-        willRefresh: isVisible && isLiveMode
-      });
-
-      if (isVisible && isLiveMode) {
-        // Page became visible - refresh data (only in live mode)
-        setTimeout(() => {
-          console.log(`%c[DOWNLOADS VISIBILITY] Executing delayed refresh`, 'color: #c026d3; font-weight: bold', {
-            currentTimeRange: currentTimeRangeRef.current
-          });
-          fetchDownloads({ showLoading: false, forceRefresh: true, trigger: 'visibility' });
-        }, 500);
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [mockMode, fetchDownloads]);
-
-  // ============================================
   // EFFECTS
   // ============================================
 
