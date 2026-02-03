@@ -152,6 +152,7 @@ const Dashboard: React.FC = () => {
   useEffect(() => {
     // Only clear if we're switching to a different time range
     if (previousStatsRef.current.forTimeRange && previousStatsRef.current.forTimeRange !== timeRange) {
+      console.log(`[STATS DEBUG] TIME RANGE CHANGED: ${previousStatsRef.current.forTimeRange} → ${timeRange} (clearing ref)`);
       previousStatsRef.current = {
         bandwidthSaved: 0,
         addedToCache: 0,
@@ -473,6 +474,27 @@ const Dashboard: React.FC = () => {
         forTimeRange: timeRange
       };
     }
+
+    // DEBUG LOGGING - track stat value changes
+    console.log(`[STATS DEBUG] timeRange=${timeRange} loading=${loading} shouldShowValues=${shouldShowValues}`, {
+      raw: {
+        bandwidthSaved: newStats.bandwidthSaved,
+        addedToCache: newStats.addedToCache,
+        totalServed: newStats.totalServed,
+        cacheHitRatio: newStats.cacheHitRatio,
+        uniqueClients: newStats.uniqueClients
+      },
+      formatted: {
+        bandwidthSaved: formatBytes(newStats.bandwidthSaved),
+        addedToCache: formatBytes(newStats.addedToCache),
+        totalServed: formatBytes(newStats.totalServed),
+        cacheHitRatio: formatPercent(Math.round(newStats.cacheHitRatio * 1000) / 10),
+        uniqueClients: newStats.uniqueClients
+      },
+      source: shouldShowValues ? 'dashboardStats' : 'previousStatsRef',
+      dashboardStatsPeriod: dashboardStats?.period?.duration,
+      previousRefTimeRange: previousStatsRef.current.forTimeRange
+    });
 
     return newStats;
   }, [filteredServiceStats, dashboardStats, filteredClientStats, timeRange, loading, speedSnapshot, activeDownloadCount]);

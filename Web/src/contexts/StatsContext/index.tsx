@@ -196,6 +196,14 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
             setServiceStats(services.value);
           }
           if (dashboard.status === 'fulfilled' && dashboard.value !== undefined) {
+            console.log(`[STATS CONTEXT] New dashboard data for timeRange=${currentTimeRange}`, {
+              period: dashboard.value.period?.duration,
+              bandwidthSaved: dashboard.value.period?.bandwidthSaved,
+              addedToCache: dashboard.value.period?.addedToCache,
+              totalServed: dashboard.value.period?.totalServed,
+              hitRatio: dashboard.value.period?.hitRatio,
+              uniqueClients: dashboard.value.uniqueClients
+            });
             setDashboardStats(dashboard.value);
             hasData.current = true;
           }
