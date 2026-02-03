@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
 import { storage } from '@utils/storage';
 
 // Time range controls WHEN to look at data
@@ -14,6 +14,10 @@ interface TimeFilterContextType {
   setCustomEndDate: (date: Date | null) => void;
   getTimeRangeInHours: () => number;
   getTimeRangeParams: () => { startTime?: number; endTime?: number };
+  // Anchor time for rolling time ranges - prevents time drift between fetches
+  rangeAnchorTime: number | null;
+  // Extends the anchor forward by re-anchoring to current time (for SignalR updates)
+  extendTimeAnchor: () => void;
   // Event filter: optional filter to show only downloads tagged to specific events
   // This is independent of time range - you can combine any time range with an event filter
   selectedEventIds: number[];
@@ -106,9 +110,26 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
     return [];
   });
 
-  // Wrapper for setTimeRange that validates the value
+  // Anchor time for rolling time ranges (1h, 6h, 12h, 24h, 7d, 30d)
+  // When set, getTimeRangeParams uses this instead of Date.now() to prevent time drift
+  const [rangeAnchorTime, setRangeAnchorTime] = useState<number | null>(() => {
+    // Initialize anchor for rolling ranges on mount
+    const saved = storage.getItem('lancache_time_range') as TimeRange;
+    if (saved && saved !== 'live' && saved !== 'custom') {
+      return Date.now();
+    }
+    return null;
+  });
+
+  // Wrapper for setTimeRange that validates the value and sets anchor time
   const setTimeRange = (range: TimeRange) => {
     setTimeRangeState(range);
+    // Set anchor time for rolling ranges, clear for live/custom
+    if (range !== 'live' && range !== 'custom') {
+      setRangeAnchorTime(Date.now());
+    } else {
+      setRangeAnchorTime(null);
+    }
   };
 
   // Persist timeRange to localStorage
@@ -162,6 +183,14 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
   const clearEventFilter = () => {
     setSelectedEventIdsState([]);
   };
+
+  // Extend the time anchor forward (re-anchor to now)
+  // Called by StatsContext/DownloadsContext when receiving SignalR events
+  const extendTimeAnchor = useCallback(() => {
+    if (timeRange !== 'live' && timeRange !== 'custom') {
+      setRangeAnchorTime(Date.now());
+    }
+  }, [timeRange]);
 
   const getTimeRangeInHours = (): number => {
     switch (timeRange) {
@@ -228,7 +257,8 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
       return {};
     }
 
-    const now = Date.now();
+    // Use anchor time if set, otherwise fall back to current time
+    const now = rangeAnchorTime ?? Date.now();
     const hoursMs = getTimeRangeInHours() * 60 * 60 * 1000;
     const startTime = Math.floor((now - hoursMs) / 1000);
     const endTime = Math.floor(now / 1000);
@@ -236,6 +266,8 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
     console.log(`%c[TIME PARAMS] ${callTime}`, 'color: #9333ea; font-weight: bold', {
       timeRange,
       mode: 'rolling',
+      anchorTime: rangeAnchorTime,
+      usingAnchor: rangeAnchorTime !== null,
       nowMs: now,
       startTime,
       endTime,
@@ -269,6 +301,8 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
         setCustomEndDate: setCustomEndDateWithLogging,
         getTimeRangeInHours,
         getTimeRangeParams,
+        rangeAnchorTime,
+        extendTimeAnchor,
         selectedEventIds,
         setSelectedEventIds,
         toggleEventId,

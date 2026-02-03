@@ -40,7 +40,7 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   children,
   mockMode = false
 }) => {
-  const { getTimeRangeParams, timeRange, customStartDate, customEndDate, selectedEventIds } = useTimeFilter();
+  const { getTimeRangeParams, timeRange, customStartDate, customEndDate, selectedEventIds, extendTimeAnchor } = useTimeFilter();
   const { getRefreshInterval } = useRefreshRate();
   const signalR = useSignalR();
   const { isAuthenticated, authMode, isLoading: authLoading } = useAuth();
@@ -232,6 +232,7 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
     // Throttled handler that respects user's refresh rate setting
     // All data comes from the database via API to ensure consistency with stats
     const handleDataRefresh = (eventName?: string) => {
+      const currentRange = currentTimeRangeRef.current;
       const maxRefreshRate = getRefreshIntervalRef.current();
       const now = Date.now();
       const timeSinceLastRefresh = now - lastSignalRRefresh.current;
@@ -240,15 +241,20 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
       // LIVE mode (0) = 500ms minimum to prevent UI thrashing
       const minInterval = maxRefreshRate === 0 ? 500 : maxRefreshRate;
 
+      // For historical ranges (not 'live'), skip SignalR refreshes to prevent flickering
+      const isLiveMode = currentRange === 'live';
+
       console.log(`%c[DOWNLOADS SIGNALR] Event received`, 'color: #be185d; font-weight: bold', {
         event: eventName || 'unknown',
         timeSinceLastRefresh,
         minInterval,
-        willRefresh: timeSinceLastRefresh >= minInterval,
-        currentTimeRange: currentTimeRangeRef.current
+        currentTimeRange: currentRange,
+        isLiveMode,
+        willRefresh: isLiveMode && timeSinceLastRefresh >= minInterval
       });
 
-      if (timeSinceLastRefresh >= minInterval) {
+      // Only refresh in live mode - historical ranges should not react to real-time events
+      if (isLiveMode && timeSinceLastRefresh >= minInterval) {
         lastSignalRRefresh.current = now;
         fetchDownloads({ trigger: `signalr:${eventName || 'unknown'}` });
       }
@@ -283,15 +289,18 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
 
     const handleVisibilityChange = () => {
       const isVisible = !document.hidden;
+      const currentRange = currentTimeRangeRef.current;
+      const isLiveMode = currentRange === 'live';
+
       console.log(`%c[DOWNLOADS VISIBILITY] Tab visibility changed`, 'color: #c026d3; font-weight: bold', {
         isVisible,
-        currentTimeRange: currentTimeRangeRef.current,
-        willRefresh: isVisible
+        currentTimeRange: currentRange,
+        isLiveMode,
+        willRefresh: isVisible && isLiveMode
       });
 
-      if (isVisible) {
-        // Page became visible - refresh data
-        // Use a small delay to let SignalR reconnect first
+      if (isVisible && isLiveMode) {
+        // Page became visible - refresh data (only in live mode)
         setTimeout(() => {
           console.log(`%c[DOWNLOADS VISIBILITY] Executing delayed refresh`, 'color: #c026d3; font-weight: bold', {
             currentTimeRange: currentTimeRangeRef.current

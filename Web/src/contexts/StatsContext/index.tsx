@@ -22,7 +22,7 @@ export const useStats = () => {
 };
 
 export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode = false }) => {
-  const { getTimeRangeParams, timeRange, customStartDate, customEndDate, selectedEventIds } = useTimeFilter();
+  const { getTimeRangeParams, timeRange, customStartDate, customEndDate, selectedEventIds, extendTimeAnchor } = useTimeFilter();
   const { getRefreshInterval } = useRefreshRate();
   const signalR = useSignalR();
   const { isAuthenticated, authMode, isLoading: authLoading } = useAuth();
@@ -263,6 +263,7 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
     // Throttled handler that respects user's refresh rate setting
     // This replaces polling - SignalR events are the only source of updates
     const handleRefreshEvent = (eventName?: string) => {
+      const currentRange = currentTimeRangeRef.current;
       const maxRefreshRate = getRefreshIntervalRef.current();
       const now = Date.now();
       const timeSinceLastRefresh = now - lastSignalRRefresh.current;
@@ -271,15 +272,20 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
       // LIVE mode (0) = 500ms minimum to prevent UI thrashing
       const minInterval = maxRefreshRate === 0 ? 500 : maxRefreshRate;
 
+      // For historical ranges (not 'live'), skip SignalR refreshes to prevent flickering
+      const isLiveMode = currentRange === 'live';
+
       console.log(`%c[STATS SIGNALR] Event received`, 'color: #16a34a; font-weight: bold', {
         event: eventName || 'unknown',
         timeSinceLastRefresh,
         minInterval,
-        willRefresh: timeSinceLastRefresh >= minInterval,
-        currentTimeRange: currentTimeRangeRef.current
+        currentTimeRange: currentRange,
+        isLiveMode,
+        willRefresh: isLiveMode && timeSinceLastRefresh >= minInterval
       });
 
-      if (timeSinceLastRefresh >= minInterval) {
+      // Only refresh in live mode - historical ranges should not react to real-time events
+      if (isLiveMode && timeSinceLastRefresh >= minInterval) {
         lastSignalRRefresh.current = now;
         fetchStats({ trigger: `signalr:${eventName || 'unknown'}` });
       }
@@ -311,15 +317,18 @@ export const StatsProvider: React.FC<StatsProviderProps> = ({ children, mockMode
 
     const handleVisibilityChange = () => {
       const isVisible = !document.hidden;
+      const currentRange = currentTimeRangeRef.current;
+      const isLiveMode = currentRange === 'live';
+
       console.log(`%c[STATS VISIBILITY] Tab visibility changed`, 'color: #ea580c; font-weight: bold', {
         isVisible,
-        currentTimeRange: currentTimeRangeRef.current,
-        willRefresh: isVisible
+        currentTimeRange: currentRange,
+        isLiveMode,
+        willRefresh: isVisible && isLiveMode
       });
 
-      if (isVisible) {
-        // Page became visible - refresh data
-        // Use a small delay to let SignalR reconnect first
+      if (isVisible && isLiveMode) {
+        // Page became visible - refresh data (only in live mode)
         setTimeout(() => {
           console.log(`%c[STATS VISIBILITY] Executing delayed refresh`, 'color: #ea580c; font-weight: bold', {
             currentTimeRange: currentTimeRangeRef.current
