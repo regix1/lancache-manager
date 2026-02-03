@@ -418,37 +418,41 @@ const Dashboard: React.FC = () => {
       periodMatchesTimeRange = dashboardStats?.period?.duration === timeRange;
     }
 
-    // While loading, show old values to allow smooth animation transitions
-    // Once loading completes, validation ensures correct data is shown
-    const showOldValuesWhileLoading = loading && dashboardStats?.period;
-    const shouldShowValues = periodMatchesTimeRange || showOldValuesWhileLoading;
+    // Determine if we're transitioning between time ranges (data doesn't match current range yet)
+    const isTransitioningTimeRange = !periodMatchesTimeRange && loading;
 
-    // Build stats using current values when available, otherwise fall back to previous values
-    // This prevents values from ever flashing to 0 during timing issues
+    // While transitioning, keep showing previous values with a loading indicator
+    // This provides better UX than showing zeros
+    const shouldShowCurrentData = periodMatchesTimeRange;
+
+    // Build stats - use current data if available, otherwise use previous values during transition
+    // Previous values are shown with isTransitioning=true so StatCard can show a loader
     const newStats = {
       activeClients,
       totalActiveDownloads,
       totalDownloads,
-      bandwidthSaved: shouldShowValues
-        ? (dashboardStats?.period?.bandwidthSaved || previousStatsRef.current.bandwidthSaved)
+      bandwidthSaved: shouldShowCurrentData
+        ? (dashboardStats?.period?.bandwidthSaved ?? previousStatsRef.current.bandwidthSaved)
         : previousStatsRef.current.bandwidthSaved,
-      addedToCache: shouldShowValues
-        ? (dashboardStats?.period?.addedToCache || previousStatsRef.current.addedToCache)
+      addedToCache: shouldShowCurrentData
+        ? (dashboardStats?.period?.addedToCache ?? previousStatsRef.current.addedToCache)
         : previousStatsRef.current.addedToCache,
-      totalServed: shouldShowValues
-        ? (dashboardStats?.period?.totalServed || previousStatsRef.current.totalServed)
+      totalServed: shouldShowCurrentData
+        ? (dashboardStats?.period?.totalServed ?? previousStatsRef.current.totalServed)
         : previousStatsRef.current.totalServed,
-      cacheHitRatio: shouldShowValues
-        ? (dashboardStats?.period?.hitRatio || previousStatsRef.current.cacheHitRatio)
+      cacheHitRatio: shouldShowCurrentData
+        ? (dashboardStats?.period?.hitRatio ?? previousStatsRef.current.cacheHitRatio)
         : previousStatsRef.current.cacheHitRatio,
-      uniqueClients: shouldShowValues
-        ? (dashboardStats?.uniqueClients || filteredClientStats.length || previousStatsRef.current.uniqueClients)
-        : previousStatsRef.current.uniqueClients
+      uniqueClients: shouldShowCurrentData
+        ? (dashboardStats?.uniqueClients ?? filteredClientStats.length ?? previousStatsRef.current.uniqueClients)
+        : previousStatsRef.current.uniqueClients,
+      // Flag to indicate we're showing stale data during transition
+      isTransitioning: isTransitioningTimeRange
     };
 
-    // Update the ref with good values when we have them
+    // Update the ref with good values when we have matching data
     // Also store which time range these values belong to
-    if (shouldShowValues && dashboardStats?.period) {
+    if (shouldShowCurrentData && dashboardStats?.period) {
       previousStatsRef.current = {
         bandwidthSaved: dashboardStats.period.bandwidthSaved || 0,
         addedToCache: dashboardStats.period.addedToCache || 0,
@@ -460,7 +464,7 @@ const Dashboard: React.FC = () => {
     }
 
     // DEBUG LOGGING - track stat value changes
-    console.log(`[STATS DEBUG] timeRange=${timeRange} loading=${loading} shouldShowValues=${shouldShowValues}`, {
+    console.log(`[STATS DEBUG] timeRange=${timeRange} loading=${loading} isTransitioning=${isTransitioningTimeRange}`, {
       raw: {
         bandwidthSaved: newStats.bandwidthSaved,
         addedToCache: newStats.addedToCache,
@@ -475,9 +479,10 @@ const Dashboard: React.FC = () => {
         cacheHitRatio: formatPercent(Math.round(newStats.cacheHitRatio * 1000) / 10),
         uniqueClients: newStats.uniqueClients
       },
-      source: shouldShowValues ? 'dashboardStats' : 'previousStatsRef',
+      source: shouldShowCurrentData ? 'dashboardStats' : 'previousStatsRef (transitioning)',
       dashboardStatsPeriod: dashboardStats?.period?.duration,
-      previousRefTimeRange: previousStatsRef.current.forTimeRange
+      previousRefTimeRange: previousStatsRef.current.forTimeRange,
+      periodMatchesTimeRange
     });
 
     return newStats;
@@ -521,7 +526,8 @@ const Dashboard: React.FC = () => {
         icon: TrendingUp,
         color: 'emerald' as const,
         visible: cardVisibility.bandwidthSaved,
-        tooltip: statTooltips.bandwidthSaved
+        tooltip: statTooltips.bandwidthSaved,
+        isTransitioning: stats.isTransitioning
       },
       addedToCache: {
         key: 'addedToCache',
@@ -531,7 +537,8 @@ const Dashboard: React.FC = () => {
         icon: Zap,
         color: 'purple' as const,
         visible: cardVisibility.addedToCache,
-        tooltip: statTooltips.addedToCache
+        tooltip: statTooltips.addedToCache,
+        isTransitioning: stats.isTransitioning
       },
       totalServed: {
         key: 'totalServed',
@@ -541,7 +548,8 @@ const Dashboard: React.FC = () => {
         icon: Server,
         color: 'indigo' as const,
         visible: cardVisibility.totalServed,
-        tooltip: statTooltips.totalServed
+        tooltip: statTooltips.totalServed,
+        isTransitioning: stats.isTransitioning
       },
       activeDownloads: {
         key: 'activeDownloads',
@@ -575,7 +583,8 @@ const Dashboard: React.FC = () => {
         icon: Activity,
         color: 'cyan' as const,
         visible: cardVisibility.cacheHitRatio,
-        tooltip: statTooltips.cacheHitRatio
+        tooltip: statTooltips.cacheHitRatio,
+        isTransitioning: stats.isTransitioning
       }
     }),
     [
@@ -923,6 +932,7 @@ const Dashboard: React.FC = () => {
                 tooltip={card.tooltip}
                 glassmorphism={true}
                 animateValue={!loading}
+                isTransitioning={card.isTransitioning}
                 sparklineData={
                   card.key === 'bandwidthSaved' ? sparklineData?.bandwidthSaved?.data :
                   card.key === 'cacheHitRatio' ? sparklineData?.cacheHitRatio?.data :
