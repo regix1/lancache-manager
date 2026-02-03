@@ -442,19 +442,6 @@ builder.Services.AddHostedService<DownloadCleanupService>();
 builder.Services.AddSingleton<RustSpeedTrackerService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<RustSpeedTrackerService>());
 
-// Add Output Caching for API endpoints
-builder.Services.AddOutputCache(options =>
-{
-    options.AddPolicy("dashboard", builder =>
-        builder.Expire(TimeSpan.FromSeconds(5)));
-    options.AddPolicy("stats-short", builder =>
-        builder.Expire(TimeSpan.FromSeconds(10))
-               .SetVaryByQuery("startTime", "endTime", "since", "eventId", "includeExcluded", "cacheBust"));
-    options.AddPolicy("stats-long", builder =>
-        builder.Expire(TimeSpan.FromSeconds(30))
-               .SetVaryByQuery("startTime", "endTime", "interval", "eventId", "cacheBust"));
-});
-
 // Configure OpenTelemetry Metrics for Prometheus + Grafana
 builder.Services.AddOpenTelemetry()
     .WithMetrics(metrics =>
@@ -621,10 +608,6 @@ app.UseSession();
 
 // Add Authentication Middleware (after routing and session so endpoints and sessions are resolved)
 app.UseMiddleware<AuthenticationMiddleware>();
-
-// Output cache must run AFTER authentication middleware, otherwise cached responses can bypass
-// controller-level auth filters (e.g. [RequireGuestSession]).
-app.UseOutputCache();
 
 // Add Metrics Authentication Middleware (optional API key for /metrics)
 app.UseMiddleware<MetricsAuthenticationMiddleware>();

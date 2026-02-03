@@ -409,6 +409,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({ ch
       unstable_batchedUpdates(() => {
         setClientStats([]);
         setServiceStats([]);
+        setDashboardStats(null);
         setLatestDownloads([]);
       });
       fetchAllData({ showLoading: true, forceRefresh: true, trigger: 'eventFilterChange' });

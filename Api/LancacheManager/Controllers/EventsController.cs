@@ -97,7 +97,6 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// </summary>
     [HttpGet]
     [RequireGuestSession]
-    [ResponseCache(Duration = 5)]
     public override Task<IActionResult> GetAll(CancellationToken ct = default)
         => base.GetAll(ct);
 
@@ -106,7 +105,6 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// </summary>
     [HttpGet("active")]
     [RequireGuestSession]
-    [ResponseCache(Duration = 5)]
     public async Task<IActionResult> GetActive()
     {
         var events = await _eventsService.GetActiveEventsAsync();
@@ -118,7 +116,6 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// </summary>
     [HttpGet("calendar")]
     [RequireGuestSession]
-    [ResponseCache(Duration = 5)]
     public async Task<IActionResult> GetCalendarEvents([FromQuery] long start, [FromQuery] long end)
     {
         var startUtc = start.FromUnixSeconds();
@@ -171,7 +168,6 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// </summary>
     [HttpGet("{id:int}/downloads")]
     [RequireGuestSession]
-    [ResponseCache(Duration = 5)]
     public async Task<IActionResult> GetDownloads(int id, [FromQuery] bool taggedOnly = false)
     {
         var evt = await _eventsService.GetByIdOrThrowAsync(id, "Event");

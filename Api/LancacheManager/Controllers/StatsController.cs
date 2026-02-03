@@ -9,7 +9,6 @@ using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Middleware;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using System.Net;
@@ -233,7 +232,6 @@ public class StatsController : ControllerBase
 
 
     [HttpGet("clients")]
-    [OutputCache(PolicyName = "stats-short")]
     public async Task<IActionResult> GetClients(
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null,
@@ -455,7 +453,6 @@ public class StatsController : ControllerBase
     }
 
     [HttpGet("services")]
-    [OutputCache(PolicyName = "stats-short")]
     public async Task<IActionResult> GetServices([FromQuery] string? since = null, [FromQuery] long? startTime = null, [FromQuery] long? endTime = null, [FromQuery] int? eventId = null)
     {
         // Parse event IDs
@@ -517,7 +514,6 @@ public class StatsController : ControllerBase
     }
 
     [HttpGet("dashboard")]
-    [OutputCache(PolicyName = "stats-short")]
     public async Task<IActionResult> GetDashboardStats(
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null,
@@ -724,7 +720,6 @@ public class StatsController : ControllerBase
     /// Groups downloads by hour of day to show activity patterns
     /// </summary>
     [HttpGet("hourly-activity")]
-    [OutputCache(PolicyName = "stats-long")]
     public async Task<IActionResult> GetHourlyActivity(
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null,
@@ -844,7 +839,6 @@ public class StatsController : ControllerBase
     /// Pass actualCacheSize to detect deletions and calculate net growth
     /// </summary>
     [HttpGet("cache-growth")]
-    [OutputCache(PolicyName = "stats-long")]
     public async Task<IActionResult> GetCacheGrowth(
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null,
@@ -1071,7 +1065,6 @@ public class StatsController : ControllerBase
     /// Returns daily aggregated data for bandwidth saved, cache hit ratio, total served, and added to cache
     /// </summary>
     [HttpGet("sparklines")]
-    [OutputCache(PolicyName = "stats-long")]
     public async Task<IActionResult> GetSparklineData(
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null,
@@ -1225,7 +1218,6 @@ public class StatsController : ControllerBase
     /// Returns estimated used space based on periodic snapshots.
     /// </summary>
     [HttpGet("cache-snapshot")]
-    [OutputCache(PolicyName = "stats-short")]
     public async Task<IActionResult> GetCacheSnapshot(
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null)
