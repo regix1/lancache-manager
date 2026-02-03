@@ -415,7 +415,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({ ch
     }
   }, [selectedEventIds, mockMode, hasAccess, fetchAllData]);
 
-  // Debounced custom date changes
+  // Custom date changes - immediate fetch, no debounce
   useEffect(() => {
     if (timeRange === 'custom' && !mockMode && hasAccess) {
       if (customStartDate && customEndDate) {
@@ -430,13 +430,8 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({ ch
             newStart: customStartDate.toLocaleString(),
             newEnd: customEndDate.toLocaleString()
           });
-          setLoading(true);
-          const debounceTimer = setTimeout(() => {
-            setLastCustomDates({ start: customStartDate, end: customEndDate });
-            fetchAllData({ showLoading: true, trigger: 'customDateChange' });
-          }, 50);
-
-          return () => clearTimeout(debounceTimer);
+          setLastCustomDates({ start: customStartDate, end: customEndDate });
+          fetchAllData({ showLoading: true, forceRefresh: true, trigger: 'customDateChange' });
         }
       }
     } else if (timeRange !== 'custom') {
