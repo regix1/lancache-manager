@@ -120,17 +120,6 @@ const Sparkline: React.FC<SparklineProps> = memo(({
     const ctx = canvasRef.current.getContext('2d');
     if (!ctx) return;
 
-    // Destroy existing chart
-    if (chartRef.current) {
-      chartRef.current.destroy();
-      chartRef.current = null;
-    }
-
-    // Create gradient for area fill
-    const gradient = ctx.createLinearGradient(0, 0, 0, height);
-    gradient.addColorStop(0, gradientColor.fill);
-    gradient.addColorStop(1, gradientColor.transparent);
-
     // Calculate min/max for Y axis
     const minVal = Math.min(...data);
     const maxVal = Math.max(...data);
@@ -154,6 +143,31 @@ const Sparkline: React.FC<SparklineProps> = memo(({
 
     // Create labels for data points
     const labels = Array.from({ length: data.length }, (_, i) => i.toString());
+
+    // If chart exists, update it in-place instead of destroying
+    if (chartRef.current) {
+      const chart = chartRef.current;
+
+      // Update data in-place
+      chart.data.labels = labels;
+      chart.data.datasets[0].data = data;
+
+      // Update Y axis bounds
+      if (chart.options.scales?.y) {
+        chart.options.scales.y.min = yMin;
+        chart.options.scales.y.max = yMax;
+      }
+
+      // Update without animation for smooth transition
+      chart.update('none');
+      return;
+    }
+
+    // Only create new chart if one doesn't exist
+    // Create gradient for area fill
+    const gradient = ctx.createLinearGradient(0, 0, 0, height);
+    gradient.addColorStop(0, gradientColor.fill);
+    gradient.addColorStop(1, gradientColor.transparent);
 
     const config: ChartConfiguration<'line', number[], string> = {
       type: 'line',
@@ -206,14 +220,17 @@ const Sparkline: React.FC<SparklineProps> = memo(({
     };
 
     chartRef.current = new Chart(ctx, config);
+  }, [data, gradientColor, height, showArea, shouldAnimate]);
 
+  // Separate cleanup effect that only runs on unmount
+  useEffect(() => {
     return () => {
       if (chartRef.current) {
         chartRef.current.destroy();
         chartRef.current = null;
       }
     };
-  }, [data, gradientColor, height, showArea, shouldAnimate]);
+  }, []);
 
   // Don't render if no data
   if (data.length === 0) {

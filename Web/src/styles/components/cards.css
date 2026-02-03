@@ -47,7 +47,11 @@
     box-shadow:
       0 8px 32px rgba(0, 0, 0, 0.2),
       inset 0 1px 0 color-mix(in srgb, var(--theme-text-primary) 5%, transparent);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transform: translateY(0);
+    transition: background 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .glass-card:hover {
@@ -75,7 +79,11 @@
     box-shadow:
       0 8px 32px rgba(0, 0, 0, 0.2),
       inset 0 1px 0 color-mix(in srgb, var(--theme-text-primary) 5%, transparent);
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transform: translateY(0);
+    transition: background 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .widget-card.glass:hover {

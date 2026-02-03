@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, memo } from 'react';
+import React, { useState, useEffect, useMemo, memo, useRef } from 'react';
 import { TrendingUp, TrendingDown, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { formatBytes } from '@utils/formatters';
@@ -41,6 +41,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
   const [data, setData] = useState<CacheGrowthResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const prevDataRef = useRef<CacheGrowthResponse | null>(null);
 
   // Fetch cache growth data from API
   // In mock mode, use generated mock data instead
@@ -57,8 +58,10 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
 
     const controller = new AbortController();
 
-    // Clear old data immediately to prevent stale display during filter changes
-    setData(null);
+    // Store current data as previous (keep visible during fetch)
+    if (data) {
+      prevDataRef.current = data;
+    }
 
     const fetchData = async () => {
       try {
@@ -80,6 +83,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
         if (!controller.signal.aborted) {
           setError('Failed to load growth data');
           console.error('CacheGrowthTrend fetch error:', err);
+          // Don't clear data on error - keep previous data visible
         }
       } finally {
         if (!controller.signal.aborted) {
@@ -93,27 +97,30 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
     return () => controller.abort();
   }, [timeRange, getTimeRangeParams, usedCacheSize, totalCacheSize, mockMode, selectedEventIds]);
 
+  // Use displayData to preserve previous values during loading
+  const displayData = data || prevDataRef.current;
+
   // Extract sparkline data from API response
   const sparklineData = useMemo(() => {
-    if (!data?.dataPoints?.length) return [];
-    return data.dataPoints.map(dp => dp.cumulativeCacheMissBytes);
-  }, [data]);
+    if (!displayData?.dataPoints?.length) return [];
+    return displayData.dataPoints.map(dp => dp.cumulativeCacheMissBytes);
+  }, [displayData]);
 
   // Calculate total growth during the selected period
   const periodGrowth = useMemo(() => {
-    if (!data?.dataPoints?.length) return 0;
-    return data.dataPoints.reduce((sum, dp) => sum + dp.growthFromPrevious, 0);
-  }, [data]);
+    if (!displayData?.dataPoints?.length) return 0;
+    return displayData.dataPoints.reduce((sum, dp) => sum + dp.growthFromPrevious, 0);
+  }, [displayData]);
 
   // Get values from API or props
-  const trend = data?.trend ?? 'stable';
-  const percentChange = data?.percentChange ?? 0;
+  const trend = displayData?.trend ?? 'stable';
+  const percentChange = displayData?.percentChange ?? 0;
   // Use net growth rate (accounts for cache deletions) when available
-  const growthRatePerDay = data?.netAverageDailyGrowth ?? data?.averageDailyGrowth ?? 0;
-  const daysUntilFull = data?.estimatedDaysUntilFull ?? null;
+  const growthRatePerDay = displayData?.netAverageDailyGrowth ?? displayData?.averageDailyGrowth ?? 0;
+  const daysUntilFull = displayData?.estimatedDaysUntilFull ?? null;
   const hasEnoughData = sparklineData.length >= 2;
-  const hasDataDeletion = data?.hasDataDeletion ?? false;
-  const cacheWasCleared = data?.cacheWasCleared ?? false;
+  const hasDataDeletion = displayData?.hasDataDeletion ?? false;
+  const cacheWasCleared = displayData?.cacheWasCleared ?? false;
 
   // Usage percentage (from props - real cache info)
   // Note: Can exceed 100% temporarily during nginx cache eviction
@@ -138,8 +145,8 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
     ? `animate-card-entrance stagger-${Math.min(staggerIndex + 1, 12)}`
     : '';
 
-  // Loading state
-  if (loading) {
+  // Loading state - only show loading skeleton if we have no data at all
+  if (loading && !data && !prevDataRef.current) {
     return (
       <div className={`widget-card ${glassmorphism ? 'glass' : ''} ${animationClasses}`}>
         <div className="flex items-center gap-2 mb-3">

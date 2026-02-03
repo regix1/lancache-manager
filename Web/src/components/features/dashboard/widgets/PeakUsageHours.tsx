@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, memo } from 'react';
+import React, { useState, useEffect, useMemo, memo, useRef } from 'react';
 import { Clock, Loader2, TrendingUp, Zap, Calendar } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { formatBytes } from '@utils/formatters';
@@ -36,6 +36,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { use24HourFormat, useLocalTimezone } = useTimezone();
+  const prevDataRef = useRef<HourlyActivityResponse | null>(null);
 
   // Get current hour based on timezone preference
   const currentHour = useMemo(() => {
@@ -44,24 +45,27 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
 
   // Check if today is within the period range
   const isTodayInRange = useMemo(() => {
-    if (!data) return true; // Assume yes while loading
+    const displayData = data || prevDataRef.current;
+    if (!displayData) return true; // Assume yes while loading
 
     // For 'live' mode (no period bounds), today is always in range
-    if (!data.periodStart && !data.periodEnd) return true;
+    if (!displayData.periodStart && !displayData.periodEnd) return true;
 
     const now = Math.floor(Date.now() / 1000);
     const todayStart = Math.floor(new Date().setHours(0, 0, 0, 0) / 1000);
     const todayEnd = Math.floor(new Date().setHours(23, 59, 59, 999) / 1000);
 
     // Check if today overlaps with the period
-    const periodStart = data.periodStart ?? 0;
-    const periodEnd = data.periodEnd ?? now;
+    const periodStart = displayData.periodStart ?? 0;
+    const periodEnd = displayData.periodEnd ?? now;
 
     return todayStart <= periodEnd && todayEnd >= periodStart;
   }, [data]);
 
   // Determine if we should show averages (multi-day period)
-  const daysInPeriod = data?.daysInPeriod ?? 1;
+  // Use displayData to preserve previous values during loading
+  const displayData = data || prevDataRef.current;
+  const daysInPeriod = displayData?.daysInPeriod ?? 1;
   const isMultiDayPeriod = daysInPeriod > 1;
 
   // Fetch hourly activity from backend API (already aggregated server-side)
@@ -79,8 +83,10 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
 
     const controller = new AbortController();
 
-    // Clear old data immediately to prevent stale display during filter changes
-    setData(null);
+    // Store current data as previous (keep visible during fetch)
+    if (data) {
+      prevDataRef.current = data;
+    }
 
     const fetchData = async () => {
       try {
@@ -94,6 +100,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
         if (!controller.signal.aborted) {
           setError('Failed to load hourly data');
           console.error('PeakUsageHours fetch error:', err);
+          // Don't clear data on error - keep previous data visible
         }
       } finally {
         if (!controller.signal.aborted) {
@@ -109,7 +116,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
 
   // Extract hourly data from API response (already includes all 24 hours)
   const hourlyData = useMemo((): HourlyActivityItem[] => {
-    if (!data?.hours?.length) {
+    if (!displayData?.hours?.length) {
       // Return empty buckets if no data
       return Array.from({ length: 24 }, (_, i) => ({
         hour: i,
@@ -121,8 +128,8 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
         cacheMissBytes: 0,
       }));
     }
-    return data.hours;
-  }, [data]);
+    return displayData.hours;
+  }, [displayData]);
 
   // Find max for scaling
   const maxDownloads = useMemo(() => {
@@ -131,8 +138,8 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
   }, [hourlyData]);
 
   // Peak hour from API response
-  const peakHour = data?.peakHour ?? 0;
-  const totalDownloads = data?.totalDownloads ?? 0;
+  const peakHour = displayData?.peakHour ?? 0;
+  const totalDownloads = displayData?.totalDownloads ?? 0;
 
   // Calculate total bytes served across all hours
   const totalBytesServed = useMemo(() => {
@@ -195,8 +202,8 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
     ? `animate-card-entrance stagger-${Math.min(staggerIndex + 1, 12)}`
     : '';
 
-  // Loading state
-  if (loading) {
+  // Loading state - only show loading skeleton if we have no data at all
+  if (loading && !data && !prevDataRef.current) {
     return (
       <div className={`widget-card ${glassmorphism ? 'glass' : ''} ${animationClasses}`}>
         <div className="flex items-center gap-2 mb-3">

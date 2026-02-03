@@ -162,16 +162,20 @@ const Dashboard: React.FC = () => {
 
   // Sparkline data from API
   const [sparklineData, setSparklineData] = useState<SparklineDataResponse | null>(null);
+  const prevSparklineDataRef = useRef<SparklineDataResponse | null>(null);
 
   // Historical cache snapshot data
   const [cacheSnapshot, setCacheSnapshot] = useState<CacheSnapshotResponse | null>(null);
+  const prevCacheSnapshotRef = useRef<CacheSnapshotResponse | null>(null);
 
   // Fetch sparkline data when time range or event filter changes
   useEffect(() => {
     const controller = new AbortController();
 
-    // Clear old sparkline data immediately to prevent stale data display
-    setSparklineData(null);
+    // Store current data as previous (keep showing until new data arrives)
+    if (sparklineData) {
+      prevSparklineDataRef.current = sparklineData;
+    }
 
     const fetchSparklines = async () => {
       try {
@@ -179,6 +183,7 @@ const Dashboard: React.FC = () => {
         const eventId = selectedEventIds.length > 0 ? selectedEventIds[0] : undefined;
         const data = await ApiService.getSparklineData(controller.signal, startTime, endTime, eventId);
         setSparklineData(data);
+        prevSparklineDataRef.current = data;
       } catch (err) {
         // Ignore abort errors
         if (!controller.signal.aborted) {
@@ -196,8 +201,10 @@ const Dashboard: React.FC = () => {
   useEffect(() => {
     const controller = new AbortController();
 
-    // Clear cache snapshot when switching views
-    setCacheSnapshot(null);
+    // Store current data as previous
+    if (cacheSnapshot) {
+      prevCacheSnapshotRef.current = cacheSnapshot;
+    }
 
     // Only fetch when in historical view (not live mode)
     if (!isHistoricalView) {
@@ -210,6 +217,7 @@ const Dashboard: React.FC = () => {
         if (startTime && endTime) {
           const data = await ApiService.getCacheSnapshot(controller.signal, startTime, endTime);
           setCacheSnapshot(data);
+          prevCacheSnapshotRef.current = data;
         }
       } catch (err) {
         // Ignore abort errors
@@ -776,7 +784,7 @@ const Dashboard: React.FC = () => {
       ) : (
         <div
           className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-fadeIn isolate transition-opacity duration-300"
-          style={{ opacity: loading ? 0.7 : 1 }}
+          style={{ opacity: loading ? 0.85 : 1 }}
         >
           {visibleCards.map((card: StatCardData, visualIndex: number) => {
             // Check if this is a live-only card that should be disabled in historical view
@@ -919,10 +927,7 @@ const Dashboard: React.FC = () => {
           ))}
         </div>
       ) : (
-        <div
-          key={`charts-${timeRange}-${customStartDate?.getTime()}-${customEndDate?.getTime()}`}
-          className="grid grid-cols-1 lg:grid-cols-2 gap-4 animate-fadeIn"
-        >
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 animate-fadeIn">
           <ServiceAnalyticsChart serviceStats={filteredServiceStats || []} timeRange={timeRange} glassmorphism={true} />
           <RecentDownloadsPanel downloads={filteredLatestDownloads || []} timeRange={timeRange} glassmorphism={true} />
         </div>
@@ -973,10 +978,7 @@ const Dashboard: React.FC = () => {
           </div>
         </div>
       ) : (
-        <div
-          key={`top-clients-${timeRange}-${customStartDate?.getTime()}-${customEndDate?.getTime()}`}
-          className="animate-fadeIn"
-        >
+        <div className="animate-fadeIn">
           <TopClientsTable
             clientStats={filteredClientStats || []}
             timeRange={timeRange}

@@ -75,7 +75,7 @@ const StatCard: React.FC<StatCardProps> = ({
 
   // Build class names - animation classes only added when staggerIndex is provided
   const cardClasses = useMemo(() => {
-    const classes = ['rounded-lg', 'p-4', 'border', 'transition-all', 'relative', 'group', 'h-full', 'flex', 'flex-col'];
+    const classes = ['rounded-lg', 'p-4', 'border', 'transition-shadow', 'duration-300', 'relative', 'group', 'h-full', 'flex', 'flex-col'];
 
     if (glassmorphism) {
       classes.push('glass-card');

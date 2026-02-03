@@ -405,13 +405,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({ ch
         newEventIds: currentEventIdsKey
       });
       prevEventIdsRef.current = currentEventIdsKey;
-      // Clear stats/downloads immediately to prevent showing stale data from different event filter
-      unstable_batchedUpdates(() => {
-        setClientStats([]);
-        setServiceStats([]);
-        setDashboardStats(null);
-        setLatestDownloads([]);
-      });
+      // Keep previous data visible during fetch - don't clear immediately
       fetchAllData({ showLoading: true, forceRefresh: true, trigger: 'eventFilterChange' });
     }
   }, [selectedEventIds, mockMode, hasAccess, fetchAllData]);
