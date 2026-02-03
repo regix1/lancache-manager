@@ -90,7 +90,10 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
 
     const fetchData = async () => {
       try {
-        setLoading(true);
+        // Only show loading on initial load when we have no data
+        if (!data && !prevDataRef.current) {
+          setLoading(true);
+        }
         setError(null);
         const { startTime, endTime } = getTimeRangeParams();
         const eventId = selectedEventIds.length > 0 ? selectedEventIds[0] : undefined;

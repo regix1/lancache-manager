@@ -392,7 +392,8 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({ ch
         newTimeRange: timeRange
       });
       // Use forceRefresh to bypass debounce - time range changes should always trigger immediate fetch
-      fetchAllData({ showLoading: true, forceRefresh: true, trigger: `timeRangeChange:${timeRange}` });
+      // Only show loading if we don't have existing data to prevent UI flashing
+      fetchAllData({ showLoading: !hasData.current, forceRefresh: true, trigger: `timeRangeChange:${timeRange}` });
     }
   }, [timeRange, mockMode, hasAccess, fetchAllData]);
 
@@ -406,7 +407,8 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({ ch
       });
       prevEventIdsRef.current = currentEventIdsKey;
       // Keep previous data visible during fetch - don't clear immediately
-      fetchAllData({ showLoading: true, forceRefresh: true, trigger: 'eventFilterChange' });
+      // Only show loading if we don't have existing data to prevent UI flashing
+      fetchAllData({ showLoading: !hasData.current, forceRefresh: true, trigger: 'eventFilterChange' });
     }
   }, [selectedEventIds, mockMode, hasAccess, fetchAllData]);
 
@@ -426,7 +428,8 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({ ch
             newEnd: customEndDate.toLocaleString()
           });
           setLastCustomDates({ start: customStartDate, end: customEndDate });
-          fetchAllData({ showLoading: true, forceRefresh: true, trigger: 'customDateChange' });
+          // Only show loading if we don't have existing data to prevent UI flashing
+          fetchAllData({ showLoading: !hasData.current, forceRefresh: true, trigger: 'customDateChange' });
         }
       }
     } else if (timeRange !== 'custom') {

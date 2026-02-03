@@ -783,8 +783,7 @@ const Dashboard: React.FC = () => {
         </div>
       ) : (
         <div
-          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-fadeIn isolate transition-opacity duration-300"
-          style={{ opacity: loading ? 0.85 : 1 }}
+          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-fadeIn isolate"
         >
           {visibleCards.map((card: StatCardData, visualIndex: number) => {
             // Check if this is a live-only card that should be disabled in historical view
