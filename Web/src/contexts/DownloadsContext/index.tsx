@@ -40,7 +40,7 @@ export const DownloadsProvider: React.FC<DownloadsProviderProps> = ({
   children,
   mockMode = false
 }) => {
-  const { getTimeRangeParams, timeRange, customStartDate, customEndDate, selectedEventIds, extendTimeAnchor } = useTimeFilter();
+  const { getTimeRangeParams, timeRange, customStartDate, customEndDate, selectedEventIds } = useTimeFilter();
   const { getRefreshInterval } = useRefreshRate();
   const signalR = useSignalR();
   const { isAuthenticated, authMode, isLoading: authLoading } = useAuth();
