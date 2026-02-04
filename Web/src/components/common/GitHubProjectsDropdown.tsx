@@ -244,9 +244,6 @@ const Firework: React.FC<FireworkProps> = ({ startX, startY, onComplete }) => {
     const duration = 1800; // Slower animation for smooth rotation
     const startTime = performance.now();
 
-    // Track previous position for direction calculation
-    let prevX = startX;
-    let prevY = startY;
     // Use a small buffer of positions to smooth velocity calculation
     const positionBuffer: Array<{ x: number; y: number }> = [];
     const bufferSize = 6;
@@ -379,9 +376,6 @@ const Firework: React.FC<FireworkProps> = ({ startX, startY, onComplete }) => {
         nextDotIndex = (nextDotIndex + 1) % trailCount;
         lastDotTime = elapsed;
       }
-
-      prevX = currentX;
-      prevY = currentY;
 
       // Update all trail dots - they stay in place and fade out
       trailDotsRef.current.forEach((dot, index) => {
@@ -583,30 +577,33 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
     }
   }, [isOpen]);
 
-  // Handle button click - toggles dropdown AND launches firework
-  const handleButtonClick = useCallback((e: React.MouseEvent) => {
-    // Toggle dropdown
-    setIsOpen((prev) => !prev);
-    setHoveredIndex(null);
+  // Handle button click - toggles dropdown AND launches firework only when opening
+  const handleButtonClick = useCallback((_e: React.MouseEvent) => {
+    setIsOpen((prev) => {
+      const willOpen = !prev;
 
-    // Also launch firework
-    if (!isRocketSpinning) {
-      setIsRocketSpinning(true);
+      // Only launch firework when opening the dropdown, not when closing
+      if (willOpen && !isRocketSpinning) {
+        setIsRocketSpinning(true);
 
-      // Get button position for firework launch point
-      const buttonElement = triggerRef.current;
-      if (buttonElement) {
-        const rect = buttonElement.getBoundingClientRect();
-        const buttonCenterX = rect.left + rect.width / 2;
-        const buttonTopY = rect.top;
+        // Get button position for firework launch point
+        const buttonElement = triggerRef.current;
+        if (buttonElement) {
+          const rect = buttonElement.getBoundingClientRect();
+          const buttonCenterX = rect.left + rect.width / 2;
+          const buttonTopY = rect.top;
 
-        // After spin completes (500ms), launch firework
-        setTimeout(() => {
-          setFirework({ x: buttonCenterX, y: buttonTopY });
-          setIsRocketSpinning(false);
-        }, 500);
+          // After spin completes (500ms), launch firework
+          setTimeout(() => {
+            setFirework({ x: buttonCenterX, y: buttonTopY });
+            setIsRocketSpinning(false);
+          }, 500);
+        }
       }
-    }
+
+      return willOpen;
+    });
+    setHoveredIndex(null);
   }, [isRocketSpinning]);
 
   const handleRepoClick = (url: string) => {

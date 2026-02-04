@@ -141,7 +141,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({ ch
     if (mockModeRef.current) return;
     if (authLoadingRef.current || !hasAccessRef.current) return;
 
-    const { showLoading = false, isInitial = false, forceRefresh = false, trigger = 'unknown' } = options;
+    const { showLoading = false, isInitial = false, forceRefresh = false, trigger: _trigger } = options;
 
     // Debounce rapid calls (min 250ms between fetches) - skip for initial load or force refresh
     const now = Date.now();
