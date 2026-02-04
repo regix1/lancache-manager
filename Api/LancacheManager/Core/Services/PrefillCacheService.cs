@@ -79,6 +79,63 @@ public class PrefillCacheService
         }
 
         await context.SaveChangesAsync();
+
+        // Also update SteamDepotMappings so downloads can resolve game names
+        // This captures mappings that PICS doesn't provide (e.g., private branches, unusual depot structures)
+        await EnsureDepotMappingExistsAsync(context, appId, depotId, appName);
+    }
+
+    /// <summary>
+    /// Ensures a depot mapping exists in SteamDepotMappings for download resolution.
+    /// This is called when prefill records a cached depot, capturing mappings that PICS may not provide.
+    /// </summary>
+    private async Task EnsureDepotMappingExistsAsync(AppDbContext context, uint appId, uint depotId, string? appName)
+    {
+        try
+        {
+            // Check if mapping already exists
+            var existingMapping = await context.SteamDepotMappings
+                .FirstOrDefaultAsync(m => m.DepotId == depotId && m.AppId == appId);
+
+            if (existingMapping != null)
+            {
+                // Update app name if we have a better one (not placeholder)
+                if (!string.IsNullOrEmpty(appName) &&
+                    !appName.StartsWith("App ") &&
+                    !appName.StartsWith("Steam App ") &&
+                    (string.IsNullOrEmpty(existingMapping.AppName) ||
+                     existingMapping.AppName.StartsWith("App ") ||
+                     existingMapping.AppName.StartsWith("Steam App ")))
+                {
+                    existingMapping.AppName = appName;
+                    existingMapping.DiscoveredAt = DateTime.UtcNow;
+                    await context.SaveChangesAsync();
+                    _logger.LogDebug("Updated depot mapping name for {DepotId} -> {AppName}", depotId, appName);
+                }
+                return;
+            }
+
+            // Create new mapping - mark as owner since prefill knows the correct relationship
+            var mapping = new SteamDepotMapping
+            {
+                DepotId = depotId,
+                AppId = appId,
+                AppName = appName ?? $"App {appId}",
+                IsOwner = true,  // Prefill-discovered mappings are authoritative
+                Source = "Prefill",
+                DiscoveredAt = DateTime.UtcNow
+            };
+
+            context.SteamDepotMappings.Add(mapping);
+            await context.SaveChangesAsync();
+            _logger.LogInformation("Created depot mapping from prefill: depot {DepotId} -> app {AppId} ({AppName})",
+                depotId, appId, appName);
+        }
+        catch (Exception ex)
+        {
+            // Don't fail the prefill cache operation if mapping update fails
+            _logger.LogWarning(ex, "Failed to update depot mapping for depot {DepotId} app {AppId}", depotId, appId);
+        }
     }
 
     /// <summary>

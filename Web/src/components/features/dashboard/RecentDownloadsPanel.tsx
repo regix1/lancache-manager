@@ -53,7 +53,7 @@ const ActiveDownloadItem: React.FC<{ game: GameSpeedInfo; index: number; t: any 
           <div className="item-name">
             {game.gameName && game.gameName !== 'Unknown Steam Game' && !game.gameName.match(/^Steam App \d+$/)
               ? game.gameName
-              : game.service}
+              : game.gameName || `Depot ${game.depotId}`}
           </div>
           <div className="item-meta">
             <span className="service-badge">{game.service}</span>
@@ -102,7 +102,7 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({ item, events = 
         service: item.service,
         name: item.gameName && item.gameName !== 'Unknown Steam Game' && !item.gameName.match(/^Steam App \d+$/)
           ? item.gameName
-          : item.service,
+          : item.gameName || (item.depotId ? `Depot ${item.depotId}` : item.service),
         totalBytes: item.totalBytes,
         cacheHitPercent: item.cacheHitPercent,
         startTime: item.startTimeUtc,
@@ -125,7 +125,7 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({ item, events = 
         </div>
         <div className="item-info">
           <div className="item-name">
-            {display.hasGameName ? display.name : display.service}
+            {display.name}
             {isGroup && display.count > 1 && (
               <span className="count-badge">{display.count}×</span>
             )}
