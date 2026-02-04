@@ -104,11 +104,23 @@ public class StatsDataService : IStatsDataService
     /// Uses LEFT JOIN to resolve game names from SteamDepotMappings for downloads
     /// where the game name wasn't available at download time.
     /// </summary>
-    public async Task<List<Download>> GetLatestDownloadsAsync(int limit = int.MaxValue, CancellationToken cancellationToken = default)
+    /// <param name="limit">Maximum number of downloads to return</param>
+    /// <param name="activeOnly">If true, only return active (in-progress) downloads</param>
+    /// <param name="cancellationToken">Cancellation token</param>
+    public async Task<List<Download>> GetLatestDownloadsAsync(int limit = int.MaxValue, bool activeOnly = false, CancellationToken cancellationToken = default)
     {
+        // Start with base query applying prefill filter
+        var baseQuery = ApplyPrefillFilter(_context.Downloads.AsNoTracking())
+            .Where(d => !d.GameAppId.HasValue || d.GameAppId.Value != 0);
+
+        // Apply active-only filter if requested
+        if (activeOnly)
+        {
+            baseQuery = baseQuery.Where(d => d.IsActive);
+        }
+
         // LEFT JOIN with SteamDepotMappings to resolve missing game names at query time
-        var query = from d in ApplyPrefillFilter(_context.Downloads.AsNoTracking())
-                    where !d.GameAppId.HasValue || d.GameAppId.Value != 0
+        var query = from d in baseQuery
                     join m in _context.SteamDepotMappings.Where(mapping => mapping.IsOwner)
                         on d.DepotId equals m.DepotId into mappings
                     from mapping in mappings.DefaultIfEmpty()

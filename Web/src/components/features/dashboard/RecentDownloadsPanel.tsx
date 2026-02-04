@@ -50,7 +50,11 @@ const ActiveDownloadItem: React.FC<{ game: GameSpeedInfo; index: number; t: any 
           <div className="pulse-dot" />
         </div>
         <div className="item-info">
-          <div className="item-name">{game.gameName || `Depot ${game.depotId}`}</div>
+          <div className="item-name">
+            {game.gameName && game.gameName !== 'Unknown Steam Game' && !game.gameName.match(/^Steam App \d+$/)
+              ? game.gameName
+              : game.service}
+          </div>
           <div className="item-meta">
             <span className="service-badge">{game.service}</span>
             <span className="meta-separator">•</span>

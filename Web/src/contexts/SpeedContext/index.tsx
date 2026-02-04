@@ -107,17 +107,37 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
       const newCount = speedData.gameSpeeds?.length ?? 0;
       const previousCount = lastActiveCountRef.current ?? 0;
 
+      // CRITICAL: Update lastActiveCountRef FIRST, before any grace period logic
+      // This ensures the ref always reflects the actual count from the latest message,
+      // preventing race conditions where stale ref values cause incorrect behavior
+      lastActiveCountRef.current = newCount;
+
+      // If count is now > 0, clear any pending zero-grace timeout immediately
+      // This must happen before the grace period check to prevent race conditions
+      if (newCount > 0 && zeroGracePeriodRef.current) {
+        clearTimeout(zeroGracePeriodRef.current);
+        zeroGracePeriodRef.current = null;
+      }
+
       // Grace period logic: prevent flicker when transitioning to zero
       // This handles depot switches where count goes 1 → 0 → 1 quickly
       if (newCount === 0 && previousCount > 0) {
         // Transitioning TO zero - add a grace period delay (1.5 seconds)
         // This allows depot transitions to complete without showing "0 active downloads"
+
+        // Capture the speedData and timestamp when scheduling the timeout
+        // This allows us to validate the callback is still relevant when it fires
+        const scheduledSpeedData = speedData;
+        const scheduledTimestamp = Date.now();
+
         zeroGracePeriodRef.current = setTimeout(() => {
-          // Only apply zero-state if no new downloads have started
-          // This prevents stale speedData from overwriting current state in race conditions
-          if (lastActiveCountRef.current === 0) {
-            lastSpeedUpdateRef.current = Date.now();
-            setSpeedSnapshot(speedData);
+          // Only apply zero-state if:
+          // 1. Current count is actually still zero (check the ref which is always up-to-date)
+          // 2. This prevents stale speedData from overwriting current state in race conditions
+          const currentCount = lastActiveCountRef.current ?? 0;
+          if (currentCount === 0) {
+            lastSpeedUpdateRef.current = scheduledTimestamp;
+            setSpeedSnapshot(scheduledSpeedData);
             setIsLoading(false);
           }
           zeroGracePeriodRef.current = null;
@@ -125,20 +145,12 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
         return;
       }
 
-      // If count is now > 0, clear any pending zero-grace timeout
-      if (newCount > 0 && zeroGracePeriodRef.current) {
-        clearTimeout(zeroGracePeriodRef.current);
-        zeroGracePeriodRef.current = null;
-      }
-
       // ALWAYS accept updates immediately when active games count changes (and it's not going to zero)
       // This ensures new downloads appear instantly
-      const countChanged = lastActiveCountRef.current !== null &&
-        lastActiveCountRef.current !== newCount;
+      const countChanged = previousCount !== newCount;
 
       if (countChanged) {
         lastSpeedUpdateRef.current = Date.now();
-        lastActiveCountRef.current = newCount;
         setSpeedSnapshot(speedData);
         setIsLoading(false);
         return;
@@ -155,7 +167,6 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
 
       if (timeSinceLastUpdate >= minInterval) {
         lastSpeedUpdateRef.current = now;
-        lastActiveCountRef.current = newCount;
         setSpeedSnapshot(speedData);
         setIsLoading(false);
       }

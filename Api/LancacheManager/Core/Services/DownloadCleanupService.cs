@@ -48,6 +48,9 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
         // Reduced from 30 seconds for faster completion detection
         var cutoff = DateTime.UtcNow.AddSeconds(-15);
 
+        // 60-second timeout for downloads that were never updated (EndTimeUtc still default)
+        var staleCutoff = DateTime.UtcNow.AddSeconds(-60);
+
         // Process in smaller batches to avoid long locks (important when Rust processor is running)
         const int batchSize = 10;
         var totalUpdated = 0;
@@ -55,7 +58,9 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
         while (true)
         {
             var staleDownloads = await context.Downloads
-                .Where(d => d.IsActive && d.EndTimeUtc < cutoff)
+                .Where(d => d.IsActive &&
+                    ((d.EndTimeUtc != default(DateTime) && d.EndTimeUtc < cutoff) ||  // Normal completion check
+                     (d.EndTimeUtc == default(DateTime) && d.StartTimeUtc < staleCutoff))) // Never updated check
                 .Take(batchSize)
                 .ToListAsync(stoppingToken);
 
@@ -77,7 +82,7 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
 
         if (totalUpdated > 0)
         {
-            Logger.LogInformation("Marked {Count} downloads as complete (EndTime > 15 seconds old)", totalUpdated);
+            Logger.LogInformation("Marked {Count} downloads as complete (EndTime > 15 seconds old or never updated)", totalUpdated);
         }
     }
 
@@ -110,10 +115,14 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
             }
 
             // Mark stale downloads as complete on startup (downloads older than 15 seconds)
+            // Also catch downloads that were never updated (EndTimeUtc still default)
             Logger.LogInformation("Checking for stale active downloads...");
             var cutoff = DateTime.UtcNow.AddSeconds(-15);
+            var staleCutoff = DateTime.UtcNow.AddSeconds(-60);
             var staleDownloads = await context.Downloads
-                .Where(d => d.IsActive && d.EndTimeUtc < cutoff)
+                .Where(d => d.IsActive &&
+                    ((d.EndTimeUtc != default(DateTime) && d.EndTimeUtc < cutoff) ||  // Normal completion check
+                     (d.EndTimeUtc == default(DateTime) && d.StartTimeUtc < staleCutoff))) // Never updated check
                 .ToListAsync(stoppingToken);
 
             Logger.LogInformation("Found {Count} stale active downloads", staleDownloads.Count);

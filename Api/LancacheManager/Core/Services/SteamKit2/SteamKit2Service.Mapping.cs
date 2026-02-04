@@ -68,6 +68,19 @@ public partial class SteamKit2Service
 
             _logger.LogInformation($"Found {downloadsNeedingGameInfo.Count} downloads needing game info after PICS completion");
 
+            // Batch load all depot mappings upfront to avoid N+1 query pattern
+            var depotIds = downloadsNeedingGameInfo
+                .Where(d => d.DepotId.HasValue && !d.GameAppId.HasValue)
+                .Select(d => d.DepotId!.Value)
+                .Distinct()
+                .ToList();
+
+            var depotMappingsFromDb = await context.SteamDepotMappings
+                .Where(m => depotIds.Contains(m.DepotId) && m.IsOwner)
+                .ToDictionaryAsync(m => m.DepotId, m => new { m.AppId, m.AppName });
+
+            _logger.LogDebug($"Pre-loaded {depotMappingsFromDb.Count} depot mappings from database for batch processing");
+
             int updated = 0;
             int notFound = 0;
             int processed = 0;
@@ -90,15 +103,10 @@ public partial class SteamKit2Service
                         }
                         else
                         {
-                            // Fallback to database owner lookup
-                            var ownerApp = await context.SteamDepotMappings
-                                .Where(m => m.DepotId == download.DepotId.Value && m.IsOwner)
-                                .Select(m => m.AppId)
-                                .FirstOrDefaultAsync();
-
-                            if (ownerApp != 0)
+                            // Fallback to pre-loaded database owner lookup (batch loaded above)
+                            if (depotMappingsFromDb.TryGetValue(download.DepotId.Value, out var dbMapping) && dbMapping.AppId != 0)
                             {
-                                appId = ownerApp;
+                                appId = dbMapping.AppId;
                                 _logger.LogTrace($"Using database owner app {appId} for depot {download.DepotId}");
                             }
                             else
