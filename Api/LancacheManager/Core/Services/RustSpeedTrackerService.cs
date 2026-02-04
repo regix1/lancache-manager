@@ -22,6 +22,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
     private DownloadSpeedSnapshot _currentSnapshot = new() { WindowSeconds = 2 };
     private readonly object _snapshotLock = new();
     private bool _previousHadActivity = false;
+    private int _zeroStateBroadcastCountdown = 0; // Continue broadcasting zero-state for multiple cycles
 
     protected override string ServiceName => "RustSpeedTrackerService";
     protected override TimeSpan StartupDelay => TimeSpan.FromSeconds(5);
@@ -196,15 +197,23 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
 
                         var hasActivity = snapshot.HasActiveDownloads || snapshot.TotalBytesPerSecond > 0;
 
-                        // Broadcast via SignalR if there's activity OR if we just transitioned to no activity
-                        // This ensures the frontend gets the "zero" state when downloads stop
-                        if (hasActivity || _previousHadActivity)
+                        // Broadcast logic with countdown for zero-state messages
+                        // This ensures frontend receives multiple zero-state messages reliably
+                        if (hasActivity)
                         {
+                            // Active downloads - always broadcast and reset countdown
+                            _zeroStateBroadcastCountdown = 5; // Will broadcast 5 more cycles after stopping
+                            await _notifications.NotifyAllAsync(SignalREvents.DownloadSpeedUpdate, snapshot);
+                        }
+                        else if (_zeroStateBroadcastCountdown > 0)
+                        {
+                            // No activity but countdown still running - broadcast zero-state
+                            _zeroStateBroadcastCountdown--;
                             await _notifications.NotifyAllAsync(SignalREvents.DownloadSpeedUpdate, snapshot);
 
-                            // Also send DownloadsRefresh when transitioning to no activity
-                            // so the frontend refreshes the active downloads list
-                            if (_previousHadActivity && !hasActivity)
+                            // Send DownloadsRefresh on first transition to zero
+                            // so frontend refreshes the active downloads list
+                            if (_previousHadActivity)
                             {
                                 await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, null);
                             }

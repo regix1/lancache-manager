@@ -1,14 +1,14 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Zap, Clock, HardDrive, Users, TrendingUp } from 'lucide-react';
 import { useDownloads } from '@contexts/DashboardDataContext';
 import { useSignalR } from '@contexts/SignalRContext';
-import { useRefreshRate } from '@contexts/RefreshRateContext';
+import { useSpeed } from '@contexts/SpeedContext';
 import { useTimeFilter } from '@contexts/TimeFilterContext';
 import { Tooltip } from '@components/ui/Tooltip';
 import { formatBytes, formatSpeedWithSeparatedUnit } from '@utils/formatters';
 import ApiService from '@services/api.service';
-import type { DownloadSpeedSnapshot, SpeedHistorySnapshot } from '../../../types';
+import type { SpeedHistorySnapshot } from '../../../types';
 
 interface DownloadsHeaderProps {
   activeTab: 'active' | 'recent';
@@ -19,29 +19,14 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
   const { t } = useTranslation();
   const { latestDownloads } = useDownloads();
   const signalR = useSignalR();
-  const { getRefreshInterval } = useRefreshRate();
+  const { speedSnapshot, activeDownloadCount, totalActiveClients } = useSpeed();
   const { timeRange } = useTimeFilter();
 
   // Determine if we're viewing historical/filtered data (not live)
   // Any time range other than 'live' is historical (including presets like 12h, 24h, 7d, etc.)
   const isHistoricalView = timeRange !== 'live';
 
-  const [speedSnapshot, setSpeedSnapshot] = useState<DownloadSpeedSnapshot | null>(null);
   const [historySnapshot, setHistorySnapshot] = useState<SpeedHistorySnapshot | null>(null);
-  const lastSpeedUpdateRef = useRef<number>(0);
-  const pendingSpeedUpdateRef = useRef<NodeJS.Timeout | null>(null);
-  const lastActiveCountRef = useRef<number | null>(null);
-
-  // Fetch current speeds (for initial load and visibility change)
-  const fetchSpeeds = useCallback(async () => {
-    try {
-      const data = await ApiService.getCurrentSpeeds();
-      setSpeedSnapshot(data);
-      lastActiveCountRef.current = data?.gameSpeeds?.length ?? 0;
-    } catch (err) {
-      console.error('Failed to fetch speeds:', err);
-    }
-  }, []);
 
   // Fetch history for "today" stats
   const fetchHistory = useCallback(async () => {
@@ -53,68 +38,26 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
     }
   }, []);
 
-  // SignalR setup with user-controlled throttling
+  // Fetch history on mount and listen for refresh events
+  // Note: Speed data comes from SpeedContext (single source of truth)
   useEffect(() => {
-    // Initial fetch
-    fetchSpeeds();
     fetchHistory();
-
-    // SignalR handler with debouncing and throttling
-    const handleSpeedUpdate = (speedData: DownloadSpeedSnapshot) => {
-      if (pendingSpeedUpdateRef.current) {
-        clearTimeout(pendingSpeedUpdateRef.current);
-      }
-
-      const newCount = speedData.gameSpeeds?.length ?? 0;
-
-      // ALWAYS accept updates immediately when active games count changes
-      // This ensures the badge count updates instantly when downloads start/finish
-      const countChanged = lastActiveCountRef.current !== null &&
-        lastActiveCountRef.current !== newCount;
-
-      if (countChanged) {
-        lastSpeedUpdateRef.current = Date.now();
-        lastActiveCountRef.current = newCount;
-        setSpeedSnapshot(speedData);
-        return;
-      }
-
-      pendingSpeedUpdateRef.current = setTimeout(() => {
-        const maxRefreshRate = getRefreshInterval();
-        const now = Date.now();
-        const timeSinceLastUpdate = now - lastSpeedUpdateRef.current;
-        const minInterval = maxRefreshRate === 0 ? 500 : maxRefreshRate;
-
-        if (timeSinceLastUpdate >= minInterval) {
-          lastSpeedUpdateRef.current = now;
-          lastActiveCountRef.current = newCount;
-          setSpeedSnapshot(speedData);
-        }
-        pendingSpeedUpdateRef.current = null;
-      }, 100);
-    };
-
-    signalR.on('DownloadSpeedUpdate', handleSpeedUpdate);
 
     // Listen for data refresh events to update history
     signalR.on('DownloadsRefresh', fetchHistory);
     signalR.on('LogProcessingComplete', fetchHistory);
 
     return () => {
-      signalR.off('DownloadSpeedUpdate', handleSpeedUpdate);
       signalR.off('DownloadsRefresh', fetchHistory);
       signalR.off('LogProcessingComplete', fetchHistory);
-      if (pendingSpeedUpdateRef.current) {
-        clearTimeout(pendingSpeedUpdateRef.current);
-      }
     };
-  }, [signalR, getRefreshInterval, fetchSpeeds, fetchHistory]);
+  }, [signalR, fetchHistory]);
 
-  // Use speedSnapshot for all active download data (real-time from Rust speed tracker)
+  // Use speedSnapshot from SpeedContext (single source of truth for real-time data)
   const isActive = speedSnapshot?.hasActiveDownloads || false;
   const totalSpeed = speedSnapshot?.totalBytesPerSecond || 0;
-  const activeGamesCount = speedSnapshot?.gameSpeeds?.length || 0;
-  const activeClientsCount = speedSnapshot?.clientSpeeds?.length || 0;
+  const activeGamesCount = activeDownloadCount;
+  const activeClientsCount = totalActiveClients;
   const todayTotal = historySnapshot?.totalBytes || 0;
   const { value: speedValue, unit: speedUnit } = formatSpeedWithSeparatedUnit(totalSpeed);
 
