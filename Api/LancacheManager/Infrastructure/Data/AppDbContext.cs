@@ -55,6 +55,11 @@ public class AppDbContext : DbContext
             .HasIndex(d => d.Datasource)
             .HasDatabaseName("IX_Downloads_Datasource");
 
+        // DepotId index for efficient JOINs with SteamDepotMappings
+        modelBuilder.Entity<Download>()
+            .HasIndex(d => d.DepotId)
+            .HasDatabaseName("IX_Downloads_DepotId");
+
         // ClientStats indexes
         modelBuilder.Entity<ClientStats>()
             .HasIndex(c => c.LastActivityUtc)

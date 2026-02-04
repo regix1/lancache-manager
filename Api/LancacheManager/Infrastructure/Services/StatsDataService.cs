@@ -100,25 +100,47 @@ public class StatsDataService : IStatsDataService
     }
 
     /// <summary>
-    /// Get latest downloads with optional limit
+    /// Get latest downloads with optional limit.
+    /// Uses LEFT JOIN to resolve game names from SteamDepotMappings for downloads
+    /// where the game name wasn't available at download time.
     /// </summary>
     public async Task<List<Download>> GetLatestDownloadsAsync(int limit = int.MaxValue, CancellationToken cancellationToken = default)
     {
-        var downloads = await ApplyPrefillFilter(_context.Downloads.AsNoTracking())
-            .Where(d => !d.GameAppId.HasValue || d.GameAppId.Value != 0)
-            .OrderByDescending(d => d.StartTimeUtc)
-            .Take(limit)
-            .ToListAsync(cancellationToken);
+        // LEFT JOIN with SteamDepotMappings to resolve missing game names at query time
+        var query = from d in ApplyPrefillFilter(_context.Downloads.AsNoTracking())
+                    where !d.GameAppId.HasValue || d.GameAppId.Value != 0
+                    join m in _context.SteamDepotMappings.Where(mapping => mapping.IsOwner)
+                        on d.DepotId equals m.DepotId into mappings
+                    from mapping in mappings.DefaultIfEmpty()
+                    orderby d.StartTimeUtc descending
+                    select new
+                    {
+                        Download = d,
+                        MappedAppName = mapping != null ? mapping.AppName : null,
+                        MappedAppId = mapping != null ? (uint?)mapping.AppId : null
+                    };
 
-        // Calculate duration from EndTime - StartTime for proper JSON serialization
-        // NOTE: Using EndTime - StartTime instead of querying LogEntries for performance
-        foreach (var download in downloads)
+        var results = await query.Take(limit).ToListAsync(cancellationToken);
+
+        var downloads = results.Select(r =>
         {
+            var download = r.Download;
+
+            // Fill in missing game info from mapping if available
+            if (string.IsNullOrEmpty(download.GameName) && !string.IsNullOrEmpty(r.MappedAppName))
+            {
+                download.GameName = r.MappedAppName;
+                download.GameAppId = r.MappedAppId;
+            }
+
+            // Calculate duration from EndTime - StartTime for proper JSON serialization
             if (download.EndTimeUtc != default(DateTime) && download.EndTimeUtc > download.StartTimeUtc)
             {
                 download.DurationSeconds = (download.EndTimeUtc - download.StartTimeUtc).TotalSeconds;
             }
-        }
+
+            return download;
+        }).ToList();
 
         return downloads.WithUtcMarking();
     }

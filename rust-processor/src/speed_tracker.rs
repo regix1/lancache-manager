@@ -425,14 +425,22 @@ impl SpeedTracker {
     }
 
     fn lookup_depot(&mut self, depot_id: u32) -> (Option<String>, Option<u32>) {
-        // Check cache first
+        // Check cache first - only use cached value if we have a real name
         if let Some(cached) = self.depot_cache.get(&depot_id) {
-            return cached.clone();
+            if cached.0.is_some() {
+                return cached.clone();
+            }
+            // Fall through to re-query for missing names
         }
 
         // Lookup in database
         let result = self.lookup_depot_from_db(depot_id);
-        self.depot_cache.insert(depot_id, result.clone());
+
+        // Only cache successful lookups (where we found a name)
+        if result.0.is_some() {
+            self.depot_cache.insert(depot_id, result.clone());
+        }
+
         result
     }
 
