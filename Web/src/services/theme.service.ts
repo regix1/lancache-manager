@@ -164,6 +164,18 @@ interface ThemeColors {
   eventColor7?: string;
   eventColor8?: string;
 
+  // Firework/celebration colors
+  fireworkColor1?: string;  // Primary firework particle color
+  fireworkColor2?: string;  // Secondary firework particle color
+  fireworkColor3?: string;  // Tertiary firework particle color
+  fireworkColor4?: string;  // Quaternary firework particle color
+  fireworkColor5?: string;  // Fifth firework particle color
+  fireworkColor6?: string;  // Sixth firework particle color
+  fireworkColor7?: string;  // Seventh firework particle color
+  fireworkColor8?: string;  // Eighth firework particle color
+  fireworkRocketColor?: string;  // Main rocket/firecracker body color
+  fireworkGlowColor?: string;    // Glow effect color for rocket trail
+
   // Index signature for dynamic color access
   [key: string]: string | undefined;
 }
@@ -572,7 +584,19 @@ class ThemeService {
           eventColor5: '#8b5cf6', // Purple
           eventColor6: '#ec4899', // Pink
           eventColor7: '#06b6d4', // Cyan
-          eventColor8: '#f97316' // Orange
+          eventColor8: '#f97316', // Orange
+
+          // Firework/celebration colors - Blue theme (primary blue with cyan/purple accents)
+          fireworkColor1: '#3b82f6', // Primary blue
+          fireworkColor2: '#60a5fa', // Light blue
+          fireworkColor3: '#06b6d4', // Cyan
+          fireworkColor4: '#8b5cf6', // Purple
+          fireworkColor5: '#22d3ee', // Bright cyan
+          fireworkColor6: '#a78bfa', // Light purple
+          fireworkColor7: '#38bdf8', // Sky blue
+          fireworkColor8: '#ffffff', // White
+          fireworkRocketColor: '#3b82f6', // Blue (uses primaryColor)
+          fireworkGlowColor: '#60a5fa' // Light blue glow
         }
       },
       // Modern, clean light theme inspired by Linear/Stripe
@@ -747,7 +771,19 @@ class ThemeService {
           eventColor5: '#7c3aed', // Purple
           eventColor6: '#db2777', // Pink
           eventColor7: '#0891b2', // Cyan
-          eventColor8: '#ea580c' // Orange
+          eventColor8: '#ea580c', // Orange
+
+          // Firework/celebration colors - Light blue theme (vibrant blues with purple accents)
+          fireworkColor1: '#2563eb', // Primary blue
+          fireworkColor2: '#3b82f6', // Medium blue
+          fireworkColor3: '#0891b2', // Cyan
+          fireworkColor4: '#7c3aed', // Purple
+          fireworkColor5: '#06b6d4', // Bright cyan
+          fireworkColor6: '#8b5cf6', // Light purple
+          fireworkColor7: '#0ea5e9', // Sky blue
+          fireworkColor8: '#ffffff', // White
+          fireworkRocketColor: '#2563eb', // Blue (uses primaryColor)
+          fireworkGlowColor: '#3b82f6' // Blue glow
         }
       }
     ];
@@ -990,6 +1026,18 @@ class ThemeService {
         --theme-event-6: #ec4899;
         --theme-event-7: #06b6d4;
         --theme-event-8: #f97316;
+
+        /* Firework Colors - Blue theme */
+        --theme-firework-1: #3b82f6;
+        --theme-firework-2: #60a5fa;
+        --theme-firework-3: #06b6d4;
+        --theme-firework-4: #8b5cf6;
+        --theme-firework-5: #22d3ee;
+        --theme-firework-6: #a78bfa;
+        --theme-firework-7: #38bdf8;
+        --theme-firework-8: #ffffff;
+        --theme-firework-rocket: #3b82f6;
+        --theme-firework-glow: #60a5fa;
 
         /* Muted aliases */
         --theme-muted: #9ca3af;
@@ -1246,6 +1294,18 @@ class ThemeService {
       --theme-event-6: ${colors.eventColor6 || '#ec4899'};
       --theme-event-7: ${colors.eventColor7 || colors.accentColor};
       --theme-event-8: ${colors.eventColor8 || colors.iconBgOrange};
+
+      /* Firework Colors - fallback to theme colors if not defined */
+      --theme-firework-1: ${colors.fireworkColor1 || colors.primaryColor};
+      --theme-firework-2: ${colors.fireworkColor2 || colors.secondaryColor};
+      --theme-firework-3: ${colors.fireworkColor3 || colors.accentColor};
+      --theme-firework-4: ${colors.fireworkColor4 || colors.success};
+      --theme-firework-5: ${colors.fireworkColor5 || colors.warning};
+      --theme-firework-6: ${colors.fireworkColor6 || colors.info};
+      --theme-firework-7: ${colors.fireworkColor7 || colors.textAccent};
+      --theme-firework-8: ${colors.fireworkColor8 || '#ffffff'};
+      --theme-firework-rocket: ${colors.fireworkRocketColor || colors.primaryColor};
+      --theme-firework-glow: ${colors.fireworkGlowColor || colors.primaryColor};
 
       /* Alias Variables for Compatibility */
       --theme-muted: ${colors.textMuted};

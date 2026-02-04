@@ -167,6 +167,18 @@ eventColor6 = "#facc15"
 eventColor7 = "#6366f1"
 eventColor8 = "#a855f7"
 
+# Firework/celebration colors - Deuteranopia accessible (no green, uses blues/yellows/purples/pinks)
+fireworkColor1 = "#3b82f6"  # Primary firework particle - blue
+fireworkColor2 = "#eab308"  # Secondary firework particle - yellow
+fireworkColor3 = "#e879f9"  # Tertiary firework particle - pink
+fireworkColor4 = "#c026d3"  # Fourth firework particle - magenta
+fireworkColor5 = "#0ea5e9"  # Fifth firework particle - sky blue
+fireworkColor6 = "#facc15"  # Sixth firework particle - bright yellow
+fireworkColor7 = "#6366f1"  # Seventh firework particle - indigo
+fireworkColor8 = "#ffffff"  # Eighth firework particle - white
+fireworkRocketColor = "#3b82f6"  # Main rocket body (matches primaryColor)
+fireworkGlowColor = "#e879f9"    # Glow effect color - pink
+
 [css]
 content = """
 /* Accessible Deuteranopia Theme */

@@ -167,6 +167,18 @@ eventColor6 = "#f97316"
 eventColor7 = "#22c55e"
 eventColor8 = "#db2777"
 
+# Firework/celebration colors - Tritanopia accessible (no blue/yellow, uses reds/greens/pinks/cyans)
+fireworkColor1 = "#14b8a6"  # Primary firework particle - teal
+fireworkColor2 = "#10b981"  # Secondary firework particle - green
+fireworkColor3 = "#ec4899"  # Tertiary firework particle - pink
+fireworkColor4 = "#ef4444"  # Fourth firework particle - red
+fireworkColor5 = "#22c55e"  # Fifth firework particle - bright green
+fireworkColor6 = "#db2777"  # Sixth firework particle - rose
+fireworkColor7 = "#a855f7"  # Seventh firework particle - purple
+fireworkColor8 = "#ffffff"  # Eighth firework particle - white
+fireworkRocketColor = "#14b8a6"  # Main rocket body (matches primaryColor)
+fireworkGlowColor = "#5eead4"    # Glow effect color - light teal
+
 [css]
 content = """
 /* Accessible Tritanopia Theme */

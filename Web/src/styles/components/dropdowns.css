@@ -244,14 +244,7 @@
     color: var(--theme-primary);
   }
 
-  /* Section Container */
-  .github-dropdown-section {
-    padding: 0.5rem 0.5rem 0;
-  }
-
-  .github-dropdown-section:last-of-type {
-    padding-bottom: 0.25rem;
-  }
+  /* Section Container - moved to bottom with outline styles */
 
   /* Section Header */
   .github-section-header {
@@ -618,4 +611,164 @@
       margin: 0.375rem;
     }
   }
+
+  /* ==============================================
+   * SECTION OUTLINES - Subtle borders around sections
+   * ============================================== */
+
+  .github-dropdown-section {
+    padding: 0.5rem 0.5rem 0;
+    margin: 0.25rem 0.5rem;
+    border: 1px solid var(--theme-border-secondary);
+    border-radius: var(--theme-border-radius, 0.375rem);
+    background-color: color-mix(in srgb, var(--theme-bg-tertiary) 40%, transparent);
+  }
+
+  .github-dropdown-section:last-of-type {
+    padding-bottom: 0.5rem;
+    margin-bottom: 0.25rem;
+  }
+
+  /* ==============================================
+   * GITHUB ICON FIREWORK ANIMATIONS
+   * ============================================== */
+
+  /* GitHub Icon Container - clickable area for firework launch */
+  .github-icon-container {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: transform 0.2s ease;
+  }
+
+  .github-icon-container:hover {
+    transform: scale(1.15);
+  }
+
+  .github-icon-container:focus {
+    outline: 2px solid var(--theme-primary);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  .github-icon-container:hover .github-icon-spin {
+    filter: brightness(1.1) saturate(1.2);
+  }
+
+  /* GitHub Icon Spin Animation for firework launch */
+  @keyframes githubIconFireworkSpin {
+    0% {
+      transform: rotate(0deg) scale(1);
+    }
+    25% {
+      transform: rotate(90deg) scale(1.2);
+    }
+    50% {
+      transform: rotate(180deg) scale(1.3);
+    }
+    75% {
+      transform: rotate(270deg) scale(1.2);
+    }
+    100% {
+      transform: rotate(360deg) scale(1);
+    }
+  }
+
+  .github-icon-container.spinning {
+    animation: githubIconFireworkSpin 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .github-icon-container.spinning .github-icon-spin {
+    filter: brightness(1.3) saturate(1.5);
+  }
+
+  /* Glow effect on GitHub icon during spin animation */
+  .github-icon-container.spinning::after {
+    content: '';
+    position: absolute;
+    inset: -6px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(var(--theme-primary-rgb), 0.6) 0%, rgba(var(--theme-primary-rgb), 0.3) 50%, transparent 70%);
+    animation: githubIconGlow 0.5s ease-out;
+    pointer-events: none;
+  }
+
+  @keyframes githubIconGlow {
+    0% {
+      transform: scale(0.8);
+      opacity: 0;
+    }
+    50% {
+      transform: scale(1.5);
+      opacity: 1;
+    }
+    100% {
+      transform: scale(2);
+      opacity: 0;
+    }
+  }
+
+  /* Firework Container */
+  .firework-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 9999;
+    overflow: hidden;
+  }
+
+  /* Flying Rocket - positioned via JS animation */
+  .firework-rocket {
+    position: absolute;
+    width: 26px;
+    height: 26px;
+    transform-origin: center center;
+    filter: drop-shadow(0 0 5px rgba(var(--theme-primary-rgb), 0.7)) drop-shadow(0 0 12px rgba(var(--theme-primary-rgb), 0.5));
+    pointer-events: none;
+    margin-left: -13px;
+    margin-top: -13px;
+    z-index: 10;
+  }
+
+  /* Rocket icon - rotation set dynamically via JS based on travel direction */
+  .flying-rocket-icon {
+    width: 100%;
+    height: 100%;
+    transition: transform 0.03s linear;
+  }
+
+  .flying-rocket-icon svg {
+    width: 100%;
+    height: 100%;
+  }
+
+  /* Smoke/trail dots - positioned via JS animation */
+  .firework-trail-dot {
+    position: absolute;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.9) 0%, var(--trail-color) 100%);
+    box-shadow: 0 0 4px 1px var(--trail-color);
+    pointer-events: none;
+    z-index: 5;
+    margin-left: -3px;
+    margin-top: -3px;
+  }
+
+  /* Trail dots use theme firework colors */
+  /* Note: nth-child offsets by +1 because .firework-rocket is child 1 */
+  .firework-trail-dot:nth-child(8n+2) { --trail-color: var(--theme-firework-1); }
+  .firework-trail-dot:nth-child(8n+3) { --trail-color: var(--theme-firework-2); }
+  .firework-trail-dot:nth-child(8n+4) { --trail-color: var(--theme-firework-3); }
+  .firework-trail-dot:nth-child(8n+5) { --trail-color: var(--theme-firework-4); }
+  .firework-trail-dot:nth-child(8n+6) { --trail-color: var(--theme-firework-5); }
+  .firework-trail-dot:nth-child(8n+7) { --trail-color: var(--theme-firework-6); }
+  .firework-trail-dot:nth-child(8n)   { --trail-color: var(--theme-firework-7); }
+  .firework-trail-dot:nth-child(8n+1) { --trail-color: var(--theme-firework-8); }
 }

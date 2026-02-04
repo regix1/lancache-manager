@@ -135,6 +135,18 @@ eventColor6 = "#7a9a9f"
 eventColor7 = "#9b8b7a"
 eventColor8 = "#8fa4c4"
 
+# Firework/celebration colors - Sage & Wood theme (sage greens, wood browns)
+fireworkColor1 = "#8AA968"  # Primary firework particle - sage green
+fireworkColor2 = "#7a9960"  # Secondary firework particle - forest green
+fireworkColor3 = "#8b6f47"  # Tertiary firework particle - wood brown
+fireworkColor4 = "#a8c090"  # Fourth firework particle - light sage
+fireworkColor5 = "#9b8b7a"  # Fifth firework particle - driftwood
+fireworkColor6 = "#d4a574"  # Sixth firework particle - amber wood
+fireworkColor7 = "#7a9a9f"  # Seventh firework particle - sage blue
+fireworkColor8 = "#e8e3db"  # Eighth firework particle - cream
+fireworkRocketColor = "#8AA968"  # Main rocket body (matches primaryColor)
+fireworkGlowColor = "#a8c090"    # Glow effect color - light sage
+
 [css]
 content = """
 /* Sage & Wood Theme - Natural Aesthetics */

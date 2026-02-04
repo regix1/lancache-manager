@@ -172,20 +172,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({ ch
     const eventIds = currentEventIds.length > 0 ? currentEventIds : undefined;
     const cacheBust = forceRefresh ? Date.now() : undefined;
 
-    console.log(`%c[DASHBOARD FETCH] requestId=${thisRequestId}`, 'color: #8b5cf6; font-weight: bold', {
-      trigger,
-      timeRange: currentTimeRange,
-      startTime,
-      endTime,
-      startDate: startTime ? new Date(startTime * 1000).toLocaleString() : 'none',
-      endDate: endTime ? new Date(endTime * 1000).toLocaleString() : 'none',
-      eventIds,
-      forceRefresh,
-      showLoading,
-      isInitial,
-      cacheBust: cacheBust ? 'yes' : 'no'
-    });
-
     abortControllerRef.current = new AbortController();
     const signal = abortControllerRef.current.signal;
 
@@ -242,14 +228,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({ ch
             setServiceStats(services.value);
           }
           if (dashboard.status === 'fulfilled' && dashboard.value !== undefined) {
-            console.log(`[DASHBOARD DATA] New dashboard data for timeRange=${currentTimeRange}`, {
-              period: dashboard.value.period?.duration,
-              bandwidthSaved: dashboard.value.period?.bandwidthSaved,
-              addedToCache: dashboard.value.period?.addedToCache,
-              totalServed: dashboard.value.period?.totalServed,
-              hitRatio: dashboard.value.period?.hitRatio,
-              uniqueClients: dashboard.value.uniqueClients
-            });
             setDashboardStats(dashboard.value);
             hasData.current = true;
           }
@@ -308,15 +286,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({ ch
       // For historical ranges (not 'live'), skip SignalR refreshes to prevent flickering
       const isLiveMode = currentRange === 'live';
 
-      console.log(`%c[DASHBOARD SIGNALR] Event received`, 'color: #16a34a; font-weight: bold', {
-        event: eventName || 'unknown',
-        timeSinceLastRefresh,
-        minInterval,
-        currentTimeRange: currentRange,
-        isLiveMode,
-        willRefresh: isLiveMode && timeSinceLastRefresh >= minInterval
-      });
-
       // Only refresh in live mode - historical ranges should not react to real-time events
       if (isLiveMode && timeSinceLastRefresh >= minInterval) {
         lastSignalRRefresh.current = now;
@@ -327,7 +296,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({ ch
     // Handler for database reset completion - always refresh immediately
     const handleDatabaseResetProgress = (event: { status?: string }) => {
       const status = (event.status || '').toLowerCase();
-      console.log(`%c[DASHBOARD SIGNALR] DatabaseResetProgress`, 'color: #16a34a; font-weight: bold', { status });
       if (status === 'completed') {
         setTimeout(() => fetchAllData({ trigger: 'signalr:DatabaseResetCompleted' }), 500);
       }
@@ -376,7 +344,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({ ch
   // Initial load
   useEffect(() => {
     if (!mockMode && !authLoading && hasAccess) {
-      console.log(`%c[DASHBOARD EFFECT] Initial load triggered`, 'color: #0891b2; font-weight: bold');
       fetchAllData({ showLoading: true, isInitial: true, trigger: 'initial' });
     }
 
@@ -388,9 +355,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({ ch
   // Handle time range changes - fetch new data
   useEffect(() => {
     if (!mockMode && hasAccess && !isInitialLoad.current) {
-      console.log(`%c[DASHBOARD EFFECT] Time range changed`, 'color: #0891b2; font-weight: bold', {
-        newTimeRange: timeRange
-      });
       // Use forceRefresh to bypass debounce - time range changes should always trigger immediate fetch
       // Only show loading if we don't have existing data to prevent UI flashing
       fetchAllData({ showLoading: !hasData.current, forceRefresh: true, trigger: `timeRangeChange:${timeRange}` });
@@ -401,10 +365,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({ ch
   useEffect(() => {
     const currentEventIdsKey = JSON.stringify(selectedEventIds);
     if (!mockMode && hasAccess && prevEventIdsRef.current !== currentEventIdsKey) {
-      console.log(`%c[DASHBOARD EFFECT] Event filter changed`, 'color: #0891b2; font-weight: bold', {
-        prevEventIds: prevEventIdsRef.current,
-        newEventIds: currentEventIdsKey
-      });
       prevEventIdsRef.current = currentEventIdsKey;
       // Keep previous data visible during fetch - don't clear immediately
       // Only show loading if we don't have existing data to prevent UI flashing
@@ -421,12 +381,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({ ch
           lastCustomDates.end?.getTime() !== customEndDate.getTime();
 
         if (datesChanged) {
-          console.log(`%c[DASHBOARD EFFECT] Custom dates changed`, 'color: #0891b2; font-weight: bold', {
-            prevStart: lastCustomDates.start?.toLocaleString(),
-            prevEnd: lastCustomDates.end?.toLocaleString(),
-            newStart: customStartDate.toLocaleString(),
-            newEnd: customEndDate.toLocaleString()
-          });
           setLastCustomDates({ start: customStartDate, end: customEndDate });
           // Only show loading if we don't have existing data to prevent UI flashing
           fetchAllData({ showLoading: !hasData.current, forceRefresh: true, trigger: 'customDateChange' });

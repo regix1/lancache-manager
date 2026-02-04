@@ -171,6 +171,18 @@ eventColor6 = "#e74c3c"
 eventColor7 = "#d35400"
 eventColor8 = "#f5b041"
 
+# Firework/celebration colors - Lava theme (reds, oranges, yellows)
+fireworkColor1 = "#dc3545"  # Primary firework particle - main red
+fireworkColor2 = "#f39c12"  # Secondary firework particle - amber
+fireworkColor3 = "#e67e22"  # Tertiary firework particle - orange
+fireworkColor4 = "#f1c40f"  # Fourth firework particle - yellow
+fireworkColor5 = "#e74c3c"  # Fifth firework particle - coral red
+fireworkColor6 = "#f5b041"  # Sixth firework particle - light amber
+fireworkColor7 = "#d35400"  # Seventh firework particle - dark orange
+fireworkColor8 = "#ffffff"  # Eighth firework particle - bright white
+fireworkRocketColor = "#dc3545"  # Main rocket body (matches primaryColor)
+fireworkGlowColor = "#f39c12"    # Glow effect color - amber
+
 [css]
 content = """
 /* LANCache Unofficial - Lava Theme */

@@ -171,6 +171,18 @@ eventColor6 = "#a8a095"
 eventColor7 = "#c98a50"
 eventColor8 = "#b5a48f"
 
+# Firework/celebration colors - Timber & Stone theme (browns, earth tones)
+fireworkColor1 = "#a67c52"  # Primary firework particle - warm brown
+fireworkColor2 = "#c9a67a"  # Secondary firework particle - tan
+fireworkColor3 = "#d4915c"  # Tertiary firework particle - burnt sienna
+fireworkColor4 = "#c98a50"  # Fourth firework particle - copper
+fireworkColor5 = "#b5a48f"  # Fifth firework particle - sandy brown
+fireworkColor6 = "#ebe5dc"  # Sixth firework particle - cream
+fireworkColor7 = "#b57161"  # Seventh firework particle - terracotta
+fireworkColor8 = "#e8d4b8"  # Eighth firework particle - light tan
+fireworkRocketColor = "#a67c52"  # Main rocket body (matches primaryColor)
+fireworkGlowColor = "#c9a67a"    # Glow effect color - tan
+
 [css]
 content = """
 /* Timber & Stone Theme - Warm Earth Tones */

@@ -167,6 +167,18 @@ eventColor6 = "#eab308"
 eventColor7 = "#8b5cf6"
 eventColor8 = "#0ea5e9"
 
+# Firework/celebration colors - Protanopia accessible (no red, uses blues/yellows/cyans/purples)
+fireworkColor1 = "#3b82f6"  # Primary firework particle - blue
+fireworkColor2 = "#f59e0b"  # Secondary firework particle - orange
+fireworkColor3 = "#06b6d4"  # Tertiary firework particle - cyan
+fireworkColor4 = "#eab308"  # Fourth firework particle - yellow
+fireworkColor5 = "#a855f7"  # Fifth firework particle - purple
+fireworkColor6 = "#0ea5e9"  # Sixth firework particle - sky blue
+fireworkColor7 = "#8b5cf6"  # Seventh firework particle - violet
+fireworkColor8 = "#ffffff"  # Eighth firework particle - white
+fireworkRocketColor = "#3b82f6"  # Main rocket body (matches primaryColor)
+fireworkGlowColor = "#06b6d4"    # Glow effect color - cyan
+
 [css]
 content = """
 /* Accessible Protanopia Theme */
