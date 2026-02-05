@@ -365,14 +365,11 @@ const Firework: React.FC<FireworkProps> = ({ startX, startY, onComplete }) => {
         // Place dot at the flame (offset behind rocket center)
         // Use lastValidAngle (the rocket's visual rotation) instead of velocity direction
         // Add PI to get the opposite direction (behind the rocket)
-        const behindOffset = 12; // Distance behind the rocket center
+        const behindOffset = 14; // Distance behind the rocket center
         const behindAngle = lastValidAngle + Math.PI;
-        // Small offset to center particles with the rocket icon (compensates for icon centering)
-        const centerOffsetX = 4;
-        const centerOffsetY = 0;
         dotData[nextDotIndex] = {
-          x: currentX + Math.cos(behindAngle) * behindOffset + centerOffsetX,
-          y: currentY + Math.sin(behindAngle) * behindOffset + centerOffsetY,
+          x: currentX + Math.cos(behindAngle) * behindOffset,
+          y: currentY + Math.sin(behindAngle) * behindOffset,
           spawnTime: elapsed,
           active: true
         };
