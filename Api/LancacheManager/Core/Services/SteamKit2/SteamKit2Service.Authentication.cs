@@ -109,7 +109,8 @@ public partial class SteamKit2Service
             {
                 Username = pollResponse.AccountName,
                 AccessToken = pollResponse.RefreshToken,
-                ShouldRememberPassword = true
+                ShouldRememberPassword = true,
+                LoginID = _steamLoginId
             });
 
             // Use longer timeout for authentication (Steam servers can be slow)
