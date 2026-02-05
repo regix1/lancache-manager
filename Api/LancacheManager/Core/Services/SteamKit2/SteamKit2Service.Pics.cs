@@ -119,6 +119,11 @@ public partial class SteamKit2Service
         try
         {
             _logger.LogInformation("Cancelling active PICS rebuild (operationId: {OperationId})", operationId);
+
+            // Clear yield flag so task can proceed with cancellation even if prefill is running
+            // Depot mapping and prefill are separate operations - cancel should work immediately
+            _yieldingToPrefillDaemon = false;
+
             _currentRebuildCts.Cancel();
 
             // Wait briefly for cancellation to complete

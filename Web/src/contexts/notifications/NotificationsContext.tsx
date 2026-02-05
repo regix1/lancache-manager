@@ -924,6 +924,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       prevState !== null &&
       prevState !== 'connected'
     ) {
+      console.debug('[Notifications] SignalR reconnected, running recovery. prevState:', prevState, 'currentState:', currentState);
       const recoverAllOperations = createRecoveryRunner(
         fetchWithAuth,
         setNotifications,
