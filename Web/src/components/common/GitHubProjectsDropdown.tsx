@@ -368,7 +368,7 @@ const Firework: React.FC<FireworkProps> = ({ startX, startY, onComplete }) => {
         const behindOffset = 12; // Distance behind the rocket center
         const behindAngle = lastValidAngle + Math.PI;
         // Small offset to center particles with the rocket icon (compensates for icon centering)
-        const centerOffsetX = 3;
+        const centerOffsetX = 4;
         const centerOffsetY = 0;
         dotData[nextDotIndex] = {
           x: currentX + Math.cos(behindAngle) * behindOffset + centerOffsetX,
