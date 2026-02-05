@@ -556,7 +556,6 @@ export function createDepotMappingCompletionHandler(
 
   /** Handles depot mapping cancellation */
   const handleCancelled = (): void => {
-    console.debug('[Notifications] DepotMappingComplete: cancellation received');
     localStorage.removeItem(storageKey);
     const newStartedAt = new Date();
 
@@ -702,11 +701,6 @@ export function createDepotMappingCompletionHandler(
 
   // Return the main handler function
   return (event: DepotMappingCompleteEvent): void => {
-    console.debug('[Notifications] DepotMappingComplete event received:', {
-      cancelled: event.cancelled,
-      success: event.success,
-      message: event.message
-    });
     if (event.cancelled) {
       handleCancelled();
     } else if (event.success) {

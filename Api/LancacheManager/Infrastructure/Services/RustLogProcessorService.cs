@@ -478,16 +478,30 @@ public class RustLogProcessorService
 
             if (wasCancelled)
             {
-                // Process was cancelled - don't send success/completion messages
                 _logger.LogInformation("Processing was cancelled (exit code: {ExitCode}, progress: {Progress}%)",
                     exitCode, finalProgress?.PercentComplete ?? 0);
-                
+
                 // Complete the operation with cancellation status
                 if (_currentOperationId != null)
                 {
                     _operationTracker.CompleteOperation(_currentOperationId, false, "Operation was cancelled");
                 }
-                
+
+                // Send cancellation notification so frontend doesn't get stuck in "Cancelling..." state
+                if (!silentMode)
+                {
+                    await _notifications.NotifyAllAsync(SignalREvents.LogProcessingComplete, new
+                    {
+                        OperationId = _currentOperationId,
+                        Success = false,
+                        Status = OperationStatus.Cancelled,
+                        Message = "Log processing was cancelled",
+                        Cancelled = true,
+                        EntriesProcessed = finalProgress?.EntriesSaved ?? 0,
+                        LinesProcessed = finalProgress?.LinesParsed ?? 0
+                    });
+                }
+
                 return false;
             }
 

@@ -92,10 +92,6 @@ public class StateService : IStateService
         public uint LastViabilityCheckChangeNumber { get; set; } = 0;
         public uint ViabilityChangeGap { get; set; } = 0;
 
-        // Steam session replacement tracking
-        public int SessionReplacedCount { get; set; } = 0;
-        public DateTime? LastSessionReplacement { get; set; }
-
         // Metrics authentication toggle (null = use env var default)
         public bool? RequireAuthForMetrics { get; set; } = null;
 
@@ -766,9 +762,6 @@ public class StateService : IStateService
             LastViabilityCheck = persisted.LastViabilityCheck,
             LastViabilityCheckChangeNumber = persisted.LastViabilityCheckChangeNumber,
             ViabilityChangeGap = persisted.ViabilityChangeGap,
-            // Steam session replacement tracking
-            SessionReplacedCount = persisted.SessionReplacedCount,
-            LastSessionReplacement = persisted.LastSessionReplacement,
             // Metrics authentication toggle
             RequireAuthForMetrics = persisted.RequireAuthForMetrics,
             // Client IPs excluded from stats
@@ -827,9 +820,6 @@ public class StateService : IStateService
             LastViabilityCheck = state.LastViabilityCheck,
             LastViabilityCheckChangeNumber = state.LastViabilityCheckChangeNumber,
             ViabilityChangeGap = state.ViabilityChangeGap,
-            // Steam session replacement tracking
-            SessionReplacedCount = state.SessionReplacedCount,
-            LastSessionReplacement = state.LastSessionReplacement,
             // Metrics authentication toggle
             RequireAuthForMetrics = state.RequireAuthForMetrics,
             // Client IPs excluded from stats (legacy)
@@ -995,59 +985,6 @@ public class StateService : IStateService
             rate = "STANDARD";
         }
         UpdateState(state => state.DefaultGuestRefreshRate = rate.ToUpperInvariant());
-    }
-
-    // Steam Session Replacement Tracking Methods
-    public int GetSessionReplacedCount()
-    {
-        var state = GetState();
-        // Reset counter if last replacement was more than 24 hours ago
-        if (state.LastSessionReplacement.HasValue &&
-            DateTime.UtcNow - state.LastSessionReplacement.Value > TimeSpan.FromHours(24))
-        {
-            ResetSessionReplacedCount();
-            return 0;
-        }
-        return state.SessionReplacedCount;
-    }
-
-    public void SetSessionReplacedCount(int count)
-    {
-        UpdateState(state => state.SessionReplacedCount = count);
-    }
-
-    public DateTime? GetLastSessionReplacement()
-    {
-        return GetState().LastSessionReplacement;
-    }
-
-    public void SetLastSessionReplacement(DateTime? timestamp)
-    {
-        UpdateState(state => state.LastSessionReplacement = timestamp);
-    }
-
-    public void IncrementSessionReplacedCount()
-    {
-        UpdateState(state =>
-        {
-            // Reset counter if last replacement was more than 24 hours ago
-            if (state.LastSessionReplacement.HasValue &&
-                DateTime.UtcNow - state.LastSessionReplacement.Value > TimeSpan.FromHours(24))
-            {
-                state.SessionReplacedCount = 0;
-            }
-            state.SessionReplacedCount++;
-            state.LastSessionReplacement = DateTime.UtcNow;
-        });
-    }
-
-    public void ResetSessionReplacedCount()
-    {
-        UpdateState(state =>
-        {
-            state.SessionReplacedCount = 0;
-            state.LastSessionReplacement = null;
-        });
     }
 
     // Metrics Authentication Toggle Methods

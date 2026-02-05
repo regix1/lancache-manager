@@ -43,15 +43,6 @@ function createSimpleRecoveryFunction(
       const data = await response.json();
       const notificationId = config.notificationId;
 
-      // Debug logging for recovery
-      if (config.type === 'depot_mapping') {
-        console.debug('[Notifications] Recovery check for depot_mapping:', {
-          isProcessing: config.isProcessing(data),
-          hasLocalStorage: Boolean(localStorage.getItem(config.storageKey)),
-          apiData: { isProcessing: data.isProcessing, status: data.status }
-        });
-      }
-
       // Check if we should skip (e.g., silent mode)
       if (config.shouldSkip?.(data)) {
         localStorage.removeItem(config.storageKey);

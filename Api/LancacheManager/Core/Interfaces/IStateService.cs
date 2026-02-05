@@ -92,14 +92,6 @@ public interface IStateService
     string GetDefaultGuestRefreshRate();
     void SetDefaultGuestRefreshRate(string rate);
 
-    // Steam Session Replacement Tracking Methods
-    int GetSessionReplacedCount();
-    void SetSessionReplacedCount(int count);
-    DateTime? GetLastSessionReplacement();
-    void SetLastSessionReplacement(DateTime? timestamp);
-    void IncrementSessionReplacedCount(); // Convenience method that also sets timestamp
-    void ResetSessionReplacedCount(); // Resets both count and timestamp
-
     // Metrics Authentication Toggle Methods
     bool? GetRequireAuthForMetrics();
     void SetRequireAuthForMetrics(bool? value);

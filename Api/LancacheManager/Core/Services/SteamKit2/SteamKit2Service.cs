@@ -30,7 +30,6 @@ public partial class SteamKit2Service : IHostedService, IDisposable
     private readonly SteamWebApiService _steamWebApiService;
     private readonly SteamAuthStorageService _steamAuthRepository;
     private readonly IUnifiedOperationTracker _operationTracker;
-    private readonly SteamPrefillDaemonService _prefillDaemonService;
     private readonly uint _steamLoginId;
     private SteamClient? _steamClient;
     private CallbackManager? _manager;
@@ -40,7 +39,6 @@ public partial class SteamKit2Service : IHostedService, IDisposable
     private bool _isRunning = false;
     private bool _isLoggedOn = false;
     private bool _intentionalDisconnect = false;
-    private bool _yieldingToPrefillDaemon = false;
     private readonly CancellationTokenSource _cancellationTokenSource = new();
     private Task? _currentBuildTask;
     private CancellationTokenSource? _currentRebuildCts;
@@ -52,12 +50,6 @@ public partial class SteamKit2Service : IHostedService, IDisposable
     private int _reconnectAttempt = 0;
     private const int MaxReconnectAttempts = 2; // Give up after 2 attempts
     private const int MaxReconnectDelaySeconds = 60; // Cap at 60 seconds
-
-    // Track session replacement errors to auto-logout after repeated failures
-    // Counter is persisted to state.json via _stateService
-    private const int MaxSessionReplacedBeforeLogout = 3; // Auto-logout after 4 session replacements (more tolerant)
-    private bool _isReconnectingAfterSessionReplaced = false; // Don't reset counter during reconnection
-    private bool _sessionReplacementAutoLogout = false; // Prevent reconnection attempts after auto-logout
 
     // Scheduling for periodic PICS crawls
     private Timer? _periodicTimer;
@@ -121,8 +113,7 @@ public partial class SteamKit2Service : IHostedService, IDisposable
         ISignalRNotificationService notifications,
         SteamWebApiService steamWebApiService,
         SteamAuthStorageService steamAuthRepository,
-        IUnifiedOperationTracker operationTracker,
-        SteamPrefillDaemonService prefillDaemonService)
+        IUnifiedOperationTracker operationTracker)
     {
         _logger = logger;
         _scopeFactory = scopeFactory;
@@ -135,15 +126,11 @@ public partial class SteamKit2Service : IHostedService, IDisposable
         _steamWebApiService = steamWebApiService;
         _steamAuthRepository = steamAuthRepository;
         _operationTracker = operationTracker;
-        _prefillDaemonService = prefillDaemonService;
 
         // Use range 16384-65535 to avoid collision with steam-prefill-daemon (0-16383)
         _steamLoginId = (uint)new Random().Next(16384, 65536);
         _logger.LogInformation("Generated unique Steam LoginID: {LoginID} (0x{LoginIDHex:X8})", _steamLoginId, _steamLoginId);
 
-        // Subscribe to prefill daemon events for session coordination
-        _prefillDaemonService.OnDaemonAuthenticated += OnPrefillDaemonAuthenticatedAsync;
-        _prefillDaemonService.OnAllDaemonsLoggedOut += OnPrefillDaemonSessionEndedAsync;
     }
 
     /// <summary>

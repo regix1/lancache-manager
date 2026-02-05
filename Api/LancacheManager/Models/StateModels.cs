@@ -51,10 +51,6 @@ public class AppState
     public uint LastViabilityCheckChangeNumber { get; set; } = 0; // Change number at time of last check
     public uint ViabilityChangeGap { get; set; } = 0; // Change gap at time of last check
 
-    // Steam session replacement tracking (persisted to survive restarts)
-    public int SessionReplacedCount { get; set; } = 0; // Counter for session replacement errors
-    public DateTime? LastSessionReplacement { get; set; } // When the last session replacement occurred
-
     // Metrics authentication toggle (null = use env var default, true/false = UI override)
     public bool? RequireAuthForMetrics { get; set; } = null;
 

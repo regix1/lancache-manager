@@ -1811,13 +1811,6 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
         return networkMode;
     }
 
-    /// <summary>
-    /// Tests container network connectivity and DNS resolution for lancache domains.
-    /// This runs diagnostic commands inside the prefill container to verify:
-    /// 1. Internet connectivity (can reach Steam API)
-    /// 2. DNS resolution for lancache domains (should point to your cache server)
-    /// Results are logged with clear separators for easy troubleshooting.
-    /// </summary>
     public void Dispose()
     {
         if (_disposed) return;
@@ -1834,11 +1827,3 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
         _disposed = true;
     }
 }
-
-/// <summary>
-/// Represents a Steam Prefill daemon session
-/// </summary>
-
-/// <summary>
-/// Result of a DNS resolution test for a single domain
-/// </summary>

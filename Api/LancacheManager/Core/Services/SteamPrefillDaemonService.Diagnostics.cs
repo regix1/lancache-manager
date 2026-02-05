@@ -429,16 +429,6 @@ public partial class SteamPrefillDaemonService
         return filtered;
     }
 
-    private static bool IsIpv4(string ip)
-    {
-        return IPAddress.TryParse(ip, out var address) && address.AddressFamily == AddressFamily.InterNetwork;
-    }
-
-    private static bool IsIpv6(string ip)
-    {
-        return IPAddress.TryParse(ip, out var address) && address.AddressFamily == AddressFamily.InterNetworkV6;
-    }
-
     private static bool IsUnsupportedToolOutput(string output)
     {
         if (string.IsNullOrWhiteSpace(output)) return false;

@@ -71,6 +71,19 @@ public partial class SteamKit2Service
             {
                 _logger.LogInformation("Steam PICS depot crawl cancelled");
                 errorMessage = "Operation cancelled";
+
+                // Always send cancellation notification from the task itself
+                // This ensures the frontend is notified regardless of which cancel path was used
+                // (CancelRebuildAsync via REST, or UnifiedOperationTracker.CancelOperation via notification bar)
+                await _notifications.NotifyAllAsync(SignalREvents.DepotMappingComplete, new
+                {
+                    operationId,
+                    success = false,
+                    cancelled = true,
+                    message = "Depot mapping scan cancelled",
+                    isLoggedOn = IsSteamAuthenticated,
+                    timestamp = DateTime.UtcNow
+                });
             }
             catch (Exception ex)
             {
@@ -113,41 +126,25 @@ public partial class SteamKit2Service
             return false;
         }
 
-        // Capture operationId before cancellation clears it
         var operationId = _currentPicsOperationId;
 
         try
         {
             _logger.LogInformation("Cancelling active PICS rebuild (operationId: {OperationId})", operationId);
 
-            // Clear yield flag so task can proceed with cancellation even if prefill is running
-            // Depot mapping and prefill are separate operations - cancel should work immediately
-            _yieldingToPrefillDaemon = false;
+            // Fail any pending connection/login tasks to unblock waiting code
+            var cancelException = new OperationCanceledException("PICS rebuild cancelled by user");
+            _connectedTcs?.TrySetException(cancelException);
+            _loggedOnTcs?.TrySetException(cancelException);
 
             _currentRebuildCts.Cancel();
-
-            // Wait briefly for cancellation to complete
-            if (_currentBuildTask != null)
-            {
-                await Task.WhenAny(_currentBuildTask, Task.Delay(5000));
-            }
-
-            _logger.LogInformation("PICS rebuild cancelled successfully");
 
             // Reset the schedule timer so next run is at full interval
             UpdateLastCrawlTime();
             _logger.LogInformation("Reset depot mapping schedule timer - next run in {Interval}", _crawlInterval);
 
-            // Send cancellation notification via SignalR
-            await _notifications.NotifyAllAsync(SignalREvents.DepotMappingComplete, new
-            {
-                operationId,
-                success = false,
-                cancelled = true,
-                message = "Depot mapping scan cancelled",
-                isLoggedOn = IsSteamAuthenticated,
-                timestamp = DateTime.UtcNow
-            });
+            // The DepotMappingComplete SignalR notification is sent by RunAsync when it catches
+            // the OperationCanceledException, so we don't send it here to avoid duplicates.
 
             return true;
         }
@@ -497,7 +494,7 @@ public partial class SteamKit2Service
             // Cancellation is expected - don't log as error
             _currentStatus = "Cancelled";
             _logger.LogDebug("Depot mapping scan was cancelled");
-            // Don't send error notification for cancellation - it's handled elsewhere
+            // Notification is sent by RunAsync when it catches this exception
             throw;
         }
         catch (Exception ex)
