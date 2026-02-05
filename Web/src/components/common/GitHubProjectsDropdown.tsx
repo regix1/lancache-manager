@@ -51,7 +51,6 @@ function getFireworkColors(): string[] {
   }
 
   // Debug log - remove after testing
-  console.log('[Firework Colors]', colors, 'Theme style exists:', !!document.getElementById('lancache-theme'));
 
   return colors;
 }
@@ -282,7 +281,6 @@ const Firework: React.FC<FireworkProps> = ({ startX, startY, onComplete }) => {
 
     // Get theme colors for trail dots
     const trailColors = getFireworkColors();
-    console.log('[Trail Dots] Colors to apply:', trailColors);
 
     // Create trail dots with theme colors applied directly
     if (trailContainer) {
@@ -369,9 +367,12 @@ const Firework: React.FC<FireworkProps> = ({ startX, startY, onComplete }) => {
         // Add PI to get the opposite direction (behind the rocket)
         const behindOffset = 12; // Distance behind the rocket center
         const behindAngle = lastValidAngle + Math.PI;
+        // Small offset to center particles with the rocket icon (compensates for icon centering)
+        const centerOffsetX = 1.5;
+        const centerOffsetY = 1.5;
         dotData[nextDotIndex] = {
-          x: currentX + Math.cos(behindAngle) * behindOffset,
-          y: currentY + Math.sin(behindAngle) * behindOffset,
+          x: currentX + Math.cos(behindAngle) * behindOffset + centerOffsetX,
+          y: currentY + Math.sin(behindAngle) * behindOffset + centerOffsetY,
           spawnTime: elapsed,
           active: true
         };
