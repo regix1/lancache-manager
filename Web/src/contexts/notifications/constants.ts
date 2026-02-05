@@ -113,5 +113,7 @@ export const NOTIFICATION_IDS = {
   /** ID for corruption detection operations */
   CORRUPTION_DETECTION: 'corruption_detection',
   /** ID for data import operations */
-  DATA_IMPORT: 'data_import'
+  DATA_IMPORT: 'data_import',
+  /** ID for Steam session errors */
+  STEAM_SESSION_ERROR: 'steam_session_error'
 } as const;

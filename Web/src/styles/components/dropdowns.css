@@ -678,6 +678,7 @@
 
   .github-icon-container.spinning {
     animation: githubIconFireworkSpin 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    will-change: transform;
   }
 
   .github-icon-container.spinning .github-icon-spin {
@@ -685,27 +686,30 @@
   }
 
   /* Glow effect on GitHub icon during spin animation */
+  /* Uses box-shadow instead of radial-gradient + scale for GPU acceleration */
   .github-icon-container.spinning::after {
     content: '';
     position: absolute;
-    inset: -6px;
+    inset: -4px;
     border-radius: 50%;
-    background: radial-gradient(circle, rgba(var(--theme-primary-rgb), 0.6) 0%, rgba(var(--theme-primary-rgb), 0.3) 50%, transparent 70%);
+    background: transparent;
+    box-shadow:
+      0 0 8px 4px rgba(var(--theme-primary-rgb), 0.5),
+      0 0 16px 8px rgba(var(--theme-primary-rgb), 0.3),
+      0 0 24px 12px rgba(var(--theme-primary-rgb), 0.15);
     animation: githubIconGlow 0.5s ease-out;
     pointer-events: none;
+    will-change: opacity;
   }
 
   @keyframes githubIconGlow {
     0% {
-      transform: scale(0.8);
       opacity: 0;
     }
-    50% {
-      transform: scale(1.5);
+    40% {
       opacity: 1;
     }
     100% {
-      transform: scale(2);
       opacity: 0;
     }
   }

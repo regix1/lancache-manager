@@ -38,7 +38,7 @@ public partial class SteamKit2Service
                 Username = username,
                 AccessToken = refreshToken,
                 ShouldRememberPassword = true,
-                LoginID = 0x4C4D4752
+                LoginID = _steamLoginId
             });
         }
         else
@@ -93,7 +93,7 @@ public partial class SteamKit2Service
                     Username = username,
                     AccessToken = refreshToken,
                     ShouldRememberPassword = true,
-                    LoginID = 0x4C4D4752
+                    LoginID = _steamLoginId
                 });
             }
             else

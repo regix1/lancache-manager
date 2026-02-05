@@ -30,6 +30,7 @@ public partial class SteamKit2Service : IHostedService, IDisposable
     private readonly SteamWebApiService _steamWebApiService;
     private readonly SteamAuthStorageService _steamAuthRepository;
     private readonly IUnifiedOperationTracker _operationTracker;
+    private readonly uint _steamLoginId;
     private SteamClient? _steamClient;
     private CallbackManager? _manager;
     private SteamUser? _steamUser;
@@ -57,7 +58,7 @@ public partial class SteamKit2Service : IHostedService, IDisposable
 
     // Track session replacement errors to auto-logout after repeated failures
     // Counter is persisted to state.json via _stateService
-    private const int MaxSessionReplacedBeforeLogout = 1; // Auto-logout after 2 session replacements
+    private const int MaxSessionReplacedBeforeLogout = 3; // Auto-logout after 4 session replacements (more tolerant)
     private bool _isReconnectingAfterSessionReplaced = false; // Don't reset counter during reconnection
     private bool _sessionReplacementAutoLogout = false; // Prevent reconnection attempts after auto-logout
 
@@ -136,6 +137,10 @@ public partial class SteamKit2Service : IHostedService, IDisposable
         _steamWebApiService = steamWebApiService;
         _steamAuthRepository = steamAuthRepository;
         _operationTracker = operationTracker;
+
+        // Use range 16384-65535 to avoid collision with steam-prefill-daemon (0-16383)
+        _steamLoginId = (uint)new Random().Next(16384, 65536);
+        _logger.LogInformation("Generated unique Steam LoginID: {LoginID} (0x{LoginIDHex:X8})", _steamLoginId, _steamLoginId);
     }
 
     /// <summary>

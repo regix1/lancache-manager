@@ -708,6 +708,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     // - Generic notification type with switch-based title logic (not operation-based)
     // - No progress tracking or localStorage persistence needed
     // - Simple one-shot error display with auto-dismiss
+    // - Uses a fixed notification ID to prevent duplicates when backend sends multiple events
     // A factory pattern doesn't provide significant benefit here since this is the only
     // handler of this type and the logic is straightforward.
     const handleSteamSessionError = (event: SteamSessionErrorEvent) => {
@@ -732,17 +733,37 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         }
       };
 
-      const notificationId = addNotification({
-        type: 'generic',
-        status: 'failed',
-        message: getSteamErrorTitle(event.errorType),
-        detailMessage: event.message || 'An error occurred with the Steam session',
-        details: {
-          notificationType: 'error'
-        }
-      });
+      // Use a fixed notification ID to prevent duplicates.
+      // When auto-logout occurs, the backend sends both SteamAutoLogout and SteamSessionError events,
+      // but we only want one notification to appear.
+      setNotifications((prev: UnifiedNotification[]) => {
+        const existingNotification = prev.find((n) => n.id === NOTIFICATION_IDS.STEAM_SESSION_ERROR);
 
-      scheduleAutoDismiss(notificationId, STEAM_ERROR_DISMISS_DELAY_MS);
+        // If a Steam session error notification already exists and is recent (within 2 seconds),
+        // skip creating a duplicate to handle the case where backend sends multiple events
+        if (existingNotification) {
+          const timeSinceCreation = Date.now() - existingNotification.startedAt.getTime();
+          if (timeSinceCreation < 2000) {
+            return prev;
+          }
+        }
+
+        const newNotification: UnifiedNotification = {
+          type: 'generic',
+          status: 'failed',
+          message: getSteamErrorTitle(event.errorType),
+          detailMessage: event.message || 'An error occurred with the Steam session',
+          details: {
+            notificationType: 'error'
+          },
+          id: NOTIFICATION_IDS.STEAM_SESSION_ERROR,
+          startedAt: new Date()
+        };
+
+        const filtered = prev.filter((n) => n.id !== NOTIFICATION_IDS.STEAM_SESSION_ERROR);
+        scheduleAutoDismiss(NOTIFICATION_IDS.STEAM_SESSION_ERROR, STEAM_ERROR_DISMISS_DELAY_MS);
+        return [...filtered, newNotification];
+      });
     };
 
     // Subscribe to events

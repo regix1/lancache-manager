@@ -1,7 +1,7 @@
 {
   "name": "lancache-manager",
   "private": true,
-  "version": "1.9.7",
+  "version": "1.9.8.1",
   "type": "module",
   "scripts": {
     "sync-version": "node -e \"const fs=require('fs');try{const v=fs.readFileSync('../VERSION','utf-8').trim();const pkg=require('./package.json');pkg.version=v;fs.writeFileSync('./package.json',JSON.stringify(pkg,null,2)+'\\n')}catch(e){}\"",

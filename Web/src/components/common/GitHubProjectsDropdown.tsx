@@ -363,13 +363,17 @@ const Firework: React.FC<FireworkProps> = ({ startX, startY, onComplete }) => {
         rocketIcon.style.transform = `rotate(${rotationDeg}deg)`;
       }
 
-      // Spawn new dot behind the rocket
+      // Spawn new dot behind the rocket - use rocket's visual rotation angle
+      // so smoke always comes from the back regardless of spiral movement
       if (elapsed - lastDotTime > dotSpawnInterval && progress < 0.95 && progress > 0.02) {
         // Place dot at the flame (offset behind rocket center)
+        // Use lastValidAngle (the rocket's visual rotation) instead of velocity direction
+        // Add PI to get the opposite direction (behind the rocket)
         const behindOffset = 12; // Distance behind the rocket center
+        const behindAngle = lastValidAngle + Math.PI;
         dotData[nextDotIndex] = {
-          x: currentX - normVelX * behindOffset,
-          y: currentY - normVelY * behindOffset,
+          x: currentX + Math.cos(behindAngle) * behindOffset,
+          y: currentY + Math.sin(behindAngle) * behindOffset,
           spawnTime: elapsed,
           active: true
         };
