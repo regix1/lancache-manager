@@ -112,13 +112,7 @@ public partial class SteamKit2Service
             }
             finally
             {
-                // Keep connection alive for a short period if we just connected
-                // This allows reuse if a crawl starts immediately after viability check
-                if (!wasConnected && _steamClient?.IsConnected == true)
-                {
-                    _lastConnectionActivity = SteamKit2Helpers.UpdateConnectionActivity();
-                    StartIdleDisconnectTimer();
-                }
+                // Connection will be reused if a crawl starts immediately after viability check
             }
         }
         catch (TimeoutException tex)
@@ -214,12 +208,7 @@ public partial class SteamKit2Service
             }
             finally
             {
-                // Keep connection alive for a short period if we just connected
-                if (!wasConnected && _steamClient?.IsConnected == true)
-                {
-                    _lastConnectionActivity = SteamKit2Helpers.UpdateConnectionActivity();
-                    StartIdleDisconnectTimer();
-                }
+                // Connection will be reused if a crawl starts immediately
             }
         }
         catch (Exception ex)

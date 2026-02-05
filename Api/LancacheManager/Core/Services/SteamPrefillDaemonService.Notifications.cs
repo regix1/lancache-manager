@@ -47,16 +47,33 @@ public partial class SteamPrefillDaemonService
             var previousAuthState = session.AuthState;
 
             // Update auth state based on status
-            session.AuthState = status.Status switch
+            var newAuthState = status.Status switch
             {
                 "awaiting-login" => DaemonAuthState.NotAuthenticated,
                 "logged-in" => DaemonAuthState.Authenticated,
                 _ => session.AuthState
             };
 
+            session.AuthState = newAuthState;
+
             if (session.AuthState != previousAuthState)
             {
                 await NotifyAuthStateChangeAsync(session);
+
+                // Notify SteamKit2Service when a daemon becomes authenticated
+                if (newAuthState == DaemonAuthState.Authenticated)
+                {
+                    FireEventAsync(OnDaemonAuthenticated, nameof(OnDaemonAuthenticated));
+                }
+                // Notify when auth state changes FROM authenticated to non-authenticated
+                else if (previousAuthState == DaemonAuthState.Authenticated && newAuthState != DaemonAuthState.Authenticated)
+                {
+                    // Check if any other daemons are still authenticated
+                    if (!IsAnyDaemonAuthenticated())
+                    {
+                        FireEventAsync(OnAllDaemonsLoggedOut, nameof(OnAllDaemonsLoggedOut));
+                    }
+                }
             }
 
             await NotifyStatusChangeAsync(session, status);

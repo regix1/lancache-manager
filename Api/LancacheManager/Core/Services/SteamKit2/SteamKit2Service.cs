@@ -40,17 +40,13 @@ public partial class SteamKit2Service : IHostedService, IDisposable
     private bool _isRunning = false;
     private bool _isLoggedOn = false;
     private bool _intentionalDisconnect = false;
+    private bool _yieldingToPrefillDaemon = false;
     private readonly CancellationTokenSource _cancellationTokenSource = new();
     private Task? _currentBuildTask;
     private CancellationTokenSource? _currentRebuildCts;
     private string? _currentPicsOperationId;
     private int _rebuildActive;
     private bool _disposed;
-
-    // Connection keep-alive for viability checks
-    private Timer? _idleDisconnectTimer;
-    private DateTime _lastConnectionActivity = DateTime.MinValue;
-    private const int ConnectionKeepAliveSeconds = 60; // Keep connection alive for 60 seconds after viability check
 
     // Exponential backoff for reconnection attempts
     private int _reconnectAttempt = 0;
@@ -144,6 +140,10 @@ public partial class SteamKit2Service : IHostedService, IDisposable
         // Use range 16384-65535 to avoid collision with steam-prefill-daemon (0-16383)
         _steamLoginId = (uint)new Random().Next(16384, 65536);
         _logger.LogInformation("Generated unique Steam LoginID: {LoginID} (0x{LoginIDHex:X8})", _steamLoginId, _steamLoginId);
+
+        // Subscribe to prefill daemon events for session coordination
+        _prefillDaemonService.OnDaemonAuthenticated += OnPrefillDaemonAuthenticatedAsync;
+        _prefillDaemonService.OnAllDaemonsLoggedOut += OnPrefillDaemonSessionEndedAsync;
     }
 
     /// <summary>
@@ -315,8 +315,6 @@ public partial class SteamKit2Service : IHostedService, IDisposable
         // Clean up timers
         _periodicTimer?.Dispose();
         _periodicTimer = null;
-        _idleDisconnectTimer?.Dispose();
-        _idleDisconnectTimer = null;
 
         try
         {

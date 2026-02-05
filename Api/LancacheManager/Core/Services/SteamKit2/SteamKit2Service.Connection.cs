@@ -24,11 +24,21 @@ public partial class SteamKit2Service
         // Wait for connected (increased timeout to handle Steam server delays)
         await WaitForTaskWithTimeout(_connectedTcs.Task, TimeSpan.FromSeconds(60), ct, "Connecting to Steam");
 
+        // Check if a prefill daemon is currently authenticated
+        // If so, we must use anonymous mode to avoid session conflicts
+        var isPrefillDaemonActive = _prefillDaemonService.IsAnyDaemonAuthenticated();
+
         // Check if we have a saved refresh token for authenticated login
         var refreshToken = _stateService.GetSteamRefreshToken();
         var authMode = _stateService.GetSteamAuthMode();
 
-        if (!string.IsNullOrEmpty(refreshToken) && authMode == "authenticated")
+        if (isPrefillDaemonActive)
+        {
+            // Prefill daemon has priority - use anonymous mode to avoid kicking it out
+            _logger.LogInformation("Prefill daemon is active - using anonymous mode for depot mapping to avoid session conflicts");
+            _steamUser!.LogOnAnonymous();
+        }
+        else if (!string.IsNullOrEmpty(refreshToken) && authMode == "authenticated")
         {
             var username = _stateService.GetSteamUsername();
             _logger.LogInformation("Logging in with saved refresh token for user: {Username}", username);
@@ -79,11 +89,21 @@ public partial class SteamKit2Service
         {
             _logger.LogInformation("Reconnected during active rebuild - attempting to re-login");
 
+            // Check if a prefill daemon is currently authenticated
+            // If so, we must use anonymous mode to avoid session conflicts
+            var isPrefillDaemonActive = _prefillDaemonService.IsAnyDaemonAuthenticated();
+
             // Check if we have a saved refresh token for authenticated login
             var refreshToken = _stateService.GetSteamRefreshToken();
             var authMode = _stateService.GetSteamAuthMode();
 
-            if (!string.IsNullOrEmpty(refreshToken) && authMode == "authenticated")
+            if (isPrefillDaemonActive)
+            {
+                // Prefill daemon has priority - use anonymous mode to avoid kicking it out
+                _logger.LogInformation("Prefill daemon is active - using anonymous mode for depot mapping to avoid session conflicts");
+                _steamUser!.LogOnAnonymous();
+            }
+            else if (!string.IsNullOrEmpty(refreshToken) && authMode == "authenticated")
             {
                 var username = _stateService.GetSteamUsername();
                 _logger.LogInformation("Re-logging in with saved refresh token for user: {Username}", username);
@@ -117,6 +137,14 @@ public partial class SteamKit2Service
             _logger.LogWarning("Disconnected from Steam");
         }
         _isLoggedOn = false;
+
+        // Don't reconnect if we're intentionally yielding to prefill daemon
+        if (_yieldingToPrefillDaemon)
+        {
+            _logger.LogInformation("Not reconnecting - yielding session to prefill daemon");
+            _reconnectAttempt = 0;
+            return;
+        }
 
         // Only reconnect if we're running AND there's an active rebuild
         // This prevents endless reconnection loops after PICS crawls complete
@@ -476,35 +504,75 @@ public partial class SteamKit2Service
     }
 
     /// <summary>
-    /// Start idle disconnect timer to close connection after inactivity
+    /// Event handler called when a prefill daemon session authenticates.
+    /// Yields the SteamKit2 session to avoid conflicts.
     /// </summary>
-    private void StartIdleDisconnectTimer()
+    private async Task OnPrefillDaemonAuthenticatedAsync()
     {
-        // Cancel existing timer if any
-        _idleDisconnectTimer?.Dispose();
+        _logger.LogInformation("Prefill daemon authenticated - yielding SteamKit2 session to avoid conflicts");
 
-        // Create new timer that checks every 10 seconds
-        _idleDisconnectTimer = new Timer(async _ =>
+        // Set flag to prevent reconnection
+        _yieldingToPrefillDaemon = true;
+
+        // If we're currently connected, disconnect gracefully
+        if (_isLoggedOn && _steamClient?.IsConnected == true)
         {
-            if (_steamClient?.IsConnected == true && !IsRebuildRunning)
+            _intentionalDisconnect = true;
+            await DisconnectFromSteamAsync();
+            _logger.LogInformation("Disconnected SteamKit2 session to yield to prefill daemon");
+
+            // Notify UI that depot mapping is paused
+            _notifications.NotifyAllFireAndForget(SignalREvents.DepotMappingProgress, new
             {
-                var idleTime = DateTime.UtcNow - _lastConnectionActivity;
-                if (idleTime.TotalSeconds >= ConnectionKeepAliveSeconds)
-                {
-                    _intentionalDisconnect = true;
-                    await DisconnectFromSteamAsync();
-                    StopIdleDisconnectTimer();
-                }
-            }
-        }, null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+                status = "Paused - Prefill daemon is using Steam session",
+                percentComplete = _totalBatches > 0 ? (_processedBatches * 100.0 / _totalBatches) : 0,
+                processedBatches = _processedBatches,
+                totalBatches = _totalBatches,
+                depotMappingsFound = _depotToAppMappings.Count,
+                isLoggedOn = false,
+                isPaused = true,
+                pauseReason = "PrefillDaemonActive"
+            });
+        }
     }
 
     /// <summary>
-    /// Stop idle disconnect timer
+    /// Event handler called when all prefill daemon sessions have ended.
+    /// Resumes the SteamKit2 session if needed.
     /// </summary>
-    private void StopIdleDisconnectTimer()
+    private async Task OnPrefillDaemonSessionEndedAsync()
     {
-        _idleDisconnectTimer?.Dispose();
-        _idleDisconnectTimer = null;
+        _logger.LogInformation("All prefill daemon sessions ended - SteamKit2 can resume if needed");
+
+        // Clear the yielding flag
+        _yieldingToPrefillDaemon = false;
+
+        // If we have an active rebuild that needs to continue, reconnect
+        if (IsRebuildRunning && !_isLoggedOn)
+        {
+            _logger.LogInformation("Resuming SteamKit2 session for active depot mapping operation");
+
+            try
+            {
+                await ConnectAndLoginAsync(_cancellationTokenSource.Token);
+                _logger.LogInformation("Successfully resumed SteamKit2 session after prefill daemon ended");
+
+                // Notify UI that depot mapping has resumed
+                _notifications.NotifyAllFireAndForget(SignalREvents.DepotMappingProgress, new
+                {
+                    status = "Resumed depot mapping",
+                    percentComplete = _totalBatches > 0 ? (_processedBatches * 100.0 / _totalBatches) : 0,
+                    processedBatches = _processedBatches,
+                    totalBatches = _totalBatches,
+                    depotMappingsFound = _depotToAppMappings.Count,
+                    isLoggedOn = _isLoggedOn,
+                    isPaused = false
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to resume SteamKit2 session after prefill daemon ended");
+            }
+        }
     }
 }

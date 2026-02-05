@@ -44,6 +44,38 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
     /// </summary>
     public bool IsDockerAvailable => _dockerClient != null;
 
+    /// <summary>
+    /// Event raised when any prefill daemon session becomes authenticated.
+    /// SteamKit2Service subscribes to this to yield its session.
+    /// </summary>
+    public event Func<Task>? OnDaemonAuthenticated;
+
+    /// <summary>
+    /// Event raised when all prefill daemon sessions are no longer authenticated.
+    /// SteamKit2Service subscribes to this to resume its session.
+    /// </summary>
+    public event Func<Task>? OnAllDaemonsLoggedOut;
+
+    /// <summary>
+    /// Fires an event asynchronously in a fire-and-forget manner with error handling.
+    /// </summary>
+    private void FireEventAsync(Func<Task>? eventHandler, string eventName)
+    {
+        if (eventHandler == null) return;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await eventHandler.Invoke();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error notifying {EventName}", eventName);
+            }
+        });
+    }
+
     public SteamPrefillDaemonService(
         ILogger<SteamPrefillDaemonService> logger,
         ISignalRNotificationService notifications,
@@ -1243,6 +1275,12 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
         // Notify subscribers
         await NotifySessionEndedAsync(session, reason);
 
+        // Check if all daemons are now logged out after session removal
+        if (!IsAnyDaemonAuthenticated())
+        {
+            FireEventAsync(OnAllDaemonsLoggedOut, nameof(OnAllDaemonsLoggedOut));
+        }
+
         // Cleanup
         session.Client.Dispose();
         session.CancellationTokenSource.Dispose();
@@ -1492,7 +1530,7 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
             return configured.Value;
         }
 
-        var listener = new TcpListener(IPAddress.Loopback, 0);
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();
         var port = ((IPEndPoint)listener.LocalEndpoint).Port;
         listener.Stop();

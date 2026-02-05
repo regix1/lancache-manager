@@ -215,54 +215,37 @@ public class DeviceAuthService
 
         // CRITICAL: Check database first to ensure session still exists
         // This prevents zombie sessions where file cache exists but database session was deleted
-        // Retry with exponential backoff to handle "database is locked" errors
-        const int maxRetries = 3;
-        var retryDelayMs = 100;
-
-        for (var attempt = 1; attempt <= maxRetries; attempt++)
+        var sessionExists = ExecuteWithRetry(() =>
         {
-            try
+            using var context = _contextFactory.CreateDbContext();
+            var session = context.UserSessions
+                .FirstOrDefault(s => s.DeviceId == deviceId && !s.IsGuest && !s.IsRevoked);
+
+            if (session == null)
             {
-                using var context = _contextFactory.CreateDbContext();
-                var session = context.UserSessions
-                    .FirstOrDefault(s => s.DeviceId == deviceId && !s.IsGuest && !s.IsRevoked);
+                // Log at Debug level - this is expected when sessions are cleared or devices revoked
+                _logger.LogDebug("[DeviceAuth] Device {DeviceId} not found in database or revoked, denying access", deviceId);
 
-                if (session == null)
+                // Remove from cache if it exists
+                lock (_cacheLock)
                 {
-                    // Log at Debug level - this is expected when sessions are cleared or devices revoked
-                    _logger.LogDebug("[DeviceAuth] Device {DeviceId} not found in database or revoked, denying access", deviceId);
-
-                    // Remove from cache if it exists
-                    lock (_cacheLock)
-                    {
-                        _deviceCache.Remove(deviceId);
-                    }
-
-                    return false;
+                    _deviceCache.Remove(deviceId);
                 }
 
-                // NOTE: Do NOT update LastSeenAtUtc here - that's the heartbeat's job
-                // The heartbeat endpoint (/api/sessions/current/last-seen) respects page visibility
-                // and only updates LastSeenAt when the user is actively viewing the page.
-                // Updating it here on every API request would make users always appear "Active"
-                // even when their browser tab is minimized.
-                break; // Success - exit the retry loop
-            }
-            catch (SqliteException ex) when (
-                (ex.SqliteErrorCode == 5 || ex.SqliteErrorCode == 6) && // SQLITE_BUSY=5, SQLITE_LOCKED=6
-                attempt < maxRetries)
-            {
-                // Database is locked/busy, wait and retry
-                _logger.LogDebug("[DeviceAuth] Database locked during ValidateDevice (error code {ErrorCode}), retrying (attempt {Attempt}/{MaxRetries})", ex.SqliteErrorCode, attempt, maxRetries);
-                Thread.Sleep(retryDelayMs);
-                retryDelayMs *= 2; // Exponential backoff
-            }
-            catch (Exception ex)
-            {
-                // Non-retryable error or max retries exceeded
-                _logger.LogError(ex, "[DeviceAuth] Failed to check database for device {DeviceId}, denying access", deviceId);
                 return false;
             }
+
+            // NOTE: Do NOT update LastSeenAtUtc here - that's the heartbeat's job
+            // The heartbeat endpoint (/api/sessions/current/last-seen) respects page visibility
+            // and only updates LastSeenAt when the user is actively viewing the page.
+            // Updating it here on every API request would make users always appear "Active"
+            // even when their browser tab is minimized.
+            return true;
+        }, "ValidateDevice", deviceId, false);
+
+        if (!sessionExists)
+        {
+            return false;
         }
 
         lock (_cacheLock)
@@ -303,8 +286,32 @@ public class DeviceAuthService
             return;
         }
 
-        // Retry with exponential backoff to handle "database is locked" errors
-        // This can happen when large operations (like PICS import) hold the database lock
+        ExecuteWithRetry(() =>
+        {
+            using var context = _contextFactory.CreateDbContext();
+            var session = context.UserSessions
+                .FirstOrDefault(s => s.DeviceId == deviceId && !s.IsGuest && !s.IsRevoked);
+
+            if (session != null)
+            {
+                session.LastSeenAtUtc = DateTime.UtcNow;
+                context.SaveChanges();
+            }
+        }, "UpdateLastSeen", deviceId);
+    }
+
+    /// <summary>
+    /// Executes a database operation with retry logic for SQLite lock errors.
+    /// Uses exponential backoff: 100ms, 200ms, 400ms.
+    /// </summary>
+    /// <typeparam name="T">Return type of the operation</typeparam>
+    /// <param name="operation">The database operation to execute</param>
+    /// <param name="operationName">Name for logging purposes</param>
+    /// <param name="deviceId">Device ID for logging</param>
+    /// <param name="defaultOnFailure">Value to return if all retries fail</param>
+    /// <returns>The result of the operation or default value on failure</returns>
+    private T ExecuteWithRetry<T>(Func<T> operation, string operationName, string deviceId, T defaultOnFailure)
+    {
         const int maxRetries = 3;
         var retryDelayMs = 100;
 
@@ -312,29 +319,55 @@ public class DeviceAuthService
         {
             try
             {
-                using var context = _contextFactory.CreateDbContext();
-                var session = context.UserSessions
-                    .FirstOrDefault(s => s.DeviceId == deviceId && !s.IsGuest && !s.IsRevoked);
-
-                if (session != null)
-                {
-                    session.LastSeenAtUtc = DateTime.UtcNow;
-                    context.SaveChanges();
-                }
-                return; // Success - exit the retry loop
+                return operation();
             }
-            catch (SqliteException ex) when ((ex.SqliteErrorCode == 5 || ex.SqliteErrorCode == 6) && attempt < maxRetries)
+            catch (SqliteException ex) when (
+                (ex.SqliteErrorCode == 5 || ex.SqliteErrorCode == 6) && // SQLITE_BUSY=5, SQLITE_LOCKED=6
+                attempt < maxRetries)
             {
-                // Database is locked/busy (SQLITE_BUSY=5, SQLITE_LOCKED=6), wait and retry
-                _logger.LogDebug("[DeviceAuth] Database locked (error code {ErrorCode}), retrying UpdateLastSeen (attempt {Attempt}/{MaxRetries})", ex.SqliteErrorCode, attempt, maxRetries);
+                _logger.LogDebug("[DeviceAuth] Database locked during {Operation} (error code {ErrorCode}), retrying (attempt {Attempt}/{MaxRetries})",
+                    operationName, ex.SqliteErrorCode, attempt, maxRetries);
                 Thread.Sleep(retryDelayMs);
-                retryDelayMs *= 2; // Exponential backoff
+                retryDelayMs *= 2;
             }
             catch (Exception ex)
             {
-                // Non-retryable error or max retries exceeded - log but don't throw
-                // This is a non-critical operation, so we just log and continue
-                _logger.LogWarning(ex, "[DeviceAuth] Failed to update LastSeen for device {DeviceId} after {Attempts} attempts", deviceId, attempt);
+                _logger.LogError(ex, "[DeviceAuth] Failed {Operation} for device {DeviceId}", operationName, deviceId);
+                return defaultOnFailure;
+            }
+        }
+
+        return defaultOnFailure;
+    }
+
+    /// <summary>
+    /// Executes a void database operation with retry logic for SQLite lock errors.
+    /// </summary>
+    private void ExecuteWithRetry(Action operation, string operationName, string deviceId)
+    {
+        const int maxRetries = 3;
+        var retryDelayMs = 100;
+
+        for (var attempt = 1; attempt <= maxRetries; attempt++)
+        {
+            try
+            {
+                operation();
+                return;
+            }
+            catch (SqliteException ex) when (
+                (ex.SqliteErrorCode == 5 || ex.SqliteErrorCode == 6) &&
+                attempt < maxRetries)
+            {
+                _logger.LogDebug("[DeviceAuth] Database locked during {Operation} (error code {ErrorCode}), retrying (attempt {Attempt}/{MaxRetries})",
+                    operationName, ex.SqliteErrorCode, attempt, maxRetries);
+                Thread.Sleep(retryDelayMs);
+                retryDelayMs *= 2;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[DeviceAuth] Failed {Operation} for device {DeviceId} after {Attempts} attempts",
+                    operationName, deviceId, attempt);
                 return;
             }
         }

@@ -157,11 +157,7 @@ public partial class SteamKit2Service
     {
         try
         {
-            // Stop idle disconnect timer since we're actively using the connection
-            StopIdleDisconnectTimer();
-
             await ConnectAndLoginAsync(ct);
-            _lastConnectionActivity = SteamKit2Helpers.UpdateConnectionActivity();
             await BuildDepotIndexAsync(ct, incrementalOnly);
         }
         catch (OperationCanceledException)
