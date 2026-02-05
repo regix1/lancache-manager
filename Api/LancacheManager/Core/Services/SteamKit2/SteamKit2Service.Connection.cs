@@ -423,13 +423,15 @@ public partial class SteamKit2Service
 
         // Send SignalR notification for significant errors
         // Skip SteamSessionError if auto-logout was triggered since we already sent SteamAutoLogout event
+        // Also skip if rebuild is running - DepotMappingComplete will convey the error to avoid duplicate notifications
         if (shouldCancelRebuild)
         {
             _lastErrorMessage = errorMessage;
 
-            // Only send SteamSessionError if this isn't an auto-logout scenario
-            // (auto-logout already sends SteamAutoLogout which the frontend handles)
-            if (!_sessionReplacementAutoLogout)
+            // Only send SteamSessionError if:
+            // - Not an auto-logout scenario (already sends SteamAutoLogout)
+            // - No rebuild is running (DepotMappingComplete will convey the error)
+            if (!_sessionReplacementAutoLogout && !IsRebuildRunning)
             {
                 _notifications.NotifyAllFireAndForget(SignalREvents.SteamSessionError, new
                 {
@@ -437,7 +439,7 @@ public partial class SteamKit2Service
                     message = errorMessage,
                     result = callback.Result.ToString(),
                     timestamp = DateTime.UtcNow,
-                    wasRebuildActive = IsRebuildRunning,
+                    wasRebuildActive = false,
                     sessionReplacedCount = isSessionReplaced ? _stateService.GetSessionReplacedCount() : 0
                 });
             }

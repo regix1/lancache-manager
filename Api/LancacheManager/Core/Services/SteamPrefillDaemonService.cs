@@ -664,6 +664,10 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
         {
             session.AuthState = DaemonAuthState.Authenticated;
             await NotifyAuthStateChangeAsync(session);
+
+            // Notify SteamKit2Service to yield its session
+            FireEventAsync(OnDaemonAuthenticated, nameof(OnDaemonAuthenticated));
+
             _logger.LogInformation("Session {SessionId} already authenticated - no challenge needed", sessionId);
             return null;
         }
@@ -885,6 +889,9 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
             session.AuthState = DaemonAuthState.Authenticated;
             session.SteamUsername = authData.Username;
             await NotifyAuthStateChangeAsync(session);
+
+            // Notify SteamKit2Service to yield its session
+            FireEventAsync(OnDaemonAuthenticated, nameof(OnDaemonAuthenticated));
 
             // Update database with username
             await _sessionService.SetSessionUsernameAsync(sessionId, authData.Username);
