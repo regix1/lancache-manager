@@ -322,8 +322,6 @@ const Firework: React.FC<FireworkProps> = ({ startX, startY, onComplete }) => {
       }
 
       const speed = Math.sqrt(velX * velX + velY * velY);
-      const normVelX = speed > 0.5 ? velX / speed : 0;
-      const normVelY = speed > 0.5 ? velY / speed : 0;
 
       // Update rocket position
       if (firework) {
