@@ -30,6 +30,7 @@ public partial class SteamKit2Service : IHostedService, IDisposable
     private readonly SteamWebApiService _steamWebApiService;
     private readonly SteamAuthStorageService _steamAuthRepository;
     private readonly IUnifiedOperationTracker _operationTracker;
+    private readonly SteamPrefillDaemonService _prefillDaemonService;
     private readonly uint _steamLoginId;
     private SteamClient? _steamClient;
     private CallbackManager? _manager;
@@ -124,7 +125,8 @@ public partial class SteamKit2Service : IHostedService, IDisposable
         ISignalRNotificationService notifications,
         SteamWebApiService steamWebApiService,
         SteamAuthStorageService steamAuthRepository,
-        IUnifiedOperationTracker operationTracker)
+        IUnifiedOperationTracker operationTracker,
+        SteamPrefillDaemonService prefillDaemonService)
     {
         _logger = logger;
         _scopeFactory = scopeFactory;
@@ -137,6 +139,7 @@ public partial class SteamKit2Service : IHostedService, IDisposable
         _steamWebApiService = steamWebApiService;
         _steamAuthRepository = steamAuthRepository;
         _operationTracker = operationTracker;
+        _prefillDaemonService = prefillDaemonService;
 
         // Use range 16384-65535 to avoid collision with steam-prefill-daemon (0-16383)
         _steamLoginId = (uint)new Random().Next(16384, 65536);

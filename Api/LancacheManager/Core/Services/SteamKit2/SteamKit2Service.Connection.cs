@@ -339,36 +339,51 @@ public partial class SteamKit2Service
         // Counter is persisted to state.json to survive server restarts
         if (isSessionReplaced)
         {
-            _stateService.IncrementSessionReplacedCount();
-            var currentCount = _stateService.GetSessionReplacedCount();
-            _isReconnectingAfterSessionReplaced = true; // Prevent counter reset on reconnection login
-            _logger.LogWarning("Session replaced count: {Count}/{Max}", currentCount, MaxSessionReplacedBeforeLogout);
+            // Check if a prefill daemon is currently authenticated
+            // If so, session replacement is expected behavior - the prefill daemon has priority
+            // Don't count this as an error or show notifications
+            var isPrefillDaemonActive = _prefillDaemonService.IsAnyDaemonAuthenticated();
 
-            if (currentCount >= MaxSessionReplacedBeforeLogout)
+            if (isPrefillDaemonActive)
             {
-                _logger.LogWarning("Steam session was replaced. Auto-logging out and switching to anonymous mode. User must re-authenticate.");
+                _logger.LogInformation("Session replaced by prefill daemon (expected behavior). Depot mapping will use anonymous mode or retry later.");
+                // Don't increment counter, don't show errors - this is expected when prefill is running
+                shouldCancelRebuild = false; // Don't treat as error
+                _isReconnectingAfterSessionReplaced = false;
+            }
+            else
+            {
+                _stateService.IncrementSessionReplacedCount();
+                var currentCount = _stateService.GetSessionReplacedCount();
+                _isReconnectingAfterSessionReplaced = true; // Prevent counter reset on reconnection login
+                _logger.LogWarning("Session replaced count: {Count}/{Max}", currentCount, MaxSessionReplacedBeforeLogout);
 
-                // Set flag to prevent OnDisconnected from attempting reconnections
-                _sessionReplacementAutoLogout = true;
-
-                // Clear credentials to stop reconnection attempts
-                _stateService.SetSteamRefreshToken(null);
-                _stateService.SetSteamUsername(null);
-                _stateService.SetSteamAuthMode("anonymous");
-                _stateService.ResetSessionReplacedCount(); // Reset counter in state.json
-                _isReconnectingAfterSessionReplaced = false; // Clear flag since we're logging out
-
-                errorMessage = "Your Steam session was replaced by another login. This usually means you logged into Steam from another device or application (Steam client, browser, etc.). Your credentials have been cleared and the system has switched to anonymous mode. Please close other Steam sessions and re-authenticate.";
-                errorType = "AutoLogout";
-
-                // Send auto-logout notification
-                _notifications.NotifyAllFireAndForget(SignalREvents.SteamAutoLogout, new
+                if (currentCount >= MaxSessionReplacedBeforeLogout)
                 {
-                    message = errorMessage,
-                    reason = "RepeatedSessionReplacement",
-                    replacementCount = MaxSessionReplacedBeforeLogout,
-                    timestamp = DateTime.UtcNow
-                });
+                    _logger.LogWarning("Steam session was replaced. Auto-logging out and switching to anonymous mode. User must re-authenticate.");
+
+                    // Set flag to prevent OnDisconnected from attempting reconnections
+                    _sessionReplacementAutoLogout = true;
+
+                    // Clear credentials to stop reconnection attempts
+                    _stateService.SetSteamRefreshToken(null);
+                    _stateService.SetSteamUsername(null);
+                    _stateService.SetSteamAuthMode("anonymous");
+                    _stateService.ResetSessionReplacedCount(); // Reset counter in state.json
+                    _isReconnectingAfterSessionReplaced = false; // Clear flag since we're logging out
+
+                    errorMessage = "Your Steam session was replaced by another login. This usually means you logged into Steam from another device or application (Steam client, browser, etc.). Your credentials have been cleared and the system has switched to anonymous mode. Please close other Steam sessions and re-authenticate.";
+                    errorType = "AutoLogout";
+
+                    // Send auto-logout notification
+                    _notifications.NotifyAllFireAndForget(SignalREvents.SteamAutoLogout, new
+                    {
+                        message = errorMessage,
+                        reason = "RepeatedSessionReplacement",
+                        replacementCount = MaxSessionReplacedBeforeLogout,
+                        timestamp = DateTime.UtcNow
+                    });
+                }
             }
         }
         else
@@ -379,20 +394,25 @@ public partial class SteamKit2Service
         }
 
         // Send SignalR notification for significant errors
+        // Skip SteamSessionError if auto-logout was triggered since we already sent SteamAutoLogout event
         if (shouldCancelRebuild)
         {
             _lastErrorMessage = errorMessage;
 
-            // Send error notification to frontend
-            _notifications.NotifyAllFireAndForget(SignalREvents.SteamSessionError, new
+            // Only send SteamSessionError if this isn't an auto-logout scenario
+            // (auto-logout already sends SteamAutoLogout which the frontend handles)
+            if (!_sessionReplacementAutoLogout)
             {
-                errorType,
-                message = errorMessage,
-                result = callback.Result.ToString(),
-                timestamp = DateTime.UtcNow,
-                wasRebuildActive = IsRebuildRunning,
-                sessionReplacedCount = isSessionReplaced ? _stateService.GetSessionReplacedCount() : 0
-            });
+                _notifications.NotifyAllFireAndForget(SignalREvents.SteamSessionError, new
+                {
+                    errorType,
+                    message = errorMessage,
+                    result = callback.Result.ToString(),
+                    timestamp = DateTime.UtcNow,
+                    wasRebuildActive = IsRebuildRunning,
+                    sessionReplacedCount = isSessionReplaced ? _stateService.GetSessionReplacedCount() : 0
+                });
+            }
 
             // Cancel the rebuild if one is active
             if (IsRebuildRunning)

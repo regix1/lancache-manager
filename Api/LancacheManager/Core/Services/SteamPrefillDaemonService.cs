@@ -1288,6 +1288,17 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
     }
 
     /// <summary>
+    /// Checks if any prefill daemon session is currently authenticated with Steam.
+    /// Used by depot mapping service to detect when prefill is using the shared credentials.
+    /// </summary>
+    public bool IsAnyDaemonAuthenticated()
+    {
+        return _sessions.Values.Any(s =>
+            s.Status == DaemonSessionStatus.Active &&
+            s.AuthState == DaemonAuthState.Authenticated);
+    }
+
+    /// <summary>
     /// Terminates prefill sessions owned by authenticated users (not guests).
     /// Called when Steam PICS authentication is logged out.
     /// </summary>
