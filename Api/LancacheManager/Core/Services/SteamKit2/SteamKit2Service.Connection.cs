@@ -37,11 +37,13 @@ public partial class SteamKit2Service
                 ShouldRememberPassword = true,
                 LoginID = _steamLoginId
             });
+            _logger.LogInformation("SteamKit2 authenticated login with LoginID: {LoginID} (0x{LoginIDHex:X8}) for user: {Username}", _steamLoginId, _steamLoginId, username);
         }
         else
         {
             _logger.LogInformation("Logging in anonymously...");
             _steamUser!.LogOnAnonymous();
+            _logger.LogInformation("SteamKit2 anonymous login (no LoginID)");
         }
 
         // Wait for logged on (increased timeout to handle Steam server delays)
@@ -92,11 +94,13 @@ public partial class SteamKit2Service
                     ShouldRememberPassword = true,
                     LoginID = _steamLoginId
                 });
+                _logger.LogInformation("SteamKit2 reconnect login with LoginID: {LoginID} (0x{LoginIDHex:X8}) for user: {Username}", _steamLoginId, _steamLoginId, username);
             }
             else
             {
                 _logger.LogInformation("Re-logging in anonymously...");
                 _steamUser!.LogOnAnonymous();
+                _logger.LogInformation("SteamKit2 reconnect anonymous login (no LoginID)");
             }
         }
     }
@@ -208,6 +212,7 @@ public partial class SteamKit2Service
             _isLoggedOn = true;
             _loggedOnTcs?.TrySetResult();
             _logger.LogInformation("Successfully logged onto Steam!");
+            _logger.LogInformation("Steam login succeeded. Active LoginID: {LoginID} (0x{LoginIDHex:X8}), IsAuthenticated: {IsAuth}", _steamLoginId, _steamLoginId, IsSteamAuthenticated);
         }
         else
         {
@@ -287,13 +292,13 @@ public partial class SteamKit2Service
             EResult.LogonSessionReplaced => (
                 "SessionReplaced",
                 "Your Steam session was replaced. This happens when you log into Steam from another device or application (Steam client, another server, etc.). Please close other Steam sessions and try again.",
-                true,
+                false,
                 true
             ),
             EResult.LoggedInElsewhere => (
                 "LoggedInElsewhere",
                 "You logged into Steam from another location. Steam only allows one active session for PICS access. Please close other Steam sessions and try again.",
-                true,
+                false,
                 true
             ),
             EResult.AccountLogonDenied => (
@@ -324,7 +329,35 @@ public partial class SteamKit2Service
 
         if (isSessionReplaced)
         {
-            _logger.LogWarning("Steam session was replaced by another login. Will reconnect with SteamID-based session.");
+            _logger.LogWarning("Steam session was replaced by another login. Our LoginID: {LoginID} (0x{LoginIDHex:X8}). Will attempt reconnection.", _steamLoginId, _steamLoginId);
+
+            // Send informational notification - session replacement is not fatal with LoginID
+            _notifications.NotifyAllFireAndForget(SignalREvents.SteamSessionError, new
+            {
+                errorType,
+                message = "Steam session was temporarily interrupted. Reconnecting automatically...",
+                result = callback.Result.ToString(),
+                timestamp = DateTime.UtcNow,
+                wasRebuildActive = IsRebuildRunning
+            });
+        }
+
+        // For credential-invalidating errors, clear stored credentials and notify frontend
+        if (errorType is "InvalidCredentials" or "AuthenticationRequired" or "SessionExpired")
+        {
+            _logger.LogWarning("Steam credentials are no longer valid ({ErrorType}). Clearing stored credentials.", errorType);
+            _stateService.SetSteamRefreshToken(null);
+            _stateService.SetSteamUsername(null);
+            _stateService.SetSteamAuthMode("anonymous");
+
+            // Notify frontend to update auth state
+            _notifications.NotifyAllFireAndForget(SignalREvents.SteamAutoLogout, new
+            {
+                message = errorMessage,
+                reason = errorType,
+                replacementCount = 0,
+                timestamp = DateTime.UtcNow
+            });
         }
 
         // Send SignalR notification for significant errors

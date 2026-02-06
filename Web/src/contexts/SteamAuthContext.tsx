@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
 import ApiService from '@services/api.service';
 import { useSignalR } from '@contexts/SignalRContext';
-import type { SteamAutoLogoutEvent } from '@contexts/SignalRContext/types';
+import type { SteamAutoLogoutEvent, SteamSessionErrorEvent } from '@contexts/SignalRContext/types';
 
 type SteamAuthMode = 'anonymous' | 'authenticated';
 
@@ -83,6 +83,24 @@ export const SteamAuthProvider: React.FC<SteamAuthProviderProps> = ({ children }
 
     return () => {
       signalR.off('SteamAutoLogout', handleSteamAutoLogout);
+    };
+  }, [signalR]);
+
+  // Listen for SteamSessionError events that may indicate auth state changed
+  useEffect(() => {
+    const handleSteamSessionError = async (event: SteamSessionErrorEvent) => {
+      // For credential-invalidating errors, refresh auth state from server
+      // The backend clears credentials for these, so we need to re-fetch
+      const authInvalidatingTypes = ['InvalidCredentials', 'AuthenticationRequired', 'SessionExpired', 'AutoLogout'];
+      if (authInvalidatingTypes.includes(event.errorType)) {
+        await fetchSteamAuth();
+      }
+    };
+
+    signalR.on('SteamSessionError', handleSteamSessionError);
+
+    return () => {
+      signalR.off('SteamSessionError', handleSteamSessionError);
     };
   }, [signalR]);
 

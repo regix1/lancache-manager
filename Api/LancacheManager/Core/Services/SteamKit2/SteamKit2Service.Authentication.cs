@@ -112,6 +112,7 @@ public partial class SteamKit2Service
                 ShouldRememberPassword = true,
                 LoginID = _steamLoginId
             });
+            _logger.LogInformation("SteamKit2 auth-flow login with LoginID: {LoginID} (0x{LoginIDHex:X8}) for user: {Username}", _steamLoginId, _steamLoginId, pollResponse.AccountName);
 
             // Use longer timeout for authentication (Steam servers can be slow)
             await WaitForTaskWithTimeout(_loggedOnTcs.Task, TimeSpan.FromMinutes(2), CancellationToken.None);
