@@ -11,29 +11,12 @@ import {
 import type { LogEntryType } from '../ActivityLog';
 import i18n from '../../../../i18n';
 import { usePrefillAnimation } from './usePrefillAnimation';
-import { usePrefillEventHandlers } from './usePrefillEventHandlers';
+import { registerPrefillEventHandlers } from './usePrefillEventHandlers';
 import {
   PREFILL_SESSION_TIMEOUT_MS,
   COMPLETION_NOTIFICATION_WINDOW_MS
 } from './prefillConstants';
-
-interface PrefillProgress {
-  state: string;
-  message?: string;
-  currentAppId: number;
-  currentAppName?: string;
-  percentComplete: number;
-  bytesDownloaded: number;
-  totalBytes: number;
-  bytesPerSecond: number;
-  elapsedSeconds: number;
-}
-
-interface BackgroundCompletion {
-  completedAt: string;
-  message: string;
-  duration: number;
-}
+import type { PrefillProgress, BackgroundCompletion } from './prefillTypes';
 
 interface UsePrefillSignalROptions {
   onSessionEnd?: () => void;
@@ -223,7 +206,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
           .build();
 
         // Register all event handlers
-        usePrefillEventHandlers(connection, {
+        registerPrefillEventHandlers(connection, {
           addLog,
           onAuthStateChanged,
           setSession,

@@ -1,4 +1,3 @@
-import { useCallback } from 'react';
 import type { HubConnection } from '@microsoft/signalr';
 import { formatBytes } from '@utils/formatters';
 import {
@@ -9,30 +8,7 @@ import {
 import type { LogEntryType } from '../ActivityLog';
 import i18n from '../../../../i18n';
 import { COMPLETION_NOTIFICATION_WINDOW_MS } from './prefillConstants';
-
-interface PrefillProgress {
-  state: string;
-  message?: string;
-  currentAppId: number;
-  currentAppName?: string;
-  percentComplete: number;
-  bytesDownloaded: number;
-  totalBytes: number;
-  bytesPerSecond: number;
-  elapsedSeconds: number;
-}
-
-interface BackgroundCompletion {
-  completedAt: string;
-  message: string;
-  duration: number;
-}
-
-interface CachedAnimationItem {
-  appId: number;
-  appName?: string;
-  totalBytes: number;
-}
+import type { PrefillProgress, BackgroundCompletion, CachedAnimationItem } from './prefillTypes';
 
 interface UsePrefillEventHandlersOptions {
   addLog: (type: LogEntryType, message: string, details?: string) => void;
@@ -61,10 +37,10 @@ interface UsePrefillEventHandlersOptions {
 }
 
 /**
- * Hook for registering SignalR event handlers for the prefill feature
- * This handles all the connection.on() event registrations
+ * Registers SignalR event handlers for the prefill feature.
+ * This is a plain function (not a hook) so it can be called from callbacks.
  */
-export function usePrefillEventHandlers(
+export function registerPrefillEventHandlers(
   connection: HubConnection,
   options: UsePrefillEventHandlersOptions
 ): void {
@@ -96,8 +72,7 @@ export function usePrefillEventHandlers(
 
   const t = i18n.t.bind(i18n);
 
-  const registerHandlers = useCallback(() => {
-    // Handle daemon output - parse and add to log
+  // Handle daemon output - parse and add to log
     connection.on('TerminalOutput', (_sessionId: string, output: string) => {
       const trimmed = output.trim();
       if (!trimmed) return;
@@ -449,34 +424,4 @@ export function usePrefillEventHandlers(
         }
       }
     });
-  }, [
-    connection,
-    addLog,
-    onAuthStateChanged,
-    setSession,
-    setTimeRemaining,
-    setIsLoggedIn,
-    setIsPrefillActive,
-    setPrefillProgress,
-    onSessionEnd,
-    clearAllPrefillStorage,
-    setBackgroundCompletionRef,
-    clearBackgroundCompletion,
-    isCompletionDismissed,
-    sessionRef,
-    isCancelling,
-    currentAnimationAppIdRef,
-    expectedAppCountRef,
-    downloadedGamesCountRef,
-    cachedGamesCountRef,
-    totalBytesDownloadedRef,
-    enqueueAnimation,
-    resetAnimationState,
-    cachedAnimationQueueRef,
-    isProcessingAnimationRef,
-    t
-  ]);
-
-  // Register handlers on mount or when connection changes
-  registerHandlers();
 }

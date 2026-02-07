@@ -1,23 +1,6 @@
 import { useRef, useCallback } from 'react';
 import { ANIMATION_DURATION_MS, ANIMATION_COMPLETION_DELAY_MS } from './prefillConstants';
-
-interface CachedAnimationItem {
-  appId: number;
-  appName?: string;
-  totalBytes: number;
-}
-
-interface PrefillProgress {
-  state: string;
-  message?: string;
-  currentAppId: number;
-  currentAppName?: string;
-  percentComplete: number;
-  bytesDownloaded: number;
-  totalBytes: number;
-  bytesPerSecond: number;
-  elapsedSeconds: number;
-}
+import type { CachedAnimationItem, PrefillProgress } from './prefillTypes';
 
 interface UsePrefillAnimationReturn {
   cachedAnimationCountRef: React.RefObject<number>;
@@ -38,6 +21,7 @@ export function usePrefillAnimation(): UsePrefillAnimationReturn {
   const currentAnimationAppIdRef = useRef(0);
   const cachedAnimationQueueRef = useRef<CachedAnimationItem[]>([]);
   const isProcessingAnimationRef = useRef(false);
+  const processAnimationQueueRef = useRef<((setPrefillProgress: React.Dispatch<React.SetStateAction<PrefillProgress | null>>) => void) | null>(null);
 
   const resetAnimationState = useCallback(() => {
     cachedAnimationQueueRef.current = [];
@@ -87,7 +71,7 @@ export function usePrefillAnimation(): UsePrefillAnimationReturn {
           if (cachedAnimationQueueRef.current.length === 0) {
             setPrefillProgress(null);
           } else {
-            processAnimationQueue(setPrefillProgress);
+            processAnimationQueueRef.current?.(setPrefillProgress);
           }
         }, ANIMATION_COMPLETION_DELAY_MS);
       }
@@ -95,6 +79,7 @@ export function usePrefillAnimation(): UsePrefillAnimationReturn {
 
     animateProgress();
   }, []);
+  processAnimationQueueRef.current = processAnimationQueue;
 
   const enqueueAnimation = useCallback((
     item: CachedAnimationItem,
