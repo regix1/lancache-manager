@@ -5,6 +5,25 @@ namespace LancacheManager.Core.Services.SteamKit2;
 
 public partial class SteamKit2Service
 {
+    /// <summary>
+    /// Check if the Steam Prefill Daemon is currently active/authenticated.
+    /// Used to determine whether to use anonymous mode to avoid session conflicts.
+    /// </summary>
+    private bool IsPrefillDaemonActive()
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var daemonService = scope.ServiceProvider.GetService<SteamPrefillDaemonService>();
+            return daemonService?.IsAnyDaemonAuthenticated() == true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not check prefill daemon status");
+            return false;
+        }
+    }
+
     private async Task ConnectAndLoginAsync(CancellationToken ct)
     {
         if (_isLoggedOn && _steamClient?.IsConnected == true)
@@ -22,17 +41,7 @@ public partial class SteamKit2Service
         await WaitForTaskWithTimeout(_connectedTcs.Task, TimeSpan.FromSeconds(60), ct, "Connecting to Steam");
 
         // Check if prefill daemon is active - if so, use anonymous mode to avoid session conflicts
-        var isPrefillDaemonActive = false;
-        try
-        {
-            using var scope = _scopeFactory.CreateScope();
-            var daemonService = scope.ServiceProvider.GetService<SteamPrefillDaemonService>();
-            isPrefillDaemonActive = daemonService?.IsAnyDaemonAuthenticated() == true;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Could not check prefill daemon status");
-        }
+        var isPrefillDaemonActive = IsPrefillDaemonActive();
 
         // Check if we have a saved refresh token for authenticated login
         var refreshToken = _stateService.GetSteamRefreshToken();
@@ -102,19 +111,10 @@ public partial class SteamKit2Service
             var useAnonymousForReconnect = false;
             if (_lastDisconnectWasSessionReplaced)
             {
-                try
+                if (IsPrefillDaemonActive())
                 {
-                    using var scope = _scopeFactory.CreateScope();
-                    var daemonService = scope.ServiceProvider.GetService<SteamPrefillDaemonService>();
-                    if (daemonService?.IsAnyDaemonAuthenticated() == true)
-                    {
-                        useAnonymousForReconnect = true;
-                        _logger.LogInformation("Session was replaced while prefill daemon is active - using anonymous mode to avoid conflicts");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(ex, "Could not check prefill daemon status");
+                    useAnonymousForReconnect = true;
+                    _logger.LogInformation("Session was replaced while prefill daemon is active - using anonymous mode to avoid conflicts");
                 }
                 _lastDisconnectWasSessionReplaced = false;
             }
@@ -210,20 +210,12 @@ public partial class SteamKit2Service
                 delaySeconds, _reconnectAttempt, MaxReconnectAttempts);
 
             // Send progress update so UI knows we're reconnecting
-            _notifications.NotifyAllFireAndForget(SignalREvents.DepotMappingProgress, new
-            {
-                operationId = _currentPicsOperationId,
-                status = $"Reconnecting to Steam (attempt {_reconnectAttempt}/{MaxReconnectAttempts})...",
-                percentComplete = _totalBatches > 0 ? (_processedBatches * 100.0 / _totalBatches) : 0,
-                processedBatches = _processedBatches,
-                totalBatches = _totalBatches,
-                depotMappingsFound = _depotToAppMappings.Count,
-                isLoggedOn = false,
-                isReconnecting = true,
-                reconnectAttempt = _reconnectAttempt,
-                maxReconnectAttempts = MaxReconnectAttempts,
-                message = $"Connection lost. Reconnecting in {delaySeconds} seconds..."
-            });
+            SendDepotMappingProgress(
+                $"Reconnecting to Steam (attempt {_reconnectAttempt}/{MaxReconnectAttempts})...",
+                $"Connection lost. Reconnecting in {delaySeconds} seconds...",
+                isReconnecting: true,
+                reconnectAttempt: _reconnectAttempt
+            ).Wait(); // Fire-and-forget equivalent for synchronous context
 
             Task.Delay(delaySeconds * 1000, _cancellationTokenSource.Token).ContinueWith(_ =>
             {

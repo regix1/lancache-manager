@@ -286,9 +286,12 @@ public class AuthController : ControllerBase
 
     /// <summary>
     /// POST /api/auth/clear-session - Clear session cookies
-    /// Used when all sessions are cleared from database management
-    /// This endpoint clears HttpOnly session cookies that can't be cleared by JavaScript
-    /// No authentication required since session is already invalid in database
+    /// Used when all sessions are cleared from database management.
+    /// This endpoint clears HttpOnly session cookies that can't be cleared by JavaScript.
+    /// No authentication required since session is already invalid in database.
+    ///
+    /// IMPORTANT: This endpoint is actively used by the frontend (App.tsx) during logout flow.
+    /// Do not remove without updating the frontend logout logic.
     /// </summary>
     [HttpPost("clear-session")]
     public IActionResult ClearSession()

@@ -68,10 +68,10 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
           className="flex items-center gap-3 w-full text-left hover:opacity-80 transition-opacity"
         >
           <div
-            className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
-            style={{ backgroundColor: statusBgColor }}
+            className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 prefill-network-status-bg"
+            style={{ '--network-status-bg': statusBgColor } as React.CSSProperties}
           >
-            <Wifi className="h-5 w-5" style={{ color: statusColor }} />
+            <Wifi className="h-5 w-5 prefill-network-status-icon" style={{ '--network-status-color': statusColor } as React.CSSProperties} />
           </div>
           <div className="flex-1 min-w-0">
             <p className="font-medium text-themed-primary">{t('prefill.network.title')}</p>

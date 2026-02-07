@@ -26,6 +26,7 @@
 @import './styles/features/edit-mode.css';
 @import './styles/features/events.css';
 @import './styles/features/downloads.css';
+@import './styles/features/prefill.css';
 
 @tailwind base;
 @tailwind components;

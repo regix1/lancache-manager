@@ -181,314 +181,9 @@ public partial class SteamKit2Service
     {
         try
         {
-            _currentStatus = "Connecting and enumerating apps";
-            _lastErrorMessage = null; // Clear previous errors when starting new scan
-            _logger.LogInformation("Starting to build depot index via Steam PICS (incremental={Incremental}, Current mappings in memory: {Count})...",
-                incrementalOnly, _depotToAppMappings.Count);
-
-            // Check if we already have data loaded in memory (fast)
-            // Use in-memory count if available, otherwise estimate from database (non-blocking for logging)
-            int estimatedDatabaseDepotCount = _depotToAppMappings.Count;
-            if (estimatedDatabaseDepotCount == 0)
-            {
-                // Only do database count if memory is empty - run in background for logging
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        using var scope = _scopeFactory.CreateScope();
-                        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                        var dbCount = await context.SteamDepotMappings.CountAsync();
-                        _logger.LogInformation("Database has {Count} depot mappings", dbCount);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to count database depot mappings");
-                    }
-                });
-            }
-
-            // Load existing data from JSON file if it exists
-            var existingData = await _picsDataService.LoadPicsDataFromJsonAsync();
-            bool hasExistingJsonData = existingData?.DepotMappings?.Any() == true;
-            bool hasExistingDatabaseData = estimatedDatabaseDepotCount > 1000; // Require substantial database data (not just a few mappings)
-            bool hasExistingData = hasExistingJsonData || hasExistingDatabaseData;
-
-            _logger.LogInformation("Existing data check: JSON={HasJson} ({JsonCount} mappings), Database={HasDb} ({DbCount} mappings)",
-                hasExistingJsonData, existingData?.DepotMappings?.Count ?? 0, hasExistingDatabaseData, estimatedDatabaseDepotCount);
-
-            if (!incrementalOnly)
-            {
-                // Full rebuild - start fresh, don't load change number
-                _logger.LogInformation("Starting full PICS generation (will use Web API for app enumeration)");
-                _depotToAppMappings.Clear();
-                _appNames.Clear();
-                _scannedApps.Clear(); // Clear scanned apps list so all apps are rescanned
-                _lastChangeNumberSeen = 0; // Reset to ensure Web API enumeration is used
-
-                // Clear game data from Downloads table so all downloads get fresh mappings
-                _logger.LogInformation("Full scan detected - clearing existing game data from downloads for fresh mapping");
-                await ClearDownloadGameDataAsync();
-            }
-            else if (incrementalOnly)
-            {
-                // For incremental updates, load existing mappings and change number
-                _logger.LogInformation("Incremental update mode - loading existing data");
-
-                // Load existing mappings from database first
-                await LoadExistingDepotMappings();
-                _logger.LogInformation("Loaded {Count} mappings from database into memory", _depotToAppMappings.Count);
-
-                // Load change number from JSON if available
-                if (hasExistingJsonData && existingData?.Metadata != null)
-                {
-                    _lastChangeNumberSeen = existingData.Metadata.LastChangeNumber;
-                    _logger.LogInformation("Loaded change number {ChangeNumber} from JSON metadata", _lastChangeNumberSeen);
-
-                    // Merge existing depot mappings from JSON (only if not already loaded from database)
-                    if (_depotToAppMappings.Count == 0)
-                    {
-                        var (jsonMappingsMerged, _) = MergeDepotMappingsFromJson(existingData);
-                        if (jsonMappingsMerged > 0)
-                        {
-                            _logger.LogInformation("Merged {Count} existing mappings from JSON (database was empty)", jsonMappingsMerged);
-                        }
-                    }
-                }
-
-                _logger.LogInformation("Starting incremental update with {Count} existing depot mappings", _depotToAppMappings.Count);
-            }
-
-            // Enumerate every appid by crawling the PICS changelist
-            List<uint> appIds = await EnumerateAllAppIdsViaPicsChangesAsync(ct, incrementalOnly);
-            _logger.LogInformation("Retrieved {Count} app IDs from PICS", appIds.Count);
-
-            var allBatches = appIds
-                .Where(id => !_scannedApps.Contains(id))
-                .Chunk(AppBatchSize)
-                .ToList();
-
-            _totalAppsToProcess = appIds.Count;
-            _processedApps = 0;
-            _totalBatches = allBatches.Count;
-            _processedBatches = 0;
-            _currentStatus = "Processing app data";
-
-            // Reset session start count to track new mappings found
-            _sessionStartDepotCount = _depotToAppMappings.Count;
-            _logger.LogInformation("Session start depot count: {Count}", _sessionStartDepotCount);
-
-            _logger.LogInformation("Processing {BatchCount} appinfo batches via PICS", allBatches.Count);
-
-            foreach (var batch in allBatches)
-            {
-                ct.ThrowIfCancellationRequested();
-
-                try
-                {
-                    _logger.LogTrace("Processing batch {BatchNum}/{TotalBatches} with {AppCount} apps",
-                        _processedBatches + 1, allBatches.Count, batch.Length);
-
-                    // Acquire access tokens for protected appinfo entries when available
-                    var tokensJob = _steamApps!.PICSGetAccessTokens(batch, Enumerable.Empty<uint>());
-                    var tokens = await WaitForCallbackAsync(tokensJob, ct);
-
-                    _logger.LogTrace("Received {GrantedTokens} granted tokens and {DeniedTokens} denied tokens for batch",
-                        tokens.AppTokens.Count, tokens.AppTokensDenied.Count);
-
-                    // Prepare the product info request with tokens attached when needed
-                    var appRequests = new List<SteamApps.PICSRequest>(batch.Length);
-                    foreach (var appId in batch)
-                    {
-                        var request = new SteamApps.PICSRequest(appId);
-                        if (tokens.AppTokens.TryGetValue(appId, out var token))
-                        {
-                            request.AccessToken = token;
-                            _logger.LogTrace("Using access token for app {AppId}", appId);
-                        }
-
-                        appRequests.Add(request);
-                    }
-
-                    var productJob = _steamApps.PICSGetProductInfo(appRequests, Enumerable.Empty<SteamApps.PICSRequest>());
-                    var productCallbacks = await WaitForAllProductInfoAsync(productJob, ct);
-
-                    int appsInThisBatch = 0, unknownInThisBatch = 0;
-                    var dlcAppsToScan = new List<uint>();
-
-                    foreach (var cb in productCallbacks)
-                    {
-                        appsInThisBatch += cb.Apps.Count;
-                        unknownInThisBatch += cb.UnknownApps.Count;
-
-                        foreach (var app in cb.Apps.Values)
-                        {
-                            var dlcList = ProcessAppDepots(app);
-                            dlcAppsToScan.AddRange(dlcList);
-                            _processedApps++;
-                        }
-                    }
-
-                    // Process DLC apps found in this batch
-                    if (dlcAppsToScan.Count > 0)
-                    {
-                        _logger.LogInformation("Found {Count} DLC apps to scan in this batch", dlcAppsToScan.Count);
-
-                        // Process DLC apps in smaller sub-batches
-                        var dlcBatches = dlcAppsToScan.Distinct().Chunk(50).ToList();
-                        foreach (var dlcBatch in dlcBatches)
-                        {
-                            try
-                            {
-                                var dlcTokensJob = _steamApps.PICSGetAccessTokens(dlcBatch, Enumerable.Empty<uint>());
-                                var dlcTokens = await WaitForCallbackAsync(dlcTokensJob, ct);
-
-                                var dlcAppRequests = new List<SteamApps.PICSRequest>();
-                                foreach (var dlcAppId in dlcBatch)
-                                {
-                                    var request = new SteamApps.PICSRequest(dlcAppId);
-                                    if (dlcTokens.AppTokens.TryGetValue(dlcAppId, out var token))
-                                    {
-                                        request.AccessToken = token;
-                                    }
-                                    dlcAppRequests.Add(request);
-                                }
-
-                                var dlcProductJob = _steamApps.PICSGetProductInfo(dlcAppRequests, Enumerable.Empty<SteamApps.PICSRequest>());
-                                var dlcProductCallbacks = await WaitForAllProductInfoAsync(dlcProductJob, ct);
-
-                                foreach (var dlcCb in dlcProductCallbacks)
-                                {
-                                    foreach (var dlcApp in dlcCb.Apps.Values)
-                                    {
-                                        ProcessAppDepots(dlcApp);  // Don't need to scan DLC's DLCs recursively
-                                        _processedApps++;
-                                    }
-                                }
-
-                                await Task.Delay(100, ct);  // Small delay between DLC batches
-                            }
-                            catch (OperationCanceledException)
-                            {
-                                // Cancellation is expected, just rethrow
-                                throw;
-                            }
-                            catch (Exception ex)
-                            {
-                                _logger.LogWarning(ex, "Failed to process DLC batch. Continuing...");
-                            }
-                        }
-                    }
-
-                    _logger.LogTrace(
-                        "Received product info for {Apps} apps, {Unknown} unknown across {Parts} parts",
-                        appsInThisBatch, unknownInThisBatch, productCallbacks.Count);
-
-                    _processedBatches++;
-
-                    // Send SignalR progress updates EVERY batch to keep connection alive
-                    // This prevents SignalR/HTTP connection timeouts during long-running PICS scans
-                    double percentComplete = (_processedBatches * 100.0 / allBatches.Count);
-
-                    // Send progress via SignalR
-                    await _notifications.NotifyAllAsync(SignalREvents.DepotMappingProgress, new
-                    {
-                        operationId = _currentPicsOperationId,
-                        status = "Scanning Steam PICS data",
-                        percentComplete,
-                        processedBatches = _processedBatches,
-                        totalBatches = allBatches.Count,
-                        depotMappingsFound = _depotToAppMappings.Count,
-                        isLoggedOn = IsSteamAuthenticated,
-                        message = $"Scanning Steam PICS: {_processedBatches}/{allBatches.Count} batches"
-                    });
-
-                    // Log progress and save every 50 batches to reduce I/O
-                    if (_processedBatches % 50 == 0)
-                    {
-                        _logger.LogInformation(
-                            "Processed {Processed}/{Total} batches ({Percent:F1}%); depot mappings found={Mappings}",
-                            _processedBatches,
-                            allBatches.Count,
-                            percentComplete,
-                            _depotToAppMappings.Count);
-
-                        // Use merge for incremental, full save for complete rebuild
-                        await SaveAllMappingsToJsonAsync(incrementalOnly);
-                    }
-
-                    // Adaptive delay based on current performance
-                    var delayMs = _depotToAppMappings.Count > 1000 ? 100 : 150;
-                    await Task.Delay(delayMs, ct);
-                }
-                catch (OperationCanceledException)
-                {
-                    // Cancellation is expected, just rethrow
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to process batch {Batch}/{Total}. Continuing...",
-                        _processedBatches + 1, allBatches.Count);
-                }
-            }
-
-            _currentStatus = "Saving PICS data to JSON";
-            _logger.LogInformation("Depot index built. Total depot mappings: {Count}", _depotToAppMappings.Count);
-
-            // Send progress update for post-processing phase
-            await SendPostProcessingProgress("Saving depot mappings to JSON...", 100, _depotToAppMappings.Count);
-
-            // Final save - use merge for incremental, full save for complete rebuild
-            await SaveAllMappingsToJsonAsync(incrementalOnly);
-
-            _currentStatus = "Importing to database";
-            await SendPostProcessingProgress("Importing to database...", 100, _depotToAppMappings.Count);
-
-            // Import to database BEFORE updating downloads so mappings are available
-            try
-            {
-                await ImportJsonToDatabase();
-                _logger.LogInformation("Database import completed successfully");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Database import failed");
-            }
-
-            // Auto-apply depot mappings to downloads after PICS data is ready
-            _currentStatus = "Applying depot mappings";
-            await SendPostProcessingProgress("Applying mappings to downloads...", 100, _depotToAppMappings.Count);
-            _logger.LogInformation("Automatically applying depot mappings after PICS completion");
-
-            var (downloadsUpdated, downloadsNotFound) = await UpdateDownloadsWithDepotMappings();
-
-            _currentStatus = "Complete";
-            _lastCrawlTime = DateTime.UtcNow;
-            SaveLastCrawlTime();
-
-            // Clear cached viability check since we just completed a scan
-            // Next check will get fresh data from Steam
-            var state = _stateService.GetState();
-            state.RequiresFullScan = false;
-            state.LastViabilityCheck = null;
-            state.LastViabilityCheckChangeNumber = 0;
-            state.ViabilityChangeGap = 0;
-            _stateService.SaveState(state);
-            _logger.LogInformation("Cleared cached viability check - next check will query Steam for fresh data");
-
-            // Send completion notification
-            var totalMappings = _depotToAppMappings.Count;
-            await _notifications.NotifyAllAsync(SignalREvents.DepotMappingComplete, new
-            {
-                success = true,
-                message = "Depot mapping completed successfully",
-                totalMappings,
-                downloadsUpdated,
-                scanMode = incrementalOnly ? "incremental" : "full",
-                isLoggedOn = IsSteamAuthenticated,
-                timestamp = DateTime.UtcNow
-            });
+            var (appIds, isIncremental) = await PrepareForScanAsync(ct, incrementalOnly);
+            await ProcessAppBatchesAsync(appIds, isIncremental, ct);
+            await FinalizeAndNotifyAsync(true, isIncremental, ct);
         }
         catch (OperationCanceledException)
         {
@@ -517,6 +212,328 @@ public partial class SteamKit2Service
             // Re-throw the exception so calling code knows the operation failed
             throw;
         }
+    }
+
+    /// <summary>
+    /// Prepare for depot index scan: load existing data, determine scan mode, and enumerate app IDs
+    /// </summary>
+    private async Task<(List<uint> appIds, bool isIncremental)> PrepareForScanAsync(CancellationToken ct, bool incrementalOnly)
+    {
+        _currentStatus = "Connecting and enumerating apps";
+        _lastErrorMessage = null; // Clear previous errors when starting new scan
+        _logger.LogInformation("Starting to build depot index via Steam PICS (incremental={Incremental}, Current mappings in memory: {Count})...",
+            incrementalOnly, _depotToAppMappings.Count);
+
+        // Check if we already have data loaded in memory (fast)
+        // Use in-memory count if available, otherwise estimate from database (non-blocking for logging)
+        int estimatedDatabaseDepotCount = _depotToAppMappings.Count;
+        if (estimatedDatabaseDepotCount == 0)
+        {
+            // Only do database count if memory is empty - run in background for logging
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    using var scope = _scopeFactory.CreateScope();
+                    var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                    var dbCount = await context.SteamDepotMappings.CountAsync();
+                    _logger.LogInformation("Database has {Count} depot mappings", dbCount);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to count database depot mappings");
+                }
+            });
+        }
+
+        // Load existing data from JSON file if it exists
+        var existingData = await _picsDataService.LoadPicsDataFromJsonAsync();
+        bool hasExistingJsonData = existingData?.DepotMappings?.Any() == true;
+        bool hasExistingDatabaseData = estimatedDatabaseDepotCount > 1000; // Require substantial database data (not just a few mappings)
+        bool hasExistingData = hasExistingJsonData || hasExistingDatabaseData;
+
+        _logger.LogInformation("Existing data check: JSON={HasJson} ({JsonCount} mappings), Database={HasDb} ({DbCount} mappings)",
+            hasExistingJsonData, existingData?.DepotMappings?.Count ?? 0, hasExistingDatabaseData, estimatedDatabaseDepotCount);
+
+        if (!incrementalOnly)
+        {
+            // Full rebuild - start fresh, don't load change number
+            _logger.LogInformation("Starting full PICS generation (will use Web API for app enumeration)");
+            _depotToAppMappings.Clear();
+            _appNames.Clear();
+            _scannedApps.Clear(); // Clear scanned apps list so all apps are rescanned
+            _lastChangeNumberSeen = 0; // Reset to ensure Web API enumeration is used
+
+            // Clear game data from Downloads table so all downloads get fresh mappings
+            _logger.LogInformation("Full scan detected - clearing existing game data from downloads for fresh mapping");
+            await ClearDownloadGameDataAsync();
+        }
+        else if (incrementalOnly)
+        {
+            // For incremental updates, load existing mappings and change number
+            _logger.LogInformation("Incremental update mode - loading existing data");
+
+            // Load existing mappings from database first
+            await LoadExistingDepotMappings();
+            _logger.LogInformation("Loaded {Count} mappings from database into memory", _depotToAppMappings.Count);
+
+            // Load change number from JSON if available
+            if (hasExistingJsonData && existingData?.Metadata != null)
+            {
+                _lastChangeNumberSeen = existingData.Metadata.LastChangeNumber;
+                _logger.LogInformation("Loaded change number {ChangeNumber} from JSON metadata", _lastChangeNumberSeen);
+
+                // Merge existing depot mappings from JSON (only if not already loaded from database)
+                if (_depotToAppMappings.Count == 0)
+                {
+                    var (jsonMappingsMerged, _) = MergeDepotMappingsFromJson(existingData);
+                    if (jsonMappingsMerged > 0)
+                    {
+                        _logger.LogInformation("Merged {Count} existing mappings from JSON (database was empty)", jsonMappingsMerged);
+                    }
+                }
+            }
+
+            _logger.LogInformation("Starting incremental update with {Count} existing depot mappings", _depotToAppMappings.Count);
+        }
+
+        // Enumerate every appid by crawling the PICS changelist
+        List<uint> appIds = await EnumerateAllAppIdsViaPicsChangesAsync(ct, incrementalOnly);
+        _logger.LogInformation("Retrieved {Count} app IDs from PICS", appIds.Count);
+
+        return (appIds, incrementalOnly);
+    }
+
+    /// <summary>
+    /// Process app batches: fetch product info, scan depots, and send progress updates
+    /// </summary>
+    private async Task ProcessAppBatchesAsync(List<uint> appIds, bool incrementalOnly, CancellationToken ct)
+    {
+        var allBatches = appIds
+            .Where(id => !_scannedApps.Contains(id))
+            .Chunk(AppBatchSize)
+            .ToList();
+
+        _totalAppsToProcess = appIds.Count;
+        _processedApps = 0;
+        _totalBatches = allBatches.Count;
+        _processedBatches = 0;
+        _currentStatus = "Processing app data";
+
+        // Reset session start count to track new mappings found
+        _sessionStartDepotCount = _depotToAppMappings.Count;
+        _logger.LogInformation("Session start depot count: {Count}", _sessionStartDepotCount);
+
+        _logger.LogInformation("Processing {BatchCount} appinfo batches via PICS", allBatches.Count);
+
+        foreach (var batch in allBatches)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            try
+            {
+                _logger.LogTrace("Processing batch {BatchNum}/{TotalBatches} with {AppCount} apps",
+                    _processedBatches + 1, allBatches.Count, batch.Length);
+
+                // Acquire access tokens for protected appinfo entries when available
+                var tokensJob = _steamApps!.PICSGetAccessTokens(batch, Enumerable.Empty<uint>());
+                var tokens = await WaitForCallbackAsync(tokensJob, ct);
+
+                _logger.LogTrace("Received {GrantedTokens} granted tokens and {DeniedTokens} denied tokens for batch",
+                    tokens.AppTokens.Count, tokens.AppTokensDenied.Count);
+
+                // Prepare the product info request with tokens attached when needed
+                var appRequests = new List<SteamApps.PICSRequest>(batch.Length);
+                foreach (var appId in batch)
+                {
+                    var request = new SteamApps.PICSRequest(appId);
+                    if (tokens.AppTokens.TryGetValue(appId, out var token))
+                    {
+                        request.AccessToken = token;
+                        _logger.LogTrace("Using access token for app {AppId}", appId);
+                    }
+
+                    appRequests.Add(request);
+                }
+
+                var productJob = _steamApps.PICSGetProductInfo(appRequests, Enumerable.Empty<SteamApps.PICSRequest>());
+                var productCallbacks = await WaitForAllProductInfoAsync(productJob, ct);
+
+                int appsInThisBatch = 0, unknownInThisBatch = 0;
+                var dlcAppsToScan = new List<uint>();
+
+                foreach (var cb in productCallbacks)
+                {
+                    appsInThisBatch += cb.Apps.Count;
+                    unknownInThisBatch += cb.UnknownApps.Count;
+
+                    foreach (var app in cb.Apps.Values)
+                    {
+                        var dlcList = ProcessAppDepots(app);
+                        dlcAppsToScan.AddRange(dlcList);
+                        _processedApps++;
+                    }
+                }
+
+                // Process DLC apps found in this batch
+                if (dlcAppsToScan.Count > 0)
+                {
+                    _logger.LogInformation("Found {Count} DLC apps to scan in this batch", dlcAppsToScan.Count);
+
+                    // Process DLC apps in smaller sub-batches
+                    var dlcBatches = dlcAppsToScan.Distinct().Chunk(50).ToList();
+                    foreach (var dlcBatch in dlcBatches)
+                    {
+                        try
+                        {
+                            var dlcTokensJob = _steamApps.PICSGetAccessTokens(dlcBatch, Enumerable.Empty<uint>());
+                            var dlcTokens = await WaitForCallbackAsync(dlcTokensJob, ct);
+
+                            var dlcAppRequests = new List<SteamApps.PICSRequest>();
+                            foreach (var dlcAppId in dlcBatch)
+                            {
+                                var request = new SteamApps.PICSRequest(dlcAppId);
+                                if (dlcTokens.AppTokens.TryGetValue(dlcAppId, out var token))
+                                {
+                                    request.AccessToken = token;
+                                }
+                                dlcAppRequests.Add(request);
+                            }
+
+                            var dlcProductJob = _steamApps.PICSGetProductInfo(dlcAppRequests, Enumerable.Empty<SteamApps.PICSRequest>());
+                            var dlcProductCallbacks = await WaitForAllProductInfoAsync(dlcProductJob, ct);
+
+                            foreach (var dlcCb in dlcProductCallbacks)
+                            {
+                                foreach (var dlcApp in dlcCb.Apps.Values)
+                                {
+                                    ProcessAppDepots(dlcApp);  // Don't need to scan DLC's DLCs recursively
+                                    _processedApps++;
+                                }
+                            }
+
+                            await Task.Delay(100, ct);  // Small delay between DLC batches
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            // Cancellation is expected, just rethrow
+                            throw;
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to process DLC batch. Continuing...");
+                        }
+                    }
+                }
+
+                _logger.LogTrace(
+                    "Received product info for {Apps} apps, {Unknown} unknown across {Parts} parts",
+                    appsInThisBatch, unknownInThisBatch, productCallbacks.Count);
+
+                _processedBatches++;
+
+                // Send SignalR progress updates EVERY batch to keep connection alive
+                // This prevents SignalR/HTTP connection timeouts during long-running PICS scans
+                double percentComplete = (_processedBatches * 100.0 / allBatches.Count);
+
+                // Send progress via SignalR
+                await SendDepotMappingProgress(
+                    "Scanning Steam PICS data",
+                    $"Scanning Steam PICS: {_processedBatches}/{allBatches.Count} batches"
+                );
+
+                // Log progress and save every 50 batches to reduce I/O
+                if (_processedBatches % 50 == 0)
+                {
+                    _logger.LogInformation(
+                        "Processed {Processed}/{Total} batches ({Percent:F1}%); depot mappings found={Mappings}",
+                        _processedBatches,
+                        allBatches.Count,
+                        percentComplete,
+                        _depotToAppMappings.Count);
+
+                    // Use merge for incremental, full save for complete rebuild
+                    await SaveAllMappingsToJsonAsync(incrementalOnly);
+                }
+
+                // Adaptive delay based on current performance
+                var delayMs = _depotToAppMappings.Count > 1000 ? 100 : 150;
+                await Task.Delay(delayMs, ct);
+            }
+            catch (OperationCanceledException)
+            {
+                // Cancellation is expected, just rethrow
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to process batch {Batch}/{Total}. Continuing...",
+                    _processedBatches + 1, allBatches.Count);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Finalize depot index build: save to JSON/database, apply mappings, and send completion notification
+    /// </summary>
+    private async Task FinalizeAndNotifyAsync(bool success, bool incrementalOnly, CancellationToken ct)
+    {
+        _currentStatus = "Saving PICS data to JSON";
+        _logger.LogInformation("Depot index built. Total depot mappings: {Count}", _depotToAppMappings.Count);
+
+        // Send progress update for post-processing phase
+        await SendPostProcessingProgress("Saving depot mappings to JSON...", 100, _depotToAppMappings.Count);
+
+        // Final save - use merge for incremental, full save for complete rebuild
+        await SaveAllMappingsToJsonAsync(incrementalOnly);
+
+        _currentStatus = "Importing to database";
+        await SendPostProcessingProgress("Importing to database...", 100, _depotToAppMappings.Count);
+
+        // Import to database BEFORE updating downloads so mappings are available
+        try
+        {
+            await ImportJsonToDatabase();
+            _logger.LogInformation("Database import completed successfully");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Database import failed");
+        }
+
+        // Auto-apply depot mappings to downloads after PICS data is ready
+        _currentStatus = "Applying depot mappings";
+        await SendPostProcessingProgress("Applying mappings to downloads...", 100, _depotToAppMappings.Count);
+        _logger.LogInformation("Automatically applying depot mappings after PICS completion");
+
+        var (downloadsUpdated, downloadsNotFound) = await UpdateDownloadsWithDepotMappings();
+
+        _currentStatus = "Complete";
+        _lastCrawlTime = DateTime.UtcNow;
+        SaveLastCrawlTime();
+
+        // Clear cached viability check since we just completed a scan
+        // Next check will get fresh data from Steam
+        var state = _stateService.GetState();
+        state.RequiresFullScan = false;
+        state.LastViabilityCheck = null;
+        state.LastViabilityCheckChangeNumber = 0;
+        state.ViabilityChangeGap = 0;
+        _stateService.SaveState(state);
+        _logger.LogInformation("Cleared cached viability check - next check will query Steam for fresh data");
+
+        // Send completion notification
+        var totalMappings = _depotToAppMappings.Count;
+        await _notifications.NotifyAllAsync(SignalREvents.DepotMappingComplete, new
+        {
+            success = true,
+            message = "Depot mapping completed successfully",
+            totalMappings,
+            downloadsUpdated,
+            scanMode = incrementalOnly ? "incremental" : "full",
+            isLoggedOn = IsSteamAuthenticated,
+            timestamp = DateTime.UtcNow
+        });
     }
 
     private List<uint> ProcessAppDepots(SteamApps.PICSProductInfoCallback.PICSProductInfo app)
@@ -950,6 +967,28 @@ public partial class SteamKit2Service
         if (kv == KeyValue.Invalid || kv.Value == null) return null;
         if (uint.TryParse(kv.AsString() ?? string.Empty, out var v)) return v;
         return null;
+    }
+
+    /// <summary>
+    /// Send SignalR progress update for depot mapping operations.
+    /// Centralizes the progress notification pattern used across Pics.cs, Mapping.cs, and Connection.cs.
+    /// </summary>
+    private async Task SendDepotMappingProgress(string status, string? message = null, bool isReconnecting = false, int? reconnectAttempt = null)
+    {
+        await _notifications.NotifyAllAsync(SignalREvents.DepotMappingProgress, new
+        {
+            operationId = _currentPicsOperationId,
+            status,
+            percentComplete = _totalBatches > 0 ? (_processedBatches * 100.0 / _totalBatches) : 0,
+            processedBatches = _processedBatches,
+            totalBatches = _totalBatches,
+            depotMappingsFound = _depotToAppMappings.Count,
+            isLoggedOn = IsSteamAuthenticated,
+            isReconnecting,
+            reconnectAttempt,
+            maxReconnectAttempts = isReconnecting ? MaxReconnectAttempts : (int?)null,
+            message
+        });
     }
 
     /// <summary>

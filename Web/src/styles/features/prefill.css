@@ -1,0 +1,40 @@
+@layer components {
+  /* ===== PREFILL FEATURE STYLES ===== */
+
+  /* Activity Log - Icon container with dynamic background */
+  .prefill-log-icon-bg {
+    background-color: var(--log-icon-bg);
+  }
+
+  .prefill-log-icon {
+    color: var(--log-icon-color);
+  }
+
+  /* Activity Log - Color indicator line */
+  .prefill-log-color-line {
+    background-color: var(--log-line-color);
+  }
+
+  /* Network Status Section - Status icon container */
+  .prefill-network-status-bg {
+    background-color: var(--network-status-bg);
+  }
+
+  .prefill-network-status-icon {
+    color: var(--network-status-color);
+  }
+
+  /* Command Buttons - Icon background */
+  .prefill-command-icon-bg-filled {
+    background-color: rgba(255, 255, 255, 0.15);
+  }
+
+  .prefill-command-icon-bg-default {
+    background-color: color-mix(in srgb, var(--theme-primary) 15%, transparent);
+  }
+
+  /* Progress Card - Progress bar widths (dynamic) */
+  .prefill-progress-bar {
+    width: var(--progress-width);
+  }
+}

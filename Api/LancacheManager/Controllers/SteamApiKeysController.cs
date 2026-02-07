@@ -53,7 +53,13 @@ public class SteamApiKeysController : ControllerBase
     /// Request body: { "apiKey": "..." }
     /// </summary>
     /// <remarks>
-    /// Validation is handled automatically by FluentValidation (see TestApiKeyRequestValidator)
+    /// Validation is handled automatically by FluentValidation (see TestApiKeyRequestValidator).
+    ///
+    /// NOTE: This endpoint appears redundant with the validation in POST /api/steam-api-keys,
+    /// but both are intentionally kept for UX purposes:
+    /// - /test allows users to test a key without saving it (try before commit)
+    /// - POST (save) validates as a safety check before persisting
+    /// Both endpoints are actively used by the frontend setup wizard and settings modal.
     /// </remarks>
     [HttpPost("test")]
     [RequireAuth]
@@ -132,35 +138,6 @@ public class SteamApiKeysController : ControllerBase
         return Ok(new ApiKeyRemoveResponse
         {
             Message = "Steam Web API key removed successfully"
-        });
-    }
-
-    /// <summary>
-    /// GET /api/steam-api-keys/app-list - Get app list from Steam Web API (proxy/testing)
-    /// RESTful: This is a proxy endpoint for testing purposes
-    /// </summary>
-    [HttpGet("app-list")]
-    [RequireAuth]
-    public async Task<IActionResult> GetAppList([FromQuery] int? limit = 100)
-    {
-        var apps = await _steamWebApiService.GetAppListAsync();
-
-        if (apps == null)
-        {
-            return BadRequest(new ErrorResponse
-            {
-                Error = "Failed to get app list",
-                Message = "Steam Web API is not operational. Check status endpoint for details."
-            });
-        }
-
-        var limitedApps = apps.Take(limit ?? 100).ToList();
-
-        return Ok(new AppListResponse
-        {
-            Total = apps.Count,
-            Returned = limitedApps.Count,
-            Apps = limitedApps.Cast<object>().ToList()
         });
     }
 }

@@ -1,5 +1,6 @@
 using LancacheManager.Models;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Core.Models;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Security;
@@ -22,17 +23,20 @@ public class DataMigrationController : ControllerBase
     private readonly IPathResolver _pathResolver;
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly ISignalRNotificationService _notifications;
+    private readonly IUnifiedOperationTracker _operationTracker;
 
     public DataMigrationController(
         ILogger<DataMigrationController> logger,
         IPathResolver pathResolver,
         RustProcessHelper rustProcessHelper,
-        ISignalRNotificationService notifications)
+        ISignalRNotificationService notifications,
+        IUnifiedOperationTracker operationTracker)
     {
         _logger = logger;
         _pathResolver = pathResolver;
         _rustProcessHelper = rustProcessHelper;
         _notifications = notifications;
+        _operationTracker = operationTracker;
     }
 
     /// <summary>
@@ -48,14 +52,23 @@ public class DataMigrationController : ControllerBase
             return BadRequest(new ErrorResponse { Error = "Connection string is required" });
         }
 
+        // Check if an import is already running
+        var activeImports = _operationTracker.GetActiveOperations(OperationType.DataImport);
+        if (activeImports.Any())
+        {
+            return Conflict(new ErrorResponse { Error = "A data import operation is already running" });
+        }
+
         _logger.LogInformation("Starting import from DeveLanCacheUI_Backend database");
 
-        var operationId = Guid.NewGuid().ToString();
+        var cts = new CancellationTokenSource();
+        var operationId = _operationTracker.RegisterOperation(OperationType.DataImport, "DeveLanCacheUI Import", cts);
 
         // Extract the database path - supports both raw paths and connection strings
         var sourceDatabasePath = ExtractDatabasePath(request.ConnectionString);
         if (string.IsNullOrWhiteSpace(sourceDatabasePath) || !System.IO.File.Exists(sourceDatabasePath))
         {
+            _operationTracker.CompleteOperation(operationId, false, "Source database file not found");
             return BadRequest(new ErrorResponse { Error = "Source database file not found at specified path" });
         }
 
@@ -70,6 +83,7 @@ public class DataMigrationController : ControllerBase
         var progressPath = Path.GetTempFileName();
 
         // Send started notification
+        _operationTracker.UpdateProgress(operationId, 0, "Starting DeveLanCacheUI_Backend import...");
         await _notifications.NotifyAllAsync(SignalREvents.DataImportStarted, new
         {
             OperationId = operationId,
@@ -92,6 +106,7 @@ public class DataMigrationController : ControllerBase
 
             if (process == null)
             {
+                _operationTracker.CompleteOperation(operationId, false, "Failed to start data migrator process");
                 await _notifications.NotifyAllAsync(SignalREvents.DataImportComplete, new
                 {
                     OperationId = operationId,
@@ -112,11 +127,13 @@ public class DataMigrationController : ControllerBase
 
             if (process.ExitCode != 0)
             {
+                var errorMessage = $"Data migration failed with exit code {process.ExitCode}";
+                _operationTracker.CompleteOperation(operationId, false, errorMessage);
                 await _notifications.NotifyAllAsync(SignalREvents.DataImportComplete, new
                 {
                     OperationId = operationId,
                     Success = false,
-                    Message = $"Data migration failed with exit code {process.ExitCode}"
+                    Message = errorMessage
                 });
                 return StatusCode(500, new ErrorResponse
                 {
@@ -131,6 +148,7 @@ public class DataMigrationController : ControllerBase
             if (progress == null)
             {
                 _logger.LogWarning("Progress file not found after migration");
+                _operationTracker.CompleteOperation(operationId, true);
                 await _notifications.NotifyAllAsync(SignalREvents.DataImportComplete, new
                 {
                     OperationId = operationId,
@@ -145,6 +163,8 @@ public class DataMigrationController : ControllerBase
                 progress.RecordsImported, progress.RecordsSkipped, progress.RecordsErrors, progress.BackupPath ?? "none");
 
             // Send completion notification
+            _operationTracker.UpdateProgress(operationId, 100, $"Import completed: {progress.RecordsImported} imported, {progress.RecordsSkipped} skipped");
+            _operationTracker.CompleteOperation(operationId, true);
             await _notifications.NotifyAllAsync(SignalREvents.DataImportComplete, new
             {
                 OperationId = operationId,
@@ -168,6 +188,7 @@ public class DataMigrationController : ControllerBase
         }
         catch (Exception ex)
         {
+            _operationTracker.CompleteOperation(operationId, false, ex.Message);
             await _notifications.NotifyAllAsync(SignalREvents.DataImportComplete, new
             {
                 OperationId = operationId,
@@ -196,14 +217,23 @@ public class DataMigrationController : ControllerBase
             return BadRequest(new ErrorResponse { Error = "Connection string is required" });
         }
 
+        // Check if an import is already running
+        var activeImports = _operationTracker.GetActiveOperations(OperationType.DataImport);
+        if (activeImports.Any())
+        {
+            return Conflict(new ErrorResponse { Error = "A data import operation is already running" });
+        }
+
         _logger.LogInformation("Starting import from LancacheManager database");
 
-        var operationId = Guid.NewGuid().ToString();
+        var cts = new CancellationTokenSource();
+        var operationId = _operationTracker.RegisterOperation(OperationType.DataImport, "LancacheManager Import", cts);
 
         // Extract the database path
         var sourceDatabasePath = ExtractDatabasePath(request.ConnectionString);
         if (string.IsNullOrWhiteSpace(sourceDatabasePath) || !System.IO.File.Exists(sourceDatabasePath))
         {
+            _operationTracker.CompleteOperation(operationId, false, "Source database file not found");
             return BadRequest(new ErrorResponse { Error = "Source database file not found at specified path" });
         }
 
@@ -213,6 +243,7 @@ public class DataMigrationController : ControllerBase
         // Ensure we're not importing from the same database
         if (Path.GetFullPath(sourceDatabasePath).Equals(Path.GetFullPath(targetDatabasePath), StringComparison.OrdinalIgnoreCase))
         {
+            _operationTracker.CompleteOperation(operationId, false, "Cannot import from the same database");
             return BadRequest(new ErrorResponse { Error = "Cannot import from the same database that is currently in use" });
         }
 
@@ -226,6 +257,7 @@ public class DataMigrationController : ControllerBase
         string? backupPath = null;
 
         // Send started notification
+        _operationTracker.UpdateProgress(operationId, 0, "Starting LancacheManager import...");
         await _notifications.NotifyAllAsync(SignalREvents.DataImportStarted, new
         {
             OperationId = operationId,
@@ -267,6 +299,7 @@ public class DataMigrationController : ControllerBase
             _logger.LogInformation("Found {TotalRecords} records in source LancacheManager database", totalRecords);
 
             // Send initial progress
+            _operationTracker.UpdateProgress(operationId, 0, $"Found {totalRecords:N0} records to import");
             await _notifications.NotifyAllAsync(SignalREvents.DataImportProgress, new
             {
                 OperationId = operationId,
@@ -394,12 +427,14 @@ public class DataMigrationController : ControllerBase
                 if (recordsProcessed > totalRecords) recordsProcessed = totalRecords;
                 var percentComplete = totalRecords > 0 ? (double)recordsProcessed / totalRecords * 100.0 : 0;
 
+                var progressMessage = $"Importing records... {recordsProcessed:N0} of {totalRecords:N0}";
+                _operationTracker.UpdateProgress(operationId, percentComplete, progressMessage);
                 await _notifications.NotifyAllAsync(SignalREvents.DataImportProgress, new
                 {
                     OperationId = operationId,
                     PercentComplete = percentComplete,
                     Status = "running",
-                    Message = $"Importing records... {recordsProcessed:N0} of {totalRecords:N0}",
+                    Message = progressMessage,
                     RecordsProcessed = recordsProcessed,
                     TotalRecords = totalRecords,
                     RecordsImported = recordsImported,
@@ -419,6 +454,8 @@ public class DataMigrationController : ControllerBase
                 recordsImported, recordsSkipped, recordsErrors, backupPath ?? "none");
 
             // Send completion notification
+            _operationTracker.UpdateProgress(operationId, 100, $"Import completed: {recordsImported:N0} imported, {recordsSkipped:N0} skipped");
+            _operationTracker.CompleteOperation(operationId, true);
             await _notifications.NotifyAllAsync(SignalREvents.DataImportComplete, new
             {
                 OperationId = operationId,
@@ -443,6 +480,7 @@ public class DataMigrationController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error during LancacheManager import");
+            _operationTracker.CompleteOperation(operationId, false, ex.Message);
             await _notifications.NotifyAllAsync(SignalREvents.DataImportComplete, new
             {
                 OperationId = operationId,
@@ -455,6 +493,35 @@ public class DataMigrationController : ControllerBase
             });
             throw;
         }
+    }
+
+    /// <summary>
+    /// GET /api/migration/import/status - Get current data import status
+    /// Returns whether an import is running, progress percentage, status message, and operation ID
+    /// </summary>
+    [HttpGet("import/status")]
+    [RequireGuestSession]
+    public IActionResult GetImportStatus()
+    {
+        var activeImports = _operationTracker.GetActiveOperations(OperationType.DataImport).ToList();
+
+        if (activeImports.Count == 0)
+        {
+            return Ok(new DataImportStatusResponse
+            {
+                IsProcessing = false
+            });
+        }
+
+        var operation = activeImports.First();
+        return Ok(new DataImportStatusResponse
+        {
+            IsProcessing = true,
+            Status = operation.Status,
+            Message = operation.Message,
+            PercentComplete = operation.PercentComplete,
+            OperationId = operation.Id
+        });
     }
 
     /// <summary>

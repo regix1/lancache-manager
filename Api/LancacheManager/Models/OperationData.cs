@@ -66,60 +66,6 @@ public class LogProcessingData : OperationDataBase
 }
 
 /// <summary>
-/// Data model for cache clearing operations
-/// </summary>
-public class CacheClearData : OperationDataBase
-{
-    [JsonPropertyName("operationId")]
-    public string? OperationId { get; set; }
-
-    [JsonPropertyName("statusMessage")]
-    public string? StatusMessage { get; set; }
-
-    [JsonPropertyName("percentComplete")]
-    public double PercentComplete { get; set; }
-
-    [JsonPropertyName("bytesDeleted")]
-    public long BytesDeleted { get; set; }
-
-    [JsonPropertyName("filesDeleted")]
-    public long FilesDeleted { get; set; }
-
-    [JsonPropertyName("error")]
-    public string? Error { get; set; }
-}
-
-/// <summary>
-/// Data model for service removal operations
-/// </summary>
-public class ServiceRemovalData : OperationDataBase
-{
-    [JsonPropertyName("serviceName")]
-    public string? ServiceName { get; set; }
-
-    [JsonPropertyName("percentComplete")]
-    public double PercentComplete { get; set; }
-
-    [JsonPropertyName("filesDeleted")]
-    public long FilesDeleted { get; set; }
-
-    [JsonPropertyName("bytesDeleted")]
-    public long BytesDeleted { get; set; }
-
-    [JsonPropertyName("error")]
-    public string? Error { get; set; }
-}
-
-/// <summary>
-/// Generic operation data for operations that don't have a specific model
-/// </summary>
-public class GenericOperationData : OperationDataBase
-{
-    [JsonPropertyName("data")]
-    public Dictionary<string, object>? Data { get; set; } = new();
-}
-
-/// <summary>
 /// Data model for Steam PICS depot mapping progress
 /// </summary>
 public class SteamPicsProgress

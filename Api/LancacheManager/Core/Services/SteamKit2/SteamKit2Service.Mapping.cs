@@ -188,6 +188,7 @@ public partial class SteamKit2Service
                     {
                         await _notifications.NotifyAllAsync(SignalREvents.DepotMappingProgress, new
                         {
+                            operationId = _currentPicsOperationId,
                             status = "Applying mappings to downloads",
                             percentComplete,
                             processedMappings = processed,
@@ -221,6 +222,7 @@ public partial class SteamKit2Service
                 {
                     await _notifications.NotifyAllAsync(SignalREvents.DepotMappingProgress, new
                     {
+                        operationId = _currentPicsOperationId,
                         status = "Finalizing depot mappings",
                         percentComplete = 100.0,
                         processedMappings = totalDownloads,

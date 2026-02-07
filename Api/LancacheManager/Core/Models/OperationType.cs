@@ -8,5 +8,6 @@ public enum OperationType
     GameDetection,
     LogProcessing,
     ServiceRemoval,
-    DepotMapping
+    DepotMapping,
+    DataImport
 }

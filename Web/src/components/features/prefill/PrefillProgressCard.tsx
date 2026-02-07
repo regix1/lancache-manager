@@ -107,14 +107,14 @@ export function PrefillProgressCard({ progress, onCancel }: PrefillProgressCardP
             ) : progress.state === 'already_cached' ? (
               <div
                 key={`cached-${progress.currentAppId}`}
-                className="h-full rounded-full bg-[var(--theme-info)]"
-                style={{ width: `${progress.percentComplete}%` }}
+                className="h-full rounded-full bg-[var(--theme-info)] prefill-progress-bar"
+                style={{ '--progress-width': `${progress.percentComplete}%` } as React.CSSProperties}
               />
             ) : progress.state === 'downloading' || progress.state === 'app_completed' ? (
               <div
                 key={`download-${progress.currentAppId}`}
-                className="h-full rounded-full transition-all duration-300 ease-out bg-gradient-to-r from-[var(--theme-primary)] to-[var(--theme-accent)]"
-                style={{ width: `${Math.min(100, progress.percentComplete)}%` }}
+                className="h-full rounded-full transition-all duration-300 ease-out bg-gradient-to-r from-[var(--theme-primary)] to-[var(--theme-accent)] prefill-progress-bar"
+                style={{ '--progress-width': `${Math.min(100, progress.percentComplete)}%` } as React.CSSProperties}
               />
             ) : (
               <div className="h-full rounded-full animate-pulse w-full opacity-50 bg-gradient-to-r from-[var(--theme-primary)] to-[var(--theme-accent)]" />

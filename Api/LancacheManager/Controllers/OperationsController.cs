@@ -1,11 +1,17 @@
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Models;
+using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
 
+/// <summary>
+/// Controller for managing operations.
+/// All endpoints require authentication to prevent unauthorized cancellation/termination of operations.
+/// </summary>
 [ApiController]
 [Route("api/operations")]
+[RequireAuth]
 public class OperationsController : ControllerBase
 {
     private readonly IUnifiedOperationTracker _operationTracker;

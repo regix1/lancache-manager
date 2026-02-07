@@ -238,14 +238,36 @@ const RECOVERY_CONFIGS = {
     isProcessing: (data: Record<string, unknown>) => Boolean(data.isRunning),
     createNotification: (data: Record<string, unknown>) => ({
       message: (data.message as string) || 'Scanning for corrupted cache chunks...',
-      progress: 0, // API doesn't provide progress for corruption detection
+      progress: (data.percentComplete as number) || 0,
       details: {
         operationId: data.operationId as string
       }
     }),
     staleMessage: 'Corruption detection completed'
+  } satisfies SimpleRecoveryConfig,
+
+  dataImport: {
+    apiEndpoint: '/api/migration/import/status',
+    storageKey: NOTIFICATION_STORAGE_KEYS.DATA_IMPORT,
+    type: 'data_import' as NotificationType,
+    notificationId: NOTIFICATION_IDS.DATA_IMPORT,
+    isProcessing: (data: Record<string, unknown>) => Boolean(data.isProcessing),
+    createNotification: (data: Record<string, unknown>) => ({
+      message: (data.message as string) || 'Importing data...',
+      progress: (data.percentComplete as number) || 0,
+      details: {
+        operationId: data.operationId as string
+      }
+    }),
+    staleMessage: 'Data import completed'
   } satisfies SimpleRecoveryConfig
 };
+
+// ============================================================================
+// Notes
+// ============================================================================
+// Game Removal, Service Removal, and Corruption Removal are all handled by the
+// createCacheRemovalsRecoveryFunction below via /api/cache/removals/active endpoint.
 
 // ============================================================================
 // Cache Removals Recovery (handles multiple types)
@@ -506,6 +528,13 @@ export function createRecoveryRunner(
     scheduleAutoDismiss
   );
 
+  const recoverDataImport = createSimpleRecoveryFunction(
+    RECOVERY_CONFIGS.dataImport,
+    fetchWithAuth,
+    setNotifications,
+    scheduleAutoDismiss
+  );
+
   const recoverCacheRemovals = createCacheRemovalsRecoveryFunction(
     fetchWithAuth,
     setNotifications,
@@ -522,6 +551,7 @@ export function createRecoveryRunner(
         recoverDatabaseReset(),
         recoverGameDetection(),
         recoverCorruptionDetection(),
+        recoverDataImport(),
         recoverCacheRemovals()
       ]);
     } catch (err) {

@@ -56,12 +56,12 @@ const LogIcon = memo(({ type }: { type: LogEntryType }) => {
 
   return (
     <div
-      className="flex items-center justify-center rounded-md flex-shrink-0 w-[26px] h-[26px]"
-      style={{ backgroundColor: style.bgColor }}
+      className="flex items-center justify-center rounded-md flex-shrink-0 w-[26px] h-[26px] prefill-log-icon-bg"
+      style={{ '--log-icon-bg': style.bgColor } as React.CSSProperties}
     >
       <Icon
-        className={`h-3.5 w-3.5 ${isSpinning ? 'animate-spin' : ''}`}
-        style={{ color: style.color }}
+        className={`h-3.5 w-3.5 prefill-log-icon ${isSpinning ? 'animate-spin' : ''}`}
+        style={{ '--log-icon-color': style.color } as React.CSSProperties}
       />
     </div>
   );
@@ -94,8 +94,8 @@ const LogEntryRow = memo(({ entry, isLast, locale }: { entry: LogEntry; isLast: 
 
       {/* Color indicator line */}
       <div
-        className="w-0.5 self-stretch rounded-full flex-shrink-0 opacity-60 min-h-[20px]"
-        style={{ backgroundColor: style.color }}
+        className="w-0.5 self-stretch rounded-full flex-shrink-0 opacity-60 min-h-[20px] prefill-log-color-line"
+        style={{ '--log-line-color': style.color } as React.CSSProperties}
       />
 
       {/* Icon */}

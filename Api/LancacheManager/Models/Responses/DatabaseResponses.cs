@@ -33,6 +33,18 @@ public class DatabaseResetStatusResponse
 }
 
 /// <summary>
+/// Response for data import status check
+/// </summary>
+public class DataImportStatusResponse
+{
+    public bool IsProcessing { get; set; }
+    public string? Status { get; set; }
+    public string? Message { get; set; }
+    public double? PercentComplete { get; set; }
+    public string? OperationId { get; set; }
+}
+
+/// <summary>
 /// Response for data migration import result
 /// </summary>
 public class MigrationImportResponse

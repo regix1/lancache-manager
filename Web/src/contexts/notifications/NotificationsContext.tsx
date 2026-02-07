@@ -575,7 +575,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       cancelAutoDismissTimer
     );
 
-    const cacheClearHandler = createStatusAwareProgressHandler<CacheClearProgressEvent>(
+    const handleCacheClearProgress = createStatusAwareProgressHandler<CacheClearProgressEvent>(
       {
         type: 'cache_clearing',
         getId: () => NOTIFICATION_IDS.CACHE_CLEARING,
@@ -591,9 +591,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       cancelAutoDismissTimer
     );
 
-    const handleCacheClearProgress = cacheClearHandler;
-
-    const cacheClearCompleteHandler = createCompletionHandler<CacheClearCompleteEvent>(
+    const handleCacheClearComplete = createCompletionHandler<CacheClearCompleteEvent>(
       {
         type: 'cache_clearing',
         getId: () => NOTIFICATION_IDS.CACHE_CLEARING,
@@ -609,8 +607,6 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       setNotifications,
       scheduleAutoDismiss  // Use direct scheduling - we know notification is in terminal state
     );
-
-    const handleCacheClearComplete = cacheClearCompleteHandler;
 
     // ========== Depot Mapping (using factory pattern) ==========
     const handleDepotMappingStarted = createStartedHandler<DepotMappingStartedEvent>(

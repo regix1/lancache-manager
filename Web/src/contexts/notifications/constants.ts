@@ -42,12 +42,8 @@ export const TOAST_DEFAULT_DURATION_MS = 4000;
 /** Number of animation steps for incremental scan progress animation */
 export const INCREMENTAL_SCAN_ANIMATION_STEPS = 30;
 
-/** Delay between each animation step (50ms) */
-const ANIMATION_STEP_DELAY_MS = 50;
-
-/** Total duration of incremental scan animation (steps × step delay) */
-export const INCREMENTAL_SCAN_ANIMATION_DURATION_MS =
-  ANIMATION_STEP_DELAY_MS * INCREMENTAL_SCAN_ANIMATION_STEPS;
+/** Total duration of incremental scan animation (50ms × 30 steps = 1500ms) */
+export const INCREMENTAL_SCAN_ANIMATION_DURATION_MS = 50 * INCREMENTAL_SCAN_ANIMATION_STEPS;
 
 // ============================================================================
 // Storage Keys
