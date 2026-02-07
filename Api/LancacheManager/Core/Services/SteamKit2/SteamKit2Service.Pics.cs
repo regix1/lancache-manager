@@ -393,6 +393,7 @@ public partial class SteamKit2Service
                     // Send progress via SignalR
                     await _notifications.NotifyAllAsync(SignalREvents.DepotMappingProgress, new
                     {
+                        operationId = _currentPicsOperationId,
                         status = "Scanning Steam PICS data",
                         percentComplete,
                         processedBatches = _processedBatches,
@@ -958,6 +959,7 @@ public partial class SteamKit2Service
     {
         await _notifications.NotifyAllAsync(SignalREvents.DepotMappingProgress, new
         {
+            operationId = _currentPicsOperationId,
             status = message,
             percentComplete,
             processedBatches = _processedBatches,

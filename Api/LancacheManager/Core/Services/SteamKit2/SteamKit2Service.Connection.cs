@@ -21,11 +21,29 @@ public partial class SteamKit2Service
         // Wait for connected (increased timeout to handle Steam server delays)
         await WaitForTaskWithTimeout(_connectedTcs.Task, TimeSpan.FromSeconds(60), ct, "Connecting to Steam");
 
+        // Check if prefill daemon is active - if so, use anonymous mode to avoid session conflicts
+        var isPrefillDaemonActive = false;
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var daemonService = scope.ServiceProvider.GetService<SteamPrefillDaemonService>();
+            isPrefillDaemonActive = daemonService?.IsAnyDaemonAuthenticated() == true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not check prefill daemon status");
+        }
+
         // Check if we have a saved refresh token for authenticated login
         var refreshToken = _stateService.GetSteamRefreshToken();
         var authMode = _stateService.GetSteamAuthMode();
 
-        if (!string.IsNullOrEmpty(refreshToken) && authMode == "authenticated")
+        if (isPrefillDaemonActive)
+        {
+            _logger.LogInformation("Prefill daemon is active - using anonymous mode for depot mapping to avoid session conflicts");
+            _steamUser!.LogOnAnonymous();
+        }
+        else if (!string.IsNullOrEmpty(refreshToken) && authMode == "authenticated")
         {
             var username = _stateService.GetSteamUsername();
             _logger.LogInformation("Logging in with saved refresh token for user: {Username}", username);
@@ -78,11 +96,34 @@ public partial class SteamKit2Service
         {
             _logger.LogInformation("Reconnected during active rebuild - attempting to re-login");
 
+            // If session was replaced, check if the prefill daemon caused it
+            // If so, use anonymous mode to avoid a ping-pong loop where both services
+            // keep replacing each other's sessions
+            var useAnonymousForReconnect = false;
+            if (_lastDisconnectWasSessionReplaced)
+            {
+                try
+                {
+                    using var scope = _scopeFactory.CreateScope();
+                    var daemonService = scope.ServiceProvider.GetService<SteamPrefillDaemonService>();
+                    if (daemonService?.IsAnyDaemonAuthenticated() == true)
+                    {
+                        useAnonymousForReconnect = true;
+                        _logger.LogInformation("Session was replaced while prefill daemon is active - using anonymous mode to avoid conflicts");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Could not check prefill daemon status");
+                }
+                _lastDisconnectWasSessionReplaced = false;
+            }
+
             // Check if we have a saved refresh token for authenticated login
             var refreshToken = _stateService.GetSteamRefreshToken();
             var authMode = _stateService.GetSteamAuthMode();
 
-            if (!string.IsNullOrEmpty(refreshToken) && authMode == "authenticated")
+            if (!useAnonymousForReconnect && !string.IsNullOrEmpty(refreshToken) && authMode == "authenticated")
             {
                 var username = _stateService.GetSteamUsername();
                 _logger.LogInformation("Re-logging in with saved refresh token for user: {Username}", username);
@@ -171,6 +212,7 @@ public partial class SteamKit2Service
             // Send progress update so UI knows we're reconnecting
             _notifications.NotifyAllFireAndForget(SignalREvents.DepotMappingProgress, new
             {
+                operationId = _currentPicsOperationId,
                 status = $"Reconnecting to Steam (attempt {_reconnectAttempt}/{MaxReconnectAttempts})...",
                 percentComplete = _totalBatches > 0 ? (_processedBatches * 100.0 / _totalBatches) : 0,
                 processedBatches = _processedBatches,
@@ -210,6 +252,7 @@ public partial class SteamKit2Service
         if (callback.Result == EResult.OK)
         {
             _isLoggedOn = true;
+            _lastDisconnectWasSessionReplaced = false;
             _loggedOnTcs?.TrySetResult();
             _logger.LogInformation("Successfully logged onto Steam!");
             _logger.LogInformation("Steam login succeeded. Active LoginID: {LoginID} (0x{LoginIDHex:X8}), IsAuthenticated: {IsAuth}", _steamLoginId, _steamLoginId, IsSteamAuthenticated);
@@ -329,6 +372,7 @@ public partial class SteamKit2Service
 
         if (isSessionReplaced)
         {
+            _lastDisconnectWasSessionReplaced = true;
             _logger.LogWarning("Steam session was replaced by another login. Our LoginID: {LoginID} (0x{LoginIDHex:X8}). Will attempt reconnection.", _steamLoginId, _steamLoginId);
 
             // Send informational notification - session replacement is not fatal with LoginID

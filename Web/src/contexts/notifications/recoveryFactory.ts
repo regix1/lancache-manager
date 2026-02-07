@@ -181,6 +181,7 @@ const RECOVERY_CONFIGS = {
         detailMessage,
         progress: (data.percentComplete as number) || 0,
         details: {
+          operationId: data.operationId as string | undefined,
           totalMappings: data.totalMappings as number,
           processedMappings: data.processedMappings as number,
           isLoggedOn: data.isLoggedOn as boolean,

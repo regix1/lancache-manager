@@ -640,7 +640,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           return undefined;
         },
         getCompletedMessage: (e) => e.message || 'Depot mapping completed successfully',
-        getErrorMessage: (e) => e.message || 'Depot mapping failed'
+        getErrorMessage: (e) => e.message || 'Depot mapping failed',
+        getDetails: (e) => ({ operationId: e.operationId })
       },
       setNotifications,
       scheduleAutoDismiss,

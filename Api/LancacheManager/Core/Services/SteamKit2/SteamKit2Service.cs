@@ -39,6 +39,7 @@ public partial class SteamKit2Service : IHostedService, IDisposable
     private bool _isRunning = false;
     private bool _isLoggedOn = false;
     private bool _intentionalDisconnect = false;
+    private bool _lastDisconnectWasSessionReplaced = false;
     private readonly CancellationTokenSource _cancellationTokenSource = new();
     private Task? _currentBuildTask;
     private CancellationTokenSource? _currentRebuildCts;
@@ -546,7 +547,8 @@ public partial class SteamKit2Service : IHostedService, IDisposable
             IsConnected = _steamClient?.IsConnected == true,
             IsLoggedOn = _isLoggedOn && isAuthenticated, // Only true if both connected AND using authenticated mode
             ErrorMessage = _lastErrorMessage,
-            IsWebApiAvailable = isWebApiAvailable // True if V2 is active OR V1 is configured with API key
+            IsWebApiAvailable = isWebApiAvailable, // True if V2 is active OR V1 is configured with API key
+            OperationId = _currentPicsOperationId
         };
     }
 

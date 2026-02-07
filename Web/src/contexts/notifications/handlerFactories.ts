@@ -316,6 +316,8 @@ export interface StatusAwareProgressConfig<T> {
   getErrorMessage?: (event: T) => string | undefined;
   /** If true, support fast completion (completion event arrives before notification created) */
   supportFastCompletion?: boolean;
+  /** Optional function to get notification details from the event (e.g., operationId for cancel support) */
+  getDetails?: (event: T) => UnifiedNotification['details'];
 }
 
 /**
@@ -452,12 +454,15 @@ export function createStatusAwareProgressHandler<T>(
         }
 
         if (existing) {
+          const eventDetails = config.getDetails?.(event);
           return prev.map((n) => {
             if (n.id === notificationId) {
               return {
                 ...n,
                 message: config.getMessage(event),
-                progress: config.getProgress(event)
+                progress: config.getProgress(event),
+                // Merge event details (e.g., operationId) into existing details
+                ...(eventDetails ? { details: { ...n.details, ...eventDetails } } : {})
               };
             }
             return n;
@@ -473,7 +478,8 @@ export function createStatusAwareProgressHandler<T>(
             status: 'running',
             message: config.getMessage(event),
             progress: config.getProgress(event),
-            startedAt: new Date()
+            startedAt: new Date(),
+            details: config.getDetails?.(event)
           };
 
           // Persist to localStorage for recovery
