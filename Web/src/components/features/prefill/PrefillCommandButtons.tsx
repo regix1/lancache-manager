@@ -105,7 +105,7 @@ export function PrefillCommandButtons({
         disabled={disabled}
         type="button"
       >
-        <div className="flex items-center gap-3 w-full">
+        <div className="flex items-start gap-3 w-full">
           <span className={`cmd-tile-icon ${getIconBgClass(cmd)}`}>
             {isExecuting && cmd.id.startsWith('prefill') ? (
               <Loader2 className="h-4 w-4 animate-spin text-themed-muted" />
@@ -113,14 +113,14 @@ export function PrefillCommandButtons({
               <span className={getIconColorClass(cmd)}>{cmd.icon}</span>
             )}
           </span>
-          <div className="flex flex-col min-w-0">
-            <span className="font-medium text-sm text-themed-primary truncate flex items-center gap-2">
+          <div className="flex flex-col">
+            <span className="font-medium text-sm text-themed-primary flex items-center gap-2">
               {label}
               {cmd.id === 'prefill' && selectedAppIds.length > 0 && (
                 <span className="cmd-badge">{selectedAppIds.length}</span>
               )}
             </span>
-            <span className="text-xs text-themed-muted truncate">{description}</span>
+            <span className="text-xs text-themed-muted">{description}</span>
           </div>
         </div>
       </button>
@@ -197,7 +197,7 @@ export function PrefillCommandButtons({
               {t('prefill.sections.prefillOptions')}
             </h3>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
             {PREFILL_COMMANDS.map(renderCommandTile)}
           </div>
         </div>
