@@ -1114,23 +1114,9 @@ const DownloadsTab: React.FC = () => {
       {/* Controls */}
       <Card padding="sm" className="transition-all duration-300">
         <div className="flex flex-col gap-3">
-          {/* Mobile view controls at top */}
-          <div className="flex sm:hidden items-center justify-between">
-            <span className="text-sm font-medium text-themed-primary">{t('downloads.tab.title')}</span>
-            <Tooltip content={t('downloads.tab.tooltips.settings')} position="bottom">
-              <Button
-                variant="subtle"
-                size="sm"
-                onClick={() => setSettingsOpened(!settingsOpened)}
-                data-settings-button="true"
-              >
-                <Settings size={18} />
-              </Button>
-            </Tooltip>
-          </div>
-
-          {/* Search Input */}
-          <div className="relative w-full sm:max-w-xs">
+          {/* Search Input + Settings gear on mobile */}
+          <div className="downloads-search-row">
+          <div className="search-input-wrapper relative sm:max-w-xs">
             <Search
               size={16}
               className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--theme-text-muted)]"
@@ -1152,6 +1138,18 @@ const DownloadsTab: React.FC = () => {
                 <X size={14} />
               </Button>
             )}
+          </div>
+          <Tooltip content={t('downloads.tab.tooltips.settings')} position="bottom">
+            <Button
+              variant="subtle"
+              size="sm"
+              onClick={() => setSettingsOpened(!settingsOpened)}
+              data-settings-button="true"
+              className="sm:hidden flex-shrink-0"
+            >
+              <Settings size={18} />
+            </Button>
+          </Tooltip>
           </div>
 
           {/* Dropdowns and View Controls */}
@@ -1467,40 +1465,52 @@ const DownloadsTab: React.FC = () => {
       <Alert color="blue" icon={<Database className="w-5 h-5" />}>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 text-sm">
-            <span className="whitespace-nowrap">
-              {settings.itemsPerPage !== 'unlimited' && (
-                <span className="font-medium">
-                  {t('downloads.tab.pagination.pageOf', {
-                    page: currentPage,
-                    total: settings.viewMode === 'retro' ? retroTotalPages : totalPages
-                  })}
-                </span>
-              )}
+            {/* Mobile: compact download count */}
+            <span className="downloads-stats-compact whitespace-nowrap font-medium">
+              {filteredDownloads.length !== latestDownloads.length
+                ? t('downloads.tab.pagination.downloadCountTotal', {
+                    count: filteredDownloads.length,
+                    total: latestDownloads.length
+                  })
+                : t('downloads.tab.pagination.downloadCount', { count: filteredDownloads.length })}
             </span>
-            <span className="flex flex-wrap items-center gap-1">
-              {settings.itemsPerPage !== 'unlimited' && <span className="hidden sm:inline">-</span>}
-              <span>
-                {settings.viewMode === 'retro'
-                  ? t('downloads.tab.pagination.showingDepotGroups', {
-                      count: Math.min(
-                        settings.itemsPerPage === 'unlimited' ? retroTotalItems : (settings.itemsPerPage as number),
-                        retroTotalItems - (currentPage - 1) * (settings.itemsPerPage === 'unlimited' ? retroTotalItems : (settings.itemsPerPage as number))
-                      ),
-                      total: retroTotalItems
-                    })
-                  : t('downloads.tab.pagination.showingGroups', {
-                      count: itemsToDisplay.length,
-                      total: allItemsSorted.length
-                    })
-                }
-              </span>
+            {/* Desktop: verbose pagination text */}
+            <span className="downloads-stats-verbose">
               <span className="whitespace-nowrap">
-                {filteredDownloads.length !== latestDownloads.length
-                  ? t('downloads.tab.pagination.downloadCountTotal', {
-                      count: filteredDownloads.length,
-                      total: latestDownloads.length
-                    })
-                  : t('downloads.tab.pagination.downloadCount', { count: filteredDownloads.length })}
+                {settings.itemsPerPage !== 'unlimited' && (
+                  <span className="font-medium">
+                    {t('downloads.tab.pagination.pageOf', {
+                      page: currentPage,
+                      total: settings.viewMode === 'retro' ? retroTotalPages : totalPages
+                    })}
+                  </span>
+                )}
+              </span>
+              <span className="flex flex-wrap items-center gap-1">
+                {settings.itemsPerPage !== 'unlimited' && <span className="hidden sm:inline">-</span>}
+                <span>
+                  {settings.viewMode === 'retro'
+                    ? t('downloads.tab.pagination.showingDepotGroups', {
+                        count: Math.min(
+                          settings.itemsPerPage === 'unlimited' ? retroTotalItems : (settings.itemsPerPage as number),
+                          retroTotalItems - (currentPage - 1) * (settings.itemsPerPage === 'unlimited' ? retroTotalItems : (settings.itemsPerPage as number))
+                        ),
+                        total: retroTotalItems
+                      })
+                    : t('downloads.tab.pagination.showingGroups', {
+                        count: itemsToDisplay.length,
+                        total: allItemsSorted.length
+                      })
+                  }
+                </span>
+                <span className="whitespace-nowrap">
+                  {filteredDownloads.length !== latestDownloads.length
+                    ? t('downloads.tab.pagination.downloadCountTotal', {
+                        count: filteredDownloads.length,
+                        total: latestDownloads.length
+                      })
+                    : t('downloads.tab.pagination.downloadCount', { count: filteredDownloads.length })}
+                </span>
               </span>
             </span>
             {(settings.selectedService !== 'all' || settings.selectedClient !== 'all' || settings.searchQuery) && (
