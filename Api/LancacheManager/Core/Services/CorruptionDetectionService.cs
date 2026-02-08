@@ -556,14 +556,25 @@ public class CorruptionDetectionProgressData
 /// <summary>
 /// JSON model for Rust corruption removal progress.
 /// </summary>
-public class CorruptionRemovalProgressData
+internal class CorruptionRemovalProgressData
 {
+    [System.Text.Json.Serialization.JsonPropertyName("status")]
     public string Status { get; set; } = string.Empty;
+
+    [System.Text.Json.Serialization.JsonPropertyName("message")]
     public string Message { get; set; } = string.Empty;
-    public string? Timestamp { get; set; }
-    public int FilesProcessed { get; set; }
-    public int TotalFiles { get; set; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("percentComplete")]
     public double PercentComplete { get; set; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("filesProcessed")]
+    public int FilesProcessed { get; set; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("totalFiles")]
+    public int TotalFiles { get; set; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("timestamp")]
+    public string? Timestamp { get; set; }
 }
 
 /// <summary>

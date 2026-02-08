@@ -110,19 +110,20 @@ public class GamesController : ControllerBase
 
                 cancellationToken.ThrowIfCancellationRequested();
 
-                // Send progress update
-                await _notifications.NotifyAllAsync(SignalREvents.GameRemovalProgress,
-                    new GameRemovalProgress(operationId, appId, gameName, "removing_cache", $"Deleting cache files for {gameName}..."));
-                _removalTracker.UpdateGameRemoval(appId, "removing_cache", $"Deleting cache files for {gameName}...");
-
-                // Use CacheManagementService which actually deletes files via Rust binary
-                var report = await _cacheManagementService.RemoveGameFromCache((uint)appId, cancellationToken);
+                // Call with progress callback that sends live SignalR updates
+                var report = await _cacheManagementService.RemoveGameFromCache((uint)appId, cancellationToken,
+                    async (percentComplete, message, filesDeleted, bytesFreed) =>
+                    {
+                        await _notifications.NotifyAllAsync(SignalREvents.GameRemovalProgress,
+                            new GameRemovalProgress(operationId, appId, gameName, "removing_cache", message, percentComplete, filesDeleted, bytesFreed));
+                        _removalTracker.UpdateGameRemoval(appId, "removing_cache", message, filesDeleted > 0 ? filesDeleted : null, bytesFreed > 0 ? bytesFreed : null);
+                    });
 
                 cancellationToken.ThrowIfCancellationRequested();
 
-                // Send progress update
+                // Send finalizing progress update
                 await _notifications.NotifyAllAsync(SignalREvents.GameRemovalProgress,
-                    new GameRemovalProgress(operationId, appId, gameName, "complete", "Finalizing removal...", report.CacheFilesDeleted, (long)report.TotalBytesFreed));
+                    new GameRemovalProgress(operationId, appId, gameName, "complete", "Finalizing removal...", 100.0, report.CacheFilesDeleted, (long)report.TotalBytesFreed));
                 _removalTracker.UpdateGameRemoval(appId, "complete", "Finalizing removal...", report.CacheFilesDeleted, (long)report.TotalBytesFreed);
 
                 // Also remove from detection cache so it doesn't show in UI
@@ -161,7 +162,7 @@ public class GamesController : ControllerBase
 
                 // Send error status notification
                 await _notifications.NotifyAllAsync(SignalREvents.GameRemovalProgress,
-                    new GameRemovalProgress(operationId, appId, gameName, "error", $"Error removing {gameName}: {ex.Message}"));
+                    new GameRemovalProgress(operationId, appId, gameName, "error", $"Error removing {gameName}: {ex.Message}", 0.0));
 
                 // Complete tracking with error
                 _removalTracker.CompleteGameRemoval(appId, false, error: ex.Message);

@@ -55,13 +55,29 @@ struct Args {
 struct ProgressData {
     status: String,
     message: String,
+    #[serde(rename = "percentComplete")]
+    percent_complete: f64,
+    #[serde(rename = "filesProcessed")]
+    files_processed: usize,
+    #[serde(rename = "totalFiles")]
+    total_files: usize,
     timestamp: String,
 }
 
-fn write_progress(progress_path: &Path, status: &str, message: &str) -> Result<()> {
+fn write_progress(
+    progress_path: &Path,
+    status: &str,
+    message: &str,
+    percent_complete: f64,
+    files_processed: usize,
+    total_files: usize,
+) -> Result<()> {
     let progress = ProgressData {
         status: status.to_string(),
         message: message.to_string(),
+        percent_complete,
+        files_processed,
+        total_files,
         timestamp: progress_utils::current_timestamp(),
     };
 
@@ -102,6 +118,8 @@ fn remove_cache_files_for_service(
     cache_dir: &Path,
     service: &str,
     urls: &HashSet<String>,
+    progress_path: &Path,
+    reporter: &ProgressReporter,
 ) -> Result<(usize, u64, usize)> {  // Returns (deleted_count, bytes_freed, permission_errors)
     eprintln!("Removing cache files for service '{}'...", service);
 
@@ -110,8 +128,13 @@ fn remove_cache_files_for_service(
     let mut bytes_freed: u64 = 0;
     let mut permission_errors = 0;
     let slice_size: i64 = 1_048_576; // 1MB
+    let total_urls = urls.len();
+    let mut urls_processed: usize = 0;
+    let mut last_reported_percent: usize = 0;
 
     for url in urls {
+        urls_processed += 1;
+
         // Try no-range format first (standard lancache format)
         let cache_path_no_range = cache_utils::calculate_cache_path_no_range(cache_dir, &service_lower, url);
 
@@ -176,12 +199,31 @@ fn remove_cache_files_for_service(
                 }
             }
         }
+
+        // Report granular progress during the removal phase (10% - 70%)
+        // Only report when crossing a new whole-percent boundary to avoid excessive writes
+        if total_urls > 0 {
+            let current_pct = (urls_processed * 100) / total_urls;
+            if current_pct > last_reported_percent {
+                last_reported_percent = current_pct;
+                let overall_percent = 10.0 + (urls_processed as f64 / total_urls as f64) * 60.0;
+                let msg = format!(
+                    "Removing cache files: {} deleted ({:.2} MB freed), processed {}/{}",
+                    deleted_count,
+                    bytes_freed as f64 / 1_048_576.0,
+                    urls_processed,
+                    total_urls
+                );
+                let _ = write_progress(progress_path, "removing_cache", &msg, overall_percent, deleted_count, total_urls);
+                reporter.emit_progress(overall_percent, &msg);
+            }
+        }
     }
 
     if permission_errors > 5 {
         eprintln!("  ... and {} more permission errors", permission_errors - 5);
     }
-    eprintln!("Deleted {} cache files ({:.2} GB freed), {} permission errors", 
+    eprintln!("Deleted {} cache files ({:.2} GB freed), {} permission errors",
         deleted_count, bytes_freed as f64 / 1_073_741_824.0, permission_errors);
 
     Ok((deleted_count, bytes_freed, permission_errors))
@@ -347,26 +389,30 @@ fn main() -> Result<()> {
     reporter.emit_started();
 
     let start_msg = format!("Starting removal for service '{}'", service);
-    write_progress(&progress_path, "starting", &start_msg)?;
+    write_progress(&progress_path, "starting", &start_msg, 0.0, 0, 0)?;
     reporter.emit_progress(0.0, &start_msg);
 
     // Step 1: Get all URLs for this service from database
-    write_progress(&progress_path, "querying", "Querying database for service URLs")?;
+    write_progress(&progress_path, "querying_database", "Querying database for service URLs", 5.0, 0, 0)?;
+    reporter.emit_progress(5.0, "Querying database for service URLs");
     let urls = get_service_urls_from_db(&db_path, service)?;
 
     if urls.is_empty() {
         eprintln!("No URLs found for service '{}'", service);
-        write_progress(&progress_path, "completed", "No URLs found for this service")?;
+        write_progress(&progress_path, "completed", "No URLs found for this service", 100.0, 0, 0)?;
         reporter.emit_complete("No URLs found for this service");
         return Ok(());
     }
 
     // Step 2: Remove cache files
-    write_progress(&progress_path, "removing_cache", &format!("Removing cache files for {} URLs", urls.len()))?;
-    let (cache_files_deleted, total_bytes_freed, cache_permission_errors) = remove_cache_files_for_service(&cache_dir, service, &urls)?;
+    let remove_msg = format!("Removing cache files for {} URLs", urls.len());
+    write_progress(&progress_path, "removing_cache", &remove_msg, 10.0, 0, urls.len())?;
+    reporter.emit_progress(10.0, &remove_msg);
+    let (cache_files_deleted, total_bytes_freed, cache_permission_errors) = remove_cache_files_for_service(&cache_dir, service, &urls, &progress_path, &reporter)?;
 
     // Step 3: Remove log entries
-    write_progress(&progress_path, "removing_logs", "Removing log entries")?;
+    write_progress(&progress_path, "removing_logs", "Removing log entries", 70.0, cache_files_deleted, urls.len())?;
+    reporter.emit_progress(70.0, "Removing log entries");
     let (log_entries_removed, log_permission_errors) = remove_log_entries_for_service(&log_dir, service, &urls)?;
 
     // CRITICAL: Check for permission errors before deleting database records
@@ -381,13 +427,14 @@ fn main() -> Result<()> {
             total_permission_errors, cache_permission_errors, log_permission_errors
         );
         eprintln!("\n{}", error_msg);
-        write_progress(&progress_path, "failed", &error_msg)?;
+        write_progress(&progress_path, "failed", &error_msg, 70.0, cache_files_deleted, urls.len())?;
         reporter.emit_failed(&error_msg);
         std::process::exit(1);
     }
 
     // Step 4: Delete database records (only if no permission errors)
-    write_progress(&progress_path, "removing_database", "Deleting database records")?;
+    write_progress(&progress_path, "removing_database", "Deleting database records", 90.0, cache_files_deleted, urls.len())?;
+    reporter.emit_progress(90.0, "Deleting database records");
     let database_entries_deleted = delete_service_from_database(&db_path, service)?;
 
     // Create summary message
@@ -400,7 +447,7 @@ fn main() -> Result<()> {
         service
     );
 
-    write_progress(&progress_path, "completed", &summary_message)?;
+    write_progress(&progress_path, "completed", &summary_message, 100.0, cache_files_deleted, urls.len())?;
     reporter.emit_complete(&summary_message);
 
     eprintln!("\n=== Removal Summary ===");

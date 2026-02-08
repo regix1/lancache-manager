@@ -565,9 +565,6 @@ public class CacheController : ControllerBase
 
         _ = Task.Run(async () =>
         {
-            // Track last status to avoid duplicate notifications
-            string? lastStatus = null;
-
             try
             {
                 // Pause LiveLogMonitorService to prevent file locking issues
@@ -610,9 +607,8 @@ public class CacheController : ControllerBase
                                     await Task.Delay(500, dsProgressToken);
 
                                     var progress = await _rustProcessHelper.ReadProgressFileAsync<CorruptionRemovalProgressData>(progressFilePath);
-                                    if (progress != null && progress.Status != lastStatus)
+                                    if (progress != null)
                                     {
-                                        lastStatus = progress.Status;
                                         _removalTracker.UpdateCorruptionRemoval(service, progress.Status, progress.Message);
 
                                         // Send progress notification via SignalR
@@ -839,17 +835,20 @@ public class CacheController : ControllerBase
                     new ServiceRemovalProgress(name, operationId, "starting", $"Starting removal of {name}..."));
                 _removalTracker.UpdateServiceRemoval(name, "starting", $"Starting removal of {name}...");
 
-                // Send progress update
-                await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalProgress,
-                    new ServiceRemovalProgress(name, operationId, "removing_cache", $"Deleting cache files for {name}..."));
-                _removalTracker.UpdateServiceRemoval(name, "removing_cache", $"Deleting cache files for {name}...");
-
                 // Use CacheManagementService which actually deletes files via Rust binary
-                var report = await _cacheService.RemoveServiceFromCache(name, cts.Token);
+                var report = await _cacheService.RemoveServiceFromCache(name, cts.Token,
+                    async (percentComplete, message, filesDeleted, bytesFreed) =>
+                    {
+                        await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalProgress,
+                            new ServiceRemovalProgress(name, operationId, "removing_cache", message, percentComplete,
+                                filesDeleted > 0 ? filesDeleted : null, bytesFreed > 0 ? bytesFreed : null));
+                        _removalTracker.UpdateServiceRemoval(name, "removing_cache", message,
+                            filesDeleted > 0 ? filesDeleted : null, bytesFreed > 0 ? bytesFreed : null);
+                    });
 
                 // Send progress update
                 await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalProgress,
-                    new ServiceRemovalProgress(name, operationId, "complete", "Finalizing removal...", report.CacheFilesDeleted, (long)report.TotalBytesFreed));
+                    new ServiceRemovalProgress(name, operationId, "complete", "Finalizing removal...", 100.0, report.CacheFilesDeleted, (long)report.TotalBytesFreed));
                 _removalTracker.UpdateServiceRemoval(name, "complete", "Finalizing removal...", report.CacheFilesDeleted, (long)report.TotalBytesFreed);
 
                 // Also remove from detection cache so it doesn't show in UI
@@ -881,7 +880,7 @@ public class CacheController : ControllerBase
 
                 // Send error status notification
                 await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalProgress,
-                    new ServiceRemovalProgress(name, operationId, "error", $"Error removing {name}: {ex.Message}"));
+                    new ServiceRemovalProgress(name, operationId, "error", $"Error removing {name}: {ex.Message}", 0));
 
                 // Complete tracking with error
                 _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);

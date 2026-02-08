@@ -55,13 +55,29 @@ struct Args {
 struct ProgressData {
     status: String,
     message: String,
+    #[serde(rename = "percentComplete")]
+    percent_complete: f64,
+    #[serde(rename = "filesProcessed")]
+    files_processed: usize,
+    #[serde(rename = "totalFiles")]
+    total_files: usize,
     timestamp: String,
 }
 
-fn write_progress(progress_path: &Path, status: &str, message: &str) -> Result<()> {
+fn write_progress(
+    progress_path: &Path,
+    status: &str,
+    message: &str,
+    percent_complete: f64,
+    files_processed: usize,
+    total_files: usize,
+) -> Result<()> {
     let progress = ProgressData {
         status: status.to_string(),
         message: message.to_string(),
+        percent_complete,
+        files_processed,
+        total_files,
         timestamp: progress_utils::current_timestamp(),
     };
 
@@ -244,6 +260,8 @@ fn delete_game_from_database(db_path: &Path, game_app_id: u32) -> Result<usize> 
 fn remove_cache_files_for_game(
     cache_dir: &Path,
     url_data: &HashMap<String, (String, i64, HashSet<u32>)>,
+    progress_path: &Path,
+    reporter: &ProgressReporter,
 ) -> Result<(usize, u64, HashSet<PathBuf>, usize)> {  // Returns (deleted, bytes, dirs, permission_errors)
     use rayon::prelude::*;
     use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -293,10 +311,18 @@ fn remove_cache_files_for_game(
         })
         .collect();
 
-    eprintln!("Checking {} potential cache file locations...", paths_to_check.len());
+    let total_paths = paths_to_check.len();
+    eprintln!("Checking {} potential cache file locations...", total_paths);
+
+    // Track how many paths have been checked for progress (not just deleted)
+    let paths_checked = AtomicUsize::new(0);
+    // Track last reported percent to avoid writing progress too frequently
+    let last_reported_percent = AtomicUsize::new(0);
 
     // Parallel deletion with progress reporting
     paths_to_check.par_iter().for_each(|(path, _is_chunked)| {
+        let checked = paths_checked.fetch_add(1, Ordering::Relaxed) + 1;
+
         if path.exists() {
             // Get size before deleting
             if let Ok(metadata) = fs::metadata(path) {
@@ -331,6 +357,30 @@ fn remove_cache_files_for_game(
                             eprintln!("  ERROR: Permission denied deleting {}: {}", path.display(), e);
                         }
                     }
+                }
+            }
+        }
+
+        // Report granular progress during the removal phase (10% - 70%)
+        // Only report when crossing a new whole-percent boundary to avoid excessive writes
+        if total_paths > 0 {
+            let current_pct = (checked * 100) / total_paths;
+            let prev_pct = last_reported_percent.load(Ordering::Relaxed);
+            if current_pct > prev_pct {
+                // Attempt to claim this percent update (avoid duplicate writes from parallel threads)
+                if last_reported_percent.compare_exchange(prev_pct, current_pct, Ordering::SeqCst, Ordering::Relaxed).is_ok() {
+                    let overall_percent = 10.0 + (checked as f64 / total_paths as f64) * 60.0;
+                    let del_count = deleted_files.load(Ordering::Relaxed);
+                    let bytes = bytes_freed.load(Ordering::Relaxed);
+                    let msg = format!(
+                        "Removing cache files: {} deleted ({:.2} MB freed), checked {}/{}",
+                        del_count,
+                        bytes as f64 / 1_048_576.0,
+                        checked,
+                        total_paths
+                    );
+                    let _ = write_progress(progress_path, "removing_cache", &msg, overall_percent, del_count, total_paths);
+                    reporter.emit_progress(overall_percent, &msg);
                 }
             }
         }
@@ -568,11 +618,12 @@ fn main() -> Result<()> {
     eprintln!("Game: {}", game_name);
 
     let start_msg = format!("Starting removal for game '{}' (AppID {})", game_name, game_app_id);
-    write_progress(&progress_path, "starting", &start_msg)?;
+    write_progress(&progress_path, "starting", &start_msg, 0.0, 0, 0)?;
     reporter.emit_progress(0.0, &start_msg);
 
     // Get valid depot IDs for this game from database
-    write_progress(&progress_path, "querying_database", "Querying database for depot IDs and URLs")?;
+    write_progress(&progress_path, "querying_database", "Querying database for depot IDs and URLs", 5.0, 0, 0)?;
+    reporter.emit_progress(5.0, "Querying database for depot IDs and URLs");
     let valid_depot_ids = get_game_depot_ids(&db_path, game_app_id)?;
     eprintln!("Valid depot IDs for this game: {:?}", valid_depot_ids);
 
@@ -596,23 +647,27 @@ fn main() -> Result<()> {
         fs::write(&output_json, json)?;
         eprintln!("Report saved to: {}", output_json.display());
 
-        write_progress(&progress_path, "completed", "No URLs found for this game")?;
+        write_progress(&progress_path, "completed", "No URLs found for this game", 100.0, 0, 0)?;
         reporter.emit_complete("No URLs found for this game");
         return Ok(());
     }
 
     eprintln!("Found {} unique URLs for '{}'", url_data.len(), game_name);
 
-    write_progress(&progress_path, "removing_cache", &format!("Removing cache files for {} URLs", url_data.len()))?;
+    let remove_msg = format!("Removing cache files for {} URLs", url_data.len());
+    write_progress(&progress_path, "removing_cache", &remove_msg, 10.0, 0, 0)?;
+    reporter.emit_progress(10.0, &remove_msg);
     eprintln!("\nRemoving cache files...");
-    let (deleted_files, bytes_freed, parent_dirs, cache_permission_errors) = remove_cache_files_for_game(&cache_dir, &url_data)?;
+    let (deleted_files, bytes_freed, parent_dirs, cache_permission_errors) = remove_cache_files_for_game(&cache_dir, &url_data, &progress_path, &reporter)?;
 
-    write_progress(&progress_path, "cleaning_directories", "Cleaning up empty directories")?;
+    write_progress(&progress_path, "cleaning_directories", "Cleaning up empty directories", 70.0, 0, 0)?;
+    reporter.emit_progress(70.0, "Cleaning up empty directories");
     eprintln!("\nCleaning up empty directories...");
     let empty_dirs_removed = cleanup_empty_directories(&cache_dir, parent_dirs);
 
     // Remove log entries for this game
-    write_progress(&progress_path, "removing_logs", "Removing log entries")?;
+    write_progress(&progress_path, "removing_logs", "Removing log entries", 80.0, 0, 0)?;
+    reporter.emit_progress(80.0, "Removing log entries");
     eprintln!("\nRemoving log entries...");
     let urls_to_remove: HashSet<String> = url_data.keys().cloned().collect();
     let (log_entries_removed, log_permission_errors) = remove_log_entries_for_game(&log_dir, &urls_to_remove, &valid_depot_ids)?;
@@ -643,13 +698,14 @@ fn main() -> Result<()> {
         let json = serde_json::to_string_pretty(&report)?;
         fs::write(&output_json, json)?;
 
-        write_progress(&progress_path, "failed", &error_msg)?;
+        write_progress(&progress_path, "failed", &error_msg, 90.0, 0, 0)?;
         reporter.emit_failed(&error_msg);
         anyhow::bail!("{}", error_msg);
     }
 
     // Delete database records for this game (only if no permission errors)
-    write_progress(&progress_path, "removing_database", "Deleting database records")?;
+    write_progress(&progress_path, "removing_database", "Deleting database records", 90.0, 0, 0)?;
+    reporter.emit_progress(90.0, "Deleting database records");
     eprintln!("\nRemoving database records...");
     let _db_records_deleted = delete_game_from_database(&db_path, game_app_id)?;
 
@@ -681,7 +737,7 @@ fn main() -> Result<()> {
         game_app_id
     );
 
-    write_progress(&progress_path, "completed", &summary_message)?;
+    write_progress(&progress_path, "completed", &summary_message, 100.0, 0, 0)?;
     reporter.emit_complete(&summary_message);
 
     eprintln!("\n=== Removal Summary ===");

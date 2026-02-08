@@ -876,6 +876,44 @@ public class CacheManagementService
         }
     }
 
+    // Helper class for deserializing game removal progress data from Rust
+    private class GameRemovalProgressData
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("status")]
+        public string Status { get; set; } = string.Empty;
+
+        [System.Text.Json.Serialization.JsonPropertyName("message")]
+        public string Message { get; set; } = string.Empty;
+
+        [System.Text.Json.Serialization.JsonPropertyName("percentComplete")]
+        public double PercentComplete { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("filesProcessed")]
+        public int FilesProcessed { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("totalFiles")]
+        public int TotalFiles { get; set; }
+    }
+
+    // Helper class for deserializing service removal progress data from Rust
+    private class ServiceRemovalProgressData
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("status")]
+        public string Status { get; set; } = string.Empty;
+
+        [System.Text.Json.Serialization.JsonPropertyName("message")]
+        public string Message { get; set; } = string.Empty;
+
+        [System.Text.Json.Serialization.JsonPropertyName("percentComplete")]
+        public double PercentComplete { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("filesProcessed")]
+        public int FilesProcessed { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("totalFiles")]
+        public int TotalFiles { get; set; }
+    }
+
     // Helper classes for game cache removal
     public class GameCacheRemovalReport
     {
@@ -922,7 +960,7 @@ public class CacheManagementService
     /// <summary>
     /// Remove all cache files for a specific game across all datasources
     /// </summary>
-    public async Task<GameCacheRemovalReport> RemoveGameFromCache(uint gameAppId, CancellationToken cancellationToken = default)
+    public async Task<GameCacheRemovalReport> RemoveGameFromCache(uint gameAppId, CancellationToken cancellationToken = default, Func<double, string, int, long, Task>? onProgress = null)
     {
         await _cacheLock.WaitAsync();
         try
@@ -1005,10 +1043,38 @@ public class CacheManagementService
                         throw new Exception($"Failed to start game_cache_remover process for datasource '{datasource.Name}'");
                     }
 
+                    // Poll the progress file while the process runs
+                    using var pollCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    var pollTask = Task.Run(async () =>
+                    {
+                        while (!process.HasExited && !pollCts.Token.IsCancellationRequested)
+                        {
+                            await Task.Delay(500, pollCts.Token).ConfigureAwait(false);
+
+                            try
+                            {
+                                var progressData = await _rustProcessHelper.ReadProgressFileAsync<GameRemovalProgressData>(progressJson);
+                                if (progressData != null && onProgress != null)
+                                {
+                                    await onProgress(progressData.PercentComplete, progressData.Message, progressData.FilesProcessed, 0);
+                                }
+                            }
+                            catch (Exception ex) when (ex is not OperationCanceledException)
+                            {
+                                // Ignore transient read errors (file may be mid-write)
+                                _logger.LogDebug("[GameRemoval] Progress file read error (transient): {Error}", ex.Message);
+                            }
+                        }
+                    }, pollCts.Token);
+
                     var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
                     var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
 
                     await _processManager.WaitForProcessAsync(process, cancellationToken);
+
+                    // Stop the polling task
+                    pollCts.Cancel();
+                    try { await pollTask; } catch (OperationCanceledException) { /* expected */ }
 
                     var output = await outputTask;
                     var error = await errorTask;
@@ -1039,6 +1105,12 @@ public class CacheManagementService
 
                     // Read the generated JSON file (keep for operation history)
                     var dsReport = await _rustProcessHelper.ReadOutputJsonAsync<GameCacheRemovalReport>(outputJson, "GameRemoval");
+
+                    // Send final progress update from the report
+                    if (onProgress != null)
+                    {
+                        await onProgress(100, "Complete", dsReport.CacheFilesDeleted, (long)dsReport.TotalBytesFreed);
+                    }
 
                     // Aggregate results from this datasource
                     aggregatedReport.CacheFilesDeleted += dsReport.CacheFilesDeleted;
@@ -1095,7 +1167,7 @@ public class CacheManagementService
     /// <summary>
     /// Remove all cache files for a specific service across all datasources
     /// </summary>
-    public async Task<ServiceCacheRemovalReport> RemoveServiceFromCache(string serviceName, CancellationToken cancellationToken = default)
+    public async Task<ServiceCacheRemovalReport> RemoveServiceFromCache(string serviceName, CancellationToken cancellationToken = default, Func<double, string, int, long, Task>? onProgress = null)
     {
         await _cacheLock.WaitAsync();
         try
@@ -1188,10 +1260,38 @@ public class CacheManagementService
                         throw new Exception($"Failed to start service_remover process for datasource '{datasource.Name}'");
                     }
 
+                    // Poll the progress file while the process runs
+                    using var pollCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    var pollTask = Task.Run(async () =>
+                    {
+                        while (!process.HasExited && !pollCts.Token.IsCancellationRequested)
+                        {
+                            await Task.Delay(500, pollCts.Token).ConfigureAwait(false);
+
+                            try
+                            {
+                                var progressData = await _rustProcessHelper.ReadProgressFileAsync<ServiceRemovalProgressData>(progressPath);
+                                if (progressData != null && onProgress != null)
+                                {
+                                    await onProgress(progressData.PercentComplete, progressData.Message, progressData.FilesProcessed, 0);
+                                }
+                            }
+                            catch (Exception ex) when (ex is not OperationCanceledException)
+                            {
+                                // Ignore transient read errors (file may be mid-write)
+                                _logger.LogDebug("[ServiceRemoval] Progress file read error (transient): {Error}", ex.Message);
+                            }
+                        }
+                    }, pollCts.Token);
+
                     var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
                     var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
 
                     await _processManager.WaitForProcessAsync(process, cancellationToken);
+
+                    // Stop the polling task
+                    pollCts.Cancel();
+                    try { await pollTask; } catch (OperationCanceledException) { /* expected */ }
 
                     var output = await outputTask;
                     var error = await errorTask;
@@ -1225,6 +1325,12 @@ public class CacheManagementService
                     if (!string.IsNullOrEmpty(error))
                     {
                         ExtractServiceRemovalStats(error, dsReport);
+                    }
+
+                    // Send final progress update from the report
+                    if (onProgress != null)
+                    {
+                        await onProgress(100, "Complete", dsReport.CacheFilesDeleted, (long)dsReport.TotalBytesFreed);
                     }
 
                     // Aggregate results from this datasource

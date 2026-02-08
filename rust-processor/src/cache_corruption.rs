@@ -353,12 +353,14 @@ fn main() -> Result<()> {
 
             let total_files = log_files.len();
             write_progress(&progress_path, "scanning", &format!("Scanning {} log files for corrupted chunks", total_files), 0.0, 0, total_files)?;
+            reporter.emit_progress(0.0, &format!("Scanning {} log files for corrupted chunks", total_files));
 
             // First pass: identify all corrupted URLs AND track their response sizes
             for (file_index, log_file) in log_files.iter().enumerate() {
                 // Update progress during scanning (0-30%)
                 let scan_percent = (file_index as f64 / total_files as f64) * 30.0;
                 write_progress(&progress_path, "scanning", &format!("Scanning file {}/{}", file_index + 1, total_files), scan_percent, file_index, total_files)?;
+                reporter.emit_progress(scan_percent, &format!("Scanning file {}/{}", file_index + 1, total_files));
                 eprintln!("  Scanning file {}/{}: {}", file_index + 1, total_files, log_file.path.display());
 
                 let scan_result = (|| -> Result<()> {
@@ -448,11 +450,13 @@ fn main() -> Result<()> {
             let mut total_lines_removed: u64 = 0;
 
             write_progress(&progress_path, "filtering", &format!("Filtering {} log files", total_files), 30.0, 0, total_files)?;
+            reporter.emit_progress(30.0, &format!("Filtering {} log files", total_files));
 
             for (file_index, log_file) in log_files.iter().enumerate() {
                 // Update progress during filtering (30-70%)
                 let filter_percent = 30.0 + (file_index as f64 / total_files as f64) * 40.0;
                 write_progress(&progress_path, "filtering", &format!("Filtering file {}/{}", file_index + 1, total_files), filter_percent, file_index, total_files)?;
+                reporter.emit_progress(filter_percent, &format!("Filtering file {}/{}", file_index + 1, total_files));
                 eprintln!("  Processing file {}/{}: {}", file_index + 1, total_files, log_file.path.display());
 
                 let file_result = (|| -> Result<u64> {
@@ -567,6 +571,7 @@ fn main() -> Result<()> {
 
             let total_urls = corrupted_urls_with_sizes.len();
             write_progress(&progress_path, "removing_cache", &format!("Removing cache files for {} corrupted URLs", total_urls), 70.0, 0, total_urls)?;
+            reporter.emit_progress(70.0, &format!("Removing cache files for {} corrupted URLs", total_urls));
 
             // Step 3: Delete ALL cache file chunks from disk
             // IMPORTANT: Use same logic as game_cache_remover - try no-range format first!
@@ -580,8 +585,9 @@ fn main() -> Result<()> {
             for (url_index, (url, response_size)) in corrupted_urls_with_sizes.iter().enumerate() {
                 // Update progress during cache removal (70-95%)
                 if url_index % 50 == 0 || url_index == total_urls - 1 {
-                    let cache_percent = 70.0 + (url_index as f64 / total_urls.max(1) as f64) * 25.0;
+                    let cache_percent = 70.0 + (url_index as f64 / total_urls.max(1) as f64) * 20.0;
                     write_progress(&progress_path, "removing_cache", &format!("Removing cache file {}/{}", url_index + 1, total_urls), cache_percent, url_index, total_urls)?;
+                    reporter.emit_progress(cache_percent, &format!("Removing cache file {}/{}", url_index + 1, total_urls));
                 }
                 
                 // FIRST: Try the no-range format (standard lancache format)
@@ -697,8 +703,8 @@ fn main() -> Result<()> {
             // Step 4: Delete database records for corrupted downloads
             // Only reached if ALL file deletions succeeded (no permission errors)
             eprintln!("Step 4: Deleting database records...");
-            write_progress(&progress_path, "removing_database", "Deleting database records for corrupted chunks", 95.0, 0, 0)?;
-            reporter.emit_progress(95.0, "Deleting database records for corrupted chunks");
+            write_progress(&progress_path, "removing_database", "Deleting database records for corrupted chunks", 90.0, 0, 0)?;
+            reporter.emit_progress(90.0, "Deleting database records for corrupted chunks");
 
             let (downloads_deleted, log_entries_deleted) = delete_corrupted_from_database(&db_path, &service, &corrupted_urls)?;
 

@@ -291,24 +291,9 @@ const Dashboard: React.FC = () => {
       return true;
     });
   }, [clientStats, timeRange, getTimeRangeParams]);
-  const [showLoading, setShowLoading] = useState(false); // Delayed loading state
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const dropdownRef = useRef<HTMLDivElement>(null);
-
-  // Delay showing loading state to avoid flashing for quick API responses
-  // Only show skeleton loading on initial load when we have no data
-  // For subsequent loads (time range changes), use opacity change instead
-  useEffect(() => {
-    if (loading && !dashboardStats) {
-      const timer = setTimeout(() => {
-        setShowLoading(true);
-      }, 200); // Wait 200ms before showing skeleton
-      return () => clearTimeout(timer);
-    } else {
-      setShowLoading(false); // Hide immediately when done
-    }
-  }, [loading, dashboardStats]);
 
   // Use drag-and-drop hook for card reordering
   const {
@@ -767,24 +752,9 @@ const Dashboard: React.FC = () => {
       )}
 
       {/* Stats Grid */}
-      {showLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-fadeIn">
-          {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
-            <div
-              key={i}
-              className="themed-border-radius p-4 border animate-pulse glass-card h-40"
-            >
-              <div className="h-4 rounded w-3/5 bg-themed-hover" />
-              <div className="h-8 rounded mt-2 w-4/5 bg-themed-hover" />
-              <div className="h-3 rounded mt-2 w-2/5 bg-themed-hover" />
-              <div className="h-8 rounded mt-3 w-full bg-themed-hover" />
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div
-          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-fadeIn isolate"
-        >
+      <div
+        className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-fadeIn isolate"
+      >
           {visibleCards.map((card: StatCardData, visualIndex: number) => {
             // Check if this is a live-only card that should be disabled in historical view
             // Note: usedSpace now supports historical data via snapshots, so it's never disabled
@@ -910,83 +880,39 @@ const Dashboard: React.FC = () => {
           );
           })}
         </div>
-      )}
 
       {/* Charts Row - Pass the actual data arrays */}
-      {showLoading ? (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 animate-fadeIn">
-          {[1, 2].map((i) => (
-            <div
-              key={i}
-              className="themed-border-radius p-6 border animate-pulse glass-card flex flex-col h-[400px]"
-            >
-              <div className="h-6 rounded mb-4 flex-shrink-0 w-2/5 bg-themed-hover" />
-              <div className="flex-1 rounded bg-themed-hover" />
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 animate-fadeIn">
-          <ServiceAnalyticsChart serviceStats={filteredServiceStats || []} timeRange={timeRange} glassmorphism={true} />
-          <RecentDownloadsPanel downloads={filteredLatestDownloads || []} timeRange={timeRange} glassmorphism={true} />
-        </div>
-      )}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 animate-fadeIn">
+        <ServiceAnalyticsChart serviceStats={filteredServiceStats || []} timeRange={timeRange} glassmorphism={true} />
+        <RecentDownloadsPanel downloads={filteredLatestDownloads || []} timeRange={timeRange} glassmorphism={true} />
+      </div>
 
       {/* Analytics Widgets Row */}
-      {showLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-fadeIn">
-          {[1, 2, 3, 4].map((i) => (
-            <div
-              key={i}
-              className="themed-border-radius p-4 border animate-pulse glass-card h-[200px]"
-            >
-              <div className="h-5 rounded mb-3 w-1/2 bg-themed-hover" />
-              <div className="space-y-2">
-                {[1, 2, 3].map((j) => (
-                  <div key={j} className="h-8 rounded bg-themed-hover" />
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div
-          className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-fadeIn"
-        >
-          <PeakUsageHours
-            glassmorphism={true}
-            staggerIndex={8}
-          />
-          <CacheGrowthTrend
-            usedCacheSize={cacheInfo?.usedCacheSize || 0}
-            totalCacheSize={cacheInfo?.totalCacheSize || 0}
-            glassmorphism={true}
-            staggerIndex={9}
-          />
-        </div>
-      )}
+      <div
+        className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-fadeIn"
+      >
+        <PeakUsageHours
+          glassmorphism={true}
+          staggerIndex={8}
+        />
+        <CacheGrowthTrend
+          usedCacheSize={cacheInfo?.usedCacheSize || 0}
+          totalCacheSize={cacheInfo?.totalCacheSize || 0}
+          glassmorphism={true}
+          staggerIndex={9}
+        />
+      </div>
 
-      {/* Top Clients - Pass the filtered data arrays */}
-      {showLoading ? (
-        <div className="themed-border-radius p-6 border animate-pulse animate-fadeIn glass-card flex flex-col h-[400px]">
-          <div className="h-6 rounded mb-4 flex-shrink-0 w-[30%] bg-themed-hover" />
-          <div className="flex-1 flex flex-col justify-start gap-3">
-            {[1, 2, 3, 4, 5].map((i) => (
-              <div key={i} className="h-12 rounded flex-shrink-0 bg-themed-hover" />
-            ))}
-          </div>
-        </div>
-      ) : (
-        <div className="animate-fadeIn">
-          <TopClientsTable
-            clientStats={filteredClientStats || []}
-            timeRange={timeRange}
-            customStartDate={customStartDate}
-            customEndDate={customEndDate}
-            glassmorphism={true}
-          />
-        </div>
-      )}
+      {/* Top Clients */}
+      <div className="animate-fadeIn">
+        <TopClientsTable
+          clientStats={filteredClientStats || []}
+          timeRange={timeRange}
+          customStartDate={customStartDate}
+          customEndDate={customEndDate}
+          glassmorphism={true}
+        />
+      </div>
     </div>
   );
 };

@@ -37,6 +37,7 @@ public static class SignalRNotifications
         string GameName,
         string Status,
         string Message,
+        double PercentComplete = 0,
         int? FilesDeleted = null,
         long? BytesFreed = null
     );
@@ -73,6 +74,7 @@ public static class SignalRNotifications
         string OperationId,
         string Status,
         string Message,
+        double PercentComplete = 0,
         int? FilesDeleted = null,
         long? BytesFreed = null
     );
