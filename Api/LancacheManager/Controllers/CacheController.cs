@@ -3,6 +3,7 @@ using LancacheManager.Models;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Core.Models;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Security;
 using LancacheManager.Hubs;
@@ -32,6 +33,7 @@ public class CacheController : ControllerBase
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly NginxLogRotationService _nginxLogRotationService;
     private readonly CorruptionDetectionService _corruptionDetectionService;
+    private readonly IUnifiedOperationTracker _operationTracker;
 
     public CacheController(
         CacheManagementService cacheService,
@@ -45,7 +47,8 @@ public class CacheController : ControllerBase
         StateService stateService,
         ISignalRNotificationService notifications,
         RustProcessHelper rustProcessHelper,
-        NginxLogRotationService nginxLogRotationService)
+        NginxLogRotationService nginxLogRotationService,
+        IUnifiedOperationTracker operationTracker)
     {
         _cacheService = cacheService;
         _cacheClearingService = cacheClearingService;
@@ -59,6 +62,7 @@ public class CacheController : ControllerBase
         _notifications = notifications;
         _rustProcessHelper = rustProcessHelper;
         _nginxLogRotationService = nginxLogRotationService;
+        _operationTracker = operationTracker;
     }
 
     /// <summary>
@@ -539,12 +543,14 @@ public class CacheController : ControllerBase
             return BadRequest(new ErrorResponse { Error = errorMessage });
         }
 
-        var operationId = Guid.NewGuid().ToString();
-
-        // Create CancellationTokenSource for this operation
+        // Create CancellationTokenSource and register with unified operation tracker for cancel support
         var cts = new CancellationTokenSource();
-        
-        // Start tracking this removal operation with CancellationTokenSource
+        var operationId = _operationTracker.RegisterOperation(
+            OperationType.CorruptionRemoval,
+            $"Corruption removal: {service}",
+            cts);
+
+        // Also track in removal tracker for status queries
         _removalTracker.StartCorruptionRemoval(service, operationId, cts);
 
         // Send start notification via SignalR
@@ -627,6 +633,7 @@ public class CacheController : ControllerBase
                         // Signal nginx to reopen log files (prevents monolithic container from losing log access)
                         await _nginxLogRotationService.ReopenNginxLogsAsync();
 
+                        _operationTracker.CompleteOperation(operationId, success: true);
                         _removalTracker.CompleteCorruptionRemoval(service, true);
                         await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
                             new CorruptionRemovalComplete(true, service, operationId, $"Successfully removed corrupted chunks for {service}"));
@@ -634,6 +641,7 @@ public class CacheController : ControllerBase
                     else
                     {
                         _logger.LogError("Corruption removal failed for service {Service}: {Error}", service, result.Error);
+                        _operationTracker.CompleteOperation(operationId, success: false, error: result.Error);
                         _removalTracker.CompleteCorruptionRemoval(service, false, result.Error);
                         await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
                             new CorruptionRemovalComplete(false, service, operationId, Error: result.Error));
@@ -652,16 +660,18 @@ public class CacheController : ControllerBase
             catch (OperationCanceledException)
             {
                 _logger.LogInformation("Corruption removal cancelled for service: {Service}", service);
+                _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
                 _removalTracker.CompleteCorruptionRemoval(service, false, "Operation was cancelled.");
                 await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
                     new CorruptionRemovalComplete(false, service, operationId, Error: "Operation was cancelled."));
-                    
+
                 // Resume LiveLogMonitorService on cancellation
                 await LiveLogMonitorService.ResumeAsync();
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error during corruption removal for service: {Service}", service);
+                _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
                 _removalTracker.CompleteCorruptionRemoval(service, false, "Operation failed. Check server logs for details.");
                 await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
                     new CorruptionRemovalComplete(false, service, operationId, Error: "Operation failed. Check server logs for details."));
@@ -752,12 +762,14 @@ public class CacheController : ControllerBase
 
         _logger.LogInformation("Starting background service removal for: {Service}", name);
 
-        var operationId = Guid.NewGuid().ToString();
-
-        // Create CancellationTokenSource for this operation
+        // Create CancellationTokenSource and register with unified operation tracker for cancel support
         var cts = new CancellationTokenSource();
+        var operationId = _operationTracker.RegisterOperation(
+            OperationType.ServiceRemoval,
+            $"Service removal: {name}",
+            cts);
 
-        // Start tracking this removal operation with CancellationTokenSource
+        // Also track in removal tracker for status queries
         _removalTracker.StartServiceRemoval(name, operationId, cts);
 
         // Send start notification via SignalR
@@ -794,11 +806,21 @@ public class CacheController : ControllerBase
                     name, report.CacheFilesDeleted, report.TotalBytesFreed);
 
                 // Complete tracking
+                _operationTracker.CompleteOperation(operationId, success: true);
                 _removalTracker.CompleteServiceRemoval(name, true, report.CacheFilesDeleted, (long)report.TotalBytesFreed);
 
                 // Send SignalR notification on success
                 await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalComplete,
                     new ServiceRemovalComplete(true, name, operationId, $"Successfully removed {name} service from cache", report.CacheFilesDeleted, (long)report.TotalBytesFreed, report.LogEntriesRemoved));
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogInformation("Service removal cancelled for: {Service}", name);
+                _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
+                _removalTracker.CompleteServiceRemoval(name, false, error: "Operation was cancelled.");
+
+                await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalComplete,
+                    new ServiceRemovalComplete(false, name, operationId, $"Service removal for {name} was cancelled."));
             }
             catch (Exception ex)
             {
@@ -809,6 +831,7 @@ public class CacheController : ControllerBase
                     new ServiceRemovalProgress(name, operationId, "error", $"Error removing {name}: {ex.Message}"));
 
                 // Complete tracking with error
+                _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
                 _removalTracker.CompleteServiceRemoval(name, false, error: "Operation failed. Check server logs for details.");
 
                 // Send SignalR notification on failure
