@@ -1640,6 +1640,16 @@
       "missCount": "Miss count:",
       "cache": "Cache:",
       "noDetailsAvailable": "No details available",
+      "sensitivityTitle": "Detection Sensitivity",
+      "sensitivityHigh": "High Sensitivity",
+      "sensitivityHighShort": "High",
+      "sensitivityHighDesc": "Flags URLs with 3+ cache misses (default, catches more corruption)",
+      "sensitivityMedium": "Medium Sensitivity",
+      "sensitivityMediumShort": "Medium",
+      "sensitivityMediumDesc": "Flags URLs with 5+ cache misses (balanced, fewer false positives)",
+      "sensitivityLow": "Low Sensitivity",
+      "sensitivityLowShort": "Low",
+      "sensitivityLowDesc": "Flags URLs with 10+ cache misses (conservative, high confidence only)",
       "help": {
         "whatThisDoes": {
           "title": "What This Does",

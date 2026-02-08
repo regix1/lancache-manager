@@ -475,13 +475,8 @@ fn detect_cache_files_for_game_incremental(
     let found_files: HashSet<PathBuf> = service_urls
         .par_iter()
         .filter_map(|(service, url)| {
-            let cache_key = format!("{}{}", service, url);
-            let hash = cache_utils::calculate_md5(&cache_key);
-            
-            // Calculate the hierarchical path (first 2 chars as subdirectory)
-            let subdir = &hash[0..2];
-            let file_path = cache_dir.join(subdir).join(&hash);
-            
+            let file_path = cache_utils::calculate_cache_path_no_range(&cache_dir, &service, &url);
+
             if file_path.exists() {
                 Some(file_path)
             } else {
@@ -489,10 +484,7 @@ fn detect_cache_files_for_game_incremental(
                 (0..100).find_map(|chunk| {
                     let start = chunk * 1_048_576;
                     let end = start + 1_048_575;
-                    let chunked_key = format!("{}{}bytes={}-{}", service, url, start, end);
-                    let chunked_hash = cache_utils::calculate_md5(&chunked_key);
-                    let chunked_subdir = &chunked_hash[0..2];
-                    let chunked_path = cache_dir.join(chunked_subdir).join(&chunked_hash);
+                    let chunked_path = cache_utils::calculate_cache_path(&cache_dir, &service, &url, start, end);
                     if chunked_path.exists() {
                         Some(chunked_path)
                     } else {

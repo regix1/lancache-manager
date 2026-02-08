@@ -56,17 +56,8 @@ impl CorruptionDetector {
         }
     }
 
-    /// Calculate cache file path using lancache's MD5 structure:
-    /// /cache/{last_2_chars}/{2_chars_before_that}/{full_hash}
-    fn calculate_cache_path(&self, service: &str, url: &str, start: u64, end: u64) -> String {
-        cache_utils::calculate_cache_path(&self.cache_dir, service, url, start, end)
-            .display()
-            .to_string()
-    }
-
     /// Detect corrupted chunks by analyzing log files
-    /// Returns a map of (service, url) -> miss_count for chunks with 3+ misses
-    /// Memory-optimized: Periodically filters out entries below threshold to prevent unbounded growth
+    /// Returns a map of (service, url) -> miss_count for chunks exceeding miss_threshold
     pub fn detect_corrupted_chunks<P: AsRef<Path>>(
         &self,
         log_dir: P,
@@ -117,18 +108,10 @@ impl CorruptionDetector {
                             *miss_tracker.entry(key).or_insert(0) += 1;
                             entries_processed += 1;
 
-                            // MEMORY OPTIMIZATION: Periodically clean up entries that won't reach threshold
-                            // This prevents unbounded HashMap growth with millions of single-miss URLs
-                            if entries_processed % 100_000 == 0 {
-                                let before_size = miss_tracker.len();
-                                miss_tracker.retain(|_, count| *count >= self.miss_threshold - 1);
-                                // Actually release memory back to the system
-                                miss_tracker.shrink_to_fit();
-                                let after_size = miss_tracker.len();
-                                if before_size > after_size {
-                                    eprintln!("  Memory cleanup: Removed {} low-count entries (kept {})",
-                                        before_size - after_size, after_size);
-                                }
+                            // Log progress periodically
+                            if entries_processed % 500_000 == 0 {
+                                eprintln!("  Processed {} MISS/UNKNOWN entries, tracking {} unique URLs",
+                                    entries_processed, miss_tracker.len());
                             }
                         }
                         // Skip HIT entries - they're working fine
@@ -145,13 +128,36 @@ impl CorruptionDetector {
             }
         }
 
-        // Final filter to only chunks with miss_threshold or more MISS/UNKNOWN requests
-        let corrupted: HashMap<(String, String), usize> = miss_tracker
+        // Filter to only chunks with miss_threshold or more MISS/UNKNOWN requests
+        let candidates: HashMap<(String, String), usize> = miss_tracker
             .into_iter()
             .filter(|(_, count)| *count >= self.miss_threshold)
             .collect();
 
-        eprintln!("Found {} corrupted chunks ({}+ MISS/UNKNOWN)", corrupted.len(), self.miss_threshold);
+        let candidate_count = candidates.len();
+        eprintln!("Found {} URLs with {}+ MISS/UNKNOWN entries", candidate_count, self.miss_threshold);
+
+        // Filter to only URLs where the cache file actually exists on disk
+        // If the file doesn't exist, the MISSes were likely legitimate cold-cache or eviction events
+        // True corruption = file exists but nginx can't serve it (repeated MISSes despite file presence)
+        let corrupted: HashMap<(String, String), usize> = candidates
+            .into_iter()
+            .filter(|((service, url), _)| {
+                let cache_path = cache_utils::calculate_cache_path_no_range(&self.cache_dir, service, url);
+                if cache_path.exists() {
+                    return true;
+                }
+                // Fallback: check first 1MB chunk in range format (legacy lancache)
+                let range_path = cache_utils::calculate_cache_path(&self.cache_dir, service, url, 0, 1_048_575);
+                range_path.exists()
+            })
+            .collect();
+
+        let filtered_out = candidate_count - corrupted.len();
+        if filtered_out > 0 {
+            eprintln!("Filtered out {} URLs where cache file does not exist on disk (likely cold-cache misses)", filtered_out);
+        }
+        eprintln!("Confirmed {} corrupted chunks (file exists on disk with {}+ MISS/UNKNOWN)", corrupted.len(), self.miss_threshold);
 
         Ok(corrupted)
     }
@@ -173,7 +179,9 @@ impl CorruptionDetector {
             // Note: We don't know exact byte ranges from logs alone, so we calculate for common patterns
             // For a more accurate implementation, you'd track actual byte ranges from logs
             // For now, we'll generate path for the first 1MB slice as an example
-            let cache_file_path = self.calculate_cache_path(&service, &url, 0, 1_048_575);
+            let cache_file_path = cache_utils::calculate_cache_path_no_range(&self.cache_dir, &service, &url)
+                .display()
+                .to_string();
 
             corrupted_chunks.push(CorruptedChunk {
                 service: service.clone(),
@@ -330,29 +338,46 @@ impl CorruptionDetector {
                         *miss_tracker.entry(key).or_insert(0) += 1;
                         entries_processed += 1;
 
-                        // MEMORY OPTIMIZATION: Periodically clean up entries that won't reach threshold
-                        if entries_processed % 100_000 == 0 {
-                            let before_size = miss_tracker.len();
-                            miss_tracker.retain(|_, count| *count >= self.miss_threshold - 1);
-                            miss_tracker.shrink_to_fit();
-                            let after_size = miss_tracker.len();
-                            if before_size > after_size {
-                                eprintln!("  Memory cleanup: Removed {} low-count entries (kept {})",
-                                    before_size - after_size, after_size);
-                            }
+                        // Log progress periodically
+                        if entries_processed % 500_000 == 0 {
+                            eprintln!("  Processed {} MISS/UNKNOWN entries, tracking {} unique URLs",
+                                entries_processed, miss_tracker.len());
                         }
                     }
                 }
             }
         }
 
-        // Final filter to only chunks with miss_threshold or more MISS/UNKNOWN requests
-        let corrupted: HashMap<(String, String), usize> = miss_tracker
+        // Filter to only chunks with miss_threshold or more MISS/UNKNOWN requests
+        let candidates: HashMap<(String, String), usize> = miss_tracker
             .into_iter()
             .filter(|(_, count)| *count >= self.miss_threshold)
             .collect();
 
-        eprintln!("Found {} corrupted chunks ({}+ MISS/UNKNOWN)", corrupted.len(), self.miss_threshold);
+        let candidate_count = candidates.len();
+        eprintln!("Found {} URLs with {}+ MISS/UNKNOWN entries", candidate_count, self.miss_threshold);
+
+        // Filter to only URLs where the cache file actually exists on disk
+        // If the file doesn't exist, the MISSes were likely legitimate cold-cache or eviction events
+        // True corruption = file exists but nginx can't serve it (repeated MISSes despite file presence)
+        let corrupted: HashMap<(String, String), usize> = candidates
+            .into_iter()
+            .filter(|((service, url), _)| {
+                let cache_path = cache_utils::calculate_cache_path_no_range(&self.cache_dir, service, url);
+                if cache_path.exists() {
+                    return true;
+                }
+                // Fallback: check first 1MB chunk in range format (legacy lancache)
+                let range_path = cache_utils::calculate_cache_path(&self.cache_dir, service, url, 0, 1_048_575);
+                range_path.exists()
+            })
+            .collect();
+
+        let filtered_out = candidate_count - corrupted.len();
+        if filtered_out > 0 {
+            eprintln!("Filtered out {} URLs where cache file does not exist on disk (likely cold-cache misses)", filtered_out);
+        }
+        eprintln!("Confirmed {} corrupted chunks (file exists on disk with {}+ MISS/UNKNOWN)", corrupted.len(), self.miss_threshold);
 
         // Write completion progress
         if let Some(progress_file) = progress_path {

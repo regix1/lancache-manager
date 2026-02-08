@@ -464,9 +464,9 @@ public class CacheController : ControllerBase
     /// </summary>
     [HttpPost("corruption/detect")]
     [RequireAuth]
-    public async Task<IActionResult> StartCorruptionDetection()
+    public async Task<IActionResult> StartCorruptionDetection([FromQuery] int threshold = 3)
     {
-        var operationId = await _corruptionDetectionService.StartDetectionAsync();
+        var operationId = await _corruptionDetectionService.StartDetectionAsync(threshold);
         return Accepted(new { operationId, message = "Corruption detection started", status = "running" });
     }
 
@@ -509,7 +509,7 @@ public class CacheController : ControllerBase
     /// </summary>
     [HttpDelete("services/{service}/corruption")]
     [RequireAuth]
-    public IActionResult RemoveCorruptedChunks(string service)
+    public IActionResult RemoveCorruptedChunks(string service, [FromQuery] int threshold = 3)
     {
         // Check if ANY removal operation is already in progress (they share a lock)
         var activeRemovals = _removalTracker.GetAllActiveRemovals();
@@ -645,7 +645,8 @@ public class CacheController : ControllerBase
                                 service: service,
                                 progressFile: progressFilePath,
                                 databasePath: dbPath,
-                                cancellationToken: cts.Token
+                                cancellationToken: cts.Token,
+                                threshold: threshold
                             );
 
                             // Stop progress monitoring for this datasource

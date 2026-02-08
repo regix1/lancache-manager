@@ -359,7 +359,8 @@ public class RustProcessHelper
         string? service = null,
         string? progressFile = null,
         string? databasePath = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        int threshold = 3)
     {
         try
         {
@@ -373,9 +374,9 @@ public class RustProcessHelper
             // Build arguments based on command
             var arguments = command switch
             {
-                "summary" => $"summary \"{logsPath}\" \"{cachePath}\" UTC",
+                "summary" => $"summary \"{logsPath}\" \"{cachePath}\" UTC {threshold}",
                 "remove" when !string.IsNullOrEmpty(service) && !string.IsNullOrEmpty(databasePath) =>
-                    $"remove \"{databasePath}\" \"{logsPath}\" \"{cachePath}\" \"{service}\" \"{outputFile}\"",
+                    $"remove \"{databasePath}\" \"{logsPath}\" \"{cachePath}\" \"{service}\" \"{outputFile}\" {threshold}",
                 _ => throw new ArgumentException($"Invalid command or missing parameters: {command}")
             };
 

@@ -77,6 +77,9 @@ enum Commands {
         service: String,
         /// Path to progress JSON file
         progress_json: String,
+        /// Miss threshold - minimum MISS/UNKNOWN count to consider corrupted (default: 3)
+        #[arg(default_value = "3")]
+        threshold: Option<usize>,
     },
 }
 
@@ -328,7 +331,7 @@ fn main() -> Result<()> {
             reporter.emit_complete("Corruption summary generated");
         }
 
-        Commands::Remove { database_path, log_dir, cache_dir, service, progress_json } => {
+        Commands::Remove { database_path, log_dir, cache_dir, service, progress_json, threshold } => {
             reporter.emit_started();
 
             let db_path = PathBuf::from(&database_path);
@@ -363,7 +366,7 @@ fn main() -> Result<()> {
             let mut miss_tracker: HashMap<String, usize> = HashMap::new();
             let mut url_sizes: HashMap<String, i64> = HashMap::new(); // Track max response size per URL
             let mut entries_processed: usize = 0;
-            let miss_threshold: usize = 3; // Same threshold as corruption_detector
+            let miss_threshold: usize = threshold.unwrap_or(3);
 
             let total_files = log_files.len();
             write_progress(&progress_path, "scanning", &format!("Scanning {} log files for corrupted chunks", total_files), 0.0, 0, total_files)?;
@@ -404,20 +407,10 @@ fn main() -> Result<()> {
                                         .and_modify(|size| *size = (*size).max(entry.bytes_served))
                                         .or_insert(entry.bytes_served);
 
-                                    // MEMORY OPTIMIZATION: Periodically clean up entries that won't reach threshold
-                                    if entries_processed % 100_000 == 0 {
-                                        let before_size = miss_tracker.len();
-                                        miss_tracker.retain(|_, count| *count >= miss_threshold - 1);
-                                        // Also clean up url_sizes for URLs we're not tracking anymore
-                                        url_sizes.retain(|url, _| miss_tracker.contains_key(url));
-                                        // Actually release memory back to the system
-                                        miss_tracker.shrink_to_fit();
-                                        url_sizes.shrink_to_fit();
-                                        let after_size = miss_tracker.len();
-                                        if before_size > after_size {
-                                            eprintln!("    Memory cleanup: Removed {} low-count entries (kept {})",
-                                                before_size - after_size, after_size);
-                                        }
+                                    // Log progress periodically
+                                    if entries_processed % 500_000 == 0 {
+                                        eprintln!("    Processed {} MISS/UNKNOWN entries, tracking {} unique URLs",
+                                            entries_processed, miss_tracker.len());
                                     }
                                 }
                             }
@@ -432,8 +425,8 @@ fn main() -> Result<()> {
                 }
             }
 
-            // Build map of corrupted URLs with their response sizes (those with threshold+ misses)
-            let corrupted_urls_with_sizes: HashMap<String, i64> = miss_tracker
+            // Build map of candidate URLs with their response sizes (those with threshold+ misses)
+            let candidates: HashMap<String, i64> = miss_tracker
                 .iter()
                 .filter(|(_, &count)| count >= miss_threshold)
                 .map(|(url, _)| {
@@ -442,7 +435,31 @@ fn main() -> Result<()> {
                 })
                 .collect();
 
-            eprintln!("Found {} corrupted URLs for {}", corrupted_urls_with_sizes.len(), service);
+            let candidate_count = candidates.len();
+            eprintln!("Found {} URLs with {}+ MISS/UNKNOWN entries for {}", candidate_count, miss_threshold, service);
+
+            // Filter to only URLs where the cache file actually exists on disk
+            // If the file doesn't exist, the MISSes were likely legitimate cold-cache or eviction events
+            // True corruption = file exists but nginx can't serve it (repeated MISSes despite file presence)
+            let corrupted_urls_with_sizes: HashMap<String, i64> = candidates
+                .into_iter()
+                .filter(|(url, _response_size)| {
+                    // Check no-range format first (modern lancache)
+                    let cache_path = cache_utils::calculate_cache_path_no_range(&cache_dir, &service_lower, url);
+                    if cache_path.exists() {
+                        return true;
+                    }
+                    // Fallback: check first chunk in range format (legacy lancache)
+                    let range_path = cache_utils::calculate_cache_path(&cache_dir, &service_lower, url, 0, 1_048_575);
+                    range_path.exists()
+                })
+                .collect();
+
+            let filtered_out = candidate_count - corrupted_urls_with_sizes.len();
+            if filtered_out > 0 {
+                eprintln!("Filtered out {} URLs where cache file does not exist on disk (likely cold-cache misses)", filtered_out);
+            }
+            eprintln!("Confirmed {} corrupted URLs for {} (file exists on disk with {}+ MISS/UNKNOWN)", corrupted_urls_with_sizes.len(), service, miss_threshold);
             reporter.emit_progress(30.0, &format!("Found {} corrupted URLs for {}", corrupted_urls_with_sizes.len(), service));
 
             if corrupted_urls_with_sizes.is_empty() {

@@ -11,6 +11,7 @@ import { type AuthMode } from '@services/auth.service';
 import { useDockerSocket } from '@contexts/DockerSocketContext';
 import { useNotifications } from '@contexts/notifications';
 import { Card } from '@components/ui/Card';
+import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
@@ -73,6 +74,13 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
   } = useDirectoryPermissions();
   const [lastDetectionTime, setLastDetectionTime] = useState<string | null>(null);
   const [hasCachedResults, setHasCachedResults] = useState(false);
+  const [missThreshold, setMissThreshold] = useState(3);
+
+  const thresholdOptions = [
+    { value: '3', label: t('management.corruption.sensitivityHigh'), shortLabel: t('management.corruption.sensitivityHighShort'), description: t('management.corruption.sensitivityHighDesc') },
+    { value: '5', label: t('management.corruption.sensitivityMedium'), shortLabel: t('management.corruption.sensitivityMediumShort'), description: t('management.corruption.sensitivityMediumDesc') },
+    { value: '10', label: t('management.corruption.sensitivityLow'), shortLabel: t('management.corruption.sensitivityLowShort'), description: t('management.corruption.sensitivityLowDesc') },
+  ];
 
   const formattedLastDetection = useFormattedDateTime(lastDetectionTime);
 
@@ -151,13 +159,13 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
 
     try {
       // Start background detection - SignalR will send CorruptionDetectionStarted event
-      await ApiService.startCorruptionDetection();
+      await ApiService.startCorruptionDetection(missThreshold);
       // Note: NotificationsContext will create a notification via SignalR (CorruptionDetectionStarted event)
     } catch (err: unknown) {
       console.error('Failed to start corruption scan:', err);
       setIsStartingScan(false);
     }
-  }, [isScanning, mockMode]);
+  }, [isScanning, mockMode, missThreshold]);
 
   // Listen for corruption detection completion via notifications
   useEffect(() => {
@@ -253,7 +261,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
     setStartingCorruptionRemoval(service);
 
     try {
-      await ApiService.removeCorruptedChunks(service);
+      await ApiService.removeCorruptedChunks(service, missThreshold);
     } catch (err: unknown) {
       console.error('Removal failed:', err);
       onError?.(
@@ -323,6 +331,16 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
   // Cancel is handled by UniversalNotificationBar via CANCEL_CONFIGS
   const headerActions = (
     <div className="flex items-center gap-2">
+      <EnhancedDropdown
+        options={thresholdOptions}
+        value={String(missThreshold)}
+        onChange={(val: string) => setMissThreshold(Number(val))}
+        disabled={isLoading || isScanning || isAnyRemovalRunning}
+        compactMode={true}
+        dropdownWidth="w-72"
+        alignRight={true}
+        dropdownTitle={t('management.corruption.sensitivityTitle')}
+      />
       <Tooltip content={t('management.corruption.loadPreviousResults')} position="top">
         <Button
           onClick={() => loadCachedData(true)}

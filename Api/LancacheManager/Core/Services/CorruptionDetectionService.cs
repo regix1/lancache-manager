@@ -72,7 +72,7 @@ public class CorruptionDetectionService
     /// Start a background corruption detection scan.
     /// Returns immediately with an operation ID.
     /// </summary>
-    public async Task<string> StartDetectionAsync(CancellationToken cancellationToken = default)
+    public async Task<string> StartDetectionAsync(int threshold = 3, CancellationToken cancellationToken = default)
     {
         await _startLock.WaitAsync(cancellationToken);
         try
@@ -126,7 +126,7 @@ public class CorruptionDetectionService
 
             // Run detection in background with the cancellation token
             var token = _cancellationTokenSource.Token;
-            _ = Task.Run(async () => await RunDetectionAsync(operationId, token), token);
+            _ = Task.Run(async () => await RunDetectionAsync(operationId, threshold, token), token);
 
             return operationId;
         }
@@ -139,7 +139,7 @@ public class CorruptionDetectionService
     /// <summary>
     /// Run the actual corruption detection scan.
     /// </summary>
-    private async Task RunDetectionAsync(string operationId, CancellationToken cancellationToken)
+    private async Task RunDetectionAsync(string operationId, int threshold, CancellationToken cancellationToken)
     {
         if (!_operations.TryGetValue(operationId, out var operation))
         {
@@ -169,7 +169,7 @@ public class CorruptionDetectionService
 
                 var dsCounts = await GetCorruptionSummaryForDatasource(
                     datasource.LogPath, datasource.CachePath, timezone, rustBinaryPath,
-                    operationId, operation.TrackerOperationId ?? operationId, datasource.Name, cancellationToken);
+                    operationId, operation.TrackerOperationId ?? operationId, datasource.Name, threshold, cancellationToken);
 
                 // Aggregate counts
                 foreach (var kvp in dsCounts)
@@ -277,7 +277,7 @@ public class CorruptionDetectionService
     /// </summary>
     private async Task<Dictionary<string, long>> GetCorruptionSummaryForDatasource(
         string logDir, string cacheDir, string timezone, string rustBinaryPath,
-        string operationId, string trackerOperationId, string datasourceName, CancellationToken cancellationToken)
+        string operationId, string trackerOperationId, string datasourceName, int threshold, CancellationToken cancellationToken)
     {
         // Create progress file for this datasource
         var operationsDir = _pathResolver.GetOperationsDirectory();
@@ -288,7 +288,7 @@ public class CorruptionDetectionService
         {
             var startInfo = _rustProcessHelper.CreateProcessStartInfo(
                 rustBinaryPath,
-                $"summary \"{logDir}\" \"{cacheDir}\" \"{progressFile}\" \"{timezone}\"");
+                $"summary \"{logDir}\" \"{cacheDir}\" \"{progressFile}\" \"{timezone}\" {threshold}");
 
             using var process = Process.Start(startInfo);
             if (process == null)
