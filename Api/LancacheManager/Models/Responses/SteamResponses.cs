@@ -78,12 +78,4 @@ public class ApiKeyRemoveResponse
     public string Message { get; set; } = string.Empty;
 }
 
-/// <summary>
-/// Response for app list
-/// </summary>
-public class AppListResponse
-{
-    public int Total { get; set; }
-    public int Returned { get; set; }
-    public List<object> Apps { get; set; } = new();
-}
+

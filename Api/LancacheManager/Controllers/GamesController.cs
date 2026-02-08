@@ -20,7 +20,6 @@ public class GamesController : ControllerBase
 {
     private readonly GameCacheDetectionService _gameCacheDetectionService;
     private readonly CacheManagementService _cacheManagementService;
-    private readonly RemovalOperationTracker _removalTracker;
     private readonly ISignalRNotificationService _notifications;
     private readonly ILogger<GamesController> _logger;
     private readonly IPathResolver _pathResolver;
@@ -29,7 +28,6 @@ public class GamesController : ControllerBase
     public GamesController(
         GameCacheDetectionService gameCacheDetectionService,
         CacheManagementService cacheManagementService,
-        RemovalOperationTracker removalTracker,
         ISignalRNotificationService notifications,
         ILogger<GamesController> logger,
         IPathResolver pathResolver,
@@ -37,7 +35,6 @@ public class GamesController : ControllerBase
     {
         _gameCacheDetectionService = gameCacheDetectionService;
         _cacheManagementService = cacheManagementService;
-        _removalTracker = removalTracker;
         _notifications = notifications;
         _logger = logger;
         _pathResolver = pathResolver;
@@ -77,18 +74,16 @@ public class GamesController : ControllerBase
         var cachedResults = await _gameCacheDetectionService.GetCachedDetectionAsync();
         var gameName = cachedResults?.Games?.FirstOrDefault(g => g.GameAppId == appId)?.GameName ?? $"Game {appId}";
 
-        // Start tracking this removal operation
-        _removalTracker.StartGameRemoval(appId, gameName);
-
         // Create a CancellationTokenSource for cancel support
         var cancellationTokenSource = new CancellationTokenSource();
 
-        // Register with unified operation tracker for centralized cancellation
+        // Register with unified operation tracker for centralized cancellation and tracking
+        var removalMetrics = new RemovalMetrics { EntityKey = appId.ToString(), EntityName = gameName };
         var operationId = _operationTracker.RegisterOperation(
             OperationType.GameRemoval,
             $"Game Removal: {gameName}",
             cancellationTokenSource,
-            new { gameAppId = appId, gameName }
+            removalMetrics
         );
 
         // Send GameRemovalStarted event
@@ -106,7 +101,7 @@ public class GamesController : ControllerBase
                 // Send starting notification
                 await _notifications.NotifyAllAsync(SignalREvents.GameRemovalProgress,
                     new GameRemovalProgress(operationId, appId, gameName, "starting", $"Starting removal of {gameName}..."));
-                _removalTracker.UpdateGameRemoval(appId, "starting", $"Starting removal of {gameName}...");
+                _operationTracker.UpdateProgress(operationId, 0, $"Starting removal of {gameName}...");
 
                 cancellationToken.ThrowIfCancellationRequested();
 
@@ -116,7 +111,13 @@ public class GamesController : ControllerBase
                     {
                         await _notifications.NotifyAllAsync(SignalREvents.GameRemovalProgress,
                             new GameRemovalProgress(operationId, appId, gameName, "removing_cache", message, percentComplete, filesDeleted, bytesFreed));
-                        _removalTracker.UpdateGameRemoval(appId, "removing_cache", message, filesDeleted > 0 ? filesDeleted : null, bytesFreed > 0 ? bytesFreed : null);
+                        _operationTracker.UpdateProgress(operationId, percentComplete, message);
+                        _operationTracker.UpdateMetadata(operationId, m =>
+                        {
+                            var metrics = (RemovalMetrics)m;
+                            metrics.FilesDeleted = filesDeleted;
+                            metrics.BytesFreed = bytesFreed;
+                        });
                     });
 
                 cancellationToken.ThrowIfCancellationRequested();
@@ -124,16 +125,19 @@ public class GamesController : ControllerBase
                 // Send finalizing progress update
                 await _notifications.NotifyAllAsync(SignalREvents.GameRemovalProgress,
                     new GameRemovalProgress(operationId, appId, gameName, "complete", "Finalizing removal...", 100.0, report.CacheFilesDeleted, (long)report.TotalBytesFreed));
-                _removalTracker.UpdateGameRemoval(appId, "complete", "Finalizing removal...", report.CacheFilesDeleted, (long)report.TotalBytesFreed);
+                _operationTracker.UpdateProgress(operationId, 100.0, "Finalizing removal...");
+                _operationTracker.UpdateMetadata(operationId, m =>
+                {
+                    var metrics = (RemovalMetrics)m;
+                    metrics.FilesDeleted = report.CacheFilesDeleted;
+                    metrics.BytesFreed = (long)report.TotalBytesFreed;
+                });
 
                 // Also remove from detection cache so it doesn't show in UI
                 await _gameCacheDetectionService.RemoveGameFromCacheAsync((uint)appId);
 
                 _logger.LogInformation("Game removal completed for AppId: {AppId} - Deleted {Files} files, freed {Bytes} bytes",
                     appId, report.CacheFilesDeleted, report.TotalBytesFreed);
-
-                // Complete tracking
-                _removalTracker.CompleteGameRemoval(appId, true, report.CacheFilesDeleted, (long)report.TotalBytesFreed);
 
                 // Mark operation as complete in unified tracker
                 _operationTracker.CompleteOperation(operationId, success: true);
@@ -145,9 +149,6 @@ public class GamesController : ControllerBase
             catch (OperationCanceledException)
             {
                 _logger.LogInformation("Game removal cancelled for AppId: {AppId}", appId);
-
-                // Complete tracking with cancellation
-                _removalTracker.CompleteGameRemoval(appId, false, error: "Cancelled by user");
 
                 // Mark operation as complete (cancelled) in unified tracker
                 _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
@@ -163,9 +164,6 @@ public class GamesController : ControllerBase
                 // Send error status notification
                 await _notifications.NotifyAllAsync(SignalREvents.GameRemovalProgress,
                     new GameRemovalProgress(operationId, appId, gameName, "error", $"Error removing {gameName}: {ex.Message}", 0.0));
-
-                // Complete tracking with error
-                _removalTracker.CompleteGameRemoval(appId, false, error: ex.Message);
 
                 // Mark operation as complete (failed) in unified tracker
                 _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
@@ -194,23 +192,23 @@ public class GamesController : ControllerBase
     [RequireGuestSession]
     public IActionResult GetGameRemovalStatus(int appId)
     {
-        var operation = _removalTracker.GetGameRemovalStatus(appId);
+        var operation = _operationTracker.GetOperationByEntityKey(OperationType.GameRemoval, appId.ToString());
         if (operation == null)
         {
             return Ok(new RemovalStatusResponse { IsProcessing = false });
         }
 
+        var metrics = operation.Metadata as RemovalMetrics;
         return Ok(new RemovalStatusResponse
         {
-            // Include all non-terminal statuses (running, removing_cache, removing_database, etc.)
-            IsProcessing = operation.Status != "complete" && operation.Status != "failed",
+            IsProcessing = operation.Status != OperationStatus.Completed && operation.Status != OperationStatus.Failed,
             Status = operation.Status,
             Message = operation.Message,
-            GameName = operation.Name,
-            FilesDeleted = operation.FilesDeleted,
-            BytesFreed = operation.BytesFreed,
+            GameName = metrics?.EntityName,
+            FilesDeleted = metrics?.FilesDeleted ?? 0,
+            BytesFreed = metrics?.BytesFreed ?? 0,
             StartedAt = operation.StartedAt,
-            Error = operation.Error
+            OperationId = operation.Id
         });
     }
 
@@ -222,19 +220,23 @@ public class GamesController : ControllerBase
     [RequireGuestSession]
     public IActionResult GetActiveGameRemovals()
     {
-        var operations = _removalTracker.GetActiveGameRemovals();
+        var operations = _operationTracker.GetActiveOperations(OperationType.GameRemoval);
         return Ok(new ActiveGameRemovalsResponse
         {
             IsProcessing = operations.Any(),
-            Operations = operations.Select(o => new GameRemovalInfo
+            Operations = operations.Select(op =>
             {
-                GameAppId = int.Parse(o.Id),
-                GameName = o.Name,
-                Status = o.Status,
-                Message = o.Message,
-                FilesDeleted = o.FilesDeleted,
-                BytesFreed = o.BytesFreed,
-                StartedAt = o.StartedAt
+                var metrics = op.Metadata as RemovalMetrics;
+                return new GameRemovalInfo
+                {
+                    GameAppId = int.TryParse(metrics?.EntityKey, out var parsedAppId) ? parsedAppId : 0,
+                    GameName = metrics?.EntityName ?? op.Name,
+                    Status = op.Status,
+                    Message = op.Message,
+                    FilesDeleted = metrics?.FilesDeleted ?? 0,
+                    BytesFreed = metrics?.BytesFreed ?? 0,
+                    StartedAt = op.StartedAt
+                };
             })
         });
     }

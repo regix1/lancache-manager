@@ -46,12 +46,4 @@ public static class SteamKit2Helpers
 
         return (depotMappingsDict, appNamesDict, depotOwnersDict, depotNamesDict);
     }
-
-    /// <summary>
-    /// Updates connection activity timestamp for keep-alive tracking
-    /// </summary>
-    public static DateTime UpdateConnectionActivity()
-    {
-        return DateTime.UtcNow;
-    }
 }

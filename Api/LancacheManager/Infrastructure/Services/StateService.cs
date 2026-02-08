@@ -1150,6 +1150,8 @@ public class StateService : IStateService
 
     private static string NormalizeMode(string? mode)
     {
+        if (string.Equals(mode, ClientExclusionModes.Exclude, StringComparison.OrdinalIgnoreCase))
+            return ClientExclusionModes.Exclude;
         return ClientExclusionModes.Hide;
     }
 

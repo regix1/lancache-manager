@@ -508,26 +508,6 @@ public class CorruptionDetectionService
         await dbContext.CachedCorruptionDetections.ExecuteDeleteAsync();
         _logger.LogInformation("[CorruptionDetection] Cache invalidated");
     }
-
-    /// <summary>
-    /// Restore interrupted operations on startup.
-    /// </summary>
-    public void RestoreInterruptedOperations()
-    {
-        try
-        {
-            var states = _operationStateService.GetStatesByType("corruptionDetection");
-            foreach (var state in states)
-            {
-                _logger.LogInformation("[CorruptionDetection] Found interrupted operation {Key}, clearing state", state.Key);
-                _operationStateService.RemoveState(state.Key);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "[CorruptionDetection] Failed to restore interrupted operations");
-        }
-    }
 }
 
 /// <summary>

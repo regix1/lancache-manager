@@ -349,9 +349,6 @@ public class RustProcessHelper
     /// <summary>
     /// Runs the corruption_manager Rust executable for detecting or removing corrupted files
     /// </summary>
-    /// <summary>
-    /// Runs the corruption_manager Rust executable for detecting or removing corrupted files
-    /// </summary>
     public async Task<RustExecutionResult> RunCorruptionManagerAsync(
         string command,
         string logsPath,

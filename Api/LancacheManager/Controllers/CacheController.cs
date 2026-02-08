@@ -24,7 +24,6 @@ public class CacheController : ControllerBase
     private readonly CacheManagementService _cacheService;
     private readonly CacheClearingService _cacheClearingService;
     private readonly GameCacheDetectionService _gameCacheDetectionService;
-    private readonly RemovalOperationTracker _removalTracker;
     private readonly IConfiguration _configuration;
     private readonly ILogger<CacheController> _logger;
     private readonly IPathResolver _pathResolver;
@@ -41,7 +40,6 @@ public class CacheController : ControllerBase
         CacheClearingService cacheClearingService,
         GameCacheDetectionService gameCacheDetectionService,
         CorruptionDetectionService corruptionDetectionService,
-        RemovalOperationTracker removalTracker,
         IConfiguration configuration,
         ILogger<CacheController> logger,
         IPathResolver pathResolver,
@@ -56,7 +54,6 @@ public class CacheController : ControllerBase
         _cacheClearingService = cacheClearingService;
         _gameCacheDetectionService = gameCacheDetectionService;
         _corruptionDetectionService = corruptionDetectionService;
-        _removalTracker = removalTracker;
         _configuration = configuration;
         _logger = logger;
         _pathResolver = pathResolver;
@@ -512,12 +509,14 @@ public class CacheController : ControllerBase
     public IActionResult RemoveCorruptedChunks(string service, [FromQuery] int threshold = 3)
     {
         // Check if ANY removal operation is already in progress (they share a lock)
-        var activeRemovals = _removalTracker.GetAllActiveRemovals();
-        if (activeRemovals.HasActiveOperations)
+        var activeGameOps = _operationTracker.GetActiveOperations(OperationType.GameRemoval);
+        var activeServiceOps = _operationTracker.GetActiveOperations(OperationType.ServiceRemoval);
+        var activeCorruptionOps = _operationTracker.GetActiveOperations(OperationType.CorruptionRemoval);
+        if (activeGameOps.Any() || activeServiceOps.Any() || activeCorruptionOps.Any())
         {
-            var activeType = activeRemovals.GameRemovals.Any() ? "game" :
-                             activeRemovals.ServiceRemovals.Any() ? "service" :
-                             activeRemovals.CorruptionRemovals.Any() ? "corruption" : "unknown";
+            var activeType = activeGameOps.Any() ? "game" :
+                             activeServiceOps.Any() ? "service" :
+                             activeCorruptionOps.Any() ? "corruption" : "unknown";
             _logger.LogWarning("[CorruptionRemoval] Blocked - another {Type} removal is already in progress", activeType);
             return Conflict(new ErrorResponse { Error = $"Another removal operation ({activeType}) is already in progress. Please wait for it to complete." });
         }
@@ -551,13 +550,12 @@ public class CacheController : ControllerBase
 
         // Create CancellationTokenSource and register with unified operation tracker for cancel support
         var cts = new CancellationTokenSource();
+        var metadata = new RemovalMetrics { EntityKey = service.ToLowerInvariant(), EntityName = service };
         var operationId = _operationTracker.RegisterOperation(
             OperationType.CorruptionRemoval,
             $"Corruption removal: {service}",
-            cts);
-
-        // Also track in removal tracker for status queries
-        _removalTracker.StartCorruptionRemoval(service, operationId, cts);
+            cts,
+            metadata);
 
         // Send start notification via SignalR
         _notifications.NotifyAllFireAndForget(SignalREvents.CorruptionRemovalStarted,
@@ -572,7 +570,7 @@ public class CacheController : ControllerBase
                 _logger.LogInformation("Paused LiveLogMonitorService for corruption removal");
 
                 // Update tracking
-                _removalTracker.UpdateCorruptionRemoval(service, "removing", $"Removing corrupted chunks for {service}...");
+                _operationTracker.UpdateProgress(operationId, 0, $"Removing corrupted chunks for {service}...");
 
                 _logger.LogInformation("[CorruptionRemoval] Processing {Count} datasource(s) for service {Service}",
                     datasources.Count, service);
@@ -609,7 +607,13 @@ public class CacheController : ControllerBase
                                     var progress = await _rustProcessHelper.ReadProgressFileAsync<CorruptionRemovalProgressData>(progressFilePath);
                                     if (progress != null)
                                     {
-                                        _removalTracker.UpdateCorruptionRemoval(service, progress.Status, progress.Message);
+                                        _operationTracker.UpdateProgress(operationId, progress.PercentComplete, progress.Message);
+                                        _operationTracker.UpdateMetadata(operationId, (object meta) =>
+                                        {
+                                            var m = (RemovalMetrics)meta;
+                                            m.FilesProcessed = progress.FilesProcessed;
+                                            m.TotalFiles = progress.TotalFiles;
+                                        });
 
                                         // Send progress notification via SignalR
                                         await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalProgress,
@@ -687,7 +691,6 @@ public class CacheController : ControllerBase
                         await _cacheService.InvalidateServiceCountsCache();
 
                         _operationTracker.CompleteOperation(operationId, success: true);
-                        _removalTracker.CompleteCorruptionRemoval(service, true);
                         await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
                             new CorruptionRemovalComplete(true, service, operationId, $"Successfully removed corrupted chunks for {service}"));
                     }
@@ -695,7 +698,6 @@ public class CacheController : ControllerBase
                     {
                         _logger.LogError("Corruption removal failed for service {Service}: {Error}", service, lastError);
                         _operationTracker.CompleteOperation(operationId, success: false, error: lastError);
-                        _removalTracker.CompleteCorruptionRemoval(service, false, lastError);
                         await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
                             new CorruptionRemovalComplete(false, service, operationId, Error: lastError));
                     }
@@ -711,7 +713,6 @@ public class CacheController : ControllerBase
             {
                 _logger.LogInformation("Corruption removal cancelled for service: {Service}", service);
                 _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
-                _removalTracker.CompleteCorruptionRemoval(service, false, "Operation was cancelled.");
                 await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
                     new CorruptionRemovalComplete(false, service, operationId, Error: "Operation was cancelled."));
 
@@ -722,7 +723,6 @@ public class CacheController : ControllerBase
             {
                 _logger.LogError(ex, "Error during corruption removal for service: {Service}", service);
                 _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
-                _removalTracker.CompleteCorruptionRemoval(service, false, "Operation failed. Check server logs for details.");
                 await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
                     new CorruptionRemovalComplete(false, service, operationId, Error: "Operation failed. Check server logs for details."));
             }
@@ -744,21 +744,22 @@ public class CacheController : ControllerBase
     [HttpGet("services/{service}/corruption/status")]
     public IActionResult GetCorruptionRemovalStatus(string service)
     {
-        var operation = _removalTracker.GetCorruptionRemovalStatus(service);
+        var operation = _operationTracker.GetOperationByEntityKey(OperationType.CorruptionRemoval, service.ToLowerInvariant());
         if (operation == null)
         {
             return Ok(new RemovalStatusResponse { IsProcessing = false });
         }
 
+        var metrics = operation.Metadata as RemovalMetrics;
         return Ok(new RemovalStatusResponse
         {
             // Include all non-terminal statuses (running, removing, etc.)
-            IsProcessing = operation.Status != "complete" && operation.Status != "failed",
+            IsProcessing = operation.Status != OperationStatus.Completed && operation.Status != OperationStatus.Failed,
             Status = operation.Status,
             Message = operation.Message,
             OperationId = operation.Id,
             StartedAt = operation.StartedAt,
-            Error = operation.Error
+            Error = operation.Status == OperationStatus.Failed ? operation.Message : null
         });
     }
 
@@ -768,17 +769,21 @@ public class CacheController : ControllerBase
     [HttpGet("corruption/removals/active")]
     public IActionResult GetActiveCorruptionRemovals()
     {
-        var operations = _removalTracker.GetActiveCorruptionRemovals();
+        var operations = _operationTracker.GetActiveOperations(OperationType.CorruptionRemoval);
         return Ok(new ActiveCorruptionRemovalsResponse
         {
             IsProcessing = operations.Any(),
-            Operations = operations.Select(o => new CorruptionRemovalInfo
+            Operations = operations.Select(op =>
             {
-                Service = o.Name,
-                OperationId = o.Id,
-                Status = o.Status,
-                Message = o.Message,
-                StartedAt = o.StartedAt
+                var metrics = op.Metadata as RemovalMetrics;
+                return new CorruptionRemovalInfo
+                {
+                    Service = metrics?.EntityName ?? op.Name,
+                    OperationId = op.Id,
+                    Status = op.Status,
+                    Message = op.Message,
+                    StartedAt = op.StartedAt
+                };
             })
         });
     }
@@ -814,13 +819,12 @@ public class CacheController : ControllerBase
 
         // Create CancellationTokenSource and register with unified operation tracker for cancel support
         var cts = new CancellationTokenSource();
+        var metadata = new RemovalMetrics { EntityKey = name.ToLowerInvariant(), EntityName = name };
         var operationId = _operationTracker.RegisterOperation(
             OperationType.ServiceRemoval,
             $"Service removal: {name}",
-            cts);
-
-        // Also track in removal tracker for status queries
-        _removalTracker.StartServiceRemoval(name, operationId, cts);
+            cts,
+            metadata);
 
         // Send start notification via SignalR
         _notifications.NotifyAllFireAndForget(SignalREvents.ServiceRemovalStarted,
@@ -834,7 +838,7 @@ public class CacheController : ControllerBase
                 // Send starting notification
                 await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalProgress,
                     new ServiceRemovalProgress(name, operationId, "starting", $"Starting removal of {name}..."));
-                _removalTracker.UpdateServiceRemoval(name, "starting", $"Starting removal of {name}...");
+                _operationTracker.UpdateProgress(operationId, 0, $"Starting removal of {name}...");
 
                 // Use CacheManagementService which actually deletes files via Rust binary
                 var report = await _cacheService.RemoveServiceFromCache(name, cts.Token,
@@ -843,14 +847,25 @@ public class CacheController : ControllerBase
                         await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalProgress,
                             new ServiceRemovalProgress(name, operationId, "removing_cache", message, percentComplete,
                                 filesDeleted > 0 ? filesDeleted : null, bytesFreed > 0 ? bytesFreed : null));
-                        _removalTracker.UpdateServiceRemoval(name, "removing_cache", message,
-                            filesDeleted > 0 ? filesDeleted : null, bytesFreed > 0 ? bytesFreed : null);
+                        _operationTracker.UpdateProgress(operationId, percentComplete, message);
+                        _operationTracker.UpdateMetadata(operationId, (object meta) =>
+                        {
+                            var m = (RemovalMetrics)meta;
+                            if (filesDeleted > 0) m.FilesDeleted = filesDeleted;
+                            if (bytesFreed > 0) m.BytesFreed = bytesFreed;
+                        });
                     });
 
                 // Send progress update
                 await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalProgress,
                     new ServiceRemovalProgress(name, operationId, "complete", "Finalizing removal...", 100.0, report.CacheFilesDeleted, (long)report.TotalBytesFreed));
-                _removalTracker.UpdateServiceRemoval(name, "complete", "Finalizing removal...", report.CacheFilesDeleted, (long)report.TotalBytesFreed);
+                _operationTracker.UpdateProgress(operationId, 100.0, "Finalizing removal...");
+                _operationTracker.UpdateMetadata(operationId, (object meta) =>
+                {
+                    var m = (RemovalMetrics)meta;
+                    m.FilesDeleted = report.CacheFilesDeleted;
+                    m.BytesFreed = (long)report.TotalBytesFreed;
+                });
 
                 // Also remove from detection cache so it doesn't show in UI
                 await _gameCacheDetectionService.RemoveServiceFromCacheAsync(name);
@@ -860,7 +875,6 @@ public class CacheController : ControllerBase
 
                 // Complete tracking
                 _operationTracker.CompleteOperation(operationId, success: true);
-                _removalTracker.CompleteServiceRemoval(name, true, report.CacheFilesDeleted, (long)report.TotalBytesFreed);
 
                 // Send SignalR notification on success
                 await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalComplete,
@@ -870,7 +884,6 @@ public class CacheController : ControllerBase
             {
                 _logger.LogInformation("Service removal cancelled for: {Service}", name);
                 _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
-                _removalTracker.CompleteServiceRemoval(name, false, error: "Operation was cancelled.");
 
                 await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalComplete,
                     new ServiceRemovalComplete(false, name, operationId, $"Service removal for {name} was cancelled."));
@@ -885,7 +898,6 @@ public class CacheController : ControllerBase
 
                 // Complete tracking with error
                 _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
-                _removalTracker.CompleteServiceRemoval(name, false, error: "Operation failed. Check server logs for details.");
 
                 // Send SignalR notification on failure
                 await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalComplete,
@@ -909,22 +921,23 @@ public class CacheController : ControllerBase
     [HttpGet("services/{name}/removal-status")]
     public IActionResult GetServiceRemovalStatus(string name)
     {
-        var operation = _removalTracker.GetServiceRemovalStatus(name);
+        var operation = _operationTracker.GetOperationByEntityKey(OperationType.ServiceRemoval, name.ToLowerInvariant());
         if (operation == null)
         {
             return Ok(new RemovalStatusResponse { IsProcessing = false });
         }
 
+        var metrics = operation.Metadata as RemovalMetrics;
         return Ok(new RemovalStatusResponse
         {
             // Include all non-terminal statuses (running, removing_cache, removing_database, etc.)
-            IsProcessing = operation.Status != "complete" && operation.Status != "failed",
+            IsProcessing = operation.Status != OperationStatus.Completed && operation.Status != OperationStatus.Failed,
             Status = operation.Status,
             Message = operation.Message,
-            FilesDeleted = operation.FilesDeleted,
-            BytesFreed = operation.BytesFreed,
+            FilesDeleted = metrics?.FilesDeleted ?? 0,
+            BytesFreed = metrics?.BytesFreed ?? 0,
             StartedAt = operation.StartedAt,
-            Error = operation.Error
+            Error = operation.Status == OperationStatus.Failed ? operation.Message : null
         });
     }
 
@@ -934,18 +947,22 @@ public class CacheController : ControllerBase
     [HttpGet("services/removals/active")]
     public IActionResult GetActiveServiceRemovals()
     {
-        var operations = _removalTracker.GetActiveServiceRemovals();
+        var operations = _operationTracker.GetActiveOperations(OperationType.ServiceRemoval);
         return Ok(new ActiveServiceRemovalsResponse
         {
             IsProcessing = operations.Any(),
-            Operations = operations.Select(o => new ServiceRemovalInfo
+            Operations = operations.Select(op =>
             {
-                ServiceName = o.Name,
-                Status = o.Status,
-                Message = o.Message,
-                FilesDeleted = o.FilesDeleted,
-                BytesFreed = o.BytesFreed,
-                StartedAt = o.StartedAt
+                var metrics = op.Metadata as RemovalMetrics;
+                return new ServiceRemovalInfo
+                {
+                    ServiceName = metrics?.EntityName ?? op.Name,
+                    Status = op.Status,
+                    Message = op.Message,
+                    FilesDeleted = metrics?.FilesDeleted ?? 0,
+                    BytesFreed = metrics?.BytesFreed ?? 0,
+                    StartedAt = op.StartedAt
+                };
             })
         });
     }
@@ -957,47 +974,51 @@ public class CacheController : ControllerBase
     [HttpGet("removals/active")]
     public IActionResult GetAllActiveRemovals()
     {
-        var status = _removalTracker.GetAllActiveRemovals();
+        var gameOps = _operationTracker.GetActiveOperations(OperationType.GameRemoval);
+        var serviceOps = _operationTracker.GetActiveOperations(OperationType.ServiceRemoval);
+        var corruptionOps = _operationTracker.GetActiveOperations(OperationType.CorruptionRemoval);
+
         return Ok(new AllActiveRemovalsResponse
         {
-            IsProcessing = status.HasActiveOperations,
-            GameRemovals = status.GameRemovals.Select(o => new GameRemovalInfo
+            IsProcessing = gameOps.Any() || serviceOps.Any() || corruptionOps.Any(),
+            GameRemovals = gameOps.Select(op =>
             {
-                GameAppId = int.Parse(o.Id),
-                GameName = o.Name,
-                Status = o.Status,
-                Message = o.Message,
-                FilesDeleted = o.FilesDeleted,
-                BytesFreed = o.BytesFreed,
-                StartedAt = o.StartedAt
+                var metrics = op.Metadata as RemovalMetrics;
+                return new GameRemovalInfo
+                {
+                    GameAppId = int.TryParse(metrics?.EntityKey, out var appId) ? appId : 0,
+                    GameName = metrics?.EntityName ?? op.Name,
+                    Status = op.Status,
+                    Message = op.Message,
+                    FilesDeleted = metrics?.FilesDeleted ?? 0,
+                    BytesFreed = metrics?.BytesFreed ?? 0,
+                    StartedAt = op.StartedAt
+                };
             }),
-            ServiceRemovals = status.ServiceRemovals.Select(o => new ServiceRemovalInfo
+            ServiceRemovals = serviceOps.Select(op =>
             {
-                ServiceName = o.Name,
-                Status = o.Status,
-                Message = o.Message,
-                FilesDeleted = o.FilesDeleted,
-                BytesFreed = o.BytesFreed,
-                StartedAt = o.StartedAt
+                var metrics = op.Metadata as RemovalMetrics;
+                return new ServiceRemovalInfo
+                {
+                    ServiceName = metrics?.EntityName ?? op.Name,
+                    Status = op.Status,
+                    Message = op.Message,
+                    FilesDeleted = metrics?.FilesDeleted ?? 0,
+                    BytesFreed = metrics?.BytesFreed ?? 0,
+                    StartedAt = op.StartedAt
+                };
             }),
-            CorruptionRemovals = status.CorruptionRemovals.Select(o => new CorruptionRemovalInfo
+            CorruptionRemovals = corruptionOps.Select(op =>
             {
-                Service = o.Name,
-                OperationId = o.Id,
-                Status = o.Status,
-                Message = o.Message,
-                StartedAt = o.StartedAt
-            }),
-            CacheClearings = status.CacheClearings.Select(o => new CacheClearingInfo
-            {
-                DatasourceName = o.Name,
-                OperationId = o.Id,
-                Status = o.Status,
-                Message = o.Message,
-                StartedAt = o.StartedAt,
-                DirectoriesProcessed = o.DirectoriesProcessed,
-                TotalDirectories = o.TotalDirectories,
-                PercentComplete = o.PercentComplete
+                var metrics = op.Metadata as RemovalMetrics;
+                return new CorruptionRemovalInfo
+                {
+                    Service = metrics?.EntityName ?? op.Name,
+                    OperationId = op.Id,
+                    Status = op.Status,
+                    Message = op.Message,
+                    StartedAt = op.StartedAt
+                };
             })
         });
     }

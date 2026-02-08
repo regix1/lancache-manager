@@ -203,17 +203,13 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
         download.gameName !== 'Unknown Steam Game' &&
         !download.gameName.match(/^Steam App \d+$/);
 
-      if (hasValidGameAppId || hasValidGameName) {
-        // Use gameAppId for grouping when available (prevents duplicates from name variations)
+      if (hasValidGameName) {
+        // Only show as a named game when we have an actual resolved name
         groupKey = hasValidGameAppId
           ? `game-appid-${download.gameAppId}`
           : `game-${download.gameName}`;
-        groupName = download.gameName || `Steam App ${download.gameAppId}`;
+        groupName = download.gameName!;
         groupType = 'game';
-      } else if (download.gameName && download.gameName.match(/^Steam App \d+$/)) {
-        groupKey = 'unmapped-steam-apps';
-        groupName = 'Unmapped Steam Apps';
-        groupType = 'content';
       } else if (download.service.toLowerCase() !== 'steam') {
         groupKey = `service-${download.service.toLowerCase()}`;
         groupName = `${download.service} Downloads`;

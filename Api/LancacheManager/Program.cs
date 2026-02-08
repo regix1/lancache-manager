@@ -189,9 +189,6 @@ else
     throw new PlatformNotSupportedException($"Unsupported operating system: {OperatingSystemDetector.Description}");
 }
 
-// Register time provider for testable time-dependent code
-builder.Services.AddSingleton<ITimeProvider, SystemTimeProvider>();
-
 // Configure Data Protection for encrypting sensitive data
 // Keys are stored in the data directory and are machine-specific
 // Determine the path based on OS - must match PathResolver logic but cannot use DI yet
@@ -382,7 +379,6 @@ builder.Services.AddSingleton<DatasourceService>();
 
 // Register services (repositories already registered above)
 builder.Services.AddSingleton<CacheManagementService>();
-builder.Services.AddSingleton<RemovalOperationTracker>();
 builder.Services.AddSingleton<IUnifiedOperationTracker, UnifiedOperationTracker>();
 builder.Services.AddSingleton<PicsDataService>();
 

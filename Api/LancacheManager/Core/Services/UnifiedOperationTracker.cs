@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Models;
+using LancacheManager.Models;
 
 namespace LancacheManager.Core.Services;
 
@@ -11,6 +12,7 @@ namespace LancacheManager.Core.Services;
 public class UnifiedOperationTracker : IUnifiedOperationTracker
 {
     private readonly ConcurrentDictionary<string, OperationInfo> _operations = new();
+    private readonly ConcurrentDictionary<(OperationType Type, string EntityKey), string> _entityKeyIndex = new();
     private readonly ILogger<UnifiedOperationTracker> _logger;
 
     public UnifiedOperationTracker(ILogger<UnifiedOperationTracker> logger)
@@ -35,6 +37,11 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
 
         if (_operations.TryAdd(operationId, operation))
         {
+            if (metadata is RemovalMetrics removalMetrics && !string.IsNullOrEmpty(removalMetrics.EntityKey))
+            {
+                _entityKeyIndex[(type, removalMetrics.EntityKey)] = operationId;
+            }
+
             _logger.LogInformation("Registered {Type} operation: {Name} (ID: {Id})", type, name, operationId);
             return operationId;
         }
@@ -100,7 +107,16 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
 
                     // Clean up after a short delay
                     _ = Task.Delay(TimeSpan.FromSeconds(10)).ContinueWith(task =>
-                        _operations.TryRemove(operationId, out OperationInfo? _removed));
+                    {
+                        _operations.TryRemove(operationId, out OperationInfo? _removed);
+
+                        // Also clean up entity key index
+                        var keysToRemove = _entityKeyIndex.Where(kvp => kvp.Value == operationId).Select(kvp => kvp.Key).ToList();
+                        foreach (var key in keysToRemove)
+                        {
+                            _entityKeyIndex.TryRemove(key, out _);
+                        }
+                    });
 
                     return true;
                 }
@@ -160,7 +176,16 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
 
             // Clean up after a short delay to allow final status queries
             _ = Task.Delay(TimeSpan.FromSeconds(10)).ContinueWith(task =>
-                _operations.TryRemove(operationId, out OperationInfo? _removed));
+            {
+                _operations.TryRemove(operationId, out OperationInfo? _removed);
+
+                // Also clean up entity key index
+                var keysToRemove = _entityKeyIndex.Where(kvp => kvp.Value == operationId).Select(kvp => kvp.Key).ToList();
+                foreach (var key in keysToRemove)
+                {
+                    _entityKeyIndex.TryRemove(key, out _);
+                }
+            });
         }
         else
         {
@@ -178,6 +203,23 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         else
         {
             _logger.LogWarning("Attempted to update progress for non-existent operation {Id}", operationId);
+        }
+    }
+
+    public OperationInfo? GetOperationByEntityKey(OperationType type, string entityKey)
+    {
+        if (_entityKeyIndex.TryGetValue((type, entityKey), out var operationId))
+        {
+            return GetOperation(operationId);
+        }
+        return null;
+    }
+
+    public void UpdateMetadata(string operationId, Action<object> updater)
+    {
+        if (_operations.TryGetValue(operationId, out var operation) && operation.Metadata != null)
+        {
+            updater(operation.Metadata);
         }
     }
 }

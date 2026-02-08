@@ -55,6 +55,7 @@
 - Corruption removal progress model updated with proper JSON serialization for `percentComplete`, `filesProcessed`, and `totalFiles`
 - Depot mapping progress extracted into a reusable `SendDepotMappingProgress` method for consistent reconnection status updates
 - `BuildDepotIndexAsync` decomposed into `PrepareForScanAsync`, `ProcessAppBatchesAsync`, and `FinalizeAndNotifyAsync` for better maintainability
+- Depot mapping now re-resolves downloads with placeholder names (e.g. "Steam App 12345") on subsequent runs instead of skipping them
 
 </details>
 
@@ -111,6 +112,7 @@
 - Fixed PICS rebuild cancel hanging when connection/login tasks were still waiting
 - Fixed firework launch timing inconsistency caused by `setTimeout` drift vs CSS animation duration
 - Fixed dashboard flashing delayed skeleton loaders on every time range change
+- Fixed dashboard showing "Steam App {id}" placeholder names instead of resolved game names — depot mapping now re-resolves placeholder names, and the dashboard filters them consistently with the downloads page
 
 </details>
 

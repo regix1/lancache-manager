@@ -77,21 +77,4 @@ public class ConnectionTrackingService
         return connectionId;
     }
 
-    /// <summary>
-    /// Get the device ID for a SignalR connection.
-    /// </summary>
-    public string? GetDeviceId(string connectionId)
-    {
-        if (string.IsNullOrEmpty(connectionId))
-            return null;
-
-        _connectionToDevice.TryGetValue(connectionId, out var deviceId);
-        return deviceId;
-    }
-
-
-    /// <summary>
-    /// Get the count of connected devices.
-    /// </summary>
-    public int ConnectedDeviceCount => _deviceToConnection.Count;
 }

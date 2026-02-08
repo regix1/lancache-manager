@@ -61,9 +61,15 @@ public partial class SteamKit2Service
             using var scope = _scopeFactory.CreateScope();
             var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-            // Get downloads that have depot IDs but no game info (or missing image)
+            // Get downloads that have depot IDs but no game info, missing image, or placeholder names
+            // The placeholder name check (e.g. "Steam App 12345") ensures downloads get re-resolved
+            // when the Steam API later returns the real name
             var downloadsNeedingGameInfo = await context.Downloads
-                .Where(d => d.DepotId.HasValue && (d.GameAppId == null || string.IsNullOrEmpty(d.GameImageUrl)))
+                .Where(d => d.DepotId.HasValue && (
+                    d.GameAppId == null ||
+                    string.IsNullOrEmpty(d.GameImageUrl) ||
+                    d.GameName == null ||
+                    EF.Functions.Like(d.GameName, "Steam App %")))
                 .ToListAsync();
 
             _logger.LogInformation($"Found {downloadsNeedingGameInfo.Count} downloads needing game info after PICS completion");

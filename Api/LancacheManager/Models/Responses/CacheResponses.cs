@@ -136,19 +136,6 @@ public class CorruptionRemovalInfo
     public DateTime? StartedAt { get; set; }
 }
 
-
-public class CacheClearingInfo
-{
-    public string DatasourceName { get; set; } = string.Empty;
-    public string OperationId { get; set; } = string.Empty;
-    public string Status { get; set; } = string.Empty;
-    public string? Message { get; set; }
-    public DateTime? StartedAt { get; set; }
-    public int DirectoriesProcessed { get; set; }
-    public int TotalDirectories { get; set; }
-    public double PercentComplete { get; set; }
-}
-
 /// <summary>
 /// Response for active service removals
 /// </summary>
@@ -197,7 +184,6 @@ public class AllActiveRemovalsResponse
     public IEnumerable<GameRemovalInfo>? GameRemovals { get; set; }
     public IEnumerable<ServiceRemovalInfo>? ServiceRemovals { get; set; }
     public IEnumerable<CorruptionRemovalInfo>? CorruptionRemovals { get; set; }
-    public IEnumerable<CacheClearingInfo>? CacheClearings { get; set; }
 }
 
 /// <summary>

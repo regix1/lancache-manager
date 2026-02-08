@@ -450,8 +450,8 @@ public class OperationStateService : IHostedService
 
                             _logger.LogInformation("Updated operation state to resume mode");
 
-                            // Start the log processing services to actually resume processing
-                            _ = Task.Run(async () => await StartLogProcessingServices());
+                            // Note: The old C# log processing has been replaced with Rust processor
+                            // Users should call /api/management/process-all-logs to resume processing
                         }
                     }
                     else
@@ -475,24 +475,6 @@ public class OperationStateService : IHostedService
         }
     }
 
-    /// <summary>
-    /// Starts the log processing services to resume interrupted log processing
-    /// </summary>
-    private Task StartLogProcessingServices()
-    {
-        try
-        {
-            _logger.LogInformation("Log processing resume requested - user should manually restart processing via API");
-            // Note: The old C# log processing services have been replaced with Rust processor
-            // Users should call /api/management/process-all-logs to resume processing
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to start log processing services for resume operation");
-        }
-
-        return Task.CompletedTask;
-    }
 }
 
 public class OperationState

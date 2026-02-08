@@ -42,4 +42,16 @@ public interface IUnifiedOperationTracker
     /// Updates the progress of an operation.
     /// </summary>
     void UpdateProgress(string operationId, double percent, string message);
+
+    /// <summary>
+    /// Look up an operation by its entity key (e.g., appId for games, serviceName for services).
+    /// Uses the secondary index maintained internally.
+    /// </summary>
+    OperationInfo? GetOperationByEntityKey(OperationType type, string entityKey);
+
+    /// <summary>
+    /// Update the metadata object on an existing operation.
+    /// Used by removal operations to push FilesDeleted/BytesFreed into the tracker.
+    /// </summary>
+    void UpdateMetadata(string operationId, Action<object> updater);
 }
