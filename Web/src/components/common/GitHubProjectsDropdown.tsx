@@ -496,6 +496,7 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const rocketRef = useRef<HTMLDivElement>(null);
+  const spinningRef = useRef(false);
 
   // Handle firework completion - trigger confetti explosion and dispatch event
   const handleFireworkComplete = useCallback((endX: number, endY: number) => {
@@ -577,6 +578,22 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
     }
   }, [isOpen]);
 
+  // Handle spin animation end - launch firework exactly when CSS animation finishes
+  const handleSpinAnimationEnd = useCallback(() => {
+    // Guard against double-firing (glow ::after also fires animationend)
+    if (!spinningRef.current) return;
+    spinningRef.current = false;
+
+    const buttonElement = triggerRef.current;
+    if (buttonElement) {
+      const rect = buttonElement.getBoundingClientRect();
+      const buttonCenterX = rect.left + rect.width / 2;
+      const buttonTopY = rect.top;
+      setFirework({ x: buttonCenterX, y: buttonTopY });
+    }
+    setIsRocketSpinning(false);
+  }, []);
+
   // Handle button click - toggles dropdown AND launches firework only when opening
   const handleButtonClick = useCallback((_e: React.MouseEvent) => {
     setIsOpen((prev) => {
@@ -585,20 +602,7 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
       // Only launch firework when opening the dropdown, not when closing
       if (willOpen && !isRocketSpinning) {
         setIsRocketSpinning(true);
-
-        // Get button position for firework launch point
-        const buttonElement = triggerRef.current;
-        if (buttonElement) {
-          const rect = buttonElement.getBoundingClientRect();
-          const buttonCenterX = rect.left + rect.width / 2;
-          const buttonTopY = rect.top;
-
-          // After spin completes (500ms), launch firework
-          setTimeout(() => {
-            setFirework({ x: buttonCenterX, y: buttonTopY });
-            setIsRocketSpinning(false);
-          }, 500);
-        }
+        spinningRef.current = true;
       }
 
       return willOpen;
@@ -616,6 +620,7 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
     <div
       ref={rocketRef}
       className={`github-icon-container ${isRocketSpinning ? 'spinning' : ''}`}
+      onAnimationEnd={handleSpinAnimationEnd}
     >
       <Github size={18} className="github-icon-spin flex-shrink-0 text-[var(--theme-primary)]" />
     </div>
@@ -624,6 +629,7 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
       <div
         ref={rocketRef}
         className={`github-icon-container ${isRocketSpinning ? 'spinning' : ''}`}
+        onAnimationEnd={handleSpinAnimationEnd}
       >
         <Github size={16} className="github-icon-spin flex-shrink-0 text-[var(--theme-primary)]" />
       </div>
