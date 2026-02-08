@@ -13,22 +13,12 @@ interface CredentialChallenge {
   expiresAt: string;
 }
 
-export interface AutoLoginResult {
-  success: boolean;
-  reason: string;
-  message?: string;
-  username?: string;
-}
-
 export interface UsePrefillSteamAuthOptions {
   sessionId: string | null;
   hubConnection: HubConnection | null;
   onSuccess?: () => void;
   onError?: (message: string) => void;
   onDeviceConfirmationTimeout?: () => void;
-  enableAutoLogin?: boolean;
-  onAutoLoginStart?: () => void;
-  onAutoLoginResult?: (result: AutoLoginResult) => void;
 }
 
 // Timeout for device confirmation (60 seconds - users need time to notice and approve)
@@ -39,7 +29,7 @@ const DEVICE_CONFIRMATION_TIMEOUT_MS = 60000;
  * Uses SignalR hub methods to handle encrypted credential exchange.
  */
 export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
-  const { sessionId, hubConnection, onSuccess, onError, onDeviceConfirmationTimeout, enableAutoLogin, onAutoLoginStart, onAutoLoginResult } = options;
+  const { sessionId, hubConnection, onSuccess, onError, onDeviceConfirmationTimeout } = options;
   const { addNotification } = useNotifications();
 
   const [loading, setLoading] = useState(false);
@@ -55,11 +45,6 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
 
   // Track if we've started authentication (to avoid showing error on initial NotAuthenticated state)
   const hasStartedAuthRef = useRef(false);
-
-  // Track auto-login state
-  const [autoLoginState, setAutoLoginState] = useState<'idle' | 'attempting' | 'success' | 'failed'>('idle');
-  const autoLoginAttemptedRef = useRef(false);
-  const [autoLoginError, setAutoLoginError] = useState<string | null>(null);
 
   // Form state
   const [username, setUsername] = useState('');
@@ -225,75 +210,6 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     }
   }, [waitingForMobileConfirmation, hubConnection, sessionId, addNotification, onDeviceConfirmationTimeout]);
 
-  // Auto-login effect - attempt auto-login when conditions are met
-  useEffect(() => {
-    if (!enableAutoLogin || !hubConnection || !sessionId || autoLoginAttemptedRef.current) {
-      return;
-    }
-
-    const attemptAutoLogin = async () => {
-      autoLoginAttemptedRef.current = true;
-      setAutoLoginState('attempting');
-      setAutoLoginError(null);
-
-      try {
-        onAutoLoginStart?.();
-      } catch (e) {
-        console.error('[usePrefillSteamAuth] onAutoLoginStart callback failed:', e);
-      }
-
-      // Add timeout to prevent hanging - auto-login should complete within 30 seconds
-      const timeoutPromise = new Promise<AutoLoginResult>((_, reject) => {
-        setTimeout(() => reject(new Error('Auto-login timed out after 30 seconds')), 30000);
-      });
-
-      try {
-        const result = await Promise.race([
-          hubConnection.invoke<AutoLoginResult>('TryAutoLogin', sessionId),
-          timeoutPromise
-        ]);
-
-        if (result.success) {
-          setAutoLoginState('success');
-          setAutoLoginError(null);
-        } else {
-          // Always set error and state before calling callback
-          const errorMessage = result.message || `Auto-login failed: ${result.reason}`;
-          setAutoLoginError(errorMessage);
-          setAutoLoginState('failed');
-        }
-
-        // Call callback in separate try-catch to ensure state is updated even if callback fails
-        try {
-          onAutoLoginResult?.(result);
-        } catch (callbackErr) {
-          console.error('[usePrefillSteamAuth] onAutoLoginResult callback failed:', callbackErr);
-        }
-      } catch (err) {
-        console.error('[usePrefillSteamAuth] Auto-login failed:', err);
-        const errorMessage = err instanceof Error ? err.message : 'Auto-login request failed';
-
-        // Always set error and state before calling callback
-        setAutoLoginError(errorMessage);
-        setAutoLoginState('failed');
-
-        const failureResult: AutoLoginResult = {
-          success: false,
-          reason: 'error',
-          message: errorMessage
-        };
-
-        try {
-          onAutoLoginResult?.(failureResult);
-        } catch (callbackErr) {
-          console.error('[usePrefillSteamAuth] onAutoLoginResult callback failed:', callbackErr);
-        }
-      }
-    };
-
-    attemptAutoLogin();
-  }, [enableAutoLogin, hubConnection, sessionId, onAutoLoginStart, onAutoLoginResult]);
-
   const cancelPendingRequest = useCallback(() => {
     setLoading(false);
     setWaitingForMobileConfirmation(false);
@@ -321,10 +237,6 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       clearTimeout(deviceConfirmationTimeoutRef.current);
       deviceConfirmationTimeoutRef.current = null;
     }
-  }, []);
-
-  const resetAutoLoginError = useCallback(() => {
-    setAutoLoginError(null);
   }, []);
 
   const handleAuthenticate = useCallback(async (): Promise<boolean> => {
@@ -631,9 +543,6 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     actions,
     triggerLoginPrompt,
     trigger2FAPrompt,
-    triggerEmailPrompt,
-    autoLoginState,
-    autoLoginError,
-    resetAutoLoginError
+    triggerEmailPrompt
   };
 }

@@ -175,56 +175,6 @@ public class PrefillDaemonHub : Hub
         return await _daemonService.StartLoginAsync(sessionId, TimeSpan.FromSeconds(30));
     }
 
-    /// <summary>
-    /// Attempts auto-login using stored refresh token
-    /// </summary>
-    public async Task<AutoLoginResult> TryAutoLogin(string sessionId)
-    {
-        var deviceId = GetDeviceId();
-        if (string.IsNullOrEmpty(deviceId))
-        {
-            return new AutoLoginResult
-            {
-                Success = false,
-                Reason = "no_device",
-                Message = "Device ID required"
-            };
-        }
-
-        // Validate device access
-        if (!_deviceAuthService.ValidateDevice(deviceId))
-        {
-            return new AutoLoginResult
-            {
-                Success = false,
-                Reason = "unauthorized",
-                Message = "Device not authorized"
-            };
-        }
-
-        // Get auth data to check if we have a token
-        var authData = _steamAuthStorage.GetSteamAuthData();
-        if (authData.Mode != "authenticated" || string.IsNullOrEmpty(authData.RefreshToken))
-        {
-            return new AutoLoginResult
-            {
-                Success = false,
-                Reason = "no_token",
-                Message = "No stored refresh token available"
-            };
-        }
-
-        // Call the daemon service to perform auto-login
-        var (success, errorMessage, username) = await _daemonService.TryAutoLoginWithTokenAsync(sessionId);
-
-        return new AutoLoginResult
-        {
-            Success = success,
-            Reason = errorMessage ?? (success ? "success" : "unknown_error"),
-            Message = success ? "Auto-login succeeded" : $"Auto-login failed: {errorMessage}",
-            Username = username
-        };
-    }
 
     /// <summary>
     /// Provides an encrypted credential in response to a challenge

@@ -168,6 +168,18 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
           </Alert>
         )}
 
+        {/* Prefill session warning banner */}
+        {steamAuthMode === 'authenticated' && (
+          <Alert color="yellow" className="mb-4" icon={<AlertTriangle className="w-5 h-5" />}>
+            <div>
+              <p className="font-medium text-sm mb-1">Prefill requires separate login</p>
+              <p className="text-xs opacity-90">
+                Auto-login is not available for prefill sessions. Steam requires each connection to authenticate with its own credentials — sharing a session token causes one connection to be disconnected. Each prefill session must be logged in manually.
+              </p>
+            </div>
+          </Alert>
+        )}
+
         {/* Main auth mode selector */}
         <div className={`p-4 rounded-lg mb-4 bg-themed-tertiary `}>
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
