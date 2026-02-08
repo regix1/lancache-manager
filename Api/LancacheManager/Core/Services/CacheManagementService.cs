@@ -790,161 +790,6 @@ public class CacheManagementService
     }
 
     /// <summary>
-    /// Remove corrupted chunks for a specific service (invalidates cache)
-    /// Processes all datasources to remove corruption from all log/cache pairs.
-    /// </summary>
-    public async Task RemoveCorruptedChunks(string service, CancellationToken cancellationToken = default)
-    {
-        // Use semaphore to ensure only one Rust process runs at a time
-        await _cacheLock.WaitAsync();
-        try
-        {
-            _logger.LogInformation("[CorruptionDetection] RemoveCorruptedChunks for service: {Service}", service);
-
-            var datasources = _datasourceService.GetDatasources();
-            var dbPath = _pathResolver.GetDatabasePath();
-            var operationsDir = _pathResolver.GetOperationsDirectory();
-            var rustBinaryPath = _pathResolver.GetRustCorruptionManagerPath();
-
-            _rustProcessHelper.ValidateRustBinaryExists(rustBinaryPath, "Corruption manager");
-
-            // Send start notification via SignalR
-            await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalStarted, new
-            {
-                service,
-                message = $"Starting corruption removal for {service} across {datasources.Count} datasource(s)...",
-                timestamp = DateTime.UtcNow
-            });
-
-            var processedCount = 0;
-            var skippedCount = 0;
-
-            // Process each datasource
-            foreach (var datasource in datasources)
-            {
-                var logDir = datasource.LogPath;
-                var cacheDir = datasource.CachePath;
-
-                // CRITICAL: Check write permissions FRESH for each datasource (not cached values)
-                // This prevents DB/filesystem mismatch when PUID/PGID was changed after startup
-                var cacheWritable = _pathResolver.IsDirectoryWritable(cacheDir);
-                var logsWritable = _pathResolver.IsDirectoryWritable(logDir);
-
-                if (!cacheWritable)
-                {
-                    _logger.LogWarning("[CorruptionDetection] Cache is read-only for datasource '{Name}': {Path}, skipping. " +
-                        "This may be caused by incorrect PUID/PGID settings.",
-                        datasource.Name, cacheDir);
-                    skippedCount++;
-                    continue;
-                }
-
-                if (!logsWritable)
-                {
-                    _logger.LogWarning("[CorruptionDetection] Logs are read-only for datasource '{Name}': {Path}, skipping. " +
-                        "This may be caused by incorrect PUID/PGID settings.",
-                        datasource.Name, logDir);
-                    skippedCount++;
-                    continue;
-                }
-
-                if (!Directory.Exists(logDir))
-                {
-                    _logger.LogWarning("[CorruptionDetection] Log directory not found for datasource '{Name}': {Path}, skipping",
-                        datasource.Name, logDir);
-                    skippedCount++;
-                    continue;
-                }
-
-                var progressPath = Path.Combine(operationsDir, $"corruption_removal_{datasource.Name}_{Guid.NewGuid()}.json");
-
-                _logger.LogInformation("[CorruptionDetection] Processing datasource '{DatasourceName}' - logDir: {LogDir}, cacheDir: {CacheDir}",
-                    datasource.Name, logDir, cacheDir);
-
-                var startInfo = _rustProcessHelper.CreateProcessStartInfo(
-                    rustBinaryPath,
-                    $"remove \"{dbPath}\" \"{logDir}\" \"{cacheDir}\" \"{service}\" \"{progressPath}\"");
-
-                using (var process = Process.Start(startInfo))
-                {
-                    if (process == null)
-                    {
-                        throw new Exception($"Failed to start corruption_manager process for datasource '{datasource.Name}'");
-                    }
-
-                    var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-                    var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
-
-                    await _processManager.WaitForProcessAsync(process, cancellationToken);
-
-                    var output = await outputTask;
-                    var error = await errorTask;
-
-                    _logger.LogInformation("[CorruptionDetection] Removal process exit code for '{DatasourceName}': {Code}",
-                        datasource.Name, process.ExitCode);
-
-                    if (!string.IsNullOrEmpty(error))
-                    {
-                        _logger.LogWarning("[CorruptionDetection] Removal stderr for '{DatasourceName}': {Error}",
-                            datasource.Name, error);
-                    }
-
-                    if (process.ExitCode != 0)
-                    {
-                        _logger.LogError("[CorruptionDetection] Removal failed for datasource '{DatasourceName}' with exit code {Code}: {Error}",
-                            datasource.Name, process.ExitCode, error);
-
-                        // Send failure notification via SignalR
-                        await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete, new
-                        {
-                            success = false,
-                            service,
-                            message = $"Failed to remove corrupted chunks for {service} in datasource '{datasource.Name}'",
-                            error = error,
-                            timestamp = DateTime.UtcNow
-                        });
-
-                        throw new Exception($"corruption_manager failed for datasource '{datasource.Name}' with exit code {process.ExitCode}: {error}");
-                    }
-
-                    processedCount++;
-                    _logger.LogInformation("[CorruptionDetection] Successfully removed corrupted chunks for {Service} in datasource '{DatasourceName}'",
-                        service, datasource.Name);
-                }
-            }
-
-            _logger.LogInformation("[CorruptionDetection] Corruption removal complete - processed {Processed} datasource(s), skipped {Skipped}",
-                processedCount, skippedCount);
-
-            // Send success notification via SignalR
-            await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete, new
-            {
-                success = true,
-                service,
-                message = $"Successfully removed corrupted chunks for {service}",
-                timestamp = DateTime.UtcNow
-            });
-
-            // Remove this service from cached corruption detection results so page reload shows correct data
-            await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
-            await dbContext.CachedCorruptionDetections
-                .Where(c => c.ServiceName == service)
-                .ExecuteDeleteAsync();
-            _logger.LogInformation("[CorruptionDetection] Removed cached corruption entry for service: {Service}", service);
-
-            // Invalidate service count cache since corruption removal affects counts
-            await InvalidateServiceCountsCache();
-
-            // Signal nginx to reopen log files (prevents monolithic container from losing log access)
-            await _nginxLogRotationService.ReopenNginxLogsAsync();
-        }
-        finally
-        {
-            _cacheLock.Release();
-        }
-    }
-
-    /// <summary>
     /// Get detailed corruption information for a specific service
     /// </summary>
     public async Task<List<CorruptedChunkDetail>> GetCorruptionDetails(string service, bool forceRefresh = false, CancellationToken cancellationToken = default)
@@ -1075,7 +920,7 @@ public class CacheManagementService
     }
 
     /// <summary>
-    /// Remove all cache files for a specific game
+    /// Remove all cache files for a specific game across all datasources
     /// </summary>
     public async Task<GameCacheRemovalReport> RemoveGameFromCache(uint gameAppId, CancellationToken cancellationToken = default)
     {
@@ -1084,21 +929,8 @@ public class CacheManagementService
         {
             _logger.LogInformation("[GameRemoval] Starting game cache removal for AppID {AppId}", gameAppId);
 
-            // Check write permissions for cache directory
-            if (!_pathResolver.IsCacheDirectoryWritable())
-            {
-                var errorMsg = $"Cannot write to cache directory: {_cachePath}. " +
-                              "Directory is mounted read-only. " +
-                              "Remove :ro from the cache volume mount in docker-compose.yml to enable game cache removal.";
-                _logger.LogWarning(errorMsg);
-                throw new UnauthorizedAccessException(errorMsg);
-            }
-
             var operationsDir = _pathResolver.GetOperationsDirectory();
             var dbPath = _pathResolver.GetDatabasePath();
-            var logsDir = _pathResolver.GetLogsDirectory();
-            var outputJson = Path.Combine(operationsDir, $"game_removal_{gameAppId}_{DateTime.UtcNow:yyyyMMddHHmmss}.json");
-
             var rustBinaryPath = _pathResolver.GetRustGameRemoverPath();
 
             _rustProcessHelper.ValidateRustBinaryExists(rustBinaryPath, "Game cache remover");
@@ -1110,72 +942,147 @@ public class CacheManagementService
                 throw new FileNotFoundException(errorMsg);
             }
 
-            if (!Directory.Exists(logsDir))
+            var datasources = _datasourceService.GetDatasources();
+            var aggregatedReport = new GameCacheRemovalReport
             {
-                var errorMsg = $"Logs directory not found at {logsDir}";
-                _logger.LogError(errorMsg);
-                throw new DirectoryNotFoundException(errorMsg);
+                GameAppId = gameAppId
+            };
+
+            int datasourcesProcessed = 0;
+            int datasourcesSkipped = 0;
+
+            foreach (ResolvedDatasource datasource in datasources)
+            {
+                string dsLogsDir = datasource.LogPath;
+                string dsCachePath = datasource.CachePath;
+
+                // Check if cache directory is writable for this datasource
+                if (!_pathResolver.IsDirectoryWritable(dsCachePath))
+                {
+                    _logger.LogWarning(
+                        "[GameRemoval] Skipping datasource '{DatasourceName}': cache directory '{CachePath}' is not writable",
+                        datasource.Name, dsCachePath);
+                    datasourcesSkipped++;
+                    continue;
+                }
+
+                // Check if logs directory exists for this datasource
+                if (!Directory.Exists(dsLogsDir))
+                {
+                    _logger.LogWarning(
+                        "[GameRemoval] Skipping datasource '{DatasourceName}': logs directory not found at '{LogsDir}'",
+                        datasource.Name, dsLogsDir);
+                    datasourcesSkipped++;
+                    continue;
+                }
+
+                // Check if cache directory exists for this datasource
+                if (!Directory.Exists(dsCachePath))
+                {
+                    _logger.LogWarning(
+                        "[GameRemoval] Skipping datasource '{DatasourceName}': cache directory not found at '{CachePath}'",
+                        datasource.Name, dsCachePath);
+                    datasourcesSkipped++;
+                    continue;
+                }
+
+                var outputJson = Path.Combine(operationsDir,
+                    $"game_removal_{gameAppId}_{datasource.Name}_{DateTime.UtcNow:yyyyMMddHHmmss}.json");
+
+                var startInfo = _rustProcessHelper.CreateProcessStartInfo(
+                    rustBinaryPath,
+                    $"\"{dbPath}\" \"{dsLogsDir}\" \"{dsCachePath}\" {gameAppId} \"{outputJson}\"");
+
+                _logger.LogInformation("[GameRemoval] Running removal for datasource '{DatasourceName}': {Binary} {Args}",
+                    datasource.Name, rustBinaryPath, startInfo.Arguments);
+
+                using (var process = Process.Start(startInfo))
+                {
+                    if (process == null)
+                    {
+                        throw new Exception($"Failed to start game_cache_remover process for datasource '{datasource.Name}'");
+                    }
+
+                    var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+                    var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+
+                    await _processManager.WaitForProcessAsync(process, cancellationToken);
+
+                    var output = await outputTask;
+                    var error = await errorTask;
+
+                    _logger.LogInformation("[GameRemoval] Process exit code for datasource '{DatasourceName}': {Code}",
+                        datasource.Name, process.ExitCode);
+
+                    // Log stdout (completion messages and summary)
+                    if (!string.IsNullOrEmpty(output))
+                    {
+                        _logger.LogInformation("[GameRemoval] Process output for datasource '{DatasourceName}':\n{Output}",
+                            datasource.Name, output);
+                    }
+
+                    // Log stderr (diagnostic messages)
+                    if (!string.IsNullOrEmpty(error))
+                    {
+                        _logger.LogInformation("[GameRemoval] Process stderr for datasource '{DatasourceName}': {Error}",
+                            datasource.Name, error);
+                    }
+
+                    if (process.ExitCode != 0)
+                    {
+                        _logger.LogError("[GameRemoval] Failed for datasource '{DatasourceName}' with exit code {Code}: {Error}",
+                            datasource.Name, process.ExitCode, error);
+                        throw new Exception($"game_cache_remover failed for datasource '{datasource.Name}' with exit code {process.ExitCode}: {error}");
+                    }
+
+                    // Read the generated JSON file (keep for operation history)
+                    var dsReport = await _rustProcessHelper.ReadOutputJsonAsync<GameCacheRemovalReport>(outputJson, "GameRemoval");
+
+                    // Aggregate results from this datasource
+                    aggregatedReport.CacheFilesDeleted += dsReport.CacheFilesDeleted;
+                    aggregatedReport.TotalBytesFreed += dsReport.TotalBytesFreed;
+                    aggregatedReport.EmptyDirsRemoved += dsReport.EmptyDirsRemoved;
+                    aggregatedReport.LogEntriesRemoved += dsReport.LogEntriesRemoved;
+                    if (!string.IsNullOrEmpty(dsReport.GameName))
+                    {
+                        aggregatedReport.GameName = dsReport.GameName;
+                    }
+                    foreach (uint depotId in dsReport.DepotIds)
+                    {
+                        if (!aggregatedReport.DepotIds.Contains(depotId))
+                        {
+                            aggregatedReport.DepotIds.Add(depotId);
+                        }
+                    }
+
+                    datasourcesProcessed++;
+
+                    _logger.LogInformation(
+                        "[GameRemoval] Datasource '{DatasourceName}': removed {Files} files ({Bytes} bytes) for game {AppId}",
+                        datasource.Name, dsReport.CacheFilesDeleted, dsReport.TotalBytesFreed, gameAppId);
+                }
             }
 
-            var startInfo = _rustProcessHelper.CreateProcessStartInfo(
-                rustBinaryPath,
-                $"\"{dbPath}\" \"{logsDir}\" \"{_cachePath}\" {gameAppId} \"{outputJson}\"");
+            _logger.LogInformation(
+                "[GameRemoval] Completed for AppID {AppId}: {Processed} datasource(s) processed, {Skipped} skipped. " +
+                "Total: {Files} files removed, {Bytes} bytes freed",
+                gameAppId, datasourcesProcessed, datasourcesSkipped,
+                aggregatedReport.CacheFilesDeleted, aggregatedReport.TotalBytesFreed);
 
-            _logger.LogInformation("[GameRemoval] Running removal: {Binary} {Args}", rustBinaryPath, startInfo.Arguments);
+            // Remove this game from cached game detection results so page reload shows correct data
+            await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
+            await dbContext.CachedGameDetections
+                .Where(CachedGameDetection => CachedGameDetection.GameAppId == gameAppId)
+                .ExecuteDeleteAsync();
+            _logger.LogInformation("[GameRemoval] Removed cached game detection entry for AppID: {AppId}", gameAppId);
 
-            using (var process = Process.Start(startInfo))
-            {
-                if (process == null)
-                {
-                    throw new Exception("Failed to start game_cache_remover process");
-                }
+            // Invalidate service counts cache since logs were modified
+            await InvalidateServiceCountsCache();
 
-                var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-                var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+            // Signal nginx to reopen log files (prevents monolithic container from losing log access)
+            await _nginxLogRotationService.ReopenNginxLogsAsync();
 
-                await _processManager.WaitForProcessAsync(process, cancellationToken);
-
-                var output = await outputTask;
-                var error = await errorTask;
-
-                _logger.LogInformation("[GameRemoval] Process exit code: {Code}", process.ExitCode);
-
-                // Log stdout (completion messages and summary)
-                if (!string.IsNullOrEmpty(output))
-                {
-                    _logger.LogInformation("[GameRemoval] Process output:\n{Output}", output);
-                }
-
-                // Log stderr (diagnostic messages)
-                if (!string.IsNullOrEmpty(error))
-                {
-                    _logger.LogInformation("[GameRemoval] Process stderr: {Error}", error);
-                }
-
-                if (process.ExitCode != 0)
-                {
-                    _logger.LogError("[GameRemoval] Failed with exit code {Code}: {Error}", process.ExitCode, error);
-                    throw new Exception($"game_cache_remover failed with exit code {process.ExitCode}: {error}");
-                }
-
-                // Read the generated JSON file (keep for operation history)
-                var report = await _rustProcessHelper.ReadOutputJsonAsync<GameCacheRemovalReport>(outputJson, "GameRemoval");
-
-                _logger.LogInformation("[GameRemoval] Removed {Files} files ({Bytes} bytes) for game {AppId}",
-                    report.CacheFilesDeleted, report.TotalBytesFreed, gameAppId);
-
-                // Remove this game from cached game detection results so page reload shows correct data
-                await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
-                await dbContext.CachedGameDetections
-                    .Where(g => g.GameAppId == gameAppId)
-                    .ExecuteDeleteAsync();
-                _logger.LogInformation("[GameRemoval] Removed cached game detection entry for AppID: {AppId}", gameAppId);
-
-                // Signal nginx to reopen log files (prevents monolithic container from losing log access)
-                await _nginxLogRotationService.ReopenNginxLogsAsync();
-
-                return report;
-            }
+            return aggregatedReport;
         }
         finally
         {
@@ -1184,7 +1091,7 @@ public class CacheManagementService
     }
 
     /// <summary>
-    /// Remove all cache files for a specific service
+    /// Remove all cache files for a specific service across all datasources
     /// </summary>
     public async Task<ServiceCacheRemovalReport> RemoveServiceFromCache(string serviceName, CancellationToken cancellationToken = default)
     {
@@ -1193,30 +1100,8 @@ public class CacheManagementService
         {
             _logger.LogInformation("[ServiceRemoval] Starting service cache removal for '{Service}'", serviceName);
 
-            // Check write permissions for cache and logs directories
-            if (!_pathResolver.IsCacheDirectoryWritable())
-            {
-                var errorMsg = $"Cannot write to cache directory: {_cachePath}. " +
-                              "Directory is mounted read-only. " +
-                              "Remove :ro from the cache volume mount in docker-compose.yml to enable service cache removal.";
-                _logger.LogWarning(errorMsg);
-                throw new UnauthorizedAccessException(errorMsg);
-            }
-
             var operationsDir = _pathResolver.GetOperationsDirectory();
             var dbPath = _pathResolver.GetDatabasePath();
-            var logsDir = _pathResolver.GetLogsDirectory();
-
-            if (!_pathResolver.IsLogsDirectoryWritable())
-            {
-                var errorMsg = $"Cannot write to logs directory: {logsDir}. " +
-                              "Directory is mounted read-only. " +
-                              "Remove :ro from the logs volume mount in docker-compose.yml to enable service cache removal.";
-                _logger.LogWarning(errorMsg);
-                throw new UnauthorizedAccessException(errorMsg);
-            }
-            var progressPath = Path.Combine(operationsDir, $"service_removal_{serviceName}_{DateTime.UtcNow:yyyyMMddHHmmss}.json");
-
             var rustBinaryPath = _pathResolver.GetRustServiceRemoverPath();
 
             _rustProcessHelper.ValidateRustBinaryExists(rustBinaryPath, "Service remover");
@@ -1228,99 +1113,153 @@ public class CacheManagementService
                 throw new FileNotFoundException(errorMsg);
             }
 
-            if (!Directory.Exists(logsDir))
+            var datasources = _datasourceService.GetDatasources();
+            var aggregatedReport = new ServiceCacheRemovalReport
             {
-                var errorMsg = $"Logs directory not found at {logsDir}";
-                _logger.LogError(errorMsg);
-                throw new DirectoryNotFoundException(errorMsg);
+                ServiceName = serviceName
+            };
+
+            int datasourcesProcessed = 0;
+            int datasourcesSkipped = 0;
+
+            foreach (ResolvedDatasource datasource in datasources)
+            {
+                string dsLogsDir = datasource.LogPath;
+                string dsCachePath = datasource.CachePath;
+
+                // Check if cache directory is writable for this datasource
+                if (!_pathResolver.IsDirectoryWritable(dsCachePath))
+                {
+                    _logger.LogWarning(
+                        "[ServiceRemoval] Skipping datasource '{DatasourceName}': cache directory '{CachePath}' is not writable",
+                        datasource.Name, dsCachePath);
+                    datasourcesSkipped++;
+                    continue;
+                }
+
+                // Check if logs directory is writable for this datasource
+                if (!_pathResolver.IsDirectoryWritable(dsLogsDir))
+                {
+                    _logger.LogWarning(
+                        "[ServiceRemoval] Skipping datasource '{DatasourceName}': logs directory '{LogsDir}' is not writable",
+                        datasource.Name, dsLogsDir);
+                    datasourcesSkipped++;
+                    continue;
+                }
+
+                // Check if logs directory exists for this datasource
+                if (!Directory.Exists(dsLogsDir))
+                {
+                    _logger.LogWarning(
+                        "[ServiceRemoval] Skipping datasource '{DatasourceName}': logs directory not found at '{LogsDir}'",
+                        datasource.Name, dsLogsDir);
+                    datasourcesSkipped++;
+                    continue;
+                }
+
+                // Check if cache directory exists for this datasource
+                if (!Directory.Exists(dsCachePath))
+                {
+                    _logger.LogWarning(
+                        "[ServiceRemoval] Skipping datasource '{DatasourceName}': cache directory not found at '{CachePath}'",
+                        datasource.Name, dsCachePath);
+                    datasourcesSkipped++;
+                    continue;
+                }
+
+                var progressPath = Path.Combine(operationsDir,
+                    $"service_removal_{serviceName}_{datasource.Name}_{DateTime.UtcNow:yyyyMMddHHmmss}.json");
+
+                var startInfo = _rustProcessHelper.CreateProcessStartInfo(
+                    rustBinaryPath,
+                    $"\"{dbPath}\" \"{dsLogsDir}\" \"{dsCachePath}\" \"{serviceName}\" \"{progressPath}\"");
+
+                _logger.LogInformation("[ServiceRemoval] Running removal for datasource '{DatasourceName}': {Binary} {Args}",
+                    datasource.Name, rustBinaryPath, startInfo.Arguments);
+
+                using (var process = Process.Start(startInfo))
+                {
+                    if (process == null)
+                    {
+                        throw new Exception($"Failed to start service_remover process for datasource '{datasource.Name}'");
+                    }
+
+                    var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+                    var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+
+                    await _processManager.WaitForProcessAsync(process, cancellationToken);
+
+                    var output = await outputTask;
+                    var error = await errorTask;
+
+                    _logger.LogInformation("[ServiceRemoval] Process exit code for datasource '{DatasourceName}': {Code}",
+                        datasource.Name, process.ExitCode);
+
+                    // Log stdout (completion messages and summary)
+                    if (!string.IsNullOrEmpty(output))
+                    {
+                        _logger.LogInformation("[ServiceRemoval] Process output for datasource '{DatasourceName}':\n{Output}",
+                            datasource.Name, output);
+                    }
+
+                    // Log stderr (diagnostic messages)
+                    if (!string.IsNullOrEmpty(error))
+                    {
+                        _logger.LogInformation("[ServiceRemoval] Process stderr for datasource '{DatasourceName}': {Error}",
+                            datasource.Name, error);
+                    }
+
+                    if (process.ExitCode != 0)
+                    {
+                        _logger.LogError("[ServiceRemoval] Failed for datasource '{DatasourceName}' with exit code {Code}: {Error}",
+                            datasource.Name, process.ExitCode, error);
+                        throw new Exception($"service_remover failed for datasource '{datasource.Name}' with exit code {process.ExitCode}: {error}");
+                    }
+
+                    // Parse statistics from stderr output for this datasource
+                    var dsReport = new ServiceCacheRemovalReport { ServiceName = serviceName };
+                    if (!string.IsNullOrEmpty(error))
+                    {
+                        ExtractServiceRemovalStats(error, dsReport);
+                    }
+
+                    // Aggregate results from this datasource
+                    aggregatedReport.CacheFilesDeleted += dsReport.CacheFilesDeleted;
+                    aggregatedReport.TotalBytesFreed += dsReport.TotalBytesFreed;
+                    aggregatedReport.LogEntriesRemoved += dsReport.LogEntriesRemoved;
+                    aggregatedReport.DatabaseEntriesDeleted += dsReport.DatabaseEntriesDeleted;
+
+                    datasourcesProcessed++;
+
+                    _logger.LogInformation(
+                        "[ServiceRemoval] Datasource '{DatasourceName}': removed {Files} files ({Bytes} bytes) for service '{Service}'",
+                        datasource.Name, dsReport.CacheFilesDeleted, dsReport.TotalBytesFreed, serviceName);
+
+                    // Clean up progress file for this datasource
+                    await _rustProcessHelper.DeleteTemporaryFileAsync(progressPath);
+                }
             }
 
-            var startInfo = _rustProcessHelper.CreateProcessStartInfo(
-                rustBinaryPath,
-                $"\"{dbPath}\" \"{logsDir}\" \"{_cachePath}\" \"{serviceName}\" \"{progressPath}\"");
+            _logger.LogInformation(
+                "[ServiceRemoval] Completed for service '{Service}': {Processed} datasource(s) processed, {Skipped} skipped. " +
+                "Total: {Files} files removed, {Bytes} bytes freed",
+                serviceName, datasourcesProcessed, datasourcesSkipped,
+                aggregatedReport.CacheFilesDeleted, aggregatedReport.TotalBytesFreed);
 
-            _logger.LogInformation("[ServiceRemoval] Running removal: {Binary} {Args}", rustBinaryPath, startInfo.Arguments);
+            // Remove this service from cached service detection results so page reload shows correct data
+            await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
+            await dbContext.CachedServiceDetections
+                .Where(CachedServiceDetection => CachedServiceDetection.ServiceName == serviceName)
+                .ExecuteDeleteAsync();
+            _logger.LogInformation("[ServiceRemoval] Removed cached service detection entry for: {Service}", serviceName);
 
-            using (var process = Process.Start(startInfo))
-            {
-                if (process == null)
-                {
-                    throw new Exception("Failed to start service_remover process");
-                }
+            // Invalidate service counts cache since logs were modified
+            await InvalidateServiceCountsCache();
 
-                var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-                var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+            // Signal nginx to reopen log files (prevents monolithic container from losing log access)
+            await _nginxLogRotationService.ReopenNginxLogsAsync();
 
-                await _processManager.WaitForProcessAsync(process, cancellationToken);
-
-                var output = await outputTask;
-                var error = await errorTask;
-
-                _logger.LogInformation("[ServiceRemoval] Process exit code: {Code}", process.ExitCode);
-
-                // Log stdout (completion messages and summary)
-                if (!string.IsNullOrEmpty(output))
-                {
-                    _logger.LogInformation("[ServiceRemoval] Process output:\n{Output}", output);
-                }
-
-                // Log stderr (diagnostic messages)
-                if (!string.IsNullOrEmpty(error))
-                {
-                    _logger.LogInformation("[ServiceRemoval] Process stderr: {Error}", error);
-                }
-
-                if (process.ExitCode != 0)
-                {
-                    _logger.LogError("[ServiceRemoval] Failed with exit code {Code}: {Error}", process.ExitCode, error);
-                    throw new Exception($"service_remover failed with exit code {process.ExitCode}: {error}");
-                }
-
-                // Read the progress JSON file for the final report
-                // The progress file contains the final status with all stats
-                if (!File.Exists(progressPath))
-                {
-                    throw new FileNotFoundException($"Progress file not found: {progressPath}");
-                }
-
-                var progressJson = await File.ReadAllTextAsync(progressPath, cancellationToken);
-
-                // Parse to get the message which contains the summary
-                // For now, return a basic report - the Rust binary writes progress, not a full report
-                var report = new ServiceCacheRemovalReport
-                {
-                    ServiceName = serviceName,
-                    // These will be extracted from stderr output
-                    CacheFilesDeleted = 0,
-                    TotalBytesFreed = 0,
-                    LogEntriesRemoved = 0,
-                    DatabaseEntriesDeleted = 0
-                };
-
-                // Parse statistics from stderr output
-                if (!string.IsNullOrEmpty(error))
-                {
-                    ExtractServiceRemovalStats(error, report);
-                }
-
-                _logger.LogInformation("[ServiceRemoval] Removed {Files} files ({Bytes} bytes) for service '{Service}'",
-                    report.CacheFilesDeleted, report.TotalBytesFreed, serviceName);
-
-                // Remove this service from cached service detection results so page reload shows correct data
-                await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
-                await dbContext.CachedServiceDetections
-                    .Where(s => s.ServiceName == serviceName)
-                    .ExecuteDeleteAsync();
-                _logger.LogInformation("[ServiceRemoval] Removed cached service detection entry for: {Service}", serviceName);
-
-                // Clean up progress file
-                await _rustProcessHelper.DeleteTemporaryFileAsync(progressPath);
-
-                // Signal nginx to reopen log files (prevents monolithic container from losing log access)
-                await _nginxLogRotationService.ReopenNginxLogsAsync();
-
-                return report;
-            }
+            return aggregatedReport;
         }
         finally
         {

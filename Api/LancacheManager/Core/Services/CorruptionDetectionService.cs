@@ -446,6 +446,18 @@ public class CorruptionDetectionService
     }
 
     /// <summary>
+    /// Remove a service's cached corruption detection entry after successful removal.
+    /// </summary>
+    public async Task RemoveCachedServiceAsync(string serviceName)
+    {
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
+        var deleted = await dbContext.CachedCorruptionDetections
+            .Where(c => c.ServiceName == serviceName)
+            .ExecuteDeleteAsync();
+        _logger.LogInformation("[CorruptionDetection] Removed cached corruption entry for service: {Service} ({Deleted} rows)", serviceName, deleted);
+    }
+
+    /// <summary>
     /// Get the status of the active detection operation.
     /// </summary>
     public DetectionOperation? GetOperationStatus(string operationId)
