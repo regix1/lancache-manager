@@ -3,11 +3,13 @@ using System.Text.Json;
 using Docker.DotNet;
 using Docker.DotNet.Models;
 using LancacheManager.Hubs;
+using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using static LancacheManager.Infrastructure.Utilities.FormattingUtils;
 using LancacheManager.Models;
+using Microsoft.EntityFrameworkCore;
 
 
 namespace LancacheManager.Core.Services;
@@ -22,6 +24,7 @@ public class CacheManagementService
     private readonly NginxLogRotationService _nginxLogRotationService;
     private readonly ISignalRNotificationService _notifications;
     private readonly DatasourceService _datasourceService;
+    private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly DockerClient? _dockerClient;
 
     // Legacy single-path fields (for backward compatibility)
@@ -47,7 +50,8 @@ public class CacheManagementService
         RustProcessHelper rustProcessHelper,
         NginxLogRotationService nginxLogRotationService,
         ISignalRNotificationService notifications,
-        DatasourceService datasourceService)
+        DatasourceService datasourceService,
+        IDbContextFactory<AppDbContext> dbContextFactory)
     {
         _configuration = configuration;
         _logger = logger;
@@ -57,6 +61,7 @@ public class CacheManagementService
         _nginxLogRotationService = nginxLogRotationService;
         _notifications = notifications;
         _datasourceService = datasourceService;
+        _dbContextFactory = dbContextFactory;
 
         // Use DatasourceService for paths (with backward compatibility)
         var defaultDatasource = _datasourceService.GetDefaultDatasource();
@@ -920,6 +925,13 @@ public class CacheManagementService
                 timestamp = DateTime.UtcNow
             });
 
+            // Remove this service from cached corruption detection results so page reload shows correct data
+            await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
+            await dbContext.CachedCorruptionDetections
+                .Where(c => c.ServiceName == service)
+                .ExecuteDeleteAsync();
+            _logger.LogInformation("[CorruptionDetection] Removed cached corruption entry for service: {Service}", service);
+
             // Invalidate service count cache since corruption removal affects counts
             await InvalidateServiceCountsCache();
 
@@ -1152,6 +1164,13 @@ public class CacheManagementService
                 _logger.LogInformation("[GameRemoval] Removed {Files} files ({Bytes} bytes) for game {AppId}",
                     report.CacheFilesDeleted, report.TotalBytesFreed, gameAppId);
 
+                // Remove this game from cached game detection results so page reload shows correct data
+                await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
+                await dbContext.CachedGameDetections
+                    .Where(g => g.GameAppId == gameAppId)
+                    .ExecuteDeleteAsync();
+                _logger.LogInformation("[GameRemoval] Removed cached game detection entry for AppID: {AppId}", gameAppId);
+
                 // Signal nginx to reopen log files (prevents monolithic container from losing log access)
                 await _nginxLogRotationService.ReopenNginxLogsAsync();
 
@@ -1286,6 +1305,13 @@ public class CacheManagementService
 
                 _logger.LogInformation("[ServiceRemoval] Removed {Files} files ({Bytes} bytes) for service '{Service}'",
                     report.CacheFilesDeleted, report.TotalBytesFreed, serviceName);
+
+                // Remove this service from cached service detection results so page reload shows correct data
+                await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
+                await dbContext.CachedServiceDetections
+                    .Where(s => s.ServiceName == serviceName)
+                    .ExecuteDeleteAsync();
+                _logger.LogInformation("[ServiceRemoval] Removed cached service detection entry for: {Service}", serviceName);
 
                 // Clean up progress file
                 await _rustProcessHelper.DeleteTemporaryFileAsync(progressPath);

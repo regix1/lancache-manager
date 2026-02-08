@@ -156,6 +156,8 @@
       "cancelCorruptionDetection": "Cancel corruption detection",
       "cancelDepotMapping": "Cancel depot mapping",
       "cancelGameDetection": "Cancel game detection",
+      "cancelGameRemoval": "Cancel game removal",
+      "cancelServiceRemoval": "Cancel service removal",
       "cancelLogProcessing": "Cancel log processing",
       "cancelLogRemoval": "Cancel log removal",
       "cancelOperationAria": "Cancel operation",

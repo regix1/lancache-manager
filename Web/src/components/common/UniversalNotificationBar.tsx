@@ -51,11 +51,17 @@ const handleCancel = async (
     // 2. Schedule auto-dismiss after CANCELLED_NOTIFICATION_DELAY_MS (3000ms)
   } catch (err) {
     console.error('Cancel failed:', err);
-    // On error, remove the cancelling state but don't remove the notification
-    // The operation may still complete and send a SignalR event
-    updateNotification(notification.id, {
-      details: { ...notification.details, cancelling: false }
-    });
+    const errorMessage = err instanceof Error ? err.message : '';
+    if (errorMessage.includes('not found') || errorMessage.includes('Not Found')) {
+      // Operation already completed/removed from tracker - dismiss the notification
+      removeNotification(notification.id);
+    } else {
+      // Other error - remove the cancelling state but don't remove the notification
+      // The operation may still complete and send a SignalR event
+      updateNotification(notification.id, {
+        details: { ...notification.details, cancelling: false }
+      });
+    }
   }
 };
 
@@ -372,7 +378,9 @@ const UnifiedNotificationItem = ({
           notification.type === 'corruption_removal' ||
           notification.type === 'corruption_detection' ||
           notification.type === 'log_processing' ||
-          notification.type === 'game_detection') &&
+          notification.type === 'game_detection' ||
+          notification.type === 'game_removal' ||
+          notification.type === 'service_removal') &&
           notification.status === 'running' &&
           onCancel &&
           (notification.details?.cancelling ? (
@@ -395,7 +403,11 @@ const UnifiedNotificationItem = ({
                           ? t('common.notifications.cancelLogProcessing')
                           : notification.type === 'game_detection'
                             ? t('common.notifications.cancelGameDetection')
-                            : t('common.notifications.cancelDepotMapping')
+                            : notification.type === 'game_removal'
+                              ? t('common.notifications.cancelGameRemoval')
+                              : notification.type === 'service_removal'
+                                ? t('common.notifications.cancelServiceRemoval')
+                                : t('common.notifications.cancelDepotMapping')
               }
               position="left"
             >
@@ -510,7 +522,9 @@ const UniversalNotificationBar: React.FC = () => {
       'corruption_removal',
       'corruption_detection',
       'log_processing',
-      'game_detection'
+      'game_detection',
+      'game_removal',
+      'service_removal'
     ];
 
     if (!cancellableTypes.includes(notification.type)) {

@@ -1,11 +1,13 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using LancacheManager.Hubs;
+using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Platform;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Models;
 using LancacheManager.Infrastructure.Utilities;
+using Microsoft.EntityFrameworkCore;
 using ModelCacheClearOperation = LancacheManager.Models.CacheClearOperation;
 
 namespace LancacheManager.Core.Services;
@@ -20,6 +22,7 @@ public class CacheClearingService : IHostedService
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly DatasourceService _datasourceService;
     private readonly IUnifiedOperationTracker _operationTracker;
+    private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly SemaphoreSlim _startLock = new(1, 1);
     private readonly string _cachePath;
     private Timer? _cleanupTimer;
@@ -38,7 +41,8 @@ public class CacheClearingService : IHostedService
         ProcessManager processManager,
         RustProcessHelper rustProcessHelper,
         DatasourceService datasourceService,
-        IUnifiedOperationTracker operationTracker)
+        IUnifiedOperationTracker operationTracker,
+        IDbContextFactory<AppDbContext> dbContextFactory)
     {
         _logger = logger;
         _notifications = notifications;
@@ -48,6 +52,7 @@ public class CacheClearingService : IHostedService
         _rustProcessHelper = rustProcessHelper;
         _datasourceService = datasourceService;
         _operationTracker = operationTracker;
+        _dbContextFactory = dbContextFactory;
 
         _deleteMode = "preserve";
 
@@ -632,6 +637,14 @@ public class CacheClearingService : IHostedService
                 : 0;
             
             _logger.LogInformation($"Cache clear completed in {duration:F1} seconds - Cleared {totalDirsProcessed} directories across {validCachePaths.Count} datasource(s)");
+
+            // Clear all cached detection results since all cache files were deleted
+            await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
+            var gamesDeleted = await dbContext.CachedGameDetections.ExecuteDeleteAsync();
+            var servicesDeleted = await dbContext.CachedServiceDetections.ExecuteDeleteAsync();
+            var corruptionDeleted = await dbContext.CachedCorruptionDetections.ExecuteDeleteAsync();
+            _logger.LogInformation("[CacheClearing] Cleared cached detection results: {Games} games, {Services} services, {Corruption} corruption entries",
+                gamesDeleted, servicesDeleted, corruptionDeleted);
 
             await NotifyProgress(operationId);
 
