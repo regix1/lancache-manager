@@ -324,14 +324,14 @@ public partial class SteamKit2Service
         {
             EResult.LogonSessionReplaced => (
                 "SessionReplaced",
-                "Your Steam session was replaced. This happens when you log into Steam from another device or application (Steam client, another server, etc.). Please close other Steam sessions and try again.",
-                false,
+                "Steam session was replaced by another application. Your authentication has been switched to anonymous mode. Please try again.",
+                true,
                 true
             ),
             EResult.LoggedInElsewhere => (
                 "LoggedInElsewhere",
-                "You logged into Steam from another location. Steam only allows one active session for PICS access. Please close other Steam sessions and try again.",
-                false,
+                "Steam session was replaced by another application. Your authentication has been switched to anonymous mode. Please try again.",
+                true,
                 true
             ),
             EResult.AccountLogonDenied => (
@@ -362,16 +362,20 @@ public partial class SteamKit2Service
 
         if (isSessionReplaced)
         {
-            _logger.LogWarning("Steam session was replaced by another login. Our LoginID: {LoginID} (0x{LoginIDHex:X8}). Will attempt reconnection.", _steamLoginId, _steamLoginId);
+            _logger.LogWarning("Steam session was replaced by another login. Our LoginID: {LoginID} (0x{LoginIDHex:X8}). Switching to anonymous mode and failing the operation.", _steamLoginId, _steamLoginId);
 
-            // Send informational notification - session replacement is not fatal with LoginID
-            _notifications.NotifyAllFireAndForget(SignalREvents.SteamSessionError, new
+            // Switch user to anonymous mode and clear stored credentials
+            _stateService.SetSteamAuthMode("anonymous");
+            _stateService.SetSteamRefreshToken(null);
+            _stateService.SetSteamUsername(null);
+
+            // Notify frontend to update auth state (so the UI reflects anonymous mode)
+            _notifications.NotifyAllFireAndForget(SignalREvents.SteamAutoLogout, new
             {
-                errorType,
-                message = "Steam session was temporarily interrupted. Reconnecting automatically...",
-                result = callback.Result.ToString(),
-                timestamp = DateTime.UtcNow,
-                wasRebuildActive = IsRebuildRunning
+                message = errorMessage,
+                reason = errorType,
+                replacementCount = 0,
+                timestamp = DateTime.UtcNow
             });
         }
 
