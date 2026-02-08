@@ -988,10 +988,12 @@ public class CacheManagementService
 
                 var outputJson = Path.Combine(operationsDir,
                     $"game_removal_{gameAppId}_{datasource.Name}_{DateTime.UtcNow:yyyyMMddHHmmss}.json");
+                var progressJson = Path.Combine(operationsDir,
+                    $"game_removal_progress_{gameAppId}_{datasource.Name}_{DateTime.UtcNow:yyyyMMddHHmmss}.json");
 
                 var startInfo = _rustProcessHelper.CreateProcessStartInfo(
                     rustBinaryPath,
-                    $"\"{dbPath}\" \"{dsLogsDir}\" \"{dsCachePath}\" {gameAppId} \"{outputJson}\"");
+                    $"\"{dbPath}\" \"{dsLogsDir}\" \"{dsCachePath}\" {gameAppId} \"{outputJson}\" \"{progressJson}\"");
 
                 _logger.LogInformation("[GameRemoval] Running removal for datasource '{DatasourceName}': {Binary} {Args}",
                     datasource.Name, rustBinaryPath, startInfo.Arguments);
@@ -1167,12 +1169,14 @@ public class CacheManagementService
                     continue;
                 }
 
+                var outputJson = Path.Combine(operationsDir,
+                    $"service_removal_output_{serviceName}_{datasource.Name}_{DateTime.UtcNow:yyyyMMddHHmmss}.json");
                 var progressPath = Path.Combine(operationsDir,
                     $"service_removal_{serviceName}_{datasource.Name}_{DateTime.UtcNow:yyyyMMddHHmmss}.json");
 
                 var startInfo = _rustProcessHelper.CreateProcessStartInfo(
                     rustBinaryPath,
-                    $"\"{dbPath}\" \"{dsLogsDir}\" \"{dsCachePath}\" \"{serviceName}\" \"{progressPath}\"");
+                    $"\"{dbPath}\" \"{dsLogsDir}\" \"{dsCachePath}\" \"{serviceName}\" \"{outputJson}\" \"{progressPath}\"");
 
                 _logger.LogInformation("[ServiceRemoval] Running removal for datasource '{DatasourceName}': {Binary} {Args}",
                     datasource.Name, rustBinaryPath, startInfo.Arguments);
