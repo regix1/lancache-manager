@@ -129,24 +129,24 @@ fn delete_corrupted_from_database(
         .context("Failed to open database")?;
 
     let service_lower = service.to_lowercase();
+    let miss_status = "MISS".to_string();
+    let unknown_status = "UNKNOWN".to_string();
 
     let mut total_log_entries_deleted = 0;
     let mut total_downloads_deleted = 0;
 
     // Process in batches to avoid SQL parameter limits (SQLite has a default limit of 999)
-    let batch_size = 500;
+    let batch_size = 400; // Reduced from 500 to accommodate extra parameters for cache status filter
     let urls: Vec<&String> = corrupted_urls.iter().collect();
 
-    // STEP 1: Collect all unique DownloadIds that have corrupted log entries
-    // We need to do this BEFORE deleting LogEntries, so we know which Downloads to remove
-    let mut download_ids_to_delete = std::collections::HashSet::new();
+    // STEP 1: Collect all unique DownloadIds that have corrupted (MISS/UNKNOWN) log entries
+    let mut affected_download_ids = std::collections::HashSet::new();
 
     for chunk in urls.chunks(batch_size) {
         let placeholders = vec!["?"; chunk.len()].join(", ");
 
-        // Find all DownloadIds that have at least one corrupted log entry
         let query = format!(
-            "SELECT DISTINCT DownloadId FROM LogEntries WHERE LOWER(Service) = ? AND Url IN ({}) AND DownloadId IS NOT NULL",
+            "SELECT DISTINCT DownloadId FROM LogEntries WHERE LOWER(Service) = ? AND Url IN ({}) AND CacheStatus IN (?, ?) AND DownloadId IS NOT NULL",
             placeholders
         );
 
@@ -155,6 +155,8 @@ fn delete_corrupted_from_database(
         for url in chunk {
             params.push(url);
         }
+        params.push(&miss_status);
+        params.push(&unknown_status);
 
         let download_ids = stmt.query_map(rusqlite::params_from_iter(params.iter()), |row| {
             row.get::<_, i32>(0)
@@ -162,19 +164,20 @@ fn delete_corrupted_from_database(
 
         for download_id in download_ids {
             if let Ok(id) = download_id {
-                download_ids_to_delete.insert(id);
+                affected_download_ids.insert(id);
             }
         }
     }
 
-    eprintln!("  Found {} download sessions with corrupted entries", download_ids_to_delete.len());
+    eprintln!("  Found {} download sessions with corrupted entries", affected_download_ids.len());
 
-    // STEP 2: Delete LogEntries with corrupted URLs
+    // STEP 2: Delete only MISS/UNKNOWN LogEntries for corrupted URLs
+    // IMPORTANT: Keep HIT entries intact to prevent snowball corruption detection
     for chunk in urls.chunks(batch_size) {
         let placeholders = vec!["?"; chunk.len()].join(", ");
 
         let log_entries_query = format!(
-            "DELETE FROM LogEntries WHERE LOWER(Service) = ? AND Url IN ({})",
+            "DELETE FROM LogEntries WHERE LOWER(Service) = ? AND Url IN ({}) AND CacheStatus IN (?, ?)",
             placeholders
         );
 
@@ -183,32 +186,24 @@ fn delete_corrupted_from_database(
         for url in chunk {
             params.push(url);
         }
+        params.push(&miss_status);
+        params.push(&unknown_status);
         let log_deleted = log_stmt.execute(rusqlite::params_from_iter(params.iter()))?;
         total_log_entries_deleted += log_deleted;
     }
 
     eprintln!("  Deleted {} log entry records", total_log_entries_deleted);
 
-    // STEP 3: Delete the entire Download sessions that had corrupted entries
-    // Process download IDs in batches as well
-    let download_ids_vec: Vec<i32> = download_ids_to_delete.into_iter().collect();
+    // STEP 3: Only delete Download sessions that have NO remaining LogEntries
+    // (i.e., sessions where ALL entries were corrupted MISS/UNKNOWN)
+    let download_ids_vec: Vec<i32> = affected_download_ids.into_iter().collect();
 
     for chunk in download_ids_vec.chunks(batch_size) {
         let placeholders = vec!["?"; chunk.len()].join(", ");
 
-        // First delete all remaining LogEntries for these downloads (cleanup)
-        let cleanup_query = format!(
-            "DELETE FROM LogEntries WHERE DownloadId IN ({})",
-            placeholders
-        );
-
-        let mut cleanup_stmt = conn.prepare(&cleanup_query)?;
-        let params: Vec<&dyn rusqlite::ToSql> = chunk.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
-        cleanup_stmt.execute(rusqlite::params_from_iter(params.iter()))?;
-
-        // Then delete the Download records
+        // Only delete Downloads that now have zero LogEntries remaining
         let downloads_query = format!(
-            "DELETE FROM Downloads WHERE Id IN ({})",
+            "DELETE FROM Downloads WHERE Id IN ({}) AND NOT EXISTS (SELECT 1 FROM LogEntries WHERE LogEntries.DownloadId = Downloads.Id)",
             placeholders
         );
 
@@ -218,7 +213,26 @@ fn delete_corrupted_from_database(
         total_downloads_deleted += downloads_deleted;
     }
 
-    eprintln!("  Deleted {} download records (entire sessions with corrupted chunks)", total_downloads_deleted);
+    eprintln!("  Deleted {} download records (sessions with only corrupted chunks)", total_downloads_deleted);
+
+    // STEP 4: Update CacheMissBytes on remaining Downloads that had some corrupted entries removed
+    // Recalculate miss bytes from remaining LogEntries
+    let remaining_ids: Vec<i32> = download_ids_vec.iter()
+        .copied()
+        .collect();
+
+    for chunk in remaining_ids.chunks(batch_size) {
+        let placeholders = vec!["?"; chunk.len()].join(", ");
+
+        let update_query = format!(
+            "UPDATE Downloads SET CacheMissBytes = COALESCE((SELECT SUM(BytesServed) FROM LogEntries WHERE LogEntries.DownloadId = Downloads.Id AND CacheStatus IN ('MISS', 'UNKNOWN')), 0) WHERE Id IN ({})",
+            placeholders
+        );
+
+        let mut update_stmt = conn.prepare(&update_query)?;
+        let params: Vec<&dyn rusqlite::ToSql> = chunk.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
+        update_stmt.execute(rusqlite::params_from_iter(params.iter()))?;
+    }
 
     Ok((total_downloads_deleted, total_log_entries_deleted))
 }
@@ -511,8 +525,14 @@ fn main() -> Result<()> {
 
                             // Parse the line and check if URL is in corrupted set
                             if let Some(entry) = parser.parse_line(line.trim()) {
-                                // Check if this URL is corrupted (from Pass 1 scan)
-                                if entry.service == service_lower && corrupted_urls.contains(&entry.url) {
+                                // Only remove MISS/UNKNOWN lines for corrupted URLs
+                                // IMPORTANT: Keep HIT lines intact - removing them would skew future
+                                // corruption detection by eliminating evidence of successful cache hits,
+                                // causing a snowball effect where each removal doubles the corruption count
+                                if entry.service == service_lower
+                                    && corrupted_urls.contains(&entry.url)
+                                    && (entry.cache_status == "MISS" || entry.cache_status == "UNKNOWN")
+                                {
                                     should_remove = true;
                                 }
                             }
