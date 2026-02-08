@@ -329,6 +329,7 @@ public class GamesController : ControllerBase
         }
 
         // Return in the format expected by frontend
+        // GameDetectionMetrics.StartTime carries the last detection timestamp from DB
         // Ensure StartTime is treated as UTC for proper timezone conversion on frontend
         var lastDetectionTimeUtc = cachedResults.StartTime.AsUtc();
 

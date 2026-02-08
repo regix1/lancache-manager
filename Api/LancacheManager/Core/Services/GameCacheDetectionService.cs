@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
 using LancacheManager.Infrastructure.Data;
@@ -28,22 +27,25 @@ public class GameCacheDetectionService : IDisposable
     private readonly ISignalRNotificationService _notifications;
     private readonly DatasourceService _datasourceService;
     private readonly IUnifiedOperationTracker _operationTracker;
-    private readonly ConcurrentDictionary<string, DetectionOperation> _operations = new();
     private readonly SemaphoreSlim _startLock = new(1, 1);
     private CancellationTokenSource? _cancellationTokenSource;
     private string? _currentTrackerOperationId;
     private bool _disposed;
     private const string FailedDepotsStateKey = "failedDepotResolutions";
 
-    public class DetectionOperation
+    /// <summary>
+    /// Response DTO that preserves the JSON shape expected by the frontend.
+    /// Built from OperationInfo + GameDetectionMetrics metadata.
+    /// </summary>
+    public class DetectionOperationResponse
     {
         public string OperationId { get; set; } = string.Empty;
         public DateTime StartTime { get; set; }
-        public string Status { get; set; } = "running"; // running, complete, failed
+        public string Status { get; set; } = "running";
         public string? Message { get; set; }
         public string? StatusMessage => Message; // Alias for frontend compatibility
         public double PercentComplete { get; set; }
-        public string ScanType { get; set; } = "incremental"; // "full" or "incremental"
+        public string ScanType { get; set; } = "incremental";
         public List<GameCacheInfo>? Games { get; set; }
         public List<ServiceCacheInfo>? Services { get; set; }
         public int TotalGamesDetected { get; set; }
@@ -86,20 +88,20 @@ public class GameCacheDetectionService : IDisposable
         try
         {
             // Clean up stale operations (running for more than 30 minutes)
-            var staleOperations = _operations.Values
-                .Where(op => op.Status == "running" && op.StartTime < DateTime.UtcNow.AddMinutes(-30))
+            var staleOperations = _operationTracker.GetActiveOperations(OperationType.GameDetection)
+                .Where(op => op.StartedAt < DateTime.UtcNow.AddMinutes(-30))
                 .ToList();
             foreach (var stale in staleOperations)
             {
-                _logger.LogWarning("Cleaning up stale operation {OperationId} that started at {StartTime}", stale.OperationId, stale.StartTime);
-                _operations.TryRemove(stale.OperationId, out _);
+                _logger.LogWarning("Cleaning up stale operation {OperationId} that started at {StartTime}", stale.Id, stale.StartedAt);
+                _operationTracker.CompleteOperation(stale.Id, success: false, error: "Stale operation cleaned up");
             }
 
             // Check if there's already an active detection
-            var activeOp = _operations.Values.FirstOrDefault(o => o.Status == "running");
+            var activeOp = _operationTracker.GetActiveOperations(OperationType.GameDetection).FirstOrDefault();
             if (activeOp != null)
             {
-                _logger.LogWarning("[GameDetection] Detection already in progress: {OperationId}", activeOp.OperationId);
+                _logger.LogWarning("[GameDetection] Detection already in progress: {OperationId}", activeOp.Id);
                 return null; // Return null to indicate operation already running
             }
 
@@ -113,25 +115,17 @@ public class GameCacheDetectionService : IDisposable
                 : "Starting full scan (all games and services)...";
 
             // Register with unified operation tracker for centralized cancellation
+            var metadata = new GameDetectionMetrics { ScanType = scanType };
             _currentTrackerOperationId = _operationTracker.RegisterOperation(
                 OperationType.GameDetection,
                 "Game Detection",
                 _cancellationTokenSource,
-                new { scanType, incremental }
+                metadata
             );
             var operationId = _currentTrackerOperationId;
 
-            var operation = new DetectionOperation
-            {
-                OperationId = operationId,
-                StartTime = DateTime.UtcNow,
-                Status = "running",
-                Message = message,
-                ScanType = scanType,
-                PercentComplete = 0
-            };
-
-            _operations[operationId] = operation;
+            // Set initial progress message
+            _operationTracker.UpdateProgress(operationId, 0, message);
 
             // Save to OperationStateService for persistence
             _operationStateService.SaveState($"gameDetection_{operationId}", new OperationState
@@ -139,7 +133,7 @@ public class GameCacheDetectionService : IDisposable
                 Key = $"gameDetection_{operationId}",
                 Type = "gameDetection",
                 Status = "running",
-                Message = operation.Message,
+                Message = message,
                 Data = JsonSerializer.SerializeToElement(new { operationId })
             });
 
@@ -213,7 +207,7 @@ public class GameCacheDetectionService : IDisposable
     /// Smart pre-check: If 3+ unknown games detected in cache, check if depot mappings are now available
     /// If mappings exist, invalidate cache to trigger fresh scan with new mappings
     /// </summary>
-    private async Task<bool> ApplyMappingsPreCheckAsync(DetectionOperation operation)
+    private async Task<bool> ApplyMappingsPreCheckAsync(string operationId)
     {
         try
         {
@@ -223,13 +217,13 @@ public class GameCacheDetectionService : IDisposable
             {
                 _logger.LogInformation("[GameDetection] Found {UnknownCount} unknown games in cache, {MappedCount} now have depot mappings available",
                     totalUnknowns, nowMapped);
-                operation.Message = $"Found {nowMapped} new depot mapping(s) for unknown games - invalidating cache...";
+                _operationTracker.UpdateProgress(operationId, 0, $"Found {nowMapped} new depot mapping(s) for unknown games - invalidating cache...");
 
                 // Invalidate cache so the scan will pick up the new mappings
                 await InvalidateCacheAsync();
 
                 _logger.LogInformation("[GameDetection] Cache invalidated - fresh scan will use new depot mappings");
-                operation.Message = $"Cache invalidated - scanning with {nowMapped} new mapping(s)...";
+                _operationTracker.UpdateProgress(operationId, 0, $"Cache invalidated - scanning with {nowMapped} new mapping(s)...");
                 return true;
             }
             else if (totalUnknowns >= 3)
@@ -249,7 +243,8 @@ public class GameCacheDetectionService : IDisposable
 
     private async Task RunDetectionAsync(string operationId, bool incremental, CancellationToken cancellationToken = default)
     {
-        if (!_operations.TryGetValue(operationId, out var operation))
+        var trackerOp = _operationTracker.GetOperation(operationId);
+        if (trackerOp == null)
         {
             return;
         }
@@ -262,8 +257,7 @@ public class GameCacheDetectionService : IDisposable
         // Helper to send progress notification
         async Task SendProgressAsync(string status, string message, int gamesDetected = 0, int servicesDetected = 0, double progressPercent = 0)
         {
-            operation.Message = message;
-            operation.PercentComplete = progressPercent;
+            _operationTracker.UpdateProgress(operationId, progressPercent, message);
             await _notifications.NotifyAllAsync(SignalREvents.GameDetectionProgress, new
             {
                 OperationId = operationId,
@@ -285,7 +279,7 @@ public class GameCacheDetectionService : IDisposable
             // Smart pre-check: If incremental scan and we have 3+ unknown games, try applying mappings first
             if (incremental)
             {
-                await ApplyMappingsPreCheckAsync(operation);
+                await ApplyMappingsPreCheckAsync(operationId);
             }
 
             var operationsDir = _pathResolver.GetOperationsDirectory();
@@ -391,8 +385,7 @@ public class GameCacheDetectionService : IDisposable
                             var progress = await _rustProcessHelper.ReadProgressFileAsync<GameDetectionProgressData>(progressFilePath);
                             if (progress != null)
                             {
-                                operation.Message = progress.Message;
-                                operation.PercentComplete = progress.PercentComplete;
+                                _operationTracker.UpdateProgress(operationId, progress.PercentComplete, progress.Message);
 
                                 // Send SignalR notification for live updates
                                 await _notifications.NotifyAllAsync(SignalREvents.GameDetectionProgress, new
@@ -463,13 +456,13 @@ public class GameCacheDetectionService : IDisposable
                 var totalGamesInResult = detectionResult.Games.Count;
                 var gameIndex = 0;
                 var lastProgressUpdate = 0;
-                
+
                 // Calculate progress range for this datasource's game processing
                 // Games processing takes 30% of the datasource's share (from base to base + 30% of share)
                 var datasourceProgressShare = 40.0 / datasources.Count;
                 var gameProcessingStart = progressBase;
                 var gameProcessingEnd = progressBase + (datasourceProgressShare * 0.75); // 75% of datasource share for game processing
-                
+
                 foreach (var game in detectionResult.Games)
                 {
                     if (!gameAppIdSet.Contains(game.GameAppId))
@@ -500,9 +493,9 @@ public class GameCacheDetectionService : IDisposable
                             existingGame.Datasources.Add(datasource.Name);
                         }
                     }
-                    
+
                     gameIndex++;
-                    
+
                     // Send progress updates every 5 games or every 10% of total games
                     var progressThreshold = Math.Max(5, totalGamesInResult / 10);
                     if (gameIndex - lastProgressUpdate >= progressThreshold || gameIndex == totalGamesInResult)
@@ -547,7 +540,7 @@ public class GameCacheDetectionService : IDisposable
 
                 _logger.LogInformation("[GameDetection] Datasource '{DatasourceName}' found {GameCount} games, {ServiceCount} services",
                     datasource.Name, detectionResult.Games.Count, detectionResult.Services.Count);
-                
+
                 datasourceIndex++;
             }
 
@@ -564,6 +557,7 @@ public class GameCacheDetectionService : IDisposable
             List<GameCacheInfo> finalGames;
             int totalGamesDetected;
             int newGamesCount = aggregatedGames.Count;
+            string completionMessage;
 
             if (incremental && existingGames != null && existingGames.Count > 0)
             {
@@ -575,7 +569,7 @@ public class GameCacheDetectionService : IDisposable
                 _logger.LogInformation("[GameDetection] Incremental scan complete: {NewCount} new games, {TotalCount} total",
                     newGamesCount, totalGamesDetected);
 
-                operation.Message = newGamesCount > 0
+                completionMessage = newGamesCount > 0
                     ? $"Found {newGamesCount} new game{(newGamesCount != 1 ? "s" : "")} ({totalGamesDetected} total with cache files)"
                     : $"No new games detected ({totalGamesDetected} total with cache files)";
             }
@@ -583,18 +577,14 @@ public class GameCacheDetectionService : IDisposable
             {
                 finalGames = aggregatedGames;
                 totalGamesDetected = aggregatedGames.Count;
-                operation.Message = $"Detected {totalGamesDetected} games with cache files";
+                completionMessage = $"Detected {totalGamesDetected} games with cache files";
             }
 
             // Add datasource info to message if multiple datasources
             if (datasources.Count > 1)
             {
-                operation.Message += $" across {datasources.Count} datasources";
+                completionMessage += $" across {datasources.Count} datasources";
             }
-
-            operation.Status = OperationStatus.Completed;
-            operation.Games = finalGames;
-            operation.TotalGamesDetected = totalGamesDetected;
 
             // For incremental mode, use existing services (service detection is skipped)
             // For full scan, use newly detected services
@@ -602,8 +592,16 @@ public class GameCacheDetectionService : IDisposable
                 ? existingServices
                 : aggregatedServices;
 
-            operation.Services = finalServices;
-            operation.TotalServicesDetected = finalServices.Count;
+            // Update tracker progress and metadata with final results
+            _operationTracker.UpdateProgress(operationId, 90, completionMessage);
+            _operationTracker.UpdateMetadata(operationId, m =>
+            {
+                var metrics = (GameDetectionMetrics)m;
+                metrics.Games = finalGames;
+                metrics.Services = finalServices;
+                metrics.TotalGamesDetected = totalGamesDetected;
+                metrics.TotalServicesDetected = finalServices.Count;
+            });
 
             // Send progress for saving to database
             await SendProgressAsync("saving", "Saving results to database...", totalGamesDetected, finalServices.Count, 90);
@@ -620,7 +618,8 @@ public class GameCacheDetectionService : IDisposable
                 if (resolvedCount > 0)
                 {
                     _logger.LogInformation("[GameDetection] Resolved {Count} unknown games after incremental scan", resolvedCount);
-                    operation.Message += $" (resolved {resolvedCount} previously unknown)";
+                    completionMessage += $" (resolved {resolvedCount} previously unknown)";
+                    _operationTracker.UpdateProgress(operationId, 95, completionMessage);
                 }
             }
 
@@ -637,7 +636,7 @@ public class GameCacheDetectionService : IDisposable
                 Key = $"gameDetection_{operationId}",
                 Type = "gameDetection",
                 Status = OperationStatus.Completed,
-                Message = operation.Message,
+                Message = completionMessage,
                 Data = JsonSerializer.SerializeToElement(new { operationId, totalGamesDetected })
             });
 
@@ -654,7 +653,7 @@ public class GameCacheDetectionService : IDisposable
                 OperationId = operationId,
                 Success = true,
                 Status = OperationStatus.Completed,
-                Message = operation.Message,
+                Message = completionMessage,
                 Cancelled = false,
                 totalGamesDetected,
                 totalServicesDetected = finalServices.Count,
@@ -678,8 +677,7 @@ public class GameCacheDetectionService : IDisposable
         catch (OperationCanceledException)
         {
             _logger.LogInformation("[GameDetection] Operation {OperationId} was cancelled", operationId);
-            operation.Status = "cancelled";
-            operation.Message = "Detection cancelled by user";
+            var cancelMessage = "Detection cancelled by user";
 
             // Mark operation as complete (cancelled) in unified tracker
             _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
@@ -691,7 +689,7 @@ public class GameCacheDetectionService : IDisposable
                 Key = $"gameDetection_{operationId}",
                 Type = "gameDetection",
                 Status = "cancelled",
-                Message = operation.Message,
+                Message = cancelMessage,
                 Data = JsonSerializer.SerializeToElement(new { operationId, cancelled = true })
             });
 
@@ -701,7 +699,7 @@ public class GameCacheDetectionService : IDisposable
                 OperationId = operationId,
                 Success = false,
                 Status = OperationStatus.Cancelled,
-                Message = operation.Message,
+                Message = cancelMessage,
                 Cancelled = true,
                 timestamp = DateTime.UtcNow
             });
@@ -723,9 +721,14 @@ public class GameCacheDetectionService : IDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "[GameDetection] Operation {OperationId} failed", operationId);
-            operation.Status = "failed";
-            operation.Error = ex.Message;
-            operation.Message = $"Detection failed: {ex.Message}";
+            var errorMessage = $"Detection failed: {ex.Message}";
+
+            // Update metadata with error before completing
+            _operationTracker.UpdateMetadata(operationId, m =>
+            {
+                var metrics = (GameDetectionMetrics)m;
+                metrics.Error = ex.Message;
+            });
 
             // Mark operation as complete (failed) in unified tracker
             _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
@@ -737,7 +740,7 @@ public class GameCacheDetectionService : IDisposable
                 Key = $"gameDetection_{operationId}",
                 Type = "gameDetection",
                 Status = "failed",
-                Message = operation.Message,
+                Message = errorMessage,
                 Data = JsonSerializer.SerializeToElement(new { operationId, error = ex.Message })
             });
 
@@ -747,7 +750,7 @@ public class GameCacheDetectionService : IDisposable
                 OperationId = operationId,
                 Success = false,
                 Status = OperationStatus.Failed,
-                Message = operation.Message,
+                Message = errorMessage,
                 Cancelled = false,
                 timestamp = DateTime.UtcNow
             });
@@ -768,15 +771,27 @@ public class GameCacheDetectionService : IDisposable
         }
     }
 
-    public DetectionOperation? GetOperationStatus(string operationId)
+    public DetectionOperationResponse? GetOperationStatus(string operationId)
     {
-        return _operations.TryGetValue(operationId, out var operation) ? operation : null;
+        var opInfo = _operationTracker.GetOperation(operationId);
+        if (opInfo == null)
+        {
+            return null;
+        }
+
+        return BuildResponseFromOperationInfo(opInfo);
     }
 
 
-    public DetectionOperation? GetActiveOperation()
+    public DetectionOperationResponse? GetActiveOperation()
     {
-        return _operations.Values.FirstOrDefault(op => op.Status == "running");
+        var activeOp = _operationTracker.GetActiveOperations(OperationType.GameDetection).FirstOrDefault();
+        if (activeOp == null)
+        {
+            return null;
+        }
+
+        return BuildResponseFromOperationInfo(activeOp);
     }
 
     /// <summary>
@@ -797,18 +812,16 @@ public class GameCacheDetectionService : IDisposable
         else
         {
             // Fallback: Cancel directly if tracker ID not available
-            var activeOp = GetActiveOperation();
+            var activeOp = _operationTracker.GetActiveOperations(OperationType.GameDetection).FirstOrDefault();
             if (activeOp != null)
             {
-                _logger.LogInformation("[GameDetection] Cancelling detection operation {OperationId} directly", activeOp.OperationId);
+                _logger.LogInformation("[GameDetection] Cancelling detection operation {OperationId} directly", activeOp.Id);
                 _cancellationTokenSource?.Cancel();
-                activeOp.Status = "cancelled";
-                activeOp.Message = "Detection cancelled by user";
             }
         }
     }
 
-    public async Task<DetectionOperation?> GetCachedDetectionAsync()
+    public async Task<DetectionOperationResponse?> GetCachedDetectionAsync()
     {
         // First, try to resolve any unknown games in the cache using available mappings
         var resolvedCount = await ResolveUnknownGamesInCacheAsync();
@@ -849,7 +862,7 @@ public class GameCacheDetectionService : IDisposable
                 ? $"Loaded {games.Count} games from cache"
                 : $"Loaded {services.Count} services from cache";
 
-        return new DetectionOperation
+        return new DetectionOperationResponse
         {
             OperationId = "cached",
             StartTime = lastDetectedTime,
@@ -953,7 +966,7 @@ public class GameCacheDetectionService : IDisposable
             int resolvedCount = 0;
             var newlyFailedDepots = new List<uint>();
             var entriesToRemove = new List<CachedGameDetection>();
-            
+
             // Track AppIds we've already resolved to in this batch to prevent UNIQUE constraint violations
             // Key: AppId, Value: the CachedGameDetection entity that will have this AppId after save
             var pendingAppIdAssignments = new Dictionary<uint, CachedGameDetection>();
@@ -1007,7 +1020,7 @@ public class GameCacheDetectionService : IDisposable
                         entriesToRemove.Add(unknownGame);
                         _logger.LogInformation("[GameDetection] Merged depot {DepotId} into pending game {AppId} ({Name})",
                             depotId, mapping.AppId, resolvedName);
-                        
+
                         resolvedCount++;
                         previouslyFailedDepots.Remove(depotId);
                         continue;
@@ -1041,10 +1054,10 @@ public class GameCacheDetectionService : IDisposable
 
                         // Mark unknown game for removal
                         entriesToRemove.Add(unknownGame);
-                        
+
                         // Track this existing game so future unknowns in this batch merge into it
                         pendingAppIdAssignments[mapping.AppId] = existingGame;
-                        
+
                         _logger.LogInformation("[GameDetection] Merged depot {DepotId} into existing game {AppId} ({Name})",
                             depotId, mapping.AppId, resolvedName);
                     }
@@ -1053,7 +1066,7 @@ public class GameCacheDetectionService : IDisposable
                         // No existing record, update the unknown game directly
                         unknownGame.GameName = resolvedName;
                         unknownGame.GameAppId = mapping.AppId;
-                        
+
                         // Track this assignment so other unknowns in this batch can merge
                         pendingAppIdAssignments[mapping.AppId] = unknownGame;
                     }
@@ -1137,19 +1150,23 @@ public class GameCacheDetectionService : IDisposable
                     var operationId = opIdElement.GetString();
                     if (!string.IsNullOrEmpty(operationId))
                     {
-                        var operation = new DetectionOperation
-                        {
-                            OperationId = operationId,
-                            StartTime = state.CreatedAt,
-                            Status = "running",
-                            Message = state.Message ?? "Resuming game cache detection..."
-                        };
+                        // Register with UnifiedOperationTracker for recovery
+                        _cancellationTokenSource = new CancellationTokenSource();
+                        var metadata = new GameDetectionMetrics { ScanType = "incremental" };
+                        var trackerOpId = _operationTracker.RegisterOperation(
+                            OperationType.GameDetection,
+                            "Game Detection",
+                            _cancellationTokenSource,
+                            metadata
+                        );
+                        _currentTrackerOperationId = trackerOpId;
+                        _operationTracker.UpdateProgress(trackerOpId, 0, state.Message ?? "Resuming game cache detection...");
 
-                        _operations[operationId] = operation;
-                        _logger.LogInformation("[GameDetection] Restored interrupted operation {OperationId}", operationId);
+                        _logger.LogInformation("[GameDetection] Restored interrupted operation {OperationId} as {TrackerOpId}", operationId, trackerOpId);
 
                         // Restart the detection task with incremental scanning (default)
-                        _ = Task.Run(async () => await RunDetectionAsync(operationId, incremental: true));
+                        var cancellationToken = _cancellationTokenSource.Token;
+                        _ = Task.Run(async () => await RunDetectionAsync(trackerOpId, incremental: true, cancellationToken));
                     }
                 }
             }
@@ -1158,6 +1175,29 @@ public class GameCacheDetectionService : IDisposable
         {
             _logger.LogError(ex, "[GameDetection] Error restoring interrupted operations");
         }
+    }
+
+    /// <summary>
+    /// Builds a DetectionOperationResponse from an OperationInfo, preserving the JSON shape expected by the frontend.
+    /// </summary>
+    private static DetectionOperationResponse BuildResponseFromOperationInfo(OperationInfo opInfo)
+    {
+        var metrics = opInfo.Metadata as GameDetectionMetrics;
+
+        return new DetectionOperationResponse
+        {
+            OperationId = opInfo.Id,
+            StartTime = opInfo.StartedAt,
+            Status = opInfo.Status,
+            Message = opInfo.Message,
+            PercentComplete = opInfo.PercentComplete,
+            ScanType = metrics?.ScanType ?? "incremental",
+            Games = metrics?.Games,
+            Services = metrics?.Services,
+            TotalGamesDetected = metrics?.TotalGamesDetected ?? 0,
+            TotalServicesDetected = metrics?.TotalServicesDetected ?? 0,
+            Error = metrics?.Error
+        };
     }
 
     private async Task SaveGamesToDatabaseAsync(List<GameCacheInfo> games, bool incremental)

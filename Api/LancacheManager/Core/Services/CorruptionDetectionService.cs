@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
 using LancacheManager.Infrastructure.Data;
@@ -28,23 +27,9 @@ public class CorruptionDetectionService
     private readonly OperationStateService _operationStateService;
     private readonly IUnifiedOperationTracker _operationTracker;
 
-    // Track active detection operations
-    private readonly ConcurrentDictionary<string, DetectionOperation> _operations = new();
     private readonly SemaphoreSlim _startLock = new(1, 1);
-    private CancellationTokenSource? _cancellationTokenSource;
 
     private const string OperationStateKey = "corruptionDetection";
-
-    public class DetectionOperation
-    {
-        public string OperationId { get; set; } = string.Empty;
-        public string? TrackerOperationId { get; set; }
-        public DateTime StartTime { get; set; }
-        public string Status { get; set; } = "running";
-        public string Message { get; set; } = string.Empty;
-        public Dictionary<string, long>? CorruptionCounts { get; set; }
-        public DateTime? LastDetectionTime { get; set; }
-    }
 
     public CorruptionDetectionService(
         ILogger<CorruptionDetectionService> logger,
@@ -78,34 +63,24 @@ public class CorruptionDetectionService
         try
         {
             // Check if there's already an active detection
-            var activeOp = _operations.Values.FirstOrDefault(o => o.Status == "running");
+            var activeOp = _operationTracker.GetActiveOperations(OperationType.CorruptionDetection).FirstOrDefault();
             if (activeOp != null)
             {
-                _logger.LogWarning("[CorruptionDetection] Detection already in progress: {OperationId}", activeOp.OperationId);
-                return activeOp.OperationId;
+                _logger.LogWarning("[CorruptionDetection] Detection already in progress: {OperationId}", activeOp.Id);
+                return activeOp.Id;
             }
-
-            var operationId = Guid.NewGuid().ToString("N")[..8];
-            var operation = new DetectionOperation
-            {
-                OperationId = operationId,
-                StartTime = DateTime.UtcNow,
-                Status = "running",
-                Message = "Starting corruption detection..."
-            };
-
-            _operations[operationId] = operation;
 
             // Create a new cancellation token source
             // Note: Don't cancel/dispose old one here - it may have been disposed by CompleteOperation
-            _cancellationTokenSource = new CancellationTokenSource();
+            var cts = new CancellationTokenSource();
 
-            // Register with unified operation tracker
-            var trackerOperationId = _operationTracker.RegisterOperation(
+            // Create metadata and register with unified operation tracker
+            var metadata = new CorruptionDetectionMetrics();
+            var operationId = _operationTracker.RegisterOperation(
                 OperationType.CorruptionDetection,
                 "Corruption Detection",
-                _cancellationTokenSource);
-            operation.TrackerOperationId = trackerOperationId;
+                cts,
+                metadata);
 
             // Save operation state for recovery
             _operationStateService.SaveState($"{OperationStateKey}_{operationId}", new OperationState
@@ -117,15 +92,14 @@ public class CorruptionDetectionService
             });
 
             // Send start notification via SignalR
-            // Use trackerOperationId so frontend can cancel via /api/operations/{id}/cancel
             await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionStarted, new
             {
-                OperationId = trackerOperationId,
+                OperationId = operationId,
                 Message = "Starting corruption detection scan..."
             });
 
             // Run detection in background with the cancellation token
-            var token = _cancellationTokenSource.Token;
+            var token = cts.Token;
             _ = Task.Run(async () => await RunDetectionAsync(operationId, threshold, token), token);
 
             return operationId;
@@ -141,7 +115,8 @@ public class CorruptionDetectionService
     /// </summary>
     private async Task RunDetectionAsync(string operationId, int threshold, CancellationToken cancellationToken)
     {
-        if (!_operations.TryGetValue(operationId, out var operation))
+        var operation = _operationTracker.GetOperation(operationId);
+        if (operation == null)
         {
             _logger.LogWarning("[CorruptionDetection] Operation not found: {OperationId}", operationId);
             return;
@@ -169,7 +144,7 @@ public class CorruptionDetectionService
 
                 var dsCounts = await GetCorruptionSummaryForDatasource(
                     datasource.LogPath, datasource.CachePath, timezone, rustBinaryPath,
-                    operationId, operation.TrackerOperationId ?? operationId, datasource.Name, threshold, cancellationToken);
+                    operationId, datasource.Name, threshold, cancellationToken);
 
                 // Aggregate counts
                 foreach (var kvp in dsCounts)
@@ -185,11 +160,15 @@ public class CorruptionDetectionService
                 }
             }
 
-            // Update operation
-            operation.Status = OperationStatus.Completed;
-            operation.Message = $"Detection complete. Found {aggregatedCounts.Count} services with corruption.";
-            operation.CorruptionCounts = aggregatedCounts;
-            operation.LastDetectionTime = DateTime.UtcNow;
+            // Update operation via tracker
+            var completionMessage = $"Detection complete. Found {aggregatedCounts.Count} services with corruption.";
+            _operationTracker.UpdateProgress(operationId, 100, completionMessage);
+            _operationTracker.UpdateMetadata(operationId, metadata =>
+            {
+                var metrics = (CorruptionDetectionMetrics)metadata;
+                metrics.CorruptionCounts = aggregatedCounts;
+                metrics.LastDetectionTime = DateTime.UtcNow;
+            });
 
             // Save results to database
             await SaveCorruptionToDatabaseAsync(aggregatedCounts);
@@ -198,19 +177,15 @@ public class CorruptionDetectionService
             _operationStateService.RemoveState($"{OperationStateKey}_{operationId}");
 
             // Complete unified operation tracker
-            if (operation.TrackerOperationId != null)
-            {
-                _operationTracker.CompleteOperation(operation.TrackerOperationId, success: true);
-            }
+            _operationTracker.CompleteOperation(operationId, success: true);
 
             // Send completion notification via SignalR
-            // Use TrackerOperationId so frontend can cancel via /api/operations/{id}/cancel
             await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionComplete, new
             {
-                OperationId = operation.TrackerOperationId,
+                OperationId = operationId,
                 Success = true,
                 Status = OperationStatus.Completed,
-                Message = operation.Message,
+                Message = completionMessage,
                 Cancelled = false,
                 totalServicesWithCorruption = aggregatedCounts.Count,
                 totalCorruptedChunks = aggregatedCounts.Values.Sum()
@@ -222,22 +197,17 @@ public class CorruptionDetectionService
         catch (OperationCanceledException)
         {
             _logger.LogInformation("[CorruptionDetection] Operation {OperationId} was cancelled", operationId);
-            operation.Status = "cancelled";
-            operation.Message = "Detection cancelled by user";
 
             // Clear operation state
             _operationStateService.RemoveState($"{OperationStateKey}_{operationId}");
 
             // Complete unified operation tracker
-            if (operation.TrackerOperationId != null)
-            {
-                _operationTracker.CompleteOperation(operation.TrackerOperationId, success: false, error: "Cancelled by user");
-            }
+            _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
 
             // Send cancellation notification via SignalR
             await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionComplete, new
             {
-                OperationId = operation.TrackerOperationId,
+                OperationId = operationId,
                 Success = false,
                 Status = OperationStatus.Cancelled,
                 Message = "Detection cancelled by user",
@@ -248,22 +218,16 @@ public class CorruptionDetectionService
         {
             _logger.LogError(ex, "[CorruptionDetection] Detection failed for operation {OperationId}", operationId);
 
-            operation.Status = "failed";
-            operation.Message = ex.Message;
-
             // Clear operation state
             _operationStateService.RemoveState($"{OperationStateKey}_{operationId}");
 
             // Complete unified operation tracker
-            if (operation.TrackerOperationId != null)
-            {
-                _operationTracker.CompleteOperation(operation.TrackerOperationId, success: false, error: ex.Message);
-            }
+            _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
 
             // Send failure notification via SignalR
             await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionComplete, new
             {
-                OperationId = operation.TrackerOperationId,
+                OperationId = operationId,
                 Success = false,
                 Status = OperationStatus.Failed,
                 Message = ex.Message,
@@ -277,7 +241,7 @@ public class CorruptionDetectionService
     /// </summary>
     private async Task<Dictionary<string, long>> GetCorruptionSummaryForDatasource(
         string logDir, string cacheDir, string timezone, string rustBinaryPath,
-        string operationId, string trackerOperationId, string datasourceName, int threshold, CancellationToken cancellationToken)
+        string operationId, string datasourceName, int threshold, CancellationToken cancellationToken)
     {
         // Create progress file for this datasource
         var operationsDir = _pathResolver.GetOperationsDirectory();
@@ -302,7 +266,7 @@ public class CorruptionDetectionService
                 var lastMessage = string.Empty;
                 var lastPercent = 0.0;
                 const double percentThreshold = 5.0; // Send update if percent changes by 5% or more
-                
+
                 while (!process.HasExited)
                 {
                     await Task.Delay(500, cancellationToken);
@@ -313,7 +277,7 @@ public class CorruptionDetectionService
                     {
                         var messageChanged = progressData.Message != lastMessage;
                         var percentChanged = Math.Abs(progressData.PercentComplete - lastPercent) >= percentThreshold;
-                        
+
                         // Send update if either message OR percentComplete changes significantly
                         if (messageChanged || percentChanged)
                         {
@@ -321,10 +285,9 @@ public class CorruptionDetectionService
                             lastPercent = progressData.PercentComplete;
 
                             // Send progress notification via SignalR
-                            // Use trackerOperationId so frontend can cancel via /api/operations/{id}/cancel
                             await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionProgress, new
                             {
-                                OperationId = trackerOperationId,
+                                OperationId = operationId,
                                 PercentComplete = progressData.PercentComplete,
                                 Status = OperationStatus.Running,
                                 Message = progressData.Message,
@@ -460,17 +423,17 @@ public class CorruptionDetectionService
     /// <summary>
     /// Get the status of the active detection operation.
     /// </summary>
-    public DetectionOperation? GetOperationStatus(string operationId)
+    public OperationInfo? GetOperationStatus(string operationId)
     {
-        return _operations.TryGetValue(operationId, out var op) ? op : null;
+        return _operationTracker.GetOperation(operationId);
     }
 
     /// <summary>
     /// Get the currently active detection operation (if any).
     /// </summary>
-    public DetectionOperation? GetActiveOperation()
+    public OperationInfo? GetActiveOperation()
     {
-        return _operations.Values.FirstOrDefault(o => o.Status == "running");
+        return _operationTracker.GetActiveOperations(OperationType.CorruptionDetection).FirstOrDefault();
     }
 
     /// <summary>
@@ -483,16 +446,14 @@ public class CorruptionDetectionService
         {
             // If already cancelled or cancelling, return true (idempotent)
             // This prevents 404 errors when user clicks cancel button multiple times
-            if (activeOp.Status == "cancelled" || activeOp.Status == "cancelling")
+            if (activeOp.Status == OperationStatus.Cancelled || activeOp.Status == OperationStatus.Cancelling)
             {
-                _logger.LogDebug("[CorruptionDetection] Cancellation already in progress for operation {OperationId}", activeOp.OperationId);
+                _logger.LogDebug("[CorruptionDetection] Cancellation already in progress for operation {OperationId}", activeOp.Id);
                 return true;
             }
-            
-            _logger.LogInformation("[CorruptionDetection] Cancelling detection operation {OperationId}", activeOp.OperationId);
-            _cancellationTokenSource?.Cancel();
-            activeOp.Status = "cancelled";
-            activeOp.Message = "Detection cancelled by user";
+
+            _logger.LogInformation("[CorruptionDetection] Cancelling detection operation {OperationId}", activeOp.Id);
+            _operationTracker.CancelOperation(activeOp.Id);
             return true;
         }
         return false;

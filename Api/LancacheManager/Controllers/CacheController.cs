@@ -481,11 +481,11 @@ public class CacheController : ControllerBase
 
         return Ok(new
         {
-            isRunning = activeOp.Status == "running",
-            operationId = activeOp.OperationId,
+            isRunning = activeOp.Status == OperationStatus.Running,
+            operationId = activeOp.Id,
             status = activeOp.Status,
             message = activeOp.Message,
-            startTime = activeOp.StartTime.ToString("o")
+            startTime = activeOp.StartedAt.ToString("o")
         });
     }
 

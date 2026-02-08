@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Diagnostics;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
@@ -7,6 +6,7 @@ using LancacheManager.Infrastructure.Platform;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Models;
 using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 using ModelCacheClearOperation = LancacheManager.Models.CacheClearOperation;
 
@@ -28,9 +28,6 @@ public class CacheClearingService : IHostedService
     private Timer? _cleanupTimer;
     private string _deleteMode;
     private string? _currentTrackerOperationId;
-
-    // Track granular metrics for each operation
-    private readonly ConcurrentDictionary<string, OperationMetrics> _operationMetrics = new();
 
     public CacheClearingService(
         ILogger<CacheClearingService> logger,
@@ -121,9 +118,6 @@ public class CacheClearingService : IHostedService
             _operationTracker.CancelOperation(operation.Id);
         }
 
-        // Clean up all metrics
-        _operationMetrics.Clear();
-
         return Task.CompletedTask;
     }
 
@@ -147,22 +141,18 @@ public class CacheClearingService : IHostedService
             var cts = new CancellationTokenSource();
 
             // Register with unified operation tracker for centralized cancellation
+            var metadata = new CacheClearingMetrics
+            {
+                EntityKey = trackerKey,
+                DatasourceName = datasourceName
+            };
             _currentTrackerOperationId = _operationTracker.RegisterOperation(
                 OperationType.CacheClearing,
                 "Cache Clearing",
                 cts,
-                new { datasourceName, trackerKey }
+                metadata
             );
             var operationId = _currentTrackerOperationId;
-
-            // Initialize metrics tracking for this operation
-            _operationMetrics[operationId] = new OperationMetrics
-            {
-                DirectoriesProcessed = 0,
-                TotalDirectories = 0,
-                BytesDeleted = 0,
-                FilesDeleted = 0
-            };
 
             // Update the initial message
             var initialMessage = datasourceName != null
@@ -239,12 +229,6 @@ public class CacheClearingService : IHostedService
 
                 SaveOperationToState(trackerKey, operationId);
 
-                // Clean up metrics after a delay
-                _ = Task.Delay(TimeSpan.FromSeconds(15)).ContinueWith(t =>
-                {
-                    _operationMetrics.TryRemove(operationId, out _);
-                });
-
                 return;
             }
 
@@ -275,12 +259,6 @@ public class CacheClearingService : IHostedService
 
                     await NotifyProgress(operationId);
                     SaveOperationToState(trackerKey, operationId);
-
-                    // Clean up metrics after a delay
-                    _ = Task.Delay(TimeSpan.FromSeconds(15)).ContinueWith(t =>
-                    {
-                        _operationMetrics.TryRemove(operationId, out _);
-                    });
 
                     return;
                 }
@@ -355,12 +333,6 @@ public class CacheClearingService : IHostedService
 
                 SaveOperationToState(trackerKey, operationId);
 
-                // Clean up metrics after a delay
-                _ = Task.Delay(TimeSpan.FromSeconds(15)).ContinueWith(t =>
-                {
-                    _operationMetrics.TryRemove(operationId, out _);
-                });
-
                 return;
             }
 
@@ -368,10 +340,11 @@ public class CacheClearingService : IHostedService
             var totalDirectoriesAllDatasources = validCachePaths.Sum(p => p.DirCount);
 
             // Update total directories in metrics
-            if (_operationMetrics.TryGetValue(operationId, out var metrics))
+            _operationTracker.UpdateMetadata(operationId, (object meta) =>
             {
+                var metrics = (CacheClearingMetrics)meta;
                 metrics.TotalDirectories = totalDirectoriesAllDatasources;
-            }
+            });
 
             _logger.LogInformation($"Total cache directories to clear across all datasources: {totalDirectoriesAllDatasources}");
 
@@ -401,12 +374,6 @@ public class CacheClearingService : IHostedService
                 });
 
                 SaveOperationToState(trackerKey, operationId);
-
-                // Clean up metrics after a delay
-                _ = Task.Delay(TimeSpan.FromSeconds(15)).ContinueWith(t =>
-                {
-                    _operationMetrics.TryRemove(operationId, out _);
-                });
 
                 return;
             }
@@ -448,12 +415,6 @@ public class CacheClearingService : IHostedService
 
                     await NotifyProgress(operationId);
                     SaveOperationToState(trackerKey, operationId);
-
-                    // Clean up metrics after a delay
-                    _ = Task.Delay(TimeSpan.FromSeconds(15)).ContinueWith(t =>
-                    {
-                        _operationMetrics.TryRemove(operationId, out _);
-                    });
 
                     return;
                 }
@@ -502,12 +463,6 @@ public class CacheClearingService : IHostedService
                                 await NotifyProgress(operationId);
                                 SaveOperationToState(trackerKey, operationId);
 
-                                // Clean up metrics after a delay
-                                _ = Task.Delay(TimeSpan.FromSeconds(15)).ContinueWith(t =>
-                                {
-                                    _operationMetrics.TryRemove(operationId, out _);
-                                });
-
                                 return;
                             }
 
@@ -523,12 +478,13 @@ public class CacheClearingService : IHostedService
                                 var statusMessage = $"[{GetDeleteModeDisplayName()}] {progressData.Message}";
 
                                 // Update metrics
-                                if (_operationMetrics.TryGetValue(operationId, out var metricsToUpdate))
+                                _operationTracker.UpdateMetadata(operationId, (object meta) =>
                                 {
+                                    var metricsToUpdate = (CacheClearingMetrics)meta;
                                     metricsToUpdate.DirectoriesProcessed = currentDirsProcessed;
                                     metricsToUpdate.BytesDeleted = currentBytesDeleted;
                                     metricsToUpdate.FilesDeleted = currentFilesDeleted;
-                                }
+                                });
 
                                 _operationTracker.UpdateProgress(operationId, percentComplete, statusMessage);
 
@@ -601,12 +557,13 @@ public class CacheClearingService : IHostedService
                         dirsProcessedBefore = totalDirsProcessed;
 
                         // Update metrics with totals so far
-                        if (_operationMetrics.TryGetValue(operationId, out var metricsToUpdate))
+                        _operationTracker.UpdateMetadata(operationId, (object meta) =>
                         {
+                            var metricsToUpdate = (CacheClearingMetrics)meta;
                             metricsToUpdate.DirectoriesProcessed = totalDirsProcessed;
                             metricsToUpdate.BytesDeleted = totalBytesDeleted;
                             metricsToUpdate.FilesDeleted = totalFilesDeleted;
-                        }
+                        });
                     }
 
                     // Clean up progress file
@@ -624,12 +581,6 @@ public class CacheClearingService : IHostedService
             // Mark operation as complete in unified tracker
             _operationTracker.CompleteOperation(operationId, success: true);
             _currentTrackerOperationId = null;
-
-            // Clean up metrics after a delay to allow final status queries
-            _ = Task.Delay(TimeSpan.FromSeconds(15)).ContinueWith(t =>
-            {
-                _operationMetrics.TryRemove(operationId, out _);
-            });
 
             operation = _operationTracker.GetOperation(operationId);
             var duration = operation?.CompletedAt.HasValue == true
@@ -687,12 +638,6 @@ public class CacheClearingService : IHostedService
             });
 
             SaveOperationToState(trackerKey, operationId);
-
-            // Clean up metrics after a delay
-            _ = Task.Delay(TimeSpan.FromSeconds(15)).ContinueWith(t =>
-            {
-                _operationMetrics.TryRemove(operationId, out _);
-            });
         }
         catch (Exception ex)
         {
@@ -727,12 +672,6 @@ public class CacheClearingService : IHostedService
             });
 
             SaveOperationToState(trackerKey, operationId);
-
-            // Clean up metrics after a delay
-            _ = Task.Delay(TimeSpan.FromSeconds(15)).ContinueWith(t =>
-            {
-                _operationMetrics.TryRemove(operationId, out _);
-            });
         }
     }
 
@@ -763,8 +702,8 @@ public class CacheClearingService : IHostedService
             var operation = _operationTracker.GetOperation(operationId);
             if (operation == null) return;
 
-            // Get metrics for this operation
-            _operationMetrics.TryGetValue(operationId, out var metrics);
+            // Get metrics from tracker metadata
+            var metrics = operation.Metadata as CacheClearingMetrics;
 
             await _notifications.NotifyAllAsync(SignalREvents.CacheClearingProgress, new
             {
@@ -775,10 +714,9 @@ public class CacheClearingService : IHostedService
                 DirectoriesProcessed = metrics?.DirectoriesProcessed ?? 0,
                 TotalDirectories = metrics?.TotalDirectories ?? 0,
                 BytesDeleted = metrics?.BytesDeleted ?? 0L,
-                FilesDeleted = metrics?.FilesDeleted ?? 0,
+                FilesDeleted = metrics?.FilesDeleted ?? 0L,
                 Error = operation.Status == OperationStatus.Failed ? operation.Message : null
             });
-
         }
         catch (Exception ex)
         {
@@ -920,8 +858,8 @@ public class CacheClearingService : IHostedService
             return null;
         }
 
-        // Get metrics for this operation
-        _operationMetrics.TryGetValue(operationId, out var metrics);
+        // Get metrics from tracker metadata
+        var metrics = operation.Metadata as CacheClearingMetrics;
 
         return new CacheClearProgress
         {
@@ -947,7 +885,7 @@ public class CacheClearingService : IHostedService
         return _operationTracker.GetActiveOperations(OperationType.CacheClearing)
             .Select(op =>
             {
-                _operationMetrics.TryGetValue(op.Id, out var metrics);
+                var metrics = op.Metadata as CacheClearingMetrics;
                 return new CacheClearProgress
                 {
                     OperationId = op.Id,
@@ -987,7 +925,7 @@ public class CacheClearingService : IHostedService
         var activeOps = _operationTracker.GetActiveOperations(OperationType.CacheClearing)
             .Select(op =>
             {
-                _operationMetrics.TryGetValue(op.Id, out var metrics);
+                var metrics = op.Metadata as CacheClearingMetrics;
                 return new CacheClearProgress
                 {
                     OperationId = op.Id,
@@ -1057,8 +995,8 @@ public class CacheClearingService : IHostedService
 
                 // Extract tracker key from metadata if available
                 var operation = _operationTracker.GetOperation(operationId);
-                var metadata = operation?.Metadata as dynamic;
-                var trackerKey = metadata?.trackerKey ?? "all";
+                var metadata = operation?.Metadata as CacheClearingMetrics;
+                var trackerKey = metadata?.EntityKey ?? "all";
                 SaveOperationToState(trackerKey, operationId);
                 return true;
             }
@@ -1143,8 +1081,6 @@ public class CacheClearingService : IHostedService
                 foreach (var id in toRemove)
                 {
                     _stateService.RemoveCacheClearOperation(id);
-                    // Also clean up any orphaned metrics
-                    _operationMetrics.TryRemove(id, out _);
                 }
                 _logger.LogDebug("Cleaned up {Count} old cache clear operations from state", toRemove.Count);
             }
@@ -1169,12 +1105,4 @@ public class CacheClearProgress
     public long FilesDeleted { get; set; }
     public string? Error { get; set; }
     public double PercentComplete { get; set; }
-}
-
-internal class OperationMetrics
-{
-    public int DirectoriesProcessed { get; set; }
-    public int TotalDirectories { get; set; }
-    public long BytesDeleted { get; set; }
-    public long FilesDeleted { get; set; }
 }
