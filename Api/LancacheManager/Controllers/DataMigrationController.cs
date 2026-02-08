@@ -24,19 +24,22 @@ public class DataMigrationController : ControllerBase
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly ISignalRNotificationService _notifications;
     private readonly IUnifiedOperationTracker _operationTracker;
+    private readonly ProcessManager _processManager;
 
     public DataMigrationController(
         ILogger<DataMigrationController> logger,
         IPathResolver pathResolver,
         RustProcessHelper rustProcessHelper,
         ISignalRNotificationService notifications,
-        IUnifiedOperationTracker operationTracker)
+        IUnifiedOperationTracker operationTracker,
+        ProcessManager processManager)
     {
         _logger = logger;
         _pathResolver = pathResolver;
         _rustProcessHelper = rustProcessHelper;
         _notifications = notifications;
         _operationTracker = operationTracker;
+        _processManager = processManager;
     }
 
     /// <summary>
@@ -119,8 +122,8 @@ public class DataMigrationController : ControllerBase
             // Monitor stdout and stderr
             var (stdoutTask, stderrTask) = _rustProcessHelper.CreateOutputMonitoringTasks(process, "data_migrator");
 
-            // Wait for process to complete
-            await process.WaitForExitAsync();
+            // Wait for process to complete with cancellation support
+            await _processManager.WaitForProcessAsync(process, cts.Token);
 
             // Wait for output tasks
             await _rustProcessHelper.WaitForOutputTasksAsync(stdoutTask, stderrTask, TimeSpan.FromSeconds(5));
@@ -185,6 +188,18 @@ public class DataMigrationController : ControllerBase
                 Errors = progress.RecordsErrors,
                 BackupPath = progress.BackupPath
             });
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("DeveLanCacheUI import was cancelled (Operation: {OperationId})", operationId);
+            _operationTracker.CompleteOperation(operationId, false, "Import was cancelled by user");
+            await _notifications.NotifyAllAsync(SignalREvents.DataImportComplete, new
+            {
+                OperationId = operationId,
+                Success = false,
+                Message = "Import was cancelled by user"
+            });
+            return StatusCode(499, new ErrorResponse { Error = "Import was cancelled by user" });
         }
         catch (Exception ex)
         {

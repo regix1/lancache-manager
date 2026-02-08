@@ -435,7 +435,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         getProgress: (e) => e.percentComplete ?? 0,
         getStatus: (e) => e.status === 'completed' ? 'completed' : (e.status === 'failed' || e.status === 'cancelled') ? 'failed' : undefined,
         getCompletedMessage: (e) => e.message || 'Corruption removal completed',
-        getErrorMessage: (e) => e.message || 'Corruption removal failed'
+        getErrorMessage: (e) => e.message || 'Corruption removal failed',
+        getDetails: (e) => ({ operationId: e.operationId })
       },
       setNotifications,
       scheduleAutoDismiss,
@@ -477,7 +478,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         getProgress: (e) => e.percentComplete || 0,
         getStatus: (e) => e.status === 'completed' ? 'completed' : (e.status === 'failed' || e.status === 'cancelled') ? 'failed' : undefined,
         getCompletedMessage: (e) => e.message || 'Game detection completed',
-        getErrorMessage: (e) => e.message || 'Game detection failed'
+        getErrorMessage: (e) => e.message || 'Game detection failed',
+        getDetails: (e) => ({ operationId: e.operationId })
       },
       setNotifications,
       scheduleAutoDismiss,
@@ -559,7 +561,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         getStatus: (e) => e.status === 'completed' ? 'completed' : (e.status === 'failed' || e.status === 'error') ? 'failed' : undefined,
         getCompletedMessage: formatDatabaseResetCompleteMessage,
         getErrorMessage: (e) => e.message,
-        supportFastCompletion: true  // Handle fast operations where completion arrives before notification created
+        supportFastCompletion: true,  // Handle fast operations where completion arrives before notification created
+        getDetails: (e) => ({ operationId: e.operationId })
       },
       setNotifications,
       scheduleAutoDismiss,  // Use direct scheduling - we know notification is in terminal state
@@ -589,7 +592,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         getProgress: (e) => e.percentComplete || 0,
         getStatus: (e) => e.status === 'completed' ? 'completed' : (e.status === 'failed' || e.status === 'cancelled') ? 'failed' : undefined,
         getCompletedMessage: (e) => e.statusMessage || 'Cache cleared successfully',
-        getErrorMessage: (e) => e.error || e.statusMessage || 'Cache clear failed'
+        getErrorMessage: (e) => e.error || e.statusMessage || 'Cache clear failed',
+        getDetails: (e) => ({ operationId: e.operationId })
       },
       setNotifications,
       scheduleAutoDismiss,
@@ -677,7 +681,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         getProgress: (e) => e.percentComplete || 0,
         getStatus: (e) => e.status === 'completed' ? 'completed' : (e.status === 'failed' || e.status === 'cancelled') ? 'failed' : undefined,
         getCompletedMessage: (e) => e.message || 'Data import completed',
-        getErrorMessage: (e) => e.message || 'Data import failed'
+        getErrorMessage: (e) => e.message || 'Data import failed',
+        getDetails: (e) => ({ operationId: e.operationId })
       },
       setNotifications,
       scheduleAutoDismiss,

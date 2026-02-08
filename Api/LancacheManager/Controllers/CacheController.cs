@@ -648,7 +648,8 @@ public class CacheController : ControllerBase
                                 cachePath,
                                 service: service,
                                 progressFile: progressFilePath,
-                                databasePath: dbPath
+                                databasePath: dbPath,
+                                cancellationToken: cts.Token
                             );
 
                             // Stop progress monitoring for this datasource
@@ -844,7 +845,7 @@ public class CacheController : ControllerBase
                 _removalTracker.UpdateServiceRemoval(name, "removing_cache", $"Deleting cache files for {name}...");
 
                 // Use CacheManagementService which actually deletes files via Rust binary
-                var report = await _cacheService.RemoveServiceFromCache(name);
+                var report = await _cacheService.RemoveServiceFromCache(name, cts.Token);
 
                 // Send progress update
                 await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalProgress,
