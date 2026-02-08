@@ -88,7 +88,7 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
                   </strong>{' '}
                   {stat.labelCount !== undefined
                     ? t(stat.label, { count: stat.labelCount })
-                    : stat.label}
+                    : t(stat.label)}
                 </span>
               );
             })}
