@@ -662,24 +662,29 @@ fn main() -> Result<()> {
         eprintln!("\n=== Incremental Mode: Skipping Cache Directory Scan ===");
         eprintln!("Will check file existence directly for new games only...");
         write_progress(progress_path.as_deref(), "scanning", "Incremental mode - skipping cache scan", 20.0, 0, 0)?;
+        reporter.emit_progress(20.0, "Incremental mode - skipping cache scan");
         cache_files_index = None;
     } else {
         // FULL SCAN: Build in-memory index of all cache files
         // This is much faster than checking 2.3M individual file.exists() calls
         write_progress(progress_path.as_deref(), "scanning", "Scanning cache directory", 5.0, 0, 0)?;
+        reporter.emit_progress(5.0, "Scanning cache directory");
         let index = scan_cache_directory(&cache_dir)?;
         write_progress(progress_path.as_deref(), "scanning", "Cache directory scan complete", 20.0, 0, 0)?;
+        reporter.emit_progress(20.0, "Cache directory scan complete");
         cache_files_index = Some(index);
     }
 
     // PHASE 2: Query database for game URLs
     eprintln!("\n=== Phase 2: Querying Database ===");
     write_progress(progress_path.as_deref(), "querying", "Querying database for game URLs", 20.0, 0, 0)?;
+    reporter.emit_progress(20.0, "Querying database for game URLs");
 
     // Query ALL URLs to get accurate cache sizes (no sampling)
     // This ensures we find and measure every cache file for complete accuracy
     let all_records = query_game_downloads(&db_path, None, &excluded_game_ids)?;
     write_progress(progress_path.as_deref(), "querying", "Database query complete", 30.0, 0, 0)?;
+    reporter.emit_progress(30.0, "Database query complete");
 
     // Continue even if no games found - we still want to detect services
 
@@ -706,7 +711,9 @@ fn main() -> Result<()> {
     } else {
         eprintln!("Using in-memory index for instant lookups...\n");
     }
-    write_progress(progress_path.as_deref(), "matching", &format!("Matching {} games to cache files", total_games), 30.0, 0, total_games)?;
+    let matching_msg = format!("Matching {} games to cache files", total_games);
+    write_progress(progress_path.as_deref(), "matching", &matching_msg, 30.0, 0, total_games)?;
+    reporter.emit_progress(30.0, &matching_msg);
 
     let mut detected_games = Vec::new();
     let mut processed_count = 0;
@@ -728,14 +735,16 @@ fn main() -> Result<()> {
         };
         if processed_count % 5 == 0 || current_percent >= last_progress_update + 10 || processed_count == total_games {
             let progress_percent = 30.0 + (processed_count as f64 / total_games.max(1) as f64) * 50.0;
+            let game_msg = format!("Processing game {}/{}", processed_count, total_games);
             write_progress(
                 progress_path.as_deref(),
                 "matching",
-                &format!("Processing game {}/{}", processed_count, total_games),
+                &game_msg,
                 progress_percent,
                 processed_count,
                 total_games,
             )?;
+            reporter.emit_progress(progress_percent, &game_msg);
             last_progress_update = current_percent;
         }
 
@@ -784,6 +793,7 @@ fn main() -> Result<()> {
     if !incremental_mode {
         eprintln!("\n=== Phase 4: Detecting Non-Game Services ===");
         write_progress(progress_path.as_deref(), "services", "Detecting non-game services", 80.0, 0, 0)?;
+        reporter.emit_progress(80.0, "Detecting non-game services");
 
         let services_map = query_service_downloads(&db_path)?;
         let total_services = services_map.len();
@@ -795,14 +805,16 @@ fn main() -> Result<()> {
 
             // Update progress for services (80-90%)
             let service_percent = 80.0 + (services_processed as f64 / total_services.max(1) as f64) * 10.0;
+            let svc_msg = format!("Processing service {}/{}: {}", services_processed, total_services, service_name);
             write_progress(
                 progress_path.as_deref(),
                 "services",
-                &format!("Processing service {}/{}: {}", services_processed, total_services, service_name),
+                &svc_msg,
                 service_percent,
                 services_processed,
                 total_services,
             )?;
+            reporter.emit_progress(service_percent, &svc_msg);
 
             match detect_cache_files_for_service(&service_name, &service_urls, cache_files_index.as_ref().unwrap()) {
                 Ok(info) => {
@@ -835,6 +847,7 @@ fn main() -> Result<()> {
     } else {
         eprintln!("\n=== Skipping Service Detection (Incremental Mode) ===");
         write_progress(progress_path.as_deref(), "services", "Skipping service detection (incremental mode)", 90.0, 0, 0)?;
+        reporter.emit_progress(90.0, "Skipping service detection (incremental mode)");
     }
 
     let report = DetectionReport {
@@ -846,6 +859,7 @@ fn main() -> Result<()> {
 
     // Writing output (90-100%)
     write_progress(progress_path.as_deref(), "writing", "Writing detection report", 90.0, 0, 0)?;
+    reporter.emit_progress(90.0, "Writing detection report");
 
     let json = serde_json::to_string_pretty(&report)?;
     fs::write(&output_json, json)?;
