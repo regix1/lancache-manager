@@ -37,8 +37,13 @@ public class DatabaseController : ControllerBase
     public async Task<IActionResult> ResetDatabase()
     {
         var started = await _rustDatabaseResetService.StartDatabaseResetAsync();
-        var operationId = Guid.NewGuid().ToString();
-        _logger.LogInformation("Started full database reset operation: {OperationId}, Started: {Started}", operationId, started);
+        if (!started)
+        {
+            return Conflict(new ErrorResponse { Error = "Database reset is already running" });
+        }
+
+        var operationId = _rustDatabaseResetService.CurrentOperationId ?? Guid.NewGuid().ToString();
+        _logger.LogInformation("Started full database reset operation: {OperationId}, Started: {Started}", operationId, true);
 
         return Accepted(new DatabaseResetStartResponse
         {

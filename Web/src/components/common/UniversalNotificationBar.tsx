@@ -36,7 +36,9 @@ const CANCEL_TOOLTIP_KEYS: Record<string, string> = {
   log_processing: 'common.notifications.cancelLogProcessing',
   game_detection: 'common.notifications.cancelGameDetection',
   game_removal: 'common.notifications.cancelGameRemoval',
-  service_removal: 'common.notifications.cancelServiceRemoval'
+  service_removal: 'common.notifications.cancelServiceRemoval',
+  database_reset: 'common.notifications.cancelDatabaseReset',
+  data_import: 'common.notifications.cancelDataImport'
 };
 
 // ============================================================================

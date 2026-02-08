@@ -19,12 +19,15 @@ public class RustDatabaseResetService
     private readonly CacheManagementService _cacheManagementService;
     private readonly ProcessManager _processManager;
     private readonly RustProcessHelper _rustProcessHelper;
+    private readonly IUnifiedOperationTracker _operationTracker;
     private Process? _rustProcess;
     private CancellationTokenSource? _cancellationTokenSource;
+    private string? _currentTrackerOperationId;
     private Task? _progressMonitorTask;
     private readonly SemaphoreSlim _startLock = new(1, 1);
 
     public bool IsProcessing { get; private set; }
+    public string? CurrentOperationId => _currentTrackerOperationId;
 
     public RustDatabaseResetService(
         ILogger<RustDatabaseResetService> logger,
@@ -32,7 +35,8 @@ public class RustDatabaseResetService
         ISignalRNotificationService notifications,
         CacheManagementService cacheManagementService,
         ProcessManager processManager,
-        RustProcessHelper rustProcessHelper)
+        RustProcessHelper rustProcessHelper,
+        IUnifiedOperationTracker operationTracker)
     {
         _logger = logger;
         _pathResolver = pathResolver;
@@ -40,6 +44,7 @@ public class RustDatabaseResetService
         _cacheManagementService = cacheManagementService;
         _processManager = processManager;
         _rustProcessHelper = rustProcessHelper;
+        _operationTracker = operationTracker;
     }
 
     public class ProgressData
@@ -153,6 +158,20 @@ public class RustDatabaseResetService
         {
             _cancellationTokenSource = new CancellationTokenSource();
 
+            // Register the operation with the unified tracker
+            _currentTrackerOperationId = _operationTracker.RegisterOperation(
+                OperationType.DatabaseReset,
+                "Database Reset",
+                _cancellationTokenSource
+            );
+
+            // Send started event
+            await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetStarted, new
+            {
+                OperationId = _currentTrackerOperationId,
+                Message = "Starting database reset..."
+            });
+
             var dbPath = _pathResolver.GetDatabasePath();
             var dataDirectory = _pathResolver.GetDataDirectory();
             var operationsDir = _pathResolver.GetOperationsDirectory();
@@ -172,6 +191,7 @@ public class RustDatabaseResetService
             // Send initial progress
             await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
             {
+                OperationId = _currentTrackerOperationId,
                 isProcessing = true,
                 percentComplete = 0.0,
                 status = "starting",
@@ -230,12 +250,18 @@ public class RustDatabaseResetService
                         // Fallback completion message
                         await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
                         {
+                            OperationId = _currentTrackerOperationId,
                             isProcessing = false,
                             percentComplete = 100.0,
                             status = OperationStatus.Completed,
                             message = "Database reset completed successfully",
                             timestamp = DateTime.UtcNow
                         });
+                    }
+
+                    if (!string.IsNullOrEmpty(_currentTrackerOperationId))
+                    {
+                        _operationTracker.CompleteOperation(_currentTrackerOperationId, success: true);
                     }
                 }
 
@@ -261,6 +287,7 @@ public class RustDatabaseResetService
                 {
                     await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
                     {
+                        OperationId = _currentTrackerOperationId,
                         isProcessing = false,
                         percentComplete = 0.0,
                         status = "error",
@@ -268,26 +295,59 @@ public class RustDatabaseResetService
                         timestamp = DateTime.UtcNow
                     });
 
+                    if (!string.IsNullOrEmpty(_currentTrackerOperationId))
+                    {
+                        _operationTracker.CompleteOperation(_currentTrackerOperationId, success: false, error: $"Database reset failed with exit code {exitCode}");
+                    }
+
                     return false;
                 }
             }, _cancellationTokenSource.Token); // Close ExecuteWithLockAsync lambda
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("Database reset was cancelled by user");
+            await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
+            {
+                OperationId = _currentTrackerOperationId,
+                isProcessing = false,
+                percentComplete = 0.0,
+                status = OperationStatus.Cancelled,
+                message = "Database reset was cancelled",
+                timestamp = DateTime.UtcNow
+            });
+
+            if (!string.IsNullOrEmpty(_currentTrackerOperationId))
+            {
+                _operationTracker.CompleteOperation(_currentTrackerOperationId, success: false, error: "Cancelled by user");
+            }
+
+            return false;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error starting rust database reset");
             await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
             {
+                OperationId = _currentTrackerOperationId,
                 isProcessing = false,
                 percentComplete = 0.0,
                 status = "error",
                 message = $"Database reset failed: {ex.Message}",
                 timestamp = DateTime.UtcNow
             });
+
+            if (!string.IsNullOrEmpty(_currentTrackerOperationId))
+            {
+                _operationTracker.CompleteOperation(_currentTrackerOperationId, success: false, error: ex.Message);
+            }
+
             return false;
         }
         finally
         {
             IsProcessing = false;
+            _currentTrackerOperationId = null;
             _cancellationTokenSource?.Dispose();
             _rustProcess?.Dispose();
         }

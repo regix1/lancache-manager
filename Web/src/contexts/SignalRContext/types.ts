@@ -184,7 +184,17 @@ export interface LogProcessingCompleteEvent {
   elapsed?: number;
 }
 
+// Log Processing Started Event
+export interface LogProcessingStartedEvent {
+  operationId: string;
+  message: string;
+}
 // Standardized Log Removal Events
+export interface LogRemovalStartedEvent {
+  operationId: string;
+  message: string;
+  service?: string;
+}
 
 export interface LogRemovalProgressEvent {
   operationId: string;
@@ -212,6 +222,12 @@ export interface LogRemovalCompleteEvent {
   datasource?: string;
 }
 
+export interface GameRemovalStartedEvent {
+  operationId: string;
+  message: string;
+  gameAppId?: number;
+  gameName?: string;
+}
 export interface GameRemovalProgressEvent {
   operationId: string;
   percentComplete: number;
@@ -234,6 +250,11 @@ export interface GameRemovalCompleteEvent {
   logEntriesRemoved?: number;
 }
 
+export interface ServiceRemovalStartedEvent {
+  operationId: string;
+  message: string;
+  serviceName: string;
+}
 export interface ServiceRemovalProgressEvent {
   operationId: string;
   percentComplete: number;
@@ -333,6 +354,11 @@ export interface GameDetectionCompleteEvent {
   totalServicesDetected?: number;
 }
 
+// Database Reset Events
+export interface DatabaseResetStartedEvent {
+  operationId: string;
+  message: string;
+}
 export interface DatabaseResetProgressEvent {
   operationId: string;
   percentComplete: number;

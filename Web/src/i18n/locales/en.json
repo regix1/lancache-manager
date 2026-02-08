@@ -160,6 +160,8 @@
       "cancelServiceRemoval": "Cancel service removal",
       "cancelLogProcessing": "Cancel log processing",
       "cancelLogRemoval": "Cancel log removal",
+      "cancelDatabaseReset": "Cancel database reset",
+      "cancelDataImport": "Cancel data import",
       "cancelOperationAria": "Cancel operation",
       "cancelling": "Cancelling...",
       "corruptedChunksRemoved": "Corrupted chunks successfully removed",

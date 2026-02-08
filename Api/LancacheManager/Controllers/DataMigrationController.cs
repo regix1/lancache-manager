@@ -329,6 +329,9 @@ public class DataMigrationController : ControllerBase
             var offset = 0;
             while (true)
             {
+                // Check for cancellation between batches
+                cts.Token.ThrowIfCancellationRequested();
+
                 // Read batch from source
                 using var readCmd = sourceConn.CreateCommand();
                 readCmd.CommandText = @"
@@ -485,6 +488,31 @@ public class DataMigrationController : ControllerBase
             return Ok(new MigrationImportResponse
             {
                 Message = $"Import completed: {recordsImported} imported, {recordsSkipped} skipped, {recordsErrors} errors",
+                TotalRecords = totalRecords,
+                Imported = recordsImported,
+                Skipped = recordsSkipped,
+                Errors = recordsErrors,
+                BackupPath = backupPath
+            });
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("LancacheManager import was cancelled by user");
+            _operationTracker.CompleteOperation(operationId, false, "Cancelled by user");
+            await _notifications.NotifyAllAsync(SignalREvents.DataImportComplete, new
+            {
+                OperationId = operationId,
+                Success = false,
+                Message = "Import was cancelled",
+                RecordsImported = recordsImported,
+                RecordsSkipped = recordsSkipped,
+                RecordsErrors = recordsErrors,
+                TotalRecords = totalRecords
+            });
+
+            return Ok(new MigrationImportResponse
+            {
+                Message = $"Import cancelled: {recordsImported} imported before cancellation",
                 TotalRecords = totalRecords,
                 Imported = recordsImported,
                 Skipped = recordsSkipped,

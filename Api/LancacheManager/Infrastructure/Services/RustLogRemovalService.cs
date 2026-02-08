@@ -157,8 +157,8 @@ public class RustLogRemovalService
 
             // Register with unified operation tracker for centralized cancellation
             _currentTrackerOperationId = _operationTracker.RegisterOperation(
-                OperationType.ServiceRemoval,
-                "Service Removal",
+                OperationType.LogRemoval,
+                "Log Removal",
                 _cancellationTokenSource,
                 new { service }
             );
@@ -564,8 +564,8 @@ public class RustLogRemovalService
 
             // Register with unified operation tracker for centralized cancellation
             _currentTrackerOperationId = _operationTracker.RegisterOperation(
-                OperationType.ServiceRemoval,
-                "Service Removal",
+                OperationType.LogRemoval,
+                "Log Removal",
                 _cancellationTokenSource,
                 new { service, datasourceName }
             );

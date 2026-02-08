@@ -30,7 +30,12 @@ import type {
   ShowToastEvent,
   DataImportStartedEvent,
   DataImportProgressEvent,
-  DataImportCompleteEvent
+  DataImportCompleteEvent,
+  LogProcessingStartedEvent,
+  LogRemovalStartedEvent,
+  GameRemovalStartedEvent,
+  ServiceRemovalStartedEvent,
+  DatabaseResetStartedEvent
 } from '../SignalRContext/types';
 
 import type { UnifiedNotification, NotificationsContextType } from './types';
@@ -280,6 +285,19 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
   // SignalR Event Handlers
   React.useEffect(() => {
     // ========== Log Processing (using status-aware factory for proper completion handling) ==========
+    const handleLogProcessingStarted = createStartedHandler<LogProcessingStartedEvent>(
+      {
+        type: 'log_processing',
+        getId: () => NOTIFICATION_IDS.LOG_PROCESSING,
+        storageKey: NOTIFICATION_STORAGE_KEYS.LOG_PROCESSING,
+        defaultMessage: 'Starting log processing...',
+        getMessage: (e) => e.message || 'Starting log processing...',
+        getDetails: (e) => ({ operationId: e.operationId })
+      },
+      setNotifications,
+      cancelAutoDismissTimer
+    );
+
     const handleProcessingProgress = createStatusAwareProgressHandler<ProcessingProgressEvent>(
       {
         type: 'log_processing',
@@ -311,6 +329,19 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     );
 
     // ========== Log Removal (using status-aware factory for proper completion handling) ==========
+    const handleLogRemovalStarted = createStartedHandler<LogRemovalStartedEvent>(
+      {
+        type: 'log_removal',
+        getId: () => NOTIFICATION_IDS.LOG_REMOVAL,
+        storageKey: NOTIFICATION_STORAGE_KEYS.LOG_REMOVAL,
+        defaultMessage: 'Starting log removal...',
+        getMessage: (e) => e.message || 'Starting log removal...',
+        getDetails: (e) => ({ operationId: e.operationId })
+      },
+      setNotifications,
+      cancelAutoDismissTimer
+    );
+
     const handleLogRemovalProgress = createStatusAwareProgressHandler<LogRemovalProgressEvent>(
       {
         type: 'log_removal',
@@ -345,6 +376,19 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     );
 
     // ========== Game Removal (using factory) ==========
+    const handleGameRemovalStarted = createStartedHandler<GameRemovalStartedEvent>(
+      {
+        type: 'game_removal',
+        getId: () => NOTIFICATION_IDS.GAME_REMOVAL,
+        storageKey: NOTIFICATION_STORAGE_KEYS.GAME_REMOVAL,
+        defaultMessage: 'Starting game removal...',
+        getMessage: (e) => e.message || 'Starting game removal...',
+        getDetails: (e) => ({ operationId: e.operationId })
+      },
+      setNotifications,
+      cancelAutoDismissTimer
+    );
+
     const handleGameRemovalProgress = createStatusAwareProgressHandler<GameRemovalProgressEvent>(
       {
         type: 'game_removal',
@@ -379,6 +423,19 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     );
 
     // ========== Service Removal (using factory) ==========
+    const handleServiceRemovalStarted = createStartedHandler<ServiceRemovalStartedEvent>(
+      {
+        type: 'service_removal',
+        getId: () => NOTIFICATION_IDS.SERVICE_REMOVAL,
+        storageKey: NOTIFICATION_STORAGE_KEYS.SERVICE_REMOVAL,
+        defaultMessage: 'Starting service removal...',
+        getMessage: (e) => e.message || 'Starting service removal...',
+        getDetails: (e) => ({ operationId: e.operationId })
+      },
+      setNotifications,
+      cancelAutoDismissTimer
+    );
+
     const handleServiceRemovalProgress = createStatusAwareProgressHandler<ServiceRemovalProgressEvent>(
       {
         type: 'service_removal',
@@ -551,6 +608,19 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     );
 
     // ========== Database Reset ==========
+    const handleDatabaseResetStarted = createStartedHandler<DatabaseResetStartedEvent>(
+      {
+        type: 'database_reset',
+        getId: () => NOTIFICATION_IDS.DATABASE_RESET,
+        storageKey: NOTIFICATION_STORAGE_KEYS.DATABASE_RESET,
+        defaultMessage: 'Starting database reset...',
+        getMessage: (e) => e.message || 'Starting database reset...',
+        getDetails: (e) => ({ operationId: e.operationId })
+      },
+      setNotifications,
+      cancelAutoDismissTimer
+    );
+
     const handleDatabaseResetProgress = createStatusAwareProgressHandler<DatabaseResetProgressEvent>(
       {
         type: 'database_reset',
@@ -774,12 +844,16 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
 
     // Subscribe to events
+    signalR.on('LogProcessingStarted', handleLogProcessingStarted);
     signalR.on('LogProcessingProgress', handleProcessingProgress);
     signalR.on('LogProcessingComplete', handleLogProcessingComplete);
+    signalR.on('LogRemovalStarted', handleLogRemovalStarted);
     signalR.on('LogRemovalProgress', handleLogRemovalProgress);
     signalR.on('LogRemovalComplete', handleLogRemovalComplete);
+    signalR.on('GameRemovalStarted', handleGameRemovalStarted);
     signalR.on('GameRemovalProgress', handleGameRemovalProgress);
     signalR.on('GameRemovalComplete', handleGameRemovalComplete);
+    signalR.on('ServiceRemovalStarted', handleServiceRemovalStarted);
     signalR.on('ServiceRemovalProgress', handleServiceRemovalProgress);
     signalR.on('ServiceRemovalComplete', handleServiceRemovalComplete);
     signalR.on('CorruptionRemovalStarted', handleCorruptionRemovalStarted);
@@ -791,6 +865,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     signalR.on('CorruptionDetectionStarted', handleCorruptionDetectionStarted);
     signalR.on('CorruptionDetectionProgress', handleCorruptionDetectionProgress);
     signalR.on('CorruptionDetectionComplete', handleCorruptionDetectionComplete);
+    signalR.on('DatabaseResetStarted', handleDatabaseResetStarted);
     signalR.on('DatabaseResetProgress', handleDatabaseResetProgress);
     signalR.on('CacheClearingStarted', handleCacheClearingStarted);
     signalR.on('CacheClearingProgress', handleCacheClearProgress);
@@ -804,12 +879,16 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     signalR.on('SteamSessionError', handleSteamSessionError);
 
     return () => {
+      signalR.off('LogProcessingStarted', handleLogProcessingStarted);
       signalR.off('LogProcessingProgress', handleProcessingProgress);
       signalR.off('LogProcessingComplete', handleLogProcessingComplete);
+      signalR.off('LogRemovalStarted', handleLogRemovalStarted);
       signalR.off('LogRemovalProgress', handleLogRemovalProgress);
       signalR.off('LogRemovalComplete', handleLogRemovalComplete);
+      signalR.off('GameRemovalStarted', handleGameRemovalStarted);
       signalR.off('GameRemovalProgress', handleGameRemovalProgress);
       signalR.off('GameRemovalComplete', handleGameRemovalComplete);
+      signalR.off('ServiceRemovalStarted', handleServiceRemovalStarted);
       signalR.off('ServiceRemovalProgress', handleServiceRemovalProgress);
       signalR.off('ServiceRemovalComplete', handleServiceRemovalComplete);
       signalR.off('CorruptionRemovalStarted', handleCorruptionRemovalStarted);
@@ -821,6 +900,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       signalR.off('CorruptionDetectionStarted', handleCorruptionDetectionStarted);
       signalR.off('CorruptionDetectionProgress', handleCorruptionDetectionProgress);
       signalR.off('CorruptionDetectionComplete', handleCorruptionDetectionComplete);
+      signalR.off('DatabaseResetStarted', handleDatabaseResetStarted);
       signalR.off('DatabaseResetProgress', handleDatabaseResetProgress);
       signalR.off('CacheClearingStarted', handleCacheClearingStarted);
       signalR.off('CacheClearingProgress', handleCacheClearProgress);

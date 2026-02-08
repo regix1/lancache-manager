@@ -10,5 +10,7 @@ public enum OperationType
     GameRemoval,
     ServiceRemoval,
     DepotMapping,
-    DataImport
+    DataImport,
+    DatabaseReset,
+    LogRemoval
 }
