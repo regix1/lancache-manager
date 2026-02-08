@@ -752,8 +752,17 @@ public class CacheController : ControllerBase
 
         _logger.LogInformation("Starting background service removal for: {Service}", name);
 
-        // Start tracking this removal operation
-        _removalTracker.StartServiceRemoval(name);
+        var operationId = Guid.NewGuid().ToString();
+
+        // Create CancellationTokenSource for this operation
+        var cts = new CancellationTokenSource();
+
+        // Start tracking this removal operation with CancellationTokenSource
+        _removalTracker.StartServiceRemoval(name, operationId, cts);
+
+        // Send start notification via SignalR
+        _notifications.NotifyAllFireAndForget(SignalREvents.ServiceRemovalStarted,
+            new ServiceRemovalStarted(name, operationId, $"Starting removal of {name}...", DateTime.UtcNow));
 
         // Fire-and-forget background removal with SignalR notification
         _ = Task.Run(async () =>
@@ -762,12 +771,12 @@ public class CacheController : ControllerBase
             {
                 // Send starting notification
                 await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalProgress,
-                    new ServiceRemovalProgress(name, "starting", $"Starting removal of {name}..."));
+                    new ServiceRemovalProgress(name, operationId, "starting", $"Starting removal of {name}..."));
                 _removalTracker.UpdateServiceRemoval(name, "starting", $"Starting removal of {name}...");
 
                 // Send progress update
                 await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalProgress,
-                    new ServiceRemovalProgress(name, "removing_cache", $"Deleting cache files for {name}..."));
+                    new ServiceRemovalProgress(name, operationId, "removing_cache", $"Deleting cache files for {name}..."));
                 _removalTracker.UpdateServiceRemoval(name, "removing_cache", $"Deleting cache files for {name}...");
 
                 // Use CacheManagementService which actually deletes files via Rust binary
@@ -775,7 +784,7 @@ public class CacheController : ControllerBase
 
                 // Send progress update
                 await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalProgress,
-                    new ServiceRemovalProgress(name, "complete", "Finalizing removal...", report.CacheFilesDeleted, (long)report.TotalBytesFreed));
+                    new ServiceRemovalProgress(name, operationId, "complete", "Finalizing removal...", report.CacheFilesDeleted, (long)report.TotalBytesFreed));
                 _removalTracker.UpdateServiceRemoval(name, "complete", "Finalizing removal...", report.CacheFilesDeleted, (long)report.TotalBytesFreed);
 
                 // Also remove from detection cache so it doesn't show in UI
@@ -789,7 +798,7 @@ public class CacheController : ControllerBase
 
                 // Send SignalR notification on success
                 await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalComplete,
-                    new ServiceRemovalComplete(true, name, $"Successfully removed {name} service from cache", report.CacheFilesDeleted, (long)report.TotalBytesFreed, report.LogEntriesRemoved));
+                    new ServiceRemovalComplete(true, name, operationId, $"Successfully removed {name} service from cache", report.CacheFilesDeleted, (long)report.TotalBytesFreed, report.LogEntriesRemoved));
             }
             catch (Exception ex)
             {
@@ -797,20 +806,21 @@ public class CacheController : ControllerBase
 
                 // Send error status notification
                 await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalProgress,
-                    new ServiceRemovalProgress(name, "error", $"Error removing {name}: {ex.Message}"));
+                    new ServiceRemovalProgress(name, operationId, "error", $"Error removing {name}: {ex.Message}"));
 
                 // Complete tracking with error
                 _removalTracker.CompleteServiceRemoval(name, false, error: "Operation failed. Check server logs for details.");
 
                 // Send SignalR notification on failure
                 await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalComplete,
-                    new ServiceRemovalComplete(false, name, $"Failed to remove {name} service. Check server logs for details."));
+                    new ServiceRemovalComplete(false, name, operationId, $"Failed to remove {name} service. Check server logs for details."));
             }
         });
 
         return Accepted(new CacheOperationResponse
         {
             Message = $"Started removal of {name} service from cache",
+            OperationId = operationId,
             ServiceName = name,
             Status = "running"
         });

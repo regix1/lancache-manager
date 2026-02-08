@@ -6,6 +6,7 @@ namespace LancacheManager.Models;
 public class GameRemovalStartResponse
 {
     public string Message { get; set; } = string.Empty;
+    public string OperationId { get; set; } = string.Empty;
     public int AppId { get; set; }
     public string GameName { get; set; } = string.Empty;
     public string Status { get; set; } = "running";

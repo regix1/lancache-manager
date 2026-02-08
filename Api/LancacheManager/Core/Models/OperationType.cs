@@ -7,6 +7,7 @@ public enum OperationType
     CorruptionDetection,
     GameDetection,
     LogProcessing,
+    GameRemoval,
     ServiceRemoval,
     DepotMapping,
     DataImport

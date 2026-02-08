@@ -129,10 +129,16 @@ public class RemovalOperationTracker
 
     #region Service Removal Operations
 
-    public void StartServiceRemoval(string serviceName)
+    public void StartServiceRemoval(string serviceName, string operationId, CancellationTokenSource? cts = null)
     {
         var key = serviceName.ToLowerInvariant();
-        StartRemoval(RemovalOperationType.Service, key, key, serviceName, $"Removing {serviceName}...");
+        StartRemoval(RemovalOperationType.Service, key, operationId, serviceName, $"Removing {serviceName}...");
+
+        // Store the CancellationTokenSource for cancellation support
+        if (cts != null && _operations.TryGetValue((RemovalOperationType.Service, key), out var operation))
+        {
+            operation.CancellationTokenSource = cts;
+        }
     }
 
     public void UpdateServiceRemoval(string serviceName, string status, string message, int? filesDeleted = null, long? bytesFreed = null)
@@ -142,7 +148,14 @@ public class RemovalOperationTracker
 
     public void CompleteServiceRemoval(string serviceName, bool success, int filesDeleted = 0, long bytesFreed = 0, string? error = null)
     {
-        CompleteRemoval(RemovalOperationType.Service, serviceName.ToLowerInvariant(), success, filesDeleted, bytesFreed, error);
+        var key = serviceName.ToLowerInvariant();
+        // Dispose the CancellationTokenSource when completing
+        if (_operations.TryGetValue((RemovalOperationType.Service, key), out var operation))
+        {
+            operation.CancellationTokenSource?.Dispose();
+            operation.CancellationTokenSource = null;
+        }
+        CompleteRemoval(RemovalOperationType.Service, key, success, filesDeleted, bytesFreed, error);
     }
 
     public RemovalOperation? GetServiceRemovalStatus(string serviceName)
@@ -153,6 +166,31 @@ public class RemovalOperationTracker
     public IEnumerable<RemovalOperation> GetActiveServiceRemovals()
     {
         return GetActiveRemovals(RemovalOperationType.Service);
+    }
+
+    public bool CancelServiceRemoval(string serviceName)
+    {
+        var key = serviceName.ToLowerInvariant();
+        if (_operations.TryGetValue((RemovalOperationType.Service, key), out var operation))
+        {
+            if (operation.CancellationTokenSource != null)
+            {
+                // If cancellation was already requested, return true (idempotent)
+                // This prevents 404 errors when user clicks cancel button multiple times
+                if (operation.CancellationTokenSource.IsCancellationRequested)
+                {
+                    _logger.LogDebug("Cancellation already in progress for service removal: {Service}", serviceName);
+                    return true;
+                }
+
+                _logger.LogInformation("Requesting cancellation for service removal: {Service}", serviceName);
+                operation.CancellationTokenSource.Cancel();
+                operation.Status = OperationStatus.Cancelling;
+                operation.Message = "Cancellation requested...";
+                return true;
+            }
+        }
+        return false;
     }
 
     #endregion

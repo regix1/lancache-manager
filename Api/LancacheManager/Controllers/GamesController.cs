@@ -1,4 +1,5 @@
 using LancacheManager.Models;
+using LancacheManager.Core.Models;
 using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
 using LancacheManager.Core.Interfaces;
@@ -23,6 +24,7 @@ public class GamesController : ControllerBase
     private readonly ISignalRNotificationService _notifications;
     private readonly ILogger<GamesController> _logger;
     private readonly IPathResolver _pathResolver;
+    private readonly IUnifiedOperationTracker _operationTracker;
 
     public GamesController(
         GameCacheDetectionService gameCacheDetectionService,
@@ -30,7 +32,8 @@ public class GamesController : ControllerBase
         RemovalOperationTracker removalTracker,
         ISignalRNotificationService notifications,
         ILogger<GamesController> logger,
-        IPathResolver pathResolver)
+        IPathResolver pathResolver,
+        IUnifiedOperationTracker operationTracker)
     {
         _gameCacheDetectionService = gameCacheDetectionService;
         _cacheManagementService = cacheManagementService;
@@ -38,6 +41,7 @@ public class GamesController : ControllerBase
         _notifications = notifications;
         _logger = logger;
         _pathResolver = pathResolver;
+        _operationTracker = operationTracker;
     }
 
     /// <summary>
@@ -76,27 +80,49 @@ public class GamesController : ControllerBase
         // Start tracking this removal operation
         _removalTracker.StartGameRemoval(appId, gameName);
 
+        // Create a CancellationTokenSource for cancel support
+        var cancellationTokenSource = new CancellationTokenSource();
+
+        // Register with unified operation tracker for centralized cancellation
+        var operationId = _operationTracker.RegisterOperation(
+            OperationType.GameRemoval,
+            $"Game Removal: {gameName}",
+            cancellationTokenSource,
+            new { gameAppId = appId, gameName }
+        );
+
+        // Send GameRemovalStarted event
+        await _notifications.NotifyAllAsync(SignalREvents.GameRemovalStarted,
+            new GameRemovalStarted(operationId, appId, gameName, $"Starting removal of {gameName}...", DateTime.UtcNow));
+
         // Fire-and-forget background removal with SignalR notification
+        var cancellationToken = cancellationTokenSource.Token;
         _ = Task.Run(async () =>
         {
             try
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 // Send starting notification
                 await _notifications.NotifyAllAsync(SignalREvents.GameRemovalProgress,
-                    new GameRemovalProgress(appId, gameName, "starting", $"Starting removal of {gameName}..."));
+                    new GameRemovalProgress(operationId, appId, gameName, "starting", $"Starting removal of {gameName}..."));
                 _removalTracker.UpdateGameRemoval(appId, "starting", $"Starting removal of {gameName}...");
+
+                cancellationToken.ThrowIfCancellationRequested();
 
                 // Send progress update
                 await _notifications.NotifyAllAsync(SignalREvents.GameRemovalProgress,
-                    new GameRemovalProgress(appId, gameName, "removing_cache", $"Deleting cache files for {gameName}..."));
+                    new GameRemovalProgress(operationId, appId, gameName, "removing_cache", $"Deleting cache files for {gameName}..."));
                 _removalTracker.UpdateGameRemoval(appId, "removing_cache", $"Deleting cache files for {gameName}...");
 
                 // Use CacheManagementService which actually deletes files via Rust binary
-                var report = await _cacheManagementService.RemoveGameFromCache((uint)appId);
+                var report = await _cacheManagementService.RemoveGameFromCache((uint)appId, cancellationToken);
+
+                cancellationToken.ThrowIfCancellationRequested();
 
                 // Send progress update
                 await _notifications.NotifyAllAsync(SignalREvents.GameRemovalProgress,
-                    new GameRemovalProgress(appId, gameName, "complete", "Finalizing removal...", report.CacheFilesDeleted, (long)report.TotalBytesFreed));
+                    new GameRemovalProgress(operationId, appId, gameName, "complete", "Finalizing removal...", report.CacheFilesDeleted, (long)report.TotalBytesFreed));
                 _removalTracker.UpdateGameRemoval(appId, "complete", "Finalizing removal...", report.CacheFilesDeleted, (long)report.TotalBytesFreed);
 
                 // Also remove from detection cache so it doesn't show in UI
@@ -108,9 +134,26 @@ public class GamesController : ControllerBase
                 // Complete tracking
                 _removalTracker.CompleteGameRemoval(appId, true, report.CacheFilesDeleted, (long)report.TotalBytesFreed);
 
+                // Mark operation as complete in unified tracker
+                _operationTracker.CompleteOperation(operationId, success: true);
+
                 // Send SignalR notification on success
                 await _notifications.NotifyAllAsync(SignalREvents.GameRemovalComplete,
-                    new GameRemovalComplete(true, appId, gameName, $"Successfully removed {gameName} from cache", report.CacheFilesDeleted, (long)report.TotalBytesFreed, report.LogEntriesRemoved));
+                    new GameRemovalComplete(true, operationId, appId, gameName, $"Successfully removed {gameName} from cache", report.CacheFilesDeleted, (long)report.TotalBytesFreed, report.LogEntriesRemoved));
+            }
+            catch (OperationCanceledException)
+            {
+                _logger.LogInformation("Game removal cancelled for AppId: {AppId}", appId);
+
+                // Complete tracking with cancellation
+                _removalTracker.CompleteGameRemoval(appId, false, error: "Cancelled by user");
+
+                // Mark operation as complete (cancelled) in unified tracker
+                _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
+
+                // Send SignalR notification on cancellation
+                await _notifications.NotifyAllAsync(SignalREvents.GameRemovalComplete,
+                    new GameRemovalComplete(false, operationId, appId, gameName, $"Removal of {gameName} was cancelled"));
             }
             catch (Exception ex)
             {
@@ -118,20 +161,24 @@ public class GamesController : ControllerBase
 
                 // Send error status notification
                 await _notifications.NotifyAllAsync(SignalREvents.GameRemovalProgress,
-                    new GameRemovalProgress(appId, gameName, "error", $"Error removing {gameName}: {ex.Message}"));
+                    new GameRemovalProgress(operationId, appId, gameName, "error", $"Error removing {gameName}: {ex.Message}"));
 
                 // Complete tracking with error
                 _removalTracker.CompleteGameRemoval(appId, false, error: ex.Message);
 
+                // Mark operation as complete (failed) in unified tracker
+                _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
+
                 // Send SignalR notification on failure
                 await _notifications.NotifyAllAsync(SignalREvents.GameRemovalComplete,
-                    new GameRemovalComplete(false, appId, Message: $"Failed to remove game {appId}: {ex.Message}"));
+                    new GameRemovalComplete(false, operationId, appId, Message: $"Failed to remove game {appId}: {ex.Message}"));
             }
-        });
+        }, cancellationToken);
 
         return Accepted(new GameRemovalStartResponse
         {
             Message = $"Started removal of game {appId} from cache",
+            OperationId = operationId,
             AppId = appId,
             GameName = gameName,
             Status = "running"

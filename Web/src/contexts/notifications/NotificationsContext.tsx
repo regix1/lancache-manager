@@ -288,7 +288,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         getMessage: formatLogProcessingMessage,
         getProgress: (e) => Math.min(99.9, e.percentComplete || e.progress || 0),
         getStatus: (e) => e.status?.toLowerCase() === 'completed' ? 'completed' : undefined,
-        getCompletedMessage: (e) => formatLogProcessingCompletionMessage(e.entriesProcessed)
+        getCompletedMessage: (e) => formatLogProcessingCompletionMessage(e.entriesProcessed),
+        getDetails: (e) => ({ operationId: e.operationId })
       },
       setNotifications,
       scheduleAutoDismiss,
@@ -319,7 +320,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         getProgress: (e) => e.percentComplete || 0,
         getStatus: (e) => e.status === 'completed' ? 'completed' : e.status === 'error' ? 'failed' : undefined,
         getCompletedMessage: (e) => e.message || 'Log removal completed',
-        getErrorMessage: (e) => e.message || 'Log removal failed'
+        getErrorMessage: (e) => e.message || 'Log removal failed',
+        getDetails: (e) => ({ operationId: e.operationId })
       },
       setNotifications,
       scheduleAutoDismiss,
@@ -352,7 +354,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         getProgress: () => 0,
         getStatus: (e) => e.status === 'completed' ? 'completed' : e.status === 'error' ? 'failed' : undefined,
         getCompletedMessage: (e) => e.message || 'Game removal completed',
-        getErrorMessage: (e) => e.message || 'Game removal failed'
+        getErrorMessage: (e) => e.message || 'Game removal failed',
+        getDetails: (e) => ({ operationId: e.operationId })
       },
       setNotifications,
       scheduleAutoDismiss,
@@ -385,7 +388,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         getProgress: () => 0,
         getStatus: (e) => e.status === 'completed' ? 'completed' : e.status === 'error' ? 'failed' : undefined,
         getCompletedMessage: (e) => e.message || 'Service removal completed',
-        getErrorMessage: (e) => e.message || 'Service removal failed'
+        getErrorMessage: (e) => e.message || 'Service removal failed',
+        getDetails: (e) => ({ operationId: e.operationId })
       },
       setNotifications,
       scheduleAutoDismiss,
@@ -522,7 +526,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         getProgress: (e) => e.percentComplete || 0,
         getStatus: (e) => e.status === 'completed' ? 'completed' : (e.status === 'failed' || e.status === 'cancelled') ? 'failed' : undefined,
         getCompletedMessage: (e) => e.message || 'Corruption detection completed',
-        getErrorMessage: (e) => e.message || 'Corruption detection failed'
+        getErrorMessage: (e) => e.message || 'Corruption detection failed',
+        getDetails: (e) => ({ operationId: e.operationId })
       },
       setNotifications,
       scheduleAutoDismiss,

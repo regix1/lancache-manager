@@ -18,9 +18,21 @@ public static class SignalRNotifications
     #region Removal Notifications
 
     /// <summary>
+    /// Notification when game removal starts.
+    /// </summary>
+    public record GameRemovalStarted(
+        string OperationId,
+        int GameAppId,
+        string GameName,
+        string Message,
+        DateTime Timestamp
+    );
+
+    /// <summary>
     /// Notification for game removal progress updates.
     /// </summary>
     public record GameRemovalProgress(
+        string OperationId,
         int GameAppId,
         string GameName,
         string Status,
@@ -34,6 +46,7 @@ public static class SignalRNotifications
     /// </summary>
     public record GameRemovalComplete(
         bool Success,
+        string OperationId,
         int GameAppId,
         string? GameName = null,
         string? Message = null,
@@ -43,10 +56,21 @@ public static class SignalRNotifications
     ) : ICompletionNotification;
 
     /// <summary>
+    /// Notification when service removal starts.
+    /// </summary>
+    public record ServiceRemovalStarted(
+        string ServiceName,
+        string OperationId,
+        string Message,
+        DateTime Timestamp
+    );
+
+    /// <summary>
     /// Notification for service removal progress updates.
     /// </summary>
     public record ServiceRemovalProgress(
         string ServiceName,
+        string OperationId,
         string Status,
         string Message,
         int? FilesDeleted = null,
@@ -59,6 +83,7 @@ public static class SignalRNotifications
     public record ServiceRemovalComplete(
         bool Success,
         string ServiceName,
+        string OperationId,
         string? Message = null,
         int FilesDeleted = 0,
         long BytesFreed = 0,
