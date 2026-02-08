@@ -24,6 +24,22 @@ import { Tooltip } from '@components/ui/Tooltip';
 import { formatBytes } from '@utils/formatters';
 
 // ============================================================================
+// Cancellable Operation Types
+// ============================================================================
+
+const CANCEL_TOOLTIP_KEYS: Record<string, string> = {
+  cache_clearing: 'common.notifications.cancelCacheClearing',
+  log_removal: 'common.notifications.cancelLogRemoval',
+  depot_mapping: 'common.notifications.cancelDepotMapping',
+  corruption_removal: 'common.notifications.cancelCorruptionRemoval',
+  corruption_detection: 'common.notifications.cancelCorruptionDetection',
+  log_processing: 'common.notifications.cancelLogProcessing',
+  game_detection: 'common.notifications.cancelGameDetection',
+  game_removal: 'common.notifications.cancelGameRemoval',
+  service_removal: 'common.notifications.cancelServiceRemoval'
+};
+
+// ============================================================================
 // Cancel Handler
 // ============================================================================
 
@@ -372,15 +388,7 @@ const UnifiedNotificationItem = ({
       {/* Action buttons */}
       <div className="flex items-center gap-2 flex-shrink-0">
         {/* Cancel button for operations that support cancellation */}
-        {(notification.type === 'cache_clearing' ||
-          notification.type === 'log_removal' ||
-          notification.type === 'depot_mapping' ||
-          notification.type === 'corruption_removal' ||
-          notification.type === 'corruption_detection' ||
-          notification.type === 'log_processing' ||
-          notification.type === 'game_detection' ||
-          notification.type === 'game_removal' ||
-          notification.type === 'service_removal') &&
+        {notification.type in CANCEL_TOOLTIP_KEYS &&
           notification.status === 'running' &&
           onCancel &&
           (notification.details?.cancelling ? (
@@ -390,25 +398,7 @@ const UnifiedNotificationItem = ({
             </div>
           ) : (
             <Tooltip
-              content={
-                notification.type === 'cache_clearing'
-                  ? t('common.notifications.cancelCacheClearing')
-                  : notification.type === 'log_removal'
-                    ? t('common.notifications.cancelLogRemoval')
-                    : notification.type === 'corruption_removal'
-                      ? t('common.notifications.cancelCorruptionRemoval')
-                      : notification.type === 'corruption_detection'
-                        ? t('common.notifications.cancelCorruptionDetection')
-                        : notification.type === 'log_processing'
-                          ? t('common.notifications.cancelLogProcessing')
-                          : notification.type === 'game_detection'
-                            ? t('common.notifications.cancelGameDetection')
-                            : notification.type === 'game_removal'
-                              ? t('common.notifications.cancelGameRemoval')
-                              : notification.type === 'service_removal'
-                                ? t('common.notifications.cancelServiceRemoval')
-                                : t('common.notifications.cancelDepotMapping')
-              }
+              content={t(CANCEL_TOOLTIP_KEYS[notification.type])}
               position="left"
             >
               <button
@@ -514,20 +504,7 @@ const UniversalNotificationBar: React.FC = () => {
 
   // Create cancel handler for a notification
   const getCancelHandler = (notification: UnifiedNotification) => {
-    // Only cancellable notification types
-    const cancellableTypes = [
-      'cache_clearing',
-      'log_removal',
-      'depot_mapping',
-      'corruption_removal',
-      'corruption_detection',
-      'log_processing',
-      'game_detection',
-      'game_removal',
-      'service_removal'
-    ];
-
-    if (!cancellableTypes.includes(notification.type)) {
+    if (!(notification.type in CANCEL_TOOLTIP_KEYS)) {
       return undefined;
     }
 
