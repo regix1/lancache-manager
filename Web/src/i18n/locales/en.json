@@ -3091,6 +3091,7 @@
       "credentialsRequired": "Steam credentials required",
       "twoFactorRequired": "Two-factor authentication required",
       "emailCodeRequired": "Email verification code required",
+      "loadingGameLibrary": "Loading game library...",
       "foundGames": "Found {{count}} owned game",
       "foundGames_plural": "Found {{count}} owned games",
       "gamesCached": "{{count}} game already cached in lancache",

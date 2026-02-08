@@ -389,6 +389,12 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             }
             break;
           }
+          case 'select-apps': {
+            addLog('progress', t('prefill.log.loadingGameLibrary'));
+            setShowGameSelection(true);
+            await loadGames();
+            break;
+          }
           case 'clear-temp': {
             addLog('info', t('prefill.log.clearingTempCache'));
             try {
@@ -420,7 +426,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         setIsExecuting(false);
       }
     },
-    [signalR.session, signalR.hubConnection, signalR.expectedAppCountRef, signalR.timeRemaining, signalR.setError, callPrefillApi, selectedAppIds, addLog, t]
+    [signalR.session, signalR.hubConnection, signalR.expectedAppCountRef, signalR.timeRemaining, signalR.setError, callPrefillApi, selectedAppIds, addLog, loadGames, t]
   );
 
   const handleEndSession = useCallback(async () => {
@@ -587,15 +593,6 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
 
   const handleCommandClick = useCallback(
     (command: CommandType) => {
-      // select-apps only opens a modal and loads data - it should not
-      // set isExecuting which disables the entire panel.  The modal has
-      // its own isLoadingGames spinner, so we handle it separately.
-      if (command === 'select-apps') {
-        setShowGameSelection(true);
-        loadGames();
-        return;
-      }
-
       const requiresConfirmation = [
         'prefill',
         'prefill-all',
@@ -615,7 +612,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         executeCommand(command);
       }
     },
-    [executeCommand, fetchEstimatedSize, loadGames]
+    [executeCommand, fetchEstimatedSize]
   );
 
   const handleConfirmCommand = useCallback(() => {

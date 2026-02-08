@@ -57,9 +57,6 @@ export function PrefillCommandButtons({
   };
 
   const getCommandLabel = (cmd: CommandButton): string => {
-    if (cmd.id === 'prefill' && selectedAppIds.length > 0) {
-      return t('prefill.commands.prefillSelectedCount', { count: selectedAppIds.length });
-    }
     return t(`prefill.commands.${cmd.id}.label`);
   };
 
