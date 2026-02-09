@@ -25,6 +25,7 @@ public class DatabaseService : IDatabaseService
     private readonly DatasourceService _datasourceService;
     private readonly GuestSessionService _guestSessionService;
     private readonly DeviceAuthService _deviceAuthService;
+    private readonly IUnifiedOperationTracker _operationTracker;
     private static readonly ConcurrentDictionary<string, bool> _activeResetOperations = new();
     private static ResetProgressInfo _currentResetProgress = new();
 
@@ -48,7 +49,8 @@ public class DatabaseService : IDatabaseService
         StateService stateRepository,
         DatasourceService datasourceService,
         GuestSessionService guestSessionService,
-        DeviceAuthService deviceAuthService)
+        DeviceAuthService deviceAuthService,
+        IUnifiedOperationTracker operationTracker)
     {
         _context = context;
         _notifications = notifications;
@@ -60,6 +62,7 @@ public class DatabaseService : IDatabaseService
         _datasourceService = datasourceService;
         _guestSessionService = guestSessionService;
         _deviceAuthService = deviceAuthService;
+        _operationTracker = operationTracker;
     }
 
     public bool IsResetOperationRunning => _activeResetOperations.Any();
@@ -266,11 +269,18 @@ public class DatabaseService : IDatabaseService
     /// </summary>
     public string StartResetSelectedTablesAsync(List<string> tableNames)
     {
-        var operationId = Guid.NewGuid().ToString();
+        // Create cancellation support
+        var cts = new CancellationTokenSource();
+
+        // Register with unified operation tracker for cancel support
+        var operationId = _operationTracker.RegisterOperation(
+            OperationType.DatabaseReset,
+            "Database Reset",
+            cts);
 
         if (_activeResetOperations.TryAdd(operationId, true))
         {
-            _logger.LogInformation($"Starting background reset operation {operationId} for tables: {string.Join(", ", tableNames)}");
+            _logger.LogInformation("Starting background reset operation {OperationId} for tables: {Tables}", operationId, string.Join(", ", tableNames));
 
             // Initialize progress tracking
             _currentResetProgress = new ResetProgressInfo
@@ -281,8 +291,15 @@ public class DatabaseService : IDatabaseService
                 Status = "starting"
             };
 
-            // Start background task
-            _ = Task.Run(async () => await ResetSelectedTablesInternal(operationId, tableNames));
+            // Send started event via SignalR
+            _notifications.NotifyAllFireAndForget(SignalREvents.DatabaseResetStarted, new
+            {
+                OperationId = operationId,
+                Message = $"Starting reset of {tableNames.Count} table(s)..."
+            });
+
+            // Start background task with cancellation token
+            _ = Task.Run(async () => await ResetSelectedTablesInternal(operationId, tableNames, cts.Token));
         }
         else
         {
@@ -295,7 +312,7 @@ public class DatabaseService : IDatabaseService
     /// <summary>
     /// Internal method that performs the actual reset operation
     /// </summary>
-    private async Task ResetSelectedTablesInternal(string operationId, List<string> tableNames)
+    private async Task ResetSelectedTablesInternal(string operationId, List<string> tableNames, CancellationToken cancellationToken)
     {
         // Use a new DbContext from factory for background operation (don't use injected context)
         await using var context = await _dbContextFactory.CreateDbContextAsync();
@@ -307,6 +324,7 @@ public class DatabaseService : IDatabaseService
             // Send initial progress update
             await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
             {
+                operationId,
                 isProcessing = true,
                 percentComplete = 0.0,
                 status = "starting",
@@ -323,6 +341,7 @@ public class DatabaseService : IDatabaseService
                 _logger.LogWarning("No valid tables selected for reset");
                 await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
                 {
+                    operationId,
                     isProcessing = false,
                     percentComplete = 0.0,
                     status = "error",
@@ -426,6 +445,7 @@ public class DatabaseService : IDatabaseService
 
                 foreach (var tableName in orderedTables)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     _logger.LogInformation($"Clearing table: {tableName}");
 
                     switch (tableName)
@@ -441,6 +461,7 @@ public class DatabaseService : IDatabaseService
 
                             while (true)
                             {
+                                cancellationToken.ThrowIfCancellationRequested();
                                 // Delete a batch using raw SQL for efficiency
                                 // SQLite doesn't support LIMIT in DELETE, so we use a subquery
                                 var deleted = await context.Database.ExecuteSqlRawAsync(
@@ -468,6 +489,7 @@ public class DatabaseService : IDatabaseService
 
                                 await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
                                 {
+                                    operationId,
                                     isProcessing = true,
                                     percentComplete = progressPercent,
                                     status = "deleting",
@@ -494,6 +516,7 @@ public class DatabaseService : IDatabaseService
 
                             await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
                             {
+                                operationId,
                                 isProcessing = true,
                                 percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
                                 status = "deleting",
@@ -510,6 +533,7 @@ public class DatabaseService : IDatabaseService
 
                             await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
                             {
+                                operationId,
                                 isProcessing = true,
                                 percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
                                 status = "deleting",
@@ -526,6 +550,7 @@ public class DatabaseService : IDatabaseService
 
                             await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
                             {
+                                operationId,
                                 isProcessing = true,
                                 percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
                                 status = "deleting",
@@ -542,6 +567,7 @@ public class DatabaseService : IDatabaseService
 
                             await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
                             {
+                                operationId,
                                 isProcessing = true,
                                 percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
                                 status = "deleting",
@@ -583,6 +609,7 @@ public class DatabaseService : IDatabaseService
 
                             await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
                             {
+                                operationId,
                                 isProcessing = true,
                                 percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
                                 status = "deleting",
@@ -600,6 +627,7 @@ public class DatabaseService : IDatabaseService
 
                             await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
                             {
+                                operationId,
                                 isProcessing = true,
                                 percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
                                 status = "deleting",
@@ -616,6 +644,7 @@ public class DatabaseService : IDatabaseService
 
                             await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
                             {
+                                operationId,
                                 isProcessing = true,
                                 percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
                                 status = "deleting",
@@ -656,6 +685,7 @@ public class DatabaseService : IDatabaseService
 
                             await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
                             {
+                                operationId,
                                 isProcessing = true,
                                 percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
                                 status = "deleting",
@@ -686,6 +716,7 @@ public class DatabaseService : IDatabaseService
 
                             await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
                             {
+                                operationId,
                                 isProcessing = true,
                                 percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
                                 status = "deleting",
@@ -709,6 +740,7 @@ public class DatabaseService : IDatabaseService
 
                             await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
                             {
+                                operationId,
                                 isProcessing = true,
                                 percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
                                 status = "deleting",
@@ -725,6 +757,7 @@ public class DatabaseService : IDatabaseService
 
                             await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
                             {
+                                operationId,
                                 isProcessing = true,
                                 percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
                                 status = "deleting",
@@ -742,6 +775,7 @@ public class DatabaseService : IDatabaseService
 
                             await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
                             {
+                                operationId,
                                 isProcessing = true,
                                 percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
                                 status = "deleting",
@@ -766,6 +800,7 @@ public class DatabaseService : IDatabaseService
 
                             await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
                             {
+                                operationId,
                                 isProcessing = true,
                                 percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
                                 status = "deleting",
@@ -789,6 +824,7 @@ public class DatabaseService : IDatabaseService
 
                             await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
                             {
+                                operationId,
                                 isProcessing = true,
                                 percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
                                 status = "deleting",
@@ -812,6 +848,7 @@ public class DatabaseService : IDatabaseService
 
                             await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
                             {
+                                operationId,
                                 isProcessing = true,
                                 percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
                                 status = "deleting",
@@ -828,6 +865,7 @@ public class DatabaseService : IDatabaseService
 
                             await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
                             {
+                                operationId,
                                 isProcessing = true,
                                 percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
                                 status = "deleting",
@@ -844,6 +882,7 @@ public class DatabaseService : IDatabaseService
 
                             await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
                             {
+                                operationId,
                                 isProcessing = true,
                                 percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
                                 status = "deleting",
@@ -861,6 +900,7 @@ public class DatabaseService : IDatabaseService
                 {
                     await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
                     {
+                        operationId,
                         isProcessing = true,
                         percentComplete = 90.0,
                         status = "cleanup",
@@ -899,12 +939,15 @@ public class DatabaseService : IDatabaseService
                 // Send completion update
                 await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
                 {
+                    operationId,
                     isProcessing = false,
                     percentComplete = 100.0,
-                    status = OperationStatus.Completed,
+                    status = "completed",
                     message = $"Successfully cleared {tablesToClear.Count} table(s): {string.Join(", ", tablesToClear)}",
                     timestamp = DateTime.UtcNow
                 });
+
+                _operationTracker.CompleteOperation(operationId, success: true);
             }
             catch
             {
@@ -932,13 +975,29 @@ public class DatabaseService : IDatabaseService
                 });
             }
         }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("Database reset operation {OperationId} was cancelled by user", operationId);
+
+            await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
+            {
+                operationId,
+                isProcessing = false,
+                percentComplete = 0.0,
+                status = "cancelled",
+                message = "Database reset was cancelled by user",
+                timestamp = DateTime.UtcNow
+            });
+
+            _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error during selective database reset");
 
-            // Send error update
             await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
             {
+                operationId,
                 isProcessing = false,
                 percentComplete = 0.0,
                 status = "error",
@@ -946,7 +1005,7 @@ public class DatabaseService : IDatabaseService
                 timestamp = DateTime.UtcNow
             });
 
-            throw;
+            _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
         }
         finally
         {
