@@ -48,6 +48,9 @@ enum Commands {
         /// Timezone (default: UTC)
         #[arg(default_value = "UTC")]
         timezone: Option<String>,
+        /// Skip cache file existence check (logs-only mode)
+        #[arg(long, default_value = "false")]
+        no_cache_check: bool,
     },
     /// Quick JSON summary of corrupted chunk counts per service
     Summary {
@@ -64,6 +67,9 @@ enum Commands {
         /// Miss threshold (default: 3)
         #[arg(default_value = "3")]
         threshold: Option<usize>,
+        /// Skip cache file existence check (logs-only mode)
+        #[arg(long, default_value = "false")]
+        no_cache_check: bool,
     },
     /// Delete database records, cache files, and log entries for corrupted chunks
     Remove {
@@ -80,6 +86,9 @@ enum Commands {
         /// Miss threshold - minimum MISS/UNKNOWN count to consider corrupted (default: 3)
         #[arg(default_value = "3")]
         threshold: Option<usize>,
+        /// Skip cache file existence check (logs-only mode)
+        #[arg(long, default_value = "false")]
+        no_cache_check: bool,
     },
 }
 
@@ -245,7 +254,7 @@ fn main() -> Result<()> {
     let reporter = ProgressReporter::new(args.progress);
 
     match args.command {
-        Commands::Detect { log_dir, cache_dir, output_json, timezone } => {
+        Commands::Detect { log_dir, cache_dir, output_json, timezone, no_cache_check } => {
             reporter.emit_started();
 
             let log_dir = PathBuf::from(&log_dir);
@@ -257,10 +266,12 @@ fn main() -> Result<()> {
             eprintln!("  Log directory: {}", log_dir.display());
             eprintln!("  Cache directory: {}", cache_dir.display());
             eprintln!("  Timezone: {}", timezone);
+            eprintln!("  Skip cache check: {}", no_cache_check);
 
             reporter.emit_progress(10.0, "Scanning log files for corrupted chunks...");
 
-            let detector = CorruptionDetector::new(&cache_dir, 3);
+            let detector = CorruptionDetector::new(&cache_dir, 3)
+                .with_skip_cache_check(no_cache_check);
             let report = match detector.generate_report(&log_dir, "access.log", timezone) {
                 Ok(r) => r,
                 Err(e) => {
@@ -286,7 +297,7 @@ fn main() -> Result<()> {
             reporter.emit_complete(&format!("Report saved to: {}", output_json.display()));
         }
 
-        Commands::Summary { log_dir, cache_dir, progress_json, timezone, threshold } => {
+        Commands::Summary { log_dir, cache_dir, progress_json, timezone, threshold, no_cache_check } => {
             reporter.emit_started();
 
             let log_dir = PathBuf::from(&log_dir);
@@ -307,10 +318,12 @@ fn main() -> Result<()> {
             eprintln!("  Progress file: {}", progress_path.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "none".to_string()));
             eprintln!("  Timezone: {}", timezone);
             eprintln!("  Miss threshold: {}", threshold);
+            eprintln!("  Skip cache check: {}", no_cache_check);
 
             reporter.emit_progress(10.0, "Scanning log files...");
 
-            let detector = CorruptionDetector::new(&cache_dir, threshold);
+            let detector = CorruptionDetector::new(&cache_dir, threshold)
+                .with_skip_cache_check(no_cache_check);
             let summary = match detector.generate_summary_with_progress(
                 &log_dir,
                 "access.log",
@@ -331,7 +344,7 @@ fn main() -> Result<()> {
             reporter.emit_complete("Corruption summary generated");
         }
 
-        Commands::Remove { database_path, log_dir, cache_dir, service, progress_json, threshold } => {
+        Commands::Remove { database_path, log_dir, cache_dir, service, progress_json, threshold, no_cache_check } => {
             reporter.emit_started();
 
             let db_path = PathBuf::from(&database_path);
@@ -438,28 +451,35 @@ fn main() -> Result<()> {
             let candidate_count = candidates.len();
             eprintln!("Found {} URLs with {}+ MISS/UNKNOWN entries for {}", candidate_count, miss_threshold, service);
 
-            // Filter to only URLs where the cache file actually exists on disk
-            // If the file doesn't exist, the MISSes were likely legitimate cold-cache or eviction events
-            // True corruption = file exists but nginx can't serve it (repeated MISSes despite file presence)
-            let corrupted_urls_with_sizes: HashMap<String, i64> = candidates
-                .into_iter()
-                .filter(|(url, _response_size)| {
-                    // Check no-range format first (modern lancache)
-                    let cache_path = cache_utils::calculate_cache_path_no_range(&cache_dir, &service_lower, url);
-                    if cache_path.exists() {
-                        return true;
-                    }
-                    // Fallback: check first chunk in range format (legacy lancache)
-                    let range_path = cache_utils::calculate_cache_path(&cache_dir, &service_lower, url, 0, 1_048_575);
-                    range_path.exists()
-                })
-                .collect();
+            let corrupted_urls_with_sizes: HashMap<String, i64> = if no_cache_check {
+                eprintln!("Skipping cache file existence check (logs-only mode)");
+                eprintln!("Using all {} candidate URLs", candidate_count);
+                candidates
+            } else {
+                // Filter to only URLs where the cache file actually exists on disk
+                // If the file doesn't exist, the MISSes were likely legitimate cold-cache or eviction events
+                // True corruption = file exists but nginx can't serve it (repeated MISSes despite file presence)
+                let filtered: HashMap<String, i64> = candidates
+                    .into_iter()
+                    .filter(|(url, _response_size)| {
+                        // Check no-range format first (modern lancache)
+                        let cache_path = cache_utils::calculate_cache_path_no_range(&cache_dir, &service_lower, url);
+                        if cache_path.exists() {
+                            return true;
+                        }
+                        // Fallback: check first chunk in range format (legacy lancache)
+                        let range_path = cache_utils::calculate_cache_path(&cache_dir, &service_lower, url, 0, 1_048_575);
+                        range_path.exists()
+                    })
+                    .collect();
 
-            let filtered_out = candidate_count - corrupted_urls_with_sizes.len();
-            if filtered_out > 0 {
-                eprintln!("Filtered out {} URLs where cache file does not exist on disk (likely cold-cache misses)", filtered_out);
-            }
-            eprintln!("Confirmed {} corrupted URLs for {} (file exists on disk with {}+ MISS/UNKNOWN)", corrupted_urls_with_sizes.len(), service, miss_threshold);
+                let filtered_out = candidate_count - filtered.len();
+                if filtered_out > 0 {
+                    eprintln!("Filtered out {} URLs where cache file does not exist on disk (likely cold-cache misses)", filtered_out);
+                }
+                eprintln!("Confirmed {} corrupted URLs for {} (file exists on disk with {}+ MISS/UNKNOWN)", filtered.len(), service, miss_threshold);
+                filtered
+            };
             reporter.emit_progress(30.0, &format!("Found {} corrupted URLs for {}", corrupted_urls_with_sizes.len(), service));
 
             if corrupted_urls_with_sizes.is_empty() {

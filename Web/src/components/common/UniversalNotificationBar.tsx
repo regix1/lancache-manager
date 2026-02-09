@@ -216,13 +216,15 @@ const renderCompletionDetails = ({ notification, t, formatBytesLocal }: ContentR
 
   switch (notification.type) {
     case 'cache_clearing':
-      if (notification.details?.filesDeleted === undefined) return null;
+      if (!notification.details?.filesDeleted) return null;
       return (
         <div className="text-xs text-themed-muted mt-0.5">
           {t('common.notifications.filesDeleted', {
             count: filesDeletedCount,
             formattedCount: filesDeletedFormatted
           })}
+          {notification.details?.bytesDeleted !== undefined && notification.details.bytesDeleted > 0 &&
+            ` \u2022 ${t('common.notifications.freed', { value: formatBytesLocal(notification.details.bytesDeleted) })}`}
         </div>
       );
 

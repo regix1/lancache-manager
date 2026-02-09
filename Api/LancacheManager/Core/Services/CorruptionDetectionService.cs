@@ -57,7 +57,7 @@ public class CorruptionDetectionService
     /// Start a background corruption detection scan.
     /// Returns immediately with an operation ID.
     /// </summary>
-    public async Task<string> StartDetectionAsync(int threshold = 3, CancellationToken cancellationToken = default)
+    public async Task<string> StartDetectionAsync(int threshold = 3, bool compareToCacheLogs = true, CancellationToken cancellationToken = default)
     {
         await _startLock.WaitAsync(cancellationToken);
         try
@@ -100,7 +100,7 @@ public class CorruptionDetectionService
 
             // Run detection in background with the cancellation token
             var token = cts.Token;
-            _ = Task.Run(async () => await RunDetectionAsync(operationId, threshold, token), token);
+            _ = Task.Run(async () => await RunDetectionAsync(operationId, threshold, compareToCacheLogs, token), token);
 
             return operationId;
         }
@@ -113,7 +113,7 @@ public class CorruptionDetectionService
     /// <summary>
     /// Run the actual corruption detection scan.
     /// </summary>
-    private async Task RunDetectionAsync(string operationId, int threshold, CancellationToken cancellationToken)
+    private async Task RunDetectionAsync(string operationId, int threshold, bool compareToCacheLogs, CancellationToken cancellationToken)
     {
         var operation = _operationTracker.GetOperation(operationId);
         if (operation == null)
@@ -144,7 +144,7 @@ public class CorruptionDetectionService
 
                 var dsCounts = await GetCorruptionSummaryForDatasource(
                     datasource.LogPath, datasource.CachePath, timezone, rustBinaryPath,
-                    operationId, datasource.Name, threshold, cancellationToken);
+                    operationId, datasource.Name, threshold, compareToCacheLogs, cancellationToken);
 
                 // Aggregate counts
                 foreach (var kvp in dsCounts)
@@ -241,7 +241,7 @@ public class CorruptionDetectionService
     /// </summary>
     private async Task<Dictionary<string, long>> GetCorruptionSummaryForDatasource(
         string logDir, string cacheDir, string timezone, string rustBinaryPath,
-        string operationId, string datasourceName, int threshold, CancellationToken cancellationToken)
+        string operationId, string datasourceName, int threshold, bool compareToCacheLogs, CancellationToken cancellationToken)
     {
         // Create progress file for this datasource
         var operationsDir = _pathResolver.GetOperationsDirectory();
@@ -250,9 +250,10 @@ public class CorruptionDetectionService
 
         try
         {
+            var noCacheCheckFlag = !compareToCacheLogs ? " --no-cache-check" : "";
             var startInfo = _rustProcessHelper.CreateProcessStartInfo(
                 rustBinaryPath,
-                $"summary \"{logDir}\" \"{cacheDir}\" \"{progressFile}\" \"{timezone}\" {threshold}");
+                $"summary \"{logDir}\" \"{cacheDir}\" \"{progressFile}\" \"{timezone}\" {threshold}{noCacheCheckFlag}");
 
             using var process = Process.Start(startInfo);
             if (process == null)

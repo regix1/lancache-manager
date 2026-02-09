@@ -138,9 +138,10 @@ const RECOVERY_CONFIGS = {
       const ops = data.operations as Record<string, unknown>[];
       const activeOp = ops?.[0] || {};
       return {
-        message: (activeOp.statusMessage as string) || 'Clearing cache...',
+        message: (activeOp.statusMessage as string) || (activeOp.message as string) || 'Clearing cache...',
         progress: (activeOp.percentComplete as number) || 0,
         details: {
+          operationId: (activeOp.operationId as string) || (activeOp.id as string),
           filesDeleted: (activeOp.filesDeleted as number) || 0,
           directoriesProcessed: (activeOp.directoriesProcessed as number) || 0,
           bytesDeleted: (activeOp.bytesDeleted as number) || 0

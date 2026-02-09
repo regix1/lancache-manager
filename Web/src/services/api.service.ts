@@ -832,9 +832,9 @@ class ApiService {
   }
 
   // Start background corruption detection scan
-  static async startCorruptionDetection(threshold: number = 3): Promise<{ operationId: string; message: string; status: string }> {
+  static async startCorruptionDetection(threshold: number = 3, compareToCacheLogs: boolean = true): Promise<{ operationId: string; message: string; status: string }> {
     try {
-      const res = await fetch(`${API_BASE}/cache/corruption/detect?threshold=${threshold}`, this.getFetchOptions({
+      const res = await fetch(`${API_BASE}/cache/corruption/detect?threshold=${threshold}&compareToCacheLogs=${compareToCacheLogs}`, this.getFetchOptions({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       }));
@@ -851,10 +851,11 @@ class ApiService {
   // Remove corrupted chunks for a specific service (requires auth)
   static async removeCorruptedChunks(
     service: string,
-    threshold: number = 3
+    threshold: number = 3,
+    compareToCacheLogs: boolean = true
   ): Promise<{ message: string; service: string }> {
     try {
-      const res = await fetch(`${API_BASE}/cache/services/${encodeURIComponent(service)}/corruption?threshold=${threshold}`, this.getFetchOptions({
+      const res = await fetch(`${API_BASE}/cache/services/${encodeURIComponent(service)}/corruption?threshold=${threshold}&compareToCacheLogs=${compareToCacheLogs}`, this.getFetchOptions({
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' }
         // No timeout - Rust corruption remover handles large operations efficiently

@@ -339,6 +339,22 @@ public class PicsDataService
 
             return Task.FromResult(picsData);
         }
+        catch (JsonException ex)
+        {
+            _logger.LogWarning(ex, "PICS JSON file is corrupted (truncated or malformed). Deleting so it will be regenerated on next depot mapping scan");
+            try
+            {
+                lock (_fileLock)
+                {
+                    File.Delete(_picsJsonFile);
+                }
+            }
+            catch (Exception deleteEx)
+            {
+                _logger.LogError(deleteEx, "Failed to delete corrupted PICS JSON file");
+            }
+            return Task.FromResult<PicsJsonData?>(null);
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error loading PICS data from JSON file");

@@ -331,7 +331,13 @@ export const formatDatabaseResetCompleteMessage = (event: DatabaseResetProgressE
  * @returns Formatted message string
  */
 export const formatCacheClearProgressMessage = (event: CacheClearProgressEvent): string => {
-  return event.statusMessage || 'Clearing cache...';
+  const base = event.message || event.statusMessage || 'Clearing cache...';
+
+  if (event.directoriesProcessed !== undefined && event.totalDirectories) {
+    return `${base} (${event.directoriesProcessed}/${event.totalDirectories} directories)`;
+  }
+
+  return base;
 };
 
 /**

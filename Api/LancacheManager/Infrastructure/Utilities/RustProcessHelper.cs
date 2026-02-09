@@ -357,7 +357,8 @@ public class RustProcessHelper
         string? progressFile = null,
         string? databasePath = null,
         CancellationToken cancellationToken = default,
-        int threshold = 3)
+        int threshold = 3,
+        bool compareToCacheLogs = true)
     {
         try
         {
@@ -369,11 +370,12 @@ public class RustProcessHelper
             var outputFile = progressFile ?? Path.GetTempFileName();
 
             // Build arguments based on command
+            var noCacheCheckFlag = !compareToCacheLogs ? " --no-cache-check" : "";
             var arguments = command switch
             {
-                "summary" => $"summary \"{logsPath}\" \"{cachePath}\" UTC {threshold}",
+                "summary" => $"summary \"{logsPath}\" \"{cachePath}\" UTC {threshold}{noCacheCheckFlag}",
                 "remove" when !string.IsNullOrEmpty(service) && !string.IsNullOrEmpty(databasePath) =>
-                    $"remove \"{databasePath}\" \"{logsPath}\" \"{cachePath}\" \"{service}\" \"{outputFile}\" {threshold}",
+                    $"remove \"{databasePath}\" \"{logsPath}\" \"{cachePath}\" \"{service}\" \"{outputFile}\" {threshold}{noCacheCheckFlag}",
                 _ => throw new ArgumentException($"Invalid command or missing parameters: {command}")
             };
 

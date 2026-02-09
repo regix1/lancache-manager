@@ -371,10 +371,12 @@ export interface CacheClearProgressEvent {
   operationId: string;
   percentComplete: number;
   status: string;
+  message?: string;
   statusMessage?: string;
   error?: string;
   filesDeleted?: number;
   directoriesProcessed?: number;
+  totalDirectories?: number;
   bytesDeleted?: number;
   datasourceName?: string;
 }

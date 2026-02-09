@@ -46,6 +46,8 @@ pub struct CorruptionDetector {
     miss_threshold: usize,
     /// Cache directory root path
     cache_dir: PathBuf,
+    /// Skip cache file existence check (logs-only mode)
+    skip_cache_check: bool,
 }
 
 impl CorruptionDetector {
@@ -53,7 +55,13 @@ impl CorruptionDetector {
         Self {
             miss_threshold,
             cache_dir: cache_dir.as_ref().to_path_buf(),
+            skip_cache_check: false,
         }
+    }
+
+    pub fn with_skip_cache_check(mut self, skip: bool) -> Self {
+        self.skip_cache_check = skip;
+        self
     }
 
     /// Detect corrupted chunks by analyzing log files
@@ -136,6 +144,12 @@ impl CorruptionDetector {
 
         let candidate_count = candidates.len();
         eprintln!("Found {} URLs with {}+ MISS/UNKNOWN entries", candidate_count, self.miss_threshold);
+
+        if self.skip_cache_check {
+            eprintln!("Skipping cache file existence check (logs-only mode)");
+            eprintln!("Returning all {} candidate URLs as corrupted", candidate_count);
+            return Ok(candidates);
+        }
 
         // Filter to only URLs where the cache file actually exists on disk
         // If the file doesn't exist, the MISSes were likely legitimate cold-cache or eviction events
@@ -357,27 +371,34 @@ impl CorruptionDetector {
         let candidate_count = candidates.len();
         eprintln!("Found {} URLs with {}+ MISS/UNKNOWN entries", candidate_count, self.miss_threshold);
 
-        // Filter to only URLs where the cache file actually exists on disk
-        // If the file doesn't exist, the MISSes were likely legitimate cold-cache or eviction events
-        // True corruption = file exists but nginx can't serve it (repeated MISSes despite file presence)
-        let corrupted: HashMap<(String, String), usize> = candidates
-            .into_iter()
-            .filter(|((service, url), _)| {
-                let cache_path = cache_utils::calculate_cache_path_no_range(&self.cache_dir, service, url);
-                if cache_path.exists() {
-                    return true;
-                }
-                // Fallback: check first 1MB chunk in range format (legacy lancache)
-                let range_path = cache_utils::calculate_cache_path(&self.cache_dir, service, url, 0, 1_048_575);
-                range_path.exists()
-            })
-            .collect();
+        let corrupted = if self.skip_cache_check {
+            eprintln!("Skipping cache file existence check (logs-only mode)");
+            eprintln!("Returning all {} candidate URLs as corrupted", candidate_count);
+            candidates
+        } else {
+            // Filter to only URLs where the cache file actually exists on disk
+            // If the file doesn't exist, the MISSes were likely legitimate cold-cache or eviction events
+            // True corruption = file exists but nginx can't serve it (repeated MISSes despite file presence)
+            let filtered: HashMap<(String, String), usize> = candidates
+                .into_iter()
+                .filter(|((service, url), _)| {
+                    let cache_path = cache_utils::calculate_cache_path_no_range(&self.cache_dir, service, url);
+                    if cache_path.exists() {
+                        return true;
+                    }
+                    // Fallback: check first 1MB chunk in range format (legacy lancache)
+                    let range_path = cache_utils::calculate_cache_path(&self.cache_dir, service, url, 0, 1_048_575);
+                    range_path.exists()
+                })
+                .collect();
 
-        let filtered_out = candidate_count - corrupted.len();
-        if filtered_out > 0 {
-            eprintln!("Filtered out {} URLs where cache file does not exist on disk (likely cold-cache misses)", filtered_out);
-        }
-        eprintln!("Confirmed {} corrupted chunks (file exists on disk with {}+ MISS/UNKNOWN)", corrupted.len(), self.miss_threshold);
+            let filtered_out = candidate_count - filtered.len();
+            if filtered_out > 0 {
+                eprintln!("Filtered out {} URLs where cache file does not exist on disk (likely cold-cache misses)", filtered_out);
+            }
+            eprintln!("Confirmed {} corrupted chunks (file exists on disk with {}+ MISS/UNKNOWN)", filtered.len(), self.miss_threshold);
+            filtered
+        };
 
         // Write completion progress
         if let Some(progress_file) = progress_path {

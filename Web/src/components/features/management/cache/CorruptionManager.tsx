@@ -75,6 +75,12 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
   const [lastDetectionTime, setLastDetectionTime] = useState<string | null>(null);
   const [hasCachedResults, setHasCachedResults] = useState(false);
   const [missThreshold, setMissThreshold] = useState(3);
+  const [compareToCacheLogs, setCompareToCacheLogs] = useState(true);
+
+  const detectionModeOptions = [
+    { value: 'true', label: t('management.corruption.detectionModeCacheLogs'), shortLabel: t('management.corruption.detectionModeCacheLogsShort'), description: t('management.corruption.detectionModeCacheLogsDesc') },
+    { value: 'false', label: t('management.corruption.detectionModeLogsOnly'), shortLabel: t('management.corruption.detectionModeLogsOnlyShort'), description: t('management.corruption.detectionModeLogsOnlyDesc') },
+  ];
 
   const thresholdOptions = [
     { value: '3', label: t('management.corruption.sensitivityHigh'), shortLabel: t('management.corruption.sensitivityHighShort'), description: t('management.corruption.sensitivityHighDesc') },
@@ -159,13 +165,13 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
 
     try {
       // Start background detection - SignalR will send CorruptionDetectionStarted event
-      await ApiService.startCorruptionDetection(missThreshold);
+      await ApiService.startCorruptionDetection(missThreshold, compareToCacheLogs);
       // Note: NotificationsContext will create a notification via SignalR (CorruptionDetectionStarted event)
     } catch (err: unknown) {
       console.error('Failed to start corruption scan:', err);
       setIsStartingScan(false);
     }
-  }, [isScanning, mockMode, missThreshold]);
+  }, [isScanning, mockMode, missThreshold, compareToCacheLogs]);
 
   // Listen for corruption detection completion via notifications
   useEffect(() => {
@@ -261,7 +267,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
     setStartingCorruptionRemoval(service);
 
     try {
-      await ApiService.removeCorruptedChunks(service, missThreshold);
+      await ApiService.removeCorruptedChunks(service, missThreshold, compareToCacheLogs);
     } catch (err: unknown) {
       console.error('Removal failed:', err);
       onError?.(
@@ -331,6 +337,16 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
   // Cancel is handled by UniversalNotificationBar via CANCEL_CONFIGS
   const headerActions = (
     <div className="flex items-center gap-2">
+      <EnhancedDropdown
+        options={detectionModeOptions}
+        value={String(compareToCacheLogs)}
+        onChange={(val: string) => setCompareToCacheLogs(val === 'true')}
+        disabled={isLoading || isScanning || isAnyRemovalRunning}
+        compactMode={true}
+        dropdownWidth="w-72"
+        alignRight={true}
+        dropdownTitle={t('management.corruption.detectionModeTitle')}
+      />
       <EnhancedDropdown
         options={thresholdOptions}
         value={String(missThreshold)}

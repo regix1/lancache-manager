@@ -661,9 +661,14 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         getMessage: formatCacheClearProgressMessage,
         getProgress: (e) => e.percentComplete || 0,
         getStatus: (e) => e.status === 'completed' ? 'completed' : (e.status === 'failed' || e.status === 'cancelled') ? 'failed' : undefined,
-        getCompletedMessage: (e) => e.statusMessage || 'Cache cleared successfully',
-        getErrorMessage: (e) => e.error || e.statusMessage || 'Cache clear failed',
-        getDetails: (e) => ({ operationId: e.operationId })
+        getCompletedMessage: (e) => e.statusMessage || e.message || 'Cache cleared successfully',
+        getErrorMessage: (e) => e.error || e.statusMessage || e.message || 'Cache clear failed',
+        getDetails: (e) => ({
+          operationId: e.operationId,
+          filesDeleted: e.filesDeleted,
+          directoriesProcessed: e.directoriesProcessed,
+          bytesDeleted: e.bytesDeleted
+        })
       },
       setNotifications,
       scheduleAutoDismiss,

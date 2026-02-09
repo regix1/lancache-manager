@@ -461,9 +461,9 @@ public class CacheController : ControllerBase
     /// </summary>
     [HttpPost("corruption/detect")]
     [RequireAuth]
-    public async Task<IActionResult> StartCorruptionDetection([FromQuery] int threshold = 3)
+    public async Task<IActionResult> StartCorruptionDetection([FromQuery] int threshold = 3, [FromQuery] bool compareToCacheLogs = true)
     {
-        var operationId = await _corruptionDetectionService.StartDetectionAsync(threshold);
+        var operationId = await _corruptionDetectionService.StartDetectionAsync(threshold, compareToCacheLogs);
         return Accepted(new { operationId, message = "Corruption detection started", status = "running" });
     }
 
@@ -506,7 +506,7 @@ public class CacheController : ControllerBase
     /// </summary>
     [HttpDelete("services/{service}/corruption")]
     [RequireAuth]
-    public IActionResult RemoveCorruptedChunks(string service, [FromQuery] int threshold = 3)
+    public IActionResult RemoveCorruptedChunks(string service, [FromQuery] int threshold = 3, [FromQuery] bool compareToCacheLogs = true)
     {
         // Check if ANY removal operation is already in progress (they share a lock)
         var activeGameOps = _operationTracker.GetActiveOperations(OperationType.GameRemoval);
@@ -650,7 +650,8 @@ public class CacheController : ControllerBase
                                 progressFile: progressFilePath,
                                 databasePath: dbPath,
                                 cancellationToken: cts.Token,
-                                threshold: threshold
+                                threshold: threshold,
+                                compareToCacheLogs: compareToCacheLogs
                             );
 
                             // Stop progress monitoring for this datasource
