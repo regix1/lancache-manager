@@ -75,7 +75,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
   const [lastDetectionTime, setLastDetectionTime] = useState<string | null>(null);
   const [hasCachedResults, setHasCachedResults] = useState(false);
   const [missThreshold, setMissThreshold] = useState(3);
-  const [compareToCacheLogs, setCompareToCacheLogs] = useState(true);
+  const [compareToCacheLogs, setCompareToCacheLogs] = useState(false);
 
   const detectionModeOptions = [
     { value: 'true', label: t('management.corruption.detectionModeCacheLogs'), shortLabel: t('management.corruption.detectionModeCacheLogsShort'), description: t('management.corruption.detectionModeCacheLogsDesc') },
@@ -290,7 +290,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
     if (!corruptionDetails[service]) {
       setLoadingDetails(service);
       try {
-        const details = await ApiService.getCorruptionDetails(service);
+        const details = await ApiService.getCorruptionDetails(service, false, missThreshold, compareToCacheLogs);
         setCorruptionDetails((prev) => ({ ...prev, [service]: details }));
       } catch (err: unknown) {
         onError?.(

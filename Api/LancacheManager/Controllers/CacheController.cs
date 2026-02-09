@@ -494,9 +494,9 @@ public class CacheController : ControllerBase
     /// Returns array of corrupted chunks with URLs, miss counts, and cache file paths
     /// </summary>
     [HttpGet("services/{service}/corruption")]
-    public async Task<IActionResult> GetCorruptionDetails(string service, [FromQuery] bool forceRefresh = false)
+    public async Task<IActionResult> GetCorruptionDetails(string service, [FromQuery] bool forceRefresh = false, [FromQuery] int threshold = 3, [FromQuery] bool compareToCacheLogs = true)
     {
-        var details = await _cacheService.GetCorruptionDetails(service, forceRefresh);
+        var details = await _cacheService.GetCorruptionDetails(service, forceRefresh, threshold, compareToCacheLogs);
         return Ok(details);
     }
 

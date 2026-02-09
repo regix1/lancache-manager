@@ -792,7 +792,7 @@ public class CacheManagementService
     /// <summary>
     /// Get detailed corruption information for a specific service
     /// </summary>
-    public async Task<List<CorruptedChunkDetail>> GetCorruptionDetails(string service, bool forceRefresh = false, CancellationToken cancellationToken = default)
+    public async Task<List<CorruptedChunkDetail>> GetCorruptionDetails(string service, bool forceRefresh = false, int threshold = 3, bool compareToCacheLogs = true, CancellationToken cancellationToken = default)
     {
         // Use semaphore to ensure only one Rust process runs at a time
         await _cacheLock.WaitAsync();
@@ -813,9 +813,10 @@ public class CacheManagementService
 
             try
             {
+                var noCacheCheckFlag = !compareToCacheLogs ? " --no-cache-check" : "";
                 var startInfo = _rustProcessHelper.CreateProcessStartInfo(
                     rustBinaryPath,
-                    $"detect \"{logDir}\" \"{cacheDir}\" \"{outputJson}\" \"{timezone}\"");
+                    $"detect \"{logDir}\" \"{cacheDir}\" \"{outputJson}\" \"{timezone}\" {threshold}{noCacheCheckFlag}");
 
                 _logger.LogInformation("[CorruptionDetection] Running detect command: {Command} {Args}",
                     rustBinaryPath, startInfo.Arguments);

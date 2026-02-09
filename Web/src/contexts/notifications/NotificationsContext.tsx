@@ -493,7 +493,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         getStatus: (e) => e.status === 'completed' ? 'completed' : (e.status === 'failed' || e.status === 'cancelled') ? 'failed' : undefined,
         getCompletedMessage: (e) => e.message || 'Corruption removal completed',
         getErrorMessage: (e) => e.message || 'Corruption removal failed',
-        getDetails: (e) => ({ operationId: e.operationId })
+        getDetails: (e) => ({ operationId: e.operationId, service: e.service })
       },
       setNotifications,
       scheduleAutoDismiss,
@@ -506,6 +506,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         getId: () => NOTIFICATION_IDS.CORRUPTION_REMOVAL,
         storageKey: NOTIFICATION_STORAGE_KEYS.CORRUPTION_REMOVAL,
         getSuccessMessage: formatCorruptionRemovalCompleteMessage,
+        getSuccessDetails: (e) => ({ service: e.service }),
         useAnimationDelay: true
       },
       setNotifications,

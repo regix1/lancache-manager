@@ -870,10 +870,16 @@ class ApiService {
   // Get detailed corruption information for a specific service
   static async getCorruptionDetails(
     service: string,
-    forceRefresh = false
+    forceRefresh = false,
+    threshold: number = 3,
+    compareToCacheLogs: boolean = true
   ): Promise<CorruptedChunkDetail[]> {
     try {
-      const url = `${API_BASE}/cache/services/${encodeURIComponent(service)}/corruption${forceRefresh ? '?forceRefresh=true' : ''}`;
+      const params = new URLSearchParams();
+      if (forceRefresh) params.set('forceRefresh', 'true');
+      params.set('threshold', String(threshold));
+      params.set('compareToCacheLogs', String(compareToCacheLogs));
+      const url = `${API_BASE}/cache/services/${encodeURIComponent(service)}/corruption?${params.toString()}`;
       const res = await fetch(url, this.getFetchOptions({
         // No timeout - wait for backend to complete analysis (could take several minutes for large logs)
       }));

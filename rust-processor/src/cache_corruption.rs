@@ -48,6 +48,9 @@ enum Commands {
         /// Timezone (default: UTC)
         #[arg(default_value = "UTC")]
         timezone: Option<String>,
+        /// Miss threshold (default: 3)
+        #[arg(default_value = "3")]
+        threshold: Option<usize>,
         /// Skip cache file existence check (logs-only mode)
         #[arg(long, default_value = "false")]
         no_cache_check: bool,
@@ -254,23 +257,25 @@ fn main() -> Result<()> {
     let reporter = ProgressReporter::new(args.progress);
 
     match args.command {
-        Commands::Detect { log_dir, cache_dir, output_json, timezone, no_cache_check } => {
+        Commands::Detect { log_dir, cache_dir, output_json, timezone, threshold, no_cache_check } => {
             reporter.emit_started();
 
             let log_dir = PathBuf::from(&log_dir);
             let cache_dir = PathBuf::from(&cache_dir);
             let output_json = PathBuf::from(&output_json);
             let timezone = timezone.map(|tz| parse_timezone(&tz)).unwrap_or(chrono_tz::UTC);
+            let threshold = threshold.unwrap_or(3);
 
             eprintln!("Detecting corrupted chunks...");
             eprintln!("  Log directory: {}", log_dir.display());
             eprintln!("  Cache directory: {}", cache_dir.display());
             eprintln!("  Timezone: {}", timezone);
+            eprintln!("  Miss threshold: {}", threshold);
             eprintln!("  Skip cache check: {}", no_cache_check);
 
             reporter.emit_progress(10.0, "Scanning log files for corrupted chunks...");
 
-            let detector = CorruptionDetector::new(&cache_dir, 3)
+            let detector = CorruptionDetector::new(&cache_dir, threshold)
                 .with_skip_cache_check(no_cache_check);
             let report = match detector.generate_report(&log_dir, "access.log", timezone) {
                 Ok(r) => r,
