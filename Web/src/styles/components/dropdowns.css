@@ -169,56 +169,23 @@
    * GITHUB PROJECTS DROPDOWN
    * ============================================== */
 
-  /* GitHub Trigger Button - extends ed-trigger with primary tint */
+  /* GitHub Trigger Button - inherits standard ed-trigger styling */
   .github-trigger {
     position: relative;
     overflow: hidden;
-    background: linear-gradient(135deg,
-      color-mix(in srgb, var(--theme-primary) 6%, var(--theme-bg-secondary)),
-      color-mix(in srgb, var(--theme-primary) 3%, var(--theme-bg-secondary))
-    );
-    border-color: color-mix(in srgb, var(--theme-primary) 25%, var(--theme-border-primary));
-    transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
   }
 
-  .github-trigger:not(:disabled):hover {
-    background: linear-gradient(135deg,
-      color-mix(in srgb, var(--theme-primary) 12%, var(--theme-bg-secondary)),
-      color-mix(in srgb, var(--theme-primary) 6%, var(--theme-bg-secondary))
-    ) !important;
-    border-color: color-mix(in srgb, var(--theme-primary) 40%, var(--theme-border-primary));
-    box-shadow: 0 0 8px color-mix(in srgb, var(--theme-primary) 15%, transparent);
+  /* Button bounce when launching a firework */
+  @keyframes githubButtonBounce {
+    0% { transform: scale(1) translateY(0); }
+    20% { transform: scale(0.85) translateY(2px); }
+    50% { transform: scale(1.15) translateY(-3px); }
+    75% { transform: scale(1.05) translateY(-1px); }
+    100% { transform: scale(1) translateY(0); }
   }
 
-  /* Active/open state - stronger primary tint */
-  .github-trigger[aria-expanded="true"] {
-    background: linear-gradient(135deg,
-      color-mix(in srgb, var(--theme-primary) 15%, var(--theme-bg-secondary)),
-      color-mix(in srgb, var(--theme-primary) 8%, var(--theme-bg-secondary))
-    );
-    border-color: color-mix(in srgb, var(--theme-primary) 50%, var(--theme-border-primary));
-    box-shadow: 0 0 10px color-mix(in srgb, var(--theme-primary) 20%, transparent);
-  }
-
-  .github-trigger::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(
-      120deg,
-      transparent 0%,
-      transparent 30%,
-      color-mix(in srgb, var(--theme-primary) 8%, transparent) 50%,
-      transparent 70%,
-      transparent 100%
-    );
-    opacity: 0;
-    transition: opacity 0.2s ease;
-    pointer-events: none;
-  }
-
-  .github-trigger:hover::before {
-    opacity: 1;
+  .github-trigger.bouncing {
+    animation: githubButtonBounce 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   /* GitHub Icon Spin Animation */
@@ -693,14 +660,8 @@
     0% {
       transform: rotate(0deg) scale(1);
     }
-    25% {
-      transform: rotate(90deg) scale(1.2);
-    }
     50% {
-      transform: rotate(180deg) scale(1.3);
-    }
-    75% {
-      transform: rotate(270deg) scale(1.2);
+      transform: rotate(180deg) scale(1.2);
     }
     100% {
       transform: rotate(360deg) scale(1);
@@ -708,7 +669,7 @@
   }
 
   .github-icon-container.spinning {
-    animation: githubIconFireworkSpin 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    animation: githubIconFireworkSpin 0.5s linear;
     will-change: transform;
   }
 
@@ -755,13 +716,13 @@
   /* Flying Rocket - positioned via JS animation */
   .firework-rocket {
     position: absolute;
-    width: 26px;
-    height: 26px;
+    width: 20px;
+    height: 20px;
     transform-origin: center center;
     filter: drop-shadow(0 0 5px rgba(var(--theme-primary-rgb), 0.7)) drop-shadow(0 0 12px rgba(var(--theme-primary-rgb), 0.5));
     pointer-events: none;
-    margin-left: -13px;
-    margin-top: -13px;
+    margin-left: -10px;
+    margin-top: -10px;
     z-index: 10;
   }
 
@@ -780,15 +741,15 @@
   /* Smoke/trail dots - positioned via JS animation */
   .firework-trail-dot {
     position: absolute;
-    width: 6px;
-    height: 6px;
+    width: 4px;
+    height: 4px;
     border-radius: 50%;
     background: radial-gradient(circle, rgba(255, 255, 255, 0.9) 0%, var(--trail-color) 100%);
     box-shadow: 0 0 4px 1px var(--trail-color);
     pointer-events: none;
     z-index: 5;
-    margin-left: -3px;
-    margin-top: -3px;
+    margin-left: -2px;
+    margin-top: -2px;
   }
 
   /* Trail dots use theme firework colors */
@@ -801,4 +762,26 @@
   .firework-trail-dot:nth-child(8n+7) { --trail-color: var(--theme-firework-6); }
   .firework-trail-dot:nth-child(8n)   { --trail-color: var(--theme-firework-7); }
   .firework-trail-dot:nth-child(8n+1) { --trail-color: var(--theme-firework-8); }
+
+  /* Firework Particle Burst Container */
+  .firework-particle-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  /* Firework Particles - falling sparks from explosion */
+  .firework-particle {
+    position: absolute;
+    width: 3px;
+    height: 3px;
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 8;
+    will-change: transform, opacity;
+  }
 }

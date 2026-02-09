@@ -2,15 +2,9 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Github, ExternalLink, Heart, ChevronRight } from 'lucide-react';
 import { Tooltip } from '@components/ui/Tooltip';
-import confetti from 'canvas-confetti';
 
 // Custom event for firework explosion - other components can listen to this
 export const FIREWORK_EXPLOSION_EVENT = 'catFireworkExplosion';
-
-// Star shape for canvas-confetti (5-point star)
-const starShape = confetti.shapeFromPath({
-  path: 'M12 0L14.59 8.41L24 9.27L17.18 15.14L19.18 24L12 19.77L4.82 24L6.82 15.14L0 9.27L9.41 8.41Z',
-});
 
 // Helper to get firework colors from current theme
 function getFireworkColors(): string[] {
@@ -56,108 +50,137 @@ function getFireworkColors(): string[] {
 }
 
 /**
- * Triggers a confetti explosion at the specified screen coordinates.
+ * Creates a DOM-based particle burst effect that simulates falling firework sparks.
+ * Particles spread outward in a hemisphere (downward-biased) and fall with gravity.
+ *
+ * @param x - The x coordinate in pixels (screen position)
+ * @param y - The y coordinate in pixels (screen position)
+ */
+function createParticleBurst(x: number, y: number): void {
+  const particleCount = 30;
+  const particles: Array<{
+    element: HTMLDivElement;
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    lifetime: number;
+    maxLifetime: number;
+    color: string;
+    size: number;
+  }> = [];
+
+  const colors = getFireworkColors();
+  const container = document.createElement('div');
+  container.className = 'firework-particle-container';
+  document.body.appendChild(container);
+
+  // Create particles
+  for (let i = 0; i < particleCount; i++) {
+    const particle = document.createElement('div');
+    particle.className = 'firework-particle';
+
+    // Full 360° circle burst like a real firework explosion
+    const angle = Math.random() * Math.PI * 2;
+
+    // Random initial velocity
+    const velocity = 40 + Math.random() * 60;
+    const vx = Math.cos(angle) * velocity;
+    const vy = Math.sin(angle) * velocity;
+
+    // Random color from theme
+    const color = colors[Math.floor(Math.random() * colors.length)] || '#ffffff';
+
+    // Random size (mostly 3px, some 2px for variety)
+    const size = Math.random() > 0.3 ? 3 : 2;
+
+    particle.style.backgroundColor = color;
+    particle.style.width = `${size}px`;
+    particle.style.height = `${size}px`;
+    particle.style.left = `${x}px`;
+    particle.style.top = `${y}px`;
+
+    container.appendChild(particle);
+
+    particles.push({
+      element: particle,
+      x,
+      y,
+      vx,
+      vy,
+      lifetime: 0,
+      maxLifetime: 1500, // 1.5 seconds
+      color,
+      size
+    });
+  }
+
+  // Animate particles
+  const startTime = performance.now();
+  const gravity = 0.15;
+
+  function animate(currentTime: number) {
+    const elapsed = currentTime - startTime;
+    let allExpired = true;
+
+    particles.forEach(p => {
+      if (p.lifetime < p.maxLifetime) {
+        allExpired = false;
+
+        // Update velocity with gravity
+        p.vy += gravity;
+
+        // Update position
+        p.x += p.vx * 0.016; // Assume ~60fps
+        p.y += p.vy * 0.016;
+
+        // Update lifetime
+        p.lifetime = elapsed;
+
+        // Calculate opacity (fade out)
+        const opacity = Math.max(0, 1 - (p.lifetime / p.maxLifetime));
+
+        // Update DOM
+        p.element.style.left = `${p.x}px`;
+        p.element.style.top = `${p.y}px`;
+        p.element.style.opacity = String(opacity);
+      }
+    });
+
+    if (!allExpired) {
+      requestAnimationFrame(animate);
+    } else {
+      // Cleanup
+      container.remove();
+    }
+  }
+
+  requestAnimationFrame(animate);
+}
+
+/**
+ * Triggers a particle burst explosion at the specified screen coordinates.
  * This function is designed to be called when a firework animation completes.
  *
  * @param x - The x coordinate in pixels (screen position)
  * @param y - The y coordinate in pixels (screen position)
  */
 export function triggerConfettiExplosion(x: number, y: number): void {
-  // Convert screen coordinates to normalized 0-1 range for canvas-confetti
-  const normalizedX = x / window.innerWidth;
-  const normalizedY = y / window.innerHeight;
-
-  // Main burst - colorful circles and squares
-  confetti({
-    particleCount: 80,
-    spread: 360,
-    origin: { x: normalizedX, y: normalizedY },
-    colors: getFireworkColors(),
-    shapes: ['circle', 'square'],
-    scalar: 1.2,
-    gravity: 0.8,
-    drift: 0,
-    ticks: 200,
-    startVelocity: 30,
-    disableForReducedMotion: true,
-  });
-
-  // Secondary burst with stars - slightly delayed for layered effect
-  const themeColors = getFireworkColors();
-  setTimeout(() => {
-    confetti({
-      particleCount: 30,
-      spread: 180,
-      origin: { x: normalizedX, y: normalizedY },
-      colors: [themeColors[2], themeColors[6], themeColors[5]].filter(Boolean),
-      shapes: [starShape],
-      scalar: 1.5,
-      gravity: 0.6,
-      drift: 0,
-      ticks: 250,
-      startVelocity: 25,
-      disableForReducedMotion: true,
-    });
-  }, 50);
-
-  // Small sparkle burst - for extra flair
-  setTimeout(() => {
-    confetti({
-      particleCount: 40,
-      spread: 70,
-      origin: { x: normalizedX, y: normalizedY },
-      colors: ['#ffffff', themeColors[2]].filter(Boolean),
-      shapes: ['circle'],
-      scalar: 0.6,
-      gravity: 1.2,
-      drift: 0,
-      ticks: 150,
-      startVelocity: 45,
-      disableForReducedMotion: true,
-    });
-  }, 100);
+  createParticleBurst(x, y);
 }
 
 /**
- * Creates a celebration effect with multiple confetti bursts.
+ * Creates a celebration effect with multiple particle bursts.
  * Can be used for special occasions or achievements.
  *
  * @param x - The x coordinate in pixels (screen position)
  * @param y - The y coordinate in pixels (screen position)
  */
 export function triggerCelebrationExplosion(x: number, y: number): void {
-  const normalizedX = x / window.innerWidth;
-  const normalizedY = y / window.innerHeight;
-
-  // Fire multiple bursts in sequence for a celebration effect
-  const burstCount = 3;
-  const burstDelay = 150;
-
-  for (let i = 0; i < burstCount; i++) {
-    setTimeout(() => {
-      // Each burst goes in a slightly different direction
-      const angle = i * 120 - 60; // -60, 60, 180 degrees offset
-      const radians = (angle * Math.PI) / 180;
-      const offsetX = Math.cos(radians) * 0.05;
-      const offsetY = Math.sin(radians) * 0.05;
-
-      confetti({
-        particleCount: 50,
-        spread: 60,
-        origin: {
-          x: Math.max(0, Math.min(1, normalizedX + offsetX)),
-          y: Math.max(0, Math.min(1, normalizedY + offsetY)),
-        },
-        colors: getFireworkColors(),
-        shapes: ['circle', 'square', starShape],
-        scalar: 1 + i * 0.2,
-        gravity: 0.7,
-        ticks: 200,
-        startVelocity: 35 + i * 5,
-        disableForReducedMotion: true,
-      });
-    }, i * burstDelay);
-  }
+  // Fire three bursts with slight delays for celebration effect
+  createParticleBurst(x, y);
+  setTimeout(() => createParticleBurst(x - 20, y), 100);
+  setTimeout(() => createParticleBurst(x + 20, y), 200);
 }
 
 interface FireworkExplosionDetail {
@@ -206,65 +229,53 @@ const FirecrackerSVG: React.FC = () => (
 interface FireworkProps {
   startX: number;
   startY: number;
+  direction: 'left' | 'center' | 'right';
   onComplete: (endX: number, endY: number) => void;
 }
 
-const Firework: React.FC<FireworkProps> = ({ startX, startY, onComplete }) => {
+const Firework: React.FC<FireworkProps> = ({ startX, startY, direction, onComplete }) => {
   const fireworkRef = useRef<HTMLDivElement>(null);
   const rocketIconRef = useRef<HTMLDivElement>(null);
   const trailDotsRef = useRef<HTMLDivElement[]>([]);
   const animationFrameRef = useRef<number>(0);
 
   useEffect(() => {
-    // Random direction - any angle but with slight upward bias
-    const baseAngle = Math.random() * Math.PI * 2; // Any direction
-    const distance = 200 + Math.random() * 150; // 200-350px (closer to dropdown)
+    // Fixed angles based on direction (atan2-compatible degrees, screen coords where Y-down is positive)
+    // These match Math.cos/Math.sin: 90° = straight down, 135° = down-left, 45° = down-right
+    const angleMap = {
+      left: 135,   // diagonal down-left
+      center: 90,  // straight down
+      right: 45    // diagonal down-right
+    };
+
+    const angleDeg = angleMap[direction];
+    const baseAngle = (angleDeg * Math.PI) / 180;
+
+    // Shorter, controlled distance
+    const distance = 120 + Math.random() * 60; // 120-180px
 
     const endX = startX + Math.cos(baseAngle) * distance;
     const endY = startY + Math.sin(baseAngle) * distance;
 
     // Clamp to viewport bounds
-    const clampedEndX = Math.max(60, Math.min(window.innerWidth - 60, endX));
-    const clampedEndY = Math.max(60, Math.min(window.innerHeight - 60, endY));
-
-    // Natural curve - all rockets have a slight wobble
-    const wobbleAmount = 5 + Math.random() * 10; // 5-15px subtle curve
-    const wobbleSpeed = 1 + Math.random() * 0.5; // How fast the wobble oscillates
-
-    // 65% chance for more pronounced spiral
-    const shouldSpiral = Math.random() < 0.65;
-    const spiralRadius = shouldSpiral ? (25 + Math.random() * 30) : wobbleAmount; // 25-55px if spiral, otherwise just wobble
-    const spiralRotations = shouldSpiral ? (1.2 + Math.random() * 1.5) : wobbleSpeed; // 1.2-2.7 rotations if spiral
+    const clampedEndX = Math.max(40, Math.min(window.innerWidth - 40, endX));
+    const clampedEndY = Math.max(40, Math.min(window.innerHeight - 40, endY));
 
     const firework = fireworkRef.current;
     const rocketIcon = rocketIconRef.current;
     const trailContainer = firework?.parentElement;
-    const trailCount = 25;
-    const duration = 1800; // Slower animation for smooth rotation
+    const trailCount = 15; // Fewer trail dots
+    const duration = 850; // 0.85 second flight per firework
     const startTime = performance.now();
 
-    // Use a small buffer of positions to smooth velocity calculation
-    const positionBuffer: Array<{ x: number; y: number }> = [];
-    const bufferSize = 6;
-    // Pre-fill buffer with start position to avoid jitter at launch
-    for (let i = 0; i < 3; i++) {
-      positionBuffer.push({ x: startX, y: startY });
-    }
-    // Track last valid rotation angle for when speed is too low
-    // Initialize pointing in the general direction of travel
-    let lastValidAngle = baseAngle;
+    // Track rotation angle - initialize to travel direction
+    let currentAngle = baseAngle;
 
     // Helper to calculate position at a given progress
     const getPosition = (progress: number) => {
       const easeOut = 1 - Math.pow(1 - progress, 3);
-      let x = startX + (clampedEndX - startX) * easeOut;
-      let y = startY + (clampedEndY - startY) * easeOut;
-
-      // Always add some natural curve/wobble
-      const curveAngle = progress * spiralRotations * Math.PI * 2;
-      const curveRadius = spiralRadius * (1 - progress * 0.4); // Radius decreases as rocket travels
-      x += Math.cos(curveAngle) * curveRadius;
-      y += Math.sin(curveAngle) * curveRadius;
+      const x = startX + (clampedEndX - startX) * easeOut;
+      const y = startY + (clampedEndY - startY) * easeOut;
 
       return { x, y };
     };
@@ -276,8 +287,8 @@ const Firework: React.FC<FireworkProps> = ({ startX, startY, onComplete }) => {
     }
     let nextDotIndex = 0;
     let lastDotTime = 0;
-    const dotSpawnInterval = 25; // Spawn a new dot every 25ms
-    const dotLifetime = 2000; // Each dot lives for 2000ms
+    const dotSpawnInterval = 20; // Spawn a new dot every 20ms
+    const dotLifetime = 850; // Match flight duration
 
     // Get theme colors for trail dots
     const trailColors = getFireworkColors();
@@ -303,70 +314,29 @@ const Firework: React.FC<FireworkProps> = ({ startX, startY, onComplete }) => {
 
       const { x: currentX, y: currentY } = getPosition(progress);
 
-      // Add current position to buffer for smoothed velocity
-      positionBuffer.push({ x: currentX, y: currentY });
-      if (positionBuffer.length > bufferSize) {
-        positionBuffer.shift();
-      }
-
-      // Calculate velocity from position buffer (smoothed over multiple frames)
-      let velX = 0;
-      let velY = 0;
-      if (positionBuffer.length >= 2) {
-        const oldest = positionBuffer[0];
-        const newest = positionBuffer[positionBuffer.length - 1];
-        velX = newest.x - oldest.x;
-        velY = newest.y - oldest.y;
-      }
-
-      const speed = Math.sqrt(velX * velX + velY * velY);
-
       // Update rocket position
       if (firework) {
         firework.style.left = `${currentX}px`;
         firework.style.top = `${currentY}px`;
 
         // Scale animation
-        const scale = 1 + (0.3 * progress) - (progress > 0.8 ? (progress - 0.8) * 6.5 : 0);
+        const scale = 1 + (0.2 * progress) - (progress > 0.8 ? (progress - 0.8) * 4 : 0);
         firework.style.transform = `scale(${Math.max(0, scale)})`;
         firework.style.opacity = progress > 0.85 ? String(1 - (progress - 0.85) * 6.67) : '1';
       }
 
-      // Rotate rocket to point in direction of travel
-      // Uses same smoothed velocity as particle spawning for consistency
+      // Rotate rocket to point in direction of travel (fixed angle)
       if (rocketIcon) {
-        let angleToUse = lastValidAngle;
-
-        if (speed > 0.3) {
-          const newAngle = Math.atan2(velY, velX);
-
-          // Smoothly interpolate angle to prevent sudden jumps
-          let angleDiff = newAngle - lastValidAngle;
-          // Handle angle wrapping (-PI to PI)
-          while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
-          while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-
-          // Limit max rotation per frame to prevent wild spins
-          const maxRotationPerFrame = 0.15; // ~8.5 degrees
-          angleDiff = Math.max(-maxRotationPerFrame, Math.min(maxRotationPerFrame, angleDiff));
-
-          angleToUse = lastValidAngle + angleDiff;
-          lastValidAngle = angleToUse;
-        }
-
         // SVG points diagonally (upper-right), add 45 to align with travel direction
-        const rotationDeg = (angleToUse * 180) / Math.PI + 45;
+        const rotationDeg = (currentAngle * 180) / Math.PI + 45;
         rocketIcon.style.transform = `rotate(${rotationDeg}deg)`;
       }
 
-      // Spawn new dot behind the rocket - use rocket's visual rotation angle
-      // so smoke always comes from the back regardless of spiral movement
+      // Spawn new dot behind the rocket
       if (elapsed - lastDotTime > dotSpawnInterval && progress < 0.95 && progress > 0.02) {
         // Place dot at the flame (offset behind rocket center)
-        // Use lastValidAngle (the rocket's visual rotation) instead of velocity direction
-        // Add PI to get the opposite direction (behind the rocket)
-        const behindOffset = 14; // Distance behind the rocket center
-        const behindAngle = lastValidAngle + Math.PI;
+        const behindOffset = 12; // Distance behind the rocket center
+        const behindAngle = currentAngle + Math.PI;
         dotData[nextDotIndex] = {
           x: currentX + Math.cos(behindAngle) * behindOffset,
           y: currentY + Math.sin(behindAngle) * behindOffset,
@@ -417,7 +387,7 @@ const Firework: React.FC<FireworkProps> = ({ startX, startY, onComplete }) => {
       trailDotsRef.current.forEach((dot) => dot.remove());
       trailDotsRef.current = [];
     };
-  }, [startX, startY, onComplete]);
+  }, [startX, startY, direction, onComplete]);
 
   return (
     <div
@@ -492,16 +462,37 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [position, setPosition] = useState<{ top: number; left: number; width: number } | null>(null);
   const [isRocketSpinning, setIsRocketSpinning] = useState(false);
-  const [firework, setFirework] = useState<{ x: number; y: number } | null>(null);
+  const [isBouncing, setIsBouncing] = useState(false);
+  const [fireworks, setFireworks] = useState<Array<{ x: number; y: number; direction: 'left' | 'center' | 'right' }>>([]);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const rocketRef = useRef<HTMLDivElement>(null);
   const spinningRef = useRef(false);
+  const completedCountRef = useRef(0);
+  const fireworkDirections = useRef<Array<'left' | 'center' | 'right'>>(['left', 'center', 'right']);
+  const currentFireworkIndexRef = useRef(0);
+  const fireworkOriginRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const nextFireworkTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fireworkKeyRef = useRef(0);
 
-  // Handle firework completion - trigger confetti explosion and dispatch event
+  // Launch a single firework by index from the queue
+  const launchFireworkByIndex = useCallback((index: number) => {
+    const direction = fireworkDirections.current[index];
+    if (!direction) return;
+
+    fireworkKeyRef.current += 1;
+    const origin = fireworkOriginRef.current;
+    setFireworks([{ x: origin.x, y: origin.y, direction }]);
+
+    // Trigger bounce animation
+    setIsBouncing(true);
+    setTimeout(() => setIsBouncing(false), 300);
+  }, []);
+
+  // Handle firework completion - trigger particle burst, then launch next
   const handleFireworkComplete = useCallback((endX: number, endY: number) => {
-    // Trigger the confetti explosion at the firework's end position
-    triggerConfettiExplosion(endX, endY);
+    // Trigger the particle burst at the firework's end position
+    createParticleBurst(endX, endY);
 
     // Dispatch custom event that other components can listen to
     const event = new CustomEvent(FIREWORK_EXPLOSION_EVENT, {
@@ -510,9 +501,25 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
     });
     window.dispatchEvent(event);
 
-    // Clear firework state
-    setFirework(null);
-  }, []);
+    // Track completion
+    completedCountRef.current += 1;
+
+    // Check if there are more fireworks to launch
+    const nextIndex = currentFireworkIndexRef.current + 1;
+    if (nextIndex < fireworkDirections.current.length) {
+      currentFireworkIndexRef.current = nextIndex;
+      // Launch next firework immediately after current completes
+      // The rocket flight itself is ~1.2s which provides the visual delay
+      nextFireworkTimerRef.current = setTimeout(() => {
+        launchFireworkByIndex(nextIndex);
+      }, 100); // Small 100ms gap between explosion and next launch
+    } else {
+      // All fireworks done - clear state
+      setFireworks([]);
+      completedCountRef.current = 0;
+      currentFireworkIndexRef.current = 0;
+    }
+  }, [launchFireworkByIndex]);
 
   const updatePosition = useCallback(() => {
     if (triggerRef.current) {
@@ -578,7 +585,16 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
     }
   }, [isOpen]);
 
-  // Handle spin animation end - launch firework exactly when CSS animation finishes
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (nextFireworkTimerRef.current) {
+        clearTimeout(nextFireworkTimerRef.current);
+      }
+    };
+  }, []);
+
+  // Handle spin animation end - launch fireworks sequentially starting with the first
   const handleSpinAnimationEnd = useCallback(() => {
     // Guard against double-firing (glow ::after also fires animationend)
     if (!spinningRef.current) return;
@@ -588,11 +604,20 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
     if (buttonElement) {
       const rect = buttonElement.getBoundingClientRect();
       const buttonCenterX = rect.left + rect.width / 2;
-      const buttonTopY = rect.top;
-      setFirework({ x: buttonCenterX, y: buttonTopY });
+      const buttonBottomY = rect.bottom;
+
+      // Store origin for sequential launches
+      fireworkOriginRef.current = { x: buttonCenterX, y: buttonBottomY };
+
+      // Reset queue tracking
+      currentFireworkIndexRef.current = 0;
+      completedCountRef.current = 0;
+
+      // Launch only the first firework - subsequent ones fire from handleFireworkComplete
+      launchFireworkByIndex(0);
     }
     setIsRocketSpinning(false);
-  }, []);
+  }, [launchFireworkByIndex]);
 
   // Handle button click - toggles dropdown AND launches firework only when opening
   const handleButtonClick = useCallback((_e: React.MouseEvent) => {
@@ -790,14 +815,18 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
     document.body
   );
 
-  // Firework portal - renders at document body level for proper z-index
-  const fireworkPortal = firework && createPortal(
+  // Firework portal - renders one firework at a time at document body level for proper z-index
+  const fireworkPortal = fireworks.length > 0 && createPortal(
     <div className="firework-container">
-      <Firework
-        startX={firework.x}
-        startY={firework.y}
-        onComplete={handleFireworkComplete}
-      />
+      {fireworks.map((fw) => (
+        <Firework
+          key={fireworkKeyRef.current}
+          startX={fw.x}
+          startY={fw.y}
+          direction={fw.direction}
+          onComplete={handleFireworkComplete}
+        />
+      ))}
     </div>,
     document.body
   );
@@ -808,7 +837,7 @@ const GitHubProjectsDropdown: React.FC<GitHubProjectsDropdownProps> = ({ iconOnl
         <button
           ref={triggerRef}
           onClick={handleButtonClick}
-          className={`ed-trigger github-trigger px-3 py-2 themed-border-radius border text-left flex items-center text-sm themed-card text-themed-primary ${
+          className={`ed-trigger github-trigger ${isBouncing ? 'bouncing' : ''} px-3 py-2 themed-border-radius border text-left flex items-center text-sm themed-card text-themed-primary ${
             isOpen ? 'border-themed-focus' : 'border-themed-primary'
           } ${iconOnly ? 'justify-center' : 'gap-1.5'} cursor-pointer`}
           aria-label="GitHub Projects"
