@@ -629,7 +629,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         storageKey: NOTIFICATION_STORAGE_KEYS.DATABASE_RESET,
         getMessage: formatDatabaseResetProgressMessage,
         getProgress: (e) => e.percentComplete || 0,
-        getStatus: (e) => e.status === 'completed' ? 'completed' : (e.status === 'failed' || e.status === 'error') ? 'failed' : undefined,
+        getStatus: (e) => e.status === 'completed' ? 'completed' : (e.status === 'failed' || e.status === 'error' || e.status === 'cancelled') ? 'failed' : undefined,
         getCompletedMessage: formatDatabaseResetCompleteMessage,
         getErrorMessage: (e) => e.message,
         supportFastCompletion: true,  // Handle fast operations where completion arrives before notification created

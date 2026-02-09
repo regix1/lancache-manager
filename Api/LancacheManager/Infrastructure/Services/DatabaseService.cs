@@ -1017,16 +1017,17 @@ public class DatabaseService : IDatabaseService
             // Clean up operation tracking
             _activeResetOperations.TryRemove(operationId, out _);
 
-            // Clear progress tracking
+            // Clear progress tracking - reflect actual outcome
+            var wasCancelled = cancellationToken.IsCancellationRequested;
             _currentResetProgress = new ResetProgressInfo
             {
                 IsProcessing = false,
-                PercentComplete = 100,
-                Message = "Database reset completed",
-                Status = "completed"
+                PercentComplete = wasCancelled ? 0 : 100,
+                Message = wasCancelled ? "Database reset was cancelled" : "Database reset completed",
+                Status = wasCancelled ? "cancelled" : "completed"
             };
 
-            _logger.LogInformation($"Reset operation {operationId} completed");
+            _logger.LogInformation("Reset operation {OperationId} {Outcome}", operationId, wasCancelled ? "cancelled" : "completed");
         }
     }
 
