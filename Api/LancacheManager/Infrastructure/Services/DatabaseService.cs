@@ -315,7 +315,7 @@ public class DatabaseService : IDatabaseService
     private async Task ResetSelectedTablesInternal(string operationId, List<string> tableNames, CancellationToken cancellationToken)
     {
         // Use a new DbContext from factory for background operation (don't use injected context)
-        await using var context = await _dbContextFactory.CreateDbContextAsync();
+        await using var context = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
         try
         {
@@ -353,7 +353,7 @@ public class DatabaseService : IDatabaseService
 
             // Count total rows for progress calculation - wrap in transaction for consistent snapshot
             int totalRows = 0;
-            using (var transaction = await context.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted))
+            using (var transaction = await context.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken))
             {
                 try
                 {
@@ -361,29 +361,29 @@ public class DatabaseService : IDatabaseService
                     {
                         var count = tableName switch
                         {
-                            "LogEntries" => await context.LogEntries.CountAsync(),
-                            "Downloads" => await context.Downloads.CountAsync(),
-                            "ClientStats" => await context.ClientStats.CountAsync(),
-                            "ServiceStats" => await context.ServiceStats.CountAsync(),
-                            "SteamDepotMappings" => await context.SteamDepotMappings.CountAsync(),
-                            "CachedGameDetections" => await context.CachedGameDetections.CountAsync(),
-                            "CachedServiceDetections" => await context.CachedServiceDetections.CountAsync(),
-                            "CachedCorruptionDetections" => await context.CachedCorruptionDetections.CountAsync(),
-                            "ClientGroups" => await context.ClientGroups.CountAsync(),
-                            "UserSessions" => await context.UserSessions.CountAsync(),
-                            "UserPreferences" => await context.UserPreferences.CountAsync(),
-                            "Events" => await context.Events.CountAsync(),
-                            "EventDownloads" => await context.EventDownloads.CountAsync(),
-                            "PrefillSessions" => await context.PrefillSessions.CountAsync(),
-                            "PrefillCachedDepots" => await context.PrefillCachedDepots.CountAsync(),
-                            "BannedSteamUsers" => await context.BannedSteamUsers.CountAsync(),
-                            "CacheSnapshots" => await context.CacheSnapshots.CountAsync(),
+                            "LogEntries" => await context.LogEntries.CountAsync(cancellationToken),
+                            "Downloads" => await context.Downloads.CountAsync(cancellationToken),
+                            "ClientStats" => await context.ClientStats.CountAsync(cancellationToken),
+                            "ServiceStats" => await context.ServiceStats.CountAsync(cancellationToken),
+                            "SteamDepotMappings" => await context.SteamDepotMappings.CountAsync(cancellationToken),
+                            "CachedGameDetections" => await context.CachedGameDetections.CountAsync(cancellationToken),
+                            "CachedServiceDetections" => await context.CachedServiceDetections.CountAsync(cancellationToken),
+                            "CachedCorruptionDetections" => await context.CachedCorruptionDetections.CountAsync(cancellationToken),
+                            "ClientGroups" => await context.ClientGroups.CountAsync(cancellationToken),
+                            "UserSessions" => await context.UserSessions.CountAsync(cancellationToken),
+                            "UserPreferences" => await context.UserPreferences.CountAsync(cancellationToken),
+                            "Events" => await context.Events.CountAsync(cancellationToken),
+                            "EventDownloads" => await context.EventDownloads.CountAsync(cancellationToken),
+                            "PrefillSessions" => await context.PrefillSessions.CountAsync(cancellationToken),
+                            "PrefillCachedDepots" => await context.PrefillCachedDepots.CountAsync(cancellationToken),
+                            "BannedSteamUsers" => await context.BannedSteamUsers.CountAsync(cancellationToken),
+                            "CacheSnapshots" => await context.CacheSnapshots.CountAsync(cancellationToken),
                             _ => 0
                         };
                         totalRows += count;
                     }
 
-                    await transaction.CommitAsync();
+                    await transaction.CommitAsync(cancellationToken);
                 }
                 catch (Exception ex)
                 {
@@ -408,7 +408,7 @@ public class DatabaseService : IDatabaseService
             await context.Database.ExecuteSqlRawAsync("PRAGMA foreign_keys = OFF;");
 
             // Wrap all deletion operations in a transaction for atomicity
-            using var deleteTransaction = await context.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted);
+            using var deleteTransaction = await context.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
             try
             {
                 // Delete tables based on selection
@@ -440,7 +440,7 @@ public class DatabaseService : IDatabaseService
                 {
                     _logger.LogInformation("Nullifying LogEntry.DownloadId foreign keys before deleting Downloads table");
                     await context.LogEntries.Where(le => le.DownloadId != null)
-                        .ExecuteUpdateAsync(s => s.SetProperty(le => le.DownloadId, (int?)null));
+                        .ExecuteUpdateAsync(s => s.SetProperty(le => le.DownloadId, (int?)null), cancellationToken);
                 }
 
                 foreach (var tableName in orderedTables)
@@ -453,7 +453,7 @@ public class DatabaseService : IDatabaseService
                         case "LogEntries":
                             // Use batched deletion to avoid locking the database for too long
                             // This allows other operations to proceed between batches
-                            var logEntriesTotal = await context.LogEntries.CountAsync();
+                            var logEntriesTotal = await context.LogEntries.CountAsync(cancellationToken);
                             var logEntriesDeleted = 0;
                             const int batchSize = 100000;
 
@@ -465,7 +465,7 @@ public class DatabaseService : IDatabaseService
                                 // Delete a batch using raw SQL for efficiency
                                 // SQLite doesn't support LIMIT in DELETE, so we use a subquery
                                 var deleted = await context.Database.ExecuteSqlRawAsync(
-                                    $"DELETE FROM LogEntries WHERE Id IN (SELECT Id FROM LogEntries LIMIT {batchSize})");
+                                    $"DELETE FROM LogEntries WHERE Id IN (SELECT Id FROM LogEntries LIMIT {batchSize})", cancellationToken);
 
                                 if (deleted == 0)
                                     break;
@@ -498,7 +498,7 @@ public class DatabaseService : IDatabaseService
                                 });
 
                                 // Small delay to allow other operations to acquire the lock
-                                await Task.Delay(50);
+                                await Task.Delay(50, cancellationToken);
                             }
 
                             _logger.LogInformation($"Cleared {logEntriesDeleted:N0} log entries");
@@ -527,7 +527,7 @@ public class DatabaseService : IDatabaseService
 
                         case "Downloads":
                             // Use ExecuteDeleteAsync for direct deletion (much faster than batched deletion)
-                            var downloadsCount = await context.Downloads.ExecuteDeleteAsync();
+                            var downloadsCount = await context.Downloads.ExecuteDeleteAsync(cancellationToken);
                             _logger.LogInformation($"Cleared {downloadsCount:N0} downloads");
                             deletedRows += downloadsCount;
 
@@ -544,7 +544,7 @@ public class DatabaseService : IDatabaseService
 
                         case "ClientStats":
                             // Use ExecuteDeleteAsync for direct deletion (much faster than batched deletion)
-                            var clientStatsCount = await context.ClientStats.ExecuteDeleteAsync();
+                            var clientStatsCount = await context.ClientStats.ExecuteDeleteAsync(cancellationToken);
                             _logger.LogInformation($"Cleared {clientStatsCount:N0} client stats");
                             deletedRows += clientStatsCount;
 
@@ -561,7 +561,7 @@ public class DatabaseService : IDatabaseService
 
                         case "ServiceStats":
                             // Use ExecuteDeleteAsync for direct deletion (much faster than batched deletion)
-                            var serviceStatsCount = await context.ServiceStats.ExecuteDeleteAsync();
+                            var serviceStatsCount = await context.ServiceStats.ExecuteDeleteAsync(cancellationToken);
                             _logger.LogInformation($"Cleared {serviceStatsCount:N0} service stats");
                             deletedRows += serviceStatsCount;
 
@@ -578,7 +578,7 @@ public class DatabaseService : IDatabaseService
 
                         case "SteamDepotMappings":
                             // Use ExecuteDeleteAsync for direct deletion (more efficient for this table)
-                            var mappingCount = await context.SteamDepotMappings.ExecuteDeleteAsync();
+                            var mappingCount = await context.SteamDepotMappings.ExecuteDeleteAsync(cancellationToken);
                             _logger.LogInformation($"Cleared {mappingCount:N0} depot mappings");
                             deletedRows += mappingCount;
 
@@ -588,7 +588,7 @@ public class DatabaseService : IDatabaseService
                                 .ExecuteUpdateAsync(s => s
                                     .SetProperty(d => d.GameName, (string?)null)
                                     .SetProperty(d => d.GameImageUrl, (string?)null)
-                                    .SetProperty(d => d.GameAppId, (uint?)null));
+                                    .SetProperty(d => d.GameAppId, (uint?)null), cancellationToken);
                             _logger.LogInformation("Cleared game information from all downloads");
 
                             // CRITICAL: Also delete the PICS JSON file to prevent re-import on next scan
@@ -620,8 +620,8 @@ public class DatabaseService : IDatabaseService
 
                         case "CachedGameDetections":
                             // Use ExecuteDeleteAsync for direct deletion (more efficient for this table)
-                            var gameDetectionCount = await context.CachedGameDetections.ExecuteDeleteAsync();
-                            var serviceDetectionCount = await context.CachedServiceDetections.ExecuteDeleteAsync();
+                            var gameDetectionCount = await context.CachedGameDetections.ExecuteDeleteAsync(cancellationToken);
+                            var serviceDetectionCount = await context.CachedServiceDetections.ExecuteDeleteAsync(cancellationToken);
                             _logger.LogInformation($"Cleared {gameDetectionCount:N0} cached game detections and {serviceDetectionCount:N0} cached service detections");
                             deletedRows += gameDetectionCount + serviceDetectionCount;
 
@@ -638,7 +638,7 @@ public class DatabaseService : IDatabaseService
 
                         case "UserPreferences":
                             // Use ExecuteDeleteAsync for direct deletion
-                            var userPreferencesCount = await context.UserPreferences.ExecuteDeleteAsync();
+                            var userPreferencesCount = await context.UserPreferences.ExecuteDeleteAsync(cancellationToken);
                             _logger.LogInformation($"Cleared {userPreferencesCount:N0} user preferences");
                             deletedRows += userPreferencesCount;
 
@@ -673,7 +673,7 @@ public class DatabaseService : IDatabaseService
                             }
 
                             _logger.LogInformation($"[PRIORITY] Clearing UserSessions table to invalidate all active sessions");
-                            var userSessionsCount = await context.UserSessions.ExecuteDeleteAsync();
+                            var userSessionsCount = await context.UserSessions.ExecuteDeleteAsync(cancellationToken);
                             _logger.LogInformation($"Cleared {userSessionsCount:N0} user sessions");
                             deletedRows += userSessionsCount;
 
@@ -710,7 +710,7 @@ public class DatabaseService : IDatabaseService
                         case "Events":
                             // Use ExecuteDeleteAsync for direct deletion
                             // Note: EventDownloads will be cascade deleted due to FK constraint
-                            var eventsCount = await context.Events.ExecuteDeleteAsync();
+                            var eventsCount = await context.Events.ExecuteDeleteAsync(cancellationToken);
                             _logger.LogInformation($"Cleared {eventsCount:N0} events (and associated event downloads via cascade)");
                             deletedRows += eventsCount;
 
@@ -734,7 +734,7 @@ public class DatabaseService : IDatabaseService
 
                         case "EventDownloads":
                             // Use ExecuteDeleteAsync for direct deletion
-                            var eventDownloadsCount = await context.EventDownloads.ExecuteDeleteAsync();
+                            var eventDownloadsCount = await context.EventDownloads.ExecuteDeleteAsync(cancellationToken);
                             _logger.LogInformation($"Cleared {eventDownloadsCount:N0} event download associations");
                             deletedRows += eventDownloadsCount;
 
@@ -751,7 +751,7 @@ public class DatabaseService : IDatabaseService
 
                         case "CachedCorruptionDetections":
                             // Use ExecuteDeleteAsync for direct deletion
-                            var corruptionDetectionCount = await context.CachedCorruptionDetections.ExecuteDeleteAsync();
+                            var corruptionDetectionCount = await context.CachedCorruptionDetections.ExecuteDeleteAsync(cancellationToken);
                             _logger.LogInformation($"Cleared {corruptionDetectionCount:N0} cached corruption detections");
                             deletedRows += corruptionDetectionCount;
 
@@ -769,7 +769,7 @@ public class DatabaseService : IDatabaseService
                         case "ClientGroups":
                             // Use ExecuteDeleteAsync for direct deletion
                             // Note: ClientGroupMembers will be cascade deleted due to FK constraint
-                            var clientGroupsCount = await context.ClientGroups.ExecuteDeleteAsync();
+                            var clientGroupsCount = await context.ClientGroups.ExecuteDeleteAsync(cancellationToken);
                             _logger.LogInformation($"Cleared {clientGroupsCount:N0} client groups (and associated members via cascade)");
                             deletedRows += clientGroupsCount;
 
@@ -794,7 +794,7 @@ public class DatabaseService : IDatabaseService
                         case "PrefillSessions":
                             // Use ExecuteDeleteAsync for direct deletion
                             // Note: PrefillHistoryEntries will be cascade deleted due to FK constraint
-                            var prefillSessionsCount = await context.PrefillSessions.ExecuteDeleteAsync();
+                            var prefillSessionsCount = await context.PrefillSessions.ExecuteDeleteAsync(cancellationToken);
                             _logger.LogInformation($"Cleared {prefillSessionsCount:N0} prefill sessions (and associated history via cascade)");
                             deletedRows += prefillSessionsCount;
 
@@ -818,7 +818,7 @@ public class DatabaseService : IDatabaseService
 
                         case "BannedSteamUsers":
                             // Use ExecuteDeleteAsync for direct deletion
-                            var bannedUsersCount = await context.BannedSteamUsers.ExecuteDeleteAsync();
+                            var bannedUsersCount = await context.BannedSteamUsers.ExecuteDeleteAsync(cancellationToken);
                             _logger.LogInformation($"Cleared {bannedUsersCount:N0} banned Steam users");
                             deletedRows += bannedUsersCount;
 
@@ -842,7 +842,7 @@ public class DatabaseService : IDatabaseService
 
                         case "CachedServiceDetections":
                             // Use ExecuteDeleteAsync for direct deletion
-                            var serviceDetectionsCount = await context.CachedServiceDetections.ExecuteDeleteAsync();
+                            var serviceDetectionsCount = await context.CachedServiceDetections.ExecuteDeleteAsync(cancellationToken);
                             _logger.LogInformation($"Cleared {serviceDetectionsCount:N0} cached service detections");
                             deletedRows += serviceDetectionsCount;
 
@@ -859,7 +859,7 @@ public class DatabaseService : IDatabaseService
 
                         case "PrefillCachedDepots":
                             // Use ExecuteDeleteAsync for direct deletion
-                            var prefillCachedDepotsCount = await context.PrefillCachedDepots.ExecuteDeleteAsync();
+                            var prefillCachedDepotsCount = await context.PrefillCachedDepots.ExecuteDeleteAsync(cancellationToken);
                             _logger.LogInformation($"Cleared {prefillCachedDepotsCount:N0} prefill cached depots");
                             deletedRows += prefillCachedDepotsCount;
 
@@ -876,7 +876,7 @@ public class DatabaseService : IDatabaseService
 
                         case "CacheSnapshots":
                             // Use ExecuteDeleteAsync for direct deletion
-                            var cacheSnapshotsCount = await context.CacheSnapshots.ExecuteDeleteAsync();
+                            var cacheSnapshotsCount = await context.CacheSnapshots.ExecuteDeleteAsync(cancellationToken);
                             _logger.LogInformation($"Cleared {cacheSnapshotsCount:N0} cache snapshots");
                             deletedRows += cacheSnapshotsCount;
 
@@ -934,7 +934,7 @@ public class DatabaseService : IDatabaseService
                 _logger.LogInformation($"Selective database reset completed successfully. Cleared {tablesToClear.Count} table(s)");
 
                 // Commit the deletion transaction
-                await deleteTransaction.CommitAsync();
+                await deleteTransaction.CommitAsync(cancellationToken);
 
                 // Send completion update
                 await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
