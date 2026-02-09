@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
 using LancacheManager.Infrastructure.Data;
@@ -28,6 +29,8 @@ public class CorruptionDetectionService
     private readonly IUnifiedOperationTracker _operationTracker;
 
     private readonly SemaphoreSlim _startLock = new(1, 1);
+    private readonly ConcurrentDictionary<string, DateTime> _recentlyRemovedServices = new();
+    private static readonly TimeSpan RemovalGracePeriod = TimeSpan.FromMinutes(5);
 
     private const string OperationStateKey = "corruptionDetection";
 
@@ -157,6 +160,21 @@ public class CorruptionDetectionService
                     {
                         aggregatedCounts[kvp.Key] = kvp.Value;
                     }
+                }
+            }
+
+            // Filter out services within grace period after removal
+            var expiredKeys = _recentlyRemovedServices.Where(kvp => DateTime.UtcNow - kvp.Value > RemovalGracePeriod).Select(kvp => kvp.Key).ToList();
+            foreach (var key in expiredKeys)
+            {
+                _recentlyRemovedServices.TryRemove(key, out _);
+            }
+
+            foreach (var service in _recentlyRemovedServices.Keys)
+            {
+                if (aggregatedCounts.Remove(service))
+                {
+                    _logger.LogInformation("[CorruptionDetection] Skipping recently removed service '{Service}' (grace period)", service);
                 }
             }
 
@@ -418,7 +436,12 @@ public class CorruptionDetectionService
         var deleted = await dbContext.CachedCorruptionDetections
             .Where(c => c.ServiceName == serviceName)
             .ExecuteDeleteAsync();
-        _logger.LogInformation("[CorruptionDetection] Removed cached corruption entry for service: {Service} ({Deleted} rows)", serviceName, deleted);
+
+        // Track service removal to prevent immediate reappearance
+        _recentlyRemovedServices[serviceName.ToLowerInvariant()] = DateTime.UtcNow;
+
+        _logger.LogInformation("[CorruptionDetection] Removed cached corruption entry for service: {Service} ({Deleted} rows). Grace period active for {Minutes} minutes.",
+            serviceName, deleted, RemovalGracePeriod.TotalMinutes);
     }
 
     /// <summary>

@@ -27,6 +27,28 @@ impl LogParser {
         }
     }
 
+    fn normalize_url(url: &str) -> String {
+        // Collapse consecutive slashes to a single slash
+        // This handles cases where nginx logs record the same URL with double slashes
+        // e.g., /filestreamingservice//files/... vs /filestreamingservice/files/...
+        let mut result = String::with_capacity(url.len());
+        let mut prev_was_slash = false;
+
+        for ch in url.chars() {
+            if ch == '/' {
+                if !prev_was_slash {
+                    result.push(ch);
+                }
+                prev_was_slash = true;
+            } else {
+                result.push(ch);
+                prev_was_slash = false;
+            }
+        }
+
+        result
+    }
+
 
     pub(crate) fn parse_line(&self, line: &str) -> Option<LogEntry> {
         let captures = self.main_regex.captures(line)?;
@@ -38,7 +60,7 @@ impl LogParser {
 
         let client_ip = captures.name("ip")?.as_str().to_string();
         let time_str = captures.name("time")?.as_str();
-        let url = captures.name("url")?.as_str().to_string();
+        let url = Self::normalize_url(captures.name("url")?.as_str());
         let status_code = captures.name("status")?.as_str().parse::<i32>().ok()?;
 
         let bytes_str = captures.name("bytes")?.as_str();
