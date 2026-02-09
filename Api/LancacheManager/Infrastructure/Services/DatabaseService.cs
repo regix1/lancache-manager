@@ -455,7 +455,7 @@ public class DatabaseService : IDatabaseService
                             // This allows other operations to proceed between batches
                             var logEntriesTotal = await context.LogEntries.CountAsync(cancellationToken);
                             var logEntriesDeleted = 0;
-                            const int batchSize = 100000;
+                            const int batchSize = 10000;
 
                             _logger.LogInformation($"Starting batched deletion of {logEntriesTotal:N0} log entries (batch size: {batchSize:N0})");
 
@@ -466,6 +466,10 @@ public class DatabaseService : IDatabaseService
                                 // SQLite doesn't support LIMIT in DELETE, so we use a subquery
                                 var deleted = await context.Database.ExecuteSqlRawAsync(
                                     $"DELETE FROM LogEntries WHERE Id IN (SELECT Id FROM LogEntries LIMIT {batchSize})", cancellationToken);
+
+                                // Check for cancellation immediately after batch completes
+                                // SQLite completes the batch synchronously, so we check here for fastest response
+                                cancellationToken.ThrowIfCancellationRequested();
 
                                 if (deleted == 0)
                                     break;
@@ -933,7 +937,8 @@ public class DatabaseService : IDatabaseService
 
                 _logger.LogInformation($"Selective database reset completed successfully. Cleared {tablesToClear.Count} table(s)");
 
-                // Commit the deletion transaction
+                // Final cancellation check before committing - don't commit if user cancelled
+                cancellationToken.ThrowIfCancellationRequested();
                 await deleteTransaction.CommitAsync(cancellationToken);
 
                 // Send completion update
