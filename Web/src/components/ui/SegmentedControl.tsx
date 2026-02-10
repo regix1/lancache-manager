@@ -3,7 +3,7 @@ import { Tooltip } from './Tooltip';
 
 interface SegmentedControlOption {
   value: string;
-  label?: string;
+  label?: React.ReactNode;
   icon?: React.ReactNode;
   tooltip?: string;
   disabled?: boolean;

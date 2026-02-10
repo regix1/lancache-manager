@@ -52,14 +52,16 @@ const ActiveDownloadsView: React.FC = () => {
             onClick={() => setViewMode('games')}
           >
             <HardDrive />
-            {t('downloads.active.tabs.games', { count: games.length })}
+            {t('downloads.active.tabs.games')}
+            {games.length > 0 && <span className="count-badge">{games.length}</span>}
           </button>
           <button
             className={`view-toggle-btn ${viewMode === 'clients' ? 'active' : ''}`}
             onClick={() => setViewMode('clients')}
           >
             <Users />
-            {t('downloads.active.tabs.clients', { count: clients.length })}
+            {t('downloads.active.tabs.clients')}
+            {clients.length > 0 && <span className="count-badge">{clients.length}</span>}
           </button>
         </div>
 

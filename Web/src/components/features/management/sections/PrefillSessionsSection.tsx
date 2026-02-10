@@ -897,7 +897,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
 
       {/* Live Sessions Accordion */}
       <AccordionSection
-        title={t('management.prefillSessions.liveSessions', { count: activeSessions.length })}
+        title={t('management.prefillSessions.liveSessions')}
         count={activeSessions.length}
         icon={Play}
         iconColor="var(--theme-icon-green)"
@@ -941,7 +941,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
 
       {/* Session History Accordion */}
       <AccordionSection
-        title={t('management.prefillSessions.sessionHistory', { count: totalCount })}
+        title={t('management.prefillSessions.sessionHistory')}
         count={totalCount}
         icon={Clock}
         iconColor="var(--theme-primary)"

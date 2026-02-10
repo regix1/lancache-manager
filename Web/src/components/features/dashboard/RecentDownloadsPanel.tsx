@@ -932,7 +932,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
               { value: 'recent', label: t('dashboard.downloadsPanel.recent'), icon: <Clock size={14} /> },
               {
                 value: 'active',
-                label: isHistoricalView ? t('dashboard.downloadsPanel.active') : (activeCount > 0 ? t('dashboard.downloadsPanel.activeWithCount', { count: activeCount }) : t('dashboard.downloadsPanel.active')),
+                label: <>{t('dashboard.downloadsPanel.active')}{!isHistoricalView && activeCount > 0 && <span className="count-badge">{activeCount}</span>}</>,
                 icon: <Activity size={14} />,
                 disabled: isHistoricalView,
                 tooltip: isHistoricalView ? t('dashboard.downloadsPanel.activeDownloadsOnly') : undefined

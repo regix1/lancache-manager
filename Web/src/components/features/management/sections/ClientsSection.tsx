@@ -311,7 +311,8 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
         <div className="flex items-center gap-2 mb-4">
           <div className="w-1 h-5 rounded-full bg-[var(--theme-primary)]" />
           <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-            {t('management.sections.clients.nicknames', { count: clientGroups.length })}
+            {t('management.sections.clients.nicknames')}
+            {clientGroups.length > 0 && <span className="count-badge">{clientGroups.length}</span>}
           </h3>
         </div>
 
@@ -435,7 +436,8 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
           <div className="flex items-center gap-2 mb-4">
             <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-orange)]" />
             <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-              {t('management.sections.clients.withoutNicknames')} {!loadingClients && `(${ungroupedClients.length})`}
+              {t('management.sections.clients.withoutNicknames')}
+              {!loadingClients && ungroupedClients.length > 0 && <span className="count-badge">{ungroupedClients.length}</span>}
             </h3>
           </div>
 

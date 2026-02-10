@@ -378,7 +378,8 @@ export function GameSelectionModal({
                   <div
                     className="px-4 py-2 text-xs font-semibold uppercase tracking-wider flex-shrink-0 bg-[color-mix(in_srgb,var(--theme-primary)_15%,var(--theme-bg-tertiary))] text-[var(--theme-primary)] border-b border-[var(--theme-border-secondary)]"
                   >
-                    {t('prefill.gameSelection.selected', { count: localSelected.size })}
+                    {t('prefill.gameSelection.selected')}
+                    {localSelected.size > 0 && <span className="count-badge">{localSelected.size}</span>}
                   </div>
                   <CustomScrollbar maxHeight="100%" className="flex-1 min-h-0" paddingMode="compact">
                     <div>
@@ -419,7 +420,8 @@ export function GameSelectionModal({
               {sortedGames.some(g => !localSelected.has(g.appId)) && (
                 <div className="flex-1 min-h-0 flex flex-col">
                   <div className="px-4 py-2 text-xs font-semibold uppercase tracking-wider flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-muted)] border-b border-[var(--theme-border-secondary)]">
-                    {t('prefill.gameSelection.availableGames', { count: sortedGames.filter(g => !localSelected.has(g.appId)).length })}
+                    {t('prefill.gameSelection.availableGames')}
+                    <span className="count-badge">{sortedGames.filter(g => !localSelected.has(g.appId)).length}</span>
                   </div>
                   <CustomScrollbar maxHeight="100%" className="flex-1 min-h-0" paddingMode="compact">
                     <div>

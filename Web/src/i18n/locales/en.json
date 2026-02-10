@@ -1063,8 +1063,8 @@
         "description": "Downloads will appear here in real-time when clients start downloading games through the cache."
       },
       "tabs": {
-        "games": "Games ({{count}})",
-        "clients": "Clients ({{count}})"
+        "games": "Games",
+        "clients": "Clients"
       },
       "refresh": "Refresh",
       "depotLabel": "Depot {{depotId}}",
@@ -1511,7 +1511,7 @@
         "title": "Client Nicknames",
         "subtitle": "Assign friendly names to client IPs for easier identification",
         "addNickname": "Add Nickname",
-        "nicknames": "Nicknames ({{count}})",
+        "nicknames": "Nicknames",
         "loadingNicknames": "Loading nicknames...",
         "noNicknamesYet": "No nicknames assigned yet",
         "noNicknamesDesc": "Add a nickname to give a friendly name to client IPs",
@@ -2615,11 +2615,11 @@
       "activeSessions": "Active Sessions",
       "totalSessions": "Total Sessions",
       "activeBans": "Active Bans",
-      "liveSessions": "Live Sessions ({{count}})",
+      "liveSessions": "Live Sessions",
       "loadingSessions": "Loading sessions...",
       "noActiveSessions": "No active prefill sessions",
       "noActiveSessionsDesc": "Sessions appear here when users start Steam Prefill",
-      "sessionHistory": "Session History ({{count}})",
+      "sessionHistory": "Session History",
       "loading": "Loading...",
       "noSessionsFound": "No sessions found",
       "statusFilters": {
@@ -3184,8 +3184,8 @@
       "hidingCached": "hiding cached",
       "noGamesFound": "No games found",
       "tryDifferentSearch": "Try a different search term",
-      "selected": "Selected ({{count}})",
-      "availableGames": "Available Games ({{count}})",
+      "selected": "Selected",
+      "availableGames": "Available Games",
       "appId": "App ID: {{id}}",
       "cachedBadge": "Cached",
       "saveSelection": "Save Selection ({{count}})"
@@ -3204,8 +3204,8 @@
         "nickname": "Nickname",
         "description": "Description",
         "optional": "optional",
-        "currentIps": "Current IPs ({{count}})",
-        "ipsToAdd": "IPs to Add ({{count}})",
+        "currentIps": "Current IPs",
+        "ipsToAdd": "IPs to Add",
         "addMoreIps": "Add More IPs",
         "clientIps": "Client IPs",
         "selectAtLeastOne": "select at least one"
