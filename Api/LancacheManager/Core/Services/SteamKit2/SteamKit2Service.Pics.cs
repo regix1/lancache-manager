@@ -501,6 +501,27 @@ public partial class SteamKit2Service
             _logger.LogError(ex, "Database import failed");
         }
 
+        // Resolve orphan depots: depots observed in Downloads but not found during PICS enumeration
+        // This handles delisted/removed games whose depots are still served by the lancache
+        // Must run while Steam connection is still active (before disconnect in RunAsync.finally)
+        _currentStatus = "Resolving orphan depots";
+        await SendPostProcessingProgress("Resolving orphan depots...", 100, _depotToAppMappings.Count);
+        try
+        {
+            var orphansResolved = await ResolveOrphanDepotsAsync(ct);
+            if (orphansResolved > 0)
+            {
+                _logger.LogInformation("Resolved {Count} orphan depots - saving updated mappings", orphansResolved);
+                await SaveAllMappingsToJsonAsync(incrementalOnly);
+                await ImportJsonToDatabase();
+            }
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Orphan depot resolution failed (non-fatal)");
+        }
+
         // Auto-apply depot mappings to downloads after PICS data is ready
         _currentStatus = "Applying depot mappings";
         await SendPostProcessingProgress("Applying mappings to downloads...", 100, _depotToAppMappings.Count);
