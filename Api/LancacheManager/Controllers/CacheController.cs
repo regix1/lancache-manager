@@ -419,17 +419,6 @@ public class CacheController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/cache/corruption/summary - Get corruption summary for all services (synchronous, for backwards compatibility)
-    /// Consider using GET /api/cache/corruption/cached for cached results or POST /api/cache/corruption/detect for background scanning.
-    /// </summary>
-    [HttpGet("corruption/summary")]
-    public async Task<IActionResult> GetCorruptionSummary([FromQuery] bool forceRefresh = false)
-    {
-        var summary = await _cacheService.GetCorruptionSummary(forceRefresh);
-        return Ok(summary);
-    }
-
-    /// <summary>
     /// GET /api/cache/corruption/cached - Get cached corruption detection results
     /// Returns immediately with cached results (if available) without running a new scan.
     /// </summary>

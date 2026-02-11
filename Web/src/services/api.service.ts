@@ -803,9 +803,6 @@ class ApiService {
   }
 
 
-  // Get corruption summary (counts of corrupted chunks per service) - synchronous, for backwards compatibility
-  
-
   // Get cached corruption detection results (returns immediately without running a scan)
   static async getCachedCorruptionDetection(): Promise<{
     hasCachedResults: boolean;

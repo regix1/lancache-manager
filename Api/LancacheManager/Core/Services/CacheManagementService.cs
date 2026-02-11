@@ -658,16 +658,6 @@ public class CacheManagementService
         public Dictionary<string, ulong>? ServiceCounts { get; set; }
     }
 
-    // Helper class for corruption summary
-    private class CorruptionSummaryData
-    {
-        [System.Text.Json.Serialization.JsonPropertyName("service_counts")]
-        public Dictionary<string, ulong>? ServiceCounts { get; set; }
-
-        [System.Text.Json.Serialization.JsonPropertyName("total_corrupted")]
-        public ulong TotalCorrupted { get; set; }
-    }
-
     // Helper classes for detailed corruption report
     private class CorruptionReport
     {
@@ -691,102 +681,6 @@ public class CacheManagementService
 
         [System.Text.Json.Serialization.JsonPropertyName("cache_file_path")]
         public string CacheFilePath { get; set; } = string.Empty;
-    }
-
-    /// <summary>
-    /// Get corruption summary with caching based on log file modification time.
-    /// Aggregates corruption from all configured datasources.
-    /// </summary>
-    public async Task<Dictionary<string, long>> GetCorruptionSummary(bool forceRefresh = false, CancellationToken cancellationToken = default)
-    {
-        // Use semaphore to ensure only one Rust process runs at a time
-        await _cacheLock.WaitAsync();
-        try
-        {
-            var aggregatedCounts = new Dictionary<string, long>();
-            var datasources = _datasourceService.GetDatasources();
-            var timezone = Environment.GetEnvironmentVariable("TZ") ?? "UTC";
-            var rustBinaryPath = _pathResolver.GetRustCorruptionManagerPath();
-
-            _rustProcessHelper.ValidateRustBinaryExists(rustBinaryPath, "Corruption manager");
-
-            // Process each datasource and aggregate corruption counts
-            foreach (var datasource in datasources)
-            {
-                var dsCounts = await GetCorruptionSummaryForDatasource(datasource.LogPath, datasource.CachePath, timezone, rustBinaryPath, cancellationToken);
-
-                // Aggregate counts
-                foreach (var kvp in dsCounts)
-                {
-                    if (aggregatedCounts.ContainsKey(kvp.Key))
-                    {
-                        aggregatedCounts[kvp.Key] += kvp.Value;
-                    }
-                    else
-                    {
-                        aggregatedCounts[kvp.Key] = kvp.Value;
-                    }
-                }
-            }
-
-            // Only log if corruption was actually found
-            if (aggregatedCounts.Count > 0)
-            {
-                _logger.LogInformation("[CorruptionDetection] Aggregated summary: {Services}",
-                    string.Join(", ", aggregatedCounts.Select(kvp => $"{kvp.Key}={kvp.Value}")));
-            }
-
-            return aggregatedCounts;
-        }
-        finally
-        {
-            _cacheLock.Release();
-        }
-    }
-
-    /// <summary>
-    /// Get corruption summary for a specific datasource.
-    /// </summary>
-    private async Task<Dictionary<string, long>> GetCorruptionSummaryForDatasource(string logDir, string cacheDir, string timezone, string rustBinaryPath, CancellationToken cancellationToken)
-    {
-        var startInfo = _rustProcessHelper.CreateProcessStartInfo(
-            rustBinaryPath,
-            $"summary \"{logDir}\" \"{cacheDir}\" \"none\" \"{timezone}\" 3");
-
-        using (var process = Process.Start(startInfo))
-        {
-            if (process == null)
-            {
-                throw new Exception("Failed to start corruption_manager process");
-            }
-
-            var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-            var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
-
-            await _processManager.WaitForProcessAsync(process, cancellationToken);
-
-            var output = await outputTask;
-            var error = await errorTask;
-
-            _logger.LogDebug("[CorruptionDetection] Rust process exit code: {Code}", process.ExitCode);
-
-            if (process.ExitCode != 0)
-            {
-                _logger.LogError("[CorruptionDetection] Failed with exit code {Code}: {Error}", process.ExitCode, error);
-                throw new Exception($"corruption_manager failed with exit code {process.ExitCode}: {error}");
-            }
-
-            // Parse JSON output from Rust binary
-            var summaryData = JsonSerializer.Deserialize<CorruptionSummaryData>(output,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-
-            if (summaryData?.ServiceCounts == null)
-            {
-                return new Dictionary<string, long>();
-            }
-
-            return summaryData.ServiceCounts.ToDictionary(kvp => kvp.Key, kvp => (long)kvp.Value);
-        }
     }
 
     /// <summary>
