@@ -67,7 +67,7 @@ const ActiveDownloadItem: React.FC<{ game: GameSpeedInfo; index: number; t: any 
       <div className="item-right">
         <div className="speed-display">
           <span className="speed-value">{formatSpeed(game.bytesPerSecond)}</span>
-          <Loader2 className="speed-spinner" size={12} />
+          <Loader2 className="speed-spinner" />
         </div>
         <div className={`hit-badge ${game.cacheHitPercent >= 80 ? 'high' : game.cacheHitPercent >= 50 ? 'medium' : 'low'}`}>
           {game.cacheHitPercent.toFixed(0)}%
@@ -753,6 +753,8 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
         }
 
         .speed-spinner {
+          width: 0.75rem;
+          height: 0.75rem;
           color: var(--theme-primary);
           animation: spin 1s linear infinite;
         }
@@ -916,8 +918,21 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
           font-size: 0.8rem;
         }
 
-        .loading-state svg {
+        .loading-spinner {
+          width: 1.125rem;
+          height: 1.125rem;
           animation: spin 1s linear infinite;
+        }
+
+        @media (max-width: 767px) {
+          .loading-spinner {
+            width: 0.875rem;
+            height: 0.875rem;
+          }
+
+          .loading-state {
+            padding: 2rem 0.75rem;
+          }
         }
       `}</style>
 
@@ -1029,7 +1044,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
           )
         ) : loading ? (
           <div className="loading-state">
-            <Loader2 size={18} />
+            <Loader2 className="loading-spinner" />
             <span>{t('dashboard.downloadsPanel.emptyStates.loading')}</span>
           </div>
         ) : groupedItems.displayedItems.length > 0 ? (

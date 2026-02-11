@@ -159,7 +159,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
           </h3>
         </div>
         <div className="flex items-center justify-center h-24">
-          <Loader2 className="w-6 h-6 animate-spin text-themed-accent" />
+          <Loader2 className="widget-loading-spinner" />
         </div>
       </div>
     );

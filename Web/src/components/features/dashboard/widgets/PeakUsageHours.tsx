@@ -216,7 +216,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
           </h3>
         </div>
         <div className="flex items-center justify-center h-32">
-          <Loader2 className="w-6 h-6 animate-spin text-themed-accent" />
+          <Loader2 className="widget-loading-spinner" />
         </div>
       </div>
     );

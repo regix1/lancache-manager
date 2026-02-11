@@ -70,3 +70,24 @@
 .widget-progress-fill {
   @apply h-full rounded-full transition-all duration-500 ease-out;
 }
+
+/* ===== WIDGET LOADING STATES ===== */
+
+.widget-loading-spinner {
+  width: 1.5rem;
+  height: 1.5rem;
+  color: var(--theme-primary);
+  animation: widgetSpin 1s linear infinite;
+}
+
+@keyframes widgetSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 767px) {
+  .widget-loading-spinner {
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+}

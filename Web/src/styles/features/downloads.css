@@ -512,8 +512,8 @@
 
   .active-empty-state .empty-icon-container {
     position: relative;
-    width: 80px;
-    height: 80px;
+    width: clamp(56px, 10vw, 80px);
+    height: clamp(56px, 10vw, 80px);
     margin-bottom: 1.5rem;
   }
 
@@ -535,13 +535,19 @@
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    width: 64px;
-    height: 64px;
+    width: 80%;
+    height: 80%;
     display: flex;
     align-items: center;
     justify-content: center;
     border-radius: 50%;
     background: var(--theme-bg-tertiary);
+  }
+
+  .active-empty-state .empty-state-icon {
+    width: 2rem;
+    height: 2rem;
+    color: var(--theme-text-muted);
   }
 
   .active-empty-state .empty-title {
@@ -802,16 +808,43 @@
     font-weight: 600;
   }
 
+  /* Loading state */
+  .active-loading-state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem 1rem;
+  }
+
+  .active-loading-spinner {
+    width: 2rem;
+    height: 2rem;
+    color: var(--theme-text-muted);
+    animation: active-rotate-slow 1s linear infinite;
+  }
+
   /* Active Downloads View - Mobile overrides */
   @media (max-width: 767px) {
+    .active-loading-state {
+      padding: 2rem 1rem;
+    }
+
+    .active-loading-spinner {
+      width: 1.5rem;
+      height: 1.5rem;
+    }
+
     .active-empty-state {
       padding: 2.5rem 1.5rem;
     }
 
     .active-empty-state .empty-icon-container {
-      width: 64px;
-      height: 64px;
       margin-bottom: 1rem;
+    }
+
+    .active-empty-state .empty-state-icon {
+      width: 1.5rem;
+      height: 1.5rem;
     }
 
     .active-downloads-view .download-avatar {

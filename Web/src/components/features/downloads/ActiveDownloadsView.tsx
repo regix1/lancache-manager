@@ -19,8 +19,8 @@ const ActiveDownloadsView: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="w-8 h-8 animate-spin text-[var(--theme-text-muted)]" />
+      <div className="active-loading-state">
+        <Loader2 className="active-loading-spinner" />
       </div>
     );
   }
@@ -31,7 +31,7 @@ const ActiveDownloadsView: React.FC = () => {
         <div className="empty-icon-container">
           <div className="empty-icon-ring" />
           <div className="empty-icon">
-            <Activity size={32} className="text-[var(--theme-text-muted)]" />
+            <Activity className="empty-state-icon" />
           </div>
         </div>
         <div className="empty-title">{t('downloads.active.empty.title')}</div>
