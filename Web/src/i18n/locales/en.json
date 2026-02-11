@@ -2677,7 +2677,7 @@
         "liftBan": "Lift this ban"
       },
       "bannedUsers": {
-        "title": "Banned Steam Users ({{count}})",
+        "title": "Banned Steam Users",
         "showLifted": "Show lifted bans",
         "loadingBans": "Loading bans...",
         "noBannedUsers": "No banned users",

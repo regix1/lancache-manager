@@ -1017,7 +1017,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
 
       {/* Banned Users Accordion */}
       <AccordionSection
-        title={t('management.prefillSessions.bannedUsers.title', { count: activeBansCount })}
+        title={t('management.prefillSessions.bannedUsers.title')}
         count={activeBansCount}
         icon={Ban}
         iconColor="var(--theme-icon-red)"

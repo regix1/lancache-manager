@@ -753,7 +753,7 @@ const Dashboard: React.FC = () => {
 
       {/* Stats Grid */}
       <div
-        className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-fadeIn isolate"
+        className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 isolate"
       >
           {visibleCards.map((card: StatCardData, visualIndex: number) => {
             // Check if this is a live-only card that should be disabled in historical view
@@ -882,14 +882,14 @@ const Dashboard: React.FC = () => {
         </div>
 
       {/* Charts Row - Pass the actual data arrays */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 animate-fadeIn">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <ServiceAnalyticsChart serviceStats={filteredServiceStats || []} timeRange={timeRange} glassmorphism={true} />
         <RecentDownloadsPanel downloads={filteredLatestDownloads || []} timeRange={timeRange} glassmorphism={true} />
       </div>
 
       {/* Analytics Widgets Row */}
       <div
-        className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-fadeIn"
+        className="grid grid-cols-1 md:grid-cols-2 gap-4"
       >
         <PeakUsageHours
           glassmorphism={true}
@@ -904,7 +904,7 @@ const Dashboard: React.FC = () => {
       </div>
 
       {/* Top Clients */}
-      <div className="animate-fadeIn">
+      <div>
         <TopClientsTable
           clientStats={filteredClientStats || []}
           timeRange={timeRange}

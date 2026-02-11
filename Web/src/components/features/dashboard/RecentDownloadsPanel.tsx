@@ -823,6 +823,9 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
           width: 56px;
           height: 56px;
           margin-bottom: 1rem;
+          display: flex;
+          align-items: center;
+          justify-content: center;
         }
 
         .empty-icon-bg {
@@ -839,10 +842,8 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
         }
 
         .empty-icon svg {
-          position: absolute;
-          top: 50%;
-          left: 50%;
-          transform: translate(-50%, -50%);
+          position: relative;
+          z-index: 1;
           color: var(--theme-text-muted);
           opacity: 0.5;
         }
