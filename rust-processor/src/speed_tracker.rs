@@ -412,6 +412,7 @@ impl SpeedTracker {
 
         let total_bytes: i64 = window_entries.iter().map(|e| e.bytes_sent).sum();
         let entries_count = window_entries.len();
+        let depot_entry_count = window_entries.iter().filter(|e| e.depot_id.is_some()).count();
 
         DownloadSpeedSnapshot {
             timestamp_utc: now.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
@@ -420,7 +421,7 @@ impl SpeedTracker {
             client_speeds,
             window_seconds: WINDOW_SECONDS,
             entries_in_window: entries_count,
-            has_active_downloads: entries_count > 0,
+            has_active_downloads: depot_entry_count > 0,
         }
     }
 

@@ -1,9 +1,9 @@
 [meta]
 name = "Accessible - Protanopia"
 id = "accessible-protanopia"
-description = "Midnight Sapphire - Premium protanopia-accessible theme with rich navy backgrounds and warm amber accents"
+description = "Protanopia-accessible theme with neutral dark backgrounds and sapphire-amber accents"
 author = "System"
-version = "2.0.0"
+version = "2.1.0"
 isDark = true
 sharpCorners = false
 basedOn = "dark-default"
@@ -14,37 +14,37 @@ primaryColor = "#2563eb"       # Sapphire blue
 secondaryColor = "#e69f00"     # Warm amber (Okabe-Ito standard)
 accentColor = "#0891b2"        # Vivid teal-cyan
 
-# Backgrounds - Navy-tinted dark palette for premium feel
-bgPrimary = "#0c1525"          # Deep midnight navy
-bgSecondary = "#162033"        # Dark navy
-bgTertiary = "#1e2d44"         # Medium navy
-bgHover = "#2a3a54"            # Hover navy
+# Backgrounds - Neutral dark grey (VSCode-inspired)
+bgPrimary = "#1e1e1e"          # VSCode dark background
+bgSecondary = "#252526"        # VSCode sidebar
+bgTertiary = "#2d2d2d"         # Slightly lighter grey
+bgHover = "#3c3c3c"            # Hover state grey
 
-# Text - Cool blue-whites for navy backgrounds
-textPrimary = "#f0f4f8"        # Soft white with blue tint
-textSecondary = "#cbd5e1"      # Light slate
-textMuted = "#8b9bb4"          # Muted blue-gray
+# Text - Clean neutral tones
+textPrimary = "#e0e0e0"        # Light grey
+textSecondary = "#b0b0b0"      # Medium grey
+textMuted = "#808080"          # Muted grey
 textAccent = "#60a5fa"         # Bright blue accent
-textPlaceholder = "#5b6b82"    # Dark slate
+textPlaceholder = "#5a5a5a"    # Placeholder grey
 
 # Drag handle
-dragHandleColor = "#5b6b82"    # Matches textPlaceholder
+dragHandleColor = "#5a5a5a"    # Matches textPlaceholder
 dragHandleHover = "#60a5fa"    # Matches textAccent
 
-# Borders - Navy-tinted
-borderPrimary = "#1e3050"      # Dark navy border
-borderSecondary = "#2a4060"    # Medium navy border
+# Borders - Neutral grey
+borderPrimary = "#333333"      # Dark border
+borderSecondary = "#444444"    # Medium border
 borderFocus = "#2563eb"        # Sapphire focus ring
 
-# Navigation - Deep navy nav bar
-navBg = "#101c30"              # Darkest navy
-navBorder = "#1e3050"          # Navy border
+# Navigation - Neutral dark tones
+navBg = "#1b1b1b"              # Dark navigation background
+navBorder = "#333333"          # Nav border
 navTabActive = "#2563eb"       # Sapphire active tab
-navTabInactive = "#8b9bb4"     # Muted inactive
-navTabHover = "#f0f4f8"        # White on hover
+navTabInactive = "#808080"     # Muted inactive
+navTabHover = "#e0e0e0"        # Light grey hover
 navTabActiveBorder = "#2563eb" # Sapphire border
-navMobileMenuBg = "#101c30"    # Match nav bg
-navMobileItemHover = "#1e2d44" # Navy hover
+navMobileMenuBg = "#1b1b1b"   # Match nav bg
+navMobileItemHover = "#2d2d2d" # Grey hover
 
 # Status colors - All clearly distinct, Okabe-Ito inspired (no red/green)
 success = "#0072B2"            # Ocean blue (distinct from sapphire primary)
@@ -68,29 +68,33 @@ blizzardColor = "#56B4E9"      # Sky blue
 wsusColor = "#7c3aed"          # Vivid violet
 riotColor = "#D55E00"          # Burnt orange (Okabe-Ito)
 xboxColor = "#F0E442"          # Bright yellow (Okabe-Ito)
+ubisoftColor = "#f472b6"       # Pink (distinct from sapphire/amber/mauve)
 
-# Components - Navy-tinted cards and inputs
-cardBg = "#121e32"             # Dark navy card
-cardBorder = "#1e3050"         # Navy border
+# Components - Neutral grey cards
+cardBg = "#252526"             # Card background
+cardBorder = "#333333"         # Card border
 cardOutline = "#2563eb"        # Sapphire outline
 buttonBg = "#2563eb"           # Sapphire button
 buttonHover = "#1d4ed8"        # Darker sapphire hover
 buttonText = "#ffffff"         # White text
-inputBg = "#1e2d44"            # Navy input
-inputBorder = "#2a4060"        # Navy border
+inputBg = "#2d2d2d"            # Input background
+inputBorder = "#444444"        # Input border
 inputFocus = "#2563eb"         # Sapphire focus
 checkboxAccent = "#2563eb"     # Sapphire checkbox
-checkboxBorder = "#2a4060"     # Navy border
-checkboxBg = "#162033"         # Dark navy bg
+checkboxBorder = "#444444"     # Checkbox border
+checkboxBg = "#252526"         # Checkbox background
 checkboxCheckmark = "#ffffff"  # White checkmark
 checkboxShadow = "none"
 checkboxHoverShadow = "0 0 0 3px rgba(37, 99, 235, 0.15)"
-checkboxHoverBg = "#1e2d44"    # Navy hover
+checkboxHoverBg = "#2d2d2d"    # Hover background
 checkboxFocus = "#2563eb"      # Sapphire focus
 sliderAccent = "#2563eb"       # Sapphire slider
 sliderThumb = "#2563eb"        # Sapphire thumb
-sliderTrack = "#1e2d44"        # Navy track
-progressBg = "#1e2d44"         # Navy progress bg
+sliderTrack = "#2d2d2d"        # Track
+progressBg = "#2d2d2d"         # Progress background
+badgeBg = "#2563eb"            # Sapphire badge
+badgeText = "#ffffff"          # White badge text
+progressBar = "#2563eb"        # Sapphire progress bar
 
 # Hit rate - 3 clearly distinct levels: blue / amber / mauve
 hitRateHighBg = "#0a2540"      # Dark ocean blue
@@ -130,16 +134,16 @@ chartColor5 = "#D55E00"        # Burnt orange
 chartColor6 = "#F0E442"        # Bright yellow
 chartColor7 = "#7c3aed"        # Vivid violet
 chartColor8 = "#0891b2"        # Teal
-chartBorderColor = "#101c30"   # Dark navy
-chartGridColor = "#1e3050"     # Navy grid lines
-chartTextColor = "#8b9bb4"     # Muted blue-gray
+chartBorderColor = "#1b1b1b"   # Dark border
+chartGridColor = "#333333"     # Grid lines
+chartTextColor = "#808080"     # Muted grey
 chartCacheHitColor = "#0072B2" # Ocean blue for hits
 chartCacheMissColor = "#e69f00" # Amber for misses
 
-# Scrollbar - Navy tinted
-scrollbarTrack = "#162033"     # Dark navy track
-scrollbarThumb = "#2a4060"     # Navy thumb
-scrollbarHover = "#3a5070"     # Lighter navy hover
+# Scrollbar - Neutral grey
+scrollbarTrack = "#252526"     # Dark track
+scrollbarThumb = "#444444"     # Thumb
+scrollbarHover = "#555555"     # Lighter hover
 
 # Access indicators - Blue for public, Amber for secured
 publicAccessBg = "rgba(0, 114, 178, 0.2)"
@@ -185,19 +189,13 @@ content = """
 /* Rich navy backgrounds with warm amber accents */
 /* Okabe-Ito inspired palette - fully visible without red cones */
 
-/* Subtle navy glow on cards for premium depth */
 .themed-card {
-  background-image:
-    radial-gradient(
-      ellipse at top left,
-      rgba(37, 99, 235, 0.04) 0%,
-      transparent 60%
-    );
   transition: all 0.2s ease;
 }
 
 .themed-card:hover {
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(37, 99, 235, 0.08);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35),
+              0 0 1px rgba(37, 99, 235, 0.1);
 }
 
 /* Sapphire focus ring */
@@ -220,13 +218,12 @@ button:active {
   transform: translateY(0);
 }
 
-/* Navy gradient scrollbar */
 *::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, #2a4060 0%, #1e3050 100%);
+  background: #444444;
   border-radius: 4px;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, #3a5070 0%, #2a4060 100%);
+  background: #555555;
 }
 """

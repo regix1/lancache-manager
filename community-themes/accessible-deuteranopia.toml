@@ -1,9 +1,9 @@
 [meta]
 name = "Accessible - Deuteranopia"
 id = "accessible-deuteranopia"
-description = "Amber Dusk - Premium deuteranopia-accessible theme with warm charcoal backgrounds and vibrant orange-blue contrast"
+description = "Deuteranopia-accessible theme with neutral dark backgrounds and vibrant orange-blue contrast"
 author = "System"
-version = "2.0.0"
+version = "2.1.0"
 isDark = true
 sharpCorners = false
 basedOn = "dark-default"
@@ -14,33 +14,33 @@ primaryColor = "#ea580c"        # Vivid orange
 secondaryColor = "#1d4ed8"      # Cobalt blue
 accentColor = "#e11d48"         # Rose pink
 
-# Backgrounds - Warm charcoal with subtle brown undertone
-bgPrimary = "#11100f"           # Deepest warm charcoal
-bgSecondary = "#1c1a18"         # Dark warm charcoal
-bgTertiary = "#272420"          # Medium warm charcoal
-bgHover = "#353230"             # Hover state warm charcoal
+# Backgrounds - Neutral dark grey (VSCode-inspired)
+bgPrimary = "#1e1e1e"           # VSCode dark background
+bgSecondary = "#252526"         # VSCode sidebar
+bgTertiary = "#2d2d2d"          # Slightly lighter grey
+bgHover = "#3c3c3c"             # Hover state grey
 
-# Text - Warm cream tones
-textPrimary = "#f5f0eb"         # Warm white
-textSecondary = "#d4ccc4"       # Warm light gray
-textMuted = "#9c9490"           # Warm muted gray
+# Text - Clean neutral tones
+textPrimary = "#e0e0e0"         # Light grey
+textSecondary = "#b0b0b0"       # Medium grey
+textMuted = "#808080"           # Muted grey
 textAccent = "#fb923c"          # Light orange accent
-textPlaceholder = "#6b6560"     # Warm placeholder gray
+textPlaceholder = "#5a5a5a"     # Placeholder grey
 
-# Borders - Warm toned
-borderPrimary = "#302c28"       # Warm dark border
-borderSecondary = "#3d3834"     # Warm medium border
+# Borders - Neutral grey
+borderPrimary = "#333333"       # Dark border
+borderSecondary = "#444444"     # Medium border
 borderFocus = "#ea580c"         # Orange focus ring
 
-# Navigation - Dark warm tones
-navBg = "#161412"               # Dark navigation background
-navBorder = "#302c28"           # Warm nav border
+# Navigation - Neutral dark tones
+navBg = "#1b1b1b"               # Dark navigation background
+navBorder = "#333333"           # Nav border
 navTabActive = "#ea580c"        # Active tab orange
-navTabInactive = "#9c9490"      # Muted inactive tabs
-navTabHover = "#f5f0eb"         # Warm white hover
+navTabInactive = "#808080"      # Muted inactive tabs
+navTabHover = "#e0e0e0"         # Light grey hover
 navTabActiveBorder = "#ea580c"  # Active tab border orange
-navMobileMenuBg = "#161412"     # Mobile menu background
-navMobileItemHover = "#272420"  # Mobile item hover
+navMobileMenuBg = "#1b1b1b"    # Mobile menu background
+navMobileItemHover = "#2d2d2d"  # Mobile item hover
 
 # Status colors - Blue success, amber warning, rose error, sky info
 success = "#1d4ed8"             # Cobalt blue (replaces green for deuteranopia)
@@ -64,29 +64,33 @@ blizzardColor = "#0ea5e9"       # Sky blue
 wsusColor = "#a855f7"           # Vivid purple
 riotColor = "#f59e0b"           # Amber
 xboxColor = "#fbbf24"           # Golden yellow
+ubisoftColor = "#d946ef"        # Fuchsia (distinct from orange/blue/rose)
 
-# Components - Warm charcoal cards with orange accents
-cardBg = "#1a1816"              # Warm card background
-cardBorder = "#302c28"          # Warm card border
+# Components - Neutral grey cards with orange accents
+cardBg = "#252526"              # Card background
+cardBorder = "#333333"          # Card border
 cardOutline = "#ea580c"         # Orange card outline
 buttonBg = "#ea580c"            # Orange button
 buttonHover = "#c2410c"         # Darker orange hover
 buttonText = "#ffffff"          # White button text
-inputBg = "#272420"             # Warm input background
-inputBorder = "#3d3834"         # Warm input border
+inputBg = "#2d2d2d"             # Input background
+inputBorder = "#444444"         # Input border
 inputFocus = "#ea580c"          # Orange input focus
 checkboxAccent = "#ea580c"      # Orange checkbox
-checkboxBorder = "#3d3834"      # Warm checkbox border
-checkboxBg = "#1c1a18"          # Warm checkbox background
+checkboxBorder = "#444444"      # Checkbox border
+checkboxBg = "#252526"          # Checkbox background
 checkboxCheckmark = "#ffffff"   # White checkmark
 checkboxShadow = "none"
 checkboxHoverShadow = "0 0 0 3px rgba(234, 88, 12, 0.15)"
-checkboxHoverBg = "#272420"     # Warm hover background
+checkboxHoverBg = "#2d2d2d"     # Hover background
 checkboxFocus = "#ea580c"       # Orange focus
 sliderAccent = "#ea580c"        # Orange slider
 sliderThumb = "#ea580c"         # Orange thumb
-sliderTrack = "#272420"         # Warm track
-progressBg = "#272420"          # Warm progress background
+sliderTrack = "#2d2d2d"         # Track
+progressBg = "#2d2d2d"          # Progress background
+badgeBg = "#ea580c"             # Orange badge
+badgeText = "#ffffff"           # White badge text
+progressBar = "#ea580c"         # Orange progress bar
 
 # Hit rate - Blue/Amber/Rose scale (clearly distinct, no green)
 hitRateHighBg = "#0f1a3d"       # Dark blue background
@@ -126,15 +130,15 @@ chartColor5 = "#a855f7"         # Purple
 chartColor6 = "#0ea5e9"         # Sky blue
 chartColor7 = "#06b6d4"         # Cyan
 chartColor8 = "#f59e0b"         # Amber
-chartBorderColor = "#161412"    # Dark border
-chartGridColor = "#302c28"      # Warm grid lines
-chartTextColor = "#9c9490"      # Muted text
+chartBorderColor = "#1b1b1b"    # Dark border
+chartGridColor = "#333333"      # Grid lines
+chartTextColor = "#808080"      # Muted text
 chartCacheHitColor = "#1d4ed8"  # Cobalt blue for hits
 chartCacheMissColor = "#ea580c" # Orange for misses
 
-# Scrollbar - Warm tones with orange hover
-scrollbarTrack = "#1c1a18"      # Dark warm track
-scrollbarThumb = "#3d3834"      # Warm thumb
+# Scrollbar - Neutral grey with orange hover
+scrollbarTrack = "#252526"      # Dark track
+scrollbarThumb = "#444444"      # Thumb
 scrollbarHover = "#ea580c"      # Orange hover
 
 # Access indicators - Blue public, orange secured
@@ -154,7 +158,7 @@ activeSessionColor = "#fbbf24"
 activeSessionBg = "rgba(251, 191, 36, 0.15)"
 
 # Drag handle
-dragHandleColor = "#6b6560"     # Warm muted gray
+dragHandleColor = "#5a5a5a"     # Muted gray
 dragHandleHover = "#fb923c"     # Light orange on hover
 
 # Event colors - Same distinct palette as chart colors

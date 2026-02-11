@@ -55,7 +55,7 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
 
   // Use speedSnapshot from SpeedContext (single source of truth for real-time data)
   const isActive = speedSnapshot?.hasActiveDownloads || false;
-  const totalSpeed = speedSnapshot?.totalBytesPerSecond || 0;
+  const totalSpeed = isActive ? (speedSnapshot?.totalBytesPerSecond || 0) : 0;
   const activeGamesCount = activeDownloadCount;
   const activeClientsCount = totalActiveClients;
   const todayTotal = historySnapshot?.totalBytes || 0;

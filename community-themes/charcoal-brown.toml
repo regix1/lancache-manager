@@ -3,7 +3,7 @@ name = "Timber & Stone"
 id = "charcoal-brown"
 description = "Warm browns, rich charcoals, and soft taupes - sophisticated earth tones"
 author = "Nature"
-version = "3.1.0"
+version = "3.2.0"
 isDark = true
 sharpCorners = false
 
@@ -63,6 +63,7 @@ blizzardColor = "#a8a095"
 wsusColor = "#b5a48f"
 riotColor = "#b57161"
 xboxColor = "#8b7355"
+ubisoftColor = "#c49a7a"       # Warm tan-pink
 
 # Components
 cardBg = "#282523"

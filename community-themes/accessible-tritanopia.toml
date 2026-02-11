@@ -1,9 +1,9 @@
 [meta]
 name = "Accessible - Tritanopia"
 id = "accessible-tritanopia"
-description = "Crimson Ember - Premium tritanopia-accessible theme with warm backgrounds and rich red-green contrast"
+description = "Tritanopia-accessible theme with neutral dark backgrounds and crimson-green contrast"
 author = "System"
-version = "2.0.0"
+version = "2.1.0"
 isDark = true
 sharpCorners = false
 basedOn = "dark-default"
@@ -15,37 +15,37 @@ primaryColor = "#dc2626"       # Rich crimson
 secondaryColor = "#16a34a"     # Forest green
 accentColor = "#ea580c"        # Coral-orange
 
-# Backgrounds - Warm charcoal with reddish undertone
-bgPrimary = "#151010"
-bgSecondary = "#201818"
-bgTertiary = "#2a2222"
-bgHover = "#383030"
+# Backgrounds - Neutral dark grey (VSCode-inspired)
+bgPrimary = "#1e1e1e"          # VSCode dark background
+bgSecondary = "#252526"        # VSCode sidebar
+bgTertiary = "#2d2d2d"         # Slightly lighter grey
+bgHover = "#3c3c3c"            # Hover state grey
 
-# Text - Warm off-whites and muted reds
-textPrimary = "#f5eded"
-textSecondary = "#d4c8c8"
-textMuted = "#a09090"
+# Text - Clean neutral tones
+textPrimary = "#e0e0e0"        # Light grey
+textSecondary = "#b0b0b0"      # Medium grey
+textMuted = "#808080"          # Muted grey
 textAccent = "#f87171"          # Light red
-textPlaceholder = "#706060"
+textPlaceholder = "#5a5a5a"    # Placeholder grey
 
 # Drag handle
-dragHandleColor = "#706060"
+dragHandleColor = "#5a5a5a"
 dragHandleHover = "#f87171"
 
-# Borders - Warm dark reds
-borderPrimary = "#352a2a"
-borderSecondary = "#453838"
+# Borders - Neutral grey
+borderPrimary = "#333333"      # Dark border
+borderSecondary = "#444444"    # Medium border
 borderFocus = "#dc2626"
 
-# Navigation
-navBg = "#1a1212"
-navBorder = "#352a2a"
+# Navigation - Neutral dark tones
+navBg = "#1b1b1b"              # Dark navigation background
+navBorder = "#333333"          # Nav border
 navTabActive = "#dc2626"
-navTabInactive = "#a09090"
-navTabHover = "#f5eded"
+navTabInactive = "#808080"
+navTabHover = "#e0e0e0"
 navTabActiveBorder = "#dc2626"
-navMobileMenuBg = "#1a1212"
-navMobileItemHover = "#2a2222"
+navMobileMenuBg = "#1b1b1b"
+navMobileItemHover = "#2d2d2d"
 
 # Status colors - All clearly distinct, NO blue/yellow
 success = "#16a34a"            # Forest green
@@ -69,29 +69,33 @@ blizzardColor = "#dc2626"      # Crimson
 wsusColor = "#15803d"          # Dark green (distinct from forest via darkness)
 riotColor = "#b91c1c"          # Dark red
 xboxColor = "#22c55e"          # Bright green (distinct via brightness)
+ubisoftColor = "#f472b6"       # Pink (distinct from red/green/orange)
 
-# Components
-cardBg = "#1c1414"
-cardBorder = "#352a2a"
+# Components - Neutral grey
+cardBg = "#252526"             # Card background
+cardBorder = "#333333"         # Card border
 cardOutline = "#dc2626"
 buttonBg = "#dc2626"
 buttonHover = "#b91c1c"
 buttonText = "#ffffff"
-inputBg = "#2a2222"
-inputBorder = "#453838"
+inputBg = "#2d2d2d"            # Input background
+inputBorder = "#444444"        # Input border
 inputFocus = "#dc2626"
 checkboxAccent = "#dc2626"
-checkboxBorder = "#453838"
-checkboxBg = "#201818"
+checkboxBorder = "#444444"     # Checkbox border
+checkboxBg = "#252526"         # Checkbox background
 checkboxCheckmark = "#ffffff"
 checkboxShadow = "none"
 checkboxHoverShadow = "0 0 0 3px rgba(220, 38, 38, 0.15)"
-checkboxHoverBg = "#2a2222"
+checkboxHoverBg = "#2d2d2d"
 checkboxFocus = "#dc2626"
 sliderAccent = "#dc2626"
 sliderThumb = "#dc2626"
-sliderTrack = "#2a2222"
-progressBg = "#2a2222"
+sliderTrack = "#2d2d2d"        # Track
+progressBg = "#2d2d2d"         # Progress background
+badgeBg = "#dc2626"            # Crimson badge
+badgeText = "#ffffff"          # White badge text
+progressBar = "#dc2626"        # Crimson progress bar
 
 # Hit rate - Green/Orange/Red scale (no blue/yellow)
 hitRateHighBg = "#0f2a18"      # Dark green
@@ -131,15 +135,15 @@ chartColor5 = "#22c55e"       # Bright green
 chartColor6 = "#b91c1c"       # Dark red
 chartColor7 = "#be123c"       # Dark rose
 chartColor8 = "#d97706"       # Dark amber-orange
-chartBorderColor = "#1a1212"
-chartGridColor = "#352a2a"
-chartTextColor = "#a09090"
+chartBorderColor = "#1b1b1b"   # Dark border
+chartGridColor = "#333333"     # Grid lines
+chartTextColor = "#808080"     # Muted grey
 chartCacheHitColor = "#16a34a"
 chartCacheMissColor = "#dc2626"
 
-# Scrollbar
-scrollbarTrack = "#201818"
-scrollbarThumb = "#453838"
+# Scrollbar - Neutral grey
+scrollbarTrack = "#252526"     # Dark track
+scrollbarThumb = "#444444"     # Thumb
 scrollbarHover = "#dc2626"
 
 # Access indicators - Green for public, Red for secured
@@ -185,24 +189,13 @@ content = """
 /* Crimson Ember - Accessible Tritanopia Theme */
 /* Designed for blue-yellow blindness - uses warm red-green-pink palette */
 
-/* Subtle crimson warm glow on cards */
 .themed-card {
-  background-image:
-    radial-gradient(
-      ellipse at top left,
-      rgba(220, 38, 38, 0.03) 0%,
-      transparent 60%
-    ),
-    radial-gradient(
-      ellipse at bottom right,
-      rgba(22, 163, 74, 0.02) 0%,
-      transparent 60%
-    );
   transition: all 0.2s ease;
 }
 
 .themed-card:hover {
-  box-shadow: 0 4px 16px rgba(220, 38, 38, 0.12), 0 2px 6px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35),
+              0 0 1px rgba(220, 38, 38, 0.1);
 }
 
 /* Crimson focus ring */
@@ -211,24 +204,11 @@ content = """
   outline: none;
 }
 
-/* Warm hover effects */
-.hover\\:bg-themed-hover:hover {
-  background-image:
-    radial-gradient(
-      circle at center,
-      rgba(220, 38, 38, 0.04),
-      transparent
-    );
-}
-
-/* Smooth button transitions with warm shadow */
 button {
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.25);
   transition: all 0.15s ease;
 }
 
 button:hover {
-  box-shadow: 0 3px 8px rgba(220, 38, 38, 0.15), 0 2px 4px rgba(0, 0, 0, 0.3);
   transform: translateY(-1px);
 }
 
@@ -236,13 +216,12 @@ button:active {
   transform: translateY(0);
 }
 
-/* Warm crimson scrollbar */
 *::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, #453838 0%, #352a2a 100%);
+  background: #444444;
   border-radius: 4px;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, #dc2626 0%, #b91c1c 100%);
+  background: #555555;
 }
 """

@@ -195,7 +195,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
                             _currentSnapshot = snapshot;
                         }
 
-                        var hasActivity = snapshot.HasActiveDownloads || snapshot.TotalBytesPerSecond > 0;
+                        var hasActivity = snapshot.HasActiveDownloads;
 
                         // Broadcast logic with countdown for zero-state messages
                         // This ensures frontend receives multiple zero-state messages reliably

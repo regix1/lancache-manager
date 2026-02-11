@@ -65,6 +65,7 @@ interface ThemeColors {
   wsusColor?: string;
   riotColor?: string;
   xboxColor?: string;
+  ubisoftColor?: string;
 
   // Component colors
   cardBg?: string;
@@ -487,6 +488,7 @@ class ThemeService {
           wsusColor: '#06b6d4', // Cyan
           riotColor: '#ef4444', // Red
           xboxColor: '#107C10', // Xbox Green
+          ubisoftColor: '#ec4899', // Pink
 
           // Components
           cardBg: '#1e2938',
@@ -674,6 +676,7 @@ class ThemeService {
           wsusColor: '#0891b2',
           riotColor: '#dc2626',
           xboxColor: '#107C10', // Xbox Green
+          ubisoftColor: '#db2777', // Pink
 
           // Components - Clean styling with emphasis on shadows
           cardBg: '#ffffff',
@@ -1177,6 +1180,10 @@ class ThemeService {
       --theme-info-bg: ${colors.infoBg};
       --theme-info-text: ${colors.infoText};
 
+      /* Status Aliases */
+      --theme-status-success: ${colors.success};
+      --theme-status-error: ${colors.error};
+
       /* Service Colors */
       --theme-steam: ${colors.steamColor};
       --theme-epic: ${colors.epicColor};
@@ -1185,6 +1192,7 @@ class ThemeService {
       --theme-wsus: ${colors.wsusColor};
       --theme-riot: ${colors.riotColor};
       --theme-xbox: ${colors.xboxColor};
+      --theme-ubisoft: ${colors.ubisoftColor || colors.epicColor};
 
       /* Card & Component Colors */
       --theme-card-bg: ${colors.cardBg};
@@ -1200,6 +1208,8 @@ class ThemeService {
       --theme-primary-hover: ${colors.buttonHover};
       --theme-primary-text: ${colors.buttonText};
       --theme-primary-subtle: rgba(${primaryRgb}, 0.1);
+      --theme-primary-muted: rgba(${primaryRgb}, 0.15);
+      --theme-primary-bg: rgba(${primaryRgb}, 0.15);
       --theme-secondary-bg: ${colors.bgSecondary};
 
       /* Inputs */

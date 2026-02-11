@@ -377,7 +377,8 @@ const Dashboard: React.FC = () => {
 
   const stats = useMemo(() => {
     // Use speed data from SpeedContext for real-time accurate active data (from Rust speed tracker)
-    const activeClients = speedSnapshot?.clientSpeeds?.length ?? 0;
+    const isSpeedActive = speedSnapshot?.hasActiveDownloads || false;
+    const activeClients = isSpeedActive ? (speedSnapshot?.clientSpeeds?.length ?? 0) : 0;
     const totalActiveDownloads = activeDownloadCount;
     const totalDownloads = filteredServiceStats.reduce(
       (sum: number, service: { totalDownloads?: number }) => sum + (service.totalDownloads || 0),

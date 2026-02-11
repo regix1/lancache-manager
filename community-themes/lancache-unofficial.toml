@@ -3,7 +3,7 @@ name = "LANCache Unofficial"
 id = "lancache-unofficial"
 description = "Lava-inspired theme - bold reds and warm ambers on deep charcoal"
 author = "Regix"
-version = "2.1.0"
+version = "2.2.0"
 isDark = true
 sharpCorners = false
 
@@ -63,6 +63,7 @@ blizzardColor = "#f5b041"
 wsusColor = "#d4ac0d"
 riotColor = "#c0392b"
 xboxColor = "#d4ac0d"
+ubisoftColor = "#d5a6bd"       # Muted warm pink
 
 # Components
 cardBg = "#222224"
