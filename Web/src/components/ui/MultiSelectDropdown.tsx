@@ -244,7 +244,7 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
         <span className="truncate flex-1">{displayLabel}</span>
         <div className="flex items-center gap-1.5 text-themed-muted">
           {selectedCount > 0 && (
-            <span className="text-xs px-1.5 py-0.5 rounded-full font-semibold bg-[var(--theme-primary)] text-white">
+            <span className="inline-flex items-center justify-center min-w-[1.25rem] h-[1.25rem] text-xs px-1.5 rounded-full font-semibold bg-[var(--theme-primary)] text-white">
               {selectedCount}
             </span>
           )}

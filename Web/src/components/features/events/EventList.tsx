@@ -389,7 +389,7 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
         )}
         {title}
         <span
-          className="px-1.5 py-0.5 text-[10px] rounded-full font-medium"
+          className="inline-flex items-center justify-center min-w-[1.25rem] h-[1.25rem] px-1.5 text-[10px] rounded-full font-medium"
           style={{
             backgroundColor: `color-mix(in srgb, ${color} 12%, transparent)`,
             color

@@ -98,7 +98,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
           {/* Count Badge */}
           {count !== undefined && (
             <span
-              className={`px-2.5 py-1 mx-1.5 text-xs rounded-full font-semibold tabular-nums transition-all duration-300 flex-shrink-0 ${
+              className={`inline-flex items-center justify-center min-w-[1.5rem] h-[1.5rem] px-2 ml-1.5 text-xs rounded-full font-semibold tabular-nums transition-all duration-300 flex-shrink-0 ${
                 isExpanded ? 'scale-105' : 'scale-100 bg-themed-tertiary text-themed-muted'
               }`}
               style={isExpanded ? {
