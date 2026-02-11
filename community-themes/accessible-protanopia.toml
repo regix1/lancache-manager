@@ -1,212 +1,232 @@
 [meta]
 name = "Accessible - Protanopia"
 id = "accessible-protanopia"
-description = "Color blind accessible theme for Protanopia (red-blindness) - Uses blue-yellow-orange palette"
+description = "Midnight Sapphire - Premium protanopia-accessible theme with rich navy backgrounds and warm amber accents"
 author = "System"
-version = "1.1.0"
+version = "2.0.0"
 isDark = true
 sharpCorners = false
 basedOn = "dark-default"
 
 [colors]
-# Core colors - Blue primary (instead of blue), Orange secondary (avoids red-green)
-primaryColor = "#3b82f6"
-secondaryColor = "#f59e0b"
-accentColor = "#06b6d4"
+# Core colors - Sapphire blue primary, Okabe-Ito amber secondary, vivid teal accent
+primaryColor = "#2563eb"       # Sapphire blue
+secondaryColor = "#e69f00"     # Warm amber (Okabe-Ito standard)
+accentColor = "#0891b2"        # Vivid teal-cyan
 
-# Backgrounds - Same as dark default
-bgPrimary = "#111827"
-bgSecondary = "#283649"
-bgTertiary = "#313e52"
-bgHover = "#4b5563"
+# Backgrounds - Navy-tinted dark palette for premium feel
+bgPrimary = "#0c1525"          # Deep midnight navy
+bgSecondary = "#162033"        # Dark navy
+bgTertiary = "#1e2d44"         # Medium navy
+bgHover = "#2a3a54"            # Hover navy
 
-# Text - Standard dark theme text
-textPrimary = "#ffffff"
-textSecondary = "#d1d5db"
-textMuted = "#9ca3af"
-textAccent = "#60a5fa"
-textPlaceholder = "#6b7280"
+# Text - Cool blue-whites for navy backgrounds
+textPrimary = "#f0f4f8"        # Soft white with blue tint
+textSecondary = "#cbd5e1"      # Light slate
+textMuted = "#8b9bb4"          # Muted blue-gray
+textAccent = "#60a5fa"         # Bright blue accent
+textPlaceholder = "#5b6b82"    # Dark slate
 
 # Drag handle
-dragHandleColor = "#6b7280"
-dragHandleHover = "#60a5fa"
+dragHandleColor = "#5b6b82"    # Matches textPlaceholder
+dragHandleHover = "#60a5fa"    # Matches textAccent
 
-# Borders
-borderPrimary = "#374151"
-borderSecondary = "#4b5563"
-borderFocus = "#3b82f6"
+# Borders - Navy-tinted
+borderPrimary = "#1e3050"      # Dark navy border
+borderSecondary = "#2a4060"    # Medium navy border
+borderFocus = "#2563eb"        # Sapphire focus ring
 
-# Navigation
-navBg = "#1f2937"
-navBorder = "#374151"
-navTabActive = "#3b82f6"
-navTabInactive = "#9ca3af"
-navTabHover = "#ffffff"
-navTabActiveBorder = "#3b82f6"
-navMobileMenuBg = "#1f2937"
-navMobileItemHover = "#374151"
+# Navigation - Deep navy nav bar
+navBg = "#101c30"              # Darkest navy
+navBorder = "#1e3050"          # Navy border
+navTabActive = "#2563eb"       # Sapphire active tab
+navTabInactive = "#8b9bb4"     # Muted inactive
+navTabHover = "#f0f4f8"        # White on hover
+navTabActiveBorder = "#2563eb" # Sapphire border
+navMobileMenuBg = "#101c30"    # Match nav bg
+navMobileItemHover = "#1e2d44" # Navy hover
 
-# Status colors - Blue for success, Orange for warning, Yellow for error (avoids red-green confusion)
-success = "#3b82f6"
-successBg = "#1e3a5f"
-successText = "#93c5fd"
-warning = "#f59e0b"
-warningBg = "#44360c"
-warningText = "#fcd34d"
-error = "#f97316"
-errorBg = "#442a0c"
-errorText = "#fdba74"
-info = "#06b6d4"
-infoBg = "#0c4a5c"
-infoText = "#67e8f9"
+# Status colors - All clearly distinct, Okabe-Ito inspired (no red/green)
+success = "#0072B2"            # Ocean blue (distinct from sapphire primary)
+successBg = "#0a2540"          # Dark ocean bg
+successText = "#56B4E9"        # Light sky blue
+warning = "#e69f00"            # Amber (Okabe-Ito)
+warningBg = "#3d2f00"          # Dark amber bg
+warningText = "#fcd34d"        # Bright yellow
+error = "#CC79A7"              # Mauve/pink (Okabe-Ito, visible to protanopes)
+errorBg = "#3d1f35"            # Dark mauve bg
+errorText = "#e8a4c8"          # Light pink
+info = "#0891b2"               # Teal
+infoBg = "#0a2a35"             # Dark teal bg
+infoText = "#67e8f9"           # Light cyan
 
-# Service colors - Distinguishable without red-green
-steamColor = "#3b82f6"
-epicColor = "#a855f7"
-originColor = "#f59e0b"
-blizzardColor = "#06b6d4"
-wsusColor = "#8b5cf6"
-riotColor = "#f97316"
-xboxColor = "#eab308"
+# Service colors - 7 ALL distinct, Okabe-Ito inspired
+steamColor = "#0072B2"         # Deep ocean blue
+epicColor = "#CC79A7"          # Mauve-pink
+originColor = "#e69f00"        # Warm amber
+blizzardColor = "#56B4E9"      # Sky blue
+wsusColor = "#7c3aed"          # Vivid violet
+riotColor = "#D55E00"          # Burnt orange (Okabe-Ito)
+xboxColor = "#F0E442"          # Bright yellow (Okabe-Ito)
 
-# Components
-cardBg = "#1e2938"
-cardBorder = "#374151"
-cardOutline = "#3b82f6"
-buttonBg = "#3b82f6"
-buttonHover = "#2563eb"
-buttonText = "#ffffff"
-inputBg = "#374151"
-inputBorder = "#4b5563"
-inputFocus = "#3b82f6"
-checkboxAccent = "#3b82f6"
-checkboxBorder = "#4b5563"
-checkboxBg = "#1f2937"
-checkboxCheckmark = "#ffffff"
+# Components - Navy-tinted cards and inputs
+cardBg = "#121e32"             # Dark navy card
+cardBorder = "#1e3050"         # Navy border
+cardOutline = "#2563eb"        # Sapphire outline
+buttonBg = "#2563eb"           # Sapphire button
+buttonHover = "#1d4ed8"        # Darker sapphire hover
+buttonText = "#ffffff"         # White text
+inputBg = "#1e2d44"            # Navy input
+inputBorder = "#2a4060"        # Navy border
+inputFocus = "#2563eb"         # Sapphire focus
+checkboxAccent = "#2563eb"     # Sapphire checkbox
+checkboxBorder = "#2a4060"     # Navy border
+checkboxBg = "#162033"         # Dark navy bg
+checkboxCheckmark = "#ffffff"  # White checkmark
 checkboxShadow = "none"
-checkboxHoverShadow = "0 0 0 3px rgba(59, 130, 246, 0.1)"
-checkboxHoverBg = "#374151"
-checkboxFocus = "#3b82f6"
-sliderAccent = "#3b82f6"
-sliderThumb = "#3b82f6"
-sliderTrack = "#374151"
-progressBg = "#374151"
+checkboxHoverShadow = "0 0 0 3px rgba(37, 99, 235, 0.15)"
+checkboxHoverBg = "#1e2d44"    # Navy hover
+checkboxFocus = "#2563eb"      # Sapphire focus
+sliderAccent = "#2563eb"       # Sapphire slider
+sliderThumb = "#2563eb"        # Sapphire thumb
+sliderTrack = "#1e2d44"        # Navy track
+progressBg = "#1e2d44"         # Navy progress bg
 
-# Hit rate - Blue-Yellow-Orange scale (no red-green)
-hitRateHighBg = "#1e3a5f"
-hitRateHighText = "#93c5fd"
-hitRateMediumBg = "#44360c"
-hitRateMediumText = "#fcd34d"
-hitRateLowBg = "#442a0c"
-hitRateLowText = "#fdba74"
-hitRateWarningBg = "#442a0c"
-hitRateWarningText = "#fdba74"
+# Hit rate - 3 clearly distinct levels: blue / amber / mauve
+hitRateHighBg = "#0a2540"      # Dark ocean blue
+hitRateHighText = "#56B4E9"    # Light sky blue
+hitRateMediumBg = "#3d2f00"    # Dark amber
+hitRateMediumText = "#fcd34d"  # Bright yellow
+hitRateLowBg = "#3d1f35"       # Dark mauve
+hitRateLowText = "#e8a4c8"     # Light pink
+hitRateWarningBg = "#3d1f35"   # Dark mauve (matches low)
+hitRateWarningText = "#e8a4c8" # Light pink (matches low)
 
-# Action buttons - Orange/Yellow/Cyan (avoids red-green)
-actionResetBg = "#f59e0b"
-actionResetHover = "#d97706"
-actionProcessBg = "#3b82f6"
-actionProcessHover = "#2563eb"
-actionDeleteBg = "#f97316"
-actionDeleteHover = "#ea580c"
+# Action buttons - Amber reset, Sapphire process, Mauve delete
+actionResetBg = "#e69f00"      # Amber reset
+actionResetHover = "#cc8c00"   # Darker amber
+actionProcessBg = "#2563eb"    # Sapphire process
+actionProcessHover = "#1d4ed8" # Darker sapphire
+actionDeleteBg = "#CC79A7"     # Mauve delete (visible to protanopes)
+actionDeleteHover = "#b5608f"  # Darker mauve
 
-# Icon backgrounds - Distinguishable colors for protanopia
-iconBgBlue = "#3b82f6"
-iconBgGreen = "#06b6d4"
-iconBgEmerald = "#0ea5e9"
-iconBgPurple = "#a855f7"
-iconBgIndigo = "#6366f1"
-iconBgOrange = "#f59e0b"
-iconBgYellow = "#eab308"
-iconBgCyan = "#06b6d4"
-iconBgRed = "#f97316"
+# Icon backgrounds - 9 ALL distinct colors
+iconBgBlue = "#2563eb"         # Sapphire blue
+iconBgGreen = "#0891b2"        # Teal (replaces green)
+iconBgEmerald = "#0072B2"      # Ocean blue (replaces emerald)
+iconBgPurple = "#7c3aed"       # Vivid violet
+iconBgIndigo = "#CC79A7"       # Mauve pink
+iconBgOrange = "#e69f00"       # Warm amber
+iconBgYellow = "#F0E442"       # Bright yellow (Okabe-Ito)
+iconBgCyan = "#56B4E9"         # Sky blue
+iconBgRed = "#D55E00"          # Burnt orange (replaces red)
 
-# Chart colors - Distinguishable without red-green
-chartColor1 = "#3b82f6"
-chartColor2 = "#f59e0b"
-chartColor3 = "#06b6d4"
-chartColor4 = "#f97316"
-chartColor5 = "#a855f7"
-chartColor6 = "#eab308"
-chartColor7 = "#8b5cf6"
-chartColor8 = "#0ea5e9"
-chartBorderColor = "#1f2937"
-chartGridColor = "#374151"
-chartTextColor = "#9ca3af"
-chartCacheHitColor = "#3b82f6"
-chartCacheMissColor = "#f59e0b"
+# Chart colors - 8 ALL distinct, Okabe-Ito inspired palette
+chartColor1 = "#2563eb"        # Sapphire blue
+chartColor2 = "#e69f00"        # Warm amber
+chartColor3 = "#56B4E9"        # Sky blue
+chartColor4 = "#CC79A7"        # Mauve pink
+chartColor5 = "#D55E00"        # Burnt orange
+chartColor6 = "#F0E442"        # Bright yellow
+chartColor7 = "#7c3aed"        # Vivid violet
+chartColor8 = "#0891b2"        # Teal
+chartBorderColor = "#101c30"   # Dark navy
+chartGridColor = "#1e3050"     # Navy grid lines
+chartTextColor = "#8b9bb4"     # Muted blue-gray
+chartCacheHitColor = "#0072B2" # Ocean blue for hits
+chartCacheMissColor = "#e69f00" # Amber for misses
 
-# Scrollbar
-scrollbarTrack = "#374151"
-scrollbarThumb = "#6B7280"
-scrollbarHover = "#9CA3AF"
+# Scrollbar - Navy tinted
+scrollbarTrack = "#162033"     # Dark navy track
+scrollbarThumb = "#2a4060"     # Navy thumb
+scrollbarHover = "#3a5070"     # Lighter navy hover
 
-# Access indicators - Blue for public, Orange for secured
-publicAccessBg = "rgba(59, 130, 246, 0.2)"
-publicAccessText = "#93c5fd"
-publicAccessBorder = "rgba(59, 130, 246, 0.3)"
-securedAccessBg = "rgba(245, 158, 11, 0.2)"
-securedAccessText = "#fbbf24"
-securedAccessBorder = "rgba(245, 158, 11, 0.3)"
+# Access indicators - Blue for public, Amber for secured
+publicAccessBg = "rgba(0, 114, 178, 0.2)"
+publicAccessText = "#56B4E9"            # Sky blue
+publicAccessBorder = "rgba(0, 114, 178, 0.3)"
+securedAccessBg = "rgba(230, 159, 0, 0.2)"
+securedAccessText = "#fcd34d"           # Bright yellow
+securedAccessBorder = "rgba(230, 159, 0, 0.3)"
 
-# Session colors
-userSessionColor = "#3b82f6"
-userSessionBg = "rgba(59, 130, 246, 0.15)"
-guestSessionColor = "#06b6d4"
-guestSessionBg = "rgba(6, 182, 212, 0.15)"
-activeSessionColor = "#f59e0b"
-activeSessionBg = "rgba(245, 158, 11, 0.15)"
+# Session colors - Sapphire / Teal / Amber
+userSessionColor = "#2563eb"            # Sapphire
+userSessionBg = "rgba(37, 99, 235, 0.15)"
+guestSessionColor = "#0891b2"           # Teal
+guestSessionBg = "rgba(8, 145, 178, 0.15)"
+activeSessionColor = "#e69f00"          # Amber
+activeSessionBg = "rgba(230, 159, 0, 0.15)"
 
-# Event colors - Accessible blue-yellow-orange (no red-green)
-eventColor1 = "#3b82f6"
-eventColor2 = "#f59e0b"
-eventColor3 = "#06b6d4"
-eventColor4 = "#f97316"
-eventColor5 = "#a855f7"
-eventColor6 = "#eab308"
-eventColor7 = "#8b5cf6"
-eventColor8 = "#0ea5e9"
+# Event colors - Matches chart colors for consistency
+eventColor1 = "#2563eb"        # Sapphire blue
+eventColor2 = "#e69f00"        # Warm amber
+eventColor3 = "#56B4E9"        # Sky blue
+eventColor4 = "#CC79A7"        # Mauve pink
+eventColor5 = "#D55E00"        # Burnt orange
+eventColor6 = "#F0E442"        # Bright yellow
+eventColor7 = "#7c3aed"        # Vivid violet
+eventColor8 = "#0891b2"        # Teal
 
-# Firework/celebration colors - Protanopia accessible (no red, uses blues/yellows/cyans/purples)
-fireworkColor1 = "#3b82f6"  # Primary firework particle - blue
-fireworkColor2 = "#f59e0b"  # Secondary firework particle - orange
-fireworkColor3 = "#06b6d4"  # Tertiary firework particle - cyan
-fireworkColor4 = "#eab308"  # Fourth firework particle - yellow
-fireworkColor5 = "#a855f7"  # Fifth firework particle - purple
-fireworkColor6 = "#0ea5e9"  # Sixth firework particle - sky blue
-fireworkColor7 = "#8b5cf6"  # Seventh firework particle - violet
-fireworkColor8 = "#ffffff"  # Eighth firework particle - white
-fireworkRocketColor = "#3b82f6"  # Main rocket body (matches primaryColor)
-fireworkGlowColor = "#06b6d4"    # Glow effect color - cyan
+# Firework/celebration colors - Festive blues, ambers, purples (no red/green)
+fireworkColor1 = "#2563eb"     # Sapphire blue
+fireworkColor2 = "#e69f00"     # Warm amber
+fireworkColor3 = "#56B4E9"     # Sky blue
+fireworkColor4 = "#F0E442"     # Bright yellow
+fireworkColor5 = "#CC79A7"     # Mauve pink
+fireworkColor6 = "#0891b2"     # Teal
+fireworkColor7 = "#7c3aed"     # Vivid violet
+fireworkColor8 = "#ffffff"     # Bright white
+fireworkRocketColor = "#2563eb"  # Sapphire rocket body
+fireworkGlowColor = "#56B4E9"    # Sky blue glow
 
 [css]
 content = """
-/* Accessible Protanopia Theme */
-/* Designed for red-blindness - uses blue-yellow-orange palette */
+/* Midnight Sapphire - Protanopia Accessible Theme */
+/* Rich navy backgrounds with warm amber accents */
+/* Okabe-Ito inspired palette - fully visible without red cones */
 
+/* Subtle navy glow on cards for premium depth */
 .themed-card {
+  background-image:
+    radial-gradient(
+      ellipse at top left,
+      rgba(37, 99, 235, 0.04) 0%,
+      transparent 60%
+    );
   transition: all 0.2s ease;
 }
 
 .themed-card:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(37, 99, 235, 0.08);
 }
 
-/* Blue focus glow */
+/* Sapphire focus ring */
 *:focus-visible {
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.4);
   outline: none;
 }
 
+/* Smooth button interactions */
 button {
   transition: all 0.15s ease;
 }
 
 button:hover {
   transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
 }
 
 button:active {
   transform: translateY(0);
+}
+
+/* Navy gradient scrollbar */
+*::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #2a4060 0%, #1e3050 100%);
+  border-radius: 4px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #3a5070 0%, #2a4060 100%);
 }
 """

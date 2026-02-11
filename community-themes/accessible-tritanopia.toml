@@ -1,212 +1,248 @@
 [meta]
 name = "Accessible - Tritanopia"
 id = "accessible-tritanopia"
-description = "Color blind accessible theme for Tritanopia (blue-yellow blindness) - Uses red-green-pink palette"
+description = "Crimson Ember - Premium tritanopia-accessible theme with warm backgrounds and rich red-green contrast"
 author = "System"
-version = "1.1.0"
+version = "2.0.0"
 isDark = true
 sharpCorners = false
 basedOn = "dark-default"
 
 [colors]
-# Core colors - Teal primary (distinguishable from blue), Pink secondary
-primaryColor = "#14b8a6"
-secondaryColor = "#ec4899"
-accentColor = "#10b981"
+# Core colors - Rich crimson primary, forest green secondary, coral-orange accent
+# Tritanopia safe: NO blue, NO yellow, NO cyan, NO teal, NO purple-with-blue
+primaryColor = "#dc2626"       # Rich crimson
+secondaryColor = "#16a34a"     # Forest green
+accentColor = "#ea580c"        # Coral-orange
 
-# Backgrounds - Slightly warm-tinted for better contrast
-bgPrimary = "#121518"
-bgSecondary = "#1e2328"
-bgTertiary = "#282d33"
-bgHover = "#363c44"
+# Backgrounds - Warm charcoal with reddish undertone
+bgPrimary = "#151010"
+bgSecondary = "#201818"
+bgTertiary = "#2a2222"
+bgHover = "#383030"
 
-# Text - Standard dark theme text with warm tint
-textPrimary = "#f5f5f5"
-textSecondary = "#d1d5db"
-textMuted = "#9ca3af"
-textAccent = "#5eead4"
-textPlaceholder = "#6b7280"
+# Text - Warm off-whites and muted reds
+textPrimary = "#f5eded"
+textSecondary = "#d4c8c8"
+textMuted = "#a09090"
+textAccent = "#f87171"          # Light red
+textPlaceholder = "#706060"
 
 # Drag handle
-dragHandleColor = "#6b7280"
-dragHandleHover = "#5eead4"
+dragHandleColor = "#706060"
+dragHandleHover = "#f87171"
 
-# Borders
-borderPrimary = "#363c44"
-borderSecondary = "#454d56"
-borderFocus = "#14b8a6"
+# Borders - Warm dark reds
+borderPrimary = "#352a2a"
+borderSecondary = "#453838"
+borderFocus = "#dc2626"
 
 # Navigation
-navBg = "#1a1f24"
-navBorder = "#363c44"
-navTabActive = "#14b8a6"
-navTabInactive = "#9ca3af"
-navTabHover = "#ffffff"
-navTabActiveBorder = "#14b8a6"
-navMobileMenuBg = "#1a1f24"
-navMobileItemHover = "#282d33"
+navBg = "#1a1212"
+navBorder = "#352a2a"
+navTabActive = "#dc2626"
+navTabInactive = "#a09090"
+navTabHover = "#f5eded"
+navTabActiveBorder = "#dc2626"
+navMobileMenuBg = "#1a1212"
+navMobileItemHover = "#2a2222"
 
-# Status colors - Teal for success, Pink/Magenta for warning, Red for error (avoids blue-yellow)
-success = "#10b981"
-successBg = "#134e4a"
-successText = "#6ee7b7"
-warning = "#ec4899"
-warningBg = "#5c1a40"
-warningText = "#f9a8d4"
-error = "#ef4444"
-errorBg = "#5c1a1a"
-errorText = "#fca5a5"
-info = "#14b8a6"
-infoBg = "#134e4a"
-infoText = "#5eead4"
+# Status colors - All clearly distinct, NO blue/yellow
+success = "#16a34a"            # Forest green
+successBg = "#0f2a18"
+successText = "#86efac"        # Light green
+warning = "#ea580c"            # Coral-orange
+warningBg = "#2d1a08"
+warningText = "#fb923c"        # Light orange
+error = "#dc2626"              # Crimson
+errorBg = "#2d0f0f"
+errorText = "#fca5a5"          # Light red
+info = "#db2777"               # Deep pink/magenta
+infoBg = "#2d0f20"
+infoText = "#f9a8d4"           # Light pink
 
-# Service colors - Distinguishable without blue-yellow
-steamColor = "#10b981"
-epicColor = "#ec4899"
-originColor = "#f97316"
-blizzardColor = "#14b8a6"
-wsusColor = "#06d6a0"
-riotColor = "#ef4444"
-xboxColor = "#22c55e"
+# Service colors - 7 distinct colors, NO blue/yellow
+steamColor = "#16a34a"         # Forest green
+epicColor = "#db2777"          # Deep pink
+originColor = "#ea580c"        # Coral-orange
+blizzardColor = "#dc2626"      # Crimson
+wsusColor = "#15803d"          # Dark green (distinct from forest via darkness)
+riotColor = "#b91c1c"          # Dark red
+xboxColor = "#22c55e"          # Bright green (distinct via brightness)
 
 # Components
-cardBg = "#1e2328"
-cardBorder = "#363c44"
-cardOutline = "#14b8a6"
-buttonBg = "#14b8a6"
-buttonHover = "#0d9488"
+cardBg = "#1c1414"
+cardBorder = "#352a2a"
+cardOutline = "#dc2626"
+buttonBg = "#dc2626"
+buttonHover = "#b91c1c"
 buttonText = "#ffffff"
-inputBg = "#282d33"
-inputBorder = "#454d56"
-inputFocus = "#14b8a6"
-checkboxAccent = "#14b8a6"
-checkboxBorder = "#454d56"
-checkboxBg = "#1e2328"
+inputBg = "#2a2222"
+inputBorder = "#453838"
+inputFocus = "#dc2626"
+checkboxAccent = "#dc2626"
+checkboxBorder = "#453838"
+checkboxBg = "#201818"
 checkboxCheckmark = "#ffffff"
 checkboxShadow = "none"
-checkboxHoverShadow = "0 0 0 3px rgba(20, 184, 166, 0.15)"
-checkboxHoverBg = "#282d33"
-checkboxFocus = "#14b8a6"
-sliderAccent = "#14b8a6"
-sliderThumb = "#14b8a6"
-sliderTrack = "#282d33"
-progressBg = "#282d33"
+checkboxHoverShadow = "0 0 0 3px rgba(220, 38, 38, 0.15)"
+checkboxHoverBg = "#2a2222"
+checkboxFocus = "#dc2626"
+sliderAccent = "#dc2626"
+sliderThumb = "#dc2626"
+sliderTrack = "#2a2222"
+progressBg = "#2a2222"
 
-# Hit rate - Teal-Pink-Red scale (no blue-yellow)
-hitRateHighBg = "#134e4a"
-hitRateHighText = "#6ee7b7"
-hitRateMediumBg = "#5c1a40"
-hitRateMediumText = "#f9a8d4"
-hitRateLowBg = "#5c1a1a"
-hitRateLowText = "#fca5a5"
-hitRateWarningBg = "#5c1a1a"
+# Hit rate - Green/Orange/Red scale (no blue/yellow)
+hitRateHighBg = "#0f2a18"      # Dark green
+hitRateHighText = "#86efac"    # Light green
+hitRateMediumBg = "#2d1a08"    # Dark orange
+hitRateMediumText = "#fb923c"  # Light orange
+hitRateLowBg = "#2d0f0f"      # Dark red
+hitRateLowText = "#fca5a5"    # Light red
+hitRateWarningBg = "#2d0f0f"
 hitRateWarningText = "#fca5a5"
 
-# Action buttons - Green/Pink/Red (avoids blue-yellow)
-actionResetBg = "#ec4899"
-actionResetHover = "#db2777"
-actionProcessBg = "#10b981"
-actionProcessHover = "#059669"
-actionDeleteBg = "#ef4444"
-actionDeleteHover = "#dc2626"
+# Action buttons - Orange/Green/Red (avoids blue/yellow)
+actionResetBg = "#ea580c"
+actionResetHover = "#c2410c"
+actionProcessBg = "#16a34a"
+actionProcessHover = "#15803d"
+actionDeleteBg = "#dc2626"
+actionDeleteHover = "#b91c1c"
 
-# Icon backgrounds - Distinguishable colors for tritanopia
-iconBgBlue = "#14b8a6"
-iconBgGreen = "#10b981"
-iconBgEmerald = "#22c55e"
-iconBgPurple = "#ec4899"
-iconBgIndigo = "#a855f7"
-iconBgOrange = "#f97316"
-iconBgYellow = "#fb923c"
-iconBgCyan = "#06d6a0"
-iconBgRed = "#ef4444"
+# Icon backgrounds - 9 distinct colors, NO blue/yellow/purple
+iconBgBlue = "#dc2626"        # Crimson (replaces blue)
+iconBgGreen = "#16a34a"       # Forest green
+iconBgEmerald = "#22c55e"     # Bright green
+iconBgPurple = "#db2777"      # Deep pink (replaces purple)
+iconBgIndigo = "#be123c"      # Dark rose (replaces indigo)
+iconBgOrange = "#ea580c"      # Coral-orange
+iconBgYellow = "#d97706"      # Dark amber-orange (replaces yellow)
+iconBgCyan = "#15803d"        # Dark green (replaces cyan)
+iconBgRed = "#b91c1c"         # Dark red
 
-# Chart colors - Distinguishable without blue-yellow
-chartColor1 = "#14b8a6"
-chartColor2 = "#10b981"
-chartColor3 = "#ec4899"
-chartColor4 = "#ef4444"
-chartColor5 = "#a855f7"
-chartColor6 = "#f97316"
-chartColor7 = "#22c55e"
-chartColor8 = "#db2777"
-chartBorderColor = "#1e2328"
-chartGridColor = "#363c44"
-chartTextColor = "#9ca3af"
-chartCacheHitColor = "#10b981"
-chartCacheMissColor = "#ec4899"
+# Chart colors - 8 distinct colors, NO blue/yellow
+chartColor1 = "#dc2626"       # Crimson
+chartColor2 = "#16a34a"       # Forest green
+chartColor3 = "#db2777"       # Deep pink
+chartColor4 = "#ea580c"       # Coral-orange
+chartColor5 = "#22c55e"       # Bright green
+chartColor6 = "#b91c1c"       # Dark red
+chartColor7 = "#be123c"       # Dark rose
+chartColor8 = "#d97706"       # Dark amber-orange
+chartBorderColor = "#1a1212"
+chartGridColor = "#352a2a"
+chartTextColor = "#a09090"
+chartCacheHitColor = "#16a34a"
+chartCacheMissColor = "#dc2626"
 
 # Scrollbar
-scrollbarTrack = "#282d33"
-scrollbarThumb = "#6B7280"
-scrollbarHover = "#9CA3AF"
+scrollbarTrack = "#201818"
+scrollbarThumb = "#453838"
+scrollbarHover = "#dc2626"
 
-# Access indicators - Teal for public, Pink for secured
-publicAccessBg = "rgba(16, 185, 129, 0.2)"
-publicAccessText = "#6ee7b7"
-publicAccessBorder = "rgba(16, 185, 129, 0.3)"
-securedAccessBg = "rgba(236, 72, 153, 0.2)"
-securedAccessText = "#f9a8d4"
-securedAccessBorder = "rgba(236, 72, 153, 0.3)"
+# Access indicators - Green for public, Red for secured
+publicAccessBg = "rgba(22, 163, 74, 0.2)"
+publicAccessText = "#86efac"
+publicAccessBorder = "rgba(22, 163, 74, 0.3)"
+securedAccessBg = "rgba(220, 38, 38, 0.2)"
+securedAccessText = "#fca5a5"
+securedAccessBorder = "rgba(220, 38, 38, 0.3)"
 
 # Session colors
-userSessionColor = "#14b8a6"
-userSessionBg = "rgba(20, 184, 166, 0.15)"
-guestSessionColor = "#10b981"
-guestSessionBg = "rgba(16, 185, 129, 0.15)"
-activeSessionColor = "#ec4899"
-activeSessionBg = "rgba(236, 72, 153, 0.15)"
+userSessionColor = "#dc2626"
+userSessionBg = "rgba(220, 38, 38, 0.15)"
+guestSessionColor = "#16a34a"
+guestSessionBg = "rgba(22, 163, 74, 0.15)"
+activeSessionColor = "#ea580c"
+activeSessionBg = "rgba(234, 88, 12, 0.15)"
 
-# Event colors - Accessible teal-green-pink-red (no blue-yellow)
-eventColor1 = "#14b8a6"
-eventColor2 = "#10b981"
-eventColor3 = "#ec4899"
-eventColor4 = "#ef4444"
-eventColor5 = "#a855f7"
-eventColor6 = "#f97316"
-eventColor7 = "#22c55e"
-eventColor8 = "#db2777"
+# Event colors - Same as chart colors (all tritanopia-safe)
+eventColor1 = "#dc2626"       # Crimson
+eventColor2 = "#16a34a"       # Forest green
+eventColor3 = "#db2777"       # Deep pink
+eventColor4 = "#ea580c"       # Coral-orange
+eventColor5 = "#22c55e"       # Bright green
+eventColor6 = "#b91c1c"       # Dark red
+eventColor7 = "#be123c"       # Dark rose
+eventColor8 = "#d97706"       # Dark amber-orange
 
-# Firework/celebration colors - Tritanopia accessible (no blue/yellow, uses reds/greens/pinks/cyans)
-fireworkColor1 = "#14b8a6"  # Primary firework particle - teal
-fireworkColor2 = "#10b981"  # Secondary firework particle - green
-fireworkColor3 = "#ec4899"  # Tertiary firework particle - pink
-fireworkColor4 = "#ef4444"  # Fourth firework particle - red
-fireworkColor5 = "#22c55e"  # Fifth firework particle - bright green
-fireworkColor6 = "#db2777"  # Sixth firework particle - rose
-fireworkColor7 = "#a855f7"  # Seventh firework particle - purple
-fireworkColor8 = "#ffffff"  # Eighth firework particle - white
-fireworkRocketColor = "#14b8a6"  # Main rocket body (matches primaryColor)
-fireworkGlowColor = "#5eead4"    # Glow effect color - light teal
+# Firework/celebration colors - Tritanopia accessible (reds/greens/pinks, no blue/yellow)
+fireworkColor1 = "#dc2626"    # Primary firework particle - crimson
+fireworkColor2 = "#16a34a"    # Secondary firework particle - forest green
+fireworkColor3 = "#db2777"    # Tertiary firework particle - deep pink
+fireworkColor4 = "#ea580c"    # Fourth firework particle - coral-orange
+fireworkColor5 = "#22c55e"    # Fifth firework particle - bright green
+fireworkColor6 = "#be123c"    # Sixth firework particle - dark rose
+fireworkColor7 = "#d97706"    # Seventh firework particle - dark amber-orange
+fireworkColor8 = "#ffffff"    # Eighth firework particle - white
+fireworkRocketColor = "#dc2626"  # Main rocket body (matches primaryColor)
+fireworkGlowColor = "#f87171"    # Glow effect color - light red
 
 [css]
 content = """
-/* Accessible Tritanopia Theme */
-/* Designed for blue-yellow blindness - uses teal-green-pink-red palette */
+/* Crimson Ember - Accessible Tritanopia Theme */
+/* Designed for blue-yellow blindness - uses warm red-green-pink palette */
 
+/* Subtle crimson warm glow on cards */
 .themed-card {
+  background-image:
+    radial-gradient(
+      ellipse at top left,
+      rgba(220, 38, 38, 0.03) 0%,
+      transparent 60%
+    ),
+    radial-gradient(
+      ellipse at bottom right,
+      rgba(22, 163, 74, 0.02) 0%,
+      transparent 60%
+    );
   transition: all 0.2s ease;
 }
 
 .themed-card:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 4px 16px rgba(220, 38, 38, 0.12), 0 2px 6px rgba(0, 0, 0, 0.3);
 }
 
-/* Teal focus glow */
+/* Crimson focus ring */
 *:focus-visible {
-  box-shadow: 0 0 0 2px rgba(20, 184, 166, 0.4);
+  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.4);
   outline: none;
 }
 
+/* Warm hover effects */
+.hover\\:bg-themed-hover:hover {
+  background-image:
+    radial-gradient(
+      circle at center,
+      rgba(220, 38, 38, 0.04),
+      transparent
+    );
+}
+
+/* Smooth button transitions with warm shadow */
 button {
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.25);
   transition: all 0.15s ease;
 }
 
 button:hover {
+  box-shadow: 0 3px 8px rgba(220, 38, 38, 0.15), 0 2px 4px rgba(0, 0, 0, 0.3);
   transform: translateY(-1px);
 }
 
 button:active {
   transform: translateY(0);
+}
+
+/* Warm crimson scrollbar */
+*::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #453838 0%, #352a2a 100%);
+  border-radius: 4px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #dc2626 0%, #b91c1c 100%);
 }
 """
