@@ -596,7 +596,8 @@ public class DataMigrationController : ControllerBase
 
             // Check for the appropriate table
             var cmd = connection.CreateCommand();
-            cmd.CommandText = $"SELECT name FROM sqlite_master WHERE type='table' AND name='{tableName}'";
+            cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name=@tableName";
+            cmd.Parameters.AddWithValue("@tableName", tableName);
             var tableExists = await cmd.ExecuteScalarAsync();
 
             if (tableExists == null)
@@ -608,9 +609,11 @@ public class DataMigrationController : ControllerBase
                 });
             }
 
-            // Get record count
+            // Get record count - tableName is safe (ternary-controlled: "Downloads" or "DownloadEvents" only)
             var countCmd = connection.CreateCommand();
-            countCmd.CommandText = $"SELECT COUNT(*) FROM {tableName}";
+            countCmd.CommandText = tableName == "Downloads"
+                ? "SELECT COUNT(*) FROM Downloads"
+                : "SELECT COUNT(*) FROM DownloadEvents";
             var recordCount = Convert.ToInt32(await countCmd.ExecuteScalarAsync());
 
             return Ok(new ConnectionValidationResponse

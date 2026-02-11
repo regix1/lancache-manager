@@ -464,7 +464,7 @@ public class DatabaseService : IDatabaseService
                                 cancellationToken.ThrowIfCancellationRequested();
                                 // Delete a batch using raw SQL for efficiency
                                 // SQLite doesn't support LIMIT in DELETE, so we use a subquery
-                                var deleted = await context.Database.ExecuteSqlRawAsync(
+                                var deleted = await context.Database.ExecuteSqlInterpolatedAsync(
                                     $"DELETE FROM LogEntries WHERE Id IN (SELECT Id FROM LogEntries LIMIT {batchSize})", cancellationToken);
 
                                 // Check for cancellation immediately after batch completes
