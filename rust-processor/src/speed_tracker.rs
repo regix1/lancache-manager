@@ -272,13 +272,13 @@ impl SpeedTracker {
 
         let metadata = std::fs::metadata(log_path)?;
         let current_size = metadata.len();
-        let last_position = *self.file_positions.get(log_path).unwrap_or(&0);
+        let mut last_position = *self.file_positions.get(log_path).unwrap_or(&0);
 
         // Handle file rotation (new file is smaller)
         if current_size < last_position {
             eprintln!("Log file rotated: {}", log_path.display());
             self.file_positions.insert(log_path.clone(), 0);
-            return Ok(());
+            last_position = 0;
         }
 
         // No new data
@@ -313,13 +313,7 @@ impl SpeedTracker {
     fn clean_old_entries(&mut self) {
         let cutoff = Utc::now().naive_utc() - chrono::Duration::seconds(WINDOW_SECONDS);
 
-        while let Some(entry) = self.entries.front() {
-            if entry.timestamp < cutoff {
-                self.entries.pop_front();
-            } else {
-                break;
-            }
-        }
+        self.entries.retain(|entry| entry.timestamp >= cutoff);
     }
 
     fn calculate_snapshot(&mut self) -> DownloadSpeedSnapshot {
@@ -379,12 +373,14 @@ impl SpeedTracker {
             .collect();
 
         // Sort by speed descending
-        game_speeds.sort_by(|a, b| b.bytes_per_second.partial_cmp(&a.bytes_per_second).unwrap());
+        game_speeds.sort_by(|a, b| b.bytes_per_second.partial_cmp(&a.bytes_per_second).unwrap_or(std::cmp::Ordering::Equal));
 
-        // Group by client for client speeds
+        // Group by client for client speeds (only entries with depot IDs - actual game downloads)
         let mut client_groups: HashMap<String, Vec<SpeedLogEntry>> = HashMap::new();
         for entry in &window_entries {
-            client_groups.entry(entry.client_ip.clone()).or_default().push(entry.clone());
+            if entry.depot_id.is_some() {
+                client_groups.entry(entry.client_ip.clone()).or_default().push(entry.clone());
+            }
         }
 
         let mut client_speeds: Vec<ClientSpeedInfo> = client_groups.into_iter()
@@ -408,11 +404,13 @@ impl SpeedTracker {
             })
             .collect();
 
-        client_speeds.sort_by(|a, b| b.bytes_per_second.partial_cmp(&a.bytes_per_second).unwrap());
+        client_speeds.sort_by(|a, b| b.bytes_per_second.partial_cmp(&a.bytes_per_second).unwrap_or(std::cmp::Ordering::Equal));
 
-        let total_bytes: i64 = window_entries.iter().map(|e| e.bytes_sent).sum();
         let entries_count = window_entries.len();
-        let depot_entry_count = window_entries.iter().filter(|e| e.depot_id.is_some()).count();
+        // Only count bytes from entries with depot IDs (actual game downloads) for speed/activity
+        let depot_entries: Vec<&SpeedLogEntry> = window_entries.iter().filter(|e| e.depot_id.is_some()).collect();
+        let depot_entry_count = depot_entries.len();
+        let total_bytes: i64 = depot_entries.iter().map(|e| e.bytes_sent).sum();
 
         DownloadSpeedSnapshot {
             timestamp_utc: now.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),

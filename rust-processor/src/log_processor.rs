@@ -289,7 +289,6 @@ impl Processor {
                 if bytes_read == 0 {
                     // Reached EOF before skipping all lines - this file is exhausted
                     *lines_to_skip -= skipped;
-                    self.lines_parsed.fetch_add(skipped, Ordering::Relaxed);
                     return Ok(());
                 }
                 skipped += 1;

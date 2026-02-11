@@ -1,4 +1,6 @@
 use anyhow::{Context, Result};
+use flate2::write::GzEncoder;
+use flate2::Compression;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::env;
@@ -160,7 +162,7 @@ fn count_services(log_path: &str, progress_path: &Path, datasource_name: Option<
                 // Update progress every 500ms
                 if last_progress_update.elapsed().as_millis() > 500 {
                     let percent = if total_size > 0 {
-                        (bytes_processed as f64 / total_size as f64) * 100.0
+                        ((bytes_processed as f64 / total_size as f64) * 100.0).min(100.0)
                     } else {
                         0.0
                     };
@@ -284,7 +286,25 @@ fn remove_service_from_logs(
                 let mut log_reader = LogFileReader::open(&log_file.path)?;
                 let file_size = std::fs::metadata(&log_file.path)?.len();
 
-                let mut writer = BufWriter::with_capacity(1024 * 1024, temp_file.as_file());
+                // Create writer that matches the compression of the original file
+                let mut writer: Box<dyn std::io::Write> = if log_file.is_compressed {
+                    let path_str = log_file.path.to_string_lossy();
+                    if path_str.ends_with(".gz") {
+                        Box::new(BufWriter::with_capacity(
+                            1024 * 1024,
+                            GzEncoder::new(temp_file.as_file().try_clone()?, Compression::default())
+                        ))
+                    } else if path_str.ends_with(".zst") {
+                        Box::new(BufWriter::with_capacity(
+                            1024 * 1024,
+                            zstd::Encoder::new(temp_file.as_file().try_clone()?, 3)?
+                        ))
+                    } else {
+                        Box::new(BufWriter::with_capacity(1024 * 1024, temp_file.as_file().try_clone()?))
+                    }
+                } else {
+                    Box::new(BufWriter::with_capacity(1024 * 1024, temp_file.as_file().try_clone()?))
+                };
 
                 let mut bytes_processed: u64 = 0;
                 let mut last_progress_update = Instant::now();
@@ -335,7 +355,7 @@ fn remove_service_from_logs(
                     // Update progress every 500ms
                     if last_progress_update.elapsed().as_millis() > 500 {
                         let percent = if file_size > 0 {
-                            (bytes_processed as f64 / file_size as f64) * 100.0
+                            ((bytes_processed as f64 / file_size as f64) * 100.0).min(100.0)
                         } else {
                             0.0
                         };

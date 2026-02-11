@@ -258,10 +258,10 @@ fn import_develancache_data(
         let cache_miss_bytes: i64 = row.get(8)?; // CacheMissBytes
 
         // Parse timestamps as UTC
-        let created_at_utc = NaiveDateTime::parse_from_str(&created_at_str, "%Y-%m-%d %H:%M:%S")
+        let created_at_utc = NaiveDateTime::parse_from_str(&created_at_str, "%Y-%m-%d %H:%M:%S%.f")
             .context("Failed to parse CreatedAt timestamp")?;
         let last_updated_at_utc =
-            NaiveDateTime::parse_from_str(&last_updated_at_str, "%Y-%m-%d %H:%M:%S")
+            NaiveDateTime::parse_from_str(&last_updated_at_str, "%Y-%m-%d %H:%M:%S%.f")
                 .context("Failed to parse LastUpdatedAt timestamp")?;
 
         // Convert UTC to local timezone
@@ -442,6 +442,7 @@ fn process_batch(
                 match tx.execute(
                     "UPDATE Downloads
                      SET Service = ?, EndTimeUtc = ?, EndTimeLocal = ?,
+                         StartTimeLocal = ?,
                          CacheHitBytes = ?, CacheMissBytes = ?,
                          DepotId = ?, GameAppId = ?
                      WHERE ClientIp = ? AND StartTimeUtc = ?",
@@ -449,6 +450,7 @@ fn process_batch(
                         service,
                         end_time_utc,
                         end_time_local,
+                        start_time_local,
                         cache_hit_bytes,
                         cache_miss_bytes,
                         depot_id,

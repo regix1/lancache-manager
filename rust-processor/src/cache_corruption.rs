@@ -500,7 +500,7 @@ fn main() -> Result<()> {
                 .cloned()
                 .collect();
 
-            // PASS 2: Filter log files, removing ALL lines with corrupted URLs
+            // PASS 2: Filter log files, removing MISS/UNKNOWN lines for corrupted URLs
             eprintln!("Step 2: Filtering log files to remove corrupted chunks...");
 
             let mut total_lines_removed: u64 = 0;
@@ -703,7 +703,7 @@ fn main() -> Result<()> {
                         // Calculate ALL chunks based on actual response size
                         let mut start: i64 = 0;
                         while start < *response_size {
-                            let end = (start + slice_size - 1).min(*response_size - 1 + slice_size - 1);
+                            let end = start + slice_size - 1;
 
                             let cache_path = cache_utils::calculate_cache_path(&cache_dir, &service_lower, url, start as u64, end as u64);
 

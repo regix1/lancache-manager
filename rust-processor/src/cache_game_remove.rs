@@ -292,7 +292,7 @@ fn remove_cache_files_for_game(
             if *total_bytes > 0 {
                 let mut start: i64 = 0;
                 while start < *total_bytes {
-                    let end = (start + slice_size - 1).min(*total_bytes - 1 + slice_size - 1);
+                    let end = start + slice_size - 1;
                     paths.push((
                         cache_utils::calculate_cache_path(cache_dir, &service_lower, url, start as u64, end as u64),
                         true, // chunked

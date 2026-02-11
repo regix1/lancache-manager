@@ -31,6 +31,14 @@ pub fn normalize_service_name(service: &str) -> String {
         }
     }
 
+    // If it looks like an IPv6 address (contains colons and hex digits), group as "ip-address"
+    if service_lower.contains(':') {
+        let non_ipv6_chars = service_lower.chars().filter(|c| !c.is_ascii_hexdigit() && *c != ':').count();
+        if non_ipv6_chars == 0 {
+            return "ip-address".to_string();
+        }
+    }
+
     service_lower
 }
 

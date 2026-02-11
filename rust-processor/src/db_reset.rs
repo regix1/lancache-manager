@@ -126,6 +126,7 @@ fn reset_database(
 
         // Delete in batches with progress reporting
         let mut batch_num = 0;
+        let mut table_had_error = false;
         loop {
             let delete_sql = format!("DELETE FROM {} WHERE rowid IN (SELECT rowid FROM {} LIMIT {})", table_name, table_name, batch_size);
 
@@ -157,12 +158,15 @@ fn reset_database(
                 }
                 Err(e) => {
                     eprintln!("  Warning: Failed to delete batch from {}: {}", table_name, e);
+                    table_had_error = true;
                     break;
                 }
             }
         }
 
-        tables_cleared += 1;
+        if !table_had_error {
+            tables_cleared += 1;
+        }
         progress.tables_cleared = tables_cleared;
         println!("  Completed: {} (total deleted: {})", table_name, deleted_rows);
     }
