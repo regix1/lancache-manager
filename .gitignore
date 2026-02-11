@@ -126,5 +126,8 @@ notification_code.md
 rustup-init.exe
 *.backup.json
 
+# Cache directory
+cache/
+
 # Steam Lancache Prefill tool
 steam-lancache-prefill/
