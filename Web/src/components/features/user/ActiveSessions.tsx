@@ -22,7 +22,7 @@ import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { Modal } from '@components/ui/Modal';
 import { Alert } from '@components/ui/Alert';
-import { HelpPopover } from '@components/ui/HelpPopover';
+import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { MultiSelectDropdown } from '@components/ui/MultiSelectDropdown';
 import { Pagination } from '@components/ui/Pagination';
@@ -950,43 +950,32 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               <h2 className="text-lg font-semibold text-themed-primary">
                 {t('activeSessions.title')}
               </h2>
-              <HelpPopover
-                width={300}
-                sections={[
-                  {
-                    title: t('activeSessions.help.sessionTypes.title'),
-                    items: [
-                      {
-                        label: t('activeSessions.help.sessionTypes.authenticated.label'),
-                        description: t('activeSessions.help.sessionTypes.authenticated.description'),
-                        color: 'var(--theme-user-session)'
-                      },
-                      {
-                        label: t('activeSessions.help.sessionTypes.guest.label'),
-                        description: t('activeSessions.help.sessionTypes.guest.description', {
-                          hours: guestDurationHours
-                        }),
-                        color: 'var(--theme-guest-session)'
-                      }
-                    ]
-                  },
-                  {
-                    title: t('activeSessions.help.actions.title'),
-                    items: [
-                      {
-                        label: t('activeSessions.help.actions.revoke.label'),
-                        description: t('activeSessions.help.actions.revoke.description'),
-                        color: 'var(--theme-warning)'
-                      },
-                      {
-                        label: t('activeSessions.help.actions.delete.label'),
-                        description: t('activeSessions.help.actions.delete.description'),
-                        color: 'var(--theme-error)'
-                      }
-                    ]
-                  }
-                ]}
-              />
+              <HelpPopover width={320}>
+                <HelpSection title={t('activeSessions.help.sessionTypes.title')} variant="subtle">
+                  <div className="divide-y divide-[var(--theme-text-muted)]">
+                    <div className="py-1.5 first:pt-0 last:pb-0">
+                      <div className="font-medium text-themed-primary">{t('activeSessions.help.sessionTypes.authenticated.label')}</div>
+                      <div className="mt-0.5">{t('activeSessions.help.sessionTypes.authenticated.description')}</div>
+                    </div>
+                    <div className="py-1.5 first:pt-0 last:pb-0">
+                      <div className="font-medium text-themed-primary">{t('activeSessions.help.sessionTypes.guest.label')}</div>
+                      <div className="mt-0.5">{t('activeSessions.help.sessionTypes.guest.description', { hours: guestDurationHours })}</div>
+                    </div>
+                  </div>
+                </HelpSection>
+                <HelpSection title={t('activeSessions.help.actions.title')} variant="subtle">
+                  <div className="divide-y divide-[var(--theme-text-muted)]">
+                    <div className="py-1.5 first:pt-0 last:pb-0">
+                      <div className="font-medium text-themed-primary">{t('activeSessions.help.actions.revoke.label')}</div>
+                      <div className="mt-0.5">{t('activeSessions.help.actions.revoke.description')}</div>
+                    </div>
+                    <div className="py-1.5 first:pt-0 last:pb-0">
+                      <div className="font-medium text-themed-primary">{t('activeSessions.help.actions.delete.label')}</div>
+                      <div className="mt-0.5">{t('activeSessions.help.actions.delete.description')}</div>
+                    </div>
+                  </div>
+                </HelpSection>
+              </HelpPopover>
             </div>
 
             <ToggleSwitch

@@ -6,7 +6,7 @@ import HighlightGlow from '@components/ui/HighlightGlow';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
-import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
+import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
 import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
 import { useSteamAuthentication } from '@hooks/useSteamAuthentication';
 import { useSteamAuth } from '@contexts/SteamAuthContext';
@@ -127,19 +127,30 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
           </div>
           <h3 className="text-lg font-semibold text-themed-primary">{t('management.steamAuth.title')}</h3>
           <HelpPopover position="left" width={320}>
-            <HelpSection title={t('management.steamAuth.help.authModes.title')}>
-              <div className="space-y-1.5">
-                <HelpDefinition term={t('management.steamAuth.help.authModes.anonymous.term')} termColor="blue">
-                  {t('management.steamAuth.help.authModes.anonymous.description')}
-                </HelpDefinition>
-                <HelpDefinition term={t('management.steamAuth.help.authModes.accountLogin.term')} termColor="green">
-                  {t('management.steamAuth.help.authModes.accountLogin.description')}
-                </HelpDefinition>
+            <HelpSection title={t('management.steamAuth.help.authModes.title')} variant="subtle">
+              <div className="divide-y divide-[var(--theme-text-muted)]">
+                <div className="py-1.5 first:pt-0 last:pb-0">
+                  <div className="font-medium text-themed-primary">{t('management.steamAuth.help.authModes.anonymous.term')}</div>
+                  <div className="mt-0.5">{t('management.steamAuth.help.authModes.anonymous.description')}</div>
+                </div>
+                <div className="py-1.5 first:pt-0 last:pb-0">
+                  <div className="font-medium text-themed-primary">{t('management.steamAuth.help.authModes.accountLogin.term')}</div>
+                  <div className="mt-0.5">{t('management.steamAuth.help.authModes.accountLogin.description')}</div>
+                </div>
               </div>
             </HelpSection>
 
             <HelpSection title={t('management.steamAuth.help.depotMapping.title')} variant="subtle">
-              {t('management.steamAuth.help.depotMapping.description')}
+              <div className="divide-y divide-[var(--theme-text-muted)]">
+                <div className="py-1.5 first:pt-0 last:pb-0">
+                  <div className="font-medium text-themed-primary">{t('management.steamAuth.help.depotMapping.automatic.term')}</div>
+                  <div className="mt-0.5">{t('management.steamAuth.help.depotMapping.automatic.description')}</div>
+                </div>
+                <div className="py-1.5 first:pt-0 last:pb-0">
+                  <div className="font-medium text-themed-primary">{t('management.steamAuth.help.depotMapping.manual.term')}</div>
+                  <div className="mt-0.5">{t('management.steamAuth.help.depotMapping.manual.description')}</div>
+                </div>
+              </div>
             </HelpSection>
 
             <HelpNote type="info">

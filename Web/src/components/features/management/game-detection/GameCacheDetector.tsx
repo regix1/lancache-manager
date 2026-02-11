@@ -6,7 +6,7 @@ import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Tooltip } from '@components/ui/Tooltip';
-import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
+import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { useNotifications } from '@contexts/notifications';
@@ -571,20 +571,22 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
   // Help content
   const helpContent = (
-    <HelpPopover position="left" width={340}>
-      <HelpSection title={t('management.gameDetection.help.removal.title')}>
-        <div className="space-y-1.5">
-          <HelpDefinition term={t('management.gameDetection.help.removal.game.term')} termColor="green">
-            {t('management.gameDetection.help.removal.game.description')}
-          </HelpDefinition>
-          <HelpDefinition term={t('management.gameDetection.help.removal.service.term')} termColor="purple">
-            {t('management.gameDetection.help.removal.service.description')}
-          </HelpDefinition>
-        </div>
+    <HelpPopover position="left" width={320}>
+      <HelpSection title={t('management.gameDetection.help.howItWorks.title')}>
+        {t('management.gameDetection.help.howItWorks.description')}
       </HelpSection>
 
-      <HelpSection title={t('management.gameDetection.help.howItWorks.title')} variant="subtle">
-        {t('management.gameDetection.help.howItWorks.description')}
+      <HelpSection title={t('management.gameDetection.help.removal.title')} variant="subtle">
+        <div className="divide-y divide-[var(--theme-text-muted)]">
+          <div className="py-1.5 first:pt-0 last:pb-0">
+            <div className="font-medium text-themed-primary">{t('management.gameDetection.help.removal.game.term')}</div>
+            <div className="mt-0.5">{t('management.gameDetection.help.removal.game.description')}</div>
+          </div>
+          <div className="py-1.5 first:pt-0 last:pb-0">
+            <div className="font-medium text-themed-primary">{t('management.gameDetection.help.removal.service.term')}</div>
+            <div className="mt-0.5">{t('management.gameDetection.help.removal.service.description')}</div>
+          </div>
+        </div>
       </HelpSection>
 
       <HelpNote type="info">

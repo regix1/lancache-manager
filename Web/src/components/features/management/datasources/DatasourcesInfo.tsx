@@ -5,7 +5,7 @@ import ApiService from '@services/api.service';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Modal } from '@components/ui/Modal';
-import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
+import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
 import { DatasourceListItem } from '@components/ui/DatasourceListItem';
 import { useSignalR } from '@contexts/SignalRContext';
 import type { LogProcessingCompleteEvent } from '@contexts/SignalRContext/types';
@@ -208,18 +208,21 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   // Help content
   const helpContent = (
     <HelpPopover position="left" width={320}>
-      <HelpSection title={t('management.datasources.help.title')}>
-        <div className="space-y-1.5">
-          <HelpDefinition term={t('management.datasources.help.process.term')} termColor="green">
-            {t('management.datasources.help.process.description')}
-          </HelpDefinition>
-          <HelpDefinition term={t('management.datasources.help.reposition.term')} termColor="blue">
-            {t('management.datasources.help.reposition.description')}
-          </HelpDefinition>
+      <HelpSection title={t('management.datasources.help.title')} variant="subtle">
+        <div className="divide-y divide-[var(--theme-text-muted)]">
+          <div className="py-1.5 first:pt-0 last:pb-0">
+            <div className="font-medium text-themed-primary">{t('management.datasources.help.process.term')}</div>
+            <div className="mt-0.5">{t('management.datasources.help.process.description')}</div>
+          </div>
+          <div className="py-1.5 first:pt-0 last:pb-0">
+            <div className="font-medium text-themed-primary">{t('management.datasources.help.reposition.term')}</div>
+            <div className="mt-0.5">{t('management.datasources.help.reposition.description')}</div>
+          </div>
           {hasMultiple && (
-            <HelpDefinition term={t('management.datasources.help.datasource.term')} termColor="purple">
-              {t('management.datasources.help.datasource.description')}
-            </HelpDefinition>
+            <div className="py-1.5 first:pt-0 last:pb-0">
+              <div className="font-medium text-themed-primary">{t('management.datasources.help.datasource.term')}</div>
+              <div className="mt-0.5">{t('management.datasources.help.datasource.description')}</div>
+            </div>
           )}
         </div>
       </HelpSection>

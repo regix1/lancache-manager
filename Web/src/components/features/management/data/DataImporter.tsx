@@ -16,7 +16,7 @@ import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Checkbox } from '@components/ui/Checkbox';
 import { Modal } from '@components/ui/Modal';
-import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
+import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import {
   ManagerCardHeader,
@@ -233,31 +233,30 @@ const DataImporter: React.FC<DataImporterProps> = ({
 
   // Help content
   const helpContent = (
-    <HelpPopover position="left" width={340}>
-      <HelpSection title={t('management.dataImporter.help.importTypes.title')}>
-        <div className="space-y-1.5">
-          <HelpDefinition term={t('management.dataImporter.help.importTypes.deveLanCache.term')} termColor="purple">
-            {t('management.dataImporter.help.importTypes.deveLanCache.description')}
-          </HelpDefinition>
-          <HelpDefinition term={t('management.dataImporter.help.importTypes.lancacheManager.term')} termColor="blue">
-            {t('management.dataImporter.help.importTypes.lancacheManager.description')}
-          </HelpDefinition>
-        </div>
-      </HelpSection>
-
-      <HelpSection title={t('management.dataImporter.help.inputMethods.title')}>
-        <div className="space-y-1.5">
-          <HelpDefinition term={t('management.dataImporter.help.inputMethods.browse.term')} termColor="blue">
-            {t('management.dataImporter.help.inputMethods.browse.description')}
-          </HelpDefinition>
-          <HelpDefinition term={t('management.dataImporter.help.inputMethods.manual.term')} termColor="green">
-            {t('management.dataImporter.help.inputMethods.manual.description')}
-          </HelpDefinition>
-        </div>
-      </HelpSection>
-
-      <HelpSection title={t('management.dataImporter.help.compatibility.title')} variant="subtle">
+    <HelpPopover position="left" width={320}>
+      <HelpSection title={t('management.dataImporter.help.compatibility.title')}>
         {t('management.dataImporter.help.compatibility.description')}
+      </HelpSection>
+
+      <HelpSection title={t('management.dataImporter.help.importTypes.title')} variant="subtle">
+        <div className="divide-y divide-[var(--theme-text-muted)]">
+          <div className="py-1.5 first:pt-0 last:pb-0">
+            <div className="font-medium text-themed-primary">{t('management.dataImporter.help.importTypes.deveLanCache.term')}</div>
+            <div className="mt-0.5">{t('management.dataImporter.help.importTypes.deveLanCache.description')}</div>
+          </div>
+          <div className="py-1.5 first:pt-0 last:pb-0">
+            <div className="font-medium text-themed-primary">{t('management.dataImporter.help.importTypes.lancacheManager.term')}</div>
+            <div className="mt-0.5">{t('management.dataImporter.help.importTypes.lancacheManager.description')}</div>
+          </div>
+          <div className="py-1.5 first:pt-0 last:pb-0">
+            <div className="font-medium text-themed-primary">{t('management.dataImporter.help.inputMethods.browse.term')}</div>
+            <div className="mt-0.5">{t('management.dataImporter.help.inputMethods.browse.description')}</div>
+          </div>
+          <div className="py-1.5 first:pt-0 last:pb-0">
+            <div className="font-medium text-themed-primary">{t('management.dataImporter.help.inputMethods.manual.term')}</div>
+            <div className="mt-0.5">{t('management.dataImporter.help.inputMethods.manual.description')}</div>
+          </div>
+        </div>
       </HelpSection>
 
       <HelpNote type="warning">

@@ -5,7 +5,7 @@ import ApiService from '@services/api.service';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
-import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
+import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
 import { FullScanRequiredModal } from '@components/modals/setup/FullScanRequiredModal';
 import { useNotifications } from '@contexts/notifications';
 import { usePicsProgress } from '@contexts/PicsProgressContext';
@@ -631,17 +631,20 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
           subtitle={t('management.depotMapping.subtitle')}
           helpContent={
             <HelpPopover position="left" width={320}>
-              <HelpSection title={t('management.depotMapping.help.scanModes.title')}>
-                <div className="space-y-1.5">
-                  <HelpDefinition term={t('management.depotMapping.help.scanModes.incremental.term')} termColor="blue">
-                    {t('management.depotMapping.help.scanModes.incremental.description')}
-                  </HelpDefinition>
-                  <HelpDefinition term={t('management.depotMapping.help.scanModes.full.term')} termColor="green">
-                    {t('management.depotMapping.help.scanModes.full.description')}
-                  </HelpDefinition>
-                  <HelpDefinition term={t('management.depotMapping.help.scanModes.github.term')} termColor="purple">
-                    {t('management.depotMapping.help.scanModes.github.description')}
-                  </HelpDefinition>
+              <HelpSection title={t('management.depotMapping.help.scanModes.title')} variant="subtle">
+                <div className="divide-y divide-[var(--theme-text-muted)]">
+                  <div className="py-1.5 first:pt-0 last:pb-0">
+                    <div className="font-medium text-themed-primary">{t('management.depotMapping.help.scanModes.incremental.term')}</div>
+                    <div className="mt-0.5">{t('management.depotMapping.help.scanModes.incremental.description')}</div>
+                  </div>
+                  <div className="py-1.5 first:pt-0 last:pb-0">
+                    <div className="font-medium text-themed-primary">{t('management.depotMapping.help.scanModes.full.term')}</div>
+                    <div className="mt-0.5">{t('management.depotMapping.help.scanModes.full.description')}</div>
+                  </div>
+                  <div className="py-1.5 first:pt-0 last:pb-0">
+                    <div className="font-medium text-themed-primary">{t('management.depotMapping.help.scanModes.github.term')}</div>
+                    <div className="mt-0.5">{t('management.depotMapping.help.scanModes.github.description')}</div>
+                  </div>
                 </div>
               </HelpSection>
 

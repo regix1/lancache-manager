@@ -5,7 +5,7 @@ import { formatBytes } from '@utils/formatters';
 import { type CacheGrowthResponse } from '../../../../types';
 import Sparkline from '../components/Sparkline';
 import ApiService from '@services/api.service';
-import { HelpPopover, HelpDefinition } from '@components/ui/HelpPopover';
+import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
 import { useTimeFilter } from '@contexts/TimeFilterContext';
 import { useMockMode } from '@contexts/MockModeContext';
 import MockDataService from '../../../../test/mockData.service';
@@ -193,24 +193,35 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(({
           <h3 className="text-sm font-semibold text-themed-primary">
             {t('widgets.cacheGrowthTrend.title')}
           </h3>
-          <HelpPopover width={280}>
-            <div className="space-y-1.5">
-              <HelpDefinition term={t('widgets.cacheGrowthTrend.trendUp.term')} termColor="green">{t('widgets.cacheGrowthTrend.trendUp.description')}</HelpDefinition>
-              <HelpDefinition term={t('widgets.cacheGrowthTrend.trendDown.term')} termColor="orange">{t('widgets.cacheGrowthTrend.trendDown.description')}</HelpDefinition>
-              {hasDataDeletion && (
-                <HelpDefinition term={t('widgets.cacheGrowthTrend.netGrowth.term')} termColor="blue">
-                  {t('widgets.cacheGrowthTrend.netGrowth.description')}
-                </HelpDefinition>
-              )}
-              <HelpDefinition term={t('widgets.cacheGrowthTrend.dataPoints.term')} termColor="purple">
-                {t('widgets.cacheGrowthTrend.dataPoints.description')}
-              </HelpDefinition>
-              <div className="text-[10px] mt-2 pt-2 border-t border-themed-primary text-themed-muted">
-                {hasDataDeletion
-                  ? t('widgets.cacheGrowthTrend.cacheCleared')
-                  : t('widgets.cacheGrowthTrend.dataAddedNote')}
+          <HelpPopover width={320}>
+            <HelpSection title={t('widgets.cacheGrowthTrend.help.termsTitle')} variant="subtle">
+              <div className="divide-y divide-[var(--theme-text-muted)]">
+                <div className="py-1.5 first:pt-0 last:pb-0">
+                  <div className="font-medium text-themed-primary">{t('widgets.cacheGrowthTrend.trendUp.term')}</div>
+                  <div className="mt-0.5">{t('widgets.cacheGrowthTrend.trendUp.description')}</div>
+                </div>
+                <div className="py-1.5 first:pt-0 last:pb-0">
+                  <div className="font-medium text-themed-primary">{t('widgets.cacheGrowthTrend.trendDown.term')}</div>
+                  <div className="mt-0.5">{t('widgets.cacheGrowthTrend.trendDown.description')}</div>
+                </div>
+                {hasDataDeletion && (
+                  <div className="py-1.5 first:pt-0 last:pb-0">
+                    <div className="font-medium text-themed-primary">{t('widgets.cacheGrowthTrend.netGrowth.term')}</div>
+                    <div className="mt-0.5">{t('widgets.cacheGrowthTrend.netGrowth.description')}</div>
+                  </div>
+                )}
+                <div className="py-1.5 first:pt-0 last:pb-0">
+                  <div className="font-medium text-themed-primary">{t('widgets.cacheGrowthTrend.dataPoints.term')}</div>
+                  <div className="mt-0.5">{t('widgets.cacheGrowthTrend.dataPoints.description')}{' '}
+                    {sparklineData.length > 0 && t('widgets.cacheGrowthTrend.dataPoints.current', { count: sparklineData.length })}</div>
+                </div>
               </div>
-            </div>
+            </HelpSection>
+            <HelpNote type="info">
+              {hasDataDeletion
+                ? t('widgets.cacheGrowthTrend.cacheCleared')
+                : t('widgets.cacheGrowthTrend.dataAddedNote')}
+            </HelpNote>
           </HelpPopover>
         </div>
         {/* Only show percentage when meaningful (not 0), not extreme (<=500%), and cache wasn't cleared */}

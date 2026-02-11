@@ -412,36 +412,36 @@
     },
     "statCards": {
       "totalCache": {
-        "term": "What it shows",
-        "description": "Cache size limit - either from CACHE_DISK_SIZE in your .env file, or the full drive capacity if not configured."
+        "term": "Total Cache",
+        "description": "Your cache size limit. Set via CACHE_DISK_SIZE in docker-compose, or defaults to full disk size."
       },
       "usedSpace": {
-        "term": "What it shows",
-        "description": "Live is current size; Historical is the hourly average from snapshots."
+        "term": "Used Space",
+        "description": "In Live mode, this is the current size on disk. In historical views, it's the average from hourly snapshots."
       },
       "bandwidthSaved": {
-        "term": "Saved",
-        "description": "Data served from cache instead of the internet. Higher values mean better caching efficiency."
+        "term": "Bandwidth Saved",
+        "description": "Data your clients got from the cache instead of downloading it again from the internet."
       },
       "addedToCache": {
-        "term": "New Data",
-        "description": "Content downloaded and stored in the cache, available for future requests."
+        "term": "Added to Cache",
+        "description": "New content that was downloaded from the internet and saved to your cache for the first time."
       },
       "totalServed": {
-        "term": "Served",
-        "description": "Total data delivered to all clients, including cache hits and new downloads."
+        "term": "Total Served",
+        "description": "Everything sent to your clients -- both cached files and fresh downloads combined."
       },
       "activeDownloads": {
-        "term": "Active",
-        "description": "Downloads currently in progress (Live only); hidden in historical views."
+        "term": "Active Downloads",
+        "description": "Downloads happening right now. Only visible in Live mode."
       },
       "activeClients": {
-        "term": "Active",
-        "description": "Clients currently downloading (Live only); hidden in historical views."
+        "term": "Active Clients",
+        "description": "Clients currently downloading something. Only visible in Live mode."
       },
       "cacheHitRatio": {
-        "term": "Hit Ratio",
-        "description": "Percent of data served from cache; higher ratios mean better efficiency."
+        "term": "Cache Hit Ratio",
+        "description": "How much of the data came from cache vs. the internet. 100% means everything was already cached."
       }
     },
     "downloadsPanel": {
@@ -545,23 +545,27 @@
   "widgets": {
     "peakUsageHours": {
       "title": "Peak Usage Hours",
-      "description": "Shows when downloads usually happen across the day based on your history.",
+      "help": {
+        "aboutTitle": "About This Widget",
+        "termsTitle": "Chart Terms"
+      },
+      "description": "Shows when your clients typically download throughout the day.",
       "dataPeriod": {
         "term": "Data Period",
-        "multiDay": "Based on {{days}} days of data. Values are averaged per day to show typical patterns.",
+        "multiDay": "Averaged across {{days}} days to show your typical daily pattern.",
         "singleDay": "Based on the selected time range."
       },
       "peakHour": {
         "term": "Peak Hour",
-        "multiDay": "The hour that averages the most download activity across all days.",
+        "multiDay": "The hour with the most downloads on average.",
         "singleDay": "The hour with the most downloads in the selected period."
       },
       "currentHour": {
         "term": "Current Hour",
-        "multiDay": "Shows the typical activity for the current hour (historical average).",
+        "multiDay": "What this hour usually looks like based on your history.",
         "singleDay": "Activity during the current hour."
       },
-      "heatmapNote": "Heatmap: Each block is an hour (12AM-11PM). Brighter colors mean more activity.",
+      "heatmapNote": "Each block is one hour of the day. Brighter = more download activity.",
       "mostActive": "Most active:",
       "days": "{{count}} days",
       "daysOnly": "{{count}} day",
@@ -589,24 +593,28 @@
     },
     "cacheGrowthTrend": {
       "title": "Cache Growth",
+      "help": {
+        "termsTitle": "Chart Legend"
+      },
       "trendUp": {
         "term": "↑ Up",
         "description": "Cache is growing faster recently"
       },
       "trendDown": {
         "term": "↓ Down",
-        "description": "Cache growth is slowing recently"
+        "description": "Cache growth is slowing down"
       },
       "netGrowth": {
         "term": "Net Growth",
-        "description": "Adjusts for cache that was cleared or deleted"
+        "description": "Accounts for any cache that was cleared or deleted during this period"
       },
       "dataPoints": {
         "term": "Data Points",
-        "description": "Time buckets with download activity. More points mean finer detail."
+        "description": "Each point is a time window with download activity. More points = finer detail.",
+        "current": "Currently showing {{count}} samples."
       },
-      "cacheCleared": "Cache was cleared in this period; the trend accounts for deletions.",
-      "dataAddedNote": "Shows data added during the period (not total cache size).",
+      "cacheCleared": "Some cache was cleared during this period. The chart adjusts for that.",
+      "dataAddedNote": "Shows new data added during this period, not total cache size.",
       "addedDuringPeriod": "added during period",
       "growthRate": "Growth Rate",
       "downloadRate": "Download Rate",
@@ -925,22 +933,22 @@
         "title": "Session Types",
         "authenticated": {
           "label": "Authenticated",
-          "description": "Full access, no expiration"
+          "description": "Full access to all features. Session doesn't expire."
         },
         "guest": {
           "label": "Guest",
-          "description": "Read-only, expires in {{hours}} hours"
+          "description": "View-only access. Expires after {{hours}} hours."
         }
       },
       "actions": {
         "title": "Actions",
         "revoke": {
           "label": "Revoke",
-          "description": "End a guest session immediately"
+          "description": "Immediately ends a guest's session and logs them out"
         },
         "delete": {
           "label": "Delete",
-          "description": "Remove device from history"
+          "description": "Removes the device from the session history list"
         }
       }
     },
@@ -1578,20 +1586,20 @@
         "rsyncDesc": "Rsync with empty directory (best for NFS/SMB)"
       },
       "help": {
-        "title": "Deletion Methods",
+        "title": "How Cache Clearing Works",
         "preserve": {
-          "term": "Preserve",
-          "description": "Deletes files one by one and keeps the folder structure intact"
+          "term": "Preserve Folders",
+          "description": "Deletes cached files individually but keeps the folder structure. Good default choice."
         },
         "removeAll": {
-          "term": "Remove All",
-          "description": "Deletes entire directories at once, fastest for local storage"
+          "term": "Remove Everything",
+          "description": "Deletes entire folders at once. Fastest option for local drives."
         },
         "rsync": {
-          "term": "Rsync",
-          "description": "Uses rsync --delete, safest for network storage (NFS/SMB)"
+          "term": "Rsync (Network)",
+          "description": "Uses rsync to safely delete files. Best choice if your cache is on a network drive (NFS/SMB)."
         },
-        "warning": "Clearing the cache deletes all cached game files. Clients will need to download content again."
+        "warning": "This deletes all cached game files. Your clients will need to re-download everything."
       },
       "alerts": {
         "readOnly": {
@@ -1660,18 +1668,18 @@
       "help": {
         "whatThisDoes": {
           "title": "What This Does",
-          "description": "Finds cache chunks with 3+ repeated MISS requests, which usually means the cached file is corrupted and must be re-downloaded."
+          "description": "Finds cached files that keep getting re-downloaded (3+ MISS requests). This usually means the cached copy is corrupted."
         },
         "whatRemovalDeletes": {
-          "title": "What Removal Deletes",
+          "title": "What Gets Removed",
           "cacheFilesLabel": "Cache files",
-          "cacheFiles": "corrupted chunks on disk",
+          "cacheFiles": "The corrupted files are deleted from disk so they can be re-downloaded fresh",
           "logEntriesLabel": "Log entries",
-          "logEntries": "related access.log entries",
+          "logEntries": "Only the failed (MISS) log entries are removed. Successful cache hits are kept.",
           "databaseRecordsLabel": "Database records",
-          "databaseRecords": "download sessions marked as corrupt"
+          "databaseRecords": "Download records are cleaned up if no log entries remain for them"
         },
-        "warning": "Removal affects both cache and logs, so write access to both is required."
+        "warning": "Needs write access to both cache and log directories."
       },
       "alerts": {
         "logsAndCacheReadOnly": "Logs and cache directories are read-only",
@@ -1770,21 +1778,21 @@
       "clearFilter": "Clear filter",
       "help": {
         "removal": {
-          "title": "Removal",
+          "title": "What You Can Remove",
           "game": {
-            "term": "Game",
-            "description": "Removes cache files, log entries, and database records for a game"
+            "term": "Single Game",
+            "description": "Deletes all cached files, logs, and database records for one specific game"
           },
           "service": {
-            "term": "Service",
-            "description": "Removes non-game caches (Riot, Blizzard, Epic, WSUS)"
+            "term": "Entire Service",
+            "description": "Removes everything for a whole platform like Epic, Blizzard, Riot, or WSUS"
           }
         },
         "howItWorks": {
           "title": "How It Works",
-          "description": "Scans the database for games and services, verifies cache files on disk, then shows size and file count for each."
+          "description": "Looks up games and services in your database, checks which files actually exist on disk, and shows the size and file count."
         },
-        "note": "Process access logs first so the database has entries to scan."
+        "note": "Make sure you've processed your access logs first, otherwise there won't be anything to show."
       },
       "emptyState": {
         "noGamesServices": "No games or services with cache files detected",
@@ -1837,17 +1845,17 @@
         "title": "Log Processing",
         "process": {
           "term": "Process",
-          "description": "Import log entries into the database from the current position"
+          "description": "Reads new log entries from the access.log and adds them to the database"
         },
         "reposition": {
           "term": "Reposition",
-          "description": "Choose where processing starts: beginning (reprocess all) or end (new entries only)"
+          "description": "Moves the read position in the log file. Set to the beginning to reprocess everything, or the end to skip old entries."
         },
         "datasource": {
           "term": "Datasource",
-          "description": "A named cache/logs pair for separate LANCache instances"
+          "description": "A separate cache + logs pair. Useful if you run multiple LANCache instances."
         },
-        "note": "The Rust processor de-duplicates to avoid reimporting entries."
+        "note": "Already-processed entries are automatically skipped, so reprocessing is safe."
       }
     },
     "dataImporter": {
@@ -1931,32 +1939,32 @@
       },
       "help": {
         "importTypes": {
-          "title": "Import Types",
+          "title": "Options",
           "deveLanCache": {
-            "term": "DeveLanCacheUI_Backend",
-            "description": "Database from the DeveLanCache monitoring system"
+            "term": "DeveLanCache",
+            "description": "Import download history from a DeveLanCacheUI_Backend database"
           },
           "lancacheManager": {
-            "term": "LancacheManager",
-            "description": "LancacheManager database backup"
+            "term": "Lancache Manager",
+            "description": "Restore from a Lancache Manager database backup"
           }
         },
         "inputMethods": {
-          "title": "Input Methods",
+          "title": "How to Select a Database",
           "browse": {
             "term": "Browse",
-            "description": "Choose a SQLite database file from disk"
+            "description": "Pick a .db file from the file browser"
           },
           "manual": {
-            "term": "Manual",
-            "description": "Paste the full file path"
+            "term": "Manual Path",
+            "description": "Type or paste the full path to your database file"
           }
         },
         "compatibility": {
-          "title": "Compatibility",
-          "description": "Pick the import type that matches your database. If the database is outside the container, mount it as a Docker volume."
+          "title": "Important",
+          "description": "Make sure you pick the right import type for your database. If the file is outside the Docker container, mount it as a volume first."
         },
-        "warning": "Stop the source application before importing to avoid database locks."
+        "warning": "Stop the other application before importing so the database isn't locked."
       },
       "alerts": {
         "mockMode": "Mock mode is enabled - import functionality is disabled",
@@ -2021,14 +2029,14 @@
       "help": {
         "whatThisDoes": {
           "title": "What This Does",
-          "description": "Removes access.log entries for a selected service to reduce log size and speed up processing."
+          "description": "Removes log entries for a specific service (like Steam or Epic) to free up space and speed up log processing."
         },
         "whatItAffects": {
-          "title": "What It Affects",
-          "logFiles": "Log files (entries removed)",
-          "databaseRecords": "Database records (related rows cleaned up)"
+          "title": "What Gets Removed",
+          "logFiles": "Log entries for that service are deleted from the access.log file",
+          "databaseRecords": "Related download records are removed from the database"
         },
-        "note": "Cache files stay on disk; only log data is removed."
+        "note": "Your cached game files are not touched -- only log data is removed."
       },
       "alerts": {
         "logsReadOnly": {
@@ -2068,25 +2076,25 @@
       },
       "help": {
         "apiVersions": {
-          "title": "API Versions",
+          "title": "Steam API Versions",
           "v2": {
-            "term": "V2",
-            "description": "No API key required, but it can be rate-limited or unavailable"
+            "term": "V2 (Default)",
+            "description": "No setup needed. Works without an API key but can occasionally be rate-limited by Steam."
           },
           "v1": {
-            "term": "V1",
-            "description": "Requires an API key and works as a fallback when V2 is down"
+            "term": "V1 (Fallback)",
+            "description": "Requires a free API key from Steam. Used automatically when V2 is unavailable."
           }
         },
         "apiKey": {
-          "title": "API Key",
-          "description": "Optional. Only needed if V2 is unavailable. Anonymous users can use the GitHub download instead."
+          "title": "Do I Need an API Key?",
+          "description": "Usually no. V2 works without one. Only add a key if V2 goes down and you don't want to use the GitHub download option."
         },
         "getApiKey": {
-          "before": "Get your free API key at",
-          "after": "and approve the confirmation in the Steam Mobile app."
+          "before": "Get a free API key at",
+          "after": "-- you'll need to confirm it in the Steam Mobile app."
         },
-        "note": "Get your free API key at steamcommunity.com/dev/apikey and approve the confirmation in the Steam Mobile app."
+        "note": "Get a free API key at steamcommunity.com/dev/apikey -- you'll need to confirm it in the Steam Mobile app."
       }
     },
     "steamAuth": {
@@ -2121,21 +2129,28 @@
       "logout": "Logout",
       "help": {
         "authModes": {
-          "title": "Authentication Modes",
+          "title": "Login Modes",
           "anonymous": {
             "term": "Anonymous",
-            "description": "Public games only, no Steam account needed"
+            "description": "Works without a Steam account. Covers most games but can't see playtest or restricted titles."
           },
           "accountLogin": {
             "term": "Account Login",
-            "description": "Access playtest and restricted games with your Steam account"
+            "description": "Log in with your Steam account to also map playtest and restricted games."
           }
         },
         "depotMapping": {
-          "title": "Depot Mapping",
-          "description": "Automatic mode rebuilds depot mappings after login. Manual mode lets you rebuild when you choose."
+          "title": "Depot Mapping After Login",
+          "automatic": {
+            "term": "Automatic",
+            "description": "Depot mappings are rebuilt automatically after login."
+          },
+          "manual": {
+            "term": "Manual",
+            "description": "You trigger the rebuild yourself from the Depot Mapping section."
+          }
         },
-        "note": "Account login requires V2 API. A V1 API key alone can access restricted games but does not allow login."
+        "note": "Account login needs the V2 Steam API. If you only have a V1 API key, it can still access restricted games but doesn't support logging in."
       }
     },
     "depotMapping": {
@@ -2204,25 +2219,25 @@
       },
       "help": {
         "scanModes": {
-          "title": "Scan Modes",
+          "title": "Update Methods",
           "incremental": {
             "term": "Incremental",
-            "description": "Checks only changed apps for fast updates"
+            "description": "Only checks apps that changed since the last scan. Fast, usually under a minute."
           },
           "full": {
-            "term": "Full",
-            "description": "Fetches all apps (about 300k) for a complete rebuild"
+            "term": "Full Scan",
+            "description": "Re-scans all ~300,000 Steam apps from scratch. Takes several minutes."
           },
           "github": {
-            "term": "GitHub",
-            "description": "Downloads prebuilt depot data (updated hourly)"
+            "term": "GitHub Download",
+            "description": "Downloads a pre-built mapping file from GitHub. Updated every hour, takes about a minute."
           }
         },
         "settings": {
-          "title": "Settings",
-          "description": "Automatic Schedule runs in the background at your chosen interval. Apply Now runs the selected mode immediately."
+          "title": "Scheduling",
+          "description": "Set a schedule to keep mappings updated automatically, or click Apply Now to run it right away."
         },
-        "note": "GitHub mode checks every 30 minutes to stay in sync with hourly updates."
+        "note": "When set to GitHub mode, it checks for new data every 30 minutes."
       }
     },
     "database": {
@@ -2235,18 +2250,18 @@
           "title": "What Gets Cleared",
           "logEntries": {
             "term": "Log Entries",
-            "description": "Raw nginx access log records used for analytics"
+            "description": "Processed log data used for download history and charts"
           },
           "downloads": {
             "term": "Downloads",
-            "description": "Download sessions with stats and timestamps"
+            "description": "All download records, file sizes, and timestamps"
           },
           "depotMappings": {
             "term": "Depot Mappings",
-            "description": "Depot-to-game mappings (also clears cached game names)"
+            "description": "Links between Steam depot IDs and game names. You'll need to re-scan after clearing."
           }
         },
-        "note": "Only database records are cleared; cached files on disk are untouched."
+        "note": "Only the database is cleared. Your cached game files on disk are not deleted."
       },
       "errors": {
         "authRequired": "Full authentication required for management operations",
@@ -2353,18 +2368,18 @@
           "title": "Theme Types",
           "system": {
             "term": "System",
-            "description": "Built-in themes that cannot be deleted"
+            "description": "Built-in themes that come with the app. Can't be deleted."
           },
           "custom": {
             "term": "Custom",
-            "description": "Themes you create or import from the community"
+            "description": "Themes you've made yourself or imported from the community gallery."
           }
         },
         "previewMode": {
           "title": "Preview Mode",
           "description": "Try a theme temporarily. Click Apply to make it your active theme."
         },
-        "note": "Theme files use TOML. Download a sample to see the expected structure."
+        "note": "Theme files are in TOML format. Download the sample file to see how they work."
       },
       "notifications": {
         "guestCannotChange": "Guest users cannot change themes",
@@ -2436,21 +2451,21 @@
       },
       "help": {
         "metrics": {
-          "title": "Metrics",
+          "title": "Available Metrics",
           "cache": {
-            "term": "Cache",
-            "description": "Capacity, usage, hit and miss bytes, and hit ratio"
+            "term": "Cache Metrics",
+            "description": "Total capacity, used space, cache hits/misses, and hit ratio"
           },
           "activity": {
-            "term": "Activity",
-            "description": "Active downloads, connected clients, and per-service counters"
+            "term": "Activity Metrics",
+            "description": "Current downloads, connected clients, and breakdowns by service"
           }
         },
         "integration": {
-          "title": "Integration",
-          "description": "Works with Prometheus and Grafana JSON datasource plugins. Poll every 10-30 seconds for near-real-time monitoring."
+          "title": "How to Connect",
+          "description": "Use these endpoints with Prometheus or Grafana's JSON datasource plugin. Recommended scrape interval: 10-30 seconds."
         },
-        "note": "Toggle authentication below or via docker-compose environment variables."
+        "note": "You can toggle authentication on/off below or in your docker-compose environment variables."
       },
       "placeholders": {
         "selectRate": "Select rate",

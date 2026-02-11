@@ -9,7 +9,7 @@ import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
 import { Checkbox } from '@components/ui/Checkbox';
-import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
+import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
 import { type AuthMode } from '@services/auth.service';
 import ApiService from '@services/api.service';
 import DepotMappingManager from '../depot/DepotMappingManager';
@@ -306,17 +306,20 @@ const DataSection: React.FC<DataSectionProps> = ({
             </div>
             <h3 className="text-lg font-semibold text-themed-primary">{t('management.sections.data.databaseManagement')}</h3>
             <HelpPopover position="left" width={320}>
-              <HelpSection title={t('management.database.help.whatGetsCleared.title')}>
-                <div className="space-y-1.5">
-                  <HelpDefinition term={t('management.database.help.whatGetsCleared.logEntries.term')} termColor="blue">
-                    {t('management.database.help.whatGetsCleared.logEntries.description')}
-                  </HelpDefinition>
-                  <HelpDefinition term={t('management.database.help.whatGetsCleared.downloads.term')} termColor="green">
-                    {t('management.database.help.whatGetsCleared.downloads.description')}
-                  </HelpDefinition>
-                  <HelpDefinition term={t('management.database.help.whatGetsCleared.depotMappings.term')} termColor="purple">
-                    {t('management.database.help.whatGetsCleared.depotMappings.description')}
-                  </HelpDefinition>
+              <HelpSection title={t('management.database.help.whatGetsCleared.title')} variant="subtle">
+                <div className="divide-y divide-[var(--theme-text-muted)]">
+                  <div className="py-1.5 first:pt-0 last:pb-0">
+                    <div className="font-medium text-themed-primary">{t('management.database.help.whatGetsCleared.logEntries.term')}</div>
+                    <div className="mt-0.5">{t('management.database.help.whatGetsCleared.logEntries.description')}</div>
+                  </div>
+                  <div className="py-1.5 first:pt-0 last:pb-0">
+                    <div className="font-medium text-themed-primary">{t('management.database.help.whatGetsCleared.downloads.term')}</div>
+                    <div className="mt-0.5">{t('management.database.help.whatGetsCleared.downloads.description')}</div>
+                  </div>
+                  <div className="py-1.5 first:pt-0 last:pb-0">
+                    <div className="font-medium text-themed-primary">{t('management.database.help.whatGetsCleared.depotMappings.term')}</div>
+                    <div className="mt-0.5">{t('management.database.help.whatGetsCleared.depotMappings.description')}</div>
+                  </div>
                 </div>
               </HelpSection>
 

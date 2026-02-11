@@ -5,7 +5,7 @@ import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { Modal } from '@components/ui/Modal';
 import { Alert } from '@components/ui/Alert';
-import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
+import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
 import HighlightGlow from '@components/ui/HighlightGlow';
 import SteamWebApiKeyModal from '@components/modals/setup/SteamWebApiKeyModal';
 import { useSteamWebApiStatus } from '@contexts/SteamWebApiStatusContext';
@@ -166,15 +166,17 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
             <Globe className="w-5 h-5 icon-cyan" />
           </div>
           <h3 className="text-lg font-semibold text-themed-primary">{t('management.steamWebApi.title')}</h3>
-          <HelpPopover position="left" width={340}>
-            <HelpSection title={t('management.steamWebApi.help.apiVersions.title')}>
-              <div className="space-y-1.5">
-                <HelpDefinition term={t('management.steamWebApi.help.apiVersions.v2.term')} termColor="green">
-                  {t('management.steamWebApi.help.apiVersions.v2.description')}
-                </HelpDefinition>
-                <HelpDefinition term={t('management.steamWebApi.help.apiVersions.v1.term')} termColor="blue">
-                  {t('management.steamWebApi.help.apiVersions.v1.description')}
-                </HelpDefinition>
+          <HelpPopover position="left" width={320}>
+            <HelpSection title={t('management.steamWebApi.help.apiVersions.title')} variant="subtle">
+              <div className="divide-y divide-[var(--theme-text-muted)]">
+                <div className="py-1.5 first:pt-0 last:pb-0">
+                  <div className="font-medium text-themed-primary">{t('management.steamWebApi.help.apiVersions.v2.term')}</div>
+                  <div className="mt-0.5">{t('management.steamWebApi.help.apiVersions.v2.description')}</div>
+                </div>
+                <div className="py-1.5 first:pt-0 last:pb-0">
+                  <div className="font-medium text-themed-primary">{t('management.steamWebApi.help.apiVersions.v1.term')}</div>
+                  <div className="mt-0.5">{t('management.steamWebApi.help.apiVersions.v1.description')}</div>
+                </div>
               </div>
             </HelpSection>
 
@@ -188,8 +190,7 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
                 href="https://steamcommunity.com/dev/apikey"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="font-medium underline hover:no-underline"
-                style={{ color: 'var(--theme-info-text)' }}
+                className="font-medium underline hover:no-underline text-themed-primary"
               >
                 steamcommunity.com/dev/apikey
               </a>

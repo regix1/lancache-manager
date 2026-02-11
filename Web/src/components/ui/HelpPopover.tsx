@@ -317,37 +317,3 @@ export const HelpNote: React.FC<{
     </div>
   );
 };
-
-/** Definition list for term-description pairs */
-export const HelpDefinition: React.FC<{
-  term: string;
-  children: React.ReactNode;
-  termColor?: 'default' | 'blue' | 'green' | 'orange' | 'purple';
-}> = ({
-  term,
-  children,
-  termColor = 'default'
-}) => {
-  const colors = {
-    default: 'var(--theme-text-primary)',
-    blue: 'var(--theme-info-text)',
-    green: 'var(--theme-success-text)',
-    orange: 'var(--theme-warning-text)',
-    purple: 'var(--theme-icon-purple)'
-  };
-
-  return (
-    <div className="text-xs leading-relaxed">
-      <span
-        className="font-medium"
-        style={{ color: colors[termColor] }}
-      >
-        {term}
-      </span>
-      <span className="text-themed-muted"> — </span>
-      <span className="text-themed-secondary">
-        {children}
-      </span>
-    </div>
-  );
-};

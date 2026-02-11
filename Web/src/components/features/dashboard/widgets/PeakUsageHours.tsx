@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { formatBytes } from '@utils/formatters';
 import { type HourlyActivityResponse, type HourlyActivityItem } from '../../../../types';
 import { Tooltip } from '@components/ui/Tooltip';
-import { HelpPopover, HelpDefinition } from '@components/ui/HelpPopover';
+import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
 import { useTimezone } from '@contexts/TimezoneContext';
 import { useTimeFilter } from '@contexts/TimeFilterContext';
 import { useMockMode } from '@contexts/MockModeContext';
@@ -253,31 +253,36 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(({
             {t('widgets.peakUsageHours.title')}
           </h3>
           <HelpPopover width={320}>
-            <div className="space-y-2">
-              <div className="text-[11px] pb-2 border-b border-themed-primary text-themed-secondary">
-                {t('widgets.peakUsageHours.description')}
+            <HelpSection title={t('widgets.peakUsageHours.help.aboutTitle')}>
+              {t('widgets.peakUsageHours.description')}
+            </HelpSection>
+            <HelpSection title={t('widgets.peakUsageHours.help.termsTitle')} variant="subtle">
+              <div className="divide-y divide-[var(--theme-text-muted)]">
+                <div className="py-1.5 first:pt-0 last:pb-0">
+                  <div className="font-medium text-themed-primary">{t('widgets.peakUsageHours.dataPeriod.term')}</div>
+                  <div className="mt-0.5">{isMultiDayPeriod
+                    ? t('widgets.peakUsageHours.dataPeriod.multiDay', { days: daysInPeriod })
+                    : t('widgets.peakUsageHours.dataPeriod.singleDay')}</div>
+                </div>
+                <div className="py-1.5 first:pt-0 last:pb-0">
+                  <div className="font-medium text-themed-primary">{t('widgets.peakUsageHours.peakHour.term')}</div>
+                  <div className="mt-0.5">{isMultiDayPeriod
+                    ? t('widgets.peakUsageHours.peakHour.multiDay')
+                    : t('widgets.peakUsageHours.peakHour.singleDay')}</div>
+                </div>
+                {isTodayInRange && (
+                  <div className="py-1.5 first:pt-0 last:pb-0">
+                    <div className="font-medium text-themed-primary">{t('widgets.peakUsageHours.currentHour.term')}</div>
+                    <div className="mt-0.5">{isMultiDayPeriod
+                      ? t('widgets.peakUsageHours.currentHour.multiDay')
+                      : t('widgets.peakUsageHours.currentHour.singleDay')}</div>
+                  </div>
+                )}
               </div>
-              <HelpDefinition term={t('widgets.peakUsageHours.dataPeriod.term')}>
-                {isMultiDayPeriod
-                  ? t('widgets.peakUsageHours.dataPeriod.multiDay', { days: daysInPeriod })
-                  : t('widgets.peakUsageHours.dataPeriod.singleDay')}
-              </HelpDefinition>
-              <HelpDefinition term={t('widgets.peakUsageHours.peakHour.term')} termColor="orange">
-                {isMultiDayPeriod
-                  ? t('widgets.peakUsageHours.peakHour.multiDay')
-                  : t('widgets.peakUsageHours.peakHour.singleDay')}
-              </HelpDefinition>
-              {isTodayInRange && (
-                <HelpDefinition term={t('widgets.peakUsageHours.currentHour.term')} termColor="blue">
-                  {isMultiDayPeriod
-                    ? t('widgets.peakUsageHours.currentHour.multiDay')
-                    : t('widgets.peakUsageHours.currentHour.singleDay')}
-                </HelpDefinition>
-              )}
-              <div className="text-[10px] mt-2 pt-2 border-t border-themed-primary text-themed-muted">
-                {t('widgets.peakUsageHours.heatmapNote')}
-              </div>
-            </div>
+            </HelpSection>
+            <HelpNote type="info">
+              {t('widgets.peakUsageHours.heatmapNote')}
+            </HelpNote>
           </HelpPopover>
         </div>
         <div className="flex items-center gap-2 text-xs text-themed-muted">

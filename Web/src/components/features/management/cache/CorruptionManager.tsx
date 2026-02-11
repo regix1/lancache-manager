@@ -329,11 +329,20 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
       </HelpSection>
 
       <HelpSection title={t('management.corruption.help.whatRemovalDeletes.title')} variant="subtle">
-        <ul className="list-disc list-inside text-sm space-y-1">
-          <li><strong>{t('management.corruption.help.whatRemovalDeletes.cacheFilesLabel')}</strong> - {t('management.corruption.help.whatRemovalDeletes.cacheFiles')}</li>
-          <li><strong>{t('management.corruption.help.whatRemovalDeletes.logEntriesLabel')}</strong> - {t('management.corruption.help.whatRemovalDeletes.logEntries')}</li>
-          <li><strong>{t('management.corruption.help.whatRemovalDeletes.databaseRecordsLabel')}</strong> - {t('management.corruption.help.whatRemovalDeletes.databaseRecords')}</li>
-        </ul>
+        <div className="divide-y divide-[var(--theme-text-muted)]">
+          <div className="py-1.5 first:pt-0 last:pb-0">
+            <div className="font-medium text-themed-primary">{t('management.corruption.help.whatRemovalDeletes.cacheFilesLabel')}</div>
+            <div className="mt-0.5">{t('management.corruption.help.whatRemovalDeletes.cacheFiles')}</div>
+          </div>
+          <div className="py-1.5 first:pt-0 last:pb-0">
+            <div className="font-medium text-themed-primary">{t('management.corruption.help.whatRemovalDeletes.logEntriesLabel')}</div>
+            <div className="mt-0.5">{t('management.corruption.help.whatRemovalDeletes.logEntries')}</div>
+          </div>
+          <div className="py-1.5 first:pt-0 last:pb-0">
+            <div className="font-medium text-themed-primary">{t('management.corruption.help.whatRemovalDeletes.databaseRecordsLabel')}</div>
+            <div className="mt-0.5">{t('management.corruption.help.whatRemovalDeletes.databaseRecords')}</div>
+          </div>
+        </div>
       </HelpSection>
 
       <HelpNote type="warning">

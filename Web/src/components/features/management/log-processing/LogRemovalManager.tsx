@@ -228,10 +228,14 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
       </HelpSection>
 
       <HelpSection title={t('management.logRemoval.help.whatItAffects.title')} variant="subtle">
-        <ul className="list-disc list-inside text-sm space-y-1">
-          <li>{t('management.logRemoval.help.whatItAffects.logFiles')}</li>
-          <li>{t('management.logRemoval.help.whatItAffects.databaseRecords')}</li>
-        </ul>
+        <div className="divide-y divide-[var(--theme-text-muted)]">
+          <div className="py-1.5 first:pt-0 last:pb-0">
+            {t('management.logRemoval.help.whatItAffects.logFiles')}
+          </div>
+          <div className="py-1.5 first:pt-0 last:pb-0">
+            {t('management.logRemoval.help.whatItAffects.databaseRecords')}
+          </div>
+        </div>
       </HelpSection>
 
       <HelpNote type="info">

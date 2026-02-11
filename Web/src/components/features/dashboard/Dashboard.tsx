@@ -31,7 +31,7 @@ import { storage } from '@utils/storage';
 import ApiService from '@services/api.service';
 import StatCard from '@components/common/StatCard';
 import { Tooltip } from '@components/ui/Tooltip';
-import { HelpDefinition } from '@components/ui/HelpPopover';
+import { HelpSection } from '@components/ui/HelpPopover';
 import ServiceAnalyticsChart from './ServiceAnalyticsChart';
 import RecentDownloadsPanel from './RecentDownloadsPanel';
 import TopClientsTable from './TopClientsTable';
@@ -66,60 +66,44 @@ const DEFAULT_CARD_ORDER: string[] = [
 
 const getStatTooltips = (t: (key: string) => string): Record<string, React.ReactNode> => ({
   totalCache: (
-    <div className="space-y-1.5">
-      <HelpDefinition term={t('dashboard.statCards.totalCache.term')} termColor="blue">
-        {t('dashboard.statCards.totalCache.description')}
-      </HelpDefinition>
-    </div>
+    <HelpSection title={t('dashboard.statCards.totalCache.term')}>
+      {t('dashboard.statCards.totalCache.description')}
+    </HelpSection>
   ),
   usedSpace: (
-    <div className="space-y-1.5">
-      <HelpDefinition term={t('dashboard.statCards.usedSpace.term')} termColor="blue">
-        {t('dashboard.statCards.usedSpace.description')}
-      </HelpDefinition>
-    </div>
+    <HelpSection title={t('dashboard.statCards.usedSpace.term')}>
+      {t('dashboard.statCards.usedSpace.description')}
+    </HelpSection>
   ),
   bandwidthSaved: (
-    <div className="space-y-1.5">
-      <HelpDefinition term={t('dashboard.statCards.bandwidthSaved.term')} termColor="green">
-        {t('dashboard.statCards.bandwidthSaved.description')}
-      </HelpDefinition>
-    </div>
+    <HelpSection title={t('dashboard.statCards.bandwidthSaved.term')}>
+      {t('dashboard.statCards.bandwidthSaved.description')}
+    </HelpSection>
   ),
   addedToCache: (
-    <div className="space-y-1.5">
-      <HelpDefinition term={t('dashboard.statCards.addedToCache.term')} termColor="purple">
-        {t('dashboard.statCards.addedToCache.description')}
-      </HelpDefinition>
-    </div>
+    <HelpSection title={t('dashboard.statCards.addedToCache.term')}>
+      {t('dashboard.statCards.addedToCache.description')}
+    </HelpSection>
   ),
   totalServed: (
-    <div className="space-y-1.5">
-      <HelpDefinition term={t('dashboard.statCards.totalServed.term')} termColor="blue">
-        {t('dashboard.statCards.totalServed.description')}
-      </HelpDefinition>
-    </div>
+    <HelpSection title={t('dashboard.statCards.totalServed.term')}>
+      {t('dashboard.statCards.totalServed.description')}
+    </HelpSection>
   ),
   activeDownloads: (
-    <div className="space-y-1.5">
-      <HelpDefinition term={t('dashboard.statCards.activeDownloads.term')} termColor="orange">
-        {t('dashboard.statCards.activeDownloads.description')}
-      </HelpDefinition>
-    </div>
+    <HelpSection title={t('dashboard.statCards.activeDownloads.term')}>
+      {t('dashboard.statCards.activeDownloads.description')}
+    </HelpSection>
   ),
   activeClients: (
-    <div className="space-y-1.5">
-      <HelpDefinition term={t('dashboard.statCards.activeClients.term')} termColor="orange">
-        {t('dashboard.statCards.activeClients.description')}
-      </HelpDefinition>
-    </div>
+    <HelpSection title={t('dashboard.statCards.activeClients.term')}>
+      {t('dashboard.statCards.activeClients.description')}
+    </HelpSection>
   ),
   cacheHitRatio: (
-    <div className="space-y-1.5">
-      <HelpDefinition term={t('dashboard.statCards.cacheHitRatio.term')} termColor="green">
-        {t('dashboard.statCards.cacheHitRatio.description')}
-      </HelpDefinition>
-    </div>
+    <HelpSection title={t('dashboard.statCards.cacheHitRatio.term')}>
+      {t('dashboard.statCards.cacheHitRatio.description')}
+    </HelpSection>
   )
 });
 
