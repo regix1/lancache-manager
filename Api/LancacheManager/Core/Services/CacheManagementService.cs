@@ -751,7 +751,7 @@ public class CacheManagementService
     {
         var startInfo = _rustProcessHelper.CreateProcessStartInfo(
             rustBinaryPath,
-            $"summary \"{logDir}\" \"{cacheDir}\" \"{timezone}\"");
+            $"summary \"{logDir}\" \"{cacheDir}\" \"none\" \"{timezone}\" 3");
 
         using (var process = Process.Start(startInfo))
         {

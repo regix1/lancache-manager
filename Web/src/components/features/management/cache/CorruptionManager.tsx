@@ -78,8 +78,8 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
   const [compareToCacheLogs, setCompareToCacheLogs] = useState(false);
 
   const detectionModeOptions = [
-    { value: 'true', label: t('management.corruption.detectionModeCacheLogs'), shortLabel: t('management.corruption.detectionModeCacheLogsShort'), description: t('management.corruption.detectionModeCacheLogsDesc') },
     { value: 'false', label: t('management.corruption.detectionModeLogsOnly'), shortLabel: t('management.corruption.detectionModeLogsOnlyShort'), description: t('management.corruption.detectionModeLogsOnlyDesc') },
+    { value: 'true', label: t('management.corruption.detectionModeCacheLogs'), shortLabel: t('management.corruption.detectionModeCacheLogsShort'), description: t('management.corruption.detectionModeCacheLogsDesc') },
   ];
 
   const thresholdOptions = [
@@ -182,6 +182,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
       );
       if (corruptionDetectionCompleteNotifs.length > 0) {
         setIsStartingScan(false);
+        setLoading(true);
 
         // Load fresh results from the database (backend already saved them)
         const loadResults = async () => {
@@ -191,9 +192,17 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
               setCorruptionSummary(result.corruptionCounts);
               setLastDetectionTime(result.lastDetectionTime || null);
               setHasCachedResults(true);
+            } else {
+              // Scan completed but found zero corruption
+              // Still mark as "has results" so UI shows "No corrupted chunks detected"
+              setCorruptionSummary({});
+              setLastDetectionTime(new Date().toISOString());
+              setHasCachedResults(true);
             }
           } catch (err) {
             console.error('[CorruptionManager] Failed to load detection results:', err);
+          } finally {
+            markLoaded();
           }
         };
         loadResults();
@@ -209,7 +218,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
         // Note: Error is displayed in notification bar, no inline error needed
       }
     }
-  }, [notifications, isStartingScan]);
+  }, [notifications, isStartingScan, setLoading, markLoaded]);
 
   // Listen for corruption removal completion - remove service from local state immediately
   // This follows the same pattern as GameCacheDetector which removes items from state on completion
