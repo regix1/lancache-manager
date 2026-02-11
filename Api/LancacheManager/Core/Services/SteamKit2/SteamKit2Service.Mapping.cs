@@ -70,15 +70,15 @@ public partial class SteamKit2Service
     /// and not already mapped via _depotOwners or the database. This handles delisted/removed
     /// games whose depots never appear in Steam's GetAppList API.
     /// </summary>
-    /// <returns>The number of new depot mappings discovered.</returns>
-    private async Task<int> ResolveOrphanDepotsAsync(CancellationToken ct)
+    /// <returns>A list of newly resolved depot IDs.</returns>
+    private async Task<List<uint>> ResolveOrphanDepotsAsync(CancellationToken ct)
     {
         try
         {
             if (_steamApps == null || !_isLoggedOn)
             {
                 _logger.LogDebug("Skipping orphan depot resolution - not connected to Steam");
-                return 0;
+                return new List<uint>();
             }
 
             using var scope = _scopeFactory.CreateScope();
@@ -94,7 +94,7 @@ public partial class SteamKit2Service
             if (unmappedDepotIds.Count == 0)
             {
                 _logger.LogDebug("No orphan depots to resolve");
-                return 0;
+                return new List<uint>();
             }
 
             // Filter out depots that are already mapped in memory or database
@@ -111,7 +111,7 @@ public partial class SteamKit2Service
             if (orphanDepotIds.Count == 0)
             {
                 _logger.LogDebug("All unmapped depots already have owner mappings");
-                return 0;
+                return new List<uint>();
             }
 
             _logger.LogInformation("Attempting orphan depot resolution for {Count} unmapped depot(s)", orphanDepotIds.Count);
@@ -138,12 +138,12 @@ public partial class SteamKit2Service
             if (candidates.Count == 0)
             {
                 _logger.LogDebug("All candidate parent apps were already scanned");
-                return 0;
+                return new List<uint>();
             }
 
             _logger.LogInformation("Querying PICS for {Count} candidate parent app(s) for orphan depots", candidates.Count);
 
-            int resolved = 0;
+            var resolvedDepotIds = new List<uint>();
             var candidateBatches = candidates.Chunk(50).ToList();
 
             foreach (var batch in candidateBatches)
@@ -175,9 +175,16 @@ public partial class SteamKit2Service
                     {
                         foreach (var app in cb.Apps.Values)
                         {
-                            var beforeCount = _depotOwners.Count;
+                            var beforeKeys = new HashSet<uint>(_depotOwners.Keys);
                             ProcessAppDepots(app);
-                            resolved += _depotOwners.Count - beforeCount;
+                            // Find newly added depot IDs
+                            foreach (var key in _depotOwners.Keys)
+                            {
+                                if (!beforeKeys.Contains(key))
+                                {
+                                    resolvedDepotIds.Add(key);
+                                }
+                            }
                         }
                     }
 
@@ -194,9 +201,9 @@ public partial class SteamKit2Service
             }
 
             _logger.LogInformation("Orphan depot resolution complete: {Resolved} new depot mapping(s) discovered from {Candidates} candidate(s)",
-                resolved, candidates.Count);
+                resolvedDepotIds.Count, candidates.Count);
 
-            return resolved;
+            return resolvedDepotIds;
         }
         catch (OperationCanceledException)
         {
@@ -205,7 +212,7 @@ public partial class SteamKit2Service
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Orphan depot resolution failed (non-fatal) - some delisted game depots may remain unmapped");
-            return 0;
+            return new List<uint>();
         }
     }
 

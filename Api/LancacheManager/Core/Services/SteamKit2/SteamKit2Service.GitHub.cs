@@ -117,8 +117,8 @@ public partial class SteamKit2Service
 
             // Full replace: Clear existing depot mappings first, then import fresh data
             // This ensures the database always matches GitHub exactly (removes stale/deleted mappings)
-            _logger.LogInformation("[GitHub Mode] Clearing existing depot mappings for full replace...");
-            await _picsDataService.ClearDepotMappingsAsync(token);
+            _logger.LogInformation("[GitHub Mode] Clearing existing depot mappings (preserving locally-resolved orphan depots) for GitHub replace...");
+            await _picsDataService.ClearDepotMappingsAsync(token, preserveOrphanResolved: true);
 
             await SendGitHubProgress("Depot mappings cleared", 22, operationId);
 

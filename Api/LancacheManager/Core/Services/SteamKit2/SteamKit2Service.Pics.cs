@@ -508,12 +508,20 @@ public partial class SteamKit2Service
         await SendPostProcessingProgress("Resolving orphan depots...", 100, _depotToAppMappings.Count);
         try
         {
-            var orphansResolved = await ResolveOrphanDepotsAsync(ct);
-            if (orphansResolved > 0)
+            var orphanDepotIds = await ResolveOrphanDepotsAsync(ct);
+            if (orphanDepotIds.Count > 0)
             {
-                _logger.LogInformation("Resolved {Count} orphan depots - saving updated mappings", orphansResolved);
+                _logger.LogInformation("Resolved {Count} orphan depots - saving updated mappings", orphanDepotIds.Count);
                 await SaveAllMappingsToJsonAsync(incrementalOnly);
                 await ImportJsonToDatabase();
+
+                // Mark orphan-resolved mappings with distinct source so GitHub import preserves them
+                using var scope = _scopeFactory.CreateScope();
+                var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                await context.SteamDepotMappings
+                    .Where(m => orphanDepotIds.Contains(m.DepotId))
+                    .ExecuteUpdateAsync(s => s.SetProperty(m => m.Source, "orphan-resolved"), ct);
+                _logger.LogInformation("Tagged {Count} orphan depot mapping(s) with source 'orphan-resolved'", orphanDepotIds.Count);
             }
         }
         catch (OperationCanceledException) { throw; }

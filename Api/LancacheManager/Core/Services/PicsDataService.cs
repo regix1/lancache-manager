@@ -417,18 +417,30 @@ public class PicsDataService
     /// <summary>
     /// Clear all depot mappings from the database
     /// </summary>
-    public async Task ClearDepotMappingsAsync(CancellationToken cancellationToken = default)
+    public async Task ClearDepotMappingsAsync(CancellationToken cancellationToken = default, bool preserveOrphanResolved = false)
     {
         try
         {
             using var scope = _scopeFactory.CreateScope();
             var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-            // ExecuteDeleteAsync returns the number of rows deleted
-            // This avoids a slow COUNT query before deletion
-            var count = await context.SteamDepotMappings.ExecuteDeleteAsync(cancellationToken);
+            int count;
+            if (preserveOrphanResolved)
+            {
+                // Preserve locally-resolved orphan depot mappings (delisted/removed games)
+                // These mappings were discovered via direct PICS queries and won't be in GitHub data
+                count = await context.SteamDepotMappings
+                    .Where(m => m.Source != "orphan-resolved")
+                    .ExecuteDeleteAsync(cancellationToken);
 
-            _logger.LogInformation($"Successfully cleared {count} depot mappings from database");
+                var preserved = await context.SteamDepotMappings.CountAsync(cancellationToken);
+                _logger.LogInformation("Cleared {Deleted} depot mappings from database (preserved {Preserved} orphan-resolved mappings)", count, preserved);
+            }
+            else
+            {
+                count = await context.SteamDepotMappings.ExecuteDeleteAsync(cancellationToken);
+                _logger.LogInformation("Successfully cleared {Count} depot mappings from database", count);
+            }
         }
         catch (Exception ex)
         {
