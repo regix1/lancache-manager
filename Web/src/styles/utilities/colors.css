@@ -365,8 +365,4 @@
     background: repeating-linear-gradient(90deg, var(--theme-border-secondary) 0px, var(--theme-border-secondary) 4px, transparent 4px, transparent 8px);
   }
 
-  /* Hide about/info sections when setting is enabled */
-  [data-hide-about-sections='true'] .about-section {
-    display: none !important;
-  }
 }

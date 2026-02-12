@@ -3,69 +3,6 @@ using System.Text.Json.Serialization;
 namespace LancacheManager.Models;
 
 /// <summary>
-/// Base class for operation-specific data
-/// </summary>
-public abstract class OperationDataBase
-{
-    [JsonPropertyName("status")]
-    public string? Status { get; set; }
-
-    [JsonPropertyName("message")]
-    public string? Message { get; set; }
-}
-
-/// <summary>
-/// Data model for log processing operations
-/// </summary>
-public class LogProcessingData : OperationDataBase
-{
-    [JsonPropertyName("isProcessing")]
-    public bool IsProcessing { get; set; }
-
-    [JsonPropertyName("percentComplete")]
-    public double PercentComplete { get; set; }
-
-    [JsonPropertyName("completedAt")]
-    public DateTime? CompletedAt { get; set; }
-
-    [JsonPropertyName("resume")]
-    public bool Resume { get; set; }
-
-    [JsonPropertyName("mbProcessed")]
-    public double? MbProcessed { get; set; }
-
-    [JsonPropertyName("mbTotal")]
-    public double? MbTotal { get; set; }
-
-    [JsonPropertyName("processingRate")]
-    public double? ProcessingRate { get; set; }
-
-    [JsonPropertyName("entriesProcessed")]
-    public long? EntriesProcessed { get; set; }
-
-    [JsonPropertyName("entriesQueued")]
-    public long? EntriesQueued { get; set; }
-
-    [JsonPropertyName("pendingEntries")]
-    public long? PendingEntries { get; set; }
-
-    [JsonPropertyName("linesProcessed")]
-    public long? LinesProcessed { get; set; }
-
-    [JsonPropertyName("totalLines")]
-    public long? TotalLines { get; set; }
-
-    [JsonPropertyName("currentPosition")]
-    public long? CurrentPosition { get; set; }
-
-    [JsonPropertyName("totalSize")]
-    public long? TotalSize { get; set; }
-
-    [JsonPropertyName("estimatedTime")]
-    public string? EstimatedTime { get; set; }
-}
-
-/// <summary>
 /// Data model for Steam PICS depot mapping progress
 /// </summary>
 public class SteamPicsProgress
@@ -162,33 +99,6 @@ public class IncrementalViabilityCheck
 
     [JsonPropertyName("error")]
     public string? Error { get; set; }
-}
-
-/// <summary>
-/// Data point for time series statistics
-/// </summary>
-public class TimeSeriesDataPoint
-{
-    [JsonPropertyName("timestamp")]
-    public DateTime Timestamp { get; set; }
-
-    [JsonPropertyName("timestampEnd")]
-    public DateTime TimestampEnd { get; set; }
-
-    [JsonPropertyName("cacheHits")]
-    public long CacheHits { get; set; }
-
-    [JsonPropertyName("cacheMisses")]
-    public long CacheMisses { get; set; }
-
-    [JsonPropertyName("totalBytes")]
-    public long TotalBytes { get; set; }
-
-    [JsonPropertyName("hitRatio")]
-    public double HitRatio { get; set; }
-
-    [JsonPropertyName("downloads")]
-    public int Downloads { get; set; }
 }
 
 /// <summary>

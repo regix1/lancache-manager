@@ -4,7 +4,7 @@ import { Github, ExternalLink, Heart, ChevronRight } from 'lucide-react';
 import { Tooltip } from '@components/ui/Tooltip';
 
 // Custom event for firework explosion - other components can listen to this
-export const FIREWORK_EXPLOSION_EVENT = 'catFireworkExplosion';
+const FIREWORK_EXPLOSION_EVENT = 'catFireworkExplosion';
 
 // Helper to get firework colors from current theme
 function getFireworkColors(): string[] {
@@ -157,38 +157,6 @@ function createParticleBurst(x: number, y: number): void {
 
   requestAnimationFrame(animate);
 }
-
-/**
- * Triggers a particle burst explosion at the specified screen coordinates.
- * This function is designed to be called when a firework animation completes.
- *
- * @param x - The x coordinate in pixels (screen position)
- * @param y - The y coordinate in pixels (screen position)
- */
-export function triggerConfettiExplosion(x: number, y: number): void {
-  createParticleBurst(x, y);
-}
-
-/**
- * Creates a celebration effect with multiple particle bursts.
- * Can be used for special occasions or achievements.
- *
- * @param x - The x coordinate in pixels (screen position)
- * @param y - The y coordinate in pixels (screen position)
- */
-export function triggerCelebrationExplosion(x: number, y: number): void {
-  // Fire three bursts with slight delays for celebration effect
-  createParticleBurst(x, y);
-  setTimeout(() => createParticleBurst(x - 20, y), 100);
-  setTimeout(() => createParticleBurst(x + 20, y), 200);
-}
-
-interface FireworkExplosionDetail {
-  x: number;
-  y: number;
-}
-
-export type FireworkExplosionEvent = CustomEvent<FireworkExplosionDetail>;
 
 // Cute firework rocket SVG - uses theme primary color with shades
 const FirecrackerSVG: React.FC = () => (

@@ -25,39 +25,12 @@
     .xs\:block {
       display: block;
     }
-    .xs\:hidden {
-      display: none;
-    }
-    .xs\:flex {
-      display: flex;
-    }
   }
 
   /* Small screens and up (480px+) */
   @media (min-width: 480px) {
     .xs\:block {
       display: block;
-    }
-  }
-
-  /* Mobile-first dropdown positioning */
-  .mobile-dropdown {
-    @apply absolute z-20 shadow-lg min-w-full max-h-60 overflow-y-auto;
-    border-radius: var(--theme-border-radius-lg);
-    /* Default to left positioning on mobile */
-    left: 0;
-    top: 100%;
-    width: 100%;
-    min-width: max-content;
-  }
-
-  /* On larger screens, allow right positioning */
-  @media (min-width: 640px) {
-    .mobile-dropdown.sm\:right-0 {
-      left: auto;
-      right: 0;
-      width: auto;
-      min-width: 200px;
     }
   }
 
@@ -77,12 +50,4 @@
     }
   }
 
-  /* Improved button spacing on mobile */
-  .mobile-button-group {
-    @apply flex flex-col sm:flex-row gap-2 sm:gap-3;
-  }
-
-  .mobile-button-group .mobile-button {
-    @apply w-full sm:w-auto;
-  }
 }

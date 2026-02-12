@@ -257,7 +257,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
             // Only dismiss if notification exists and is in a terminal state
             if (notification && (notification.status === 'completed' || notification.status === 'failed')) {
               autoDismissTimersRef.current.delete(notificationId);
-              removeNotificationAnimated(notificationId);
+              // Defer to avoid setState-during-render (CustomEvent triggers UniversalNotificationBar setState)
+              queueMicrotask(() => removeNotificationAnimated(notificationId));
             }
             return prev;
           });
@@ -819,6 +820,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       // Use a fixed notification ID to prevent duplicates.
       // When auto-logout occurs, the backend sends both SteamAutoLogout and SteamSessionError events,
       // but we only want one notification to appear.
+      let shouldScheduleDismiss = false;
+
       setNotifications((prev: UnifiedNotification[]) => {
         const existingNotification = prev.find((n) => n.id === NOTIFICATION_IDS.STEAM_SESSION_ERROR);
 
@@ -844,9 +847,14 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         };
 
         const filtered = prev.filter((n) => n.id !== NOTIFICATION_IDS.STEAM_SESSION_ERROR);
-        scheduleAutoDismiss(NOTIFICATION_IDS.STEAM_SESSION_ERROR, STEAM_ERROR_DISMISS_DELAY_MS);
+        shouldScheduleDismiss = true;
         return [...filtered, newNotification];
       });
+
+      // Schedule auto-dismiss OUTSIDE setNotifications to avoid setState-during-render
+      if (shouldScheduleDismiss) {
+        scheduleAutoDismiss(NOTIFICATION_IDS.STEAM_SESSION_ERROR, STEAM_ERROR_DISMISS_DELAY_MS);
+      }
     };
 
     // Subscribe to events

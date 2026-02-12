@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import ApiService from '@services/api.service';
 
-export interface DirectoryPermissions {
+interface DirectoryPermissions {
   logsReadOnly: boolean;
   cacheReadOnly: boolean;
   logsExist: boolean;

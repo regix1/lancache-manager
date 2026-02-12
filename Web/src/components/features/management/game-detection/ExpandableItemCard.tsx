@@ -11,7 +11,7 @@ export interface ExpandableItemStat {
   labelCount?: number;
 }
 
-export interface ExpandableItemCardProps {
+interface ExpandableItemCardProps {
   id: number | string;
   title: string;
   titleClassName?: string;

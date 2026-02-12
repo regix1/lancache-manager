@@ -7,15 +7,6 @@
    * and avoid cropping/blurring that comes from forced dimensions
    */
 
-  /* Mobile banner container - maintains Steam header aspect ratio */
-  .download-banner-mobile {
-    position: relative;
-    width: 100%;
-    aspect-ratio: 460 / 215; /* Steam header native aspect ratio */
-    overflow: hidden;
-    background: var(--theme-bg-tertiary);
-  }
-
   /* High-quality image rendering for game banners */
   .download-banner-image {
     width: 100%;
@@ -25,19 +16,6 @@
     /* Enable high-quality image rendering */
     image-rendering: -webkit-optimize-contrast;
     image-rendering: crisp-edges;
-  }
-
-  /* Subtle gradient overlay on banners for better text contrast */
-  .download-banner-overlay {
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(
-      to bottom,
-      transparent 0%,
-      transparent 60%,
-      rgba(0, 0, 0, 0.3) 100%
-    );
-    pointer-events: none;
   }
 
   /* Banner placeholder with service icon */
@@ -58,23 +36,6 @@
 
   /* Mobile card improvements */
   @media (max-width: 639px) {
-    /* Stack banner above content on mobile */
-    .download-card-mobile {
-      display: flex;
-      flex-direction: column;
-    }
-
-    /* Full-width banner on mobile with proper aspect ratio */
-    .download-card-mobile .download-banner-wrapper {
-      width: 100%;
-      flex-shrink: 0;
-    }
-
-    /* Content section with good padding */
-    .download-card-mobile .download-content {
-      padding: 0.75rem 1rem 1rem;
-    }
-
     /* Compact stats on mobile */
     .download-stats-mobile {
       display: grid;
@@ -87,24 +48,6 @@
     .download-service-badge {
       padding: 0.25rem 0.5rem;
       font-size: 0.6875rem;
-    }
-  }
-
-  /* Desktop view - side-by-side layout */
-  @media (min-width: 640px) {
-    .download-card-desktop {
-      display: flex;
-      flex-direction: row;
-    }
-
-    .download-card-desktop .download-banner-wrapper {
-      width: 280px;
-      flex-shrink: 0;
-    }
-
-    .download-card-desktop .download-content {
-      flex: 1;
-      min-width: 0;
     }
   }
 

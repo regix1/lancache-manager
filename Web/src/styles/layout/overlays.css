@@ -2,7 +2,6 @@
   /* ===== UNIVERSAL OVERLAY FIXES ===== */
 
   /* Fix ALL dropdown containers */
-  .custom-dropdown,
   .relative:has(> .absolute),
   .relative:has(.fixed + .absolute) {
     position: relative !important;
@@ -16,7 +15,6 @@
   .absolute[class*='right-']:not(.input-icon):not(.nav-indicator),
   .absolute[class*='left-']:not(.input-icon):not(.nav-indicator),
   .absolute[class*='bottom-']:not(.input-icon):not(.nav-indicator),
-  .custom-dropdown .absolute,
   .relative > .absolute:not(.input-icon):not(.nav-indicator) {
     position: absolute !important;
     z-index: 60 !important;
@@ -31,7 +29,6 @@
   /* Fix backdrop overlays */
   .fixed.inset-0.z-10,
   .fixed.inset-0.z-20,
-  .custom-dropdown .fixed,
   .relative > .fixed {
     position: fixed !important;
     z-index: 50 !important;
@@ -153,34 +150,4 @@
     background: var(--theme-scrollbar-track);
   }
 
-  /* Alternative scrollbar for different areas - Theme aware */
-  .main-scrollbar {
-    /* Firefox */
-    scrollbar-width: thin;
-    scrollbar-color: var(--theme-scrollbar-thumb) var(--theme-bg-secondary);
-  }
-
-  .main-scrollbar::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
-  }
-
-  .main-scrollbar::-webkit-scrollbar-track {
-    background: var(--theme-bg-secondary);
-    border-radius: var(--theme-border-radius-lg, 0.75rem);
-  }
-
-  .main-scrollbar::-webkit-scrollbar-thumb {
-    background: var(--theme-scrollbar-thumb);
-    border-radius: var(--theme-border-radius-lg, 0.75rem);
-    border: 2px solid var(--theme-bg-secondary);
-  }
-
-  .main-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: var(--theme-scrollbar-hover);
-  }
-
-  .main-scrollbar::-webkit-scrollbar-corner {
-    background: var(--theme-bg-secondary);
-  }
 }
