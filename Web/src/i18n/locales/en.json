@@ -2626,7 +2626,7 @@
       "title": "Prefill Sessions",
       "subtitle": "Manage Steam Prefill daemon sessions and user bans",
       "refresh": "Refresh",
-      "endAll": "End All ({{count}})",
+      "endAll": "End All",
       "activeSessions": "Active Sessions",
       "totalSessions": "Total Sessions",
       "activeBans": "Active Bans",
