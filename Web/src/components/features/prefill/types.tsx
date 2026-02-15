@@ -157,7 +157,10 @@ export const THREAD_OPTIONS: DropdownOption[] = [
   { value: '4', label: '', description: '' },
   { value: '8', label: '', description: '' },
   { value: '16', label: '', description: '' },
-  { value: '32', label: '', description: '' }
+  { value: '32', label: '', description: '' },
+  { value: '64', label: '', description: '' },
+  { value: '128', label: '', description: '' },
+  { value: '256', label: '', description: '' }
 ];
 
 // Utility functions

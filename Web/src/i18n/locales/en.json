@@ -3032,7 +3032,19 @@
         },
         "32": {
           "label": "32 Threads",
-          "description": "Maximum performance"
+          "description": "High - For fast networks"
+        },
+        "64": {
+          "label": "64 Threads",
+          "description": "Very high - For fast local networks"
+        },
+        "128": {
+          "label": "128 Threads",
+          "description": "Extreme - For 1Gbps+ connections"
+        },
+        "256": {
+          "label": "256 Threads",
+          "description": "Maximum - For 10Gbps+ connections"
         }
       }
     },
