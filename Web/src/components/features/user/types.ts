@@ -1,24 +1,15 @@
 export interface Session {
   id: string;
-  deviceId?: string | null;
-  deviceName: string | null;
+  sessionType?: 'admin' | 'guest';
   ipAddress: string | null;
-  localIp: string | null;
-  hostname: string | null;
-  operatingSystem: string | null;
-  browser: string | null;
+  userAgent: string | null;
   createdAt: string;
   lastSeenAt: string | null;
   expiresAt: string;
   isExpired: boolean;
   isRevoked: boolean;
   revokedAt?: string | null;
-  revokedBy?: string | null;
-  type: 'authenticated' | 'guest';
-  // Prefill permissions (for guests only)
-  prefillEnabled?: boolean;
-  prefillExpiresAt?: string | null;
-  isPrefillExpired?: boolean;
+  isCurrentSession: boolean;
 }
 
 export interface UserPreferences {
@@ -61,6 +52,77 @@ export const durationOptions = [
   { value: '72', label: '72 hours (3 days)' },
   { value: '168', label: '168 hours (1 week)' }
 ];
+
+// Parse UserAgent into friendly browser/OS info
+export interface ParsedUserAgent {
+  browser: string;
+  browserVersion: string;
+  os: string;
+  title: string; // e.g. "Chrome on Windows"
+}
+
+export const parseUserAgent = (ua: string | null): ParsedUserAgent => {
+  if (!ua) return { browser: 'Unknown', browserVersion: '', os: 'Unknown', title: 'Unknown Device' };
+
+  let browser = 'Unknown';
+  let browserVersion = '';
+  let os = 'Unknown';
+
+  // Detect browser (order matters — check specific before generic)
+  if (ua.includes('Edg/')) {
+    browser = 'Edge';
+    browserVersion = ua.match(/Edg\/([\d.]+)/)?.[1] ?? '';
+  } else if (ua.includes('OPR/') || ua.includes('Opera')) {
+    browser = 'Opera';
+    browserVersion = ua.match(/(?:OPR|Opera)\/([\d.]+)/)?.[1] ?? '';
+  } else if (ua.includes('Vivaldi/')) {
+    browser = 'Vivaldi';
+    browserVersion = ua.match(/Vivaldi\/([\d.]+)/)?.[1] ?? '';
+  } else if (ua.includes('Brave')) {
+    browser = 'Brave';
+    browserVersion = ua.match(/Chrome\/([\d.]+)/)?.[1] ?? '';
+  } else if (ua.includes('Firefox/')) {
+    browser = 'Firefox';
+    browserVersion = ua.match(/Firefox\/([\d.]+)/)?.[1] ?? '';
+  } else if (ua.includes('Safari/') && !ua.includes('Chrome/')) {
+    browser = 'Safari';
+    browserVersion = ua.match(/Version\/([\d.]+)/)?.[1] ?? '';
+  } else if (ua.includes('Chrome/')) {
+    browser = 'Chrome';
+    browserVersion = ua.match(/Chrome\/([\d.]+)/)?.[1] ?? '';
+  } else if (ua.includes('curl/')) {
+    browser = 'curl';
+    browserVersion = ua.match(/curl\/([\d.]+)/)?.[1] ?? '';
+  }
+
+  // Shorten version to major.minor
+  if (browserVersion) {
+    const parts = browserVersion.split('.');
+    browserVersion = parts.length >= 2 ? `${parts[0]}.${parts[1]}` : parts[0];
+  }
+
+  // Detect OS
+  if (ua.includes('Windows NT 10.0')) {
+    os = 'Windows';
+  } else if (ua.includes('Windows NT')) {
+    os = 'Windows';
+  } else if (ua.includes('Mac OS X') || ua.includes('Macintosh')) {
+    os = 'macOS';
+  } else if (ua.includes('Android')) {
+    const ver = ua.match(/Android ([\d.]+)/)?.[1];
+    os = ver ? `Android ${ver.split('.')[0]}` : 'Android';
+  } else if (ua.includes('iPhone') || ua.includes('iPad')) {
+    os = 'iOS';
+  } else if (ua.includes('Linux')) {
+    os = 'Linux';
+  } else if (ua.includes('CrOS')) {
+    os = 'Chrome OS';
+  }
+
+  const title = os !== 'Unknown' ? `${browser} on ${os}` : browser;
+
+  return { browser, browserVersion, os, title };
+};
 
 // Helper to clean IP addresses
 export const cleanIpAddress = (ip: string): string => {

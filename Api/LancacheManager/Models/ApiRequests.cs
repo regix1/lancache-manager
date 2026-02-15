@@ -50,28 +50,6 @@ public class DataMigrationImportRequest
 
 #endregion
 
-#region Device Requests
-
-public class RegisterDeviceRequest
-{
-    [Required]
-    [StringLength(128, MinimumLength = 16, ErrorMessage = "DeviceId must be between 16 and 128 characters")]
-    [RegularExpression(@"^[a-zA-Z0-9_-]+$", ErrorMessage = "DeviceId contains invalid characters")]
-    public string DeviceId { get; set; } = string.Empty;
-
-    [Required]
-    [StringLength(100, MinimumLength = 40, ErrorMessage = "ApiKey must be between 40 and 100 characters")]
-    public string ApiKey { get; set; } = string.Empty;
-
-    [StringLength(100, ErrorMessage = "DeviceName cannot exceed 100 characters")]
-    public string? DeviceName { get; set; }
-
-    [StringLength(45, ErrorMessage = "LocalIp cannot exceed 45 characters")]
-    public string? LocalIp { get; set; }
-}
-
-#endregion
-
 #region Download Requests
 
 public class BatchDownloadEventsRequest
@@ -193,23 +171,6 @@ public class StartPrefillRequest
 
 #endregion
 
-#region Session Requests
-
-public class CreateSessionRequest
-{
-    public string DeviceId { get; set; } = string.Empty;
-    public string? DeviceName { get; set; }
-    public string? OperatingSystem { get; set; }
-    public string? Browser { get; set; }
-}
-
-public class SetSessionRefreshRateRequest
-{
-    public string RefreshRate { get; set; } = string.Empty;
-}
-
-#endregion
-
 #region Steam API Key Requests
 
 public class SaveApiKeyRequest
@@ -315,7 +276,7 @@ public class BanByUsernameRequest
 {
     public string Username { get; set; } = string.Empty;
     public string? Reason { get; set; }
-    public string? DeviceId { get; set; }
+    public string? SessionId { get; set; }
     public DateTime? ExpiresAt { get; set; }
 }
 

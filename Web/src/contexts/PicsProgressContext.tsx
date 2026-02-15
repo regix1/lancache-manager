@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
 import { useSignalR } from '@contexts/SignalRContext';
 import { useAuth } from '@contexts/AuthContext';
-import authService from '@services/auth.service';
 import type {
   DepotMappingStartedEvent,
   DepotMappingProgressEvent,
@@ -123,8 +122,7 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
 
     try {
       const response = await fetch('/api/depots/rebuild/progress', {
-        credentials: 'include',
-        headers: authService.getAuthHeaders()
+        credentials: 'include'
       });
       if (response.ok) {
         const data: PicsProgress = await response.json();

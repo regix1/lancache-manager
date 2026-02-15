@@ -188,8 +188,9 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
 
       try {
         const authCheck = await authService.checkAuth();
-        const authRequired = authCheck.requiresAuth;
-        setAuthDisabled(!authRequired);
+        // Auth is always available (either admin or guest sessions)
+        // If not authenticated, user needs to authenticate or start guest session
+        setAuthDisabled(false);
 
         const setupResponse = await fetch('/api/system/setup', ApiService.getFetchOptions({ cache: 'no-store' }));
         const setupData = await setupResponse.json();
@@ -201,10 +202,10 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
           return;
         }
 
-        // Not authenticated → show api-key step (backend is source of truth)
+        // Not authenticated → show api-key step
         // Don't clear localStorage here - just reset to api-key step
         // This preserves the initialization flow state in App.tsx
-        if (!authCheck.isAuthenticated && authRequired) {
+        if (!authCheck.isAuthenticated) {
           setCurrentStep('api-key');
           setIsCheckingAuth(false);
           return;
@@ -232,8 +233,8 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
         }
 
         // No stored step or at api-key step
-        if (!authRequired || authCheck.isAuthenticated) {
-          // Auth not required or already authenticated → go to permissions check
+        if (authCheck.isAuthenticated) {
+          // Already authenticated → go to permissions check
           await checkPicsDataStatus();
           setCurrentStep('permissions-check');
         } else {

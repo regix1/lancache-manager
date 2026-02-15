@@ -2,7 +2,6 @@ import React, { createContext, useContext, useState, useEffect, useCallback, typ
 import { REFRESH_RATES, type RefreshRate } from '@utils/constants';
 import { useSignalR } from '@contexts/SignalRContext';
 import { useAuth } from '@contexts/AuthContext';
-import authService from '@services/auth.service';
 import type {
   GuestRefreshRateUpdatedEvent,
   DefaultGuestRefreshRateChangedEvent
@@ -48,8 +47,7 @@ export const RefreshRateProvider: React.FC<RefreshRateProviderProps> = ({ childr
 
           // Try to get user-specific rate from preferences
           const prefsResponse = await fetch('/api/user-preferences', {
-            credentials: 'include',
-            headers: authService.getAuthHeaders()
+            credentials: 'include'
           });
 
           if (prefsResponse.ok) {
@@ -63,8 +61,7 @@ export const RefreshRateProvider: React.FC<RefreshRateProviderProps> = ({ childr
 
           // Fall back to default guest rate
           const defaultResponse = await fetch('/api/system/default-guest-refresh-rate', {
-            credentials: 'include',
-            headers: authService.getAuthHeaders()
+            credentials: 'include'
           });
           if (defaultResponse.ok) {
             const data = await defaultResponse.json();
@@ -77,8 +74,7 @@ export const RefreshRateProvider: React.FC<RefreshRateProviderProps> = ({ childr
           setIsControlledByAdmin(false);
 
           const response = await fetch('/api/system/refresh-rate', {
-            credentials: 'include',
-            headers: authService.getAuthHeaders()
+            credentials: 'include'
           });
           if (response.ok) {
             const data = await response.json();
@@ -112,7 +108,7 @@ export const RefreshRateProvider: React.FC<RefreshRateProviderProps> = ({ childr
       if (authMode === 'guest' && data.refreshRate && data.refreshRate in REFRESH_RATES) {
         // Re-fetch to see if we should use the new default
         // (only if we don't have a custom rate set)
-        fetch('/api/user-preferences', { credentials: 'include', headers: authService.getAuthHeaders() })
+        fetch('/api/user-preferences', { credentials: 'include' })
           .then((res) => res.json())
           .then((prefsData) => {
             // If no custom rate set, use the new default
@@ -154,8 +150,7 @@ export const RefreshRateProvider: React.FC<RefreshRateProviderProps> = ({ childr
           method: 'PATCH',
           credentials: 'include',
           headers: {
-            'Content-Type': 'application/json',
-            ...authService.getAuthHeaders()
+            'Content-Type': 'application/json'
           },
           body: JSON.stringify({ refreshRate: rate })
         });

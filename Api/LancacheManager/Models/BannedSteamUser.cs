@@ -24,10 +24,10 @@ public class BannedSteamUser
     public string? BanReason { get; set; }
 
     /// <summary>
-    /// DeviceId of the user who was banned (for reference)
+    /// SessionId of the auth session that was banned (for reference)
     /// </summary>
     [MaxLength(100)]
-    public string? BannedDeviceId { get; set; }
+    public string? BannedBySessionId { get; set; }
 
     /// <summary>
     /// When the ban was created
@@ -35,7 +35,7 @@ public class BannedSteamUser
     public DateTime BannedAtUtc { get; set; }
 
     /// <summary>
-    /// Who issued the ban (admin DeviceId or "system")
+    /// Who issued the ban (admin SessionId or "system")
     /// </summary>
     [MaxLength(100)]
     public string? BannedBy { get; set; }

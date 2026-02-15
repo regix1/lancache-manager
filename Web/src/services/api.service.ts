@@ -76,8 +76,9 @@ interface PicsStatus {
 
 class ApiService {
   static async handleResponse<T>(response: Response): Promise<T> {
-    // Handle 401 Unauthorized
+    // Handle 401 Unauthorized - dispatch event to trigger auth refresh
     if (response.status === 401) {
+      window.dispatchEvent(new Event('auth-state-changed'));
       let errorData: ApiErrorData | null = null;
       try {
         const text = await response.text();
@@ -86,6 +87,19 @@ class ApiService {
         // Not JSON
       }
       throw new Error(errorData?.message || 'Authentication required');
+    }
+
+    // Handle 403 Forbidden - guest trying admin operation
+    if (response.status === 403) {
+      console.warn('403 Forbidden: Access denied. User may lack required permissions.');
+      let errorData: ApiErrorData | null = null;
+      try {
+        const text = await response.text();
+        errorData = text ? JSON.parse(text) : null;
+      } catch {
+        // Not JSON
+      }
+      throw new Error(errorData?.message || errorData?.error || 'Access denied');
     }
 
     // Handle 499 Client Closed Request (user cancelled the operation)
@@ -1049,8 +1063,7 @@ class ApiService {
       return {};
     }
     try {
-      // IMPORTANT: use getFetchOptions() so we keep auth headers (especially X-Device-Id)
-      // and include credentials for HttpOnly session cookies.
+      // IMPORTANT: use getFetchOptions() to include credentials for HttpOnly session cookies.
       const res = await fetch(`${API_BASE}/downloads/batch-download-events`, this.getFetchOptions({
         signal,
         method: 'POST',
@@ -1413,7 +1426,6 @@ class ApiService {
 export interface PrefillSessionDto {
   id: number;
   sessionId: string;
-  deviceId: string;
   containerId?: string;
   containerName?: string;
   steamUsername?: string;
@@ -1486,7 +1498,6 @@ export interface BannedSteamUserDto {
   id: number;
   username: string;
   banReason?: string;
-  bannedDeviceId?: string;
   bannedAtUtc: string;
   bannedBy?: string;
   expiresAtUtc?: string;

@@ -22,11 +22,7 @@ import {
 } from './sections';
 
 // Main Management Tab Component
-interface ManagementTabProps {
-  onApiKeyRegenerated?: () => void;
-}
-
-const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) => {
+const ManagementTab: React.FC = () => {
   const { t } = useTranslation();
   const { refreshStats } = useStats();
   const { addNotification, notifications } = useNotifications();
@@ -161,7 +157,6 @@ const ManagementTab: React.FC<ManagementTabProps> = ({ onApiKeyRegenerated }) =>
     if (activeSection === 'settings') {
       return (
         <SettingsSection
-          onApiKeyRegenerated={onApiKeyRegenerated}
           optimizationsEnabled={optimizationsEnabled}
           logRotationEnabled={logRotationEnabled}
           isAuthenticated={isAuthenticated}

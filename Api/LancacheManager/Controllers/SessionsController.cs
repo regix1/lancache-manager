@@ -1,129 +1,75 @@
+using LancacheManager.Middleware;
 using LancacheManager.Models;
+using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.RateLimiting;
 
 namespace LancacheManager.Controllers;
 
-/// <summary>
-/// RESTful controller for session management.
-/// Auth stripped — all endpoints return empty/success results.
-/// </summary>
 [ApiController]
 [Route("api/sessions")]
 public class SessionsController : ControllerBase
 {
+    private readonly SessionService _sessionService;
     private readonly ILogger<SessionsController> _logger;
 
-    public SessionsController(ILogger<SessionsController> logger)
+    public SessionsController(
+        SessionService sessionService,
+        ILogger<SessionsController> logger)
     {
+        _sessionService = sessionService;
         _logger = logger;
     }
 
-    /// <summary>
-    /// GET /api/sessions - Returns empty session list.
-    /// </summary>
     [HttpGet]
-    public IActionResult GetAllSessions([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
+    public async Task<IActionResult> GetAllSessions()
     {
-        return Ok(new PaginatedSessionsResponse
+        var sessions = await _sessionService.GetActiveSessionsAsync();
+
+        var dtos = sessions.Select(s => new SessionDto
         {
-            Sessions = new List<SessionDto>(),
-            Pagination = new PaginationInfo
-            {
-                Page = page,
-                PageSize = pageSize,
-                TotalCount = 0,
-                TotalPages = 0,
-                HasNextPage = false,
-                HasPreviousPage = false
-            },
-            Count = 0,
-            AuthenticatedCount = 0,
-            GuestCount = 0
+            Id = s.Id.ToString(),
+            SessionType = s.SessionType,
+            IpAddress = s.IpAddress,
+            UserAgent = s.UserAgent,
+            CreatedAt = s.CreatedAtUtc,
+            LastSeenAt = s.LastSeenAtUtc,
+            ExpiresAt = s.ExpiresAtUtc,
+            IsRevoked = s.IsRevoked
+        }).ToList();
+
+        return Ok(new
+        {
+            sessions = dtos,
+            count = dtos.Count,
+            adminCount = dtos.Count(s => s.SessionType == "admin"),
+            guestCount = dtos.Count(s => s.SessionType == "guest")
         });
     }
 
-    /// <summary>
-    /// GET /api/sessions/{id} - Returns not found.
-    /// </summary>
-    [HttpGet("{id}")]
-    public IActionResult GetSession(string id)
+    [HttpDelete("{id:guid}")]
+    public async Task<IActionResult> RevokeSession(Guid id)
     {
-        return NotFound(new ErrorResponse { Error = "Session not found" });
-    }
-
-    /// <summary>
-    /// POST /api/sessions - Returns success.
-    /// </summary>
-    [HttpPost]
-    [EnableRateLimiting("auth")]
-    public IActionResult CreateSession([FromQuery] string? type, [FromBody] CreateSessionRequest request)
-    {
-        return Created($"/api/sessions/{request.DeviceId}", new SessionCreateResponse
+        // Don't allow revoking own session via this endpoint
+        var currentSession = HttpContext.GetUserSession();
+        if (currentSession != null && currentSession.Id == id)
         {
-            Success = true,
-            DeviceId = request.DeviceId,
-            ExpiresAt = DateTime.UtcNow.AddHours(24),
-            Message = "Session created successfully"
-        });
-    }
+            return BadRequest(new { error = "Cannot revoke your own session. Use /api/auth/logout instead." });
+        }
 
-    /// <summary>
-    /// PATCH /api/sessions/current/last-seen - Heartbeat no-op.
-    /// </summary>
-    [HttpPatch("current/last-seen")]
-    public IActionResult UpdateCurrentLastSeen()
-    {
-        return Ok(new SessionHeartbeatResponse { Success = true, Type = "authenticated" });
-    }
-
-    /// <summary>
-    /// DELETE /api/sessions/current - Logout no-op.
-    /// </summary>
-    [HttpDelete("current")]
-    public IActionResult DeleteCurrentSession()
-    {
-        return Ok(new SessionDeleteResponse { Success = true, Message = "Session cleared successfully" });
-    }
-
-    /// <summary>
-    /// DELETE /api/sessions/{id} - Delete session no-op.
-    /// </summary>
-    [HttpDelete("{id}")]
-    public IActionResult DeleteSession(string id, [FromQuery] string action = "delete")
-    {
-        return Ok(new SessionDeleteResponse { Success = true, Message = "Session deleted successfully" });
-    }
-
-    /// <summary>
-    /// PATCH /api/sessions/{id}/refresh-rate - No-op.
-    /// </summary>
-    [HttpPatch("{id}/refresh-rate")]
-    public IActionResult SetSessionRefreshRate(string id, [FromBody] SetSessionRefreshRateRequest request)
-    {
-        return Ok(new SetSessionRefreshRateResponse
+        var success = await _sessionService.RevokeSessionAsync(id);
+        if (!success)
         {
-            Success = true,
-            Message = "Refresh rate updated",
-            RefreshRate = request.RefreshRate ?? "STANDARD"
-        });
+            return NotFound(new { error = "Session not found" });
+        }
+
+        return Ok(new { success = true, message = "Session revoked" });
     }
 
-    /// <summary>
-    /// POST /api/sessions/bulk/reset-to-defaults - No-op.
-    /// </summary>
-    [HttpPost("bulk/reset-to-defaults")]
-    public IActionResult BulkResetToDefaults()
+    [HttpDelete("guests")]
+    public async Task<IActionResult> RevokeAllGuests()
     {
-        return Ok(new { affectedCount = 0, message = "Reset 0 guest sessions to defaults" });
-    }
+        var count = await _sessionService.RevokeAllGuestSessionsAsync();
 
-    /// <summary>
-    /// DELETE /api/sessions/bulk/clear-guests - No-op.
-    /// </summary>
-    [HttpDelete("bulk/clear-guests")]
-    public IActionResult BulkClearGuests()
-    {
-        return Ok(new { clearedCount = 0, message = "Cleared 0 guest sessions" });
+        return Ok(new { success = true, revokedCount = count, message = $"Revoked {count} guest sessions" });
     }
 }

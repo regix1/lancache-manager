@@ -2,43 +2,58 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Models;
+using LancacheManager.Security;
 using Microsoft.AspNetCore.SignalR;
 
 namespace LancacheManager.Hubs;
 
 /// <summary>
 /// SignalR hub for Steam Prefill daemon sessions.
-/// Auth stripped — all connections allowed.
+/// Only admin sessions can connect.
 /// </summary>
 public class PrefillDaemonHub : Hub
 {
     private readonly SteamPrefillDaemonService _daemonService;
     private readonly ISteamAuthStorageService _steamAuthStorage;
+    private readonly SessionService _sessionService;
     private readonly ILogger<PrefillDaemonHub> _logger;
 
     public PrefillDaemonHub(
         SteamPrefillDaemonService daemonService,
         ISteamAuthStorageService steamAuthStorage,
+        SessionService sessionService,
         ILogger<PrefillDaemonHub> logger)
     {
         _daemonService = daemonService;
         _steamAuthStorage = steamAuthStorage;
+        _sessionService = sessionService;
         _logger = logger;
     }
 
     public override async Task OnConnectedAsync()
     {
         var httpContext = Context.GetHttpContext();
-        var deviceId = httpContext?.Request.Query["deviceId"].FirstOrDefault();
+        var rawToken = httpContext != null ? SessionService.GetSessionTokenFromCookie(httpContext) : null;
 
-        if (string.IsNullOrEmpty(deviceId))
+        if (string.IsNullOrEmpty(rawToken))
         {
-            _logger.LogWarning("Prefill daemon hub connection attempt without device ID from {ConnectionId}", Context.ConnectionId);
+            _logger.LogWarning("Prefill daemon hub connection attempt without session from {ConnectionId}", Context.ConnectionId);
             Context.Abort();
             return;
         }
 
-        _logger.LogDebug("Prefill daemon hub connected: {ConnectionId}, DeviceId: {DeviceId}", Context.ConnectionId, deviceId);
+        var session = await _sessionService.ValidateSessionAsync(rawToken);
+        if (session == null || session.SessionType != "admin")
+        {
+            _logger.LogWarning("Prefill daemon hub connection rejected - not admin: {ConnectionId}", Context.ConnectionId);
+            Context.Abort();
+            return;
+        }
+
+        // Store session ID in connection items for later use
+        Context.Items["SessionId"] = session.Id.ToString();
+
+        _logger.LogDebug("Prefill daemon hub connected: {ConnectionId}, SessionId: {SessionId}", Context.ConnectionId, session.Id);
         await base.OnConnectedAsync();
     }
 
@@ -63,10 +78,10 @@ public class PrefillDaemonHub : Hub
     /// </summary>
     public async Task<DaemonSessionDto> CreateSession()
     {
-        var deviceId = GetDeviceId();
-        if (string.IsNullOrEmpty(deviceId))
+        var authSessionId = GetSessionId();
+        if (string.IsNullOrEmpty(authSessionId))
         {
-            throw new HubException("Device ID required");
+            throw new HubException("Session required");
         }
 
         try
@@ -75,8 +90,8 @@ public class PrefillDaemonHub : Hub
             var ipAddress = httpContext?.Connection.RemoteIpAddress?.ToString();
             var userAgent = httpContext?.Request.Headers["User-Agent"].FirstOrDefault();
 
-            _logger.LogInformation("Creating daemon session for device {DeviceId}", deviceId);
-            var session = await _daemonService.CreateSessionAsync(deviceId, ipAddress, userAgent);
+            _logger.LogInformation("Creating daemon session for auth session {SessionId}", authSessionId);
+            var session = await _daemonService.CreateSessionAsync(authSessionId, ipAddress, userAgent);
 
             // Subscribe this connection to session events
             _daemonService.AddSubscriber(session.Id, Context.ConnectionId);
@@ -85,13 +100,12 @@ public class PrefillDaemonHub : Hub
         }
         catch (InvalidOperationException ex)
         {
-            // Log clean message without stack trace for expected errors (e.g., Docker not available)
-            _logger.LogWarning("Failed to create session for device {DeviceId}: {Message}", deviceId, ex.Message);
+            _logger.LogWarning("Failed to create session for auth session {SessionId}: {Message}", authSessionId, ex.Message);
             throw new HubException(ex.Message);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error creating session for device {DeviceId}", deviceId);
+            _logger.LogError(ex, "Error creating session for auth session {SessionId}", authSessionId);
             throw new HubException("Failed to create daemon session");
         }
     }
@@ -101,7 +115,7 @@ public class PrefillDaemonHub : Hub
     /// </summary>
     public async Task SubscribeToSession(string sessionId)
     {
-        var deviceId = GetDeviceId();
+        var authSessionId = GetSessionId();
 
         var session = _daemonService.GetSession(sessionId);
         if (session == null)
@@ -109,7 +123,7 @@ public class PrefillDaemonHub : Hub
             throw new HubException("Session not found");
         }
 
-        if (session.UserId != deviceId)
+        if (session.UserId != authSessionId)
         {
             throw new HubException("Access denied");
         }
@@ -293,24 +307,24 @@ public class PrefillDaemonHub : Hub
     /// </summary>
     public IEnumerable<DaemonSessionDto> GetMySessions()
     {
-        var deviceId = GetDeviceId();
-        if (string.IsNullOrEmpty(deviceId))
+        var authSessionId = GetSessionId();
+        if (string.IsNullOrEmpty(authSessionId))
         {
             return Enumerable.Empty<DaemonSessionDto>();
         }
 
-        return _daemonService.GetUserSessions(deviceId)
+        return _daemonService.GetUserSessions(authSessionId)
             .Select(DaemonSessionDto.FromSession);
     }
 
-    private string? GetDeviceId()
+    private string? GetSessionId()
     {
-        return Context.GetHttpContext()?.Request.Query["deviceId"].FirstOrDefault();
+        return Context.Items.TryGetValue("SessionId", out var id) ? id as string : null;
     }
 
     private void ValidateSessionAccess(string sessionId, out DaemonSession session)
     {
-        var deviceId = GetDeviceId();
+        var authSessionId = GetSessionId();
 
         var s = _daemonService.GetSession(sessionId);
         if (s == null)
@@ -318,7 +332,7 @@ public class PrefillDaemonHub : Hub
             throw new HubException("Session not found");
         }
 
-        if (s.UserId != deviceId)
+        if (s.UserId != authSessionId)
         {
             throw new HubException("Access denied");
         }

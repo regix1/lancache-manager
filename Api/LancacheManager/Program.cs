@@ -317,6 +317,7 @@ builder.Services.AddHttpClient("SteamImages", client =>
 // Register Authentication Services
 builder.Services.AddSingleton<ApiKeyService>();
 builder.Services.AddScoped<AuthenticationHelper>();
+builder.Services.AddScoped<SessionService>();
 builder.Services.AddSingleton<LancacheManager.Core.Services.UserPreferencesService>();
 
 // Register SignalR connection tracking service for targeted messaging
@@ -520,6 +521,10 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
+// Display API key to console on startup
+var apiKeyService = app.Services.GetRequiredService<ApiKeyService>();
+apiKeyService.DisplayApiKey(app.Configuration);
+
 // MUST be first: Handle forwarded headers from reverse proxies (nginx, Cloudflare, etc.)
 // This ensures HttpContext.Connection.RemoteIpAddress returns the real client IP
 app.UseForwardedHeaders();
@@ -540,6 +545,9 @@ app.UseRouting();
 
 // Rate limiting - must be after routing to access endpoint metadata
 app.UseRateLimiter();
+
+// Session-based authentication middleware
+app.UseMiddleware<SessionAuthMiddleware>();
 
 // Add Metrics Authentication Middleware (optional API key for /metrics)
 app.UseMiddleware<MetricsAuthenticationMiddleware>();

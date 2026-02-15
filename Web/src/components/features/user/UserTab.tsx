@@ -210,14 +210,14 @@ const UserTab: React.FC = () => {
           <div className="stat-pill">
             <User className="w-4 h-4 user-session-icon" />
             <span className="stat-value text-themed-primary">
-              {sessions.filter((s) => s.type === 'authenticated').length}
+              {sessions.filter((s) => s.sessionType === 'admin').length}
             </span>
             <span className="text-themed-muted">{t('user.stats.users')}</span>
           </div>
           <div className="stat-pill">
             <User className="w-4 h-4 guest-session-icon" />
             <span className="stat-value text-themed-primary">
-              {sessions.filter((s) => s.type === 'guest').length}
+              {sessions.filter((s) => s.sessionType === 'guest').length}
             </span>
             <span className="text-themed-muted">{t('user.stats.guests')}</span>
           </div>

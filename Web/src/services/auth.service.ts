@@ -1,30 +1,22 @@
-export type AuthMode = 'authenticated' | 'guest' | 'expired' | 'unauthenticated';
+export type AuthMode = 'authenticated' | 'guest' | 'unauthenticated';
+export type SessionType = 'admin' | 'guest';
 
-interface AuthCheckResponse {
-  requiresAuth: boolean;
+interface AuthStatusResponse {
   isAuthenticated: boolean;
-  authMode: AuthMode;
-  authenticationType?: string;
-  guestTimeRemaining?: number;
-  hasData?: boolean;
-  hasEverBeenSetup?: boolean;
-  hasBeenInitialized?: boolean;
-  hasDataLoaded?: boolean;
+  sessionType: SessionType | null;
+  expiresAt: string | null;
+  hasData: boolean;
+  hasBeenInitialized: boolean;
+  hasDataLoaded: boolean;
+  guestAccessEnabled: boolean;
+  guestDurationHours: number;
+}
+
+interface LoginResponse {
+  success: boolean;
+  sessionType: string;
+  expiresAt: string;
   error?: string;
-  prefillEnabled?: boolean;
-  prefillTimeRemaining?: number;
-  isBanned?: boolean;
-}
-
-interface RegisterResponse {
-  success: boolean;
-  message: string;
-}
-
-interface RegenerateKeyResponse {
-  success: boolean;
-  message: string;
-  warning?: string;
 }
 
 const getApiUrl = (): string => {
@@ -37,12 +29,12 @@ const getApiUrl = (): string => {
 const API_URL = getApiUrl();
 
 class AuthService {
-  private deviceId: string = 'default';
-  public isAuthenticated: boolean = true;
-  public authChecked: boolean = true;
-  public authMode: AuthMode = 'authenticated';
+  public isAuthenticated: boolean = false;
+  public authChecked: boolean = false;
+  public authMode: AuthMode = 'unauthenticated';
+  public sessionType: SessionType | null = null;
 
-  async checkAuth(): Promise<AuthCheckResponse> {
+  async checkAuth(): Promise<AuthStatusResponse> {
     try {
       const response = await fetch(`${API_URL}/api/auth/status`, {
         credentials: 'include',
@@ -52,101 +44,125 @@ class AuthService {
         throw new Error(`Auth check failed: ${response.status}`);
       }
 
-      const data = await response.json();
+      const data: AuthStatusResponse = await response.json();
 
-      return {
-        requiresAuth: false,
-        isAuthenticated: true,
-        authMode: 'authenticated' as AuthMode,
-        authenticationType: 'disabled',
-        hasData: data.hasData,
-        hasEverBeenSetup: data.hasEverBeenSetup ?? true,
-        hasBeenInitialized: data.hasBeenInitialized,
-        hasDataLoaded: data.hasDataLoaded,
-        prefillEnabled: true,
-        isBanned: false,
-      };
+      this.isAuthenticated = data.isAuthenticated;
+      this.sessionType = data.sessionType;
+      this.authChecked = true;
+
+      if (data.isAuthenticated && data.sessionType === 'admin') {
+        this.authMode = 'authenticated';
+      } else if (data.isAuthenticated && data.sessionType === 'guest') {
+        this.authMode = 'guest';
+      } else {
+        this.authMode = 'unauthenticated';
+      }
+
+      return data;
     } catch (error) {
       console.error('[AuthService] checkAuth error:', error);
+      this.isAuthenticated = false;
+      this.authMode = 'unauthenticated';
+      this.sessionType = null;
+      this.authChecked = true;
+
       return {
-        requiresAuth: false,
-        isAuthenticated: true,
-        authMode: 'authenticated',
-        prefillEnabled: true,
-        isBanned: false,
+        isAuthenticated: false,
+        sessionType: null,
+        expiresAt: null,
+        hasData: false,
+        hasBeenInitialized: false,
+        hasDataLoaded: false,
+        guestAccessEnabled: true,
+        guestDurationHours: 6,
       };
     }
   }
 
-  getAuthHeaders(): Record<string, string> {
-    return {};
-  }
-
-  async register(_apiKey: string, _localIp?: string | null): Promise<RegisterResponse> {
+  async login(apiKey: string): Promise<{ success: boolean; message?: string }> {
     try {
-      const response = await fetch(`${API_URL}/api/devices`, {
+      const response = await fetch(`${API_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({
-          deviceId: this.deviceId,
-          apiKey: _apiKey,
-          deviceName: navigator.userAgent,
-        }),
+        body: JSON.stringify({ apiKey }),
       });
-      return await response.json();
-    } catch {
-      return { success: true, message: 'Registered' };
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        return { success: false, message: data.error || `Login failed: ${response.status}` };
+      }
+
+      const data: LoginResponse = await response.json();
+      if (data.success) {
+        this.isAuthenticated = true;
+        this.authMode = 'authenticated';
+        this.sessionType = 'admin';
+      }
+
+      return { success: data.success, message: data.error };
+    } catch (error) {
+      console.error('[AuthService] login error:', error);
+      return { success: false, message: 'Network error during login' };
     }
   }
 
-  async regenerateApiKey(): Promise<RegenerateKeyResponse> {
+  async startGuestSession(): Promise<{ success: boolean; message?: string }> {
     try {
-      const response = await fetch(`${API_URL}/api/api-keys/regenerate`, {
+      const response = await fetch(`${API_URL}/api/auth/guest`, {
         method: 'POST',
         credentials: 'include',
       });
-      return await response.json();
-    } catch {
-      return { success: false, message: 'Failed to regenerate API key' };
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        return { success: false, message: data.error || 'Failed to start guest session' };
+      }
+
+      const data: LoginResponse = await response.json();
+      if (data.success) {
+        this.isAuthenticated = true;
+        this.authMode = 'guest';
+        this.sessionType = 'guest';
+      }
+
+      return { success: data.success, message: data.error };
+    } catch (error) {
+      console.error('[AuthService] startGuestSession error:', error);
+      return { success: false, message: 'Network error' };
     }
   }
 
-  getDeviceId(): string {
-    return this.deviceId;
+  async logout(): Promise<void> {
+    try {
+      await fetch(`${API_URL}/api/auth/logout`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+    } catch (error) {
+      console.error('[AuthService] logout error:', error);
+    } finally {
+      this.isAuthenticated = false;
+      this.authMode = 'unauthenticated';
+      this.sessionType = null;
+    }
   }
 
-  isRegistered(): boolean {
-    return true;
+  isAdmin(): boolean {
+    return this.sessionType === 'admin';
   }
 
-  getGuestSessionId(): string | null {
-    return null;
+  isGuest(): boolean {
+    return this.sessionType === 'guest';
+  }
+
+  getSessionType(): SessionType | null {
+    return this.sessionType;
   }
 
   isGuestModeActive(): boolean {
-    return false;
+    return this.authMode === 'guest';
   }
-
-  getGuestTimeRemaining(): number {
-    return 0;
-  }
-
-  onGuestExpired(_callback: (() => void) | null): void {
-    // no-op
-  }
-
-  // No-ops
-  startGuestMode(): void {}
-  logout(): { success: boolean; message: string } {
-    return { success: true, message: 'Logged out' };
-  }
-  handleUnauthorized(): void {}
-  clearAuth(): void {}
-  clearAuthAndDevice(): void {}
-  expireGuestMode(): void {}
-  exitGuestMode(): void {}
-  setOnGuestExpired(_callback: () => void): void {}
 }
 
 const authService = new AuthService();

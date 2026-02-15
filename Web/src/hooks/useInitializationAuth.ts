@@ -41,7 +41,7 @@ export const useInitializationAuth = ({
         setAuthenticating(true);
 
         try {
-          const result = await authService.register(apiKey, null);
+          const result = await authService.login(apiKey);
           if (result.success) {
             // IMPORTANT: Set step BEFORE calling onAuthChanged to prevent race condition
             // onAuthChanged triggers refreshAuth which may re-render parent and remount this component
@@ -49,7 +49,7 @@ export const useInitializationAuth = ({
             await checkPicsDataStatus();
             await onAuthChanged?.();
           } else {
-            setAuthError(result.message);
+            setAuthError(result.message || null);
           }
         } catch (error: unknown) {
           setAuthError(
@@ -69,7 +69,7 @@ export const useInitializationAuth = ({
           return;
         }
 
-        await authService.startGuestMode();
+        await authService.startGuestSession();
 
         const setupResponse = await fetch(
           '/api/system/setup',

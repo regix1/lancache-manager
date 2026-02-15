@@ -472,20 +472,20 @@ export interface DefaultGuestRefreshRateChangedEvent {
 }
 
 export interface GuestPrefillPermissionChangedEvent {
-  deviceId: string;
+  sessionId: string;
   enabled: boolean;
   expiresAt?: string;
 }
 
 export interface SteamUserBannedEvent {
-  deviceId: string;
+  sessionId: string;
   username: string;
   reason?: string;
   expiresAt?: string;
 }
 
 export interface SteamUserUnbannedEvent {
-  deviceId: string;
+  sessionId: string;
   username: string;
 }
 
@@ -535,8 +535,8 @@ export interface DaemonSessionTerminatedEvent {
 }
 
 export interface UserSessionRevokedEvent {
-  deviceId: string;
-  sessionType: 'authenticated' | 'guest';
+  sessionId: string;
+  sessionType: 'admin' | 'guest';
 }
 
 export interface GuestDurationUpdatedEvent {

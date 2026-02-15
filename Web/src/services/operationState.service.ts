@@ -1,4 +1,3 @@
-import authService from './auth.service';
 import { storage } from '@utils/storage';
 
 // Operation state data can be various shapes depending on the operation type
@@ -50,8 +49,7 @@ class OperationStateService {
           method: 'POST',
           credentials: 'include',
           headers: {
-            'Content-Type': 'application/json',
-            ...authService.getAuthHeaders()
+            'Content-Type': 'application/json'
           },
           body: JSON.stringify({
             key,

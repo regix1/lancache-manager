@@ -19,11 +19,11 @@ public class PrefillSession
     public string SessionId { get; set; } = string.Empty;
 
     /// <summary>
-    /// DeviceId of the user who created this session
+    /// SessionId of the auth session that created this prefill session
     /// </summary>
     [Required]
     [MaxLength(100)]
-    public string DeviceId { get; set; } = string.Empty;
+    public string CreatedBySessionId { get; set; } = string.Empty;
 
     /// <summary>
     /// Docker container ID (if still running)

@@ -34,21 +34,21 @@ public class UserPreferencesService
     }
 
     /// <summary>
-    /// Get user preferences for a device
+    /// Get user preferences for a session
     /// </summary>
-    public UserPreferencesDto? GetPreferences(string deviceId)
+    public UserPreferencesDto? GetPreferences(Guid sessionId)
     {
         try
         {
             using var context = _contextFactory.CreateDbContext();
             var preferences = context.UserPreferences
-                .FirstOrDefault(p => p.DeviceId == deviceId);
+                .FirstOrDefault(p => p.SessionId == sessionId);
 
             return preferences != null ? ToDto(preferences) : null;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error getting preferences for device: {DeviceId}", deviceId);
+            _logger.LogError(ex, "Error getting preferences for session: {SessionId}", sessionId);
             return null;
         }
     }
@@ -56,22 +56,22 @@ public class UserPreferencesService
     /// <summary>
     /// Save or update user preferences
     /// </summary>
-    public bool SavePreferences(string deviceId, UserPreferencesDto preferencesDto)
+    public bool SavePreferences(Guid sessionId, UserPreferencesDto preferencesDto)
     {
         try
         {
             using var context = _contextFactory.CreateDbContext();
 
-            // Ensure the device/session exists
-            var session = context.UserSessions.FirstOrDefault(s => s.DeviceId == deviceId);
+            // Ensure the session exists
+            var session = context.UserSessions.FirstOrDefault(s => s.Id == sessionId);
             if (session == null)
             {
-                _logger.LogWarning("Device/session not found: {DeviceId}", deviceId);
+                _logger.LogWarning("Session not found: {SessionId}", sessionId);
                 return false;
             }
 
             var existingPreferences = context.UserPreferences
-                .FirstOrDefault(p => p.DeviceId == deviceId);
+                .FirstOrDefault(p => p.SessionId == sessionId);
 
             if (existingPreferences != null)
             {
@@ -95,7 +95,7 @@ public class UserPreferencesService
                 // Create new preferences
                 var newPreferences = new UserPreferences
                 {
-                    DeviceId = deviceId,
+                    SessionId = sessionId,
                     SelectedTheme = preferencesDto.SelectedTheme,
                     SharpCorners = preferencesDto.SharpCorners,
                     DisableFocusOutlines = preferencesDto.DisableFocusOutlines,
@@ -114,12 +114,12 @@ public class UserPreferencesService
             }
 
             context.SaveChanges();
-            _logger.LogInformation("Saved preferences for device: {DeviceId}", deviceId);
+            _logger.LogInformation("Saved preferences for session: {SessionId}", sessionId);
             return true;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error saving preferences for device: {DeviceId}", deviceId);
+            _logger.LogError(ex, "Error saving preferences for session: {SessionId}", sessionId);
             return false;
         }
     }
@@ -128,29 +128,29 @@ public class UserPreferencesService
     /// Update a specific preference field and return the updated full preferences
     /// This prevents race conditions by reading from the same transaction
     /// </summary>
-    public UserPreferencesDto? UpdatePreferenceAndGet<T>(string deviceId, string preferenceKey, T value)
+    public UserPreferencesDto? UpdatePreferenceAndGet<T>(Guid sessionId, string preferenceKey, T value)
     {
         try
         {
             using var context = _contextFactory.CreateDbContext();
 
-            // Ensure the device/session exists
-            var session = context.UserSessions.FirstOrDefault(s => s.DeviceId == deviceId);
+            // Ensure the session exists
+            var session = context.UserSessions.FirstOrDefault(s => s.Id == sessionId);
             if (session == null)
             {
-                _logger.LogWarning("Device/session not found when updating preference: {DeviceId}", deviceId);
+                _logger.LogWarning("Session not found when updating preference: {SessionId}", sessionId);
                 return null;
             }
 
             var preferences = context.UserPreferences
-                .FirstOrDefault(p => p.DeviceId == deviceId);
+                .FirstOrDefault(p => p.SessionId == sessionId);
 
             if (preferences == null)
             {
                 // Create new preferences if they don't exist
                 preferences = new UserPreferences
                 {
-                    DeviceId = deviceId,
+                    SessionId = sessionId,
                     UpdatedAtUtc = DateTime.UtcNow
                 };
                 context.UserPreferences.Add(preferences);
@@ -208,7 +208,7 @@ public class UserPreferencesService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error updating preference {Key} for device: {DeviceId}", preferenceKey, deviceId);
+            _logger.LogError(ex, "Error updating preference {Key} for session: {SessionId}", preferenceKey, sessionId);
             return null;
         }
     }
@@ -216,19 +216,19 @@ public class UserPreferencesService
     /// <summary>
     /// Delete user preferences
     /// </summary>
-    public bool DeletePreferences(string deviceId)
+    public bool DeletePreferences(Guid sessionId)
     {
         try
         {
             using var context = _contextFactory.CreateDbContext();
             var preferences = context.UserPreferences
-                .FirstOrDefault(p => p.DeviceId == deviceId);
+                .FirstOrDefault(p => p.SessionId == sessionId);
 
             if (preferences != null)
             {
                 context.UserPreferences.Remove(preferences);
                 context.SaveChanges();
-                _logger.LogInformation("Deleted preferences for device: {DeviceId}", deviceId);
+                _logger.LogInformation("Deleted preferences for session: {SessionId}", sessionId);
                 return true;
             }
 
@@ -236,7 +236,7 @@ public class UserPreferencesService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error deleting preferences for device: {DeviceId}", deviceId);
+            _logger.LogError(ex, "Error deleting preferences for session: {SessionId}", sessionId);
             return false;
         }
     }

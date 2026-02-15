@@ -9,7 +9,7 @@ namespace LancacheManager.Controllers;
 
 /// <summary>
 /// RESTful controller for user preferences management.
-/// Auth stripped — uses X-Device-Id header directly for session identification.
+/// Uses session-based auth via HttpContext.Items["Session"].
 /// </summary>
 [ApiController]
 [Route("api/user-preferences")]
@@ -54,7 +54,7 @@ public class UserPreferencesController : ControllerBase
             });
         }
 
-        var preferences = _preferencesService.GetPreferences(sessionId);
+        var preferences = _preferencesService.GetPreferences(sessionId.Value);
         if (preferences == null)
         {
             _logger.LogInformation("No preferences found for session {SessionId}, returning defaults", sessionId);
@@ -84,10 +84,10 @@ public class UserPreferencesController : ControllerBase
         var sessionId = GetSessionId();
         if (sessionId == null)
         {
-            return BadRequest(new PreferencesUpdateResponse { Message = "No device ID provided" });
+            return BadRequest(new PreferencesUpdateResponse { Message = "No session found" });
         }
 
-        var success = _preferencesService.SavePreferences(sessionId, preferences);
+        var success = _preferencesService.SavePreferences(sessionId.Value, preferences);
         if (success)
         {
             await _notifications.NotifyAllAsync(SignalREvents.UserPreferencesUpdated, new { sessionId, preferences });
@@ -103,10 +103,10 @@ public class UserPreferencesController : ControllerBase
         var sessionId = GetSessionId();
         if (sessionId == null)
         {
-            return BadRequest(new PreferencesUpdateResponse { Message = "No device ID provided" });
+            return BadRequest(new PreferencesUpdateResponse { Message = "No session found" });
         }
 
-        var preferences = _preferencesService.UpdatePreferenceAndGet(sessionId, key, value);
+        var preferences = _preferencesService.UpdatePreferenceAndGet(sessionId.Value, key, value);
 
         if (preferences != null)
         {
@@ -118,7 +118,7 @@ public class UserPreferencesController : ControllerBase
     }
 
     [HttpGet("session/{sessionId}")]
-    public IActionResult GetPreferencesForSession(string sessionId)
+    public IActionResult GetPreferencesForSession(Guid sessionId)
     {
         var preferences = _preferencesService.GetPreferences(sessionId);
         if (preferences == null)
@@ -144,7 +144,7 @@ public class UserPreferencesController : ControllerBase
     }
 
     [HttpPut("session/{sessionId}")]
-    public async Task<IActionResult> SavePreferencesForSession(string sessionId, [FromBody] UserPreferencesDto preferences)
+    public async Task<IActionResult> SavePreferencesForSession(Guid sessionId, [FromBody] UserPreferencesDto preferences)
     {
         var success = _preferencesService.SavePreferences(sessionId, preferences);
         if (success)
@@ -156,11 +156,6 @@ public class UserPreferencesController : ControllerBase
         return StatusCode(500, new PreferencesUpdateResponse { Message = "Error saving preferences" });
     }
 
-    /// <summary>
-    /// Gets session ID from X-Device-Id header.
-    /// </summary>
-    private string? GetSessionId()
-    {
-        return Request.Headers["X-Device-Id"].FirstOrDefault();
-    }
+    private UserSession? GetSession() => HttpContext.Items["Session"] as UserSession;
+    private Guid? GetSessionId() => GetSession()?.Id;
 }

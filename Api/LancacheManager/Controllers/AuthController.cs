@@ -1,49 +1,44 @@
-using LancacheManager.Models;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
+using LancacheManager.Middleware;
+using LancacheManager.Models;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
 
-/// <summary>
-/// Simplified RESTful controller for authentication status checking.
-/// Auth has been stripped — all endpoints are open. This controller remains
-/// for the setup wizard (hasBeenInitialized, hasDataLoaded, etc.).
-/// </summary>
 [ApiController]
 [Route("api/auth")]
 public class AuthController : ControllerBase
 {
-    private readonly ApiKeyService _apiKeyService;
+    private readonly SessionService _sessionService;
     private readonly IConfiguration _configuration;
     private readonly ILogger<AuthController> _logger;
     private readonly AppDbContext _dbContext;
     private readonly StateService _stateService;
 
     public AuthController(
-        ApiKeyService apiKeyService,
+        SessionService sessionService,
         IConfiguration configuration,
         ILogger<AuthController> logger,
         AppDbContext dbContext,
         StateService stateService)
     {
-        _apiKeyService = apiKeyService;
+        _sessionService = sessionService;
         _configuration = configuration;
         _logger = logger;
         _dbContext = dbContext;
         _stateService = stateService;
     }
 
-    /// <summary>
-    /// GET /api/auth/status - Always returns authenticated. Setup wizard fields preserved.
-    /// </summary>
     [HttpGet("status")]
     public IActionResult CheckAuthStatus()
     {
         Response.Headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0";
         Response.Headers["Pragma"] = "no-cache";
         Response.Headers["Expires"] = "0";
+
+        var session = HttpContext.GetUserSession();
 
         bool hasData = false;
         bool hasBeenInitialized = false;
@@ -60,128 +55,105 @@ public class AuthController : ControllerBase
 
         return Ok(new AuthStatusResponse
         {
-            RequiresAuth = false,
-            IsAuthenticated = true,
-            AuthenticationType = "disabled",
-            DeviceId = null,
+            IsAuthenticated = session != null,
+            SessionType = session?.SessionType,
+            ExpiresAt = session?.ExpiresAtUtc,
             HasData = hasData,
-            HasEverBeenSetup = true,
             HasBeenInitialized = hasBeenInitialized,
             HasDataLoaded = hasDataLoaded,
-            IsBanned = false
+            GuestAccessEnabled = _sessionService.IsGuestAccessEnabled(),
+            GuestDurationHours = _sessionService.GetGuestDurationHours()
         });
     }
 
-    /// <summary>
-    /// POST /api/auth/clear-session - No-op, returns success.
-    /// </summary>
-    [HttpPost("clear-session")]
-    public IActionResult ClearSession()
+    [HttpPost("login")]
+    public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {
-        return Ok(new SessionClearResponse
+        if (string.IsNullOrWhiteSpace(request.ApiKey))
+        {
+            return BadRequest(new { error = "API key is required" });
+        }
+
+        // If this browser has an existing guest session, revoke it before upgrading
+        var existingToken = SessionService.GetSessionTokenFromCookie(HttpContext);
+        if (!string.IsNullOrEmpty(existingToken))
+        {
+            var existingSession = await _sessionService.ValidateSessionAsync(existingToken);
+            if (existingSession is { SessionType: "guest" })
+            {
+                await _sessionService.RevokeSessionAsync(existingSession.Id);
+                _logger.LogInformation("Revoked guest session {SessionId} during upgrade to admin", existingSession.Id);
+            }
+        }
+
+        var result = await _sessionService.CreateAdminSessionAsync(request.ApiKey, HttpContext);
+        if (result == null)
+        {
+            _logger.LogWarning("Failed login attempt from {IP}", HttpContext.Connection.RemoteIpAddress);
+            return Unauthorized(new { error = "Invalid API key" });
+        }
+
+        var (rawToken, session) = result.Value;
+        _sessionService.SetSessionCookie(HttpContext, rawToken, session.ExpiresAtUtc);
+
+        return Ok(new LoginResponse
         {
             Success = true,
-            Message = "Session cookies cleared successfully"
+            SessionType = session.SessionType,
+            ExpiresAt = session.ExpiresAtUtc
         });
     }
 
-    /// <summary>
-    /// GET /api/auth/guest/config - Returns empty guest config.
-    /// </summary>
-    [HttpGet("guest/config")]
-    public IActionResult GetGuestConfig()
+    [HttpPost("guest")]
+    public async Task<IActionResult> StartGuest()
     {
-        return Ok(new GuestConfigResponse
+        if (!_sessionService.IsGuestAccessEnabled())
         {
-            DurationHours = 6,
-            IsLocked = false,
-            Message = "Guest configuration retrieved successfully"
+            return StatusCode(403, new { error = "Guest access is disabled" });
+        }
+
+        var result = await _sessionService.CreateGuestSessionAsync(HttpContext);
+        if (result == null)
+        {
+            return StatusCode(500, new { error = "Failed to create guest session" });
+        }
+
+        var (rawToken, session) = result.Value;
+        _sessionService.SetSessionCookie(HttpContext, rawToken, session.ExpiresAtUtc);
+
+        return Ok(new LoginResponse
+        {
+            Success = true,
+            SessionType = session.SessionType,
+            ExpiresAt = session.ExpiresAtUtc
         });
     }
 
-    /// <summary>
-    /// GET /api/auth/guest/status - Returns guest mode not locked.
-    /// </summary>
+    [HttpPost("logout")]
+    public async Task<IActionResult> Logout()
+    {
+        var rawToken = SessionService.GetSessionTokenFromCookie(HttpContext);
+        if (!string.IsNullOrEmpty(rawToken))
+        {
+            var session = await _sessionService.ValidateSessionAsync(rawToken);
+            if (session != null)
+            {
+                await _sessionService.RevokeSessionAsync(session.Id);
+            }
+        }
+
+        _sessionService.ClearSessionCookie(HttpContext);
+
+        return Ok(new { success = true, message = "Logged out successfully" });
+    }
+
     [HttpGet("guest/status")]
     public IActionResult GetGuestStatus()
     {
         return Ok(new
         {
-            isLocked = false,
-            durationHours = 6
-        });
-    }
-
-    /// <summary>
-    /// GET /api/auth/guest/prefill/config - Returns default prefill config.
-    /// </summary>
-    [HttpGet("guest/prefill/config")]
-    public IActionResult GetGuestPrefillConfig()
-    {
-        return Ok(new
-        {
-            enabledByDefault = true,
-            durationHours = 2,
-            message = "Guest prefill configuration retrieved successfully"
-        });
-    }
-
-    /// <summary>
-    /// POST /api/auth/guest/config/duration - No-op, returns success.
-    /// </summary>
-    [HttpPost("guest/config/duration")]
-    public IActionResult SetGuestSessionDuration([FromBody] SetGuestDurationRequest request)
-    {
-        return Ok(new GuestDurationResponse
-        {
-            Success = true,
-            DurationHours = request.DurationHours,
-            Message = $"Guest session duration updated to {request.DurationHours} hours"
-        });
-    }
-
-    /// <summary>
-    /// POST /api/auth/guest/config/lock - No-op, returns success.
-    /// </summary>
-    [HttpPost("guest/config/lock")]
-    public IActionResult SetGuestModeLock([FromBody] SetGuestLockRequest request)
-    {
-        return Ok(new GuestLockResponse
-        {
-            Success = true,
-            IsLocked = request.IsLocked,
-            Message = request.IsLocked
-                ? "Guest mode has been locked. New guests cannot log in."
-                : "Guest mode has been unlocked. Guests can now log in."
-        });
-    }
-
-    /// <summary>
-    /// POST /api/auth/guest/prefill/config - No-op, returns success.
-    /// </summary>
-    [HttpPost("guest/prefill/config")]
-    public IActionResult SetGuestPrefillConfig([FromBody] SetGuestPrefillConfigRequest request)
-    {
-        return Ok(new
-        {
-            success = true,
-            enabledByDefault = request.EnabledByDefault,
-            durationHours = request.DurationHours,
-            message = "Guest prefill configuration updated successfully"
-        });
-    }
-
-    /// <summary>
-    /// POST /api/auth/guest/prefill/toggle/{deviceId} - No-op, returns success.
-    /// </summary>
-    [HttpPost("guest/prefill/toggle/{deviceId}")]
-    public IActionResult ToggleGuestPrefill(string deviceId, [FromBody] ToggleGuestPrefillRequest request)
-    {
-        return Ok(new
-        {
-            success = true,
-            prefillEnabled = request.Enabled,
-            message = request.Enabled ? "Prefill access granted" : "Prefill access revoked"
+            isLocked = !_sessionService.IsGuestAccessEnabled(),
+            durationHours = _sessionService.GetGuestDurationHours()
         });
     }
 }

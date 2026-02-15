@@ -50,7 +50,7 @@ public class PrefillSessionService
     public async Task<BannedSteamUser> BanUserAsync(
         string username,
         string? reason = null,
-        string? deviceId = null,
+        string? bannedBySessionId = null,
         string? bannedBy = null,
         DateTime? expiresAt = null)
     {
@@ -75,7 +75,7 @@ public class PrefillSessionService
         {
             Username = normalizedUsername,
             BanReason = reason,
-            BannedDeviceId = deviceId,
+            BannedBySessionId = bannedBySessionId,
             BannedBy = bannedBy ?? "admin",
             BannedAtUtc = DateTime.UtcNow,
             ExpiresAtUtc = expiresAt
@@ -84,8 +84,8 @@ public class PrefillSessionService
         context.BannedSteamUsers.Add(ban);
         await context.SaveChangesAsync();
 
-        _logger.LogWarning("Banned Steam user {Username}. Reason: {Reason}",
-            username, reason ?? "No reason provided");
+        _logger.LogWarning("Banned Steam user {Username} by session {BannedBySessionId}. Reason: {Reason}",
+            username, bannedBySessionId ?? "admin", reason ?? "No reason provided");
 
         return ban;
     }
@@ -148,7 +148,7 @@ public class PrefillSessionService
     /// </summary>
     public async Task<PrefillSession> CreateSessionAsync(
         string sessionId,
-        string deviceId,
+        string createdBySessionId,
         string? containerId,
         string? containerName,
         DateTime expiresAt)
@@ -158,7 +158,7 @@ public class PrefillSessionService
         var session = new PrefillSession
         {
             SessionId = sessionId,
-            DeviceId = deviceId,
+            CreatedBySessionId = createdBySessionId,
             ContainerId = containerId,
             ContainerName = containerName,
             Status = "Active",
@@ -169,8 +169,8 @@ public class PrefillSessionService
         context.PrefillSessions.Add(session);
         await context.SaveChangesAsync();
 
-        _logger.LogInformation("Created prefill session record {SessionId} for device {DeviceId}",
-            sessionId, deviceId);
+        _logger.LogInformation("Created prefill session record {SessionId} for session {CreatedBySessionId}",
+            sessionId, createdBySessionId);
 
         return session;
     }
@@ -546,7 +546,7 @@ public class PrefillSessionService
         return await BanUserAsync(
             session.SteamUsername,
             reason,
-            session.DeviceId,
+            session.CreatedBySessionId,
             bannedBy,
             expiresAt);
     }

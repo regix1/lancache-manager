@@ -29,7 +29,7 @@ const AuthenticateTab: React.FC = () => {
     setLoading(true);
 
     try {
-      const result = await authService.register(apiKey);
+      const result = await authService.login(apiKey);
 
       if (result.success) {
         showToast('success', t('auth.success'));

@@ -1,11 +1,16 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
 import authService, { type AuthMode } from '@services/auth.service';
+import type { SessionType } from '@services/auth.service';
 import { useSignalR } from './SignalRContext';
 
 interface AuthContextType {
   isAuthenticated: boolean;
   authMode: AuthMode;
+  sessionType: SessionType | null;
   isLoading: boolean;
+  login: (apiKey: string) => Promise<{ success: boolean; message?: string }>;
+  startGuestSession: () => Promise<{ success: boolean; message?: string }>;
+  logout: () => Promise<void>;
   refreshAuth: () => Promise<void>;
   setAuthMode: (mode: AuthMode) => void;
   setIsAuthenticated: (value: boolean) => void;
@@ -29,19 +34,31 @@ interface AuthProviderProps {
 }
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
-  const [, setIsAuthenticated] = useState(true);
-  const [, setAuthMode] = useState<AuthMode>('authenticated');
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authMode, setAuthMode] = useState<AuthMode>('unauthenticated');
+  const [sessionType, setSessionType] = useState<SessionType | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const signalR = useSignalR();
 
   const fetchAuth = useCallback(async () => {
     try {
-      await authService.checkAuth();
+      const data = await authService.checkAuth();
+      setIsAuthenticated(data.isAuthenticated);
+      setSessionType(data.sessionType);
+
+      if (data.isAuthenticated && data.sessionType === 'admin') {
+        setAuthMode('authenticated');
+      } else if (data.isAuthenticated && data.sessionType === 'guest') {
+        setAuthMode('guest');
+      } else {
+        setAuthMode('unauthenticated');
+      }
     } catch (error) {
       console.error('[Auth] Failed to check auth status:', error);
+      setIsAuthenticated(false);
+      setAuthMode('unauthenticated');
+      setSessionType(null);
     }
-    setIsAuthenticated(true);
-    setAuthMode('authenticated');
     setIsLoading(false);
   }, []);
 
@@ -49,30 +66,90 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     await fetchAuth();
   }, [fetchAuth]);
 
+  const login = useCallback(async (apiKey: string) => {
+    const result = await authService.login(apiKey);
+    if (result.success) {
+      await fetchAuth();
+    }
+    return result;
+  }, [fetchAuth]);
+
+  const startGuestSession = useCallback(async () => {
+    const result = await authService.startGuestSession();
+    if (result.success) {
+      await fetchAuth();
+    }
+    return result;
+  }, [fetchAuth]);
+
+  const logout = useCallback(async () => {
+    await authService.logout();
+    setIsAuthenticated(false);
+    setAuthMode('unauthenticated');
+    setSessionType(null);
+  }, []);
+
   // Initial fetch
   useEffect(() => {
     fetchAuth();
   }, [fetchAuth]);
 
-  // Join the AuthenticatedUsersGroup when SignalR is connected
+  // Listen for 401 events from API calls to trigger re-auth
   useEffect(() => {
-    if (signalR.isConnected) {
+    const handleAuthStateChanged = () => {
+      fetchAuth();
+    };
+
+    window.addEventListener('auth-state-changed', handleAuthStateChanged);
+    return () => window.removeEventListener('auth-state-changed', handleAuthStateChanged);
+  }, [fetchAuth]);
+
+  // Listen for session revocation via SignalR
+  useEffect(() => {
+    const handleSessionRevoked = () => {
+      setIsAuthenticated(false);
+      setAuthMode('unauthenticated');
+      setSessionType(null);
+    };
+
+    const handleSessionsCleared = () => {
+      setIsAuthenticated(false);
+      setAuthMode('unauthenticated');
+      setSessionType(null);
+    };
+
+    signalR.on('UserSessionRevoked', handleSessionRevoked);
+    signalR.on('UserSessionsCleared', handleSessionsCleared);
+
+    return () => {
+      signalR.off('UserSessionRevoked', handleSessionRevoked);
+      signalR.off('UserSessionsCleared', handleSessionsCleared);
+    };
+  }, [signalR]);
+
+  // Join the AuthenticatedUsersGroup when SignalR is connected and authenticated
+  useEffect(() => {
+    if (signalR.isConnected && isAuthenticated) {
       signalR.invoke('JoinAuthenticatedGroup').catch((err: unknown) => {
         console.error('[Auth] Failed to join AuthenticatedUsersGroup:', err);
       });
     }
-  }, [signalR.isConnected, signalR.invoke]);
+  }, [signalR.isConnected, signalR.invoke, isAuthenticated]);
 
   return (
     <AuthContext.Provider
       value={{
-        isAuthenticated: true,
-        authMode: 'authenticated',
+        isAuthenticated,
+        authMode,
+        sessionType,
         isLoading,
+        login,
+        startGuestSession,
+        logout,
         refreshAuth,
         setAuthMode,
         setIsAuthenticated,
-        prefillEnabled: true,
+        prefillEnabled: sessionType === 'admin',
         prefillTimeRemaining: null,
         isBanned: false,
       }}

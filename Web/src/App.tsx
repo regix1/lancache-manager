@@ -29,8 +29,7 @@ import ErrorBoundary from '@components/common/ErrorBoundary';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import UniversalNotificationBar from '@components/common/UniversalNotificationBar';
 import DepotInitializationModal from '@components/modals/setup/DepotInitializationModal';
-// AuthenticationModal preserved but not currently shown (auth stripped)
-// import AuthenticationModal from '@components/modals/auth/AuthenticationModal';
+import AuthenticationModal from '@components/modals/auth/AuthenticationModal';
 import { FullScanRequiredModal } from '@components/modals/setup/FullScanRequiredModal';
 import ApiService from '@services/api.service';
 import { setServerTimezone } from '@utils/timezone';
@@ -521,7 +520,7 @@ const AppContent: React.FC = () => {
             </div>
           </div>
         ) : activeTab === 'management' ? (
-          <ManagementTab onApiKeyRegenerated={() => {}} />
+          <ManagementTab />
         ) : activeTab === 'users' ? (
           <UserTab />
         ) : activeTab === 'authenticate' ? (
@@ -533,8 +532,18 @@ const AppContent: React.FC = () => {
     );
   };
 
+  // Show login page if not authenticated
+  if (!checkingAuth && authMode === 'unauthenticated') {
+    return (
+      <AuthenticationModal
+        onAuthComplete={() => refreshAuth()}
+        onAuthChanged={() => refreshAuth()}
+      />
+    );
+  }
+
   // Show loading while checking initial status
-  if (checkingSetupStatus || checkingDepotStatus) {
+  if (checkingAuth || checkingSetupStatus || checkingDepotStatus) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-themed-primary">
         <LoadingSpinner

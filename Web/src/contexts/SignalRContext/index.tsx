@@ -9,7 +9,6 @@ import React, {
 } from 'react';
 import * as signalR from '@microsoft/signalr';
 import { SIGNALR_BASE } from '@utils/constants';
-import authService from '@services/auth.service';
 import type { SignalRContextType, SignalRProviderProps, EventHandler } from './types';
 import { SIGNALR_EVENTS } from './types';
 
@@ -142,12 +141,9 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
     try {
       setConnectionState('connecting');
 
-      // Get device ID for connection tracking (enables targeted SignalR messages)
-      const deviceId = authService.getDeviceId();
-
       const connection = new signalR.HubConnectionBuilder()
-        .withUrl(`${SIGNALR_BASE}/downloads?deviceId=${encodeURIComponent(deviceId)}`, {
-          withCredentials: true // Important: include session cookies
+        .withUrl(`${SIGNALR_BASE}/downloads`, {
+          withCredentials: true // Important: include session cookies for auth
         })
         .withAutomaticReconnect({
           nextRetryDelayInMilliseconds: (retryContext) => {

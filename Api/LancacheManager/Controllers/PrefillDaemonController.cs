@@ -44,9 +44,9 @@ public class PrefillDaemonController : ControllerBase
     [HttpGet("sessions/mine")]
     public ActionResult<IEnumerable<DaemonSessionDto>> GetMySessions()
     {
-        var deviceId = GetDeviceId()!; // Attribute guarantees this is not null
+        var sessionId = GetSession()?.Id.ToString() ?? string.Empty;
 
-        var sessions = _daemonService.GetUserSessions(deviceId)
+        var sessions = _daemonService.GetUserSessions(sessionId)
             .Select(DaemonSessionDto.FromSession);
 
         return Ok(sessions);
@@ -58,7 +58,7 @@ public class PrefillDaemonController : ControllerBase
     [HttpGet("sessions/{sessionId}")]
     public ActionResult<DaemonSessionDto> GetSession(string sessionId)
     {
-        var deviceId = GetDeviceId()!;
+        var currentSessionId = GetSession()?.Id.ToString() ?? string.Empty;
 
         var session = _daemonService.GetSession(sessionId);
         if (session == null)
@@ -66,7 +66,7 @@ public class PrefillDaemonController : ControllerBase
             return NotFound();
         }
 
-        if (session.UserId != deviceId)
+        if (session.UserId != currentSessionId)
         {
             return Forbid();
         }
@@ -80,10 +80,10 @@ public class PrefillDaemonController : ControllerBase
     [HttpPost("sessions")]
     public async Task<ActionResult<DaemonSessionDto>> CreateSession()
     {
-        var deviceId = GetDeviceId()!;
+        var sessionId = GetSessionId();
 
-        _logger.LogInformation("Creating daemon session for device {DeviceId}", deviceId);
-        var session = await _daemonService.CreateSessionAsync(deviceId);
+        _logger.LogInformation("Creating daemon session for session {SessionId}", sessionId);
+        var session = await _daemonService.CreateSessionAsync(sessionId);
         return CreatedAtAction(nameof(GetSession), new { sessionId = session.Id }, DaemonSessionDto.FromSession(session));
     }
 
@@ -93,7 +93,7 @@ public class PrefillDaemonController : ControllerBase
     [HttpGet("sessions/{sessionId}/status")]
     public async Task<ActionResult<DaemonStatus>> GetSessionStatus(string sessionId)
     {
-        var deviceId = GetDeviceId()!;
+        var currentSessionId = GetSession()?.Id.ToString() ?? string.Empty;
 
         var session = _daemonService.GetSession(sessionId);
         if (session == null)
@@ -101,7 +101,7 @@ public class PrefillDaemonController : ControllerBase
             return NotFound();
         }
 
-        if (session.UserId != deviceId)
+        if (session.UserId != currentSessionId)
         {
             return Forbid();
         }
@@ -122,7 +122,7 @@ public class PrefillDaemonController : ControllerBase
     [HttpPost("sessions/{sessionId}/login")]
     public async Task<ActionResult<CredentialChallenge>> StartLogin(string sessionId)
     {
-        var deviceId = GetDeviceId()!;
+        var currentSessionId = GetSession()?.Id.ToString() ?? string.Empty;
 
         var session = _daemonService.GetSession(sessionId);
         if (session == null)
@@ -130,7 +130,7 @@ public class PrefillDaemonController : ControllerBase
             return NotFound();
         }
 
-        if (session.UserId != deviceId)
+        if (session.UserId != currentSessionId)
         {
             return Forbid();
         }
@@ -158,7 +158,7 @@ public class PrefillDaemonController : ControllerBase
     [HttpPost("sessions/{sessionId}/credential")]
     public async Task<ActionResult> ProvideCredential(string sessionId, [FromBody] ProvideCredentialRequest request)
     {
-        var deviceId = GetDeviceId()!;
+        var currentSessionId = GetSession()?.Id.ToString() ?? string.Empty;
 
         var session = _daemonService.GetSession(sessionId);
         if (session == null)
@@ -166,7 +166,7 @@ public class PrefillDaemonController : ControllerBase
             return NotFound();
         }
 
-        if (session.UserId != deviceId)
+        if (session.UserId != currentSessionId)
         {
             return Forbid();
         }
@@ -190,7 +190,7 @@ public class PrefillDaemonController : ControllerBase
     [HttpGet("sessions/{sessionId}/challenge")]
     public async Task<ActionResult<CredentialChallenge>> WaitForChallenge(string sessionId, [FromQuery] int timeoutSeconds = 30)
     {
-        var deviceId = GetDeviceId()!;
+        var currentSessionId = GetSession()?.Id.ToString() ?? string.Empty;
 
         var session = _daemonService.GetSession(sessionId);
         if (session == null)
@@ -198,7 +198,7 @@ public class PrefillDaemonController : ControllerBase
             return NotFound();
         }
 
-        if (session.UserId != deviceId)
+        if (session.UserId != currentSessionId)
         {
             return Forbid();
         }
@@ -225,7 +225,7 @@ public class PrefillDaemonController : ControllerBase
     [HttpGet("sessions/{sessionId}/games")]
     public async Task<ActionResult<List<OwnedGame>>> GetOwnedGames(string sessionId)
     {
-        var deviceId = GetDeviceId()!;
+        var currentSessionId = GetSession()?.Id.ToString() ?? string.Empty;
 
         var session = _daemonService.GetSession(sessionId);
         if (session == null)
@@ -233,7 +233,7 @@ public class PrefillDaemonController : ControllerBase
             return NotFound();
         }
 
-        if (session.UserId != deviceId)
+        if (session.UserId != currentSessionId)
         {
             return Forbid();
         }
@@ -248,7 +248,7 @@ public class PrefillDaemonController : ControllerBase
     [HttpPost("sessions/{sessionId}/cache-status")]
     public async Task<ActionResult<PrefillCacheStatusResponse>> GetCacheStatus(string sessionId, [FromBody] PrefillCacheStatusRequest request)
     {
-        var deviceId = GetDeviceId()!;
+        var currentSessionId = GetSession()?.Id.ToString() ?? string.Empty;
 
         var session = _daemonService.GetSession(sessionId);
         if (session == null)
@@ -256,7 +256,7 @@ public class PrefillDaemonController : ControllerBase
             return NotFound();
         }
 
-        if (session.UserId != deviceId)
+        if (session.UserId != currentSessionId)
         {
             return Forbid();
         }
@@ -284,7 +284,7 @@ public class PrefillDaemonController : ControllerBase
     [HttpPost("sessions/{sessionId}/selected-apps")]
     public async Task<ActionResult> SetSelectedApps(string sessionId, [FromBody] SetSelectedAppsRequest request)
     {
-        var deviceId = GetDeviceId()!;
+        var currentSessionId = GetSession()?.Id.ToString() ?? string.Empty;
 
         var session = _daemonService.GetSession(sessionId);
         if (session == null)
@@ -292,7 +292,7 @@ public class PrefillDaemonController : ControllerBase
             return NotFound();
         }
 
-        if (session.UserId != deviceId)
+        if (session.UserId != currentSessionId)
         {
             return Forbid();
         }
@@ -312,7 +312,7 @@ public class PrefillDaemonController : ControllerBase
     [HttpPost("sessions/{sessionId}/prefill")]
     public async Task<ActionResult<PrefillResult>> StartPrefill(string sessionId, [FromBody] StartPrefillRequest? request)
     {
-        var deviceId = GetDeviceId()!;
+        var currentSessionId = GetSession()?.Id.ToString() ?? string.Empty;
 
         var session = _daemonService.GetSession(sessionId);
         if (session == null)
@@ -320,7 +320,7 @@ public class PrefillDaemonController : ControllerBase
             return NotFound();
         }
 
-        if (session.UserId != deviceId)
+        if (session.UserId != currentSessionId)
         {
             return Forbid();
         }
@@ -346,7 +346,7 @@ public class PrefillDaemonController : ControllerBase
     [HttpDelete("sessions/{sessionId}")]
     public async Task<ActionResult> TerminateSession(string sessionId)
     {
-        var deviceId = GetDeviceId()!;
+        var currentSessionId = GetSession()?.Id.ToString() ?? string.Empty;
 
         var session = _daemonService.GetSession(sessionId);
         if (session == null)
@@ -354,7 +354,7 @@ public class PrefillDaemonController : ControllerBase
             return NotFound();
         }
 
-        if (session.UserId != deviceId)
+        if (session.UserId != currentSessionId)
         {
             return Forbid();
         }
@@ -380,9 +380,7 @@ public class PrefillDaemonController : ControllerBase
         });
     }
 
-    private string? GetDeviceId()
-    {
-        return Request.Headers["X-Device-Id"].FirstOrDefault();
-    }
+    private UserSession? GetSession() => HttpContext.Items["Session"] as UserSession;
+    private string GetSessionId() => GetSession()?.Id.ToString() ?? "unknown";
 
 }

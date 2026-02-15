@@ -12,14 +12,12 @@ import GcManager from '../gc/GcManager';
 import LogRotationManager from '../LogRotationManager';
 
 interface SettingsSectionProps {
-  onApiKeyRegenerated?: () => void;
   optimizationsEnabled: boolean;
   logRotationEnabled: boolean;
   isAuthenticated: boolean;
 }
 
 const SettingsSection: React.FC<SettingsSectionProps> = ({
-  onApiKeyRegenerated,
   optimizationsEnabled,
   logRotationEnabled,
   isAuthenticated
@@ -83,7 +81,6 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
           <AuthenticationManager
             onError={handleError}
             onSuccess={handleSuccess}
-            onApiKeyRegenerated={onApiKeyRegenerated}
           />
         </Card>
 

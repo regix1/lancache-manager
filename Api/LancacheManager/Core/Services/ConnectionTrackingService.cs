@@ -3,13 +3,13 @@ using System.Collections.Concurrent;
 namespace LancacheManager.Core.Services;
 
 /// <summary>
-/// Singleton service to track SignalR connections by device ID.
+/// Singleton service to track SignalR connections by session ID.
 /// Enables targeted messaging to specific connected clients.
 /// </summary>
 public class ConnectionTrackingService
 {
-    private readonly ConcurrentDictionary<string, string> _deviceToConnection = new();
-    private readonly ConcurrentDictionary<string, string> _connectionToDevice = new();
+    private readonly ConcurrentDictionary<string, string> _sessionToConnection = new();
+    private readonly ConcurrentDictionary<string, string> _connectionToSession = new();
     private readonly ILogger<ConnectionTrackingService> _logger;
 
     public ConnectionTrackingService(ILogger<ConnectionTrackingService> logger)
@@ -18,27 +18,27 @@ public class ConnectionTrackingService
     }
 
     /// <summary>
-    /// Register a SignalR connection for a device.
-    /// If the device already has a connection, the old one is replaced.
+    /// Register a SignalR connection for a session.
+    /// If the session already has a connection, the old one is replaced.
     /// </summary>
-    public void RegisterConnection(string deviceId, string connectionId)
+    public void RegisterConnection(string sessionId, string connectionId)
     {
-        if (string.IsNullOrEmpty(deviceId) || string.IsNullOrEmpty(connectionId))
+        if (string.IsNullOrEmpty(sessionId) || string.IsNullOrEmpty(connectionId))
             return;
 
-        // If device already has a connection, unregister the old one
-        if (_deviceToConnection.TryGetValue(deviceId, out var oldConnectionId))
+        // If session already has a connection, unregister the old one
+        if (_sessionToConnection.TryGetValue(sessionId, out var oldConnectionId))
         {
-            _connectionToDevice.TryRemove(oldConnectionId, out _);
-            _logger.LogDebug("Replaced existing connection {OldConnectionId} for device {DeviceId}",
-                oldConnectionId, deviceId);
+            _connectionToSession.TryRemove(oldConnectionId, out _);
+            _logger.LogDebug("Replaced existing connection {OldConnectionId} for session {SessionId}",
+                oldConnectionId, sessionId);
         }
 
-        _deviceToConnection[deviceId] = connectionId;
-        _connectionToDevice[connectionId] = deviceId;
+        _sessionToConnection[sessionId] = connectionId;
+        _connectionToSession[connectionId] = sessionId;
 
-        _logger.LogInformation("Registered SignalR connection {ConnectionId} for device {DeviceId}",
-            connectionId, deviceId);
+        _logger.LogInformation("Registered SignalR connection {ConnectionId} for session {SessionId}",
+            connectionId, sessionId);
     }
 
     /// <summary>
@@ -49,31 +49,31 @@ public class ConnectionTrackingService
         if (string.IsNullOrEmpty(connectionId))
             return;
 
-        if (_connectionToDevice.TryRemove(connectionId, out var deviceId))
+        if (_connectionToSession.TryRemove(connectionId, out var sessionId))
         {
-            // Only remove device mapping if it still points to this connection
+            // Only remove session mapping if it still points to this connection
             // (another connection might have already replaced it)
-            _deviceToConnection.TryRemove(deviceId, out var currentConnectionId);
+            _sessionToConnection.TryRemove(sessionId, out var currentConnectionId);
             if (currentConnectionId != null && currentConnectionId != connectionId)
             {
                 // Put it back - a newer connection replaced this one
-                _deviceToConnection[deviceId] = currentConnectionId;
+                _sessionToConnection[sessionId] = currentConnectionId;
             }
 
-            _logger.LogInformation("Unregistered SignalR connection {ConnectionId} for device {DeviceId}",
-                connectionId, deviceId);
+            _logger.LogInformation("Unregistered SignalR connection {ConnectionId} for session {SessionId}",
+                connectionId, sessionId);
         }
     }
 
     /// <summary>
-    /// Get the SignalR connection ID for a device, if connected.
+    /// Get the SignalR connection ID for a session, if connected.
     /// </summary>
-    public string? GetConnectionId(string deviceId)
+    public string? GetConnectionId(string sessionId)
     {
-        if (string.IsNullOrEmpty(deviceId))
+        if (string.IsNullOrEmpty(sessionId))
             return null;
 
-        _deviceToConnection.TryGetValue(deviceId, out var connectionId);
+        _sessionToConnection.TryGetValue(sessionId, out var connectionId);
         return connectionId;
     }
 

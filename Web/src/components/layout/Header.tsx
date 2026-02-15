@@ -9,7 +9,6 @@ import { Tooltip } from '@components/ui/Tooltip';
 import LancacheIcon from '../ui/LancacheIcon';
 import { useMockMode } from '@contexts/MockModeContext';
 import { useAuth } from '@contexts/AuthContext';
-import authService from '@services/auth.service';
 
 interface HeaderProps {
   title?: string;
@@ -26,18 +25,11 @@ const Header: React.FC<HeaderProps> = ({
   const { mockMode } = useMockMode();
   const { authMode } = useAuth();
   const [isGuestMode, setIsGuestMode] = useState(false);
-  const [isRevoked, setIsRevoked] = useState(false);
-  const [deviceId, setDeviceId] = useState('');
 
   // Event-driven updates from AuthContext - no polling needed
   useEffect(() => {
     const guestMode = authMode === 'guest';
-    const expired = authMode === 'expired';
-    setIsGuestMode(guestMode || expired);
-    setIsRevoked(expired);
-    if (guestMode || expired) {
-      setDeviceId(authService.getGuestSessionId() || '');
-    }
+    setIsGuestMode(guestMode);
   }, [authMode]);
 
   const resolvedTitle = title ?? t('app.title');
@@ -120,28 +112,14 @@ const Header: React.FC<HeaderProps> = ({
                   <span className="truncate">{resolvedSubtitle}</span>
                   {isGuestMode && (
                     <div
-                      className="px-2 py-0.5 rounded text-xs font-medium flex flex-col sm:flex-row sm:items-center gap-0.5 sm:gap-1.5"
+                      className="px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap"
                       style={{
-                        backgroundColor: isRevoked
-                          ? 'var(--theme-error-bg)'
-                          : 'var(--theme-warning-bg)',
-                        color: isRevoked ? 'var(--theme-error-text)' : 'var(--theme-warning-text)',
-                        border: isRevoked
-                          ? '1px solid var(--theme-error)'
-                          : '1px solid var(--theme-warning)'
+                        backgroundColor: 'var(--theme-warning-bg)',
+                        color: 'var(--theme-warning-text)',
+                        border: '1px solid var(--theme-warning)'
                       }}
                     >
-                      <span className="whitespace-nowrap">
-                        {isRevoked ? t('guest.revoked') : t('guest.guestMode')}
-                      </span>
-                      {!isRevoked && (
-                        <>
-                          <span className="hidden sm:inline opacity-50 text-[0.9em]">•</span>
-                          <span className="truncate max-w-[180px] sm:max-w-none font-mono text-[0.8em] opacity-85">
-                            {deviceId}
-                          </span>
-                        </>
-                      )}
+                      {t('guest.guestMode')}
                     </div>
                   )}
                 </div>
@@ -205,28 +183,14 @@ const Header: React.FC<HeaderProps> = ({
             {isGuestMode && (
               <div className="flex justify-center mt-1.5">
                 <div
-                  className="px-2 py-0.5 rounded text-xs font-medium flex items-center gap-1"
+                  className="px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap"
                   style={{
-                    backgroundColor: isRevoked
-                      ? 'var(--theme-error-bg)'
-                      : 'var(--theme-warning-bg)',
-                    color: isRevoked ? 'var(--theme-error-text)' : 'var(--theme-warning-text)',
-                    border: isRevoked
-                      ? '1px solid var(--theme-error)'
-                      : '1px solid var(--theme-warning)'
+                    backgroundColor: 'var(--theme-warning-bg)',
+                    color: 'var(--theme-warning-text)',
+                    border: '1px solid var(--theme-warning)'
                   }}
                 >
-                  <span className="whitespace-nowrap">
-                    {isRevoked ? t('guest.revoked') : t('guest.guest')}
-                  </span>
-                  {!isRevoked && (
-                    <>
-                      <span className="opacity-50">•</span>
-                      <span className="font-mono text-[0.75em] opacity-85">
-                        {deviceId}
-                      </span>
-                    </>
-                  )}
+                  {t('guest.guest')}
                 </div>
               </div>
             )}

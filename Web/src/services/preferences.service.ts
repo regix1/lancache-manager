@@ -63,15 +63,8 @@ class PreferencesService {
   async loadPreferences(): Promise<UserPreferences> {
     try {
       const response = await fetch(`${API_BASE}/user-preferences`, {
-        credentials: 'include',
-        headers: authService.getAuthHeaders()
+        credentials: 'include'
       });
-
-      if (response.status === 401) {
-        console.warn('[PreferencesService] Unauthorized - triggering logout');
-        authService.handleUnauthorized();
-        return DEFAULT_PREFERENCES;
-      }
 
       if (response.ok) {
         const data = await response.json();
@@ -121,17 +114,10 @@ class PreferencesService {
           method: 'PATCH',
           credentials: 'include',
           headers: {
-            'Content-Type': 'application/json',
-            ...authService.getAuthHeaders()
+            'Content-Type': 'application/json'
           },
           body: JSON.stringify(value)
         });
-
-        if (response.status === 401) {
-          console.warn(`[PreferencesService] Unauthorized while updating ${key} - triggering logout`);
-          authService.handleUnauthorized();
-          return false;
-        }
 
         if (response.ok) {
           return true;
@@ -193,33 +179,21 @@ class PreferencesService {
       }, 5000);
     };
 
-    // Handle session revoked - check if it's our session and logout immediately
+    // Handle session revoked - server will handle session validation via cookies
+    // If our session is revoked, subsequent API calls will return 401 and trigger logout
     const handleSessionRevoked = (data: UserSessionRevokedEvent) => {
-      const { deviceId, sessionType } = data;
-      const revocationKey = `${deviceId}-${sessionType}`;
+      const { sessionId, sessionType } = data;
+      const revocationKey = `${sessionId}-${sessionType}`;
 
       if (recentRevocations.has(revocationKey)) return;
 
       try {
         recentRevocations.add(revocationKey);
 
-        const ourDeviceId = authService.getDeviceId();
-        const ourGuestSessionId = authService.getGuestSessionId();
-
-        const isOurSession =
-          (sessionType === 'authenticated' && deviceId === ourDeviceId) ||
-          (sessionType === 'guest' && deviceId === ourGuestSessionId);
-
-        if (isOurSession) {
-          if (recentlyDispatchedSessionsCleared) return;
-          recentlyDispatchedSessionsCleared = true;
-
-          window.dispatchEvent(new CustomEvent('user-sessions-cleared'));
-
-          setTimeout(() => {
-            recentlyDispatchedSessionsCleared = false;
-          }, 5000);
-        }
+        // Server handles session identity via HttpOnly cookies
+        // If this is our session, subsequent API calls will fail with 401
+        // and authService.handleUnauthorized() will trigger logout
+        // We just acknowledge the event here for consistency
       } finally {
         setTimeout(() => {
           recentRevocations.delete(revocationKey);

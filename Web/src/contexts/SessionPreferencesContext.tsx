@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useSignalR } from './SignalRContext';
 import { useAuth } from './AuthContext';
-import authService from '@services/auth.service';
 import ApiService from '@services/api.service';
 import type { UserPreferencesUpdatedEvent } from './SignalRContext/types';
 import {
@@ -73,7 +72,10 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
   const { isAuthenticated, authMode, isLoading: authLoading } = useAuth();
 
   const getCurrentSessionId = useCallback((): string | null => {
-    return authService.getDeviceId() || authService.getGuestSessionId() || null;
+    // Session identity is now cookie-based (HttpOnly cookies sent automatically)
+    // We return a constant value since the server identifies the session via cookies
+    // This is used as a cache key for local preferences state
+    return 'current-session';
   }, []);
 
   const currentSessionId = getCurrentSessionId();
@@ -247,7 +249,8 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
   const isLoading = useCallback((sessionId: string): boolean => loadingIds.has(sessionId), [loadingIds]);
 
   const setOptimisticPreference = useCallback(<K extends keyof UserPreferences>(key: K, value: UserPreferences[K]) => {
-    const sessionId = authService.getDeviceId() || authService.getGuestSessionId();
+    // Session identity is cookie-based, use the current session ID from getCurrentSessionId
+    const sessionId = getCurrentSessionId();
     if (!sessionId) return;
 
     setPreferences(prev => {
@@ -259,7 +262,7 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
       preferencesRef.current = updated;
       return updated;
     });
-  }, []);
+  }, [getCurrentSessionId]);
 
   const updateSessionPreference = useCallback(<K extends keyof UserPreferences>(
     sessionId: string, key: K, value: UserPreferences[K]

@@ -35,8 +35,8 @@ public class PrefillAdminController : ControllerBase
         _notifications = notifications;
     }
 
-    private string? GetDeviceId() =>
-        HttpContext.Items.TryGetValue("DeviceId", out var deviceId) ? deviceId as string : null;
+    private UserSession? GetSession() => HttpContext.Items["Session"] as UserSession;
+    private string GetSessionId() => GetSession()?.Id.ToString() ?? "unknown";
 
     #region Session Management
 
@@ -62,7 +62,7 @@ public class PrefillAdminController : ControllerBase
             {
                 Id = s.Id,
                 SessionId = s.SessionId,
-                DeviceId = s.DeviceId,
+                CreatedBySessionId = s.CreatedBySessionId,
                 ContainerId = s.ContainerId,
                 ContainerName = s.ContainerName,
                 SteamUsername = liveSession?.SteamUsername ?? s.SteamUsername,
@@ -130,14 +130,14 @@ public class PrefillAdminController : ControllerBase
         string sessionId,
         [FromBody] TerminateSessionRequest? request = null)
     {
-        var adminDeviceId = GetDeviceId();
+        var adminSessionId = GetSessionId();
         var reason = request?.Reason ?? "Terminated by admin";
         var force = request?.Force ?? false;
 
-        _logger.LogWarning("Admin {AdminId} terminating session {SessionId}: {Reason}",
-            adminDeviceId, sessionId, reason);
+        _logger.LogWarning("Admin session {AdminId} terminating session {SessionId}: {Reason}",
+            adminSessionId, sessionId, reason);
 
-        await _daemonService.TerminateSessionAsync(sessionId, reason, force, adminDeviceId);
+        await _daemonService.TerminateSessionAsync(sessionId, reason, force, adminSessionId);
 
         return Ok(ApiResponse.Message("Session terminated"));
     }
@@ -148,19 +148,19 @@ public class PrefillAdminController : ControllerBase
     [HttpPost("sessions/terminate-all")]
     public async Task<ActionResult> TerminateAllSessions([FromBody] TerminateSessionRequest? request = null)
     {
-        var adminDeviceId = GetDeviceId();
+        var adminSessionId = GetSessionId();
         var reason = request?.Reason ?? "All sessions terminated by admin";
         var force = request?.Force ?? true;
 
         var sessions = _daemonService.GetAllSessions().ToList();
         var count = sessions.Count;
 
-        _logger.LogWarning("Admin {AdminId} terminating all {Count} sessions: {Reason}",
-            adminDeviceId, count, reason);
+        _logger.LogWarning("Admin session {AdminId} terminating all {Count} sessions: {Reason}",
+            adminSessionId, count, reason);
 
         foreach (var session in sessions)
         {
-            await _daemonService.TerminateSessionAsync(session.Id, reason, force, adminDeviceId);
+            await _daemonService.TerminateSessionAsync(session.Id, reason, force, adminSessionId);
         }
 
         return Ok(new { message = $"Terminated {count} sessions" });
@@ -185,7 +185,7 @@ public class PrefillAdminController : ControllerBase
             Id = b.Id,
             Username = b.Username,
             BanReason = b.BanReason,
-            BannedDeviceId = b.BannedDeviceId,
+            BannedBySessionId = b.BannedBySessionId,
             BannedAtUtc = b.BannedAtUtc,
             BannedBy = b.BannedBy,
             ExpiresAtUtc = b.ExpiresAtUtc,
@@ -205,12 +205,12 @@ public class PrefillAdminController : ControllerBase
         string sessionId,
         [FromBody] BanRequest request)
     {
-        var adminDeviceId = GetDeviceId();
+        var adminSessionId = GetSessionId();
 
         var ban = await _sessionService.BanUserBySessionAsync(
             sessionId,
             request.Reason,
-            adminDeviceId,
+            adminSessionId,
             request.ExpiresAt);
 
         if (ban == null)
@@ -219,29 +219,29 @@ public class PrefillAdminController : ControllerBase
         }
 
         // Also terminate the session
-        await _daemonService.TerminateSessionAsync(sessionId, "Banned by admin", true, adminDeviceId);
+        await _daemonService.TerminateSessionAsync(sessionId, "Banned by admin", true, adminSessionId);
 
-        // Notify the banned device via SignalR so their UI updates immediately
-        if (!string.IsNullOrEmpty(ban.BannedDeviceId))
+        // Notify the banned session via SignalR so their UI updates immediately
+        if (!string.IsNullOrEmpty(ban.BannedBySessionId))
         {
             await _notifications.NotifyAllAsync(SignalREvents.SteamUserBanned, new
             {
-                deviceId = ban.BannedDeviceId,
+                sessionId = ban.BannedBySessionId,
                 username = ban.Username,
                 reason = ban.BanReason,
                 expiresAt = ban.ExpiresAtUtc?.ToString("o")
             });
         }
 
-        _logger.LogWarning("Admin {AdminId} banned Steam user {Username} from session {SessionId}. Reason: {Reason}",
-            adminDeviceId, ban.Username, sessionId, request.Reason);
+        _logger.LogWarning("Admin session {AdminId} banned Steam user {Username} from session {SessionId}. Reason: {Reason}",
+            adminSessionId, ban.Username, sessionId, request.Reason);
 
         return Ok(new BannedSteamUserDto
         {
             Id = ban.Id,
             Username = ban.Username,
             BanReason = ban.BanReason,
-            BannedDeviceId = ban.BannedDeviceId,
+            BannedBySessionId = ban.BannedBySessionId,
             BannedAtUtc = ban.BannedAtUtc,
             BannedBy = ban.BannedBy,
             ExpiresAtUtc = ban.ExpiresAtUtc,
@@ -261,36 +261,36 @@ public class PrefillAdminController : ControllerBase
             return BadRequest(ApiResponse.Required("Username"));
         }
 
-        var adminDeviceId = GetDeviceId();
+        var adminSessionId = GetSessionId();
 
         var ban = await _sessionService.BanUserAsync(
             request.Username,
             request.Reason,
-            request.DeviceId,
-            adminDeviceId,
+            request.SessionId,
+            adminSessionId,
             request.ExpiresAt);
 
-        // Notify the banned device via SignalR so their UI updates immediately
-        if (!string.IsNullOrEmpty(ban.BannedDeviceId))
+        // Notify the banned session via SignalR so their UI updates immediately
+        if (!string.IsNullOrEmpty(ban.BannedBySessionId))
         {
             await _notifications.NotifyAllAsync(SignalREvents.SteamUserBanned, new
             {
-                deviceId = ban.BannedDeviceId,
+                sessionId = ban.BannedBySessionId,
                 username = ban.Username,
                 reason = ban.BanReason,
                 expiresAt = ban.ExpiresAtUtc?.ToString("o")
             });
         }
 
-        _logger.LogWarning("Admin {AdminId} banned Steam user {Username}. Reason: {Reason}",
-            adminDeviceId, ban.Username, request.Reason);
+        _logger.LogWarning("Admin session {AdminId} banned Steam user {Username}. Reason: {Reason}",
+            adminSessionId, ban.Username, request.Reason);
 
         return Ok(new BannedSteamUserDto
         {
             Id = ban.Id,
             Username = ban.Username,
             BanReason = ban.BanReason,
-            BannedDeviceId = ban.BannedDeviceId,
+            BannedBySessionId = ban.BannedBySessionId,
             BannedAtUtc = ban.BannedAtUtc,
             BannedBy = ban.BannedBy,
             ExpiresAtUtc = ban.ExpiresAtUtc,
@@ -305,26 +305,26 @@ public class PrefillAdminController : ControllerBase
     [HttpPost("bans/{banId}/lift")]
     public async Task<ActionResult> LiftBan(int banId)
     {
-        var adminDeviceId = GetDeviceId();
+        var adminSessionId = GetSessionId();
 
-        var ban = await _sessionService.LiftBanAsync(banId, adminDeviceId);
+        var ban = await _sessionService.LiftBanAsync(banId, adminSessionId);
 
         if (ban == null)
         {
             return NotFound(ApiResponse.Error("Ban not found or already lifted"));
         }
 
-        // Notify the unbanned device via SignalR so their UI updates immediately
-        if (!string.IsNullOrEmpty(ban.BannedDeviceId))
+        // Notify the unbanned session via SignalR so their UI updates immediately
+        if (!string.IsNullOrEmpty(ban.BannedBySessionId))
         {
             await _notifications.NotifyAllAsync(SignalREvents.SteamUserUnbanned, new
             {
-                deviceId = ban.BannedDeviceId,
+                sessionId = ban.BannedBySessionId,
                 username = ban.Username
             });
         }
 
-        _logger.LogInformation("Admin {AdminId} lifted ban {BanId}", adminDeviceId, banId);
+        _logger.LogInformation("Admin session {AdminId} lifted ban {BanId}", adminSessionId, banId);
 
         return Ok(ApiResponse.Message("Ban lifted"));
     }
@@ -394,7 +394,7 @@ public class PrefillAdminController : ControllerBase
     public async Task<ActionResult> ClearAppCache(uint appId)
     {
         await _cacheService.ClearAppCacheAsync(appId);
-        _logger.LogInformation("Cache cleared for app {AppId} by {DeviceId}", appId, GetDeviceId());
+        _logger.LogInformation("Cache cleared for app {AppId} by session {SessionId}", appId, GetSessionId());
         return Ok(ApiResponse.Message($"Cache cleared for app {appId}"));
     }
 
@@ -405,7 +405,7 @@ public class PrefillAdminController : ControllerBase
     public async Task<ActionResult> ClearAllCache()
     {
         await _cacheService.ClearAllCacheAsync();
-        _logger.LogInformation("Entire prefill cache cleared by {DeviceId}", GetDeviceId());
+        _logger.LogInformation("Entire prefill cache cleared by session {SessionId}", GetSessionId());
         return Ok(ApiResponse.Message("Prefill cache cleared"));
     }
 

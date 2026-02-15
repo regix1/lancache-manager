@@ -1,7 +1,6 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
 import { type HubConnection, HubConnectionBuilder, LogLevel } from '@microsoft/signalr';
 import { SIGNALR_BASE } from '@utils/constants';
-import authService from '@services/auth.service';
 import {
   formatDuration,
   formatTimeRemaining,
@@ -174,12 +173,6 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
     }
 
     const connectPromise = (async (): Promise<HubConnection | null> => {
-      const deviceId = authService.getDeviceId();
-      if (!deviceId) {
-        setError(t('prefill.errors.notAuthenticated'));
-        return null;
-      }
-
       // Reuse existing connection if already connected
       if (hubConnection.current?.state === 'Connected') {
         return hubConnection.current;
@@ -200,7 +193,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
 
       try {
         const connection = new HubConnectionBuilder()
-          .withUrl(`${SIGNALR_BASE}/prefill-daemon?deviceId=${encodeURIComponent(deviceId)}`)
+          .withUrl(`${SIGNALR_BASE}/prefill-daemon`)
           .withAutomaticReconnect()
           .configureLogging(LogLevel.Information)
           .build();

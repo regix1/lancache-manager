@@ -130,12 +130,13 @@ public class AppDbContext : DbContext
 
         // UserSession indexes
         modelBuilder.Entity<UserSession>()
-            .HasIndex(s => s.IsGuest)
-            .HasDatabaseName("IX_UserSessions_IsGuest");
+            .HasIndex(s => s.SessionTokenHash)
+            .HasDatabaseName("IX_UserSessions_SessionTokenHash")
+            .IsUnique();
 
         modelBuilder.Entity<UserSession>()
-            .HasIndex(s => s.LastSeenAtUtc)
-            .HasDatabaseName("IX_UserSessions_LastSeenAtUtc");
+            .HasIndex(s => s.SessionType)
+            .HasDatabaseName("IX_UserSessions_SessionType");
 
         modelBuilder.Entity<UserSession>()
             .HasIndex(s => s.ExpiresAtUtc)
@@ -147,15 +148,15 @@ public class AppDbContext : DbContext
 
         // UserPreferences configuration
         modelBuilder.Entity<UserPreferences>()
-            .HasIndex(p => p.DeviceId)
-            .HasDatabaseName("IX_UserPreferences_DeviceId")
+            .HasIndex(p => p.SessionId)
+            .HasDatabaseName("IX_UserPreferences_SessionId")
             .IsUnique();
 
         // Configure one-to-one relationship between UserSession and UserPreferences
         modelBuilder.Entity<UserSession>()
             .HasOne(s => s.Preferences)
             .WithOne(p => p.Session)
-            .HasForeignKey<UserPreferences>(p => p.DeviceId)
+            .HasForeignKey<UserPreferences>(p => p.SessionId)
             .OnDelete(DeleteBehavior.Cascade);
 
         // Event indexes
@@ -237,8 +238,8 @@ public class AppDbContext : DbContext
             .IsUnique();
 
         modelBuilder.Entity<PrefillSession>()
-            .HasIndex(p => p.DeviceId)
-            .HasDatabaseName("IX_PrefillSessions_DeviceId");
+            .HasIndex(p => p.CreatedBySessionId)
+            .HasDatabaseName("IX_PrefillSessions_CreatedBySessionId");
 
         modelBuilder.Entity<PrefillSession>()
             .HasIndex(p => p.ContainerId)

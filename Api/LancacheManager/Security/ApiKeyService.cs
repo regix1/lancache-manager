@@ -169,10 +169,13 @@ public class ApiKeyService
         Console.WriteLine("");
         Console.WriteLine($"  Running as UID: {puid} / GID: {pgid}");
         Console.WriteLine("");
-        Console.WriteLine("  API KEY (for Metrics/Swagger protection)");
+        Console.WriteLine("  API KEY (used for login & Metrics/Swagger protection)");
         Console.WriteLine($"  {apiKey}");
         Console.WriteLine("");
         Console.WriteLine($"  File: {_apiKeyPath}");
+        Console.WriteLine("");
+        Console.WriteLine("  Authentication is ENABLED - use this API key to log in");
+        Console.WriteLine("  Guest access allows read-only dashboard viewing");
         Console.WriteLine("");
         Console.WriteLine("────────────────────────────────────────────────────────────────────────────");
     }

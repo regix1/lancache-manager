@@ -52,12 +52,8 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
   });
   const [resetJustCompleted, setResetJustCompleted] = useState(false);
 
-  // Clear auth state immediately when modal opens to prevent race conditions
-  useEffect(() => {
-    // Clear local auth state to ensure a clean slate
-    // This prevents periodic checks from interfering while user is typing
-    authService.clearAuth();
-  }, []); // Run once on mount
+  // Note: Auth state is managed by the session system
+  // No need to manually clear auth on mount
 
   useEffect(() => {
     if (allowGuestMode) {
@@ -158,17 +154,12 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
     setAuthError(null);
 
     try {
-      const result = await authService.register(apiKey, null);
+      const result = await authService.login(apiKey);
       if (result.success) {
-        const authCheck = await authService.checkAuth();
-        if (authCheck.isAuthenticated) {
-          onAuthChanged?.();
-          setTimeout(() => onAuthComplete(), 1000);
-        } else {
-          setAuthError(t('modals.auth.errors.verificationFailed'));
-        }
+        onAuthChanged?.();
+        setTimeout(() => onAuthComplete(), 500);
       } else {
-        setAuthError(result.message);
+        setAuthError(result.message || t('modals.auth.errors.authenticationFailed'));
       }
     } catch (error: unknown) {
       setAuthError((error instanceof Error ? error.message : String(error)) || t('modals.auth.errors.authenticationFailed'));
@@ -178,7 +169,6 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
   };
 
   const handleStartGuestMode = async () => {
-    // Check if guest mode is locked first
     if (guestModeLocked) {
       setAuthError(t('modals.auth.errors.guestModeDisabled'));
       return;
@@ -191,11 +181,14 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
     }
 
     try {
-      await authService.startGuestMode();
-      onAuthChanged?.();
-      setTimeout(() => onAuthComplete(), 1000);
+      const result = await authService.startGuestSession();
+      if (result.success) {
+        onAuthChanged?.();
+        setTimeout(() => onAuthComplete(), 500);
+      } else {
+        setAuthError(result.message || t('modals.auth.errors.guestModeUnavailable'));
+      }
     } catch (err: unknown) {
-      // Handle case where backend rejects (e.g., locked after button click)
       const message = err instanceof Error ? err.message : t('modals.auth.errors.failedToStartGuest');
       setAuthError(message.includes('disabled') ? message : t('modals.auth.errors.guestModeUnavailable'));
     }

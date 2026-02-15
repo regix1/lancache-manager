@@ -11,7 +11,6 @@ import ApiService from '@services/api.service';
 import { usePrefillContext } from '@contexts/PrefillContext';
 import { useAuth } from '@contexts/AuthContext';
 import { SteamIcon } from '@components/ui/SteamIcon';
-import authService from '@services/auth.service';
 import { API_BASE } from '@utils/constants';
 
 import { ScrollText, X, Timer, LogIn, CheckCircle2, AlertCircle } from 'lucide-react';
@@ -204,8 +203,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         method: 'POST',
         credentials: 'include',
         headers: {
-          'Content-Type': 'application/json',
-          ...authService.getAuthHeaders()
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify(requestBody)
       });
@@ -245,7 +243,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         // Fetch owned games via direct API call
         const gamesResponse = await fetch(
           `${API_BASE}/prefill-daemon/sessions/${signalR.session.id}/games`,
-          { credentials: 'include', headers: authService.getAuthHeaders() }
+          { credentials: 'include' }
         );
         if (!gamesResponse.ok) {
           throw new Error(`Failed to get games: HTTP ${gamesResponse.status}`);
@@ -455,8 +453,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             method: 'POST',
             credentials: 'include',
             headers: {
-              'Content-Type': 'application/json',
-              ...authService.getAuthHeaders()
+              'Content-Type': 'application/json'
             },
             body: JSON.stringify({ appIds })
           }
