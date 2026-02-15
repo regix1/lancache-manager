@@ -126,7 +126,9 @@ const Dashboard: React.FC = () => {
     addedToCache: 0,
     totalServed: 0,
     cacheHitRatio: 0,
-    uniqueClients: 0
+    uniqueClients: 0,
+    activeClients: 0,
+    totalActiveDownloads: 0
   });
 
   // Determine if we're viewing historical/filtered data (not live)
@@ -361,9 +363,6 @@ const Dashboard: React.FC = () => {
 
   const stats = useMemo(() => {
     // Use speed data from SpeedContext for real-time accurate active data (from Rust speed tracker)
-    const isSpeedActive = speedSnapshot?.hasActiveDownloads || false;
-    const activeClients = isSpeedActive ? (speedSnapshot?.clientSpeeds?.length ?? 0) : 0;
-    const totalActiveDownloads = activeDownloadCount;
     const totalDownloads = filteredServiceStats.reduce(
       (sum: number, service: { totalDownloads?: number }) => sum + (service.totalDownloads || 0),
       0
@@ -371,6 +370,14 @@ const Dashboard: React.FC = () => {
 
     // Use dashboardStats when available, otherwise keep previous values to prevent flashing to 0
     const hasPeriodData = dashboardStats?.period !== undefined && dashboardStats?.period !== null;
+
+    // Use fallback pattern for active stats to prevent flickering during tab switches
+    const activeClients = (speedSnapshot?.clientSpeeds?.length !== undefined && speedSnapshot.clientSpeeds.length >= 0)
+      ? speedSnapshot.clientSpeeds.length
+      : previousStatsRef.current.activeClients;
+    const totalActiveDownloads = (activeDownloadCount !== undefined && activeDownloadCount !== null)
+      ? activeDownloadCount
+      : previousStatsRef.current.totalActiveDownloads;
 
     const newStats = {
       activeClients,
@@ -398,8 +405,16 @@ const Dashboard: React.FC = () => {
         addedToCache: newStats.addedToCache,
         totalServed: newStats.totalServed,
         cacheHitRatio: newStats.cacheHitRatio,
-        uniqueClients: newStats.uniqueClients
+        uniqueClients: newStats.uniqueClients,
+        activeClients: newStats.activeClients,
+        totalActiveDownloads: newStats.totalActiveDownloads
       };
+    } else {
+      // Always save activeClients and totalActiveDownloads when they have valid values
+      if (newStats.activeClients > 0 || newStats.totalActiveDownloads > 0) {
+        previousStatsRef.current.activeClients = newStats.activeClients;
+        previousStatsRef.current.totalActiveDownloads = newStats.totalActiveDownloads;
+      }
     }
 
     return newStats;
