@@ -48,29 +48,61 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
     return clientSpeeds.length;
   }, [clientSpeeds]);
 
+  // Apply speed snapshot with grace period protection for zero transitions.
+  // Prevents tab-switch flicker where REST fetch returns momentary zero
+  // while downloads are still active (Rust tracker's 2-second window gap).
+  const applySpeedSnapshot = useCallback((data: DownloadSpeedSnapshot) => {
+    const newCount = data?.gameSpeeds?.length ?? 0;
+    const previousCount = lastActiveCountRef.current ?? 0;
+
+    // If going from active to zero, apply same grace period as SignalR handler
+    if (newCount === 0 && previousCount > 0) {
+      lastActiveCountRef.current = newCount;
+      // Only schedule if no grace period is already running
+      if (!zeroGracePeriodRef.current) {
+        const scheduledData = data;
+        zeroGracePeriodRef.current = setTimeout(() => {
+          // Only apply zero-state if count is still zero
+          if ((lastActiveCountRef.current ?? 0) === 0) {
+            setSpeedSnapshot(scheduledData);
+          }
+          zeroGracePeriodRef.current = null;
+        }, 1500);
+      }
+      return;
+    }
+
+    // Non-zero data: clear any pending zero-grace timeout and apply immediately
+    if (newCount > 0 && zeroGracePeriodRef.current) {
+      clearTimeout(zeroGracePeriodRef.current);
+      zeroGracePeriodRef.current = null;
+    }
+
+    setSpeedSnapshot(data);
+    lastActiveCountRef.current = newCount;
+  }, []);
+
   // Fetch speed data from the API (used for initial load and manual refresh)
   const fetchSpeed = useCallback(async () => {
     try {
       const data = await ApiService.getCurrentSpeeds();
-      setSpeedSnapshot(data);
-      lastActiveCountRef.current = data?.gameSpeeds?.length ?? 0;
+      applySpeedSnapshot(data);
     } catch (error) {
       console.error('[SpeedContext] Failed to fetch speed data:', error);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [applySpeedSnapshot]);
 
   // Manual refresh function exposed to consumers
   const refreshSpeed = useCallback(async () => {
     try {
       const data = await ApiService.getCurrentSpeeds();
-      setSpeedSnapshot(data);
-      lastActiveCountRef.current = data?.gameSpeeds?.length ?? 0;
+      applySpeedSnapshot(data);
     } catch (error) {
       console.error('[SpeedContext] Failed to refresh speed data:', error);
     }
-  }, []);
+  }, [applySpeedSnapshot]);
 
   // Fetch initial data on mount
   useEffect(() => {

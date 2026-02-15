@@ -371,13 +371,10 @@ const Dashboard: React.FC = () => {
     // Use dashboardStats when available, otherwise keep previous values to prevent flashing to 0
     const hasPeriodData = dashboardStats?.period !== undefined && dashboardStats?.period !== null;
 
-    // Use fallback pattern for active stats to prevent flickering during tab switches
-    const activeClients = (speedSnapshot?.clientSpeeds?.length !== undefined && speedSnapshot.clientSpeeds.length >= 0)
-      ? speedSnapshot.clientSpeeds.length
-      : previousStatsRef.current.activeClients;
-    const totalActiveDownloads = (activeDownloadCount !== undefined && activeDownloadCount !== null)
-      ? activeDownloadCount
-      : previousStatsRef.current.totalActiveDownloads;
+    // Active stats come from SpeedContext which has its own grace period
+    // to prevent tab-switch flicker (zero-transition delay in applySpeedSnapshot)
+    const activeClients = speedSnapshot?.clientSpeeds?.length ?? 0;
+    const totalActiveDownloads = activeDownloadCount;
 
     const newStats = {
       activeClients,
@@ -409,12 +406,6 @@ const Dashboard: React.FC = () => {
         activeClients: newStats.activeClients,
         totalActiveDownloads: newStats.totalActiveDownloads
       };
-    } else {
-      // Always save activeClients and totalActiveDownloads when they have valid values
-      if (newStats.activeClients > 0 || newStats.totalActiveDownloads > 0) {
-        previousStatsRef.current.activeClients = newStats.activeClients;
-        previousStatsRef.current.totalActiveDownloads = newStats.totalActiveDownloads;
-      }
     }
 
     return newStats;
