@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useSignalR } from '@contexts/SignalRContext';
 import { useRefreshRate } from '@contexts/RefreshRateContext';
+import { useAuth } from '@contexts/AuthContext';
 import ApiService from '@services/api.service';
 import type { DownloadSpeedSnapshot, GameSpeedInfo, ClientSpeedInfo } from '../../types';
 import type { SpeedContextType, SpeedProviderProps } from './types';
@@ -18,6 +19,8 @@ export const useSpeed = (): SpeedContextType => {
 export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedProviderProps) => {
   const signalR = useSignalR();
   const { getRefreshInterval } = useRefreshRate();
+  const { isAuthenticated, authMode, isLoading: authLoading } = useAuth();
+  const hasAccess = !authLoading && (isAuthenticated || authMode === 'guest');
   const [speedSnapshot, setSpeedSnapshot] = useState<DownloadSpeedSnapshot | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -104,22 +107,26 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
     }
   }, [applySpeedSnapshot]);
 
-  // Fetch initial data on mount
+  // Fetch initial data on mount (only when authenticated or guest)
   useEffect(() => {
-    fetchSpeed();
-  }, [fetchSpeed]);
+    if (hasAccess) {
+      fetchSpeed();
+    } else if (!authLoading) {
+      setIsLoading(false);
+    }
+  }, [fetchSpeed, hasAccess, authLoading]);
 
   // Re-fetch data when SignalR reconnects to recover from missed messages
   useEffect(() => {
-    if (signalR.connectionState === 'connected') {
+    if (signalR.connectionState === 'connected' && hasAccess) {
       fetchSpeed();
     }
-  }, [signalR.connectionState, fetchSpeed]);
+  }, [signalR.connectionState, fetchSpeed, hasAccess]);
 
   // Re-fetch data when page becomes visible (handles tab switching / mobile backgrounding)
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (!document.hidden) {
+      if (!document.hidden && hasAccess) {
         // Page became visible - refresh data with a small delay to let SignalR reconnect
         setTimeout(() => {
           fetchSpeed();
@@ -131,7 +138,7 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [fetchSpeed]);
+  }, [fetchSpeed, hasAccess]);
 
   // Listen for real-time speed updates via SignalR with throttling
   useEffect(() => {

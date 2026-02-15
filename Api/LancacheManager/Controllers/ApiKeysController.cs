@@ -19,8 +19,6 @@ namespace LancacheManager.Controllers;
 public class ApiKeysController : ControllerBase
 {
     private readonly ApiKeyService _apiKeyService;
-    private readonly DeviceAuthService _deviceAuthService;
-    private readonly GuestSessionService _guestSessionService;
     private readonly SteamKit2Service _steamKit2Service;
     private readonly SteamAuthStorageService _steamAuthStorage;
     private readonly StateService _stateService;
@@ -30,8 +28,6 @@ public class ApiKeysController : ControllerBase
 
     public ApiKeysController(
         ApiKeyService apiKeyService,
-        DeviceAuthService deviceAuthService,
-        GuestSessionService guestSessionService,
         SteamKit2Service steamKit2Service,
         SteamAuthStorageService steamAuthStorage,
         StateService stateService,
@@ -40,8 +36,6 @@ public class ApiKeysController : ControllerBase
         ISignalRNotificationService notifications)
     {
         _apiKeyService = apiKeyService;
-        _deviceAuthService = deviceAuthService;
-        _guestSessionService = guestSessionService;
         _steamKit2Service = steamKit2Service;
         _steamAuthStorage = steamAuthStorage;
         _stateService = stateService;
@@ -54,7 +48,6 @@ public class ApiKeysController : ControllerBase
     /// GET /api/api-keys/status - Check API key type
     /// </summary>
     [HttpGet("status")]
-    [RequireAuth]
     public IActionResult GetApiKeyStatus()
     {
         var apiKey = Request.Headers["X-Api-Key"].FirstOrDefault();
@@ -85,7 +78,6 @@ public class ApiKeysController : ControllerBase
     /// SECURITY: This logs out all Steam sessions and revokes all device registrations
     /// </summary>
     [HttpPost("regenerate")]
-    [RequireAuth]
     public async Task<IActionResult> RegenerateApiKey()
     {
         // SECURITY: Clear ALL Steam-related data when API key is regenerated
@@ -105,42 +97,16 @@ public class ApiKeysController : ControllerBase
         var (oldKey, newKey) = _apiKeyService.ForceRegenerateApiKey();
         _apiKeyService.DisplayApiKey(_configuration);
 
-        // Revoke all existing device registrations
-        var revokedDeviceCount = _deviceAuthService.RevokeAllDevices();
-
-        // Revoke all guest sessions
-        var guestSessions = _guestSessionService.GetAllSessions();
-        var revokedGuestCount = 0;
-        foreach (var session in guestSessions.Where(s => !s.IsRevoked))
-        {
-            if (!string.IsNullOrEmpty(session.SessionId) &&
-                _guestSessionService.RevokeSession(session.SessionId, "Admin (API Key Regeneration)"))
-            {
-                revokedGuestCount++;
-            }
-        }
-
-        // Broadcast to ALL users for instant logout
-        await _notifications.NotifyAllAsync(SignalREvents.UserSessionsCleared);
-        _logger.LogInformation("Broadcasted UserSessionsCleared event");
-
         _logger.LogWarning(
-            "API key regenerated. Revoked: {DeviceCount} device(s), {GuestCount} guest(s) | Steam PICS: {SteamLogout} | Steam Web API Key: {WebApiKey}",
-            revokedDeviceCount,
-            revokedGuestCount,
+            "API key regenerated | Steam PICS: {SteamLogout} | Steam Web API Key: {WebApiKey}",
             steamWasAuthenticated ? "Logged out" : "Cleared",
             hadSteamWebApiKey ? "Removed" : "None");
-
-        var steamStatus = new List<string>();
-        if (steamWasAuthenticated) steamStatus.Add("Steam session terminated");
-        if (hadSteamWebApiKey) steamStatus.Add("Steam Web API key removed");
-        var steamMessage = steamStatus.Count > 0 ? " " + string.Join(", ", steamStatus) + "." : "";
 
         return Ok(new
         {
             success = true,
-            message = $"API key regenerated successfully. {revokedDeviceCount} device(s) and {revokedGuestCount} guest session(s) revoked.{steamMessage}",
-            warning = "All users must re-authenticate with the new key. Check container logs for the new API key."
+            message = "API key regenerated successfully.",
+            warning = "Check container logs for the new API key."
         });
     }
 }

@@ -14,6 +14,7 @@ using LancacheManager.Middleware;
 using LancacheManager.Security;
 using LancacheManager.Validators;
 using Microsoft.AspNetCore.DataProtection;
+
 using Microsoft.AspNetCore.Routing.Constraints;
 using Microsoft.EntityFrameworkCore;
 using System.Threading.RateLimiting;
@@ -57,46 +58,7 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddFluentValidationAutoValidation();
 builder.Services.AddValidatorsFromAssemblyContaining<CreateClientGroupRequestValidator>();
 
-// Configure session management with cookies
-// Sessions are stored in memory (cleared on app restart)
-// Session auto-restore logic in AuthController handles app restarts by validating device from DB
-builder.Services.AddDistributedMemoryCache();
-
-builder.Services.AddSession(options =>
-{
-    options.IdleTimeout = TimeSpan.FromHours(24); // Session timeout after 24 hours of inactivity
-    options.Cookie.HttpOnly = true; // Prevent JavaScript access (XSS protection)
-    // Option A: cookie-based auth for images/guests. Requires HTTPS when cross-site.
-    // SameSite=None allows cookies to be sent with image requests across origins.
-    options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
-    options.Cookie.SameSite = SameSiteMode.None;
-    options.Cookie.Name = "LancacheManager.Session"; // Custom cookie name
-    options.Cookie.IsEssential = true; // Required for GDPR compliance
-    options.Cookie.MaxAge = TimeSpan.FromDays(30); // Cookie persists for 30 days (survives browser restarts)
-});
-builder.Services.Configure<CookiePolicyOptions>(options =>
-{
-    options.MinimumSameSitePolicy = SameSiteMode.Unspecified;
-    options.OnAppendCookie = context => AdjustSameSite(context.Context, context.CookieOptions);
-    options.OnDeleteCookie = context => AdjustSameSite(context.Context, context.CookieOptions);
-});
-builder.Services.AddSwaggerGen(c =>
-{
-    // Add API Key authentication support to Swagger UI
-    c.AddSecurityDefinition("ApiKey", new Microsoft.OpenApi.OpenApiSecurityScheme
-    {
-        Type = Microsoft.OpenApi.SecuritySchemeType.ApiKey,
-        In = Microsoft.OpenApi.ParameterLocation.Header,
-        Name = "X-Api-Key",
-        Description = "API Key authentication. Enter your API key from the Management tab."
-    });
-
-    // Apply API Key security requirement to all endpoints
-    c.AddSecurityRequirement(_ => new Microsoft.OpenApi.OpenApiSecurityRequirement
-    {
-        [new Microsoft.OpenApi.OpenApiSecuritySchemeReference("ApiKey")] = new List<string>()
-    });
-});
+builder.Services.AddSwaggerGen();
 builder.Services.AddSignalR(options =>
 {
     // Increase timeouts to prevent disconnections during long-running operations (PICS scans, log processing, corruption analysis)
@@ -354,11 +316,8 @@ builder.Services.AddHttpClient("SteamImages", client =>
 
 // Register Authentication Services
 builder.Services.AddSingleton<ApiKeyService>();
-builder.Services.AddSingleton<DeviceAuthService>();
-builder.Services.AddSingleton<GuestSessionService>();
 builder.Services.AddScoped<AuthenticationHelper>();
 builder.Services.AddSingleton<LancacheManager.Core.Services.UserPreferencesService>();
-builder.Services.AddSingleton<LancacheManager.Core.Services.SessionMigrationService>();
 
 // Register SignalR connection tracking service for targeted messaging
 builder.Services.AddSingleton<LancacheManager.Core.Services.ConnectionTrackingService>();
@@ -490,12 +449,6 @@ builder.Logging.AddFilter("LancacheManager.Infrastructure.Services.RustLogProces
 builder.Logging.AddFilter("LancacheManager.Services.CacheManagementService", LogLevel.Warning);
 builder.Logging.AddFilter("LancacheManager.Services.PicsDataService", LogLevel.Information);
 
-// Suppress Data Protection key ring warnings when old session cookies are encountered
-// This occurs when the data folder is deleted but browser still has cookies encrypted with old keys
-// The session middleware gracefully handles this by ignoring invalid cookies
-builder.Logging.AddFilter("Microsoft.AspNetCore.DataProtection.KeyManagement.KeyRingBasedDataProtector", LogLevel.None);
-builder.Logging.AddFilter("Microsoft.AspNetCore.Session.SessionMiddleware", LogLevel.Error);
-
 builder.Logging.SetMinimumLevel(LogLevel.Information);
 
 var app = builder.Build();
@@ -567,15 +520,6 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
-// NOW it's safe to initialize services that depend on the database
-using (var scope = app.Services.CreateScope())
-{
-    var apiKeyService = scope.ServiceProvider.GetRequiredService<ApiKeyService>();
-    var deviceAuthService = scope.ServiceProvider.GetRequiredService<DeviceAuthService>();
-    var configuration = scope.ServiceProvider.GetRequiredService<IConfiguration>();
-    apiKeyService.DisplayApiKey(configuration, deviceAuthService); // This will create and display the API key (or show auth disabled message)
-}
-
 // MUST be first: Handle forwarded headers from reverse proxies (nginx, Cloudflare, etc.)
 // This ensures HttpContext.Connection.RemoteIpAddress returns the real client IP
 app.UseForwardedHeaders();
@@ -596,14 +540,6 @@ app.UseRouting();
 
 // Rate limiting - must be after routing to access endpoint metadata
 app.UseRateLimiter();
-
-app.UseCookiePolicy();
-
-// Enable session middleware (must be before authentication middleware)
-app.UseSession();
-
-// Add Authentication Middleware (after routing and session so endpoints and sessions are resolved)
-app.UseMiddleware<AuthenticationMiddleware>();
 
 // Add Metrics Authentication Middleware (optional API key for /metrics)
 app.UseMiddleware<MetricsAuthenticationMiddleware>();
@@ -701,14 +637,6 @@ _ = Task.Run(async () =>
 });
 
 app.Run();
-
-static void AdjustSameSite(HttpContext context, CookieOptions options)
-{
-    if (options.SameSite == SameSiteMode.None && !context.Request.IsHttps)
-    {
-        options.SameSite = SameSiteMode.Lax;
-    }
-}
 
 // Helper function to find project root for Data Protection setup (before DI is available)
 static string FindProjectRootForDataProtection()

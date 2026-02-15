@@ -1,6 +1,5 @@
 using LancacheManager.Models;
 using LancacheManager.Core.Services;
-using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
@@ -30,7 +29,6 @@ public class SteamApiKeysController : ControllerBase
     /// RESTful: Status endpoint for the API keys resource
     /// </summary>
     [HttpGet("status")]
-    [RequireGuestSession]
     public async Task<IActionResult> GetStatus([FromQuery] bool forceRefresh = false)
     {
         var status = await _steamWebApiService.GetApiStatusAsync(forceRefresh);
@@ -62,7 +60,6 @@ public class SteamApiKeysController : ControllerBase
     /// Both endpoints are actively used by the frontend setup wizard and settings modal.
     /// </remarks>
     [HttpPost("test")]
-    [RequireAuth]
     public async Task<IActionResult> TestApiKey([FromBody] TestApiKeyRequest request)
     {
         // Validation is handled automatically by FluentValidation
@@ -95,7 +92,6 @@ public class SteamApiKeysController : ControllerBase
     /// Validation is handled automatically by FluentValidation (see SaveApiKeyRequestValidator)
     /// </remarks>
     [HttpPost]
-    [RequireAuth]
     public async Task<IActionResult> SaveApiKey([FromBody] SaveApiKeyRequest request)
     {
         // Validation is handled automatically by FluentValidation
@@ -128,7 +124,6 @@ public class SteamApiKeysController : ControllerBase
     /// RESTful: DELETE is proper method for removing resources
     /// </summary>
     [HttpDelete("current")]
-    [RequireAuth]
     public IActionResult RemoveApiKey()
     {
         _steamWebApiService.RemoveApiKey();

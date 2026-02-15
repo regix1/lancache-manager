@@ -5,7 +5,6 @@ using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Hubs;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
-using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
 
@@ -96,7 +95,6 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// Get all events
     /// </summary>
     [HttpGet]
-    [RequireGuestSession]
     public override Task<IActionResult> GetAll(CancellationToken ct = default)
         => base.GetAll(ct);
 
@@ -104,7 +102,6 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// Get currently active events
     /// </summary>
     [HttpGet("active")]
-    [RequireGuestSession]
     public async Task<IActionResult> GetActive()
     {
         var events = await _eventsService.GetActiveEventsAsync();
@@ -115,7 +112,6 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// Get events for calendar view (by date range)
     /// </summary>
     [HttpGet("calendar")]
-    [RequireGuestSession]
     public async Task<IActionResult> GetCalendarEvents([FromQuery] long start, [FromQuery] long end)
     {
         var startUtc = start.FromUnixSeconds();
@@ -129,7 +125,6 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// Get a single event by ID
     /// </summary>
     [HttpGet("{id:int}")]
-    [RequireGuestSession]
     public override Task<IActionResult> GetById(int id, CancellationToken ct = default)
         => base.GetById(id, ct);
 
@@ -140,7 +135,6 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// Validation is handled automatically by FluentValidation (see CreateEventRequestValidator)
     /// </remarks>
     [HttpPost]
-    [RequireAuth]
     public override Task<IActionResult> Create([FromBody] CreateEventRequest request, CancellationToken ct = default)
         => base.Create(request, ct);
 
@@ -151,7 +145,6 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// Validation is handled automatically by FluentValidation (see UpdateEventRequestValidator)
     /// </remarks>
     [HttpPut("{id:int}")]
-    [RequireAuth]
     public override Task<IActionResult> Update(int id, [FromBody] UpdateEventRequest request, CancellationToken ct = default)
         => base.Update(id, request, ct);
 
@@ -159,7 +152,6 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// Delete an event
     /// </summary>
     [HttpDelete("{id:int}")]
-    [RequireAuth]
     public override Task<IActionResult> Delete(int id, CancellationToken ct = default)
         => base.Delete(id, ct);
 
@@ -167,7 +159,6 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// Get downloads for an event
     /// </summary>
     [HttpGet("{id:int}/downloads")]
-    [RequireGuestSession]
     public async Task<IActionResult> GetDownloads(int id, [FromQuery] bool taggedOnly = false)
     {
         var evt = await _eventsService.GetByIdOrThrowAsync(id, "Event");
@@ -180,7 +171,6 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// Manually tag a download to an event
     /// </summary>
     [HttpPost("{eventId:int}/downloads/{downloadId:int}")]
-    [RequireAuth]
     public async Task<IActionResult> TagDownload(int eventId, int downloadId)
     {
         var evt = await _eventsService.GetByIdOrThrowAsync(eventId, "Event");
@@ -197,7 +187,6 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// Remove a download tag from an event
     /// </summary>
     [HttpDelete("{eventId:int}/downloads/{downloadId:int}")]
-    [RequireAuth]
     public async Task<IActionResult> UntagDownload(int eventId, int downloadId)
     {
         await _eventsService.UntagDownloadAsync(eventId, downloadId);

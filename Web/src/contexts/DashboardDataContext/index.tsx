@@ -139,7 +139,13 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({ ch
   // Single unified fetch function that fetches all data in parallel
   const fetchAllData = useCallback(async (options: { showLoading?: boolean; isInitial?: boolean; forceRefresh?: boolean; trigger?: string } = {}) => {
     if (mockModeRef.current) return;
-    if (authLoadingRef.current || !hasAccessRef.current) return;
+    if (authLoadingRef.current || !hasAccessRef.current) {
+      // If auth resolved but no access, ensure loading is cleared
+      if (!authLoadingRef.current && !hasAccessRef.current) {
+        setLoading(false);
+      }
+      return;
+    }
 
     const { showLoading = false, isInitial = false, forceRefresh = false, trigger: _trigger } = options;
 
@@ -184,6 +190,9 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({ ch
       if (!isConnected) {
         if (!hasData.current) {
           setError('Cannot connect to API server');
+        }
+        if (showLoading) {
+          setLoading(false);
         }
         return;
       }
@@ -345,6 +354,9 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({ ch
   useEffect(() => {
     if (!mockMode && !authLoading && hasAccess) {
       fetchAllData({ showLoading: true, isInitial: true, trigger: 'initial' });
+    } else if (!mockMode && !authLoading && !hasAccess) {
+      // Auth completed but user has no access — stop loading to prevent infinite skeleton
+      setLoading(false);
     }
 
     return () => {

@@ -2,7 +2,6 @@ using System.Text.Json;
 using LancacheManager.Models;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
-using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using LancacheManager.Core.Services.SteamKit2;
@@ -45,7 +44,6 @@ public class DepotsController : ControllerBase
     /// RESTful: Proper resource status endpoint
     /// </summary>
     [HttpGet("status")]
-    [RequireGuestSession]
     public async Task<IActionResult> GetDepotStatus()
     {
         var picsData = await _picsDataService.LoadPicsDataFromJsonAsync();
@@ -85,7 +83,6 @@ public class DepotsController : ControllerBase
     /// - If incremental=false: Skips viability check and proceeds directly to full scan
     /// </summary>
     [HttpPost("rebuild")]
-    [RequireAuth]
     public async Task<IActionResult> StartDepotRebuild(CancellationToken cancellationToken, [FromQuery] bool incremental = false)
     {
         // PRE-FLIGHT CHECK: Only check viability if user requested incremental scan
@@ -139,7 +136,6 @@ public class DepotsController : ControllerBase
     /// RESTful: Progress is a sub-resource of the rebuild operation
     /// </summary>
     [HttpGet("rebuild/progress")]
-    [RequireGuestSession]
     public IActionResult GetRebuildProgress()
     {
         var progress = _steamKit2Service.GetProgress();
@@ -151,7 +147,6 @@ public class DepotsController : ControllerBase
     /// RESTful: DELETE is proper method for cancelling/removing operations
     /// </summary>
     [HttpDelete("rebuild")]
-    [RequireAuth]
     public async Task<IActionResult> CancelRebuild()
     {
         var cancelled = await _steamKit2Service.CancelRebuildAsync();
@@ -171,7 +166,6 @@ public class DepotsController : ControllerBase
     /// RESTful: This is a query/check operation on the rebuild resource
     /// </summary>
     [HttpGet("rebuild/check-incremental")]
-    [RequireAuth]
     public async Task<IActionResult> CheckIncrementalViability(CancellationToken cancellationToken)
     {
         var result = await _steamKit2Service.CheckIncrementalViabilityAsync(cancellationToken);
@@ -184,7 +178,6 @@ public class DepotsController : ControllerBase
     /// Query param 'source' determines import source: 'github' or 'local'
     /// </summary>
     [HttpPost("import")]
-    [RequireAuth]
     public async Task<IActionResult> ImportDepotMappings([FromQuery] string source, CancellationToken cancellationToken)
     {
         if (source == "github")
@@ -237,7 +230,6 @@ public class DepotsController : ControllerBase
     /// RESTful: PATCH is proper method for applying updates to a resource collection
     /// </summary>
     [HttpPatch]
-    [RequireAuth]
     public async Task<IActionResult> ApplyDepotMappings(CancellationToken cancellationToken)
     {
         _logger.LogInformation("Starting manual depot mapping application");
@@ -260,7 +252,6 @@ public class DepotsController : ControllerBase
     /// </summary>
     /// <param name="intervalHours">Interval in hours (supports fractional values like 0.00833 for 30 seconds). Use 0 to disable.</param>
     [HttpPut("rebuild/config/interval")]
-    [RequireAuth]
     public IActionResult SetCrawlInterval([FromBody] double intervalHours)
     {
         _logger.LogInformation("Received crawl interval request: {IntervalHours} hours", intervalHours);
@@ -306,7 +297,6 @@ public class DepotsController : ControllerBase
     /// </summary>
     /// <param name="mode">Mode value: true (incremental), false (full), or "github" (PICS updates only)</param>
     [HttpPut("rebuild/config/mode")]
-    [RequireAuth]
     public IActionResult SetCrawlMode([FromBody] JsonElement mode)
     {
         string scanMode;

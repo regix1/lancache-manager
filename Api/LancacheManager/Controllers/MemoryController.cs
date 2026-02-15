@@ -1,6 +1,5 @@
 using LancacheManager.Models;
 using LancacheManager.Core.Interfaces;
-using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
@@ -28,7 +27,6 @@ public class MemoryController : ControllerBase
     /// </summary>
     /// <param name="forceGC">Optional: Force garbage collection before reading stats (use for diagnostics only)</param>
     [HttpGet]
-    [RequireAuth]
     public IActionResult GetMemoryStats([FromQuery] bool forceGC = false)
     {
         if (forceGC)

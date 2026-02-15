@@ -1,7 +1,6 @@
 using LancacheManager.Models;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamPrefill;
-using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
@@ -11,8 +10,6 @@ namespace LancacheManager.Controllers;
 /// Uses secure encrypted credential exchange for authentication.
 ///
 /// Authorization:
-/// - [RequireAuth] = Authenticated users only (admin endpoints)
-/// - [RequirePrefillAccess] = Authenticated users OR guests with prefill permission
 /// </summary>
 [ApiController]
 [Route("api/prefill-daemon")]
@@ -33,7 +30,6 @@ public class PrefillDaemonController : ControllerBase
     /// Gets all active daemon sessions (admin only)
     /// </summary>
     [HttpGet("sessions")]
-    [RequireAuth]
     public ActionResult<IEnumerable<DaemonSessionDto>> GetAllSessions()
     {
         var sessions = _daemonService.GetAllSessions()
@@ -46,7 +42,6 @@ public class PrefillDaemonController : ControllerBase
     /// Gets sessions for the current user
     /// </summary>
     [HttpGet("sessions/mine")]
-    [RequirePrefillAccess]
     public ActionResult<IEnumerable<DaemonSessionDto>> GetMySessions()
     {
         var deviceId = GetDeviceId()!; // Attribute guarantees this is not null
@@ -61,7 +56,6 @@ public class PrefillDaemonController : ControllerBase
     /// Gets a specific session
     /// </summary>
     [HttpGet("sessions/{sessionId}")]
-    [RequirePrefillAccess]
     public ActionResult<DaemonSessionDto> GetSession(string sessionId)
     {
         var deviceId = GetDeviceId()!;
@@ -84,7 +78,6 @@ public class PrefillDaemonController : ControllerBase
     /// Creates a new daemon session
     /// </summary>
     [HttpPost("sessions")]
-    [RequirePrefillAccess]
     public async Task<ActionResult<DaemonSessionDto>> CreateSession()
     {
         var deviceId = GetDeviceId()!;
@@ -98,7 +91,6 @@ public class PrefillDaemonController : ControllerBase
     /// Gets the daemon status for a session
     /// </summary>
     [HttpGet("sessions/{sessionId}/status")]
-    [RequirePrefillAccess]
     public async Task<ActionResult<DaemonStatus>> GetSessionStatus(string sessionId)
     {
         var deviceId = GetDeviceId()!;
@@ -128,7 +120,6 @@ public class PrefillDaemonController : ControllerBase
     /// Returns a credential challenge if credentials are needed.
     /// </summary>
     [HttpPost("sessions/{sessionId}/login")]
-    [RequirePrefillAccess]
     public async Task<ActionResult<CredentialChallenge>> StartLogin(string sessionId)
     {
         var deviceId = GetDeviceId()!;
@@ -165,7 +156,6 @@ public class PrefillDaemonController : ControllerBase
     /// Provides an encrypted credential in response to a challenge
     /// </summary>
     [HttpPost("sessions/{sessionId}/credential")]
-    [RequirePrefillAccess]
     public async Task<ActionResult> ProvideCredential(string sessionId, [FromBody] ProvideCredentialRequest request)
     {
         var deviceId = GetDeviceId()!;
@@ -198,7 +188,6 @@ public class PrefillDaemonController : ControllerBase
     /// Waits for the next credential challenge (polling endpoint)
     /// </summary>
     [HttpGet("sessions/{sessionId}/challenge")]
-    [RequirePrefillAccess]
     public async Task<ActionResult<CredentialChallenge>> WaitForChallenge(string sessionId, [FromQuery] int timeoutSeconds = 30)
     {
         var deviceId = GetDeviceId()!;
@@ -234,7 +223,6 @@ public class PrefillDaemonController : ControllerBase
     /// Gets owned games for a logged-in session
     /// </summary>
     [HttpGet("sessions/{sessionId}/games")]
-    [RequirePrefillAccess]
     public async Task<ActionResult<List<OwnedGame>>> GetOwnedGames(string sessionId)
     {
         var deviceId = GetDeviceId()!;
@@ -258,7 +246,6 @@ public class PrefillDaemonController : ControllerBase
     /// Checks cache status for cached apps (verifies Steam manifests).
     /// </summary>
     [HttpPost("sessions/{sessionId}/cache-status")]
-    [RequirePrefillAccess]
     public async Task<ActionResult<PrefillCacheStatusResponse>> GetCacheStatus(string sessionId, [FromBody] PrefillCacheStatusRequest request)
     {
         var deviceId = GetDeviceId()!;
@@ -295,7 +282,6 @@ public class PrefillDaemonController : ControllerBase
     /// Sets selected apps for prefill
     /// </summary>
     [HttpPost("sessions/{sessionId}/selected-apps")]
-    [RequirePrefillAccess]
     public async Task<ActionResult> SetSelectedApps(string sessionId, [FromBody] SetSelectedAppsRequest request)
     {
         var deviceId = GetDeviceId()!;
@@ -324,7 +310,6 @@ public class PrefillDaemonController : ControllerBase
     /// Starts a prefill operation
     /// </summary>
     [HttpPost("sessions/{sessionId}/prefill")]
-    [RequirePrefillAccess]
     public async Task<ActionResult<PrefillResult>> StartPrefill(string sessionId, [FromBody] StartPrefillRequest? request)
     {
         var deviceId = GetDeviceId()!;
@@ -359,7 +344,6 @@ public class PrefillDaemonController : ControllerBase
     /// Terminates a daemon session
     /// </summary>
     [HttpDelete("sessions/{sessionId}")]
-    [RequirePrefillAccess]
     public async Task<ActionResult> TerminateSession(string sessionId)
     {
         var deviceId = GetDeviceId()!;
@@ -383,7 +367,6 @@ public class PrefillDaemonController : ControllerBase
     /// Gets daemon service status (public endpoint)
     /// </summary>
     [HttpGet("status")]
-    [RequireGuestSession]
     public ActionResult GetStatus()
     {
         var sessions = _daemonService.GetAllSessions().ToList();

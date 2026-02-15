@@ -7,7 +7,6 @@ import LogRemovalManager from '../log-processing/LogRemovalManager';
 import CacheManager from '../cache/CacheManager';
 import CorruptionManager from '../cache/CorruptionManager';
 import GameCacheDetector from '../game-detection/GameCacheDetector';
-
 interface StorageSectionProps {
   isAuthenticated: boolean;
   authMode: AuthMode;

@@ -10,7 +10,7 @@ using LancacheManager.Hubs;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
-using LancacheManager.Security;
+
 
 namespace LancacheManager.Core.Services;
 
@@ -1224,13 +1224,11 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
     }
 
     /// <summary>
-    /// Terminates prefill sessions owned by authenticated users (not guests).
+    /// Terminates all active prefill sessions.
     /// Called when Steam PICS authentication is logged out.
     /// </summary>
-    /// <param name="deviceAuthService">Service to validate if device is authenticated</param>
     /// <param name="reason">Reason for termination (for logging)</param>
     public async Task TerminateAuthenticatedSessionsAsync(
-        DeviceAuthService deviceAuthService,
         string reason = "Steam authentication logged out")
     {
         var sessions = _sessions.Values.ToList();
@@ -1238,24 +1236,20 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
 
         foreach (var session in sessions)
         {
-            // Only terminate sessions owned by authenticated users (not guests)
-            if (deviceAuthService.ValidateDevice(session.UserId))
+            try
             {
-                try
-                {
-                    await TerminateSessionAsync(session.Id, reason, force: true, terminatedBy: "system");
-                    terminatedCount++;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to terminate session {SessionId} during auth logout", session.Id);
-                }
+                await TerminateSessionAsync(session.Id, reason, force: true, terminatedBy: "system");
+                terminatedCount++;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to terminate session {SessionId} during auth logout", session.Id);
             }
         }
 
         if (terminatedCount > 0)
         {
-            _logger.LogInformation("Terminated {Count} authenticated prefill sessions due to: {Reason}",
+            _logger.LogInformation("Terminated {Count} prefill sessions due to: {Reason}",
                 terminatedCount, reason);
         }
     }

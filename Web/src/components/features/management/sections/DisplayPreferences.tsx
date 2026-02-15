@@ -98,9 +98,6 @@ const DisplayPreferences: React.FC = () => {
     }
   }, [currentPreferences]);
 
-  // Show loading skeleton only if we don't have preferences yet
-  const isLoading = !currentPreferences;
-
   // Listen for preference changes from SignalR
   useEffect(() => {
     const handlePreferenceChange = (event: Event) => {
@@ -164,17 +161,6 @@ const DisplayPreferences: React.FC = () => {
     forceRefresh();
     await preferencesService.setPreference('showYearInDates', checked);
   }, [forceRefresh]);
-
-  if (isLoading) {
-    return (
-      <div className="animate-pulse grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="h-32 rounded-lg bg-themed-tertiary" />
-        <div className="h-32 rounded-lg bg-themed-tertiary" />
-        <div className="h-24 rounded-lg bg-themed-tertiary" />
-        <div className="h-24 rounded-lg bg-themed-tertiary" />
-      </div>
-    );
-  }
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

@@ -4,7 +4,6 @@ using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
-using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
 
@@ -46,7 +45,6 @@ public class GamesController : ControllerBase
     /// RESTful: DELETE is proper method for removing resources
     /// </summary>
     [HttpDelete("{appId}")]
-    [RequireAuth]
     public async Task<IActionResult> RemoveGameFromCache(int appId)
     {
         // CRITICAL: Check write permissions BEFORE starting the operation
@@ -189,7 +187,6 @@ public class GamesController : ControllerBase
     /// Used for restoring progress on page refresh
     /// </summary>
     [HttpGet("{appId}/removal-status")]
-    [RequireGuestSession]
     public IActionResult GetGameRemovalStatus(int appId)
     {
         var operation = _operationTracker.GetOperationByEntityKey(OperationType.GameRemoval, appId.ToString());
@@ -217,7 +214,6 @@ public class GamesController : ControllerBase
     /// Used for universal recovery on page refresh
     /// </summary>
     [HttpGet("removals/active")]
-    [RequireGuestSession]
     public IActionResult GetActiveGameRemovals()
     {
         var operations = _operationTracker.GetActiveOperations(OperationType.GameRemoval);
@@ -246,7 +242,6 @@ public class GamesController : ControllerBase
     /// Note: POST is acceptable as this starts an asynchronous operation
     /// </summary>
     [HttpPost("detect")]
-    [RequireAuth]
     public async Task<IActionResult> DetectGames([FromQuery] bool forceRefresh = false)
     {
         try
@@ -283,7 +278,6 @@ public class GamesController : ControllerBase
     /// GET /api/games/detect/active - Get currently running detection operation
     /// </summary>
     [HttpGet("detect/active")]
-    [RequireGuestSession]
     public IActionResult GetActiveDetection()
     {
         var activeOperation = _gameCacheDetectionService.GetActiveOperation();
@@ -300,7 +294,6 @@ public class GamesController : ControllerBase
     /// GET /api/games/detect/{id}/status - Get status of specific detection operation
     /// </summary>
     [HttpGet("detect/{id}/status")]
-    [RequireGuestSession]
     public IActionResult GetDetectionStatus(string id)
     {
         var status = _gameCacheDetectionService.GetOperationStatus(id);
@@ -317,7 +310,6 @@ public class GamesController : ControllerBase
     /// GET /api/games/detect/cached - Get cached detection results
     /// </summary>
     [HttpGet("detect/cached")]
-    [RequireGuestSession]
     public async Task<IActionResult> GetCachedDetectionResults()
     {
         var cachedResults = await _gameCacheDetectionService.GetCachedDetectionAsync();

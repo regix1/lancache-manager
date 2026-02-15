@@ -154,33 +154,9 @@ public class ApiKeyService
     }
 
 
-    public void DisplayApiKey(IConfiguration configuration, DeviceAuthService? deviceAuthService = null)
+    public void DisplayApiKey(IConfiguration configuration)
     {
-        var authEnabled = configuration.GetValue<bool>("Security:EnableAuthentication", true);
-
-        // If authentication is disabled, don't display the API key
-        if (!authEnabled)
-        {
-            Console.WriteLine("");
-            Console.WriteLine("┌────────────────────────────────────────────────────────────────────────────┐");
-            Console.WriteLine("│                          LANCACHE MANAGER                                  │");
-            Console.WriteLine("└────────────────────────────────────────────────────────────────────────────┘");
-            Console.WriteLine("");
-            Console.WriteLine("  [!] AUTHENTICATION: DISABLED");
-            Console.WriteLine("      Full access available without API key");
-            Console.WriteLine("");
-            Console.WriteLine("  [i] To enable authentication:");
-            Console.WriteLine("      Set Security__EnableAuthentication=true in docker-compose.yml");
-            Console.WriteLine("");
-            Console.WriteLine("  Note: Guest mode still available for temporary read-only access (6 hours)");
-            Console.WriteLine("");
-            Console.WriteLine("────────────────────────────────────────────────────────────────────────────");
-            return;
-        }
-
-        // Authentication is enabled - display the API key
         var apiKey = GetOrCreateApiKey();
-        var maxDevices = configuration.GetValue<int>("Security:MaxAdminDevices", 3);
 
         // Get PUID/PGID from environment (set by entrypoint.sh)
         var puid = Environment.GetEnvironmentVariable("LANCACHE_PUID") ?? "N/A";
@@ -193,30 +169,10 @@ public class ApiKeyService
         Console.WriteLine("");
         Console.WriteLine($"  Running as UID: {puid} / GID: {pgid}");
         Console.WriteLine("");
-        Console.WriteLine("  API KEY (Full Access)");
+        Console.WriteLine("  API KEY (for Metrics/Swagger protection)");
         Console.WriteLine($"  {apiKey}");
         Console.WriteLine("");
         Console.WriteLine($"  File: {_apiKeyPath}");
-        Console.WriteLine("");
-
-        // Show device usage if DeviceAuthService is available
-        if (deviceAuthService != null)
-        {
-            var devices = deviceAuthService.GetAllDevices();
-            var activeDevices = devices.Count(d => !d.IsExpired);
-            Console.WriteLine($"  Registered Devices: {activeDevices} of {maxDevices} slots used");
-            Console.WriteLine("");
-        }
-        else
-        {
-            Console.WriteLine($"  Registered Devices: Up to {maxDevices} devices can share this key");
-            Console.WriteLine("");
-        }
-
-        Console.WriteLine("  IMPORTANT:");
-        Console.WriteLine("  • Save this key securely - it provides full access");
-        Console.WriteLine("  • Multiple users can share the same key");
-        Console.WriteLine("  • Guest mode available for temporary access (6 hours, read-only)");
         Console.WriteLine("");
         Console.WriteLine("────────────────────────────────────────────────────────────────────────────");
     }

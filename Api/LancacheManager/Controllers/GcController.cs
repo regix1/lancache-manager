@@ -1,7 +1,6 @@
 using LancacheManager.Models;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Core.Interfaces;
-using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
@@ -35,7 +34,6 @@ public class GcController : ControllerBase
     }
 
     [HttpGet("settings")]
-    [RequireGuestSession]
     public IActionResult GetSettings()
     {
         if (!IsGcManagementEnabled())
@@ -52,7 +50,6 @@ public class GcController : ControllerBase
     }
 
     [HttpPut("settings")]
-    [RequireAuth]
     public async Task<IActionResult> UpdateSettings([FromBody] UpdateGcSettingsRequest request)
     {
         if (!IsGcManagementEnabled())
@@ -87,7 +84,6 @@ public class GcController : ControllerBase
     }
 
     [HttpPost("trigger")]
-    [RequireAuth]
     public IActionResult TriggerGarbageCollection()
     {
         if (!IsGcManagementEnabled())

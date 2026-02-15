@@ -3,7 +3,6 @@ using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Hubs;
-using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
@@ -14,7 +13,6 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/prefill-admin")]
-[RequireAuth]
 public class PrefillAdminController : ControllerBase
 {
     private readonly PrefillSessionService _sessionService;

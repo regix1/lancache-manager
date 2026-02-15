@@ -70,7 +70,7 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
   const initialLoadDone = useRef(false);
 
   const { on, off } = useSignalR();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, authMode, isLoading: authLoading } = useAuth();
 
   const getCurrentSessionId = useCallback((): string | null => {
     return authService.getDeviceId() || authService.getGuestSessionId() || null;
@@ -150,19 +150,24 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
   }, [loadingIds, loadedIds, isAuthenticated, getCurrentSessionId]);
 
   useEffect(() => {
+    if (authLoading) return;
+    if (!isAuthenticated && authMode !== 'guest') return;
+
     const sessionId = getCurrentSessionId();
     if (sessionId && !initialLoadDone.current) {
       initialLoadDone.current = true;
       loadSessionPreferences(sessionId);
     }
-  }, [getCurrentSessionId, loadSessionPreferences]);
+  }, [getCurrentSessionId, loadSessionPreferences, authLoading, isAuthenticated, authMode]);
 
-  // Reset auth failure state when authentication changes
+  // Reset auth failure state when transitioning TO authenticated/guest
   useEffect(() => {
-    failedIds.current.clear();
-    setLoadedIds(new Set());
-    initialLoadDone.current = false;
-  }, [isAuthenticated]);
+    if (isAuthenticated || authMode === 'guest') {
+      failedIds.current.clear();
+      setLoadedIds(new Set());
+      initialLoadDone.current = false;
+    }
+  }, [isAuthenticated, authMode]);
 
   const handleUserPreferencesUpdated = useCallback((data: UserPreferencesUpdatedEvent) => {
     const { sessionId, preferences: newPrefs } = data;

@@ -14,7 +14,6 @@ import { type AuthMode } from '@services/auth.service';
 import ApiService from '@services/api.service';
 import DepotMappingManager from '../depot/DepotMappingManager';
 import DataImporter from '../data/DataImporter';
-
 interface DataSectionProps {
   isAuthenticated: boolean;
   authMode: AuthMode;

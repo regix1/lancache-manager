@@ -2,36 +2,26 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Models;
-using LancacheManager.Security;
 using Microsoft.AspNetCore.SignalR;
 
 namespace LancacheManager.Hubs;
 
 /// <summary>
 /// SignalR hub for Steam Prefill daemon sessions.
-/// Provides real-time updates for authentication state changes and prefill progress.
-/// Uses secure encrypted credential exchange.
-///
-/// Authorization: Allows authenticated users OR guests with prefill permission.
+/// Auth stripped — all connections allowed.
 /// </summary>
 public class PrefillDaemonHub : Hub
 {
     private readonly SteamPrefillDaemonService _daemonService;
-    private readonly DeviceAuthService _deviceAuthService;
-    private readonly GuestSessionService _guestSessionService;
     private readonly ISteamAuthStorageService _steamAuthStorage;
     private readonly ILogger<PrefillDaemonHub> _logger;
 
     public PrefillDaemonHub(
         SteamPrefillDaemonService daemonService,
-        DeviceAuthService deviceAuthService,
-        GuestSessionService guestSessionService,
         ISteamAuthStorageService steamAuthStorage,
         ILogger<PrefillDaemonHub> logger)
     {
         _daemonService = daemonService;
-        _deviceAuthService = deviceAuthService;
-        _guestSessionService = guestSessionService;
         _steamAuthStorage = steamAuthStorage;
         _logger = logger;
     }
@@ -48,42 +38,8 @@ public class PrefillDaemonHub : Hub
             return;
         }
 
-        // Check if user has prefill access (authenticated OR guest with prefill permission)
-        if (!HasPrefillAccess(deviceId))
-        {
-            _logger.LogWarning("Unauthorized prefill daemon hub connection attempt from {ConnectionId}, DeviceId: {DeviceId}", Context.ConnectionId, deviceId);
-            Context.Abort();
-            return;
-        }
-
         _logger.LogDebug("Prefill daemon hub connected: {ConnectionId}, DeviceId: {DeviceId}", Context.ConnectionId, deviceId);
         await base.OnConnectedAsync();
-    }
-
-    /// <summary>
-    /// Checks if the user has prefill access (authenticated OR guest with prefill permission)
-    /// </summary>
-    private bool HasPrefillAccess(string deviceId)
-    {
-        // Authenticated users always have access
-        if (_deviceAuthService.ValidateDevice(deviceId))
-        {
-            return true;
-        }
-
-        // Check if guest has prefill permission
-        var guestSession = _guestSessionService.GetSessionByDeviceId(deviceId);
-        if (guestSession != null)
-        {
-            var (isValid, _) = _guestSessionService.ValidateSessionWithReason(deviceId);
-            if (isValid && guestSession.PrefillEnabled && !guestSession.IsPrefillExpired)
-            {
-                _logger.LogDebug("Guest with prefill permission granted hub access for device {DeviceId}", deviceId);
-                return true;
-            }
-        }
-
-        return false;
     }
 
     public override async Task OnDisconnectedAsync(Exception? exception)

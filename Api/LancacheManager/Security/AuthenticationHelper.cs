@@ -1,27 +1,22 @@
 namespace LancacheManager.Security;
 
 /// <summary>
-/// Centralized authentication helper for consistent auth checks across middleware and attributes.
+/// Centralized authentication helper for consistent auth checks across middleware.
+/// Simplified — only API key validation remains (used by Metrics/Swagger middleware).
 /// </summary>
 public class AuthenticationHelper
 {
     private readonly ApiKeyService _apiKeyService;
-    private readonly DeviceAuthService _deviceAuthService;
     private readonly ILogger<AuthenticationHelper> _logger;
 
     public AuthenticationHelper(
         ApiKeyService apiKeyService,
-        DeviceAuthService deviceAuthService,
         ILogger<AuthenticationHelper> logger)
     {
         _apiKeyService = apiKeyService;
-        _deviceAuthService = deviceAuthService;
         _logger = logger;
     }
 
-    /// <summary>
-    /// Authentication result with details about how authentication succeeded or why it failed.
-    /// </summary>
     public record AuthResult(
         bool IsAuthenticated,
         AuthMethod Method = AuthMethod.None,
@@ -58,56 +53,16 @@ public class AuthenticationHelper
     }
 
     /// <summary>
-    /// Attempts to authenticate via device session.
-    /// </summary>
-    public AuthResult ValidateDeviceSession(HttpContext context)
-    {
-        var deviceId = context.Session.GetString("DeviceId");
-
-        if (string.IsNullOrEmpty(deviceId))
-        {
-            return new AuthResult(false, ErrorMessage: "No device session", StatusCode: 401);
-        }
-
-        if (!_deviceAuthService.ValidateDevice(deviceId))
-        {
-            return new AuthResult(false, ErrorMessage: "Invalid device session", StatusCode: 401);
-        }
-
-        return new AuthResult(true, AuthMethod.DeviceSession);
-    }
-
-    /// <summary>
-    /// Attempts to authenticate via any supported method (API key or device session).
+    /// Attempts to authenticate via any supported method.
+    /// Simplified to just API key validation.
     /// </summary>
     public AuthResult ValidateAnyMethod(HttpContext context)
     {
-        // Try API key first
-        var apiKey = GetApiKeyFromHeader(context);
-        if (!string.IsNullOrEmpty(apiKey))
-        {
-            if (_apiKeyService.ValidateApiKey(apiKey))
-            {
-                return new AuthResult(true, AuthMethod.ApiKey);
-            }
-            // API key was provided but invalid
-            _logger.LogWarning("Invalid API key from {IP}", context.Connection.RemoteIpAddress);
-            return new AuthResult(false, ErrorMessage: "Invalid API key", StatusCode: 403);
-        }
-
-        // Try device session
-        var deviceId = context.Session.GetString("DeviceId");
-        if (!string.IsNullOrEmpty(deviceId) && _deviceAuthService.ValidateDevice(deviceId))
-        {
-            return new AuthResult(true, AuthMethod.DeviceSession);
-        }
-
-        return new AuthResult(false, ErrorMessage: "Authentication required", StatusCode: 401);
+        return ValidateApiKey(context);
     }
 
     /// <summary>
     /// Checks if request has any valid authentication without failing.
-    /// Useful for optional authentication scenarios.
     /// </summary>
     public bool IsAuthenticated(HttpContext context)
     {

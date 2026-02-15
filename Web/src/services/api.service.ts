@@ -1,6 +1,5 @@
 import { API_BASE } from '../utils/constants';
-import authService from './auth.service';
-import { isAbortError, getErrorMessage } from '../utils/error';
+import { isAbortError } from '../utils/error';
 import type {
   CacheInfo,
   CacheSizeInfo,
@@ -76,51 +75,16 @@ interface PicsStatus {
 }
 
 class ApiService {
-  // Helper to check if error is a guest session revoked error (don't log these)
-  private static isGuestSessionError(error: unknown): boolean {
-    const message = getErrorMessage(error);
-    return message.includes('guest session') || message.includes('Session revoked');
-  }
-
   static async handleResponse<T>(response: Response): Promise<T> {
     // Handle 401 Unauthorized
     if (response.status === 401) {
-      // Try to parse JSON error response
       let errorData: ApiErrorData | null = null;
       try {
         const text = await response.text();
         errorData = text ? JSON.parse(text) : null;
       } catch {
-        // Not JSON, continue with default handling
+        // Not JSON
       }
-
-      // Check if it's a guest session revoked error
-      if (errorData?.code === 'GUEST_SESSION_REVOKED') {
-        // Guest session was revoked - just expire guest mode without calling handleUnauthorized
-        // This prevents the page reload loop
-        authService.expireGuestMode();
-        throw new Error(errorData.message || 'Your guest session has been revoked');
-      }
-
-      // Check if guest session expired (treat similar to revoke to avoid auth reset loops)
-      if (errorData?.code === 'GUEST_SESSION_EXPIRED') {
-        authService.expireGuestMode();
-        throw new Error(errorData.message || 'Your guest session has expired');
-      }
-
-      // Guest session missing/invalid errors should not trigger unauthorized handler
-      if (errorData?.code === 'GUEST_SESSION_REQUIRED' || errorData?.code === 'GUEST_SESSION_INVALID' || errorData?.code === 'DEVICE_ID_REQUIRED') {
-        // If the client thought it was in guest mode, reset to unauthenticated so the auth modal can be shown
-        if (authService.isGuestModeActive()) {
-          authService.exitGuestMode();
-        }
-        throw new Error(errorData.message || 'Guest session required');
-      }
-
-      // Only trigger handleUnauthorized if we had valid auth that was rejected
-      // handleUnauthorized has its own check to prevent loops
-      authService.handleUnauthorized();
-
       throw new Error(errorData?.message || 'Authentication required');
     }
 
@@ -177,10 +141,9 @@ class ApiService {
     }
   }
 
-  // Helper to add auth headers to all requests
+  // Helper to add headers to all requests
   private static getHeaders(additionalHeaders: Record<string, string> = {}): HeadersInit {
     return {
-      ...authService.getAuthHeaders(),
       ...additionalHeaders
     };
   }
@@ -204,7 +167,7 @@ class ApiService {
     } catch (error: unknown) {
       if (isAbortError(error)) {
         // Silently ignore abort errors
-      } else if (!this.isGuestSessionError(error)) {
+      } else {
         console.error('getCacheInfo error:', error);
       }
       throw error;
@@ -234,7 +197,7 @@ class ApiService {
     } catch (error: unknown) {
       if (isAbortError(error)) {
         // Silently ignore abort errors
-      } else if (!this.isGuestSessionError(error)) {
+      } else {
         console.error('getLatestDownloads error:', error);
       }
       throw error;
@@ -275,7 +238,7 @@ class ApiService {
       const res = await fetch(`${API_BASE}/stats/exclusions`, this.getFetchOptions({ signal }));
       return await this.handleResponse<StatsExclusionsResponse>(res);
     } catch (error: unknown) {
-      if (!this.isGuestSessionError(error)) {
+      {
         console.error('getStatsExclusions error:', error);
       }
       throw error;
@@ -294,7 +257,7 @@ class ApiService {
       );
       return await this.handleResponse<StatsExclusionsResponse>(res);
     } catch (error: unknown) {
-      if (!this.isGuestSessionError(error)) {
+      {
         console.error('updateStatsExclusions error:', error);
       }
       throw error;
@@ -349,7 +312,7 @@ class ApiService {
     } catch (error: unknown) {
       if (isAbortError(error)) {
         // Silently ignore abort errors
-      } else if (!this.isGuestSessionError(error)) {
+      } else {
         console.error('getDashboardStats error:', error);
       }
       throw error;
@@ -375,7 +338,7 @@ class ApiService {
     } catch (error: unknown) {
       if (isAbortError(error)) {
         // Silently ignore abort errors
-      } else if (!this.isGuestSessionError(error)) {
+      } else {
         console.error('getHourlyActivity error:', error);
       }
       throw error;
@@ -408,7 +371,7 @@ class ApiService {
     } catch (error: unknown) {
       if (isAbortError(error)) {
         // Silently ignore abort errors
-      } else if (!this.isGuestSessionError(error)) {
+      } else {
         console.error('getCacheGrowth error:', error);
       }
       throw error;
@@ -434,7 +397,7 @@ class ApiService {
     } catch (error: unknown) {
       if (isAbortError(error)) {
         // Silently ignore abort errors
-      } else if (!this.isGuestSessionError(error)) {
+      } else {
         console.error('getSparklineData error:', error);
       }
       throw error;
@@ -458,7 +421,7 @@ class ApiService {
     } catch (error: unknown) {
       if (isAbortError(error)) {
         // Silently ignore abort errors
-      } else if (!this.isGuestSessionError(error)) {
+      } else {
         console.error('getCacheSnapshot error:', error);
       }
       throw error;
@@ -998,7 +961,7 @@ class ApiService {
     } catch (error: unknown) {
       if (isAbortError(error)) {
         // Silently ignore abort errors
-      } else if (!this.isGuestSessionError(error)) {
+      } else {
         console.error('getEvents error:', error);
       }
       throw error;
@@ -1013,7 +976,7 @@ class ApiService {
     } catch (error: unknown) {
       if (isAbortError(error)) {
         // Silently ignore abort errors
-      } else if (!this.isGuestSessionError(error)) {
+      } else {
         console.error('getActiveEvents error:', error);
       }
       throw error;
@@ -1098,7 +1061,7 @@ class ApiService {
     } catch (error: unknown) {
       if (isAbortError(error)) {
         // Silently ignore abort errors
-      } else if (!this.isGuestSessionError(error)) {
+      } else {
         console.error('getBatchDownloadEvents error:', error);
       }
       throw error;
@@ -1117,7 +1080,7 @@ class ApiService {
     } catch (error: unknown) {
       if (isAbortError(error)) {
         // Silently ignore abort errors
-      } else if (!this.isGuestSessionError(error)) {
+      } else {
         console.error('getCurrentSpeeds error:', error);
       }
       throw error;
@@ -1132,7 +1095,7 @@ class ApiService {
     } catch (error: unknown) {
       if (isAbortError(error)) {
         // Silently ignore abort errors
-      } else if (!this.isGuestSessionError(error)) {
+      } else {
         console.error('getSpeedHistory error:', error);
       }
       throw error;
@@ -1149,7 +1112,7 @@ class ApiService {
     } catch (error: unknown) {
       if (isAbortError(error)) {
         // Silently ignore abort errors
-      } else if (!this.isGuestSessionError(error)) {
+      } else {
         console.error('getClientGroups error:', error);
       }
       throw error;

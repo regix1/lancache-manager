@@ -2,7 +2,6 @@ using System.ComponentModel.DataAnnotations;
 using LancacheManager.Models;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Services;
-using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using LancacheManager.Core.Services.SteamKit2;
@@ -69,7 +68,6 @@ public class SteamAuthController : ControllerBase
     /// </summary>
     [HttpPost("login")]
     [EnableRateLimiting("steam-auth")]
-    [RequireAuth]
     public async Task<IActionResult> LoginToSteam([FromBody] SteamLoginRequest? request)
     {
         // If user provides credentials, they want to authenticate (regardless of current mode)
@@ -165,7 +163,6 @@ public class SteamAuthController : ControllerBase
     /// Used during setup to explicitly save the user's auth mode choice
     /// </summary>
     [HttpPut("mode")]
-    [RequireAuth]
     public IActionResult SetSteamAuthMode([FromBody] SetSteamModeRequest request)
     {
         if (string.IsNullOrWhiteSpace(request?.Mode))
@@ -196,7 +193,6 @@ public class SteamAuthController : ControllerBase
     /// Note: This endpoint does NOT require LANCache Manager authentication
     /// </summary>
     [HttpDelete]
-    [RequireAuth]
     public async Task<IActionResult> LogoutFromSteam()
     {
         await _steamKit2Service.LogoutAsync();

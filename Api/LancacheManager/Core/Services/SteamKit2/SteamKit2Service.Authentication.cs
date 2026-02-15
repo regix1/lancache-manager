@@ -1,5 +1,5 @@
 using LancacheManager.Core.Services.SteamPrefill;
-using LancacheManager.Security;
+
 using Microsoft.Extensions.DependencyInjection;
 using SteamKit2;
 using SteamKit2.Authentication;
@@ -161,23 +161,21 @@ public partial class SteamKit2Service
                 }
             }
 
-            // Terminate prefill sessions owned by authenticated users (not guests)
+            // Terminate prefill sessions
             try
             {
                 using var scope = _scopeFactory.CreateScope();
                 var daemonService = scope.ServiceProvider.GetService<SteamPrefillDaemonService>();
-                var deviceAuthService = scope.ServiceProvider.GetService<DeviceAuthService>();
 
-                if (daemonService != null && deviceAuthService != null)
+                if (daemonService != null)
                 {
                     await daemonService.TerminateAuthenticatedSessionsAsync(
-                        deviceAuthService,
                         "Steam PICS authentication logged out");
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Error terminating authenticated prefill sessions during logout");
+                _logger.LogWarning(ex, "Error terminating prefill sessions during logout");
             }
 
             // Clear stored credentials and reset to anonymous mode

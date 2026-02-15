@@ -2,7 +2,6 @@ using LancacheManager.Models;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
-using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -10,7 +9,6 @@ namespace LancacheManager.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-[RequireGuestSession]
 public class SpeedsController : ControllerBase
 {
     private readonly RustSpeedTrackerService _speedTrackerService;

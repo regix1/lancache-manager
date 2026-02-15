@@ -1,7 +1,6 @@
 using LancacheManager.Models;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Services;
-using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
@@ -33,7 +32,6 @@ public class DatabaseController : ControllerBase
     /// RESTful: DELETE is proper method for clearing/resetting resources
     /// </summary>
     [HttpDelete]
-    [RequireAuth]
     public async Task<IActionResult> ResetDatabase()
     {
         var started = await _rustDatabaseResetService.StartDatabaseResetAsync();
@@ -59,7 +57,6 @@ public class DatabaseController : ControllerBase
     /// Request body: { "tables": ["Downloads", "ClientStats", ...] }
     /// </summary>
     [HttpDelete("tables")]
-    [RequireAuth]
     public IActionResult ResetSelectedTables([FromBody] ResetTablesRequest request)
     {
         if (request.Tables == null || request.Tables.Count == 0)
@@ -85,7 +82,6 @@ public class DatabaseController : ControllerBase
     /// Checks both Rust-based reset service and C# DatabaseService reset operations
     /// </summary>
     [HttpGet("reset-status")]
-    [RequireGuestSession]
     public IActionResult GetDatabaseResetStatus()
     {
         // Check C# DatabaseService reset operations first
@@ -110,7 +106,6 @@ public class DatabaseController : ControllerBase
     /// GET /api/database/log-entries-count - Get count of log entries in database
     /// </summary>
     [HttpGet("log-entries-count")]
-    [RequireGuestSession]
     public async Task<IActionResult> GetLogEntriesCount()
     {
         var count = await _dbService.GetLogEntriesCountAsync();

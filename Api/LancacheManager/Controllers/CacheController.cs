@@ -5,7 +5,6 @@ using LancacheManager.Infrastructure.Services;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Models;
 using LancacheManager.Infrastructure.Utilities;
-using LancacheManager.Security;
 using LancacheManager.Hubs;
 using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
 using Microsoft.AspNetCore.Mvc;
@@ -18,7 +17,6 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/cache")]
-[RequireGuestSession]
 public class CacheController : ControllerBase
 {
     private readonly CacheManagementService _cacheService;
@@ -272,7 +270,6 @@ public class CacheController : ControllerBase
     /// RESTful: DELETE is proper method for clearing/removing resources
     /// </summary>
     [HttpDelete]
-    [RequireAuth]
     public async Task<IActionResult> ClearAllCache()
     {
         // CRITICAL: Check write permissions BEFORE starting the operation
@@ -311,7 +308,6 @@ public class CacheController : ControllerBase
     /// RESTful: DELETE is proper method for clearing/removing resources
     /// </summary>
     [HttpDelete("datasources/{name}")]
-    [RequireAuth]
     public async Task<IActionResult> ClearDatasourceCache(string name)
     {
         // Get the datasource to check its specific permissions
@@ -387,7 +383,6 @@ public class CacheController : ControllerBase
     /// RESTful: DELETE is proper method for cancelling/removing operations
     /// </summary>
     [HttpDelete("operations/{id}")]
-    [RequireAuth]
     public IActionResult CancelCacheClear(string id)
     {
         var result = _cacheClearingService.CancelCacheClear(id);
@@ -405,7 +400,6 @@ public class CacheController : ControllerBase
     /// Used as fallback when graceful cancellation fails
     /// </summary>
     [HttpPost("operations/{id}/kill")]
-    [RequireAuth]
     public async Task<IActionResult> ForceKillCacheClear(string id)
     {
         var result = await _cacheClearingService.ForceKillOperation(id);
@@ -449,7 +443,6 @@ public class CacheController : ControllerBase
     /// Returns immediately with an operation ID. Results sent via SignalR when complete.
     /// </summary>
     [HttpPost("corruption/detect")]
-    [RequireAuth]
     public async Task<IActionResult> StartCorruptionDetection([FromQuery] int threshold = 3, [FromQuery] bool compareToCacheLogs = true)
     {
         var operationId = await _corruptionDetectionService.StartDetectionAsync(threshold, compareToCacheLogs);
@@ -494,7 +487,6 @@ public class CacheController : ControllerBase
     /// RESTful: DELETE is proper method for removing resources
     /// </summary>
     [HttpDelete("services/{service}/corruption")]
-    [RequireAuth]
     public IActionResult RemoveCorruptedChunks(string service, [FromQuery] int threshold = 3, [FromQuery] bool compareToCacheLogs = true)
     {
         // Check if ANY removal operation is already in progress (they share a lock)
@@ -783,7 +775,6 @@ public class CacheController : ControllerBase
     /// RESTful: DELETE is proper method for removing resources
     /// </summary>
     [HttpDelete("services/{name}")]
-    [RequireAuth]
     public IActionResult ClearServiceCache(string name)
     {
         // CRITICAL: Check write permissions BEFORE starting the operation

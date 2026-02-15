@@ -1,7 +1,6 @@
 using System.Text.Json;
 using LancacheManager.Models;
 using LancacheManager.Core.Services;
-using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 using OperationState = LancacheManager.Core.Services.OperationState;
 
@@ -27,7 +26,6 @@ public class OperationStateController : ControllerBase
     }
 
     [HttpGet("{key}")]
-    [RequireAuth]
     public IActionResult GetState(string key)
     {
         var state = _stateService.GetState(key);
@@ -36,7 +34,6 @@ public class OperationStateController : ControllerBase
     }
 
     [HttpPost]
-    [RequireAuth]
     public IActionResult SaveState([FromBody] SaveStateRequest request)
     {
         if (string.IsNullOrEmpty(request.Key))
@@ -60,7 +57,6 @@ public class OperationStateController : ControllerBase
     }
 
     [HttpPatch("{key}")]
-    [RequireAuth]
     public IActionResult UpdateState(string key, [FromBody] UpdateStateRequest request)
     {
         var state = _stateService.GetState(key);
@@ -101,7 +97,6 @@ public class OperationStateController : ControllerBase
     }
 
     [HttpDelete("{key}")]
-    [RequireAuth]
     public IActionResult RemoveState(string key)
     {
         _stateService.RemoveState(key);
@@ -109,7 +104,6 @@ public class OperationStateController : ControllerBase
     }
 
     [HttpGet]
-    [RequireAuth]
     public IActionResult GetAllStates([FromQuery] string? type = null)
     {
         var states = string.IsNullOrEmpty(type)
@@ -120,7 +114,6 @@ public class OperationStateController : ControllerBase
     }
 
     [HttpPost("cleanup")]
-    [RequireAuth]
     public IActionResult CleanupExpired()
     {
         // Trigger manual cleanup if needed

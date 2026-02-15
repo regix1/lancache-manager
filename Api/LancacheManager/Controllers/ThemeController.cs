@@ -3,7 +3,6 @@ using System.Text.RegularExpressions;
 using LancacheManager.Models;
 using LancacheManager.Hubs;
 using LancacheManager.Core.Interfaces;
-using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
@@ -171,7 +170,6 @@ public class ThemeController : ControllerBase
     }
 
     [HttpPost("upload")]
-    [RequireAuth]
     public async Task<IActionResult> UploadTheme(IFormFile file)
     {
         if (file == null || file.Length == 0)
@@ -267,7 +265,6 @@ public class ThemeController : ControllerBase
     }
 
     [HttpDelete("{id}")]
-    [RequireAuth]
     public IActionResult DeleteTheme(string id)
     {
         // Log the incoming request
@@ -405,7 +402,6 @@ public class ThemeController : ControllerBase
     }
 
     [HttpPost("cleanup")]
-    [RequireAuth]
     public IActionResult CleanupThemes()
     {
         var deletedThemes = new List<string>();
@@ -470,7 +466,6 @@ public class ThemeController : ControllerBase
     }
 
     [HttpPut("preference")]
-    [RequireAuth]
     public IActionResult SetThemePreference([FromBody] ThemePreferenceRequest request)
     {
         if (request == null || string.IsNullOrWhiteSpace(request.ThemeId))
@@ -515,7 +510,6 @@ public class ThemeController : ControllerBase
     }
 
     [HttpPut("preferences/guest")]
-    [RequireAuth]
     public async Task<IActionResult> SetDefaultGuestTheme([FromBody] ThemePreferenceRequest request)
     {
         if (request == null || string.IsNullOrWhiteSpace(request.ThemeId))

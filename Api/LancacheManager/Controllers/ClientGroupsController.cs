@@ -4,7 +4,6 @@ using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Extensions;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
-using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
 
@@ -16,7 +15,6 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/client-groups")]
-[RequireAuth]
 public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGroupDto, CreateClientGroupRequest, UpdateClientGroupRequest, int>
 {
     private readonly IClientGroupsService _clientGroupsRepository;
@@ -125,7 +123,6 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
     // ===== Override Create to return Created with location =====
 
     [HttpPost]
-    [RequireAuth]
     public override async Task<IActionResult> Create([FromBody] CreateClientGroupRequest request, CancellationToken ct = default)
     {
         await ValidateCreateRequestAsync(request, ct);
@@ -150,7 +147,6 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
     /// Validation is handled automatically by FluentValidation (see AddMemberRequestValidator)
     /// </remarks>
     [HttpPost("{id:int}/members")]
-    [RequireAuth]
     public async Task<IActionResult> AddMember(int id, [FromBody] AddMemberRequest request, CancellationToken ct = default)
     {
         // Validation is handled automatically by FluentValidation
@@ -172,7 +168,6 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
     /// Remove an IP from a client group
     /// </summary>
     [HttpDelete("{id:int}/members/{ip}")]
-    [RequireAuth]
     public async Task<IActionResult> RemoveMember(int id, string ip, CancellationToken ct = default)
     {
         var group = await _clientGroupsRepository.GetByIdOrThrowAsync(id, "Client group", ct);
@@ -189,7 +184,6 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
     /// Get the IP to group mapping for efficient lookups
     /// </summary>
     [HttpGet("mapping")]
-    [RequireAuth]
     public async Task<IActionResult> GetMapping(CancellationToken ct = default)
     {
         var mapping = await _clientGroupsRepository.GetIpToGroupMappingAsync(ct);

@@ -3,7 +3,6 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Models;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Utilities;
-using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.Sqlite;
 using System.Diagnostics;
@@ -47,7 +46,6 @@ public class DataMigrationController : ControllerBase
     /// Request body: { "connectionString": "Data Source=path/to/develancache.db", "batchSize": 1000, "overwriteExisting": false }
     /// </summary>
     [HttpPost("import-develancache")]
-    [RequireAuth]
     public async Task<IActionResult> ImportFromDeveLanCache([FromBody] DataMigrationImportRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.ConnectionString))
@@ -224,7 +222,6 @@ public class DataMigrationController : ControllerBase
     /// Request body: { "connectionString": "Data Source=path/to/lancachemanager.db", "batchSize": 1000, "overwriteExisting": false }
     /// </summary>
     [HttpPost("import-lancache-manager")]
-    [RequireAuth]
     public async Task<IActionResult> ImportFromLancacheManager([FromBody] DataMigrationImportRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.ConnectionString))
@@ -543,7 +540,6 @@ public class DataMigrationController : ControllerBase
     /// Returns whether an import is running, progress percentage, status message, and operation ID
     /// </summary>
     [HttpGet("import/status")]
-    [RequireGuestSession]
     public IActionResult GetImportStatus()
     {
         var activeImports = _operationTracker.GetActiveOperations(OperationType.DataImport).ToList();
@@ -572,7 +568,6 @@ public class DataMigrationController : ControllerBase
     /// Query params: connectionString (supports raw path or "Data Source=..." format), importType (develancache or lancache-manager)
     /// </summary>
     [HttpGet("validate-connection")]
-    [RequireAuth]
     public async Task<IActionResult> ValidateConnection([FromQuery] string connectionString, [FromQuery] string importType = "develancache")
     {
         if (string.IsNullOrWhiteSpace(connectionString))

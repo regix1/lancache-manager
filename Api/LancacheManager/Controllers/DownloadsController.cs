@@ -4,7 +4,6 @@ using LancacheManager.Infrastructure.Services;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Middleware;
-using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -38,7 +37,6 @@ public class DownloadsController : ControllerBase
     }
 
     [HttpGet("latest")]
-    [RequireGuestSession]
     public async Task<IActionResult> GetLatest([FromQuery] int count = int.MaxValue, [FromQuery] long? startTime = null, [FromQuery] long? endTime = null, [FromQuery] int? eventId = null)
     {
         const int maxRetries = 3;
@@ -141,7 +139,6 @@ public class DownloadsController : ControllerBase
     /// Get a download by ID with its tags and events
     /// </summary>
     [HttpGet("{id:int}")]
-    [RequireGuestSession]
     public async Task<IActionResult> GetById(int id)
     {
         var download = await _context.Downloads
@@ -192,7 +189,6 @@ public class DownloadsController : ControllerBase
     /// Get events for multiple download IDs in a single batch request
     /// </summary>
     [HttpPost("batch-download-events")]
-    [RequireGuestSession]
     public async Task<IActionResult> GetBatchDownloadEvents([FromBody] BatchDownloadEventsRequest request)
     {
         if (request.DownloadIds == null || request.DownloadIds.Count == 0)
@@ -236,7 +232,6 @@ public class DownloadsController : ControllerBase
     /// Get downloads with their tags and events for a time range
     /// </summary>
     [HttpGet("with-associations")]
-    [RequireGuestSession]
     public async Task<IActionResult> GetWithAssociations(
         [FromQuery] int count = 100,
         [FromQuery] long? startTime = null,

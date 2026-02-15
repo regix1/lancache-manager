@@ -4,7 +4,6 @@ using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
-using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
@@ -50,7 +49,6 @@ public class LogsController : ControllerBase
     /// GET /api/logs - Get log information
     /// </summary>
     [HttpGet]
-    [RequireGuestSession]
     public IActionResult GetLogInfo()
     {
         var logsPath = _pathResolver.GetLogsDirectory();
@@ -65,7 +63,6 @@ public class LogsController : ControllerBase
     /// GET /api/logs/service-counts - Get log entry counts by service (aggregated from all datasources)
     /// </summary>
     [HttpGet("service-counts")]
-    [RequireGuestSession]
     public async Task<IActionResult> GetServiceCounts()
     {
         var datasources = _datasourceService.GetDatasources();
@@ -116,7 +113,6 @@ public class LogsController : ControllerBase
     /// GET /api/logs/service-counts/by-datasource - Get log entry counts by service, grouped by datasource
     /// </summary>
     [HttpGet("service-counts/by-datasource")]
-    [RequireGuestSession]
     public async Task<IActionResult> GetServiceCountsByDatasource()
     {
         var datasources = _datasourceService.GetDatasources();
@@ -180,7 +176,6 @@ public class LogsController : ControllerBase
     /// GET /api/logs/entries-count - Get total count of log entries in database
     /// </summary>
     [HttpGet("entries-count")]
-    [RequireGuestSession]
     public IActionResult GetEntriesCount()
     {
         // Delegate to DatabaseController's endpoint for consistency
@@ -193,7 +188,6 @@ public class LogsController : ControllerBase
     /// Request body: { "position": 0 } to reset to beginning, { "position": null } to reset to end
     /// </summary>
     [HttpPatch("position")]
-    [RequireAuth]
     public IActionResult ResetLogPosition([FromBody] UpdateLogPositionRequest? request)
     {
         var datasources = _datasourceService.GetDatasources();
@@ -336,7 +330,6 @@ public class LogsController : ControllerBase
     /// GET /api/logs/positions - Get log positions for all datasources
     /// </summary>
     [HttpGet("positions")]
-    [RequireGuestSession]
     public IActionResult GetLogPositions()
     {
         var datasources = _datasourceService.GetDatasources();
@@ -372,7 +365,6 @@ public class LogsController : ControllerBase
     /// PATCH /api/logs/position/{datasourceName} - Reset position for a specific datasource
     /// </summary>
     [HttpPatch("position/{datasourceName}")]
-    [RequireAuth]
     public IActionResult ResetDatasourceLogPosition(string datasourceName, [FromBody] UpdateLogPositionRequest? request)
     {
         var datasource = _datasourceService.GetDatasource(datasourceName);
@@ -417,7 +409,6 @@ public class LogsController : ControllerBase
     /// Uses the position set by PUT /api/logs/position endpoint (top or bottom)
     /// </summary>
     [HttpPost("process")]
-    [RequireAuth]
     public IActionResult ProcessAllLogs()
     {
         if (_rustLogProcessorService.IsProcessing)
@@ -448,7 +439,6 @@ public class LogsController : ControllerBase
     /// POST /api/logs/process/{datasourceName} - Start processing logs for a specific datasource
     /// </summary>
     [HttpPost("process/{datasourceName}")]
-    [RequireAuth]
     public async Task<IActionResult> ProcessDatasourceLogs(string datasourceName)
     {
         var datasource = _datasourceService.GetDatasource(datasourceName);
@@ -496,7 +486,6 @@ public class LogsController : ControllerBase
     /// GET /api/logs/process/status - Get log processing status
     /// </summary>
     [HttpGet("process/status")]
-    [RequireGuestSession]
     public IActionResult GetProcessingStatus()
     {
         var status = _rustLogProcessorService.GetStatus();
@@ -507,7 +496,6 @@ public class LogsController : ControllerBase
     /// POST /api/logs/process/kill - Force kill log processing operation
     /// </summary>
     [HttpPost("process/kill")]
-    [RequireAuth]
     public async Task<IActionResult> ForceKillLogProcessing()
     {
         var killed = await _rustLogProcessorService.ForceKillProcessingAsync();
@@ -523,7 +511,6 @@ public class LogsController : ControllerBase
     /// RESTful: DELETE is proper method for removing resources, service name in path
     /// </summary>
     [HttpDelete("services/{service}")]
-    [RequireAuth]
     public async Task<IActionResult> RemoveServiceLogs(string service)
     {
         if (string.IsNullOrWhiteSpace(service))
@@ -579,7 +566,6 @@ public class LogsController : ControllerBase
     /// DELETE /api/logs/datasources/{datasourceName}/services/{service} - Remove logs for specific service from a specific datasource
     /// </summary>
     [HttpDelete("datasources/{datasourceName}/services/{service}")]
-    [RequireAuth]
     public async Task<IActionResult> RemoveServiceLogsFromDatasource(string datasourceName, string service)
     {
         if (string.IsNullOrWhiteSpace(service))
@@ -620,7 +606,6 @@ public class LogsController : ControllerBase
     /// This is a destructive operation that removes all log history for the datasource
     /// </summary>
     [HttpDelete("datasources/{datasourceName}/file")]
-    [RequireAuth]
     public async Task<IActionResult> DeleteLogFile(string datasourceName)
     {
         var datasource = _datasourceService.GetDatasource(datasourceName);
@@ -682,7 +667,6 @@ public class LogsController : ControllerBase
     /// GET /api/logs/remove/status - Get status of log removal operation
     /// </summary>
     [HttpGet("remove/status")]
-    [RequireGuestSession]
     public IActionResult GetRemovalStatus()
     {
         var status = _rustLogRemovalService.GetRemovalStatus();
@@ -694,7 +678,6 @@ public class LogsController : ControllerBase
     /// Used as fallback when graceful cancellation fails
     /// </summary>
     [HttpPost("remove/kill")]
-    [RequireAuth]
     public async Task<IActionResult> ForceKillServiceRemoval()
     {
         var result = await _rustLogRemovalService.ForceKillOperation();

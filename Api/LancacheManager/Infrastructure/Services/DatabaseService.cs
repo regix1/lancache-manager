@@ -4,7 +4,6 @@ using LancacheManager.Infrastructure.Data;
 using LancacheManager.Hubs;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Models;
-using LancacheManager.Security;
 using Microsoft.EntityFrameworkCore;
 using System.Collections.Concurrent;
 using LancacheManager.Core.Services.SteamKit2;
@@ -23,8 +22,6 @@ public class DatabaseService : IDatabaseService
     private readonly SteamKit2Service _steamKit2Service;
     private readonly StateService _stateRepository;
     private readonly DatasourceService _datasourceService;
-    private readonly GuestSessionService _guestSessionService;
-    private readonly DeviceAuthService _deviceAuthService;
     private readonly IUnifiedOperationTracker _operationTracker;
     private static readonly ConcurrentDictionary<string, bool> _activeResetOperations = new();
     private static ResetProgressInfo _currentResetProgress = new();
@@ -48,8 +45,6 @@ public class DatabaseService : IDatabaseService
         SteamKit2Service steamKit2Service,
         StateService stateRepository,
         DatasourceService datasourceService,
-        GuestSessionService guestSessionService,
-        DeviceAuthService deviceAuthService,
         IUnifiedOperationTracker operationTracker)
     {
         _context = context;
@@ -60,8 +55,6 @@ public class DatabaseService : IDatabaseService
         _steamKit2Service = steamKit2Service;
         _stateRepository = stateRepository;
         _datasourceService = datasourceService;
-        _guestSessionService = guestSessionService;
-        _deviceAuthService = deviceAuthService;
         _operationTracker = operationTracker;
     }
 
@@ -683,10 +676,6 @@ public class DatabaseService : IDatabaseService
 
                             // CRITICAL: Clear in-memory caches for both guest sessions and device registrations
                             // Without this, the services would still serve cached sessions from memory
-                            _logger.LogInformation("Clearing in-memory session caches...");
-                            _guestSessionService.ClearCache();
-                            _deviceAuthService.ClearCache();
-
                             await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
                             {
                                 operationId,

@@ -29,7 +29,8 @@ import ErrorBoundary from '@components/common/ErrorBoundary';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import UniversalNotificationBar from '@components/common/UniversalNotificationBar';
 import DepotInitializationModal from '@components/modals/setup/DepotInitializationModal';
-import AuthenticationModal from '@components/modals/auth/AuthenticationModal';
+// AuthenticationModal preserved but not currently shown (auth stripped)
+// import AuthenticationModal from '@components/modals/auth/AuthenticationModal';
 import { FullScanRequiredModal } from '@components/modals/setup/FullScanRequiredModal';
 import ApiService from '@services/api.service';
 import { setServerTimezone } from '@utils/timezone';
@@ -37,9 +38,7 @@ import { storage } from '@utils/storage';
 import { isAbortError } from '@utils/error';
 import themeService from '@services/theme.service';
 import preferencesService from '@services/preferences.service';
-import authService from '@services/auth.service';
-import heartbeatService from '@services/heartbeat.service';
-import { useActivityTracker } from '@hooks/useActivityTracker';
+
 
 import Dashboard from '@components/features/dashboard/Dashboard';
 import DownloadsTab from '@components/features/downloads/DownloadsTab';
@@ -74,41 +73,16 @@ const AppContent: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const { connectionStatus } = useStats();
   const { setupStatus, isLoading: checkingSetupStatus, markSetupCompleted } = useSetupStatus();
-  const { isAuthenticated, authMode, isLoading: checkingAuth, refreshAuth, prefillEnabled, isBanned } = useAuth();
+  const { authMode, isLoading: checkingAuth, refreshAuth, prefillEnabled, isBanned } = useAuth();
   const { status: steamApiStatus, refresh: refreshSteamWebApiStatus } = useSteamWebApiStatus();
   const { refreshSteamAuth } = useSteamAuth();
   const { isDockerAvailable } = useDockerSocket();
   const [depotInitialized, setDepotInitialized] = useState<boolean | null>(null);
   const [checkingDepotStatus, setCheckingDepotStatus] = useState(true);
-  const [showApiKeyRegenerationModal, setShowApiKeyRegenerationModal] = useState(false);
   const [isInitializationFlowActive, setIsInitializationFlowActive] = useState(false);
   const [showFullScanRequiredModal, setShowFullScanRequiredModal] = useState(false);
   const [fullScanModalChangeGap, setFullScanModalChangeGap] = useState(0);
   const signalR = useSignalR();
-
-  // Track user activity and send heartbeats to keep session alive
-  useActivityTracker(
-    () => {
-      // User became active - send heartbeat
-      heartbeatService.setActive(true);
-    },
-    () => {
-      // User became idle
-      heartbeatService.setActive(false);
-    }
-  );
-
-  // Start heartbeat service when component mounts
-  useEffect(() => {
-    // Start heartbeats for authenticated and guest sessions (prevents 401 spam only when unauthenticated)
-    if (!checkingAuth && (authMode === 'authenticated' || authMode === 'guest')) {
-      heartbeatService.startHeartbeat();
-    } else {
-      heartbeatService.stopHeartbeat();
-    }
-
-    return () => heartbeatService.stopHeartbeat();
-  }, [authMode, checkingAuth]);
 
   // Derive setup state from context
   const setupCompleted = setupStatus?.isCompleted ?? null;
@@ -245,68 +219,10 @@ const AppContent: React.FC = () => {
     };
   }, [signalR, showFullScanRequiredModal, authMode, wasModalDismissed]);
 
-  // Handle user sessions cleared event (dispatched by preferences service)
-  // Use a ref to track if we're already processing to prevent duplicate handling
-  const isProcessingSessionClear = React.useRef(false);
-
-  useEffect(() => {
-    const handleSessionsCleared = async () => {
-      // CRITICAL: Prevent duplicate processing - both UserSessionsCleared and UserSessionRevoked
-      // can dispatch this event, causing a spam of logout attempts
-      if (isProcessingSessionClear.current) {
-        return;
-      }
-
-      isProcessingSessionClear.current = true;
-
-      // Clear local authentication data
-      authService.clearAuthAndDevice();
-
-      // IMPORTANT: Clear HttpOnly session cookies by making a request to backend
-      // Since cookies are HttpOnly, JavaScript can't clear them directly
-      // The backend must send Set-Cookie with expired date
-      try {
-        await fetch('/api/auth/clear-session', {
-          method: 'POST',
-          credentials: 'include' // Include cookies in request so backend can clear them
-        });
-      } catch (error) {
-        console.error('[App] Failed to clear session cookies:', error);
-      }
-
-      // Refresh auth context to trigger authentication modal
-      await refreshAuth();
-
-      // IMPORTANT: Also refresh Steam auth and Web API status
-      // When API key is regenerated, backend also clears Steam auth data
-      try {
-        await refreshSteamAuth();
-        refreshSteamWebApiStatus();
-      } catch (error) {
-        // Silently fail - Steam status will be refreshed on next interaction
-      }
-
-      // Reset the flag after a delay to allow future legitimate clears
-      setTimeout(() => {
-        isProcessingSessionClear.current = false;
-      }, 5000);
-    };
-
-    window.addEventListener('user-sessions-cleared', handleSessionsCleared);
-
-    return () => {
-      window.removeEventListener('user-sessions-cleared', handleSessionsCleared);
-    };
-  }, [refreshAuth, refreshSteamAuth, refreshSteamWebApiStatus]);
-
   // Fetch server timezone on mount
   useEffect(() => {
     const fetchTimezone = async () => {
       try {
-        // Config is protected; only request once auth has settled and user has access (auth or guest)
-        if (checkingAuth || authMode === 'unauthenticated') {
-          return;
-        }
         const config = await ApiService.getConfig();
         if (config.timeZone) {
           setServerTimezone(config.timeZone);
@@ -317,7 +233,7 @@ const AppContent: React.FC = () => {
     };
 
     fetchTimezone();
-  }, [authMode, checkingAuth]);
+  }, []);
 
   // NOTE: Automatic GC on page load is now handled by the backend GcMiddleware
   // which properly respects the memory threshold and aggressiveness settings.
@@ -463,19 +379,6 @@ const AppContent: React.FC = () => {
     await themeService.reloadThemeAfterAuth();
   };
 
-  const handleApiKeyRegenerated = () => {
-    // Show the API key regeneration modal
-    setShowApiKeyRegenerationModal(true);
-  };
-
-  const handleApiKeyRegenerationCompleted = async () => {
-    // Close the regeneration modal and update authentication status
-    setShowApiKeyRegenerationModal(false);
-    await refreshAuth();
-    // Reload theme from server after re-authentication
-    await themeService.reloadThemeAfterAuth();
-  };
-
   const handleFullScanModalDismiss = () => {
     setShowFullScanRequiredModal(false);
     markModalDismissed(); // Don't show again this session
@@ -618,7 +521,7 @@ const AppContent: React.FC = () => {
             </div>
           </div>
         ) : activeTab === 'management' ? (
-          <ManagementTab onApiKeyRegenerated={handleApiKeyRegenerated} />
+          <ManagementTab onApiKeyRegenerated={() => {}} />
         ) : activeTab === 'users' ? (
           <UserTab />
         ) : activeTab === 'authenticate' ? (
@@ -631,56 +534,23 @@ const AppContent: React.FC = () => {
   };
 
   // Show loading while checking initial status
-  if (checkingAuth || checkingSetupStatus || (checkingDepotStatus && authMode !== 'guest')) {
+  if (checkingSetupStatus || checkingDepotStatus) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-themed-primary">
         <LoadingSpinner
           fullScreen={false}
           message={
-            checkingAuth
-              ? t('app.loading.checkingAuth')
-              : checkingSetupStatus
-                ? t('app.loading.checkingSetup')
-                : t('app.loading.checkingDepot')
+            checkingSetupStatus
+              ? t('app.loading.checkingSetup')
+              : t('app.loading.checkingDepot')
           }
         />
       </div>
     );
   }
 
-  // Show API key regeneration modal if needed
-  if (showApiKeyRegenerationModal) {
-    return (
-      <>
-        <AuthenticationModal
-          onAuthComplete={handleApiKeyRegenerationCompleted}
-          onAuthChanged={handleAuthChanged}
-          title={t('app.auth.apiKeyRegenerated.title')}
-          subtitle={t('app.auth.apiKeyRegenerated.subtitle')}
-          allowGuestMode={false}
-        />
-      </>
-    );
-  }
-
-  // Check if user is authenticated or in guest mode
-  const hasAccess = isAuthenticated || authMode === 'guest';
-
-  // If guest session expired, show authentication modal
-  if (authMode === 'expired') {
-    return (
-      <AuthenticationModal
-        onAuthComplete={handleApiKeyRegenerationCompleted}
-        onAuthChanged={handleAuthChanged}
-        title={t('app.auth.sessionExpired.title')}
-        subtitle={t('app.auth.sessionExpired.subtitle')}
-        allowGuestMode={true}
-      />
-    );
-  }
-
   // Show initialization modal if user is authenticated and in the middle of setup
-  if (authMode === 'authenticated' && isInitializationFlowActive) {
+  if (isInitializationFlowActive) {
     return (
       <DepotInitializationModal
         onInitialized={handleDepotInitialized}
@@ -689,43 +559,8 @@ const AppContent: React.FC = () => {
     );
   }
 
-  // Show authentication/initialization modal if not authenticated
-  if (!hasAccess) {
-    // Check if this is first-time setup or just auth needed
-    const isFirstTimeSetup =
-      setupCompleted === false && !depotInitialized && hasProcessedLogs === false;
-
-    if (isFirstTimeSetup) {
-      // Mark initialization flow as active when showing the modal
-      if (!isInitializationFlowActive) {
-        setIsInitializationFlowActive(true);
-        storage.setItem('initializationFlowActive', 'true');
-      }
-
-      // Show full 6-step initialization modal for first-time setup
-      return (
-        <DepotInitializationModal
-          onInitialized={handleDepotInitialized}
-          onAuthChanged={handleAuthChanged}
-        />
-      );
-    }
-
-    // Just need authentication (e.g., new browser)
-    return (
-      <AuthenticationModal
-        onAuthComplete={handleDepotInitialized}
-        onAuthChanged={handleAuthChanged}
-        title={t('app.auth.authenticationRequired.title')}
-        subtitle={t('app.auth.authenticationRequired.subtitle')}
-        allowGuestMode={true}
-      />
-    );
-  }
-
-  // Show initialization modal if user is authenticated but hasn't completed first-time setup
+  // Show initialization modal if user hasn't completed first-time setup
   if (
-    authMode === 'authenticated' &&
     setupCompleted === false &&
     !depotInitialized &&
     hasProcessedLogs === false

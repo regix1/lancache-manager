@@ -4,7 +4,6 @@ using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
-using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 using LancacheManager.Core.Services.SteamKit2;
 
@@ -23,7 +22,6 @@ public class SystemController : ControllerBase
     private readonly IConfiguration _configuration;
     private readonly ILogger<SystemController> _logger;
     private readonly IPathResolver _pathResolver;
-    private readonly SessionMigrationService _sessionMigrationService;
     private readonly CacheClearingService _cacheClearingService;
     private readonly SteamKit2Service _steamKit2Service;
     private readonly DatasourceService _datasourceService;
@@ -35,7 +33,6 @@ public class SystemController : ControllerBase
         IConfiguration configuration,
         ILogger<SystemController> logger,
         IPathResolver pathResolver,
-        SessionMigrationService sessionMigrationService,
         CacheClearingService cacheClearingService,
         SteamKit2Service steamKit2Service,
         DatasourceService datasourceService,
@@ -46,7 +43,6 @@ public class SystemController : ControllerBase
         _configuration = configuration;
         _logger = logger;
         _pathResolver = pathResolver;
-        _sessionMigrationService = sessionMigrationService;
         _cacheClearingService = cacheClearingService;
         _steamKit2Service = steamKit2Service;
         _datasourceService = datasourceService;
@@ -99,7 +95,6 @@ public class SystemController : ControllerBase
     /// GET /api/system/state - Get application state
     /// </summary>
     [HttpGet("state")]
-    [RequireGuestSession]
     public IActionResult GetState()
     {
         return Ok(new SystemStateResponse
@@ -115,7 +110,6 @@ public class SystemController : ControllerBase
     /// GET /api/system/permissions - Check directory permissions and docker socket availability
     /// </summary>
     [HttpGet("permissions")]
-    [RequireGuestSession]
     public IActionResult GetPermissions()
     {
         var cachePath = _pathResolver.GetCacheDirectory();
@@ -178,7 +172,6 @@ public class SystemController : ControllerBase
     /// Request body: { "completed": true }
     /// </summary>
     [HttpPatch("setup")]
-    [RequireAuth]
     public IActionResult UpdateSetupStatus([FromBody] UpdateSetupRequest request)
     {
         if (request.Completed.HasValue)
@@ -200,7 +193,6 @@ public class SystemController : ControllerBase
     /// GET /api/system/rsync/available - Check if rsync is available
     /// </summary>
     [HttpGet("rsync/available")]
-    [RequireGuestSession]
     public IActionResult CheckRsyncAvailable()
     {
         var isAvailable = _cacheClearingService.IsRsyncAvailable();
@@ -212,12 +204,8 @@ public class SystemController : ControllerBase
     /// Note: POST is acceptable as this is a one-time operation/action
     /// </summary>
     [HttpPost("migrations/sessions")]
-    [RequireAuth]
-    public async Task<IActionResult> MigrateSessions()
+    public IActionResult MigrateSessions()
     {
-        await _sessionMigrationService.MigrateOldSessionsToDatabase();
-        _logger.LogInformation("Session migration completed successfully");
-
         return Ok(MessageResponse.Ok("Session migration completed successfully"));
     }
 
@@ -227,7 +215,6 @@ public class SystemController : ControllerBase
     /// Request body: { "deleteMode": "preserve" | "full" | "rsync" }
     /// </summary>
     [HttpPatch("cache-delete-mode")]
-    [RequireAuth]
     public IActionResult SetCacheDeleteMode([FromBody] SetCacheDeleteModeRequest request)
     {
         _cacheClearingService.SetDeleteMode(request.DeleteMode);
@@ -246,7 +233,6 @@ public class SystemController : ControllerBase
     /// Request body: { "intervalHours": 24 }
     /// </summary>
     [HttpPatch("depots/crawl-interval")]
-    [RequireAuth]
     public IActionResult SetDepotCrawlInterval([FromBody] SetCrawlIntervalRequest request)
     {
         if (request.IntervalHours <= 0)
@@ -270,7 +256,6 @@ public class SystemController : ControllerBase
     /// Request body: { "mode": "full" } or { "mode": "incremental" }
     /// </summary>
     [HttpPatch("depots/scan-mode")]
-    [RequireAuth]
     public IActionResult SetDepotScanMode([FromBody] SetScanModeRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Mode))
@@ -311,7 +296,6 @@ public class SystemController : ControllerBase
     /// Request body: { "refreshRate": "LIVE" | "ULTRA" | "REALTIME" | "STANDARD" | "RELAXED" | "SLOW" }
     /// </summary>
     [HttpPatch("refresh-rate")]
-    [RequireAuth]
     public IActionResult SetRefreshRate([FromBody] SetRefreshRateRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.RefreshRate))
@@ -339,7 +323,6 @@ public class SystemController : ControllerBase
     /// GET /api/system/default-guest-refresh-rate - Get the default refresh rate for guest users
     /// </summary>
     [HttpGet("default-guest-refresh-rate")]
-    [RequireGuestSession]
     public IActionResult GetDefaultGuestRefreshRate()
     {
         var rate = _stateService.GetDefaultGuestRefreshRate();
@@ -352,7 +335,6 @@ public class SystemController : ControllerBase
     /// Request body: { "refreshRate": "LIVE" | "ULTRA" | "REALTIME" | "STANDARD" | "RELAXED" | "SLOW" }
     /// </summary>
     [HttpPatch("default-guest-refresh-rate")]
-    [RequireAuth]
     public async Task<IActionResult> SetDefaultGuestRefreshRate([FromBody] SetRefreshRateRequest request)
     {
         if (request == null || string.IsNullOrWhiteSpace(request.RefreshRate))
@@ -387,7 +369,6 @@ public class SystemController : ControllerBase
     /// Get default guest preferences
     /// </summary>
     [HttpGet("default-guest-preferences")]
-    [RequireGuestSession]
     public IActionResult GetDefaultGuestPreferences()
     {
         var state = _stateService.GetState();
@@ -407,7 +388,6 @@ public class SystemController : ControllerBase
     /// Update allowed time formats for guests
     /// </summary>
     [HttpPatch("default-guest-preferences/allowed-time-formats")]
-    [RequireAuth]
     public async Task<IActionResult> SetAllowedTimeFormats([FromBody] SetAllowedTimeFormatsRequest request)
     {
         var validFormats = new[] { "server-24h", "server-12h", "local-24h", "local-12h" };
@@ -446,7 +426,6 @@ public class SystemController : ControllerBase
     /// Update a single default guest preference
     /// </summary>
     [HttpPatch("default-guest-preferences/{key}")]
-    [RequireAuth]
     public async Task<IActionResult> SetDefaultGuestPreference(string key, [FromBody] SetBoolPreferenceRequest request)
     {
         var validKeys = new[] { "useLocalTimezone", "use24HourFormat", "sharpCorners", "disableTooltips", "showDatasourceLabels", "showYearInDates" };
@@ -496,7 +475,6 @@ public class SystemController : ControllerBase
     /// GET /api/system/log-rotation/status - Get nginx log rotation status
     /// </summary>
     [HttpGet("log-rotation/status")]
-    [RequireGuestSession]
     public IActionResult GetLogRotationStatus()
     {
         var status = _logRotationService.GetStatus();
@@ -507,7 +485,6 @@ public class SystemController : ControllerBase
     /// POST /api/system/log-rotation/trigger - Force nginx log rotation
     /// </summary>
     [HttpPost("log-rotation/trigger")]
-    [RequireAuth]
     public async Task<IActionResult> TriggerLogRotation()
     {
         _logger.LogInformation("Manual log rotation triggered via API");
@@ -527,7 +504,6 @@ public class SystemController : ControllerBase
     /// PUT /api/system/log-rotation/schedule - Update log rotation schedule
     /// </summary>
     [HttpPut("log-rotation/schedule")]
-    [RequireAuth]
     public async Task<IActionResult> UpdateLogRotationSchedule([FromBody] UpdateLogRotationScheduleRequest request)
     {
         if (request.ScheduleHours < 0 || request.ScheduleHours > 168)

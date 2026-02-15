@@ -7,7 +7,6 @@ using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Middleware;
-using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -21,7 +20,6 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/stats")]
-[RequireGuestSession]
 public class StatsController : ControllerBase
 {
     private const string PrefillToken = "prefill";
@@ -375,7 +373,6 @@ public class StatsController : ControllerBase
     }
 
     [HttpGet("exclusions")]
-    [RequireAuth]
     public IActionResult GetExcludedClients()
     {
         var excludedIps = _stateRepository.GetExcludedClientIps();
@@ -386,7 +383,6 @@ public class StatsController : ControllerBase
     }
 
     [HttpPut("exclusions")]
-    [RequireAuth]
     public async Task<IActionResult> UpdateExcludedClients([FromBody] UpdateStatsExclusionsRequest request)
     {
         var normalizedIps = NormalizeClientIps(request.Ips, out var invalidIps);

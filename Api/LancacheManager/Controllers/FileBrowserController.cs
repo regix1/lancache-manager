@@ -1,5 +1,4 @@
 using LancacheManager.Models;
-using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
@@ -56,7 +55,6 @@ public class FileBrowserController : ControllerBase
     /// Query params: path (optional, defaults to common locations)
     /// </summary>
     [HttpGet("list")]
-    [RequireAuth]
     public IActionResult ListDirectory([FromQuery] string? path)
     {
         try
@@ -251,7 +249,6 @@ public class FileBrowserController : ControllerBase
     /// Special case: searchPath="/" searches within all allowed paths
     /// </summary>
     [HttpGet("search")]
-    [RequireAuth]
     public IActionResult SearchDatabases([FromQuery] string searchPath, [FromQuery] string? pattern = "*.db")
     {
         try
