@@ -338,6 +338,13 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
                 className={`flex-shrink-0 transition-transform duration-200 text-[var(--theme-text-primary)] ${isOpen ? 'rotate-180' : ''}`}
               />
             )}
+
+            {/* Event Filter Count Badge */}
+            {selectedEventIds.length > 0 && (
+              <span className="absolute -top-1 -right-1 h-5 min-w-[1.25rem] px-1 flex items-center justify-center rounded-full text-[10px] font-bold bg-[var(--theme-primary)] text-white shadow-sm">
+                {selectedEventIds.length}
+              </span>
+            )}
           </button>
 
           {/* Dropdown - rendered via portal to escape stacking context */}

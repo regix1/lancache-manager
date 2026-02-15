@@ -133,7 +133,7 @@ const Dashboard: React.FC = () => {
 
   // Determine if we're viewing historical/filtered data (not live)
   // Any non-live mode should disable real-time only stats
-  const isHistoricalView = timeRange !== 'live';
+  const isHistoricalView = timeRange !== 'live' || selectedEventIds.length > 0;
 
   // Mark initial animation as complete after entrance animations finish
   useEffect(() => {

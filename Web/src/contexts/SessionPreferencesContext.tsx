@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useSignalR } from './SignalRContext';
+import { useAuth } from './AuthContext';
 import authService from '@services/auth.service';
 import ApiService from '@services/api.service';
 import type { UserPreferencesUpdatedEvent } from './SignalRContext/types';
@@ -64,10 +65,12 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
   const [preferences, setPreferences] = useState<Record<string, UserPreferences>>({});
   const [loadingIds, setLoadingIds] = useState<Set<string>>(new Set());
   const [loadedIds, setLoadedIds] = useState<Set<string>>(new Set());
+  const failedIds = useRef<Set<string>>(new Set());
   const preferencesRef = useRef<Record<string, UserPreferences>>({});
   const initialLoadDone = useRef(false);
 
   const { on, off } = useSignalR();
+  const { isAuthenticated } = useAuth();
 
   const getCurrentSessionId = useCallback((): string | null => {
     return authService.getDeviceId() || authService.getGuestSessionId() || null;
@@ -80,7 +83,17 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
   }, [preferences]);
 
   const loadSessionPreferences = useCallback(async (sessionId: string) => {
-    if (loadingIds.has(sessionId) || loadedIds.has(sessionId)) return;
+    if (loadingIds.has(sessionId) || loadedIds.has(sessionId) || failedIds.current.has(sessionId)) return;
+
+    const currentSession = getCurrentSessionId();
+
+    // Only admins can fetch other sessions' preferences
+    if (sessionId !== currentSession && !isAuthenticated) {
+      console.warn(`[SessionPreferencesContext] Skipping load for session ${sessionId} - not authenticated`);
+      failedIds.current.add(sessionId);
+      setLoadedIds(prev => new Set(prev).add(sessionId));
+      return;
+    }
 
     setLoadingIds(prev => new Set(prev).add(sessionId));
 
@@ -90,28 +103,43 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
         ApiService.getFetchOptions()
       );
 
-      if (response.ok) {
-        const prefs = await response.json();
-        const normalizedPrefs: UserPreferences = {
-          selectedTheme: prefs.selectedTheme || null,
-          sharpCorners: prefs.sharpCorners ?? false,
-          disableFocusOutlines: prefs.disableFocusOutlines ?? true,
-          disableTooltips: prefs.disableTooltips ?? false,
-          picsAlwaysVisible: prefs.picsAlwaysVisible ?? false,
-          disableStickyNotifications: prefs.disableStickyNotifications ?? false,
-          showDatasourceLabels: prefs.showDatasourceLabels ?? true,
-          useLocalTimezone: prefs.useLocalTimezone ?? false,
-          use24HourFormat: prefs.use24HourFormat ?? true,
-          showYearInDates: prefs.showYearInDates ?? false,
-          refreshRate: prefs.refreshRate ?? null,
-          allowedTimeFormats: prefs.allowedTimeFormats ?? null
-        };
-
-        setPreferences(prev => ({ ...prev, [sessionId]: normalizedPrefs }));
+      if (response.status === 401) {
+        // 401 means unauthorized - mark as failed and loaded to prevent retries
+        console.warn(`[SessionPreferencesContext] 401 for session ${sessionId} - marking as failed`);
+        failedIds.current.add(sessionId);
         setLoadedIds(prev => new Set(prev).add(sessionId));
+        return;
       }
+
+      if (!response.ok) {
+        // Any other error - mark as loaded to prevent infinite retries
+        console.error(`[SessionPreferencesContext] HTTP ${response.status} for session ${sessionId}`);
+        setLoadedIds(prev => new Set(prev).add(sessionId));
+        return;
+      }
+
+      const prefs = await response.json();
+      const normalizedPrefs: UserPreferences = {
+        selectedTheme: prefs.selectedTheme || null,
+        sharpCorners: prefs.sharpCorners ?? false,
+        disableFocusOutlines: prefs.disableFocusOutlines ?? true,
+        disableTooltips: prefs.disableTooltips ?? false,
+        picsAlwaysVisible: prefs.picsAlwaysVisible ?? false,
+        disableStickyNotifications: prefs.disableStickyNotifications ?? false,
+        showDatasourceLabels: prefs.showDatasourceLabels ?? true,
+        useLocalTimezone: prefs.useLocalTimezone ?? false,
+        use24HourFormat: prefs.use24HourFormat ?? true,
+        showYearInDates: prefs.showYearInDates ?? false,
+        refreshRate: prefs.refreshRate ?? null,
+        allowedTimeFormats: prefs.allowedTimeFormats ?? null
+      };
+
+      setPreferences(prev => ({ ...prev, [sessionId]: normalizedPrefs }));
+      setLoadedIds(prev => new Set(prev).add(sessionId));
     } catch (err) {
       console.error('[SessionPreferencesContext] Failed to load session preferences:', err);
+      // Mark as loaded to prevent infinite retries on network errors
+      setLoadedIds(prev => new Set(prev).add(sessionId));
     } finally {
       setLoadingIds(prev => {
         const next = new Set(prev);
@@ -119,7 +147,7 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
         return next;
       });
     }
-  }, [loadingIds, loadedIds]);
+  }, [loadingIds, loadedIds, isAuthenticated, getCurrentSessionId]);
 
   useEffect(() => {
     const sessionId = getCurrentSessionId();
@@ -128,6 +156,13 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
       loadSessionPreferences(sessionId);
     }
   }, [getCurrentSessionId, loadSessionPreferences]);
+
+  // Reset auth failure state when authentication changes
+  useEffect(() => {
+    failedIds.current.clear();
+    setLoadedIds(new Set());
+    initialLoadDone.current = false;
+  }, [isAuthenticated]);
 
   const handleUserPreferencesUpdated = useCallback((data: UserPreferencesUpdatedEvent) => {
     const { sessionId, preferences: newPrefs } = data;

@@ -357,7 +357,6 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
 
   const handleViewStats = useCallback((event: Event) => {
     // Set the event filter to show only downloads tagged to this event
-    // Use 'live' time range to show all stats for the event
     setSelectedEventIds([event.id]);
     setTimeRange('live');
 

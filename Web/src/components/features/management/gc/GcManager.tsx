@@ -34,6 +34,12 @@ const fetchGcSettings = async (): Promise<GcSettings> => {
     if (response.ok) {
       const data = await response.json();
       return data;
+    } else if (response.status === 404) {
+      // GC feature is disabled on backend, return default settings
+      return {
+        aggressiveness: 'disabled',
+        memoryThresholdMB: 4096
+      };
     } else {
       throw new Error('Failed to load GC settings');
     }

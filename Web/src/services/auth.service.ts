@@ -3,10 +3,13 @@ import { getErrorMessage } from '@utils/error';
 
 export type AuthMode = 'authenticated' | 'guest' | 'expired' | 'unauthenticated';
 
+const SESSION_ACTIVE_KEY = 'sessionActive';
+
 interface AuthCheckResponse {
   requiresAuth: boolean;
   isAuthenticated: boolean;
   authMode: AuthMode;
+  authenticationType?: string; // e.g. "session", "api-key", "session-restored", "device"
   guestTimeRemaining?: number; // minutes
   hasData?: boolean; // Whether database has any data (for guest mode eligibility)
   hasEverBeenSetup?: boolean; // Whether anyone has ever authenticated (system is set up)
@@ -227,6 +230,39 @@ class AuthService {
         this.isAuthenticated = result.isAuthenticated;
         this.authChecked = true;
 
+        // Cache-clear detection: if backend auto-restored a session but localStorage
+        // was cleared (no sessionActive flag), the user cleared their browser data.
+        // Reject the auto-restore and force re-authentication.
+        if (
+          result.isAuthenticated &&
+          result.authenticationType === 'session-restored' &&
+          !localStorage.getItem(SESSION_ACTIVE_KEY)
+        ) {
+          // Kill the server-side session the backend just created
+          try {
+            await fetch(`${API_URL}/api/auth/clear-session`, {
+              method: 'POST',
+              credentials: 'include'
+            });
+          } catch {
+            // Best-effort; session will expire on its own if this fails
+          }
+
+          this.isAuthenticated = false;
+          this.authMode = 'unauthenticated';
+          return {
+            requiresAuth: result.requiresAuth ?? true,
+            isAuthenticated: false,
+            authMode: 'unauthenticated' as AuthMode,
+            hasData: result.hasData || false,
+            hasEverBeenSetup: result.hasEverBeenSetup || false,
+            hasBeenInitialized: result.hasBeenInitialized || false,
+            hasDataLoaded: result.hasDataLoaded || false,
+            prefillEnabled: result.prefillEnabled ?? false,
+            prefillTimeRemaining: result.prefillTimeRemaining
+          };
+        }
+
         // Priority: Use backend's authMode if provided (handles guest sessions on refresh)
         if (result.authMode === 'guest') {
           this.authMode = 'guest' as AuthMode;
@@ -236,6 +272,12 @@ class AuthService {
           this.authMode = 'authenticated' as AuthMode;
         } else {
           this.authMode = 'unauthenticated' as AuthMode;
+        }
+
+        // If authenticated and sessionActive flag is missing (e.g. backend restart
+        // with valid session cookie), set it so future cache-clears are detected.
+        if (result.isAuthenticated && !localStorage.getItem(SESSION_ACTIVE_KEY)) {
+          localStorage.setItem(SESSION_ACTIVE_KEY, 'true');
         }
 
         // If device is not authenticated but auth is required, clear the stored device ID
@@ -325,6 +367,7 @@ class AuthService {
         this.apiKey = apiKey; // Keep in memory for header sending
         this.isAuthenticated = true;
         this.authMode = 'authenticated';
+        localStorage.setItem(SESSION_ACTIVE_KEY, 'true');
 
         // CRITICAL: Wait briefly for backend to complete cleanup (delete guest session, etc.)
         // This prevents race conditions where checkDeviceStillValid() runs before cleanup is done
@@ -367,6 +410,7 @@ class AuthService {
         this.clearAuthAndDevice();
         this.isAuthenticated = false;
         this.authMode = 'unauthenticated';
+        localStorage.removeItem(SESSION_ACTIVE_KEY);
 
         return {
           success: true,
@@ -551,6 +595,7 @@ class AuthService {
     this.isAuthenticated = false;
     this.authMode = 'unauthenticated';
     this.apiKey = null;
+    localStorage.removeItem(SESSION_ACTIVE_KEY);
 
     // Backend manages session via HttpOnly cookies
     // Just clear local state, no need to regenerate device ID
@@ -563,6 +608,7 @@ class AuthService {
     this.isAuthenticated = false;
     this.authMode = 'unauthenticated';
     this.apiKey = null;
+    localStorage.removeItem(SESSION_ACTIVE_KEY);
     this.exitGuestMode(); // Also clear guest mode
   }
 
@@ -570,6 +616,7 @@ class AuthService {
     this.isAuthenticated = false;
     this.authMode = 'unauthenticated';
     this.apiKey = null;
+    localStorage.removeItem(SESSION_ACTIVE_KEY);
 
     // Backend manages session via HttpOnly cookies
     // Just clear local state, device ID stays the same (from fingerprint)

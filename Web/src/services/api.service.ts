@@ -221,16 +221,14 @@ class ApiService {
   ): Promise<Download[]> {
     try {
       const actualCount = count === 'unlimited' ? 2147483647 : count;
-      let url = `${API_BASE}/downloads/latest?count=${actualCount}`;
-      if (startTime) url += `&startTime=${startTime}`;
-      if (endTime) url += `&endTime=${endTime}`;
-      // Pass event ID for filtering (backend expects single eventId parameter)
-      if (eventIds && eventIds.length > 0) {
-        url += `&eventId=${eventIds[0]}`;
-      }
-      if (cacheBust) {
-        url += `&cacheBust=${cacheBust}`;
-      }
+      let url = `${API_BASE}/downloads/latest`;
+      const params = new URLSearchParams();
+      params.append('count', actualCount.toString());
+      if (startTime && !isNaN(startTime)) params.append('startTime', startTime.toString());
+      if (endTime && !isNaN(endTime)) params.append('endTime', endTime.toString());
+      if (eventIds && eventIds.length > 0) params.append('eventId', eventIds[0].toString());
+      if (cacheBust) params.append('cacheBust', cacheBust.toString());
+      url += `?${params}`;
       const res = await fetch(url, this.getFetchOptions({ signal }));
       return await this.handleResponse<Download[]>(res);
     } catch (error: unknown) {

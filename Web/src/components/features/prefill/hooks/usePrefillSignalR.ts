@@ -391,7 +391,16 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
         }
       }
     } catch (err) {
-      console.error('Failed to initialize session:', err);
+      // Check if this is a normal access-denied/connection closed scenario
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      if (
+        errorMessage.includes('connection being closed') ||
+        errorMessage.includes('Invocation canceled')
+      ) {
+        console.debug('[PrefillSignalR] Hub connection closed - access denied or hub unavailable');
+      } else {
+        console.error('Failed to initialize session:', err);
+      }
     } finally {
       setIsInitializing(false);
     }

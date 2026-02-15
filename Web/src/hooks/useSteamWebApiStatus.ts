@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import ApiService from '@services/api.service';
 import { useAuth } from '@contexts/AuthContext';
 
@@ -18,8 +18,14 @@ export const useSteamWebApiStatus = () => {
   const [error, setError] = useState<string | null>(null);
   const { isAuthenticated, authMode, isLoading: authLoading } = useAuth();
   const hasAccess = isAuthenticated || authMode === 'guest';
+  const hasFailedAuth = useRef(false);
 
   const fetchStatus = useCallback(async (forceRefresh: boolean = false, skipLoading: boolean = false) => {
+    // Don't retry if we've already failed auth
+    if (hasFailedAuth.current) {
+      return;
+    }
+
     try {
       if (!skipLoading) {
         setLoading(true);
@@ -30,6 +36,16 @@ export const useSteamWebApiStatus = () => {
         `/api/steam-api-keys/status?forceRefresh=${forceRefresh}`,
         ApiService.getFetchOptions()
       );
+
+      if (response.status === 401) {
+        // Auth failed - silently set status to null and stop retrying
+        hasFailedAuth.current = true;
+        setStatus(null);
+        if (!skipLoading) {
+          setLoading(false);
+        }
+        return;
+      }
 
       if (!response.ok) {
         throw new Error('Failed to fetch Steam Web API status');
@@ -49,6 +65,9 @@ export const useSteamWebApiStatus = () => {
   }, []);
 
   useEffect(() => {
+    // Reset auth failure flag when auth state changes
+    hasFailedAuth.current = false;
+
     // Only fetch when auth is ready and user has access
     if (authLoading || !hasAccess) {
       return;

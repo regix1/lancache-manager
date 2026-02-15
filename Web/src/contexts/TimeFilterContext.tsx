@@ -83,32 +83,8 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
   });
 
   // Selected event IDs for filtering by tagged downloads (independent of time range)
-  const [selectedEventIds, setSelectedEventIdsState] = useState<number[]>(() => {
-    const saved = storage.getItem('lancache_selected_event_ids');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        return Array.isArray(parsed) ? parsed : [];
-      } catch {
-        // Migrate from old single ID format
-        const oldSaved = storage.getItem('lancache_selected_event_id');
-        if (oldSaved) {
-          const id = parseInt(oldSaved, 10);
-          storage.removeItem('lancache_selected_event_id');
-          return isNaN(id) ? [] : [id];
-        }
-        return [];
-      }
-    }
-    // Migrate from old single ID format
-    const oldSaved = storage.getItem('lancache_selected_event_id');
-    if (oldSaved) {
-      const id = parseInt(oldSaved, 10);
-      storage.removeItem('lancache_selected_event_id');
-      return isNaN(id) ? [] : [id];
-    }
-    return [];
-  });
+  // Not persisted to localStorage - resets on page refresh to prevent zero-data bug
+  const [selectedEventIds, setSelectedEventIdsState] = useState<number[]>([]);
 
   // Anchor time for rolling time ranges (1h, 6h, 12h, 24h, 7d, 30d)
   // When set, getTimeRangeParams uses this instead of Date.now() to prevent time drift
@@ -153,15 +129,6 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
       storage.removeItem('lancache_custom_end_date');
     }
   }, [customEndDate]);
-
-  // Persist selected event IDs
-  useEffect(() => {
-    if (selectedEventIds.length > 0) {
-      storage.setItem('lancache_selected_event_ids', JSON.stringify(selectedEventIds));
-    } else {
-      storage.removeItem('lancache_selected_event_ids');
-    }
-  }, [selectedEventIds]);
 
   // Set selected event IDs
   const setSelectedEventIds = useCallback((ids: number[]) => {
