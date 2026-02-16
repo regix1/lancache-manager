@@ -55,7 +55,33 @@
     </script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!-- Visible fallback: replaced by React on successful mount. If you see this, React failed to start. -->
+      <div id="pre-react-fallback" style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:#111827;color:#fff;font-family:system-ui,sans-serif;flex-direction:column;gap:16px;padding:20px;text-align:center;">
+        <div style="width:32px;height:32px;border:3px solid #374151;border-top-color:#60a5fa;border-radius:50%;animation:spin 1s linear infinite;"></div>
+        <p style="font-size:14px;color:#9ca3af;">Loading LANCache Manager...</p>
+        <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      // Diagnostic: if React hasn't mounted after 10 seconds, show error details
+      setTimeout(function() {
+        var fallback = document.getElementById('pre-react-fallback');
+        if (fallback) {
+          fallback.innerHTML = '<div style="max-width:500px;">' +
+            '<h2 style="color:#f87171;margin-bottom:12px;">App Failed to Load</h2>' +
+            '<p style="color:#9ca3af;font-size:14px;margin-bottom:16px;">React did not mount within 10 seconds. This usually means a JavaScript error occurred during startup.</p>' +
+            '<div style="background:#1f2937;border-radius:8px;padding:16px;text-align:left;font-size:12px;color:#d1d5db;">' +
+            '<p><strong>Debug info:</strong></p>' +
+            '<p>URL: ' + window.location.href + '</p>' +
+            '<p>UA: ' + navigator.userAgent + '</p>' +
+            '<p>Time: ' + new Date().toISOString() + '</p>' +
+            '</div>' +
+            '<p style="color:#9ca3af;font-size:13px;margin-top:16px;">Try: <a href="/api/auth/status" style="color:#60a5fa;">Test API</a> | <a href="javascript:location.reload()" style="color:#60a5fa;">Reload</a></p>' +
+            '</div>';
+        }
+      }, 10000);
+    </script>
   </body>
 </html>
