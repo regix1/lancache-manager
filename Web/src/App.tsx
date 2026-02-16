@@ -632,7 +632,11 @@ const AppContent: React.FC = () => {
 
 const App: React.FC = () => {
   return (
-    <ErrorBoundary>
+    <>
+      <div id="debug-react-alive" style={{position:'fixed',top:0,left:0,right:0,background:'#dc2626',color:'white',padding:'12px 16px',zIndex:99999,fontSize:'14px',fontFamily:'system-ui,sans-serif',textAlign:'center'}}>
+        DEBUG: React rendered — if you see this, React is working. The issue is below.
+      </div>
+      <ErrorBoundary>
       <MockModeProvider>
         <TimeFilterProvider>
           <SignalRProvider>
@@ -679,6 +683,7 @@ const App: React.FC = () => {
         </TimeFilterProvider>
       </MockModeProvider>
     </ErrorBoundary>
+    </>
   );
 };
 
