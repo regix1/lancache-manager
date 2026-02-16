@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Key, Eye, Loader2, Shield, Database, CheckCircle } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import authService from '@services/auth.service';
+import { useAuth } from '@contexts/AuthContext';
 import { useGuestConfig } from '@contexts/GuestConfigContext';
 import { useSignalR } from '@contexts/SignalRContext';
 import { useTranslation } from 'react-i18next';
@@ -29,6 +30,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
   allowGuestMode = true
 }) => {
   const { t } = useTranslation();
+  const { startGuestSession: authStartGuest, login: authLogin } = useAuth();
   const { guestDurationHours, guestModeLocked: contextGuestModeLocked } = useGuestConfig();
   const { on, off } = useSignalR();
   const [apiKey, setApiKey] = useState('');
@@ -154,10 +156,12 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
     setAuthError(null);
 
     try {
-      const result = await authService.login(apiKey);
+      // Use AuthContext login which awaits fetchAuth() to fully settle state
+      // before returning, ensuring all downstream contexts react properly
+      const result = await authLogin(apiKey);
       if (result.success) {
         onAuthChanged?.();
-        setTimeout(() => onAuthComplete(), 500);
+        onAuthComplete();
       } else {
         setAuthError(result.message || t('modals.auth.errors.authenticationFailed'));
       }
@@ -181,10 +185,13 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
     }
 
     try {
-      const result = await authService.startGuestSession();
+      // Use AuthContext startGuestSession which awaits fetchAuth() to fully
+      // settle state before returning, ensuring all downstream contexts
+      // (DashboardDataContext, RefreshRateContext, etc.) react properly
+      const result = await authStartGuest();
       if (result.success) {
         onAuthChanged?.();
-        setTimeout(() => onAuthComplete(), 500);
+        onAuthComplete();
       } else {
         setAuthError(result.message || t('modals.auth.errors.guestModeUnavailable'));
       }
