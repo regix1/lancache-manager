@@ -796,6 +796,7 @@ server {
     # SignalR (WebSockets)
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";
+    proxy_read_timeout 600s;  # Must match SignalR timeout (10 min) to prevent nginx killing idle WebSocket connections
   }
 }
 
@@ -836,6 +837,7 @@ server {
     # SignalR (WebSockets)
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";
+    proxy_read_timeout 600s;  # Must match SignalR timeout (10 min) to prevent nginx killing idle WebSocket connections
   }
 }
 ```
