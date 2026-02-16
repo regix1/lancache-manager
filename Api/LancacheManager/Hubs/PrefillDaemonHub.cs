@@ -43,9 +43,11 @@ public class PrefillDaemonHub : Hub
         }
 
         var session = await _sessionService.ValidateSessionAsync(rawToken);
-        if (session == null || session.SessionType != "admin")
+        var isAdmin = session?.SessionType == "admin";
+        var hasPrefillAccess = session?.PrefillExpiresAtUtc != null && session.PrefillExpiresAtUtc > DateTime.UtcNow;
+        if (session == null || (!isAdmin && !hasPrefillAccess))
         {
-            _logger.LogWarning("Prefill daemon hub connection rejected - not admin: {ConnectionId}", Context.ConnectionId);
+            _logger.LogWarning("Prefill daemon hub connection rejected - no prefill access: {ConnectionId}", Context.ConnectionId);
             Context.Abort();
             return;
         }
