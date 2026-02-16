@@ -1,3 +1,6 @@
+using LancacheManager.Core.Interfaces;
+using LancacheManager.Core.Services;
+using LancacheManager.Hubs;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
 using LancacheManager.Security;
@@ -11,19 +14,31 @@ public class SessionsController : ControllerBase
 {
     private readonly SessionService _sessionService;
     private readonly ILogger<SessionsController> _logger;
+    private readonly ISignalRNotificationService _signalR;
+    private readonly IServiceScopeFactory _scopeFactory;
 
     public SessionsController(
         SessionService sessionService,
-        ILogger<SessionsController> logger)
+        ILogger<SessionsController> logger,
+        ISignalRNotificationService signalR,
+        IServiceScopeFactory scopeFactory)
     {
         _sessionService = sessionService;
         _logger = logger;
+        _signalR = signalR;
+        _scopeFactory = scopeFactory;
     }
 
     [HttpGet]
-    public async Task<IActionResult> GetAllSessions()
+    public async Task<IActionResult> GetAllSessions([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
-        var sessions = await _sessionService.GetActiveSessionsAsync();
+        if (page < 1) page = 1;
+        if (pageSize < 1) pageSize = 20;
+        if (pageSize > 100) pageSize = 100;
+
+        var (sessions, totalCount) = await _sessionService.GetAllSessionsPagedAsync(page, pageSize);
+        var currentSessionId = HttpContext.GetUserSession()?.Id;
+        var now = DateTime.UtcNow;
 
         var dtos = sessions.Select(s => new SessionDto
         {
@@ -31,30 +46,40 @@ public class SessionsController : ControllerBase
             SessionType = s.SessionType,
             IpAddress = s.IpAddress,
             UserAgent = s.UserAgent,
-            CreatedAt = s.CreatedAtUtc,
-            LastSeenAt = s.LastSeenAtUtc,
-            ExpiresAt = s.ExpiresAtUtc,
-            IsRevoked = s.IsRevoked
+            CreatedAt = DateTime.SpecifyKind(s.CreatedAtUtc, DateTimeKind.Utc),
+            LastSeenAt = DateTime.SpecifyKind(s.LastSeenAtUtc, DateTimeKind.Utc),
+            ExpiresAt = DateTime.SpecifyKind(s.ExpiresAtUtc, DateTimeKind.Utc),
+            IsRevoked = s.IsRevoked,
+            IsCurrentSession = s.Id == currentSessionId,
+            IsExpired = !s.IsRevoked && s.ExpiresAtUtc <= now,
+            RevokedAt = s.RevokedAtUtc.HasValue ? DateTime.SpecifyKind(s.RevokedAtUtc.Value, DateTimeKind.Utc) : (DateTime?)null,
+            PrefillEnabled = s.SessionType == "admin" || (s.PrefillExpiresAtUtc != null && s.PrefillExpiresAtUtc > now),
+            PrefillExpiresAt = s.SessionType == "guest" && s.PrefillExpiresAtUtc > now
+                ? DateTime.SpecifyKind(s.PrefillExpiresAtUtc!.Value, DateTimeKind.Utc) : null
         }).ToList();
+
+        var totalPages = (int)Math.Ceiling((double)totalCount / pageSize);
 
         return Ok(new
         {
             sessions = dtos,
             count = dtos.Count,
             adminCount = dtos.Count(s => s.SessionType == "admin"),
-            guestCount = dtos.Count(s => s.SessionType == "guest")
+            guestCount = dtos.Count(s => s.SessionType == "guest"),
+            pagination = new
+            {
+                page,
+                pageSize,
+                totalCount,
+                totalPages
+            }
         });
     }
 
-    [HttpDelete("{id:guid}")]
+    [HttpPatch("{id:guid}/revoke")]
     public async Task<IActionResult> RevokeSession(Guid id)
     {
-        // Don't allow revoking own session via this endpoint
         var currentSession = HttpContext.GetUserSession();
-        if (currentSession != null && currentSession.Id == id)
-        {
-            return BadRequest(new { error = "Cannot revoke your own session. Use /api/auth/logout instead." });
-        }
 
         var success = await _sessionService.RevokeSessionAsync(id);
         if (!success)
@@ -62,7 +87,35 @@ public class SessionsController : ControllerBase
             return NotFound(new { error = "Session not found" });
         }
 
+        // Broadcast session revoked
+        await _signalR.NotifyAllAsync(SignalREvents.UserSessionRevoked, new
+        {
+            sessionId = id.ToString(),
+            sessionType = currentSession != null && currentSession.Id == id ? currentSession.SessionType : "unknown"
+        });
+
         return Ok(new { success = true, message = "Session revoked" });
+    }
+
+    [HttpDelete("{id:guid}")]
+    public async Task<IActionResult> DeleteSession(Guid id)
+    {
+        var currentSession = HttpContext.GetUserSession();
+
+        var success = await _sessionService.DeleteSessionAsync(id);
+        if (!success)
+        {
+            return NotFound(new { error = "Session not found" });
+        }
+
+        // Broadcast session deleted (permanently removed)
+        await _signalR.NotifyAllAsync(SignalREvents.UserSessionDeleted, new
+        {
+            sessionId = id.ToString(),
+            sessionType = currentSession != null && currentSession.Id == id ? currentSession.SessionType : "unknown"
+        });
+
+        return Ok(new { success = true, message = "Session permanently deleted" });
     }
 
     [HttpDelete("guests")]
@@ -70,6 +123,87 @@ public class SessionsController : ControllerBase
     {
         var count = await _sessionService.RevokeAllGuestSessionsAsync();
 
+        // Broadcast sessions cleared
+        await _signalR.NotifyAllAsync(SignalREvents.UserSessionsCleared, new
+        {
+            clearedCount = count,
+            sessionType = "guest"
+        });
+
         return Ok(new { success = true, revokedCount = count, message = $"Revoked {count} guest sessions" });
     }
+
+    [HttpPatch("{id:guid}/refresh-rate")]
+    public async Task<IActionResult> UpdateRefreshRate(Guid id, [FromBody] RefreshRateRequest request)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var prefsService = scope.ServiceProvider.GetRequiredService<UserPreferencesService>();
+
+        var result = prefsService.UpdatePreferenceAndGet(id, "refreshRate", request.RefreshRate ?? "");
+        if (result == null)
+        {
+            return NotFound(new { error = "Session not found or update failed" });
+        }
+
+        await _signalR.NotifyAllAsync(SignalREvents.GuestRefreshRateUpdated, new
+        {
+            sessionId = id.ToString(),
+            refreshRate = request.RefreshRate
+        });
+
+        return Ok(new { success = true });
+    }
+
+    [HttpPost("bulk/reset-to-defaults")]
+    public async Task<IActionResult> BulkResetToDefaults()
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var prefsService = scope.ServiceProvider.GetRequiredService<UserPreferencesService>();
+
+        // Get all guest session IDs and delete their preferences
+        var guestSessions = await _sessionService.GetActiveSessionsAsync();
+        var guestSessionIds = guestSessions
+            .Where(s => s.SessionType == "guest")
+            .Select(s => s.Id)
+            .ToList();
+
+        var affectedCount = 0;
+        foreach (var sessionId in guestSessionIds)
+        {
+            if (prefsService.DeletePreferences(sessionId))
+            {
+                affectedCount++;
+            }
+        }
+
+        if (affectedCount > 0)
+        {
+            await _signalR.NotifyAllAsync(SignalREvents.UserPreferencesReset, new
+            {
+                affectedCount,
+                sessionType = "guest"
+            });
+        }
+
+        return Ok(new { success = true, affectedCount });
+    }
+
+    [HttpDelete("bulk/clear-guests")]
+    public async Task<IActionResult> BulkClearGuests()
+    {
+        var count = await _sessionService.RevokeAllGuestSessionsAsync();
+
+        await _signalR.NotifyAllAsync(SignalREvents.UserSessionsCleared, new
+        {
+            clearedCount = count,
+            sessionType = "guest"
+        });
+
+        return Ok(new { success = true, clearedCount = count });
+    }
+}
+
+public class RefreshRateRequest
+{
+    public string? RefreshRate { get; set; }
 }

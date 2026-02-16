@@ -28,7 +28,9 @@ public static class SignalREvents
     // Sessions
     public const string UserSessionCreated = "UserSessionCreated";
     public const string UserSessionRevoked = "UserSessionRevoked";
+    public const string UserSessionDeleted = "UserSessionDeleted";
     public const string UserSessionsCleared = "UserSessionsCleared";
+    public const string UserSessionsUpdated = "UserSessionsUpdated";
     public const string SessionLastSeenUpdated = "SessionLastSeenUpdated";
     public const string GuestRefreshRateUpdated = "GuestRefreshRateUpdated";
 
@@ -86,8 +88,11 @@ public static class SignalREvents
 
     // Auth / Guest Mode
     public const string GuestModeLockChanged = "GuestModeLockChanged";
+    public const string GuestRefreshRateLockChanged = "GuestRefreshRateLockChanged";
     public const string GuestDurationUpdated = "GuestDurationUpdated";
     public const string GuestPrefillPermissionChanged = "GuestPrefillPermissionChanged";
+    public const string GuestPrefillConfigChanged = "GuestPrefillConfigChanged";
+    public const string PrefillDefaultsChanged = "PrefillDefaultsChanged";
 
     // Prefill Daemon
     public const string SteamUserBanned = "SteamUserBanned";

@@ -1,9 +1,12 @@
+using LancacheManager.Core.Interfaces;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Controllers;
 
@@ -12,23 +15,23 @@ namespace LancacheManager.Controllers;
 public class AuthController : ControllerBase
 {
     private readonly SessionService _sessionService;
-    private readonly IConfiguration _configuration;
     private readonly ILogger<AuthController> _logger;
     private readonly AppDbContext _dbContext;
     private readonly StateService _stateService;
+    private readonly ISignalRNotificationService _signalR;
 
     public AuthController(
         SessionService sessionService,
-        IConfiguration configuration,
         ILogger<AuthController> logger,
         AppDbContext dbContext,
-        StateService stateService)
+        StateService stateService,
+        ISignalRNotificationService signalR)
     {
         _sessionService = sessionService;
-        _configuration = configuration;
         _logger = logger;
         _dbContext = dbContext;
         _stateService = stateService;
+        _signalR = signalR;
     }
 
     [HttpGet("status")]
@@ -53,16 +56,37 @@ public class AuthController : ControllerBase
         try { hasDataLoaded = _stateService.HasDataLoaded(); }
         catch (Exception ex) { _logger.LogWarning(ex, "Failed to check if data has been loaded"); }
 
+        // Determine prefill access
+        var prefillEnabled = false;
+        DateTime? prefillExpiresAt = null;
+
+        if (session != null)
+        {
+            if (session.SessionType == "admin")
+            {
+                prefillEnabled = true;
+            }
+            else if (session.SessionType == "guest")
+            {
+                prefillEnabled = session.PrefillExpiresAtUtc != null && session.PrefillExpiresAtUtc > DateTime.UtcNow;
+                prefillExpiresAt = session.PrefillExpiresAtUtc > DateTime.UtcNow
+                    ? DateTime.SpecifyKind(session.PrefillExpiresAtUtc.Value, DateTimeKind.Utc) : null;
+            }
+        }
+
         return Ok(new AuthStatusResponse
         {
             IsAuthenticated = session != null,
             SessionType = session?.SessionType,
-            ExpiresAt = session?.ExpiresAtUtc,
+            SessionId = session?.Id.ToString(),
+            ExpiresAt = session != null ? DateTime.SpecifyKind(session.ExpiresAtUtc, DateTimeKind.Utc) : (DateTime?)null,
             HasData = hasData,
             HasBeenInitialized = hasBeenInitialized,
             HasDataLoaded = hasDataLoaded,
             GuestAccessEnabled = _sessionService.IsGuestAccessEnabled(),
-            GuestDurationHours = _sessionService.GetGuestDurationHours()
+            GuestDurationHours = _sessionService.GetGuestDurationHours(),
+            PrefillEnabled = prefillEnabled,
+            PrefillExpiresAt = prefillExpiresAt
         });
     }
 
@@ -96,11 +120,18 @@ public class AuthController : ControllerBase
         var (rawToken, session) = result.Value;
         _sessionService.SetSessionCookie(HttpContext, rawToken, session.ExpiresAtUtc);
 
+        // Broadcast session created
+        await _signalR.NotifyAllAsync(SignalREvents.UserSessionCreated, new
+        {
+            sessionId = session.Id.ToString(),
+            sessionType = session.SessionType
+        });
+
         return Ok(new LoginResponse
         {
             Success = true,
             SessionType = session.SessionType,
-            ExpiresAt = session.ExpiresAtUtc
+            ExpiresAt = DateTime.SpecifyKind(session.ExpiresAtUtc, DateTimeKind.Utc)
         });
     }
 
@@ -121,11 +152,24 @@ public class AuthController : ControllerBase
         var (rawToken, session) = result.Value;
         _sessionService.SetSessionCookie(HttpContext, rawToken, session.ExpiresAtUtc);
 
+        // Auto-grant prefill access if enabled by default
+        if (_sessionService.IsGuestPrefillEnabled())
+        {
+            await _sessionService.GrantPrefillAccessAsync(session.Id, _sessionService.GetGuestPrefillDurationHours());
+        }
+
+        // Broadcast session created
+        await _signalR.NotifyAllAsync(SignalREvents.UserSessionCreated, new
+        {
+            sessionId = session.Id.ToString(),
+            sessionType = session.SessionType
+        });
+
         return Ok(new LoginResponse
         {
             Success = true,
             SessionType = session.SessionType,
-            ExpiresAt = session.ExpiresAtUtc
+            ExpiresAt = DateTime.SpecifyKind(session.ExpiresAtUtc, DateTimeKind.Utc)
         });
     }
 
@@ -139,6 +183,13 @@ public class AuthController : ControllerBase
             if (session != null)
             {
                 await _sessionService.RevokeSessionAsync(session.Id);
+
+                // Broadcast session revoked
+                await _signalR.NotifyAllAsync(SignalREvents.UserSessionRevoked, new
+                {
+                    sessionId = session.Id.ToString(),
+                    sessionType = session.SessionType
+                });
             }
         }
 
@@ -152,8 +203,141 @@ public class AuthController : ControllerBase
     {
         return Ok(new
         {
-            isLocked = !_sessionService.IsGuestAccessEnabled(),
+            isLocked = _sessionService.IsGuestModeLocked(),
             durationHours = _sessionService.GetGuestDurationHours()
         });
     }
+
+    // --- Guest Configuration Endpoints ---
+
+    [HttpGet("guest/config")]
+    public IActionResult GetGuestConfig()
+    {
+        return Ok(new GuestConfigResponse
+        {
+            DurationHours = _sessionService.GetGuestDurationHours(),
+            IsLocked = _sessionService.IsGuestModeLocked()
+        });
+    }
+
+    [HttpPost("guest/config/duration")]
+    public async Task<IActionResult> SetGuestDuration([FromBody] GuestDurationRequest request)
+    {
+        if (request.DurationHours < 1 || request.DurationHours > 720)
+        {
+            return BadRequest(new { error = "Duration must be between 1 and 720 hours" });
+        }
+
+        _sessionService.SetGuestDurationHours(request.DurationHours);
+
+        _logger.LogInformation("Default guest duration updated to {Hours}h (existing sessions unchanged)", request.DurationHours);
+
+        await _signalR.NotifyAllAsync(SignalREvents.GuestDurationUpdated, new
+        {
+            durationHours = request.DurationHours
+        });
+
+        return Ok(new { success = true, durationHours = request.DurationHours, message = "Guest duration updated" });
+    }
+
+    [HttpPost("guest/config/lock")]
+    public async Task<IActionResult> SetGuestLock([FromBody] GuestLockRequest request)
+    {
+        _sessionService.SetGuestModeLocked(request.IsLocked);
+
+        await _signalR.NotifyAllAsync(SignalREvents.GuestModeLockChanged, new
+        {
+            isLocked = request.IsLocked
+        });
+
+        return Ok(new { success = true, isLocked = request.IsLocked, message = request.IsLocked ? "Guest mode locked" : "Guest mode unlocked" });
+    }
+
+    // --- Guest Prefill Endpoints ---
+
+    [HttpGet("guest/prefill/config")]
+    public IActionResult GetGuestPrefillConfig()
+    {
+        return Ok(new GuestPrefillConfigResponse
+        {
+            EnabledByDefault = _sessionService.IsGuestPrefillEnabled(),
+            DurationHours = _sessionService.GetGuestPrefillDurationHours()
+        });
+    }
+
+    [HttpPost("guest/prefill/config")]
+    public async Task<IActionResult> SetGuestPrefillConfig([FromBody] GuestPrefillConfigRequest request)
+    {
+        if (request.DurationHours != 1 && request.DurationHours != 2)
+        {
+            return BadRequest(new { error = "Duration must be 1 or 2 hours" });
+        }
+
+        _sessionService.SetGuestPrefillEnabled(request.EnabledByDefault);
+        _sessionService.SetGuestPrefillDurationHours(request.DurationHours);
+
+        _logger.LogInformation("Default guest prefill config updated: enabled={Enabled}, duration={Hours}h (existing sessions unchanged)",
+            request.EnabledByDefault, request.DurationHours);
+
+        await _signalR.NotifyAllAsync(SignalREvents.GuestPrefillConfigChanged, new
+        {
+            enabledByDefault = request.EnabledByDefault,
+            durationHours = request.DurationHours
+        });
+
+        return Ok(new { 
+            success = true, 
+            enabledByDefault = _sessionService.IsGuestPrefillEnabled(), 
+            durationHours = _sessionService.GetGuestPrefillDurationHours() 
+        });
+    }
+
+    [HttpPost("guest/prefill/toggle/{sessionId:guid}")]
+    public async Task<IActionResult> ToggleGuestPrefill(Guid sessionId, [FromBody] GuestPrefillToggleRequest request)
+    {
+        if (request.Enabled)
+        {
+            await _sessionService.GrantPrefillAccessAsync(sessionId, _sessionService.GetGuestPrefillDurationHours());
+        }
+        else
+        {
+            await _sessionService.RevokePrefillAccessAsync(sessionId);
+        }
+
+        var updatedSession = await _dbContext.UserSessions.FindAsync(sessionId);
+        var prefillExpiresAt = updatedSession?.PrefillExpiresAtUtc != null
+            ? DateTime.SpecifyKind(updatedSession.PrefillExpiresAtUtc!.Value, DateTimeKind.Utc)
+            : (DateTime?)null;
+
+        await _signalR.NotifyAllAsync(SignalREvents.GuestPrefillPermissionChanged, new
+        {
+            sessionId = sessionId.ToString(),
+            enabled = request.Enabled,
+            prefillExpiresAt
+        });
+
+        return Ok(new { success = true, sessionId = sessionId.ToString(), enabled = request.Enabled, prefillExpiresAt });
+    }
+}
+
+// Request models
+public class GuestDurationRequest
+{
+    public int DurationHours { get; set; }
+}
+
+public class GuestLockRequest
+{
+    public bool IsLocked { get; set; }
+}
+
+public class GuestPrefillConfigRequest
+{
+    public bool EnabledByDefault { get; set; }
+    public int DurationHours { get; set; } = 2;
+}
+
+public class GuestPrefillToggleRequest
+{
+    public bool Enabled { get; set; }
 }

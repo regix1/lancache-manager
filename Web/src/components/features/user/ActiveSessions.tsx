@@ -16,7 +16,9 @@ import {
   Unlock,
   ChevronDown,
   Download,
-  Palette
+  Palette,
+  LogOut,
+  History
 } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
@@ -61,6 +63,7 @@ interface ActiveSessionsProps {
   loading: boolean;
   setLoading: React.Dispatch<React.SetStateAction<boolean>>;
   onSessionsChange: () => void;
+  refreshKey?: number;
 }
 
 // Helper to format timestamp with timezone awareness
@@ -91,7 +94,8 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   setSessions,
   loading,
   setLoading,
-  onSessionsChange
+  onSessionsChange,
+  refreshKey
 }) => {
   const { t } = useTranslation();
   const { refreshAuth } = useAuth();
@@ -141,6 +145,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   const { isActive: isLocallyActive } = useActivityTracker();
 
   const [deletingSession, setDeletingSession] = useState<string | null>(null);
+  const [loggingOut, setLoggingOut] = useState(false);
   const [pendingRevokeSession, setPendingRevokeSession] = useState<Session | null>(null);
   const [pendingDeleteSession, setPendingDeleteSession] = useState<Session | null>(null);
   const [editingSession, setEditingSession] = useState<Session | null>(null);
@@ -152,6 +157,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   const [pageSize] = useState(20);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
+  const [historyExpanded, setHistoryExpanded] = useState(false);
 
   const toggleSessionExpanded = (sessionId: string) => {
     setExpandedSessions((prev) => {
@@ -202,6 +208,11 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     loadSessions(false);
   }, [loadSessions]);
 
+  const handleSessionDeleted = useCallback((data: { sessionId: string; sessionType: string }) => {
+    // Remove from local state immediately - no need to refetch
+    setSessions((prev) => prev.filter((s) => s.id !== data.sessionId));
+  }, [setSessions]);
+
   const handleSessionsCleared = useCallback(() => {
     loadSessions(false);
   }, [loadSessions]);
@@ -224,29 +235,82 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     [setSessions]
   );
 
+  const handleGuestDurationUpdated = useCallback(() => {
+    loadSessions(false);
+  }, [loadSessions]);
+
+  const handlePrefillPermissionChanged = useCallback((data: { sessionId: string; enabled: boolean; prefillExpiresAt?: string }) => {
+    setSessions(prev => prev.map(s => 
+      s.id === data.sessionId 
+        ? { ...s, prefillEnabled: data.enabled, prefillExpiresAt: data.prefillExpiresAt || null }
+        : s
+    ));
+  }, [setSessions]);
+
+  const handleUserPreferencesReset = useCallback(() => {
+    loadSessions(false);
+  }, [loadSessions]);
+
+  const handleGuestPrefillConfigChanged = useCallback(() => {
+    loadSessions(false);
+  }, [loadSessions]);
+
+  const handleGuestRefreshRateUpdated = useCallback((data: { sessionId: string; refreshRate: string }) => {
+    setSessions(prev => prev.map(s =>
+      s.id === data.sessionId
+        ? { ...s, refreshRate: data.refreshRate }
+        : s
+    ));
+  }, [setSessions]);
+
   useEffect(() => {
     loadSessions(true);
 
     on('UserSessionRevoked', handleSessionRevoked);
+    on('UserSessionDeleted', handleSessionDeleted);
     on('UserSessionsCleared', handleSessionsCleared);
     on('UserSessionCreated', handleSessionCreated);
     on('SessionLastSeenUpdated', handleSessionLastSeenUpdated);
+    on('GuestDurationUpdated', handleGuestDurationUpdated);
+    on('GuestPrefillPermissionChanged', handlePrefillPermissionChanged);
+    on('UserPreferencesReset', handleUserPreferencesReset);
+    on('GuestPrefillConfigChanged', handleGuestPrefillConfigChanged);
+    on('GuestRefreshRateUpdated', handleGuestRefreshRateUpdated);
 
     return () => {
       off('UserSessionRevoked', handleSessionRevoked);
+      off('UserSessionDeleted', handleSessionDeleted);
       off('UserSessionsCleared', handleSessionsCleared);
       off('UserSessionCreated', handleSessionCreated);
       off('SessionLastSeenUpdated', handleSessionLastSeenUpdated);
+      off('GuestDurationUpdated', handleGuestDurationUpdated);
+      off('GuestPrefillPermissionChanged', handlePrefillPermissionChanged);
+      off('UserPreferencesReset', handleUserPreferencesReset);
+      off('GuestPrefillConfigChanged', handleGuestPrefillConfigChanged);
+      off('GuestRefreshRateUpdated', handleGuestRefreshRateUpdated);
     };
   }, [
     loadSessions,
     on,
     off,
     handleSessionRevoked,
+    handleSessionDeleted,
     handleSessionsCleared,
     handleSessionCreated,
-    handleSessionLastSeenUpdated
+    handleSessionLastSeenUpdated,
+    handleGuestDurationUpdated,
+    handlePrefillPermissionChanged,
+    handleUserPreferencesReset,
+    handleGuestPrefillConfigChanged,
+    handleGuestRefreshRateUpdated
   ]);
+
+  // Re-fetch when parent triggers a refresh via refreshKey
+  useEffect(() => {
+    if (refreshKey !== undefined && refreshKey > 0) {
+      loadSessions(false);
+    }
+  }, [refreshKey, loadSessions]);
 
   const handleRevokeSession = (session: Session) => {
     setPendingRevokeSession(session);
@@ -259,10 +323,10 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
     try {
       setRevokingSession(pendingRevokeSession.id);
-      const endpoint = `/api/sessions/${encodeURIComponent(pendingRevokeSession.id)}`;
+      const endpoint = `/api/sessions/${encodeURIComponent(pendingRevokeSession.id)}/revoke`;
 
       const response = await fetch(endpoint, ApiService.getFetchOptions({
-        method: 'DELETE'
+        method: 'PATCH'
       }));
 
       if (response.ok) {
@@ -309,20 +373,18 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       }));
 
       if (response.ok) {
-        if (isOwnSession) {
-          setPendingDeleteSession(null);
-          showToast('info', t('activeSessions.info.deletedOwnSession'));
+        // Remove from local state immediately since it's permanently deleted
+        setSessions((prev) => prev.filter((s) => s.id !== pendingDeleteSession.id));
+        setPendingDeleteSession(null);
+        onSessionsChange();
 
+        if (isOwnSession) {
+          showToast('info', t('activeSessions.info.deletedOwnSession'));
           setTimeout(async () => {
             await authService.logout();
             await refreshAuth();
           }, 2000);
-          return;
         }
-
-        await loadSessions(false);
-        setPendingDeleteSession(null);
-        onSessionsChange();
       } else {
         const errorData = await response.json();
         showToast('error', errorData.message || errorData.error || t('activeSessions.errors.deleteSession'));
@@ -331,6 +393,18 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       showToast('error', getErrorMessage(err) || t('activeSessions.errors.deleteSession'));
     } finally {
       setDeletingSession(null);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      setLoggingOut(true);
+      await authService.logout();
+      await refreshAuth();
+    } catch (err: unknown) {
+      showToast('error', getErrorMessage(err) || t('activeSessions.errors.logout'));
+    } finally {
+      setLoggingOut(false);
     }
   };
 
@@ -360,6 +434,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           use24HourFormat: prefs.use24HourFormat ?? true,
           showYearInDates: prefs.showYearInDates ?? false,
           refreshRate: prefs.refreshRate ?? null,
+          refreshRateLocked: prefs.refreshRateLocked ?? null,
           allowedTimeFormats: prefs.allowedTimeFormats ?? undefined
         });
       } else {
@@ -375,6 +450,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           use24HourFormat: true,
           showYearInDates: false,
           refreshRate: null,
+          refreshRateLocked: null,
           allowedTimeFormats: undefined
         });
       }
@@ -468,7 +544,11 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
   const formatTimeRemaining = (expiresAt: string) => {
     const now = new Date();
-    const expiry = new Date(expiresAt);
+    // Ensure UTC interpretation for timestamps without timezone suffix
+    const expiryStr = expiresAt.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(expiresAt)
+        ? expiresAt
+        : expiresAt + 'Z';
+    const expiry = new Date(expiryStr);
     const diff = expiry.getTime() - now.getTime();
 
     if (diff <= 0) return t('activeSessions.prefill.status.expired');
@@ -494,7 +574,11 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     if (!session.lastSeenAt) return 'inactive';
 
     const now = new Date();
-    const lastSeen = new Date(session.lastSeenAt);
+    // Ensure UTC interpretation for timestamps without timezone suffix
+    const lastSeenStr = session.lastSeenAt.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(session.lastSeenAt)
+        ? session.lastSeenAt
+        : session.lastSeenAt + 'Z';
+    const lastSeen = new Date(lastSeenStr);
     const diffSeconds = (now.getTime() - lastSeen.getTime()) / 1000;
 
     if (diffSeconds <= 60) return 'active';
@@ -727,6 +811,19 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
               {/* Desktop action buttons */}
               <div className="flex gap-2 items-start flex-shrink-0">
+                {session.isCurrentSession && (
+                  <Button
+                    variant="default"
+                    color="orange"
+                    size="sm"
+                    leftSection={<LogOut className="w-4 h-4" />}
+                    onClick={handleLogout}
+                    disabled={loggingOut}
+                    loading={loggingOut}
+                  >
+                    {t('activeSessions.actions.logout')}
+                  </Button>
+                )}
                 <Button
                   variant="default"
                   color="blue"
@@ -736,7 +833,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 >
                   {t('actions.edit')}
                 </Button>
-                {isGuestSession(session) && !session.isRevoked && !session.isExpired && (
+                {isGuestSession(session) && !session.isRevoked && !session.isExpired && !session.isCurrentSession && (
                   <Button
                     variant="default"
                     color="orange"
@@ -749,6 +846,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                     : t('activeSessions.actions.revoke')}
                   </Button>
                 )}
+                {!session.isCurrentSession && (
                 <Button
                   variant="default"
                   color="red"
@@ -769,6 +867,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                     ? t('activeSessions.actions.deleting')
                     : t('activeSessions.actions.delete')}
                 </Button>
+                )}
               </div>
             </div>
           </div>
@@ -847,6 +946,23 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
             {/* Mobile action buttons */}
             <div className="flex flex-col gap-2 pt-2">
+              {session.isCurrentSession && (
+                <Button
+                  variant="default"
+                  color="orange"
+                  size="sm"
+                  leftSection={<LogOut className="w-4 h-4" />}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleLogout();
+                  }}
+                  disabled={loggingOut}
+                  loading={loggingOut}
+                  fullWidth
+                >
+                  {t('activeSessions.actions.logout')}
+                </Button>
+              )}
               <Button
                 variant="default"
                 color="blue"
@@ -860,7 +976,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               >
                 {t('activeSessions.actions.editPreferences')}
               </Button>
-              {isGuestSession(session) && !session.isRevoked && !session.isExpired && (
+              {isGuestSession(session) && !session.isRevoked && !session.isExpired && !session.isCurrentSession && (
                 <Button
                   variant="default"
                   color="orange"
@@ -877,21 +993,95 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                     : t('activeSessions.actions.revokeSession')}
                 </Button>
               )}
+              {!session.isCurrentSession && (
+                <Button
+                  variant="default"
+                  color="red"
+                  size="sm"
+                  leftSection={<Trash2 className="w-4 h-4" />}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDeleteSession(session);
+                  }}
+                  disabled={deletingSession === session.id}
+                  fullWidth
+                >
+                  {deletingSession === session.id
+                    ? t('activeSessions.actions.deleting')
+                    : t('activeSessions.actions.deleteSession')}
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderHistoryCard = (session: Session) => {
+    const parsedUA = parseUserAgent(session.userAgent);
+
+    return (
+      <div key={session.id} className="session-card dimmed">
+        <div className="p-3 sm:p-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start gap-3 flex-1 min-w-0">
+              <div className={`session-avatar ${isAdminSession(session) ? 'session-badge-user' : 'session-badge-guest'}`}>
+                <User className={`w-5 h-5 ${isAdminSession(session) ? 'user-session-icon' : 'guest-session-icon'}`} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap mb-1">
+                  <h3 className="font-semibold truncate text-sm text-themed-primary">
+                    {parsedUA.title}
+                  </h3>
+                  <span className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium flex-shrink-0 ${isAdminSession(session) ? 'session-badge-user' : 'session-badge-guest'}`}>
+                    {isAdminSession(session) ? t('activeSessions.labels.userBadge') : t('activeSessions.labels.guestBadge')}
+                  </span>
+                  {session.isRevoked && (
+                    <span className="px-1.5 py-0.5 text-[10px] rounded font-medium status-badge-error">
+                      {t('activeSessions.status.revoked')}
+                    </span>
+                  )}
+                  {session.isExpired && !session.isRevoked && (
+                    <span className="px-1.5 py-0.5 text-[10px] rounded font-medium status-badge-warning">
+                      {t('activeSessions.prefill.status.expired')}
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-4 text-xs text-themed-muted">
+                  {session.ipAddress && (
+                    <span className="flex items-center gap-1">
+                      <Network className="w-3 h-3" />
+                      <ClientIpDisplay clientIp={cleanIpAddress(session.ipAddress)} className="truncate" />
+                    </span>
+                  )}
+                  <span className="flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    <FormattedTimestamp timestamp={session.createdAt} />
+                  </span>
+                  {session.revokedAt && (
+                    <span className="flex items-center gap-1 text-themed-error">
+                      <Clock className="w-3 h-3" />
+                      {t('activeSessions.labels.revokedAt')} <FormattedTimestamp timestamp={session.revokedAt} />
+                    </span>
+                  )}
+                </div>
+                <div className="text-[10px] font-mono truncate mt-1 text-themed-muted">
+                  {session.id}
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-2 items-start flex-shrink-0">
               <Button
                 variant="default"
                 color="red"
                 size="sm"
                 leftSection={<Trash2 className="w-4 h-4" />}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDeleteSession(session);
-                }}
+                onClick={() => handleDeleteSession(session)}
                 disabled={deletingSession === session.id}
-                fullWidth
+                loading={deletingSession === session.id}
               >
-                {deletingSession === session.id
-                  ? t('activeSessions.actions.deleting')
-                  : t('activeSessions.actions.deleteSession')}
+                {t('activeSessions.actions.delete')}
               </Button>
             </div>
           </div>
@@ -899,6 +1089,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       </div>
     );
   };
+
+  const activeSessions = sessions.filter((s) => !s.isRevoked && !s.isExpired);
+  const historySessions = sessions.filter((s) => s.isRevoked || s.isExpired);
 
   return (
     <>
@@ -964,7 +1157,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
             </div>
           )}
 
-          {!loading && sessions.length === 0 && (
+          {!loading && activeSessions.length === 0 && (
             <div className="text-center py-12">
               <div className="w-16 h-16 mx-auto mb-4 rounded-xl flex items-center justify-center bg-themed-tertiary">
                 <Users className="w-8 h-8 text-themed-muted" />
@@ -978,8 +1171,8 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
             </div>
           )}
 
-          {!loading && sessions.length > 0 && (
-            <div className="space-y-2">{sessions.map(renderSessionCard)}</div>
+          {!loading && activeSessions.length > 0 && (
+            <div className="space-y-2">{activeSessions.map(renderSessionCard)}</div>
           )}
         </div>
 
@@ -1001,6 +1194,36 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           </div>
         )}
       </Card>
+
+      {/* Session History */}
+      {!loading && historySessions.length > 0 && (
+        <Card padding="none">
+          <div
+            className="p-4 sm:p-5 cursor-pointer select-none"
+            onClick={() => setHistoryExpanded((prev) => !prev)}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <History className="w-5 h-5 text-themed-muted" />
+                <h2 className="text-lg font-semibold text-themed-primary">
+                  {t('activeSessions.history.title')}
+                </h2>
+                <span className="px-2 py-0.5 text-xs rounded-full font-medium bg-themed-tertiary text-themed-muted">
+                  {historySessions.length}
+                </span>
+              </div>
+              <ChevronDown
+                className={`w-5 h-5 transition-transform duration-200 text-themed-muted ${historyExpanded ? 'rotate-180' : ''}`}
+              />
+            </div>
+          </div>
+          {historyExpanded && (
+            <div className="px-4 sm:px-5 pb-4 sm:pb-5 space-y-2">
+              {historySessions.map(renderHistoryCard)}
+            </div>
+          )}
+        </Card>
+      )}
 
       {/* Revoke Device Modal */}
       <Modal
@@ -1275,13 +1498,60 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                           rate: translatedRefreshRateOptions.find((o) => o.value === defaultGuestRefreshRate)?.label || defaultGuestRefreshRate
                         })}
                   </p>
+
+                  {/* Per-session Refresh Rate Lock */}
+                  <div className="mt-3 flex items-center justify-between p-3 rounded-lg bg-themed-tertiary">
+                    <div className="flex items-center gap-2">
+                      {editingPreferences.refreshRateLocked === false ? (
+                        <Unlock className="w-4 h-4 text-themed-accent" />
+                      ) : (
+                        <Lock className="w-4 h-4 text-themed-muted" />
+                      )}
+                      <div>
+                        <p className="text-sm text-themed-primary">Allow guest to change rate</p>
+                        <p className="text-xs text-themed-muted">
+                          {editingPreferences.refreshRateLocked === null
+                            ? 'Using global default'
+                            : editingPreferences.refreshRateLocked
+                              ? 'Locked for this guest'
+                              : 'Unlocked for this guest'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {editingPreferences.refreshRateLocked !== null && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setEditingPreferences({
+                              ...editingPreferences,
+                              refreshRateLocked: null
+                            })
+                          }
+                          className="text-xs px-2 py-0.5 rounded transition-colors text-themed-accent bg-themed-secondary hover:bg-themed-hover"
+                        >
+                          Use Default
+                        </button>
+                      )}
+                      <div
+                        className={`modern-toggle cursor-pointer ${editingPreferences.refreshRateLocked === false ? 'checked' : ''}`}
+                        onClick={() =>
+                          setEditingPreferences({
+                            ...editingPreferences,
+                            refreshRateLocked: editingPreferences.refreshRateLocked === false ? true : false
+                          })
+                        }
+                      >
+                        <span className="toggle-thumb" />
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
 
               {/* Prefill Access (Guest Users Only) */}
               {editingSession && (isGuestSession(editingSession)) && !editingSession.isRevoked && !editingSession.isExpired && (() => {
-                // Note: Prefill feature data will need to be added to session API if required
-                const currentPrefillEnabled = false;
+                const currentPrefillEnabled = editingSession.prefillEnabled;
                 const effectivePrefillEnabled = pendingPrefillChange !== null ? pendingPrefillChange : currentPrefillEnabled;
                 const hasUnsavedChange = pendingPrefillChange !== null && pendingPrefillChange !== currentPrefillEnabled;
 

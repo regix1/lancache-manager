@@ -4,12 +4,15 @@ export type SessionType = 'admin' | 'guest';
 interface AuthStatusResponse {
   isAuthenticated: boolean;
   sessionType: SessionType | null;
+  sessionId: string | null;
   expiresAt: string | null;
   hasData: boolean;
   hasBeenInitialized: boolean;
   hasDataLoaded: boolean;
   guestAccessEnabled: boolean;
   guestDurationHours: number;
+  prefillEnabled: boolean;
+  prefillExpiresAt: string | null;
 }
 
 interface LoginResponse {
@@ -33,6 +36,7 @@ class AuthService {
   public authChecked: boolean = false;
   public authMode: AuthMode = 'unauthenticated';
   public sessionType: SessionType | null = null;
+  public sessionId: string | null = null;
 
   async checkAuth(): Promise<AuthStatusResponse> {
     try {
@@ -48,6 +52,7 @@ class AuthService {
 
       this.isAuthenticated = data.isAuthenticated;
       this.sessionType = data.sessionType;
+      this.sessionId = data.sessionId;
       this.authChecked = true;
 
       if (data.isAuthenticated && data.sessionType === 'admin') {
@@ -64,17 +69,21 @@ class AuthService {
       this.isAuthenticated = false;
       this.authMode = 'unauthenticated';
       this.sessionType = null;
+      this.sessionId = null;
       this.authChecked = true;
 
       return {
         isAuthenticated: false,
         sessionType: null,
+        sessionId: null,
         expiresAt: null,
         hasData: false,
         hasBeenInitialized: false,
         hasDataLoaded: false,
         guestAccessEnabled: true,
         guestDurationHours: 6,
+        prefillEnabled: false,
+        prefillExpiresAt: null,
       };
     }
   }
@@ -145,6 +154,7 @@ class AuthService {
       this.isAuthenticated = false;
       this.authMode = 'unauthenticated';
       this.sessionType = null;
+      this.sessionId = null;
     }
   }
 

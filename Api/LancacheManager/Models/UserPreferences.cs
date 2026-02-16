@@ -35,6 +35,9 @@ public class UserPreferences
     // Valid values: LIVE, ULTRA, REALTIME, STANDARD, RELAXED, SLOW
     public string? RefreshRate { get; set; }
 
+    // Per-session refresh rate lock (null = use global default, true = locked, false = unlocked)
+    public bool? RefreshRateLocked { get; set; }
+
     // Timestamp
     public DateTime UpdatedAtUtc { get; set; }
 

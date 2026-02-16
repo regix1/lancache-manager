@@ -50,6 +50,7 @@ public class UserPreferencesController : ControllerBase
                 ShowDatasourceLabels = true,
                 ShowYearInDates = false,
                 RefreshRate = null,
+                RefreshRateLocked = null,
                 AllowedTimeFormats = null
             });
         }
@@ -71,6 +72,7 @@ public class UserPreferencesController : ControllerBase
                 ShowDatasourceLabels = true,
                 ShowYearInDates = false,
                 RefreshRate = null,
+                RefreshRateLocked = null,
                 AllowedTimeFormats = null
             });
         }
@@ -136,6 +138,7 @@ public class UserPreferencesController : ControllerBase
                 ShowDatasourceLabels = true,
                 ShowYearInDates = false,
                 RefreshRate = null,
+                RefreshRateLocked = null,
                 AllowedTimeFormats = null
             });
         }

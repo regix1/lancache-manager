@@ -86,6 +86,10 @@ public class StateService : IStateService
         public bool GuestPrefillEnabledByDefault { get; set; } = false;
         public int GuestPrefillDurationHours { get; set; } = 2;
 
+        // Prefill panel default settings
+        public List<string> DefaultPrefillOperatingSystems { get; set; } = new() { "windows", "linux", "macos" };
+        public string DefaultPrefillMaxConcurrency { get; set; } = "default";
+
         // PICS viability check caching
         public bool RequiresFullScan { get; set; } = false;
         public DateTime? LastViabilityCheck { get; set; }
@@ -757,6 +761,9 @@ public class StateService : IStateService
             // Guest prefill permissions
             GuestPrefillEnabledByDefault = persisted.GuestPrefillEnabledByDefault,
             GuestPrefillDurationHours = persisted.GuestPrefillDurationHours,
+            // Prefill panel default settings
+            DefaultPrefillOperatingSystems = persisted.DefaultPrefillOperatingSystems ?? new List<string> { "windows", "linux", "macos" },
+            DefaultPrefillMaxConcurrency = persisted.DefaultPrefillMaxConcurrency ?? "default",
             // PICS viability check caching
             RequiresFullScan = persisted.RequiresFullScan,
             LastViabilityCheck = persisted.LastViabilityCheck,
@@ -815,6 +822,9 @@ public class StateService : IStateService
             // Guest prefill permissions
             GuestPrefillEnabledByDefault = state.GuestPrefillEnabledByDefault,
             GuestPrefillDurationHours = state.GuestPrefillDurationHours,
+            // Prefill panel default settings
+            DefaultPrefillOperatingSystems = state.DefaultPrefillOperatingSystems ?? new List<string> { "windows", "linux", "macos" },
+            DefaultPrefillMaxConcurrency = state.DefaultPrefillMaxConcurrency ?? "default",
             // PICS viability check caching
             RequiresFullScan = state.RequiresFullScan,
             LastViabilityCheck = state.LastViabilityCheck,
@@ -985,6 +995,17 @@ public class StateService : IStateService
             rate = "STANDARD";
         }
         UpdateState(state => state.DefaultGuestRefreshRate = rate.ToUpperInvariant());
+    }
+
+    // Guest Refresh Rate Lock Methods
+    public bool GetGuestRefreshRateLocked()
+    {
+        return GetState().GuestRefreshRateLocked;
+    }
+
+    public void SetGuestRefreshRateLocked(bool locked)
+    {
+        UpdateState(state => state.GuestRefreshRateLocked = locked);
     }
 
     // Metrics Authentication Toggle Methods
@@ -1179,5 +1200,35 @@ public class StateService : IStateService
             hours = 2; // Default to 2 hours
         }
         UpdateState(state => state.GuestPrefillDurationHours = hours);
+    }
+
+    // Prefill Panel Default Settings
+    public List<string> GetDefaultPrefillOperatingSystems()
+    {
+        return GetState().DefaultPrefillOperatingSystems ?? new List<string> { "windows", "linux", "macos" };
+    }
+
+    public void SetDefaultPrefillOperatingSystems(List<string> operatingSystems)
+    {
+        var valid = new[] { "windows", "linux", "macos" };
+        var filtered = operatingSystems?.Where(os => valid.Contains(os.ToLowerInvariant())).ToList()
+                       ?? new List<string> { "windows", "linux", "macos" };
+        if (filtered.Count == 0) filtered = new List<string> { "windows", "linux", "macos" };
+        UpdateState(state => state.DefaultPrefillOperatingSystems = filtered);
+    }
+
+    public string GetDefaultPrefillMaxConcurrency()
+    {
+        return GetState().DefaultPrefillMaxConcurrency ?? "default";
+    }
+
+    public void SetDefaultPrefillMaxConcurrency(string maxConcurrency)
+    {
+        var valid = new[] { "default", "1", "2", "3", "4", "5", "6", "7", "8" };
+        if (!valid.Contains(maxConcurrency?.ToLowerInvariant() ?? ""))
+        {
+            maxConcurrency = "default";
+        }
+        UpdateState(state => state.DefaultPrefillMaxConcurrency = maxConcurrency!);
     }
 }

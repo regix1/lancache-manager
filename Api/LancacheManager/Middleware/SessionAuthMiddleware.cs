@@ -41,7 +41,20 @@ public class SessionAuthMiddleware
         "/api/events",
         "/api/cache/size",
         "/api/depots/status",
-        "/api/client-groups"
+        "/api/client-groups",
+        "/api/user-preferences",
+        "/api/system/default-guest-preferences",
+        "/api/system/default-guest-refresh-rate",
+        "/api/system/refresh-rate",
+        "/api/system/prefill-defaults",
+        "/api/system/permissions"
+    };
+
+    // Prefill endpoints allowed for guests WITH active prefill access (GET + POST)
+    private static readonly string[] GuestPrefillPrefixes = new[]
+    {
+        "/api/prefill-daemon",
+        "/api/prefill-admin/cache"
     };
 
     public SessionAuthMiddleware(RequestDelegate next, ILogger<SessionAuthMiddleware> logger)
@@ -94,7 +107,7 @@ public class SessionAuthMiddleware
         }
 
         // Check if guest is accessing admin-only endpoint
-        if (session.SessionType == "guest" && !IsGuestAllowed(path, method))
+        if (session.SessionType == "guest" && !IsGuestAllowed(path, method, session))
         {
             context.Response.StatusCode = 403;
             context.Response.ContentType = "application/json";
@@ -139,16 +152,49 @@ public class SessionAuthMiddleware
         return false;
     }
 
-    private static bool IsGuestAllowed(string path, string method)
+    // Guest-allowed read/write endpoints (GET, PUT, PATCH)
+    private static readonly string[] GuestReadWritePrefixes = new[]
     {
-        // Guests can only do GET requests on allowed endpoints
-        if (!string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase))
-            return false;
+        "/api/user-preferences"
+    };
 
-        foreach (var prefix in GuestGetPrefixes)
+    private static bool IsGuestAllowed(string path, string method, UserSession session)
+    {
+        // Check standard guest GET endpoints first
+        if (string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase))
         {
-            if (path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                return true;
+            foreach (var prefix in GuestGetPrefixes)
+            {
+                if (path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+        }
+
+        // Check guest read/write endpoints (GET, PUT, PATCH)
+        if (string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(method, "PUT", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(method, "PATCH", StringComparison.OrdinalIgnoreCase))
+        {
+            foreach (var prefix in GuestReadWritePrefixes)
+            {
+                if (path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+        }
+
+        // Check prefill endpoints (GET + POST) - only if guest has active prefill access
+        var hasPrefillAccess = session.PrefillExpiresAtUtc != null && session.PrefillExpiresAtUtc > DateTime.UtcNow;
+        if (hasPrefillAccess &&
+            (string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(method, "POST", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(method, "PATCH", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(method, "DELETE", StringComparison.OrdinalIgnoreCase)))
+        {
+            foreach (var prefix in GuestPrefillPrefixes)
+            {
+                if (path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
         }
 
         return false;

@@ -28,6 +28,7 @@ public class AppState
     public string? DefaultGuestTheme { get; set; } = "dark-default"; // Default theme for guest users
     public string RefreshRate { get; set; } = "STANDARD"; // Default to 10 seconds (LIVE, ULTRA, REALTIME, STANDARD, RELAXED, SLOW)
     public string DefaultGuestRefreshRate { get; set; } = "STANDARD"; // Default refresh rate for guest users
+    public bool GuestRefreshRateLocked { get; set; } = true; // When true, guests cannot change their refresh rate
 
     // Default guest preferences (applied to new guest sessions)
     public bool DefaultGuestUseLocalTimezone { get; set; } = false;
@@ -44,6 +45,10 @@ public class AppState
     // Guest prefill permissions - controls access to the Prefill tab for guests
     public bool GuestPrefillEnabledByDefault { get; set; } = false; // Whether new guests get prefill access by default
     public int GuestPrefillDurationHours { get; set; } = 2; // Default duration for prefill access (1 or 2 hours)
+
+    // Prefill panel default settings
+    public List<string> DefaultPrefillOperatingSystems { get; set; } = new() { "windows", "linux", "macos" };
+    public string DefaultPrefillMaxConcurrency { get; set; } = "default";
 
     // PICS viability check caching (prevents repeated Steam API calls)
     public bool RequiresFullScan { get; set; } = false; // True if Steam requires full scan due to large change gap

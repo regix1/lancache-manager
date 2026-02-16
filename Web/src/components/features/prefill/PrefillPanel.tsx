@@ -10,6 +10,7 @@ import { NetworkStatusSection } from './NetworkStatusSection';
 import ApiService from '@services/api.service';
 import { usePrefillContext } from '@contexts/PrefillContext';
 import { useAuth } from '@contexts/AuthContext';
+import { useSignalR } from '@contexts/SignalRContext';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { API_BASE } from '@utils/constants';
 
@@ -58,6 +59,9 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   const { isAuthenticated, authMode } = useAuth();
   const isUserAuthenticated = isAuthenticated && authMode === 'authenticated';
 
+  // Main SignalR hub for system-level events (PrefillDefaultsChanged)
+  const { on: onSignalR, off: offSignalR } = useSignalR();
+
   // Local UI state
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
@@ -73,6 +77,75 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   // Prefill settings state
   const [selectedOS, setSelectedOS] = useState<string[]>(['windows', 'linux', 'macos']);
   const [maxConcurrency, setMaxConcurrency] = useState<string>('default');
+
+  // Load persisted prefill defaults
+  useEffect(() => {
+    const loadDefaults = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/system/prefill-defaults`, {
+          credentials: 'include'
+        });
+        if (response.ok) {
+          const data = await response.json();
+          if (data.operatingSystems && Array.isArray(data.operatingSystems)) {
+            setSelectedOS(data.operatingSystems);
+          }
+          if (data.maxConcurrency) {
+            setMaxConcurrency(data.maxConcurrency);
+          }
+        }
+      } catch (err) {
+        console.error('[PrefillPanel] Failed to load prefill defaults:', err);
+      }
+    };
+    loadDefaults();
+  }, []);
+
+  // Listen for live prefill defaults changes from other admin sessions
+  const handlePrefillDefaultsChanged = useCallback((data: { operatingSystems?: string[]; maxConcurrency?: string }) => {
+    if (data.operatingSystems && Array.isArray(data.operatingSystems)) {
+      setSelectedOS(data.operatingSystems);
+    }
+    if (data.maxConcurrency) {
+      setMaxConcurrency(data.maxConcurrency);
+    }
+  }, []);
+
+  useEffect(() => {
+    onSignalR('PrefillDefaultsChanged', handlePrefillDefaultsChanged);
+    return () => {
+      offSignalR('PrefillDefaultsChanged', handlePrefillDefaultsChanged);
+    };
+  }, [onSignalR, offSignalR, handlePrefillDefaultsChanged]);
+
+  // Save prefill defaults to API
+  const savePrefillDefaults = useCallback(async (os?: string[], concurrency?: string) => {
+    try {
+      const body: Record<string, unknown> = {};
+      if (os !== undefined) body.operatingSystems = os;
+      if (concurrency !== undefined) body.maxConcurrency = concurrency;
+
+      await fetch(`${API_BASE}/system/prefill-defaults`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+    } catch (err) {
+      console.error('[PrefillPanel] Failed to save prefill defaults:', err);
+    }
+  }, []);
+
+  // Wrapper setters that also persist to API
+  const handleOSChange = useCallback((newOS: string[]) => {
+    setSelectedOS(newOS);
+    savePrefillDefaults(newOS, undefined);
+  }, [savePrefillDefaults]);
+
+  const handleConcurrencyChange = useCallback((newConcurrency: string) => {
+    setMaxConcurrency(newConcurrency);
+    savePrefillDefaults(undefined, newConcurrency);
+  }, [savePrefillDefaults]);
 
   // Confirmation dialog state
   const [pendingConfirmCommand, setPendingConfirmCommand] = useState<CommandType | null>(null);
@@ -157,9 +230,14 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     hasExpiredRef.current = false;
 
     const interval = setInterval(() => {
+      // Ensure UTC interpretation for timestamps without timezone suffix
+      const expiresAtStr = signalR.session!.expiresAt;
+      const expiresAtUtc = expiresAtStr.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(expiresAtStr)
+        ? expiresAtStr
+        : expiresAtStr + 'Z';
       const remaining = Math.max(
         0,
-        Math.floor((new Date(signalR.session!.expiresAt).getTime() - Date.now()) / 1000)
+        Math.floor((new Date(expiresAtUtc).getTime() - Date.now()) / 1000)
       );
       signalR.setTimeRemaining(remaining);
 
@@ -832,8 +910,8 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             selectedOS={selectedOS}
             maxConcurrency={maxConcurrency}
             onCommandClick={handleCommandClick}
-            onSelectedOSChange={setSelectedOS}
-            onMaxConcurrencyChange={setMaxConcurrency}
+            onSelectedOSChange={handleOSChange}
+            onMaxConcurrencyChange={handleConcurrencyChange}
           />
         </div>
 

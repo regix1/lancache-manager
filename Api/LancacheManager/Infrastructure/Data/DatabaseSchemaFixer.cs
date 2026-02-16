@@ -29,6 +29,9 @@ public static class DatabaseSchemaFixer
             // Fix: ShowYearInDates column may be missing if database ran the old no-op migration
             // For fresh installs, the migration now properly adds it
             await AddColumnIfNotExistsAsync(connection, "UserPreferences", "ShowYearInDates", "INTEGER NOT NULL DEFAULT 0", logger);
+
+            // Per-session refresh rate lock override (nullable bool: null = use global, 0 = unlocked, 1 = locked)
+            await AddColumnIfNotExistsAsync(connection, "UserPreferences", "RefreshRateLocked", "INTEGER", logger);
         }
         catch (Exception ex)
         {

@@ -1,5 +1,8 @@
 using System.Security.Cryptography;
+using LancacheManager.Core.Interfaces;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -10,22 +13,24 @@ public class SessionService
     private readonly AppDbContext _dbContext;
     private readonly ApiKeyService _apiKeyService;
     private readonly ILogger<SessionService> _logger;
-    private readonly IConfiguration _configuration;
+    private readonly StateService _stateService;
+    private readonly ISignalRNotificationService _signalR;
 
     private const string CookieName = "LancacheManager.Session";
     private const int AdminSessionDurationHours = 720; // 30 days
-    private const int DefaultGuestDurationHours = 6;
 
     public SessionService(
         AppDbContext dbContext,
         ApiKeyService apiKeyService,
         ILogger<SessionService> logger,
-        IConfiguration configuration)
+        StateService stateService,
+        ISignalRNotificationService signalR)
     {
         _dbContext = dbContext;
         _apiKeyService = apiKeyService;
         _logger = logger;
-        _configuration = configuration;
+        _stateService = stateService;
+        _signalR = signalR;
     }
 
     public async Task<(string RawToken, UserSession Session)?> CreateAdminSessionAsync(string apiKey, HttpContext httpContext)
@@ -121,6 +126,19 @@ public class SessionService
         return true;
     }
 
+    public async Task<bool> DeleteSessionAsync(Guid sessionId)
+    {
+        var session = await _dbContext.UserSessions.FindAsync(sessionId);
+        if (session == null)
+            return false;
+
+        _dbContext.UserSessions.Remove(session);
+        await _dbContext.SaveChangesAsync();
+
+        _logger.LogInformation("Permanently deleted session {SessionId}", sessionId);
+        return true;
+    }
+
     public async Task<int> RevokeAllGuestSessionsAsync()
     {
         var now = DateTime.UtcNow;
@@ -143,6 +161,23 @@ public class SessionService
             .ToListAsync();
     }
 
+    /// <summary>
+    /// Get all sessions with pagination (includes revoked/expired for admin view).
+    /// </summary>
+    public async Task<(List<UserSession> Sessions, int TotalCount)> GetAllSessionsPagedAsync(int page, int pageSize)
+    {
+        var query = _dbContext.UserSessions
+            .OrderByDescending(s => s.LastSeenAtUtc);
+
+        var totalCount = await query.CountAsync();
+        var sessions = await query
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        return (sessions, totalCount);
+    }
+
     public async Task UpdateLastSeenAsync(UserSession session)
     {
         if ((DateTime.UtcNow - session.LastSeenAtUtc).TotalSeconds < 60)
@@ -150,6 +185,13 @@ public class SessionService
 
         session.LastSeenAtUtc = DateTime.UtcNow;
         await _dbContext.SaveChangesAsync();
+
+        // Broadcast SessionLastSeenUpdated (already throttled to 60s)
+        _signalR.NotifyAllFireAndForget(SignalREvents.SessionLastSeenUpdated, new
+        {
+            sessionId = session.Id.ToString(),
+            lastSeenAt = session.LastSeenAtUtc
+        });
     }
 
     public async Task<int> CleanupExpiredSessionsAsync()
@@ -194,15 +236,81 @@ public class SessionService
         return httpContext.Request.Cookies[CookieName];
     }
 
+    // --- Guest Configuration (persisted via StateService) ---
+
     public bool IsGuestAccessEnabled()
     {
-        var locked = _configuration.GetValue<bool>("Security:GuestModeLocked");
-        return !locked;
+        return !_stateService.GetGuestModeLocked();
     }
 
     public int GetGuestDurationHours()
     {
-        return _configuration.GetValue("Security:GuestDurationHours", DefaultGuestDurationHours);
+        return _stateService.GetGuestSessionDurationHours();
+    }
+
+    public bool IsGuestModeLocked()
+    {
+        return _stateService.GetGuestModeLocked();
+    }
+
+    public void SetGuestDurationHours(int hours)
+    {
+        _stateService.SetGuestSessionDurationHours(hours);
+        _logger.LogInformation("Guest duration updated to {Hours} hours", hours);
+    }
+
+    public void SetGuestModeLocked(bool locked)
+    {
+        _stateService.SetGuestModeLocked(locked);
+        _logger.LogInformation("Guest mode lock set to {Locked}", locked);
+    }
+
+    // --- Guest Prefill Configuration (persisted via StateService) ---
+
+    public bool IsGuestPrefillEnabled()
+    {
+        return _stateService.GetGuestPrefillEnabledByDefault();
+    }
+
+    public void SetGuestPrefillEnabled(bool enabled)
+    {
+        _stateService.SetGuestPrefillEnabledByDefault(enabled);
+        _logger.LogInformation("Guest prefill set to {Enabled}", enabled);
+    }
+
+    public int GetGuestPrefillDurationHours()
+    {
+        return _stateService.GetGuestPrefillDurationHours();
+    }
+
+    public void SetGuestPrefillDurationHours(int hours)
+    {
+        _stateService.SetGuestPrefillDurationHours(hours);
+        _logger.LogInformation("Guest prefill duration updated to {Hours} hours", hours);
+    }
+
+    // --- Per-Session Prefill Grants ---
+
+    public async Task GrantPrefillAccessAsync(Guid sessionId, int durationHours)
+    {
+        var session = await _dbContext.UserSessions.FindAsync(sessionId);
+        if (session != null)
+        {
+            session.PrefillExpiresAtUtc = DateTime.UtcNow.AddHours(durationHours);
+            await _dbContext.SaveChangesAsync();
+            _logger.LogInformation("Granted prefill access to session {SessionId}, expires at {ExpiresAt}", sessionId, session.PrefillExpiresAtUtc);
+        }
+    }
+
+    public async Task RevokePrefillAccessAsync(Guid sessionId)
+    {
+        var session = await _dbContext.UserSessions.FindAsync(sessionId);
+        if (session != null)
+        {
+            session.PrefillExpiresAtUtc = null;
+            await _dbContext.SaveChangesAsync();
+            _logger.LogInformation("Revoked prefill access for session {SessionId}", sessionId);
+        }
     }
 
     private static (string RawToken, string TokenHash) GenerateSessionToken()

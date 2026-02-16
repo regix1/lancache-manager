@@ -10,6 +10,8 @@ export interface Session {
   isRevoked: boolean;
   revokedAt?: string | null;
   isCurrentSession: boolean;
+  prefillEnabled: boolean;
+  prefillExpiresAt?: string | null;
 }
 
 export interface UserPreferences {
@@ -24,6 +26,7 @@ export interface UserPreferences {
   use24HourFormat: boolean;
   showYearInDates: boolean;
   refreshRate?: string | null;
+  refreshRateLocked?: boolean | null;
   allowedTimeFormats?: string[];
 }
 

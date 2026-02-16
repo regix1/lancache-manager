@@ -4,6 +4,7 @@ import { Users, User } from 'lucide-react';
 import ApiService from '@services/api.service';
 import themeService from '@services/theme.service';
 import { getErrorMessage } from '@utils/error';
+import { useSignalR } from '@contexts/SignalRContext';
 import ActiveSessions from './ActiveSessions';
 import GuestConfiguration from './GuestConfiguration';
 import BulkActions from './BulkActions';
@@ -13,6 +14,7 @@ const UserTab: React.FC = () => {
   const { t } = useTranslation();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
+  const [sessionRefreshKey, setSessionRefreshKey] = useState(0);
   const [guestDurationHours, setGuestDurationHours] = useState<number>(6);
   const [updatingDuration, setUpdatingDuration] = useState(false);
   const [guestModeLocked, setGuestModeLocked] = useState<boolean>(false);
@@ -22,6 +24,8 @@ const UserTab: React.FC = () => {
   const [availableThemes, setAvailableThemes] = useState<ThemeOption[]>([]);
   const [defaultGuestRefreshRate, setDefaultGuestRefreshRate] = useState<string>('STANDARD');
   const [updatingGuestRefreshRate, setUpdatingGuestRefreshRate] = useState(false);
+  const [guestRefreshRateLocked, setGuestRefreshRateLocked] = useState<boolean>(true);
+  const [updatingGuestRefreshRateLock, setUpdatingGuestRefreshRateLock] = useState(false);
 
   const loadGuestDuration = async () => {
     try {
@@ -140,6 +144,7 @@ const UserTab: React.FC = () => {
       if (response.ok) {
         const data = await response.json();
         setDefaultGuestRefreshRate(data.refreshRate || 'STANDARD');
+        setGuestRefreshRateLocked(data.locked ?? true);
       }
     } catch (err) {
       console.error('Failed to load default guest refresh rate:', err);
@@ -171,8 +176,55 @@ const UserTab: React.FC = () => {
     }
   };
 
+  const handleUpdateGuestRefreshRateLock = async (locked: boolean) => {
+    try {
+      setUpdatingGuestRefreshRateLock(true);
+      const response = await fetch('/api/system/guest-refresh-rate-lock', ApiService.getFetchOptions({
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ locked })
+      }));
+
+      if (response.ok) {
+        setGuestRefreshRateLocked(locked);
+      } else {
+        const errorData = await response.json();
+        showToast('error', errorData.error || 'Failed to update refresh rate lock');
+      }
+    } catch (err: unknown) {
+      showToast('error', getErrorMessage(err) || 'Failed to update refresh rate lock');
+    } finally {
+      setUpdatingGuestRefreshRateLock(false);
+    }
+  };
+
   const handleSessionsChange = useCallback(() => {
-    // This is called when sessions need to be refreshed from child components
+    setSessionRefreshKey(prev => prev + 1);
+  }, []);
+
+  // SignalR handlers for live config updates
+  const { on, off } = useSignalR();
+
+  const handleGuestModeLockChanged = useCallback((data: { isLocked: boolean }) => {
+    setGuestModeLocked(data.isLocked);
+  }, []);
+
+  const handleGuestDurationUpdated = useCallback((data: { durationHours: number }) => {
+    setGuestDurationHours(data.durationHours);
+  }, []);
+
+  const handleDefaultGuestThemeChanged = useCallback((data: { newThemeId: string }) => {
+    setDefaultGuestTheme(data.newThemeId);
+  }, []);
+
+  const handleDefaultGuestRefreshRateChanged = useCallback((data: { refreshRate: string }) => {
+    setDefaultGuestRefreshRate(data.refreshRate);
+  }, []);
+
+  const handleGuestRefreshRateLockChanged = useCallback((data: { locked: boolean }) => {
+    setGuestRefreshRateLocked(data.locked);
   }, []);
 
   useEffect(() => {
@@ -180,7 +232,21 @@ const UserTab: React.FC = () => {
     loadAvailableThemes();
     loadDefaultGuestTheme();
     loadDefaultGuestRefreshRate();
-  }, []);
+
+    on('GuestModeLockChanged', handleGuestModeLockChanged);
+    on('GuestDurationUpdated', handleGuestDurationUpdated);
+    on('DefaultGuestThemeChanged', handleDefaultGuestThemeChanged);
+    on('DefaultGuestRefreshRateChanged', handleDefaultGuestRefreshRateChanged);
+    on('GuestRefreshRateLockChanged', handleGuestRefreshRateLockChanged);
+
+    return () => {
+      off('GuestModeLockChanged', handleGuestModeLockChanged);
+      off('GuestDurationUpdated', handleGuestDurationUpdated);
+      off('DefaultGuestThemeChanged', handleDefaultGuestThemeChanged);
+      off('DefaultGuestRefreshRateChanged', handleDefaultGuestRefreshRateChanged);
+      off('GuestRefreshRateLockChanged', handleGuestRefreshRateLockChanged);
+    };
+  }, [on, off, handleGuestModeLockChanged, handleGuestDurationUpdated, handleDefaultGuestThemeChanged, handleDefaultGuestRefreshRateChanged, handleGuestRefreshRateLockChanged]);
 
   return (
     <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-5 sm:space-y-6 animate-fadeIn">
@@ -238,6 +304,7 @@ const UserTab: React.FC = () => {
         loading={loading}
         setLoading={setLoading}
         onSessionsChange={handleSessionsChange}
+        refreshKey={sessionRefreshKey}
       />
 
       {/* Guest Configuration */}
@@ -251,6 +318,9 @@ const UserTab: React.FC = () => {
         defaultGuestRefreshRate={defaultGuestRefreshRate}
         onGuestRefreshRateChange={handleUpdateGuestRefreshRate}
         updatingGuestRefreshRate={updatingGuestRefreshRate}
+        guestRefreshRateLocked={guestRefreshRateLocked}
+        onGuestRefreshRateLockChange={handleUpdateGuestRefreshRateLock}
+        updatingGuestRefreshRateLock={updatingGuestRefreshRateLock}
         availableThemes={availableThemes}
       />
 

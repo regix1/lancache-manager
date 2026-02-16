@@ -94,6 +94,13 @@ const AppContent: React.FC = () => {
     }
   }, [authMode, activeTab]);
 
+  // Switch away from prefill tab when guest loses prefill access (live via SignalR)
+  useEffect(() => {
+    if (authMode === 'guest' && !prefillEnabled && activeTab === 'prefill') {
+      setActiveTab('dashboard');
+    }
+  }, [authMode, prefillEnabled, activeTab]);
+
   // Handle custom navigation events (used by components that can't access setActiveTab directly)
   useEffect(() => {
     const handleNavigateToTab = (event: Event) => {

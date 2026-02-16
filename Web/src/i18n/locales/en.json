@@ -896,6 +896,9 @@
     "title": "Active Sessions",
     "loading": "Loading sessions...",
     "paginationLabel": "sessions",
+    "history": {
+      "title": "Session History"
+    },
     "unknownDevice": "Unknown Device",
     "labels": {
       "deviceId": "Device ID",
@@ -967,7 +970,8 @@
       "deleteSession": "Delete Session",
       "deleting": "Deleting...",
       "revoke": "Revoke",
-      "delete": "Delete"
+      "delete": "Delete",
+      "logout": "Log Out"
     },
     "revokeModal": {
       "title": "Revoke Device",
@@ -1044,7 +1048,8 @@
       "deleteSession": "Failed to delete session",
       "loadPreferences": "Failed to load user preferences",
       "savePreferences": "Failed to save preferences",
-      "updatePrefill": "Failed to update prefill permission"
+      "updatePrefill": "Failed to update prefill permission",
+      "logout": "Failed to log out"
     }
   },
   "downloads": {

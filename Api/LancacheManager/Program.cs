@@ -552,7 +552,7 @@ app.UseMiddleware<SessionAuthMiddleware>();
 // Add Metrics Authentication Middleware (optional API key for /metrics)
 app.UseMiddleware<MetricsAuthenticationMiddleware>();
 
-// Swagger middleware (currently allows full access - authentication handled by Swagger UI's Authorize button)
+// Swagger authentication middleware (requires API key when Security:ProtectSwagger=true)
 app.UseMiddleware<SwaggerAuthenticationMiddleware>();
 
 // Enable Swagger in all environments

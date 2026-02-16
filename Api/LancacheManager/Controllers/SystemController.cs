@@ -326,7 +326,8 @@ public class SystemController : ControllerBase
     public IActionResult GetDefaultGuestRefreshRate()
     {
         var rate = _stateService.GetDefaultGuestRefreshRate();
-        return Ok(new RefreshRateResponse { RefreshRate = rate });
+        var locked = _stateService.GetGuestRefreshRateLocked();
+        return Ok(new { refreshRate = rate, locked });
     }
 
     /// <summary>
@@ -363,6 +364,29 @@ public class SystemController : ControllerBase
             Message = "Default guest refresh rate updated",
             RefreshRate = normalizedRate
         });
+    }
+
+    /// <summary>
+    /// PATCH /api/system/guest-refresh-rate-lock - Lock or unlock guest refresh rate selection
+    /// Request body: { "locked": true | false }
+    /// </summary>
+    [HttpPatch("guest-refresh-rate-lock")]
+    public async Task<IActionResult> SetGuestRefreshRateLock([FromBody] GuestRefreshRateLockRequest request)
+    {
+        if (request == null)
+        {
+            return BadRequest(new ErrorResponse { Error = "Request body is required" });
+        }
+
+        _stateService.SetGuestRefreshRateLocked(request.Locked);
+        _logger.LogInformation("Guest refresh rate lock set to: {Locked}", request.Locked);
+
+        await _notifications.NotifyAllAsync(SignalREvents.GuestRefreshRateLockChanged, new
+        {
+            locked = request.Locked
+        });
+
+        return Ok(new { success = true, locked = request.Locked });
     }
 
     /// <summary>
@@ -469,6 +493,47 @@ public class SystemController : ControllerBase
         });
 
         return Ok(new { message = $"Default guest preference {key} updated", key, value = request.Value });
+    }
+
+    /// <summary>
+    /// Get default prefill panel settings
+    /// </summary>
+    [HttpGet("prefill-defaults")]
+    public IActionResult GetPrefillDefaults()
+    {
+        return Ok(new
+        {
+            operatingSystems = _stateService.GetDefaultPrefillOperatingSystems(),
+            maxConcurrency = _stateService.GetDefaultPrefillMaxConcurrency()
+        });
+    }
+
+    /// <summary>
+    /// Update default prefill panel settings
+    /// </summary>
+    [HttpPatch("prefill-defaults")]
+    public async Task<IActionResult> SetPrefillDefaults([FromBody] SetPrefillDefaultsRequest request)
+    {
+        if (request.OperatingSystems != null)
+        {
+            _stateService.SetDefaultPrefillOperatingSystems(request.OperatingSystems);
+        }
+        if (request.MaxConcurrency != null)
+        {
+            _stateService.SetDefaultPrefillMaxConcurrency(request.MaxConcurrency);
+        }
+
+        await _notifications.NotifyAllAsync(SignalREvents.PrefillDefaultsChanged, new
+        {
+            operatingSystems = _stateService.GetDefaultPrefillOperatingSystems(),
+            maxConcurrency = _stateService.GetDefaultPrefillMaxConcurrency()
+        });
+
+        return Ok(new
+        {
+            operatingSystems = _stateService.GetDefaultPrefillOperatingSystems(),
+            maxConcurrency = _stateService.GetDefaultPrefillMaxConcurrency()
+        });
     }
 
     /// <summary>

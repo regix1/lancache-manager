@@ -30,6 +30,7 @@ public class UserPreferencesService
         public bool ShowDatasourceLabels { get; set; } = true;
         public bool ShowYearInDates { get; set; }
         public string? RefreshRate { get; set; } // Refresh rate for guest users (null = use default)
+        public bool? RefreshRateLocked { get; set; } // Per-session lock override (null = use global, true/false = override)
         public string[]? AllowedTimeFormats { get; set; } // Allowed time formats for this user (null = all formats)
     }
 
@@ -87,6 +88,7 @@ public class UserPreferencesService
                 existingPreferences.ShowDatasourceLabels = preferencesDto.ShowDatasourceLabels;
                 existingPreferences.ShowYearInDates = preferencesDto.ShowYearInDates;
                 existingPreferences.RefreshRate = preferencesDto.RefreshRate;
+                existingPreferences.RefreshRateLocked = preferencesDto.RefreshRateLocked;
                 existingPreferences.AllowedTimeFormats = SerializeAllowedTimeFormats(preferencesDto.AllowedTimeFormats);
                 existingPreferences.UpdatedAtUtc = DateTime.UtcNow;
             }
@@ -107,6 +109,7 @@ public class UserPreferencesService
                     ShowDatasourceLabels = preferencesDto.ShowDatasourceLabels,
                     ShowYearInDates = preferencesDto.ShowYearInDates,
                     RefreshRate = preferencesDto.RefreshRate,
+                    RefreshRateLocked = preferencesDto.RefreshRateLocked,
                     AllowedTimeFormats = SerializeAllowedTimeFormats(preferencesDto.AllowedTimeFormats),
                     UpdatedAtUtc = DateTime.UtcNow
                 };
@@ -192,6 +195,9 @@ public class UserPreferencesService
                 case "refreshrate":
                     preferences.RefreshRate = GetValueAsString(value);
                     break;
+                case "refreshratelocked":
+                    preferences.RefreshRateLocked = GetNullableBoolean(value);
+                    break;
                 case "allowedtimeformats":
                     preferences.AllowedTimeFormats = SerializeAllowedTimeFormats(GetValueAsStringArray(value));
                     break;
@@ -250,6 +256,22 @@ public class UserPreferencesService
         {
             return jsonElement.GetBoolean();
         }
+        return Convert.ToBoolean(value);
+    }
+
+    /// <summary>
+    /// Helper method to convert value to nullable boolean, handling JsonElement
+    /// </summary>
+    private bool? GetNullableBoolean<T>(T value)
+    {
+        if (value is JsonElement jsonElement)
+        {
+            if (jsonElement.ValueKind == JsonValueKind.Null)
+                return null;
+            return jsonElement.GetBoolean();
+        }
+        if (value == null)
+            return null;
         return Convert.ToBoolean(value);
     }
 
@@ -332,6 +354,7 @@ public class UserPreferencesService
         ShowDatasourceLabels = prefs.ShowDatasourceLabels,
         ShowYearInDates = prefs.ShowYearInDates,
         RefreshRate = prefs.RefreshRate,
+        RefreshRateLocked = prefs.RefreshRateLocked,
         AllowedTimeFormats = ParseAllowedTimeFormats(prefs.AllowedTimeFormats)
     };
 }

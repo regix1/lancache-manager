@@ -214,6 +214,16 @@ public class SteamLoginRequest
 
 #endregion
 
+#region Prefill Defaults Requests
+
+public class SetPrefillDefaultsRequest
+{
+    public List<string>? OperatingSystems { get; set; }
+    public string? MaxConcurrency { get; set; }
+}
+
+#endregion
+
 #region System Requests
 
 public class UpdateLogRotationScheduleRequest
@@ -254,6 +264,11 @@ public class SetScanModeRequest
 public class SetRefreshRateRequest
 {
     public string RefreshRate { get; set; } = string.Empty;
+}
+
+public class GuestRefreshRateLockRequest
+{
+    public bool Locked { get; set; }
 }
 
 #endregion

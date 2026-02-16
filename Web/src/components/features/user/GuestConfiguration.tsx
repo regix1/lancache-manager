@@ -1,12 +1,13 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Settings2, Loader2, Globe, MapPin, Download, AlertTriangle } from 'lucide-react';
+import { Settings2, Loader2, Globe, MapPin, Download, AlertTriangle, Lock, Unlock } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { MultiSelectDropdown } from '@components/ui/MultiSelectDropdown';
 import ApiService from '@services/api.service';
 import { getErrorMessage } from '@utils/error';
 import { useSignalR } from '@contexts/SignalRContext';
+import { useAuth } from '@contexts/AuthContext';
 import { ThemeOption, durationOptions, refreshRateOptions, showToast } from './types';
 
 type TimeSettingValue = 'server-24h' | 'server-12h' | 'local-24h' | 'local-12h';
@@ -31,6 +32,9 @@ interface GuestConfigurationProps {
   defaultGuestRefreshRate: string;
   onGuestRefreshRateChange: (rate: string) => void;
   updatingGuestRefreshRate: boolean;
+  guestRefreshRateLocked: boolean;
+  onGuestRefreshRateLockChange: (locked: boolean) => void;
+  updatingGuestRefreshRateLock: boolean;
   availableThemes: ThemeOption[];
 }
 
@@ -44,10 +48,14 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   defaultGuestRefreshRate,
   onGuestRefreshRateChange,
   updatingGuestRefreshRate,
+  guestRefreshRateLocked,
+  onGuestRefreshRateLockChange,
+  updatingGuestRefreshRateLock,
   availableThemes
 }) => {
   const { t } = useTranslation();
   const { on, off } = useSignalR();
+  const { authMode } = useAuth();
   const [defaultGuestPreferences, setDefaultGuestPreferences] = useState<DefaultGuestPreferences>({
     useLocalTimezone: false,
     use24HourFormat: true,
@@ -175,6 +183,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   };
 
   const handleUpdateDefaultGuestPref = async (key: string, value: boolean) => {
+    if (authMode !== 'authenticated') return;
     try {
       setUpdatingDefaultPref(key);
       const response = await fetch(`/api/system/default-guest-preferences/${key}`, ApiService.getFetchOptions({
@@ -225,7 +234,18 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     []
   );
 
+  const handlePrefillConfigChanged = useCallback(
+    (data: { enabledByDefault: boolean; durationHours: number }) => {
+      setPrefillConfig({
+        enabledByDefault: data.enabledByDefault,
+        durationHours: data.durationHours
+      });
+    },
+    []
+  );
+
   const handleAllowedFormatsChange = async (formats: string[]) => {
+    if (authMode !== 'authenticated') return;
     try {
       setUpdatingAllowedFormats(true);
       const response = await fetch('/api/system/default-guest-preferences/allowed-time-formats', ApiService.getFetchOptions({
@@ -278,6 +298,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   };
 
   const updatePrefillConfig = async (enabledByDefault: boolean, durationHours: number) => {
+    if (authMode !== 'authenticated') return;
     try {
       setUpdatingPrefillConfig(true);
       const response = await fetch('/api/auth/guest/prefill/config', ApiService.getFetchOptions({
@@ -312,124 +333,88 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
 
     on('DefaultGuestPreferencesChanged', handleDefaultGuestPreferencesChanged);
     on('AllowedTimeFormatsChanged', handleAllowedTimeFormatsChanged);
+    on('GuestPrefillConfigChanged', handlePrefillConfigChanged);
 
     return () => {
       off('DefaultGuestPreferencesChanged', handleDefaultGuestPreferencesChanged);
       off('AllowedTimeFormatsChanged', handleAllowedTimeFormatsChanged);
+      off('GuestPrefillConfigChanged', handlePrefillConfigChanged);
     };
-  }, [on, off, handleDefaultGuestPreferencesChanged, handleAllowedTimeFormatsChanged]);
+  }, [on, off, handleDefaultGuestPreferencesChanged, handleAllowedTimeFormatsChanged, handlePrefillConfigChanged]);
 
   return (
     <Card padding="none">
+      {/* Header */}
       <div className="p-4 sm:p-5 border-b border-themed-secondary">
         <h3 className="text-lg font-semibold flex items-center gap-2 text-themed-primary">
           <Settings2 className="w-5 h-5 text-themed-accent" />
-          {t('user.guest.title')}
+          Guest Defaults
         </h3>
         <p className="text-sm mt-1 text-themed-muted">
-          {t('user.guest.subtitle')}
+          These settings apply to newly created guest sessions only. Existing sessions are not affected.
         </p>
       </div>
 
-      <div className="p-4 sm:p-5 space-y-5">
-        {/* Core Settings */}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <div className="config-section">
-            <div className="config-section-title">{t('user.guest.sections.sessionDuration')}</div>
-            <EnhancedDropdown
-              options={translatedDurationOptions}
-              value={guestDurationHours.toString()}
-              onChange={(value) => onDurationChange(Number(value))}
-              disabled={updatingDuration}
-              className="w-full"
-            />
-            {updatingDuration && (
-              <Loader2 className="w-4 h-4 animate-spin mt-2 text-themed-accent" />
-            )}
+      <div className="p-4 sm:p-5 space-y-4">
+        {/* Session & Access */}
+        <div className="rounded-lg bg-themed-secondary p-4 space-y-4">
+          <div className="text-xs font-semibold uppercase tracking-wider text-themed-muted">
+            Session &amp; Access
           </div>
 
-          <div className="config-section">
-            <div className="config-section-title">{t('user.guest.sections.defaultTheme')}</div>
-            <EnhancedDropdown
-              options={availableThemes.map((theme) => ({
-                value: theme.id,
-                label: theme.name
-              }))}
-              value={defaultGuestTheme}
-              onChange={onGuestThemeChange}
-              disabled={updatingGuestTheme}
-              className="w-full"
-            />
-            {updatingGuestTheme && (
-              <Loader2 className="w-4 h-4 animate-spin mt-2 text-themed-accent" />
-            )}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+            <div className="toggle-row-label whitespace-nowrap">{t('user.guest.sections.sessionDuration')}</div>
+            <div className="flex items-center gap-2">
+              <EnhancedDropdown
+                options={translatedDurationOptions}
+                value={guestDurationHours.toString()}
+                onChange={(value) => onDurationChange(Number(value))}
+                disabled={updatingDuration}
+                className="w-48"
+              />
+              {updatingDuration && (
+                <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
+              )}
+            </div>
           </div>
 
-          <div className="config-section">
-            <div className="config-section-title">{t('user.guest.sections.refreshRate')}</div>
-            <EnhancedDropdown
-              options={translatedRefreshRateOptions}
-              value={defaultGuestRefreshRate}
-              onChange={onGuestRefreshRateChange}
-              disabled={updatingGuestRefreshRate}
-              className="w-full"
-            />
-            {updatingGuestRefreshRate && (
-              <Loader2 className="w-4 h-4 animate-spin mt-2 text-themed-accent" />
-            )}
-          </div>
-        </div>
-
-        {/* Prefill Permissions */}
-        <div className="config-section">
-          <div className="config-section-title flex items-center gap-2">
-            <Download className="w-4 h-4 text-themed-accent" />
-            {t('user.guest.prefill.title')}
-          </div>
-          <p className="text-sm mb-3 text-themed-muted">
-            {t('user.guest.prefill.subtitle')}
-          </p>
-          <div className="space-y-3">
-            {/* Default Enabled Toggle */}
-            <div
-              className="toggle-row cursor-pointer"
-              onClick={() =>
-                !loadingPrefillConfig &&
-                !updatingPrefillConfig &&
-                updatePrefillConfig(!prefillConfig.enabledByDefault, prefillConfig.durationHours)
-              }
-            >
-              <div>
-                <div className="toggle-row-label">{t('user.guest.prefill.enableByDefault.label')}</div>
-                <div className="toggle-row-description">
-                  {t('user.guest.prefill.enableByDefault.description')}
-                </div>
+          <div
+            className="toggle-row cursor-pointer"
+            onClick={() =>
+              !loadingPrefillConfig &&
+              !updatingPrefillConfig &&
+              updatePrefillConfig(!prefillConfig.enabledByDefault, prefillConfig.durationHours)
+            }
+          >
+            <div>
+              <div className="toggle-row-label flex items-center gap-1.5">
+                <Download className="w-3.5 h-3.5 text-themed-accent" />
+                {t('user.guest.prefill.enableByDefault.label')}
               </div>
-              <div className="flex items-center gap-2">
-                {updatingPrefillConfig && (
-                  <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
-                )}
-                <div
-                  className={`modern-toggle ${prefillConfig.enabledByDefault ? 'checked' : ''}`}
-                >
-                  <span className="toggle-thumb" />
-                </div>
+              <div className="toggle-row-description">
+                {t('user.guest.prefill.enableByDefault.description')}
               </div>
             </div>
-
-            {/* Warning for enabled by default */}
-            {prefillConfig.enabledByDefault && (
-              <div className="flex items-start gap-2 p-3 rounded-md text-sm bg-themed-warning border border-themed-warning text-themed-warning">
-                <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                <span>
-                  {t('user.guest.prefill.warning')}
-                </span>
+            <div className="flex items-center gap-2">
+              {updatingPrefillConfig && (
+                <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
+              )}
+              <div className={`modern-toggle ${prefillConfig.enabledByDefault ? 'checked' : ''}`}>
+                <span className="toggle-thumb" />
               </div>
-            )}
+            </div>
+          </div>
 
-            {/* Duration Dropdown */}
-            <div>
-              <div className="toggle-row-label mb-1.5">{t('user.guest.prefill.duration.label')}</div>
+          {prefillConfig.enabledByDefault && (
+            <div className="flex items-start gap-2 p-3 rounded-md text-sm bg-themed-warning border border-themed-warning text-themed-warning">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <span>{t('user.guest.prefill.warning')}</span>
+            </div>
+          )}
+
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+            <div className="toggle-row-label whitespace-nowrap">{t('user.guest.prefill.duration.label')}</div>
+            <div className="flex items-center gap-2">
               <EnhancedDropdown
                 options={prefillDurationOptions}
                 value={prefillConfig.durationHours.toString()}
@@ -439,153 +424,206 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
                 disabled={updatingPrefillConfig || loadingPrefillConfig}
                 className="w-48"
               />
-              <div className="toggle-row-description mt-1">
-                {t('user.guest.prefill.duration.description')}
+            </div>
+          </div>
+        </div>
+
+        {/* Appearance */}
+        <div className="rounded-lg bg-themed-secondary p-4 space-y-4">
+          <div className="text-xs font-semibold uppercase tracking-wider text-themed-muted">
+            Appearance
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <div className="toggle-row-label">{t('user.guest.sections.defaultTheme')}</div>
+              <div className="flex items-center gap-2">
+                <EnhancedDropdown
+                  options={availableThemes.map((theme) => ({
+                    value: theme.id,
+                    label: theme.name
+                  }))}
+                  value={defaultGuestTheme}
+                  onChange={onGuestThemeChange}
+                  disabled={updatingGuestTheme}
+                  className="w-full"
+                />
+                {updatingGuestTheme && (
+                  <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <div className="toggle-row-label">{t('user.guest.sections.refreshRate')}</div>
+              <div className="flex items-center gap-2">
+                <EnhancedDropdown
+                  options={translatedRefreshRateOptions}
+                  value={defaultGuestRefreshRate}
+                  onChange={onGuestRefreshRateChange}
+                  disabled={updatingGuestRefreshRate}
+                  className="w-full"
+                />
+                {updatingGuestRefreshRate && (
+                  <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div
+            className="toggle-row cursor-pointer"
+            onClick={() =>
+              !updatingGuestRefreshRateLock &&
+              onGuestRefreshRateLockChange(!guestRefreshRateLocked)
+            }
+          >
+            <div>
+              <div className="toggle-row-label flex items-center gap-1.5">
+                {guestRefreshRateLocked ? (
+                  <Lock className="w-3.5 h-3.5 text-themed-accent" />
+                ) : (
+                  <Unlock className="w-3.5 h-3.5 text-themed-accent" />
+                )}
+                Lock Refresh Rate
+              </div>
+              <div className="toggle-row-description">
+                When locked, guests cannot change their refresh rate
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {updatingGuestRefreshRateLock && (
+                <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
+              )}
+              <div className={`modern-toggle ${guestRefreshRateLocked ? 'checked' : ''}`}>
+                <span className="toggle-thumb" />
               </div>
             </div>
           </div>
         </div>
 
-        {/* Preferences Grid */}
-        <div className="grid gap-4 sm:grid-cols-2">
-          {/* Date & Time */}
-          <div className="config-section">
-            <div className="config-section-title">{t('user.guest.sections.dateTime')}</div>
-            <div className="space-y-3">
-              {/* Allowed Time Formats */}
-              <div>
-                <div className="toggle-row-label mb-1.5">{t('user.guest.timeFormats.title')}</div>
-                <div className="relative">
-                  <MultiSelectDropdown
-                    options={timeFormatOptions.map((opt) => ({
-                      value: opt.value,
-                      label: opt.label,
-                      description: opt.description,
-                      icon: opt.icon
-                    }))}
-                    values={defaultGuestPreferences.allowedTimeFormats}
-                    onChange={handleAllowedFormatsChange}
-                    placeholder={t('user.guest.timeFormats.placeholder')}
-                    minSelections={1}
-                    disabled={updatingAllowedFormats || loadingDefaultPrefs}
-                    dropdownWidth="w-80"
-                  />
-                  {updatingAllowedFormats && (
-                    <Loader2 className="w-4 h-4 animate-spin absolute right-10 top-1/2 -translate-y-1/2 text-themed-accent" />
-                  )}
-                </div>
-                <div className="toggle-row-description mt-1">
-                  {t('user.guest.timeFormats.note')}
-                </div>
-              </div>
+        {/* Date & Time */}
+        <div className="rounded-lg bg-themed-secondary p-4 space-y-4">
+          <div className="text-xs font-semibold uppercase tracking-wider text-themed-muted">
+            {t('user.guest.sections.dateTime')}
+          </div>
 
-              {/* Show Year Toggle */}
-              <div
-                className="toggle-row cursor-pointer"
-                onClick={() =>
-                  !loadingDefaultPrefs &&
-                  handleUpdateDefaultGuestPref(
-                    'showYearInDates',
-                    !defaultGuestPreferences.showYearInDates
-                  )
-                }
-              >
-                <div>
-                  <div className="toggle-row-label">{t('user.guest.preferences.showYear.label')}</div>
-                  <div className="toggle-row-description">{t('user.guest.preferences.showYear.description')}</div>
-                </div>
-                <div className="flex items-center gap-2">
-                  {updatingDefaultPref === 'showYearInDates' && (
-                    <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
-                  )}
-                  <div
-                    className={`modern-toggle ${defaultGuestPreferences.showYearInDates ? 'checked' : ''}`}
-                  >
-                    <span className="toggle-thumb" />
-                  </div>
-                </div>
+          <div className="space-y-1.5">
+            <div className="toggle-row-label">{t('user.guest.timeFormats.title')}</div>
+            <div className="relative">
+              <MultiSelectDropdown
+                options={timeFormatOptions.map((opt) => ({
+                  value: opt.value,
+                  label: opt.label,
+                  description: opt.description,
+                  icon: opt.icon
+                }))}
+                values={defaultGuestPreferences.allowedTimeFormats}
+                onChange={handleAllowedFormatsChange}
+                placeholder={t('user.guest.timeFormats.placeholder')}
+                minSelections={1}
+                disabled={updatingAllowedFormats || loadingDefaultPrefs}
+                dropdownWidth="w-80"
+              />
+              {updatingAllowedFormats && (
+                <Loader2 className="w-4 h-4 animate-spin absolute right-10 top-1/2 -translate-y-1/2 text-themed-accent" />
+              )}
+            </div>
+            <div className="toggle-row-description">
+              {t('user.guest.timeFormats.note')}
+            </div>
+          </div>
+
+          <div
+            className="toggle-row cursor-pointer"
+            onClick={() =>
+              !loadingDefaultPrefs &&
+              handleUpdateDefaultGuestPref(
+                'showYearInDates',
+                !defaultGuestPreferences.showYearInDates
+              )
+            }
+          >
+            <div>
+              <div className="toggle-row-label">{t('user.guest.preferences.showYear.label')}</div>
+              <div className="toggle-row-description">{t('user.guest.preferences.showYear.description')}</div>
+            </div>
+            <div className="flex items-center gap-2">
+              {updatingDefaultPref === 'showYearInDates' && (
+                <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
+              )}
+              <div className={`modern-toggle ${defaultGuestPreferences.showYearInDates ? 'checked' : ''}`}>
+                <span className="toggle-thumb" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Display */}
+        <div className="rounded-lg bg-themed-secondary p-4 space-y-4">
+          <div className="text-xs font-semibold uppercase tracking-wider text-themed-muted">
+            {t('user.guest.sections.display')}
+          </div>
+
+          <div
+            className="toggle-row cursor-pointer"
+            onClick={() =>
+              !loadingDefaultPrefs &&
+              handleUpdateDefaultGuestPref('sharpCorners', !defaultGuestPreferences.sharpCorners)
+            }
+          >
+            <div>
+              <div className="toggle-row-label">{t('user.guest.preferences.sharpCorners.label')}</div>
+              <div className="toggle-row-description">{t('user.guest.preferences.sharpCorners.description')}</div>
+            </div>
+            <div className="flex items-center gap-2">
+              {updatingDefaultPref === 'sharpCorners' && (
+                <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
+              )}
+              <div className={`modern-toggle ${defaultGuestPreferences.sharpCorners ? 'checked' : ''}`}>
+                <span className="toggle-thumb" />
               </div>
             </div>
           </div>
 
-          {/* Display */}
-          <div className="config-section">
-            <div className="config-section-title">{t('user.guest.sections.display')}</div>
-            <div className="space-y-1">
-              <div
-                className="toggle-row cursor-pointer"
-                onClick={() =>
-                  !loadingDefaultPrefs &&
-                  handleUpdateDefaultGuestPref(
-                    'sharpCorners',
-                    !defaultGuestPreferences.sharpCorners
-                  )
-                }
-              >
-                <div>
-                  <div className="toggle-row-label">{t('user.guest.preferences.sharpCorners.label')}</div>
-                  <div className="toggle-row-description">{t('user.guest.preferences.sharpCorners.description')}</div>
-                </div>
-                <div className="flex items-center gap-2">
-                  {updatingDefaultPref === 'sharpCorners' && (
-                    <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
-                  )}
-                  <div
-                    className={`modern-toggle ${defaultGuestPreferences.sharpCorners ? 'checked' : ''}`}
-                  >
-                    <span className="toggle-thumb" />
-                  </div>
-                </div>
+          <div
+            className="toggle-row cursor-pointer"
+            onClick={() =>
+              !loadingDefaultPrefs &&
+              handleUpdateDefaultGuestPref('disableTooltips', !defaultGuestPreferences.disableTooltips)
+            }
+          >
+            <div>
+              <div className="toggle-row-label">{t('user.guest.preferences.disableTooltips.label')}</div>
+              <div className="toggle-row-description">{t('user.guest.preferences.disableTooltips.description')}</div>
+            </div>
+            <div className="flex items-center gap-2">
+              {updatingDefaultPref === 'disableTooltips' && (
+                <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
+              )}
+              <div className={`modern-toggle ${defaultGuestPreferences.disableTooltips ? 'checked' : ''}`}>
+                <span className="toggle-thumb" />
               </div>
-              <div
-                className="toggle-row cursor-pointer"
-                onClick={() =>
-                  !loadingDefaultPrefs &&
-                  handleUpdateDefaultGuestPref(
-                    'disableTooltips',
-                    !defaultGuestPreferences.disableTooltips
-                  )
-                }
-              >
-                <div>
-                  <div className="toggle-row-label">{t('user.guest.preferences.disableTooltips.label')}</div>
-                  <div className="toggle-row-description">{t('user.guest.preferences.disableTooltips.description')}</div>
-                </div>
-                <div className="flex items-center gap-2">
-                  {updatingDefaultPref === 'disableTooltips' && (
-                    <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
-                  )}
-                  <div
-                    className={`modern-toggle ${defaultGuestPreferences.disableTooltips ? 'checked' : ''}`}
-                  >
-                    <span className="toggle-thumb" />
-                  </div>
-                </div>
-              </div>
-              <div
-                className="toggle-row cursor-pointer"
-                onClick={() =>
-                  !loadingDefaultPrefs &&
-                  handleUpdateDefaultGuestPref(
-                    'showDatasourceLabels',
-                    !defaultGuestPreferences.showDatasourceLabels
-                  )
-                }
-              >
-                <div>
-                  <div className="toggle-row-label">{t('user.guest.preferences.datasourceLabels.label')}</div>
-                  <div className="toggle-row-description">{t('user.guest.preferences.datasourceLabels.description')}</div>
-                </div>
-                <div className="flex items-center gap-2">
-                  {updatingDefaultPref === 'showDatasourceLabels' && (
-                    <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
-                  )}
-                  <div
-                    className={`modern-toggle ${defaultGuestPreferences.showDatasourceLabels ? 'checked' : ''}`}
-                  >
-                    <span className="toggle-thumb" />
-                  </div>
-                </div>
+            </div>
+          </div>
+
+          <div
+            className="toggle-row cursor-pointer"
+            onClick={() =>
+              !loadingDefaultPrefs &&
+              handleUpdateDefaultGuestPref('showDatasourceLabels', !defaultGuestPreferences.showDatasourceLabels)
+            }
+          >
+            <div>
+              <div className="toggle-row-label">{t('user.guest.preferences.datasourceLabels.label')}</div>
+              <div className="toggle-row-description">{t('user.guest.preferences.datasourceLabels.description')}</div>
+            </div>
+            <div className="flex items-center gap-2">
+              {updatingDefaultPref === 'showDatasourceLabels' && (
+                <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
+              )}
+              <div className={`modern-toggle ${defaultGuestPreferences.showDatasourceLabels ? 'checked' : ''}`}>
+                <span className="toggle-thumb" />
               </div>
             </div>
           </div>

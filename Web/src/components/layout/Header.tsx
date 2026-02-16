@@ -16,6 +16,19 @@ interface HeaderProps {
   connectionStatus?: 'connected' | 'disconnected' | 'reconnecting';
 }
 
+const formatSessionTimeRemaining = (expiresAt: string | null): string | null => {
+  if (!expiresAt) return null;
+  const expiryStr = expiresAt.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(expiresAt)
+    ? expiresAt
+    : expiresAt + 'Z';
+  const diff = new Date(expiryStr).getTime() - Date.now();
+  if (diff <= 0) return null;
+  const hours = Math.floor(diff / (1000 * 60 * 60));
+  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+};
+
 const Header: React.FC<HeaderProps> = ({
   title,
   subtitle,
@@ -23,14 +36,24 @@ const Header: React.FC<HeaderProps> = ({
 }) => {
   const { t } = useTranslation();
   const { mockMode } = useMockMode();
-  const { authMode } = useAuth();
-  const [isGuestMode, setIsGuestMode] = useState(false);
+  const { authMode, sessionExpiresAt } = useAuth();
+  const isGuestMode = authMode === 'guest';
+  const [timeRemaining, setTimeRemaining] = useState<string | null>(null);
 
-  // Event-driven updates from AuthContext - no polling needed
+  // Update countdown every 30 seconds for guest sessions
   useEffect(() => {
-    const guestMode = authMode === 'guest';
-    setIsGuestMode(guestMode);
-  }, [authMode]);
+    if (!isGuestMode || !sessionExpiresAt) {
+      setTimeRemaining(null);
+      return;
+    }
+
+    setTimeRemaining(formatSessionTimeRemaining(sessionExpiresAt));
+    const interval = setInterval(() => {
+      setTimeRemaining(formatSessionTimeRemaining(sessionExpiresAt));
+    }, 30_000);
+
+    return () => clearInterval(interval);
+  }, [isGuestMode, sessionExpiresAt]);
 
   const resolvedTitle = title ?? t('app.title');
   const resolvedSubtitle = subtitle ?? t('app.subtitle');
@@ -119,7 +142,7 @@ const Header: React.FC<HeaderProps> = ({
                         border: '1px solid var(--theme-warning)'
                       }}
                     >
-                      {t('guest.guestMode')}
+                      {t('guest.guestMode')}{timeRemaining ? ` \u00B7 ${timeRemaining}` : ''}
                     </div>
                   )}
                 </div>
@@ -190,7 +213,7 @@ const Header: React.FC<HeaderProps> = ({
                     border: '1px solid var(--theme-warning)'
                   }}
                 >
-                  {t('guest.guest')}
+                  {t('guest.guest')}{timeRemaining ? ` \u00B7 ${timeRemaining}` : ''}
                 </div>
               </div>
             )}

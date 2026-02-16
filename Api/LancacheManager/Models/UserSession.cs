@@ -29,6 +29,9 @@ public class UserSession
     public bool IsRevoked { get; set; }
     public DateTime? RevokedAtUtc { get; set; }
 
+    // Prefill access - when set and in the future, guest has prefill tab access
+    public DateTime? PrefillExpiresAtUtc { get; set; }
+
     // Navigation property
     public UserPreferences? Preferences { get; set; }
 }

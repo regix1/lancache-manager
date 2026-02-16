@@ -69,14 +69,13 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
   const initialLoadDone = useRef(false);
 
   const { on, off } = useSignalR();
-  const { isAuthenticated, authMode, isLoading: authLoading } = useAuth();
+  const { isAuthenticated, authMode, sessionId: authSessionId, isLoading: authLoading } = useAuth();
 
   const getCurrentSessionId = useCallback((): string | null => {
-    // Session identity is now cookie-based (HttpOnly cookies sent automatically)
-    // We return a constant value since the server identifies the session via cookies
-    // This is used as a cache key for local preferences state
-    return 'current-session';
-  }, []);
+    // Use the real session ID from the auth context for accurate cache keying
+    // and correct SignalR event matching
+    return authSessionId ?? null;
+  }, [authSessionId]);
 
   const currentSessionId = getCurrentSessionId();
 
@@ -100,10 +99,12 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
     setLoadingIds(prev => new Set(prev).add(sessionId));
 
     try {
-      const response = await fetch(
-        `/api/user-preferences/session/${encodeURIComponent(sessionId)}`,
-        ApiService.getFetchOptions()
-      );
+      // Use cookie-based endpoint for current session, session-specific for others
+      const isCurrentSession = sessionId === getCurrentSessionId();
+      const url = isCurrentSession
+        ? '/api/user-preferences'
+        : `/api/user-preferences/session/${encodeURIComponent(sessionId)}`;
+      const response = await fetch(url, ApiService.getFetchOptions());
 
       if (response.status === 401) {
         // 401 means unauthorized - mark as failed and loaded to prevent retries
@@ -236,10 +237,28 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
     setLoadedIds(prev => prev.has(sessionId) ? prev : new Set(prev).add(sessionId));
   }, [getCurrentSessionId]);
 
+  // When bulk preferences are reset, clear all cached prefs so badges refresh
+  const handleUserPreferencesReset = useCallback(() => {
+    setPreferences({});
+    setLoadedIds(new Set());
+    failedIds.current.clear();
+    initialLoadDone.current = false;
+
+    // Reload current session's preferences immediately
+    const sessionId = getCurrentSessionId();
+    if (sessionId) {
+      loadSessionPreferences(sessionId);
+    }
+  }, [getCurrentSessionId, loadSessionPreferences]);
+
   useEffect(() => {
     on('UserPreferencesUpdated', handleUserPreferencesUpdated);
-    return () => off('UserPreferencesUpdated', handleUserPreferencesUpdated);
-  }, [on, off, handleUserPreferencesUpdated]);
+    on('UserPreferencesReset', handleUserPreferencesReset);
+    return () => {
+      off('UserPreferencesUpdated', handleUserPreferencesUpdated);
+      off('UserPreferencesReset', handleUserPreferencesReset);
+    };
+  }, [on, off, handleUserPreferencesUpdated, handleUserPreferencesReset]);
 
   const getSessionPreferences = useCallback((sessionId: string): UserPreferences | null => {
     return preferences[sessionId] || null;

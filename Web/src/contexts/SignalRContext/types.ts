@@ -100,7 +100,9 @@ export const SIGNALR_EVENTS = [
   // Sessions
   'UserSessionCreated',
   'UserSessionRevoked',
+  'UserSessionDeleted',
   'UserSessionsCleared',
+  'UserSessionsUpdated',
   'SessionLastSeenUpdated',
   'GuestRefreshRateUpdated',
 
@@ -116,8 +118,11 @@ export const SIGNALR_EVENTS = [
 
   // Auth / Guest Mode
   'GuestModeLockChanged',
+  'GuestRefreshRateLockChanged',
   'GuestDurationUpdated',
   'GuestPrefillPermissionChanged',
+  'GuestPrefillConfigChanged',
+  'PrefillDefaultsChanged',
 
   // Prefill Daemon
   'SteamUserBanned',
@@ -471,10 +476,28 @@ export interface DefaultGuestRefreshRateChangedEvent {
   refreshRate: string;
 }
 
+export interface UserSessionsUpdatedEvent {
+  reason: string;
+}
+
 export interface GuestPrefillPermissionChangedEvent {
   sessionId: string;
   enabled: boolean;
-  expiresAt?: string;
+  prefillExpiresAt?: string;
+}
+
+export interface GuestRefreshRateLockChangedEvent {
+  locked: boolean;
+}
+
+export interface GuestPrefillConfigChangedEvent {
+  enabledByDefault: boolean;
+  durationHours: number;
+}
+
+export interface PrefillDefaultsChangedEvent {
+  operatingSystems: string[];
+  maxConcurrency: string;
 }
 
 export interface SteamUserBannedEvent {
@@ -564,6 +587,7 @@ export interface UserPreferencesUpdatedEvent {
     showDatasourceLabels: boolean;
     showYearInDates: boolean;
     refreshRate?: string | null;
+    refreshRateLocked?: boolean | null;
     allowedTimeFormats?: string[] | null;
   };
 }
