@@ -82,9 +82,9 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
   mockMode = false
 }: PicsProgressProviderProps) => {
   const signalR = useSignalR();
-  const { isAuthenticated, isLoading: authLoading } = useAuth();
-  // PICS rebuild progress is an admin concern; guests shouldn't poll it.
-  const hasAccess = isAuthenticated;
+  const { authMode, isLoading: authLoading } = useAuth();
+  // PICS rebuild progress is admin-only; guests shouldn't poll it
+  const hasAccess = authMode === 'authenticated';
 
   // Initialize progress from sessionStorage cache if available
   const [progress, setProgress] = useState<PicsProgress | null>(() => {

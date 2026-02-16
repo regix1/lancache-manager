@@ -506,11 +506,13 @@ public class SystemController : ControllerBase
     public IActionResult GetPrefillDefaults()
     {
         var maxThreadLimit = ResolveEffectiveThreadLimit();
+        var maxConcurrency = ClampConcurrencyToLimit(
+            _stateService.GetDefaultPrefillMaxConcurrency(), maxThreadLimit);
 
         return Ok(new
         {
             operatingSystems = _stateService.GetDefaultPrefillOperatingSystems(),
-            maxConcurrency = _stateService.GetDefaultPrefillMaxConcurrency(),
+            maxConcurrency,
             serverThreadCount = Environment.ProcessorCount,
             maxThreadLimit
         });
@@ -561,6 +563,25 @@ public class SystemController : ControllerBase
         // Guest: check per-user override first, then system default
         var prefs = _userPreferencesService.GetPreferences(session.Id);
         return prefs?.MaxThreadCount ?? _stateService.GetDefaultGuestMaxThreadCount();
+    }
+
+    /// <summary>
+    /// Clamp the default concurrency value so it does not exceed the guest thread limit.
+    /// "auto" passes through unchanged; "max" and numeric values are capped.
+    /// </summary>
+    private static string ClampConcurrencyToLimit(string concurrency, int? maxThreadLimit)
+    {
+        if (!maxThreadLimit.HasValue) return concurrency;
+
+        var limit = maxThreadLimit.Value;
+
+        if (concurrency.Equals("max", StringComparison.OrdinalIgnoreCase))
+            return limit.ToString();
+
+        if (int.TryParse(concurrency, out var numeric) && numeric > limit)
+            return limit.ToString();
+
+        return concurrency;
     }
 
     /// <summary>

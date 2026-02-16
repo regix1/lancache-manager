@@ -91,13 +91,26 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         if (data.operatingSystems && Array.isArray(data.operatingSystems)) {
           setSelectedOS(data.operatingSystems);
         }
-        if (data.maxConcurrency) {
-          setMaxConcurrency(data.maxConcurrency);
-        }
         if (typeof data.serverThreadCount === 'number' && data.serverThreadCount > 0) {
           setServerThreadCount(data.serverThreadCount);
         }
-        setMaxThreadLimit(data.maxThreadLimit ?? null);
+        const limit: number | null = data.maxThreadLimit ?? null;
+        setMaxThreadLimit(limit);
+
+        // Clamp concurrency to the guest thread limit so the dropdown
+        // never selects a value that exceeds the allowed maximum
+        let concurrency: string = data.maxConcurrency || 'auto';
+        if (limit != null) {
+          if (concurrency === 'max') {
+            concurrency = String(limit);
+          } else {
+            const numeric = parseInt(concurrency, 10);
+            if (!isNaN(numeric) && numeric > limit) {
+              concurrency = String(limit);
+            }
+          }
+        }
+        setMaxConcurrency(concurrency);
       }
     } catch (err) {
       console.error('[PrefillPanel] Failed to load prefill defaults:', err);

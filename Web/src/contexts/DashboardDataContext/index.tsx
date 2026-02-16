@@ -61,6 +61,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({ ch
   const signalR = useSignalR();
   const { isAuthenticated, authMode, isLoading: authLoading } = useAuth();
   const hasAccess = isAuthenticated || authMode === 'guest';
+  const isAdmin = authMode === 'authenticated';
 
   // State
   const [cacheInfo, setCacheInfo] = useState<CacheInfo | null>(null);
@@ -96,6 +97,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({ ch
   const selectedEventIdsRef = useRef<number[]>(selectedEventIds);
   const authLoadingRef = useRef(authLoading);
   const hasAccessRef = useRef(hasAccess);
+  const isAdminRef = useRef(isAdmin);
 
   // Update refs synchronously on every render
   currentTimeRangeRef.current = timeRange;
@@ -105,6 +107,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({ ch
   selectedEventIdsRef.current = selectedEventIds;
   authLoadingRef.current = authLoading;
   hasAccessRef.current = hasAccess;
+  isAdminRef.current = isAdmin;
 
   const getApiUrl = (): string => {
     if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) {
@@ -201,8 +204,9 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({ ch
       const timeoutId = setTimeout(() => abortControllerRef.current?.abort(), timeout);
 
       // Fetch all data in parallel using Promise.allSettled
+      // getCacheInfo is admin-only — skip for guest users to avoid 403
       const [cache, clients, services, dashboard, downloads] = await Promise.allSettled([
-        ApiService.getCacheInfo(signal),
+        isAdminRef.current ? ApiService.getCacheInfo(signal) : Promise.resolve(undefined as unknown as CacheInfo),
         ApiService.getClientStats(signal, startTime, endTime, eventIds, undefined, cacheBust),
         ApiService.getServiceStats(signal, startTime, endTime, eventIds, cacheBust),
         ApiService.getDashboardStats(signal, startTime, endTime, eventIds, cacheBust),

@@ -142,7 +142,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
   });
 
   const signalR = useSignalR();
-  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const { authMode, isLoading: authLoading } = useAuth();
+  const isAdmin = authMode === 'authenticated';
 
   // Timer management for auto-dismiss
   const autoDismissTimersRef = useRef<Map<string, { timerId: ReturnType<typeof setTimeout>; instanceId: number }>>(new Map());
@@ -992,9 +993,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     });
   }, []);
 
-  // Recovery on page load
+  // Recovery on page load (admin-only — all recovery endpoints require admin access)
   React.useEffect(() => {
-    if (authLoading || !isAuthenticated) return;
+    if (authLoading || !isAdmin) return;
 
     const recoverAllOperations = createRecoveryRunner(
       fetchWithAuth,
@@ -1003,13 +1004,13 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     );
 
     recoverAllOperations();
-  }, [authLoading, isAuthenticated, fetchWithAuth, scheduleAutoDismiss]);
+  }, [authLoading, isAdmin, fetchWithAuth, scheduleAutoDismiss]);
 
   // Monitor SignalR connection state - re-run recovery on reconnection
   // This ensures we recover from missed completion events during connection loss (especially on mobile)
   React.useEffect(() => {
-    // Skip if not authenticated
-    if (authLoading || !isAuthenticated) return;
+    // Skip if not admin — all recovery endpoints require admin access
+    if (authLoading || !isAdmin) return;
 
     const currentState = signalR.connectionState;
     const prevState = prevConnectionStateRef.current;
@@ -1033,7 +1034,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
       recoverAllOperations();
     }
-  }, [signalR.connectionState, authLoading, isAuthenticated, fetchWithAuth, scheduleAutoDismiss]);
+  }, [signalR.connectionState, authLoading, isAdmin, fetchWithAuth, scheduleAutoDismiss]);
 
   // Removal/clearing operation types that share the backend _cacheLock
   const REMOVAL_TYPES = ['log_removal', 'game_removal', 'service_removal', 'corruption_removal', 'cache_clearing'] as const;

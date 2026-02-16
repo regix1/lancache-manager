@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect, ReactNode } from 'react';
 import ApiService from '@services/api.service';
 import { useSignalR } from '@contexts/SignalRContext';
+import { useAuth } from '@contexts/AuthContext';
 import type { EventSummary } from '../types';
 
 interface DownloadAssociations {
@@ -29,6 +30,8 @@ interface DownloadAssociationsProviderProps {
 
 export const DownloadAssociationsProvider: React.FC<DownloadAssociationsProviderProps> = ({ children }) => {
   const { on, off } = useSignalR();
+  const { authMode } = useAuth();
+  const isAdmin = authMode === 'authenticated';
   const [associations, setAssociations] = useState<AssociationsCache>({});
   const [loading, setLoading] = useState(false);
   const [refreshVersion, setRefreshVersion] = useState(0);
@@ -36,7 +39,13 @@ export const DownloadAssociationsProvider: React.FC<DownloadAssociationsProvider
   const refreshDebounceRef = useRef<NodeJS.Timeout | null>(null);
   const lastRefreshTimeRef = useRef<number>(0);
 
+  const isAdminRef = useRef(isAdmin);
+  isAdminRef.current = isAdmin;
+
   const fetchAssociations = useCallback(async (downloadIds: number[]) => {
+    // Batch download events endpoint is admin-only
+    if (!isAdminRef.current) return;
+
     // Filter out already fetched IDs
     const newIds = downloadIds.filter(id => !fetchedIds.current.has(id));
     if (newIds.length === 0) return;
