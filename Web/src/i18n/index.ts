@@ -18,6 +18,9 @@ void i18n
     supportedLngs: ['en'],
     interpolation: {
       escapeValue: false
+    },
+    react: {
+      useSuspense: false
     }
   });
 

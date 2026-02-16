@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { Suspense, useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { NotificationsProvider } from '@contexts/notifications';
 import { CacheSizeProvider } from '@contexts/CacheSizeContext';
@@ -630,12 +630,15 @@ const AppContent: React.FC = () => {
   );
 };
 
+const SuspenseFallback: React.FC = () => (
+  <div style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:'100vh',background:'#111827',color:'#fff',fontFamily:'system-ui,sans-serif'}}>
+    <p>Loading...</p>
+  </div>
+);
+
 const App: React.FC = () => {
   return (
-    <>
-      <div id="debug-react-alive" style={{position:'fixed',top:0,left:0,right:0,background:'#dc2626',color:'white',padding:'12px 16px',zIndex:99999,fontSize:'14px',fontFamily:'system-ui,sans-serif',textAlign:'center'}}>
-        DEBUG: React rendered — if you see this, React is working. The issue is below.
-      </div>
+    <Suspense fallback={<SuspenseFallback />}>
       <ErrorBoundary>
       <MockModeProvider>
         <TimeFilterProvider>
@@ -683,7 +686,7 @@ const App: React.FC = () => {
         </TimeFilterProvider>
       </MockModeProvider>
     </ErrorBoundary>
-    </>
+    </Suspense>
   );
 };
 
