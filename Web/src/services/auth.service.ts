@@ -13,6 +13,7 @@ interface AuthStatusResponse {
   guestDurationHours: number;
   prefillEnabled: boolean;
   prefillExpiresAt: string | null;
+  token?: string;
 }
 
 interface LoginResponse {
@@ -63,6 +64,11 @@ class AuthService {
         this.authMode = 'guest';
       } else {
         this.authMode = 'unauthenticated';
+      }
+
+      // Store token for SignalR accessTokenFactory (survives page refresh via rotation)
+      if (data.token) {
+        this.sessionToken = data.token;
       }
 
       return data;

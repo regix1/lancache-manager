@@ -32,6 +32,10 @@ public class UserSession
     // Prefill access - when set and in the future, guest has prefill tab access
     public DateTime? PrefillExpiresAtUtc { get; set; }
 
+    // Token rotation - previous token remains valid during grace period
+    public string? PreviousSessionTokenHash { get; set; }
+    public DateTime? PreviousTokenValidUntilUtc { get; set; }
+
     // Navigation property
     public UserPreferences? Preferences { get; set; }
 }

@@ -13,6 +13,7 @@ public class AuthStatusResponse
     public int GuestDurationHours { get; set; }
     public bool PrefillEnabled { get; set; }
     public DateTime? PrefillExpiresAt { get; set; }
+    public string? Token { get; set; }
 }
 
 public class LoginRequest

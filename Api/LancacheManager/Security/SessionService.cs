@@ -96,9 +96,11 @@ public class SessionService
     public async Task<UserSession?> ValidateSessionAsync(string rawToken)
     {
         var tokenHash = HashToken(rawToken);
+        var now = DateTime.UtcNow;
 
         var session = await _dbContext.UserSessions
-            .FirstOrDefaultAsync(s => s.SessionTokenHash == tokenHash);
+            .FirstOrDefaultAsync(s => s.SessionTokenHash == tokenHash ||
+                (s.PreviousSessionTokenHash == tokenHash && s.PreviousTokenValidUntilUtc > now));
 
         if (session == null)
             return null;
@@ -106,7 +108,7 @@ public class SessionService
         if (session.IsRevoked)
             return null;
 
-        if (session.ExpiresAtUtc <= DateTime.UtcNow)
+        if (session.ExpiresAtUtc <= now)
             return null;
 
         return session;
@@ -192,6 +194,34 @@ public class SessionService
             sessionId = session.Id.ToString(),
             lastSeenAt = session.LastSeenAtUtc
         });
+    }
+
+    /// <summary>
+    /// Rotates the session token, returning the new raw token.
+    /// The previous token remains valid for 30 seconds (grace period for concurrent requests/tabs).
+    /// Rate-limited: skips rotation if already rotated within the last 30 seconds, returning null.
+    /// </summary>
+    public async Task<string?> RotateSessionTokenAsync(UserSession session, HttpContext httpContext)
+    {
+        // Rate-limit: skip if we already rotated recently (previous token still in grace period)
+        if (session.PreviousTokenValidUntilUtc > DateTime.UtcNow)
+            return null;
+
+        var (newRawToken, newTokenHash) = GenerateSessionToken();
+
+        // Preserve old token hash for grace period
+        session.PreviousSessionTokenHash = session.SessionTokenHash;
+        session.PreviousTokenValidUntilUtc = DateTime.UtcNow.AddSeconds(30);
+
+        // Set new primary token
+        session.SessionTokenHash = newTokenHash;
+
+        await _dbContext.SaveChangesAsync();
+
+        // Update the cookie with the new token
+        SetSessionCookie(httpContext, newRawToken, session.ExpiresAtUtc);
+
+        return newRawToken;
     }
 
     public async Task<int> CleanupExpiredSessionsAsync()

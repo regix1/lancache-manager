@@ -35,6 +35,10 @@ public static class DatabaseSchemaFixer
 
             // Per-session max thread count limit (nullable int: null = use system default)
             await AddColumnIfNotExistsAsync(connection, "UserPreferences", "MaxThreadCount", "INTEGER", logger);
+
+            // Token rotation columns for mobile SignalR authentication
+            await AddColumnIfNotExistsAsync(connection, "UserSessions", "PreviousSessionTokenHash", "TEXT", logger);
+            await AddColumnIfNotExistsAsync(connection, "UserSessions", "PreviousTokenValidUntilUtc", "TEXT", logger);
         }
         catch (Exception ex)
         {

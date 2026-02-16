@@ -35,7 +35,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpGet("status")]
-    public IActionResult CheckAuthStatus()
+    public async Task<IActionResult> CheckAuthStatus()
     {
         Response.Headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0";
         Response.Headers["Pragma"] = "no-cache";
@@ -74,6 +74,14 @@ public class AuthController : ControllerBase
             }
         }
 
+        // Token rotation: provide a fresh token for SignalR accessTokenFactory (mobile support)
+        string? token = null;
+        if (session != null)
+        {
+            var rotatedToken = await _sessionService.RotateSessionTokenAsync(session, HttpContext);
+            token = rotatedToken ?? SessionService.GetSessionTokenFromCookie(HttpContext);
+        }
+
         return Ok(new AuthStatusResponse
         {
             IsAuthenticated = session != null,
@@ -86,7 +94,8 @@ public class AuthController : ControllerBase
             GuestAccessEnabled = _sessionService.IsGuestAccessEnabled(),
             GuestDurationHours = _sessionService.GetGuestDurationHours(),
             PrefillEnabled = prefillEnabled,
-            PrefillExpiresAt = prefillExpiresAt
+            PrefillExpiresAt = prefillExpiresAt,
+            Token = token
         });
     }
 
