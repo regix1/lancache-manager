@@ -25,6 +25,7 @@ public class LoginResponse
     public bool Success { get; set; }
     public string SessionType { get; set; } = string.Empty;
     public DateTime ExpiresAt { get; set; }
+    public string? Token { get; set; }
 }
 
 public class SessionDto

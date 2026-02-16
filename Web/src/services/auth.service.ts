@@ -19,6 +19,7 @@ interface LoginResponse {
   success: boolean;
   sessionType: string;
   expiresAt: string;
+  token?: string;
   error?: string;
 }
 
@@ -37,6 +38,7 @@ class AuthService {
   public authMode: AuthMode = 'unauthenticated';
   public sessionType: SessionType | null = null;
   public sessionId: string | null = null;
+  private sessionToken: string | null = null;
 
   async checkAuth(): Promise<AuthStatusResponse> {
     try {
@@ -107,6 +109,7 @@ class AuthService {
         this.isAuthenticated = true;
         this.authMode = 'authenticated';
         this.sessionType = 'admin';
+        this.sessionToken = data.token || null;
       }
 
       return { success: data.success, message: data.error };
@@ -133,6 +136,7 @@ class AuthService {
         this.isAuthenticated = true;
         this.authMode = 'guest';
         this.sessionType = 'guest';
+        this.sessionToken = data.token || null;
       }
 
       return { success: data.success, message: data.error };
@@ -155,6 +159,7 @@ class AuthService {
       this.authMode = 'unauthenticated';
       this.sessionType = null;
       this.sessionId = null;
+      this.sessionToken = null;
     }
   }
 
@@ -172,6 +177,10 @@ class AuthService {
 
   isGuestModeActive(): boolean {
     return this.authMode === 'guest';
+  }
+
+  getSessionToken(): string | null {
+    return this.sessionToken;
   }
 }
 

@@ -131,7 +131,8 @@ public class AuthController : ControllerBase
         {
             Success = true,
             SessionType = session.SessionType,
-            ExpiresAt = DateTime.SpecifyKind(session.ExpiresAtUtc, DateTimeKind.Utc)
+            ExpiresAt = DateTime.SpecifyKind(session.ExpiresAtUtc, DateTimeKind.Utc),
+            Token = rawToken
         });
     }
 
@@ -169,7 +170,8 @@ public class AuthController : ControllerBase
         {
             Success = true,
             SessionType = session.SessionType,
-            ExpiresAt = DateTime.SpecifyKind(session.ExpiresAtUtc, DateTimeKind.Utc)
+            ExpiresAt = DateTime.SpecifyKind(session.ExpiresAtUtc, DateTimeKind.Utc),
+            Token = rawToken
         });
     }
 

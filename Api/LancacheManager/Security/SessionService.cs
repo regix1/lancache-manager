@@ -236,6 +236,19 @@ public class SessionService
         return httpContext.Request.Cookies[CookieName];
     }
 
+    /// <summary>
+    /// Gets session token from cookie first, then falls back to query string access_token.
+    /// The query string fallback supports mobile browsers where cookies aren't sent with WebSocket upgrades.
+    /// </summary>
+    public static string? GetSessionTokenFromRequest(HttpContext httpContext)
+    {
+        var token = httpContext.Request.Cookies[CookieName];
+        if (!string.IsNullOrEmpty(token))
+            return token;
+
+        return httpContext.Request.Query["access_token"].FirstOrDefault();
+    }
+
     // --- Guest Configuration (persisted via StateService) ---
 
     public bool IsGuestAccessEnabled()

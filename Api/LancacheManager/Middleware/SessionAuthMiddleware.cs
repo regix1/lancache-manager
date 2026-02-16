@@ -122,7 +122,7 @@ public class SessionAuthMiddleware
 
     private async Task<UserSession?> TryAttachSession(HttpContext context)
     {
-        var rawToken = SessionService.GetSessionTokenFromCookie(context);
+        var rawToken = SessionService.GetSessionTokenFromRequest(context);
         if (string.IsNullOrEmpty(rawToken))
             return null;
 

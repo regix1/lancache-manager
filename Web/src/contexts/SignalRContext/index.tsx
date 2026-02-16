@@ -11,6 +11,7 @@ import * as signalR from '@microsoft/signalr';
 import { SIGNALR_BASE } from '@utils/constants';
 import type { SignalRContextType, SignalRProviderProps, EventHandler } from './types';
 import { SIGNALR_EVENTS } from './types';
+import authService from '@services/auth.service';
 
 const SignalRContext = createContext<SignalRContextType | undefined>(undefined);
 
@@ -143,7 +144,8 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
 
       const connection = new signalR.HubConnectionBuilder()
         .withUrl(`${SIGNALR_BASE}/downloads`, {
-          withCredentials: true // Important: include session cookies for auth
+          withCredentials: true,
+          accessTokenFactory: () => authService.getSessionToken() || ''
         })
         .withAutomaticReconnect({
           nextRetryDelayInMilliseconds: (retryContext) => {

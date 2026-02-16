@@ -41,7 +41,7 @@ public class DownloadHub : Hub
         var httpContext = Context.GetHttpContext();
 
         // Validate session from the WebSocket handshake cookie
-        var rawToken = httpContext != null ? SessionService.GetSessionTokenFromCookie(httpContext) : null;
+        var rawToken = httpContext != null ? SessionService.GetSessionTokenFromRequest(httpContext) : null;
 
         if (!string.IsNullOrEmpty(rawToken))
         {
