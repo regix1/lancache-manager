@@ -57,6 +57,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const sessionTypeRef = useRef<SessionType | null>(sessionType);
   useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
   useEffect(() => { sessionTypeRef.current = sessionType; }, [sessionType]);
+  const notifyAuthSessionUpdated = useCallback(() => {
+    window.dispatchEvent(new Event('auth-session-updated'));
+  }, []);
 
   const fetchAuth = useCallback(async () => {
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -97,8 +100,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         clearTimeout(timeoutId);
       }
       setIsLoading(false);
+      notifyAuthSessionUpdated();
     }
-  }, []);
+  }, [notifyAuthSessionUpdated]);
 
   const refreshAuth = useCallback(async () => {
     await fetchAuth();
@@ -128,7 +132,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     setSessionExpiresAt(null);
     setPrefillEnabled(false);
     setPrefillExpiresAt(null);
-  }, []);
+    notifyAuthSessionUpdated();
+  }, [notifyAuthSessionUpdated]);
 
   // Initial fetch
   useEffect(() => {

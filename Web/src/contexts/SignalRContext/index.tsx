@@ -113,6 +113,21 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
       return;
     }
 
+    // Don't connect without a valid authenticated session token.
+    // This avoids repeated unauthenticated negotiate/handshake churn.
+    if (!authService.getSessionToken()) {
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      if (isMountedRef.current) {
+        setConnectionState('disconnected');
+        setIsConnected(false);
+        setConnectionId(null);
+      }
+      return;
+    }
+
     // Prevent concurrent setup attempts (happens during React Strict Mode double mount)
     if (isSettingUpRef.current) {
       return;
@@ -203,6 +218,11 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
             return;
           }
 
+          // Don't reconnect while unauthenticated
+          if (!authService.getSessionToken()) {
+            return;
+          }
+
           // Clear any pending reconnection
           if (reconnectTimeoutRef.current) {
             clearTimeout(reconnectTimeoutRef.current);
@@ -272,6 +292,11 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
           return;
         }
 
+        // Don't retry while unauthenticated
+        if (!authService.getSessionToken()) {
+          return;
+        }
+
         // Clear any pending reconnection
         if (reconnectTimeoutRef.current) {
           clearTimeout(reconnectTimeoutRef.current);
@@ -289,6 +314,52 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
       }
     }
   }, [getReconnectDelay]);
+
+  // Respond to auth session changes by connecting only when authenticated
+  // and disconnecting immediately when auth/session is cleared.
+  useEffect(() => {
+    if (mockMode) {
+      return;
+    }
+
+    const handleAuthSessionUpdated = () => {
+      const hasToken = Boolean(authService.getSessionToken());
+
+      if (!hasToken) {
+        reconnectAttemptsRef.current = 0;
+
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current);
+          reconnectTimeoutRef.current = null;
+        }
+
+        const activeConnection = connectionRef.current;
+        connectionRef.current = null;
+        if (activeConnection) {
+          activeConnection.stop().catch((err) => {
+            console.error('[SignalR] Error stopping connection after auth clear:', err);
+          });
+        }
+
+        if (isMountedRef.current) {
+          setConnectionState('disconnected');
+          setIsConnected(false);
+          setConnectionId(null);
+        }
+        return;
+      }
+
+      reconnectAttemptsRef.current = 0;
+      if (isPageVisibleRef.current) {
+        setupConnection();
+      }
+    };
+
+    window.addEventListener('auth-session-updated', handleAuthSessionUpdated);
+    return () => {
+      window.removeEventListener('auth-session-updated', handleAuthSessionUpdated);
+    };
+  }, [mockMode, setupConnection]);
 
   // Handle page visibility changes
   useEffect(() => {
