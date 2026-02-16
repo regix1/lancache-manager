@@ -200,9 +200,10 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       } catch (err: unknown) {
         showToast('error', getErrorMessage(err) || t('activeSessions.errors.loadSessions'));
       } finally {
-        if (showLoading) {
-          setLoading(false);
-        }
+        // Always clear loading — showLoading only controls whether loading is
+        // SET to true, not whether it's cleared. Prevents stuck loading state
+        // when concurrent calls race with different showLoading values.
+        setLoading(false);
       }
     },
     [currentPage, pageSize, setLoading, setSessions]

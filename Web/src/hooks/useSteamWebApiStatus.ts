@@ -41,9 +41,7 @@ export const useSteamWebApiStatus = () => {
         // Auth failed - silently set status to null and stop retrying
         hasFailedAuth.current = true;
         setStatus(null);
-        if (!skipLoading) {
-          setLoading(false);
-        }
+        setLoading(false);
         return;
       }
 
@@ -58,9 +56,10 @@ export const useSteamWebApiStatus = () => {
       setError(errorMessage);
       console.error('[SteamWebApiStatus] Error:', err);
     } finally {
-      if (!skipLoading) {
-        setLoading(false);
-      }
+      // Always clear loading — skipLoading only controls whether loading is
+      // SET to true, not whether it's cleared. Prevents stuck loading state
+      // when concurrent calls race with different skipLoading values.
+      setLoading(false);
     }
   }, []);
 
