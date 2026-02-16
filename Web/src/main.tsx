@@ -1,7 +1,7 @@
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
-import i18n, { i18nInitPromise } from './i18n';
+import './i18n';
 import themeService from './services/theme.service';
 import preferencesService from './services/preferences.service';
 import { initializeFavicon } from './utils/favicon';
@@ -59,14 +59,4 @@ const renderApp = () => {
   root.render(<App />);
 };
 
-if (i18n.isInitialized) {
-  renderApp();
-} else {
-  i18nInitPromise
-    .catch((error) => {
-      console.error('[Init] i18n initialization failed, continuing with fallback language:', error);
-    })
-    .finally(() => {
-      renderApp();
-    });
-}
+renderApp();
