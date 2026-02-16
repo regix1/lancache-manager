@@ -32,6 +32,7 @@ public class UserPreferencesService
         public string? RefreshRate { get; set; } // Refresh rate for guest users (null = use default)
         public bool? RefreshRateLocked { get; set; } // Per-session lock override (null = use global, true/false = override)
         public string[]? AllowedTimeFormats { get; set; } // Allowed time formats for this user (null = all formats)
+        public int? MaxThreadCount { get; set; } // Per-session max thread count limit (null = use system default)
     }
 
     /// <summary>
@@ -90,6 +91,7 @@ public class UserPreferencesService
                 existingPreferences.RefreshRate = preferencesDto.RefreshRate;
                 existingPreferences.RefreshRateLocked = preferencesDto.RefreshRateLocked;
                 existingPreferences.AllowedTimeFormats = SerializeAllowedTimeFormats(preferencesDto.AllowedTimeFormats);
+                existingPreferences.MaxThreadCount = preferencesDto.MaxThreadCount;
                 existingPreferences.UpdatedAtUtc = DateTime.UtcNow;
             }
             else
@@ -111,6 +113,7 @@ public class UserPreferencesService
                     RefreshRate = preferencesDto.RefreshRate,
                     RefreshRateLocked = preferencesDto.RefreshRateLocked,
                     AllowedTimeFormats = SerializeAllowedTimeFormats(preferencesDto.AllowedTimeFormats),
+                    MaxThreadCount = preferencesDto.MaxThreadCount,
                     UpdatedAtUtc = DateTime.UtcNow
                 };
                 context.UserPreferences.Add(newPreferences);
@@ -201,6 +204,9 @@ public class UserPreferencesService
                 case "allowedtimeformats":
                     preferences.AllowedTimeFormats = SerializeAllowedTimeFormats(GetValueAsStringArray(value));
                     break;
+                case "maxthreadcount":
+                    preferences.MaxThreadCount = GetNullableInt(value);
+                    break;
                 default:
                     _logger.LogWarning("Unknown preference key: {Key}", preferenceKey);
                     return null;
@@ -288,6 +294,22 @@ public class UserPreferencesService
     }
 
     /// <summary>
+    /// Helper method to convert value to nullable int, handling JsonElement
+    /// </summary>
+    private int? GetNullableInt<T>(T value)
+    {
+        if (value is JsonElement jsonElement)
+        {
+            if (jsonElement.ValueKind == JsonValueKind.Null)
+                return null;
+            return jsonElement.GetInt32();
+        }
+        if (value == null)
+            return null;
+        return Convert.ToInt32(value);
+    }
+
+    /// <summary>
     /// Helper method to convert value to string array, handling JsonElement
     /// </summary>
     private string[]? GetValueAsStringArray<T>(T value)
@@ -355,6 +377,7 @@ public class UserPreferencesService
         ShowYearInDates = prefs.ShowYearInDates,
         RefreshRate = prefs.RefreshRate,
         RefreshRateLocked = prefs.RefreshRateLocked,
-        AllowedTimeFormats = ParseAllowedTimeFormats(prefs.AllowedTimeFormats)
+        AllowedTimeFormats = ParseAllowedTimeFormats(prefs.AllowedTimeFormats),
+        MaxThreadCount = prefs.MaxThreadCount
     };
 }

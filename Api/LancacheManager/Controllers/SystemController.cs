@@ -4,6 +4,7 @@ using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
+using LancacheManager.Middleware;
 using Microsoft.AspNetCore.Mvc;
 using LancacheManager.Core.Services.SteamKit2;
 
@@ -27,6 +28,7 @@ public class SystemController : ControllerBase
     private readonly DatasourceService _datasourceService;
     private readonly ISignalRNotificationService _notifications;
     private readonly NginxLogRotationHostedService _logRotationService;
+    private readonly UserPreferencesService _userPreferencesService;
 
     public SystemController(
         StateService stateService,
@@ -37,7 +39,8 @@ public class SystemController : ControllerBase
         SteamKit2Service steamKit2Service,
         DatasourceService datasourceService,
         ISignalRNotificationService notifications,
-        NginxLogRotationHostedService logRotationService)
+        NginxLogRotationHostedService logRotationService,
+        UserPreferencesService userPreferencesService)
     {
         _stateService = stateService;
         _configuration = configuration;
@@ -48,6 +51,7 @@ public class SystemController : ControllerBase
         _datasourceService = datasourceService;
         _notifications = notifications;
         _logRotationService = logRotationService;
+        _userPreferencesService = userPreferencesService;
     }
 
     /// <summary>
@@ -496,15 +500,19 @@ public class SystemController : ControllerBase
     }
 
     /// <summary>
-    /// Get default prefill panel settings
+    /// Get default prefill panel settings (session-aware for thread limits)
     /// </summary>
     [HttpGet("prefill-defaults")]
     public IActionResult GetPrefillDefaults()
     {
+        var maxThreadLimit = ResolveEffectiveThreadLimit();
+
         return Ok(new
         {
             operatingSystems = _stateService.GetDefaultPrefillOperatingSystems(),
-            maxConcurrency = _stateService.GetDefaultPrefillMaxConcurrency()
+            maxConcurrency = _stateService.GetDefaultPrefillMaxConcurrency(),
+            serverThreadCount = Environment.ProcessorCount,
+            maxThreadLimit
         });
     }
 
@@ -523,17 +531,36 @@ public class SystemController : ControllerBase
             _stateService.SetDefaultPrefillMaxConcurrency(request.MaxConcurrency);
         }
 
+        var maxThreadLimit = ResolveEffectiveThreadLimit();
+
         await _notifications.NotifyAllAsync(SignalREvents.PrefillDefaultsChanged, new
         {
             operatingSystems = _stateService.GetDefaultPrefillOperatingSystems(),
-            maxConcurrency = _stateService.GetDefaultPrefillMaxConcurrency()
+            maxConcurrency = _stateService.GetDefaultPrefillMaxConcurrency(),
+            serverThreadCount = Environment.ProcessorCount,
+            maxThreadLimit
         });
 
         return Ok(new
         {
             operatingSystems = _stateService.GetDefaultPrefillOperatingSystems(),
-            maxConcurrency = _stateService.GetDefaultPrefillMaxConcurrency()
+            maxConcurrency = _stateService.GetDefaultPrefillMaxConcurrency(),
+            serverThreadCount = Environment.ProcessorCount,
+            maxThreadLimit
         });
+    }
+
+    private UserSession? GetSession() => HttpContext.Items["Session"] as UserSession;
+
+    private int? ResolveEffectiveThreadLimit()
+    {
+        var session = GetSession();
+        if (session == null) return null;
+        if (session.SessionType == "admin") return null;
+
+        // Guest: check per-user override first, then system default
+        var prefs = _userPreferencesService.GetPreferences(session.Id);
+        return prefs?.MaxThreadCount ?? _stateService.GetDefaultGuestMaxThreadCount();
     }
 
     /// <summary>

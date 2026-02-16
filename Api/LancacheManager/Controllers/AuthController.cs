@@ -258,10 +258,11 @@ public class AuthController : ControllerBase
     [HttpGet("guest/prefill/config")]
     public IActionResult GetGuestPrefillConfig()
     {
-        return Ok(new GuestPrefillConfigResponse
+        return Ok(new
         {
-            EnabledByDefault = _sessionService.IsGuestPrefillEnabled(),
-            DurationHours = _sessionService.GetGuestPrefillDurationHours()
+            enabledByDefault = _sessionService.IsGuestPrefillEnabled(),
+            durationHours = _sessionService.GetGuestPrefillDurationHours(),
+            maxThreadCount = _stateService.GetDefaultGuestMaxThreadCount()
         });
     }
 
@@ -275,20 +276,23 @@ public class AuthController : ControllerBase
 
         _sessionService.SetGuestPrefillEnabled(request.EnabledByDefault);
         _sessionService.SetGuestPrefillDurationHours(request.DurationHours);
+        _stateService.SetDefaultGuestMaxThreadCount(request.MaxThreadCount);
 
-        _logger.LogInformation("Default guest prefill config updated: enabled={Enabled}, duration={Hours}h (existing sessions unchanged)",
-            request.EnabledByDefault, request.DurationHours);
+        _logger.LogInformation("Default guest prefill config updated: enabled={Enabled}, duration={Hours}h, maxThreads={MaxThreads} (existing sessions unchanged)",
+            request.EnabledByDefault, request.DurationHours, request.MaxThreadCount);
 
         await _signalR.NotifyAllAsync(SignalREvents.GuestPrefillConfigChanged, new
         {
             enabledByDefault = request.EnabledByDefault,
-            durationHours = request.DurationHours
+            durationHours = request.DurationHours,
+            maxThreadCount = _stateService.GetDefaultGuestMaxThreadCount()
         });
 
-        return Ok(new { 
-            success = true, 
-            enabledByDefault = _sessionService.IsGuestPrefillEnabled(), 
-            durationHours = _sessionService.GetGuestPrefillDurationHours() 
+        return Ok(new {
+            success = true,
+            enabledByDefault = _sessionService.IsGuestPrefillEnabled(),
+            durationHours = _sessionService.GetGuestPrefillDurationHours(),
+            maxThreadCount = _stateService.GetDefaultGuestMaxThreadCount()
         });
     }
 
@@ -335,6 +339,7 @@ public class GuestPrefillConfigRequest
 {
     public bool EnabledByDefault { get; set; }
     public int DurationHours { get; set; } = 2;
+    public int? MaxThreadCount { get; set; }
 }
 
 public class GuestPrefillToggleRequest

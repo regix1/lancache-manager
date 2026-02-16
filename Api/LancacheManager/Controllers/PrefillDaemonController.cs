@@ -1,6 +1,7 @@
 using LancacheManager.Models;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamPrefill;
+using LancacheManager.Infrastructure.Services;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
@@ -17,13 +18,19 @@ public class PrefillDaemonController : ControllerBase
 {
     private readonly SteamPrefillDaemonService _daemonService;
     private readonly ILogger<PrefillDaemonController> _logger;
+    private readonly StateService _stateService;
+    private readonly UserPreferencesService _userPreferencesService;
 
     public PrefillDaemonController(
         SteamPrefillDaemonService daemonService,
-        ILogger<PrefillDaemonController> logger)
+        ILogger<PrefillDaemonController> logger,
+        StateService stateService,
+        UserPreferencesService userPreferencesService)
     {
         _daemonService = daemonService;
         _logger = logger;
+        _stateService = stateService;
+        _userPreferencesService = userPreferencesService;
     }
 
     /// <summary>
@@ -325,6 +332,17 @@ public class PrefillDaemonController : ControllerBase
             return Forbid();
         }
 
+        // Enforce thread limit for guest users
+        var userSession = GetSession();
+        if (userSession != null && request?.MaxConcurrency != null)
+        {
+            var effectiveLimit = ResolveEffectiveThreadLimit(userSession);
+            if (effectiveLimit.HasValue && request.MaxConcurrency > effectiveLimit.Value)
+            {
+                request.MaxConcurrency = effectiveLimit.Value;
+            }
+        }
+
         _logger.LogInformation("Starting prefill for session {SessionId}", sessionId);
 
         var result = await _daemonService.PrefillAsync(
@@ -383,4 +401,10 @@ public class PrefillDaemonController : ControllerBase
     private UserSession? GetSession() => HttpContext.Items["Session"] as UserSession;
     private string GetSessionId() => GetSession()?.Id.ToString() ?? "unknown";
 
+    private int? ResolveEffectiveThreadLimit(UserSession session)
+    {
+        if (session.SessionType == "admin") return null;
+        var prefs = _userPreferencesService.GetPreferences(session.Id);
+        return prefs?.MaxThreadCount ?? _stateService.GetDefaultGuestMaxThreadCount();
+    }
 }

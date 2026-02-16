@@ -10,7 +10,7 @@ import {
   PREFILL_COMMANDS,
   UTILITY_COMMANDS,
   OS_OPTIONS,
-  THREAD_OPTIONS
+  getThreadOptions
 } from './types';
 
 interface PrefillCommandButtonsProps {
@@ -22,6 +22,8 @@ interface PrefillCommandButtonsProps {
   selectedAppIds: number[];
   selectedOS: string[];
   maxConcurrency: string;
+  serverThreadCount: number;
+  maxThreadLimit?: number | null;
   onCommandClick: (commandType: CommandType) => void;
   onSelectedOSChange: (values: string[]) => void;
   onMaxConcurrencyChange: (value: string) => void;
@@ -36,6 +38,8 @@ export function PrefillCommandButtons({
   selectedAppIds,
   selectedOS,
   maxConcurrency,
+  serverThreadCount,
+  maxThreadLimit,
   onCommandClick,
   onSelectedOSChange,
   onMaxConcurrencyChange
@@ -173,7 +177,7 @@ export function PrefillCommandButtons({
                   {t('prefill.settings.downloadThreads')}
                 </label>
                 <EnhancedDropdown
-                  options={THREAD_OPTIONS.map((opt) => ({
+                  options={getThreadOptions(serverThreadCount, maxThreadLimit).map((opt) => ({
                     ...opt,
                     label: t(`prefill.settings.threads.${opt.value}.label`),
                     description: t(`prefill.settings.threads.${opt.value}.description`)

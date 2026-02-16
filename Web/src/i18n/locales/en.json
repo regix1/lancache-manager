@@ -841,6 +841,14 @@
         },
         "errors": {
           "update": "Failed to update prefill configuration"
+        },
+        "maxThreads": {
+          "label": "Max Download Threads",
+          "description": "Maximum threads a guest can use for prefilling",
+          "noLimit": "No Limit",
+          "usingDefault": "Using default",
+          "overridden": "Custom limit for this user",
+          "updated": "Max thread limit updated"
         }
       },
       "errors": {
@@ -3013,9 +3021,13 @@
         }
       },
       "threads": {
-        "default": {
+        "auto": {
           "label": "Auto",
-          "description": "Let daemon decide (recommended)"
+          "description": "Recommended — leaves resources for other processes"
+        },
+        "max": {
+          "label": "Max",
+          "description": "Uses all server threads"
         },
         "1": {
           "label": "1 Thread",
@@ -3039,19 +3051,19 @@
         },
         "32": {
           "label": "32 Threads",
-          "description": "High - For fast networks"
+          "description": "High — For fast networks"
         },
         "64": {
           "label": "64 Threads",
-          "description": "Very high - For fast local networks"
+          "description": "Very high — For fast local networks"
         },
         "128": {
           "label": "128 Threads",
-          "description": "Extreme - For 1Gbps+ connections"
+          "description": "Extreme — For 1Gbps+ connections"
         },
         "256": {
           "label": "256 Threads",
-          "description": "Maximum - For 10Gbps+ connections"
+          "description": "Maximum — For 10Gbps+ connections"
         }
       }
     },

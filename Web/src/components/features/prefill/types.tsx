@@ -149,19 +149,25 @@ export const OS_OPTIONS: MultiSelectOption[] = [
   { value: 'macos', label: '', description: '' }
 ];
 
-// Max concurrency/thread options
-export const THREAD_OPTIONS: DropdownOption[] = [
-  { value: 'default', label: '', description: '' },
-  { value: '1', label: '', description: '' },
-  { value: '2', label: '', description: '' },
-  { value: '4', label: '', description: '' },
-  { value: '8', label: '', description: '' },
-  { value: '16', label: '', description: '' },
-  { value: '32', label: '', description: '' },
-  { value: '64', label: '', description: '' },
-  { value: '128', label: '', description: '' },
-  { value: '256', label: '', description: '' }
-];
+// Static thread count values
+const STATIC_THREAD_VALUES = [1, 2, 4, 8, 16, 32, 64, 128, 256];
+
+// Build dynamic thread options based on server thread count and optional limit
+export function getThreadOptions(serverThreadCount: number, maxThreadLimit?: number | null): DropdownOption[] {
+  const autoThreads = Math.max(1, serverThreadCount - 2);
+  const effectiveCap = maxThreadLimit ?? serverThreadCount;
+  const maxValue = maxThreadLimit ? Math.min(maxThreadLimit, serverThreadCount) : serverThreadCount;
+  return [
+    { value: 'auto', label: '', description: '', shortLabel: `Auto (${Math.min(autoThreads, effectiveCap)})` },
+    { value: 'max', label: '', description: '', shortLabel: `Max (${maxValue})`, disabled: maxThreadLimit != null && serverThreadCount > maxThreadLimit },
+    ...STATIC_THREAD_VALUES.map((n: number): DropdownOption => ({
+      value: String(n),
+      label: '',
+      description: '',
+      disabled: n > serverThreadCount || n > effectiveCap
+    }))
+  ];
+}
 
 // Utility functions
 export function formatTimeRemaining(seconds: number): string {

@@ -38,6 +38,9 @@ public class UserPreferences
     // Per-session refresh rate lock (null = use global default, true = locked, false = unlocked)
     public bool? RefreshRateLocked { get; set; }
 
+    // Per-session max thread count limit (null = use system default)
+    public int? MaxThreadCount { get; set; }
+
     // Timestamp
     public DateTime UpdatedAtUtc { get; set; }
 

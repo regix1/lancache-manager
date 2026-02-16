@@ -50,6 +50,9 @@ public class AppState
     public List<string> DefaultPrefillOperatingSystems { get; set; } = new() { "windows", "linux", "macos" };
     public string DefaultPrefillMaxConcurrency { get; set; } = "default";
 
+    // Max thread count limit for guest users (null = no limit)
+    public int? DefaultGuestMaxThreadCount { get; set; } = null;
+
     // PICS viability check caching (prevents repeated Steam API calls)
     public bool RequiresFullScan { get; set; } = false; // True if Steam requires full scan due to large change gap
     public DateTime? LastViabilityCheck { get; set; } // When we last checked with Steam

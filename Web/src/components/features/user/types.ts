@@ -28,6 +28,7 @@ export interface UserPreferences {
   refreshRate?: string | null;
   refreshRateLocked?: boolean | null;
   allowedTimeFormats?: string[];
+  maxThreadCount?: number | null;
 }
 
 export interface ThemeOption {

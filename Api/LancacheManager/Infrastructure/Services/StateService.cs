@@ -90,6 +90,9 @@ public class StateService : IStateService
         public List<string> DefaultPrefillOperatingSystems { get; set; } = new() { "windows", "linux", "macos" };
         public string DefaultPrefillMaxConcurrency { get; set; } = "default";
 
+        // Max thread count limit for guest users (null = no limit)
+        public int? DefaultGuestMaxThreadCount { get; set; } = null;
+
         // PICS viability check caching
         public bool RequiresFullScan { get; set; } = false;
         public DateTime? LastViabilityCheck { get; set; }
@@ -764,6 +767,7 @@ public class StateService : IStateService
             // Prefill panel default settings
             DefaultPrefillOperatingSystems = persisted.DefaultPrefillOperatingSystems ?? new List<string> { "windows", "linux", "macos" },
             DefaultPrefillMaxConcurrency = persisted.DefaultPrefillMaxConcurrency ?? "default",
+            DefaultGuestMaxThreadCount = persisted.DefaultGuestMaxThreadCount,
             // PICS viability check caching
             RequiresFullScan = persisted.RequiresFullScan,
             LastViabilityCheck = persisted.LastViabilityCheck,
@@ -825,6 +829,7 @@ public class StateService : IStateService
             // Prefill panel default settings
             DefaultPrefillOperatingSystems = state.DefaultPrefillOperatingSystems ?? new List<string> { "windows", "linux", "macos" },
             DefaultPrefillMaxConcurrency = state.DefaultPrefillMaxConcurrency ?? "default",
+            DefaultGuestMaxThreadCount = state.DefaultGuestMaxThreadCount,
             // PICS viability check caching
             RequiresFullScan = state.RequiresFullScan,
             LastViabilityCheck = state.LastViabilityCheck,
@@ -1219,16 +1224,49 @@ public class StateService : IStateService
 
     public string GetDefaultPrefillMaxConcurrency()
     {
-        return GetState().DefaultPrefillMaxConcurrency ?? "default";
+        var value = GetState().DefaultPrefillMaxConcurrency ?? "auto";
+        // Backwards compat: migrate saved "default" to "auto"
+        return value.Equals("default", StringComparison.OrdinalIgnoreCase) ? "auto" : value;
     }
 
     public void SetDefaultPrefillMaxConcurrency(string maxConcurrency)
     {
-        var valid = new[] { "default", "1", "2", "3", "4", "5", "6", "7", "8" };
-        if (!valid.Contains(maxConcurrency?.ToLowerInvariant() ?? ""))
+        var normalized = maxConcurrency?.Trim().ToLowerInvariant() ?? "auto";
+
+        // Migrate legacy "default" to "auto"
+        if (normalized == "default") normalized = "auto";
+
+        if (normalized == "auto" || normalized == "max")
         {
-            maxConcurrency = "default";
+            UpdateState(state => state.DefaultPrefillMaxConcurrency = normalized);
+            return;
         }
-        UpdateState(state => state.DefaultPrefillMaxConcurrency = maxConcurrency!);
+
+        if (int.TryParse(normalized, out var numericValue) && numericValue > 0)
+        {
+            // Cap at server thread count
+            var capped = Math.Min(numericValue, Environment.ProcessorCount);
+            UpdateState(state => state.DefaultPrefillMaxConcurrency = capped.ToString());
+            return;
+        }
+
+        // Invalid value — fall back to auto
+        UpdateState(state => state.DefaultPrefillMaxConcurrency = "auto");
+    }
+
+    // Default Guest Max Thread Count Methods
+    public int? GetDefaultGuestMaxThreadCount()
+    {
+        return GetState().DefaultGuestMaxThreadCount;
+    }
+
+    public void SetDefaultGuestMaxThreadCount(int? value)
+    {
+        if (value.HasValue)
+        {
+            if (value.Value < 1) value = 1;
+            value = Math.Min(value.Value, Environment.ProcessorCount);
+        }
+        UpdateState(state => state.DefaultGuestMaxThreadCount = value);
     }
 }

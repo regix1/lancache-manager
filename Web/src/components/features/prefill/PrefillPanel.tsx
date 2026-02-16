@@ -76,47 +76,50 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
 
   // Prefill settings state
   const [selectedOS, setSelectedOS] = useState<string[]>(['windows', 'linux', 'macos']);
-  const [maxConcurrency, setMaxConcurrency] = useState<string>('default');
+  const [maxConcurrency, setMaxConcurrency] = useState<string>('auto');
+  const [serverThreadCount, setServerThreadCount] = useState<number>(0);
+  const [maxThreadLimit, setMaxThreadLimit] = useState<number | null>(null);
 
-  // Load persisted prefill defaults
-  useEffect(() => {
-    const loadDefaults = async () => {
-      try {
-        const response = await fetch(`${API_BASE}/system/prefill-defaults`, {
-          credentials: 'include'
-        });
-        if (response.ok) {
-          const data = await response.json();
-          if (data.operatingSystems && Array.isArray(data.operatingSystems)) {
-            setSelectedOS(data.operatingSystems);
-          }
-          if (data.maxConcurrency) {
-            setMaxConcurrency(data.maxConcurrency);
-          }
+  // Load prefill defaults from server (reusable for initial load + SignalR refresh)
+  const loadPrefillDefaults = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE}/system/prefill-defaults`, {
+        credentials: 'include'
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.operatingSystems && Array.isArray(data.operatingSystems)) {
+          setSelectedOS(data.operatingSystems);
         }
-      } catch (err) {
-        console.error('[PrefillPanel] Failed to load prefill defaults:', err);
+        if (data.maxConcurrency) {
+          setMaxConcurrency(data.maxConcurrency);
+        }
+        if (typeof data.serverThreadCount === 'number' && data.serverThreadCount > 0) {
+          setServerThreadCount(data.serverThreadCount);
+        }
+        setMaxThreadLimit(data.maxThreadLimit ?? null);
       }
-    };
-    loadDefaults();
-  }, []);
-
-  // Listen for live prefill defaults changes from other admin sessions
-  const handlePrefillDefaultsChanged = useCallback((data: { operatingSystems?: string[]; maxConcurrency?: string }) => {
-    if (data.operatingSystems && Array.isArray(data.operatingSystems)) {
-      setSelectedOS(data.operatingSystems);
-    }
-    if (data.maxConcurrency) {
-      setMaxConcurrency(data.maxConcurrency);
+    } catch (err) {
+      console.error('[PrefillPanel] Failed to load prefill defaults:', err);
     }
   }, []);
 
+  // Load on mount
   useEffect(() => {
-    onSignalR('PrefillDefaultsChanged', handlePrefillDefaultsChanged);
+    loadPrefillDefaults();
+  }, [loadPrefillDefaults]);
+
+  // Listen for PrefillDefaultsChanged (admin changes OS/concurrency) and
+  // GuestPrefillConfigChanged (admin changes guest thread limit) — re-fetch
+  // to get session-resolved effective maxThreadLimit
+  useEffect(() => {
+    onSignalR('PrefillDefaultsChanged', loadPrefillDefaults);
+    onSignalR('GuestPrefillConfigChanged', loadPrefillDefaults);
     return () => {
-      offSignalR('PrefillDefaultsChanged', handlePrefillDefaultsChanged);
+      offSignalR('PrefillDefaultsChanged', loadPrefillDefaults);
+      offSignalR('GuestPrefillConfigChanged', loadPrefillDefaults);
     };
-  }, [onSignalR, offSignalR, handlePrefillDefaultsChanged]);
+  }, [onSignalR, offSignalR, loadPrefillDefaults]);
 
   // Save prefill defaults to API
   const savePrefillDefaults = useCallback(async (os?: string[], concurrency?: string) => {
@@ -273,8 +276,13 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         requestBody.operatingSystems = selectedOS;
       }
 
-      if (maxConcurrency !== 'default') {
-        requestBody.maxConcurrency = parseInt(maxConcurrency, 10);
+      if (maxConcurrency === 'max' && serverThreadCount > 0) {
+        requestBody.maxConcurrency = serverThreadCount;
+      } else if (maxConcurrency !== 'auto') {
+        const parsed = parseInt(maxConcurrency, 10);
+        if (!isNaN(parsed) && parsed > 0) {
+          requestBody.maxConcurrency = parsed;
+        }
       }
 
       const response = await fetch(`${API_BASE}/prefill-daemon/sessions/${sessionId}/prefill`, {
@@ -293,7 +301,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
 
       return response.json();
     },
-    [selectedOS, maxConcurrency, signalR.isCancelling]
+    [selectedOS, maxConcurrency, serverThreadCount, signalR.isCancelling]
   );
 
   const loadGames = useCallback(
@@ -909,6 +917,8 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             selectedAppIds={selectedAppIds}
             selectedOS={selectedOS}
             maxConcurrency={maxConcurrency}
+            serverThreadCount={serverThreadCount}
+            maxThreadLimit={maxThreadLimit}
             onCommandClick={handleCommandClick}
             onSelectedOSChange={handleOSChange}
             onMaxConcurrencyChange={handleConcurrencyChange}

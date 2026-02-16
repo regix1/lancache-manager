@@ -32,6 +32,9 @@ public static class DatabaseSchemaFixer
 
             // Per-session refresh rate lock override (nullable bool: null = use global, 0 = unlocked, 1 = locked)
             await AddColumnIfNotExistsAsync(connection, "UserPreferences", "RefreshRateLocked", "INTEGER", logger);
+
+            // Per-session max thread count limit (nullable int: null = use system default)
+            await AddColumnIfNotExistsAsync(connection, "UserPreferences", "MaxThreadCount", "INTEGER", logger);
         }
         catch (Exception ex)
         {

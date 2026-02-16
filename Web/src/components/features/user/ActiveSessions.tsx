@@ -18,7 +18,8 @@ import {
   Download,
   Palette,
   LogOut,
-  History
+  History,
+  Cpu
 } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
@@ -34,6 +35,7 @@ import ApiService from '@services/api.service';
 import themeService from '@services/theme.service';
 import authService from '@services/auth.service';
 import { getErrorMessage } from '@utils/error';
+import { API_BASE } from '@utils/constants';
 import { useAuth } from '@contexts/AuthContext';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { useSignalR } from '@contexts/SignalRContext';
@@ -158,6 +160,8 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [historyExpanded, setHistoryExpanded] = useState(false);
+  const [serverThreadCount, setServerThreadCount] = useState<number>(0);
+  const [defaultGuestMaxThreadCount, setDefaultGuestMaxThreadCount] = useState<number | null>(null);
 
   const toggleSessionExpanded = (sessionId: string) => {
     setExpandedSessions((prev) => {
@@ -251,8 +255,11 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     loadSessions(false);
   }, [loadSessions]);
 
-  const handleGuestPrefillConfigChanged = useCallback(() => {
+  const handleGuestPrefillConfigChanged = useCallback((data: { maxThreadCount?: number | null }) => {
     loadSessions(false);
+    if ('maxThreadCount' in data) {
+      setDefaultGuestMaxThreadCount(data.maxThreadCount ?? null);
+    }
   }, [loadSessions]);
 
   const handleGuestRefreshRateUpdated = useCallback((data: { sessionId: string; refreshRate: string }) => {
@@ -262,6 +269,29 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         : s
     ));
   }, [setSessions]);
+
+  // Load server thread count and default guest max thread count
+  useEffect(() => {
+    const loadThreadConfig = async () => {
+      try {
+        const [defaultsRes, configRes] = await Promise.all([
+          fetch(`${API_BASE}/system/prefill-defaults`, { credentials: 'include' }),
+          fetch('/api/auth/guest/prefill/config', ApiService.getFetchOptions())
+        ]);
+        if (defaultsRes.ok) {
+          const data = await defaultsRes.json();
+          if (typeof data.serverThreadCount === 'number') setServerThreadCount(data.serverThreadCount);
+        }
+        if (configRes.ok) {
+          const data = await configRes.json();
+          setDefaultGuestMaxThreadCount(data.maxThreadCount ?? null);
+        }
+      } catch (err) {
+        console.error('Failed to load thread config:', err);
+      }
+    };
+    loadThreadConfig();
+  }, []);
 
   useEffect(() => {
     loadSessions(true);
@@ -435,7 +465,8 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           showYearInDates: prefs.showYearInDates ?? false,
           refreshRate: prefs.refreshRate ?? null,
           refreshRateLocked: prefs.refreshRateLocked ?? null,
-          allowedTimeFormats: prefs.allowedTimeFormats ?? undefined
+          allowedTimeFormats: prefs.allowedTimeFormats ?? undefined,
+          maxThreadCount: prefs.maxThreadCount ?? null
         });
       } else {
         setEditingPreferences({
@@ -451,7 +482,8 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           showYearInDates: false,
           refreshRate: null,
           refreshRateLocked: null,
-          allowedTimeFormats: undefined
+          allowedTimeFormats: undefined,
+          maxThreadCount: null
         });
       }
     } catch (err: unknown) {
@@ -1600,6 +1632,67 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                           : t('activeSessions.prefill.actions.grant')}
                       </Button>
                     </div>
+                  </div>
+                );
+              })()}
+
+              {/* Max Thread Count (Guest Users Only) */}
+              {editingSession && (isGuestSession(editingSession)) && (() => {
+                const THREAD_VALUES = [1, 2, 4, 8, 16, 32, 64, 128, 256];
+                const threadOptions = [
+                  { value: '', label: t('user.guest.prefill.maxThreads.noLimit') },
+                  ...THREAD_VALUES.map((n) => ({
+                    value: String(n),
+                    label: `${n} threads`,
+                    disabled: serverThreadCount > 0 && n > serverThreadCount
+                  }))
+                ];
+                const hasOverride = editingPreferences.maxThreadCount != null;
+
+                return (
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-sm font-medium text-themed-primary flex items-center gap-1.5">
+                        <Cpu className="w-4 h-4" />
+                        {t('user.guest.prefill.maxThreads.label')}
+                      </label>
+                      {hasOverride ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setEditingPreferences({
+                              ...editingPreferences,
+                              maxThreadCount: null
+                            })
+                          }
+                          className="text-xs px-2 py-0.5 rounded transition-colors text-themed-accent bg-themed-tertiary hover:bg-themed-secondary"
+                        >
+                          {t('actions.useDefault')}
+                        </button>
+                      ) : (
+                        <span className="text-xs px-2 py-0.5 rounded text-themed-muted bg-themed-tertiary">
+                          {t('actions.usingDefault')}
+                        </span>
+                      )}
+                    </div>
+                    <EnhancedDropdown
+                      options={threadOptions}
+                      value={editingPreferences.maxThreadCount != null ? String(editingPreferences.maxThreadCount) : (defaultGuestMaxThreadCount != null ? String(defaultGuestMaxThreadCount) : '')}
+                      onChange={(value) =>
+                        setEditingPreferences({
+                          ...editingPreferences,
+                          maxThreadCount: value === '' ? null : Number(value)
+                        })
+                      }
+                      className="w-full"
+                    />
+                    <p className="text-xs text-themed-muted mt-1">
+                      {hasOverride
+                        ? t('user.guest.prefill.maxThreads.overridden')
+                        : defaultGuestMaxThreadCount != null
+                          ? `${t('user.guest.prefill.maxThreads.usingDefault')}: ${defaultGuestMaxThreadCount} threads`
+                          : `${t('user.guest.prefill.maxThreads.usingDefault')}: ${t('user.guest.prefill.maxThreads.noLimit')}`}
+                    </p>
                   </div>
                 );
               })()}
