@@ -1,7 +1,7 @@
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
-import './i18n';
+import i18n, { i18nInitPromise } from './i18n';
 import themeService from './services/theme.service';
 import preferencesService from './services/preferences.service';
 import { initializeFavicon } from './utils/favicon';
@@ -48,23 +48,25 @@ preferencesService.loadPreferences()
     themeService.setupPreferenceListeners();
   });
 
-try {
-  const rootEl = document.getElementById('root')!;
+const renderApp = () => {
+  const rootEl = document.getElementById('root');
+  if (!rootEl) {
+    console.error('[Fatal] Missing root element');
+    return;
+  }
+
   const root = ReactDOM.createRoot(rootEl);
   root.render(<App />);
-} catch (error) {
-  // If React fails to mount, show the error visibly on the page
-  console.error('[Fatal] React failed to mount:', error);
-  const fallback = document.getElementById('pre-react-fallback');
-  const rootEl = document.getElementById('root');
-  const target = fallback || rootEl;
-  if (target) {
-    target.innerHTML =
-      '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:#111827;color:#fff;font-family:system-ui,sans-serif;flex-direction:column;gap:16px;padding:20px;text-align:center;">' +
-      '<h2 style="color:#f87171;">React Mount Error</h2>' +
-      '<pre style="background:#1f2937;border-radius:8px;padding:16px;text-align:left;font-size:12px;color:#d1d5db;max-width:90vw;overflow:auto;white-space:pre-wrap;">' +
-      String(error) + '</pre>' +
-      '<p style="color:#9ca3af;font-size:13px;">Try: <a href="/api/auth/status" style="color:#60a5fa;">Test API</a> | <a href="javascript:location.reload()" style="color:#60a5fa;">Reload</a></p>' +
-      '</div>';
-  }
+};
+
+if (i18n.isInitialized) {
+  renderApp();
+} else {
+  i18nInitPromise
+    .catch((error) => {
+      console.error('[Init] i18n initialization failed, continuing with fallback language:', error);
+    })
+    .finally(() => {
+      renderApp();
+    });
 }

@@ -32,6 +32,7 @@ const getApiUrl = (): string => {
 };
 
 const API_URL = getApiUrl();
+const AUTH_CHECK_TIMEOUT_MS = 10000;
 
 class AuthService {
   public isAuthenticated: boolean = false;
@@ -42,9 +43,15 @@ class AuthService {
   private sessionToken: string | null = null;
 
   async checkAuth(): Promise<AuthStatusResponse> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, AUTH_CHECK_TIMEOUT_MS);
+
     try {
       const response = await fetch(`${API_URL}/api/auth/status`, {
         credentials: 'include',
+        signal: controller.signal
       });
 
       if (!response.ok) {
@@ -73,6 +80,9 @@ class AuthService {
 
       return data;
     } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.warn(`[AuthService] checkAuth timed out after ${AUTH_CHECK_TIMEOUT_MS}ms`);
+      }
       console.error('[AuthService] checkAuth error:', error);
       this.isAuthenticated = false;
       this.authMode = 'unauthenticated';
@@ -93,6 +103,8 @@ class AuthService {
         prefillEnabled: false,
         prefillExpiresAt: null,
       };
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 

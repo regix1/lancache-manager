@@ -1,4 +1,4 @@
-import React, { Suspense, useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { NotificationsProvider } from '@contexts/notifications';
 import { CacheSizeProvider } from '@contexts/CacheSizeContext';
@@ -630,16 +630,9 @@ const AppContent: React.FC = () => {
   );
 };
 
-const SuspenseFallback: React.FC = () => (
-  <div style={{display:'flex',alignItems:'center',justifyContent:'center',minHeight:'100vh',background:'#111827',color:'#fff',fontFamily:'system-ui,sans-serif'}}>
-    <p>Loading...</p>
-  </div>
-);
-
 const App: React.FC = () => {
   return (
-    <Suspense fallback={<SuspenseFallback />}>
-      <ErrorBoundary>
+    <ErrorBoundary>
       <MockModeProvider>
         <TimeFilterProvider>
           <SignalRProvider>
@@ -686,7 +679,6 @@ const App: React.FC = () => {
         </TimeFilterProvider>
       </MockModeProvider>
     </ErrorBoundary>
-    </Suspense>
   );
 };
 

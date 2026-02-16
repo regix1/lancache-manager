@@ -35,6 +35,8 @@ interface AuthProviderProps {
   children: ReactNode;
 }
 
+const AUTH_FETCH_MAX_WAIT_MS = 12000;
+
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [authMode, setAuthMode] = useState<AuthMode>('unauthenticated');
   const [sessionType, setSessionType] = useState<SessionType | null>(null);
@@ -57,8 +59,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   useEffect(() => { sessionTypeRef.current = sessionType; }, [sessionType]);
 
   const fetchAuth = useCallback(async () => {
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
     try {
-      const data = await authService.checkAuth();
+      const data = await Promise.race([
+        authService.checkAuth(),
+        new Promise<never>((_, reject) => {
+          timeoutId = setTimeout(() => {
+            reject(new Error(`Auth context timeout after ${AUTH_FETCH_MAX_WAIT_MS}ms`));
+          }, AUTH_FETCH_MAX_WAIT_MS);
+        })
+      ]);
+
       setSessionType(data.sessionType);
       setSessionId(data.sessionId);
       setSessionExpiresAt(data.expiresAt);
@@ -80,8 +92,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setSessionExpiresAt(null);
       setPrefillEnabled(false);
       setPrefillExpiresAt(null);
+    } finally {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      setIsLoading(false);
     }
-    setIsLoading(false);
   }, []);
 
   const refreshAuth = useCallback(async () => {

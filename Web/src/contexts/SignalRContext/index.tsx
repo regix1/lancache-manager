@@ -330,6 +330,7 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
   // Initialize connection on mount
   useEffect(() => {
     isMountedRef.current = true;
+    let connectionStartTimeout: NodeJS.Timeout | null = null;
 
     // Don't connect in mock mode
     if (mockMode) {
@@ -345,10 +346,17 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
 
     // Mark as initialized before connecting
     hasInitializedRef.current = true;
-    setupConnection();
+    connectionStartTimeout = setTimeout(() => {
+      setupConnection();
+    }, 0);
 
     // Cleanup function
     return () => {
+      if (connectionStartTimeout) {
+        clearTimeout(connectionStartTimeout);
+        connectionStartTimeout = null;
+      }
+
       isMountedRef.current = false;
 
       // Clear any pending reconnection attempts
