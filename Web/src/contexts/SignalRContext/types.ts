@@ -589,6 +589,7 @@ export interface UserPreferencesUpdatedEvent {
     refreshRate?: string | null;
     refreshRateLocked?: boolean | null;
     allowedTimeFormats?: string[] | null;
+    maxThreadCount?: number | null;
   };
 }
 

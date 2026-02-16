@@ -4,7 +4,8 @@ import type { SessionType } from '@services/auth.service';
 import { useSignalR } from './SignalRContext';
 
 interface AuthContextType {
-  isAuthenticated: boolean;
+  isAdmin: boolean;
+  hasSession: boolean;
   authMode: AuthMode;
   sessionType: SessionType | null;
   sessionId: string | null;
@@ -15,7 +16,6 @@ interface AuthContextType {
   logout: () => Promise<void>;
   refreshAuth: () => Promise<void>;
   setAuthMode: (mode: AuthMode) => void;
-  setIsAuthenticated: (value: boolean) => void;
   prefillEnabled: boolean;
   prefillTimeRemaining: number | null;
   isBanned: boolean;
@@ -36,7 +36,6 @@ interface AuthProviderProps {
 }
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>('unauthenticated');
   const [sessionType, setSessionType] = useState<SessionType | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -45,6 +44,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [prefillEnabled, setPrefillEnabled] = useState(false);
   const [prefillExpiresAt, setPrefillExpiresAt] = useState<string | null>(null);
   const signalR = useSignalR();
+
+  // Derive isAdmin and hasSession from authMode
+  const isAdmin = authMode === 'authenticated';
+  const hasSession = authMode !== 'unauthenticated';
 
   // Refs to avoid stale closures in SignalR handlers.
   // Handlers must read current values without being recreated on every state change.
@@ -56,7 +59,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const fetchAuth = useCallback(async () => {
     try {
       const data = await authService.checkAuth();
-      setIsAuthenticated(data.isAuthenticated);
       setSessionType(data.sessionType);
       setSessionId(data.sessionId);
       setSessionExpiresAt(data.expiresAt);
@@ -72,7 +74,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       }
     } catch (error) {
       console.error('[Auth] Failed to check auth status:', error);
-      setIsAuthenticated(false);
       setAuthMode('unauthenticated');
       setSessionType(null);
       setSessionId(null);
@@ -105,7 +106,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const logout = useCallback(async () => {
     await authService.logout();
-    setIsAuthenticated(false);
     setAuthMode('unauthenticated');
     setSessionType(null);
     setSessionId(null);
@@ -135,7 +135,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   // never miss events during re-registration windows.
   useEffect(() => {
     const clearAuthState = () => {
-      setIsAuthenticated(false);
       setAuthMode('unauthenticated');
       setSessionType(null);
       setSessionId(null);
@@ -182,14 +181,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     };
   }, [signalR]);
 
-  // Join the AuthenticatedUsersGroup when SignalR is connected and authenticated
+  // Join the AuthenticatedUsersGroup when SignalR is connected and has a session (admin or guest)
   useEffect(() => {
-    if (signalR.isConnected && isAuthenticated) {
+    if (signalR.isConnected && hasSession) {
       signalR.invoke('JoinAuthenticatedGroup').catch((err: unknown) => {
         console.error('[Auth] Failed to join AuthenticatedUsersGroup:', err);
       });
     }
-  }, [signalR.isConnected, signalR.invoke, isAuthenticated]);
+  }, [signalR.isConnected, signalR.invoke, hasSession]);
 
   // Calculate time remaining for prefill access
   // Ensure UTC interpretation for timestamps without timezone suffix
@@ -204,7 +203,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   return (
     <AuthContext.Provider
       value={{
-        isAuthenticated,
+        isAdmin,
+        hasSession,
         authMode,
         sessionType,
         sessionId,
@@ -215,7 +215,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         logout,
         refreshAuth,
         setAuthMode,
-        setIsAuthenticated,
         prefillEnabled,
         prefillTimeRemaining,
         isBanned: false,

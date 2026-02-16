@@ -40,7 +40,7 @@ interface ClientGroupProviderProps {
 }
 
 export const ClientGroupProvider: React.FC<ClientGroupProviderProps> = ({ children }) => {
-  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const { hasSession, isLoading: authLoading } = useAuth();
   const { on, off } = useSignalR();
   const [clientGroups, setClientGroups] = useState<ClientGroup[]>([]);
   const [loading, setLoading] = useState(false);
@@ -65,10 +65,10 @@ export const ClientGroupProvider: React.FC<ClientGroupProviderProps> = ({ childr
 
   // Initial load - only fetch when authenticated
   useEffect(() => {
-    if (!authLoading && isAuthenticated) {
+    if (!authLoading && hasSession) {
       refreshGroups();
     }
-  }, [authLoading, isAuthenticated, refreshGroups]);
+  }, [authLoading, hasSession, refreshGroups]);
 
   // CRUD operations
   const createClientGroup = useCallback(async (data: CreateClientGroupRequest): Promise<ClientGroup> => {

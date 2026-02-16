@@ -25,14 +25,14 @@ import type { GameCacheInfo, ServiceCacheInfo, DatasourceInfo } from '../../../.
 
 interface GameCacheDetectorProps {
   mockMode?: boolean;
-  isAuthenticated?: boolean;
+  isAdmin?: boolean;
   onDataRefresh?: () => void;
   refreshKey?: number;
 }
 
 const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   mockMode = false,
-  isAuthenticated = false,
+  isAdmin = false,
   onDataRefresh,
   refreshKey = 0
 }) => {
@@ -446,7 +446,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   };
 
   const handleRemoveClick = (game: GameCacheInfo) => {
-    if (!isAuthenticated) {
+    if (!isAdmin) {
       addNotification({
         type: 'generic',
         status: 'failed',
@@ -504,7 +504,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   };
 
   const handleServiceRemoveClick = (service: ServiceCacheInfo) => {
-    if (!isAuthenticated) {
+    if (!isAdmin) {
       addNotification({
         type: 'generic',
         status: 'failed',
@@ -763,7 +763,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                     totalServices={filteredServices.length}
                     notifications={notifications}
                     isAnyRemovalRunning={isAnyRemovalRunning}
-                    isAuthenticated={isAuthenticated}
+                    isAdmin={isAdmin}
                     cacheReadOnly={cacheReadOnly}
                     dockerSocketAvailable={isDockerAvailable}
                     checkingPermissions={checkingPermissions}
@@ -787,7 +787,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                     totalGames={filteredGames.length}
                     notifications={notifications}
                     isAnyRemovalRunning={isAnyRemovalRunning}
-                    isAuthenticated={isAuthenticated}
+                    isAdmin={isAdmin}
                     cacheReadOnly={cacheReadOnly}
                     dockerSocketAvailable={isDockerAvailable}
                     checkingPermissions={checkingPermissions}

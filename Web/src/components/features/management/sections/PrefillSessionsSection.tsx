@@ -44,7 +44,7 @@ import type { DaemonSessionCreatedEvent, DaemonSessionUpdatedEvent, DaemonSessio
 import './PrefillSessionsSection.css';
 
 interface PrefillSessionsSectionProps {
-  isAuthenticated: boolean;
+  isAdmin: boolean;
   authMode: string;
   mockMode: boolean;
   onError: (message: string) => void;
@@ -173,7 +173,7 @@ const StatCard: React.FC<{
 const SessionCard: React.FC<{
   session: DaemonSessionDto | PrefillSessionDto;
   isLive: boolean;
-  isAuthenticated: boolean;
+  isAdmin: boolean;
   historyData: PrefillHistoryEntryDto[];
   isHistoryExpanded: boolean;
   isLoadingHistory: boolean;
@@ -187,7 +187,7 @@ const SessionCard: React.FC<{
 }> = ({
   session,
   isLive,
-  isAuthenticated,
+  isAdmin,
   historyData,
   isHistoryExpanded,
   isLoadingHistory,
@@ -367,7 +367,7 @@ const SessionCard: React.FC<{
                 )}
               </Button>
 
-              {isAuthenticated && isLive && (
+              {isAdmin && isLive && (
                 <>
                   {steamUsername && onBan && (
                     <Tooltip content={t('management.prefillSessions.tooltips.banUser')}>
@@ -502,10 +502,10 @@ const SessionCard: React.FC<{
 // Banned user card component
 const BannedUserCard: React.FC<{
   ban: BannedSteamUserDto;
-  isAuthenticated: boolean;
+  isAdmin: boolean;
   onLiftBan: () => void;
   isLifting: boolean;
-}> = ({ ban, isAuthenticated, onLiftBan, isLifting }) => {
+}> = ({ ban, isAdmin, onLiftBan, isLifting }) => {
   const { t } = useTranslation();
 
   return (
@@ -548,7 +548,7 @@ const BannedUserCard: React.FC<{
           )}
         </div>
       </div>
-      {isAuthenticated && ban.isActive && (
+      {isAdmin && ban.isActive && (
         <Tooltip content={t('management.prefillSessions.tooltips.liftBan')}>
           <Button
             variant="subtle"
@@ -570,7 +570,7 @@ const BannedUserCard: React.FC<{
 };
 
 const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
-  isAuthenticated,
+  isAdmin,
   onError,
   onSuccess
 }) => {
@@ -855,7 +855,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
             <RefreshCw className={`w-4 h-4 ${loadingSessions || loadingBans ? 'animate-spin' : ''}`} />
             <span className="hidden sm:inline">{t('common.refresh')}</span>
           </Button>
-          {isAuthenticated && activeSessions.length > 0 && (
+          {isAdmin && activeSessions.length > 0 && (
             <Button
               variant="filled"
               color="red"
@@ -922,7 +922,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                 key={session.id}
                 session={session}
                 isLive={true}
-                isAuthenticated={isAuthenticated}
+                isAdmin={isAdmin}
                 historyData={historyData[session.id] || []}
                 isHistoryExpanded={expandedHistory.has(session.id)}
                 isLoadingHistory={loadingHistory.has(session.id)}
@@ -984,7 +984,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                   key={session.id}
                   session={session}
                   isLive={session.isLive}
-                  isAuthenticated={isAuthenticated}
+                  isAdmin={isAdmin}
                   historyData={historyData[session.sessionId] || []}
                   isHistoryExpanded={expandedHistory.has(session.sessionId)}
                   isLoadingHistory={loadingHistory.has(session.sessionId)}
@@ -1048,7 +1048,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
               <BannedUserCard
                 key={ban.id}
                 ban={ban}
-                isAuthenticated={isAuthenticated}
+                isAdmin={isAdmin}
                 onLiftBan={() => setLiftBanConfirm(ban)}
                 isLifting={liftingBan === ban.id}
               />

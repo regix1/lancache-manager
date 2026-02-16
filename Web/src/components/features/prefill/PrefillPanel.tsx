@@ -56,8 +56,8 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   } = usePrefillContext();
 
   // Check if user is authenticated (not guest) for auth-only features
-  const { isAuthenticated, authMode } = useAuth();
-  const isUserAuthenticated = isAuthenticated && authMode === 'authenticated';
+  const { isAdmin } = useAuth();
+  const isUserAuthenticated = isAdmin;
 
   // Main SignalR hub for system-level events (PrefillDefaultsChanged)
   const { on: onSignalR, off: offSignalR } = useSignalR();
@@ -122,15 +122,18 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     loadPrefillDefaults();
   }, [loadPrefillDefaults]);
 
-  // Listen for PrefillDefaultsChanged (admin changes OS/concurrency) and
-  // GuestPrefillConfigChanged (admin changes guest thread limit) — re-fetch
+  // Listen for PrefillDefaultsChanged (admin changes OS/concurrency),
+  // GuestPrefillConfigChanged (admin changes system-wide guest thread limit),
+  // and UserPreferencesUpdated (admin changes per-session thread limit) — re-fetch
   // to get session-resolved effective maxThreadLimit
   useEffect(() => {
     onSignalR('PrefillDefaultsChanged', loadPrefillDefaults);
     onSignalR('GuestPrefillConfigChanged', loadPrefillDefaults);
+    onSignalR('UserPreferencesUpdated', loadPrefillDefaults);
     return () => {
       offSignalR('PrefillDefaultsChanged', loadPrefillDefaults);
       offSignalR('GuestPrefillConfigChanged', loadPrefillDefaults);
+      offSignalR('UserPreferencesUpdated', loadPrefillDefaults);
     };
   }, [onSignalR, offSignalR, loadPrefillDefaults]);
 

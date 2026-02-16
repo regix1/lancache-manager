@@ -18,7 +18,7 @@ import type { ClientGroup } from '../../../../types';
 const UNGROUPED_IPS_PER_PAGE = 20;
 
 interface ClientsSectionProps {
-  isAuthenticated: boolean;
+  isAdmin: boolean;
   authMode: string;
   mockMode: boolean;
   onError: (message: string) => void;
@@ -26,7 +26,7 @@ interface ClientsSectionProps {
 }
 
 const ClientsSection: React.FC<ClientsSectionProps> = ({
-  isAuthenticated,
+  isAdmin,
   onError,
   onSuccess
 }) => {
@@ -78,7 +78,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
   ), [excludedIps, savedExcludedIps]);
 
   const loadExcludedIps = useCallback(async () => {
-    if (!isAuthenticated) return;
+    if (!isAdmin) return;
     setLoadingExcluded(true);
     try {
       const response = await ApiService.getStatsExclusions();
@@ -90,7 +90,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
     } finally {
       setLoadingExcluded(false);
     }
-  }, [isAuthenticated, onError]);
+  }, [isAdmin, onError]);
 
   useEffect(() => {
     loadExcludedIps();
@@ -295,7 +295,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
             {t('management.sections.clients.subtitle')}
           </p>
         </div>
-        {isAuthenticated && (
+        {isAdmin && (
           <Button
             onClick={handleCreateGroup}
             className="flex items-center gap-2"
@@ -367,7 +367,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                         )}
                       </div>
                     </div>
-                    {isAuthenticated && (
+                    {isAdmin && (
                       <div className="flex items-center gap-2">
                         <Button
                           variant="subtle"
@@ -402,7 +402,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                           className="flex items-center gap-1 px-2 py-1 rounded text-sm font-mono bg-themed-tertiary text-themed-secondary"
                         >
                           <span>{ip}</span>
-                          {isAuthenticated && (
+                          {isAdmin && (
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -497,7 +497,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
               {t('management.sections.clients.excludedIpsDesc')}
             </div>
 
-            {!isAuthenticated ? (
+            {!isAdmin ? (
               <Alert color="yellow">
                 <span className="text-sm">{t('management.sections.clients.authenticateToManage')}</span>
               </Alert>

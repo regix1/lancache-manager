@@ -69,7 +69,7 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
   const initialLoadDone = useRef(false);
 
   const { on, off } = useSignalR();
-  const { isAuthenticated, authMode, sessionId: authSessionId, isLoading: authLoading } = useAuth();
+  const { isAdmin, hasSession, sessionId: authSessionId, isLoading: authLoading } = useAuth();
 
   const getCurrentSessionId = useCallback((): string | null => {
     // Use the real session ID from the auth context for accurate cache keying
@@ -89,7 +89,7 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
     const currentSession = getCurrentSessionId();
 
     // Only admins can fetch other sessions' preferences
-    if (sessionId !== currentSession && !isAuthenticated) {
+    if (sessionId !== currentSession && !isAdmin) {
       console.warn(`[SessionPreferencesContext] Skipping load for session ${sessionId} - not authenticated`);
       failedIds.current.add(sessionId);
       setLoadedIds(prev => new Set(prev).add(sessionId));
@@ -150,27 +150,27 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
         return next;
       });
     }
-  }, [loadingIds, loadedIds, isAuthenticated, getCurrentSessionId]);
+  }, [loadingIds, loadedIds, isAdmin, getCurrentSessionId]);
 
   useEffect(() => {
     if (authLoading) return;
-    if (!isAuthenticated && authMode !== 'guest') return;
+    if (!hasSession) return;
 
     const sessionId = getCurrentSessionId();
     if (sessionId && !initialLoadDone.current) {
       initialLoadDone.current = true;
       loadSessionPreferences(sessionId);
     }
-  }, [getCurrentSessionId, loadSessionPreferences, authLoading, isAuthenticated, authMode]);
+  }, [getCurrentSessionId, loadSessionPreferences, authLoading, hasSession]);
 
   // Reset auth failure state when transitioning TO authenticated/guest
   useEffect(() => {
-    if (isAuthenticated || authMode === 'guest') {
+    if (hasSession) {
       failedIds.current.clear();
       setLoadedIds(new Set());
       initialLoadDone.current = false;
     }
-  }, [isAuthenticated, authMode]);
+  }, [hasSession]);
 
   const handleUserPreferencesUpdated = useCallback((data: UserPreferencesUpdatedEvent) => {
     const { sessionId, preferences: newPrefs } = data;

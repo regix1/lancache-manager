@@ -22,7 +22,7 @@ interface ExpandableItemCardProps {
   isExpanding: boolean;
   isRemoving: boolean;
   isAnyRemovalRunning: boolean;
-  isAuthenticated: boolean;
+  isAdmin: boolean;
   cacheReadOnly: boolean;
   dockerSocketAvailable: boolean;
   checkingPermissions: boolean;
@@ -43,7 +43,7 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
   isExpanding,
   isRemoving,
   isAnyRemovalRunning,
-  isAuthenticated,
+  isAdmin,
   cacheReadOnly,
   dockerSocketAvailable,
   checkingPermissions,
@@ -109,7 +109,7 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
         <Tooltip content={removeTooltip}>
           <Button
             onClick={onRemove}
-            disabled={isAnyRemovalRunning || !isAuthenticated || cacheReadOnly || !dockerSocketAvailable || checkingPermissions}
+            disabled={isAnyRemovalRunning || !isAdmin || cacheReadOnly || !dockerSocketAvailable || checkingPermissions}
             variant="filled"
             color="red"
             size="sm"

@@ -35,7 +35,7 @@ interface DirectoryListing {
 
 interface FileBrowserProps {
   onSelectFile: (path: string) => void;
-  isAuthenticated: boolean;
+  isAdmin: boolean;
   mockMode: boolean;
 }
 
@@ -99,7 +99,7 @@ const FileItemRow: React.FC<FileItemRowProps> = ({ item, selectedFile, onItemCli
   );
 };
 
-const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAuthenticated, mockMode }) => {
+const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAdmin, mockMode }) => {
   const { t } = useTranslation();
   const [currentPath, setCurrentPath] = useState<string | null>(null);
   const [items, setItems] = useState<FileSystemItem[]>([]);
@@ -114,10 +114,10 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAuthenticated
   const isRootLevel = currentPath === '/' || currentPath === null;
 
   useEffect(() => {
-    if (!mockMode && isAuthenticated) {
+    if (!mockMode && isAdmin) {
       loadDirectory(null);
     }
-  }, [mockMode, isAuthenticated]);
+  }, [mockMode, isAdmin]);
 
   const loadDirectory = async (path: string | null) => {
     setLoading(true);

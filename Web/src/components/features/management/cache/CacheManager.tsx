@@ -72,7 +72,7 @@ const getPermissionsPromise = () => {
 };
 
 interface CacheManagerProps {
-  isAuthenticated: boolean;
+  isAdmin: boolean;
   authMode?: AuthMode;
   mockMode: boolean;
   onError?: (message: string) => void;

@@ -47,7 +47,7 @@ interface EventProviderProps {
 }
 
 export const EventProvider: React.FC<EventProviderProps> = ({ children }) => {
-  const { isAuthenticated, authMode, isLoading: authLoading } = useAuth();
+  const { hasSession, authMode, isLoading: authLoading } = useAuth();
   const { on, off } = useSignalR();
   const [events, setEvents] = useState<Event[]>([]);
   const [activeEvents, setActiveEvents] = useState<Event[]>([]);
@@ -141,7 +141,7 @@ export const EventProvider: React.FC<EventProviderProps> = ({ children }) => {
   }, [authMode, selectedEventId, setSelectedEventId]);
 
   // Initial load - fetch when authenticated or in guest mode
-  const hasAccess = isAuthenticated || authMode === 'guest';
+  const hasAccess = hasSession;
   useEffect(() => {
     if (!authLoading && hasAccess) {
       refreshEvents();

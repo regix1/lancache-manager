@@ -64,7 +64,7 @@ export interface PageGroup {
 }
 
 export interface ThemeManagerProps {
-  isAuthenticated: boolean;
+  isAdmin: boolean;
 }
 
 /** Editable theme form data - flattened theme with metadata and colors */

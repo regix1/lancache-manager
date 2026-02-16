@@ -338,7 +338,7 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
 
       {/* Browse Mode */}
       {inputMode === 'browse' && (
-        <FileBrowser onSelectFile={handleFileSelect} isAuthenticated={true} mockMode={false} />
+        <FileBrowser onSelectFile={handleFileSelect} isAdmin={true} mockMode={false} />
       )}
 
       {/* Manual Mode */}

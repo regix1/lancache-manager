@@ -27,7 +27,7 @@ const ManagementTab: React.FC = () => {
   const { refreshStats } = useStats();
   const { addNotification, notifications } = useNotifications();
   const { mockMode } = useMockMode();
-  const { isAuthenticated, authMode } = useAuth();
+  const { isAdmin, authMode } = useAuth();
   const { steamAuthMode } = useSteamAuth();
 
   // Active section state - persisted to localStorage
@@ -159,7 +159,7 @@ const ManagementTab: React.FC = () => {
         <SettingsSection
           optimizationsEnabled={optimizationsEnabled}
           logRotationEnabled={logRotationEnabled}
-          isAuthenticated={isAuthenticated}
+          isAdmin={isAdmin}
         />
       );
     }
@@ -194,7 +194,7 @@ const ManagementTab: React.FC = () => {
       case 'storage':
         return (
           <StorageSection
-            isAuthenticated={isAuthenticated}
+            isAdmin={isAdmin}
             authMode={authMode}
             mockMode={mockMode}
             gameCacheRefreshKey={gameCacheRefreshKey}
@@ -207,7 +207,7 @@ const ManagementTab: React.FC = () => {
       case 'data':
         return (
           <DataSection
-            isAuthenticated={isAuthenticated}
+            isAdmin={isAdmin}
             authMode={authMode}
             steamAuthMode={steamAuthMode}
             mockMode={mockMode}
@@ -222,14 +222,14 @@ const ManagementTab: React.FC = () => {
       case 'preferences':
         return (
           <PreferencesSection
-            isAuthenticated={isAuthenticated}
+            isAdmin={isAdmin}
           />
         );
 
       case 'clients':
         return (
           <ClientsSection
-            isAuthenticated={isAuthenticated}
+            isAdmin={isAdmin}
             authMode={authMode}
             mockMode={mockMode}
             onError={addError}
@@ -240,7 +240,7 @@ const ManagementTab: React.FC = () => {
       case 'prefill-sessions':
         return (
           <PrefillSessionsSection
-            isAuthenticated={isAuthenticated}
+            isAdmin={isAdmin}
             authMode={authMode}
             mockMode={mockMode}
             onError={addError}
@@ -259,7 +259,7 @@ const ManagementTab: React.FC = () => {
       <ManagementNav
         activeSection={activeSection}
         onSectionChange={handleSectionChange}
-        isAuthenticated={authMode === 'authenticated'}
+        isAdmin={isAdmin}
       />
 
       {/* Active Section Content */}

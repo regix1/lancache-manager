@@ -16,8 +16,8 @@ export const useSteamWebApiStatus = () => {
   const [status, setStatus] = useState<SteamWebApiStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { isAuthenticated, authMode, isLoading: authLoading } = useAuth();
-  const hasAccess = isAuthenticated || authMode === 'guest';
+  const { authMode, isLoading: authLoading } = useAuth();
+  const hasAccess = authMode === 'authenticated';
   const hasFailedAuth = useRef(false);
 
   const fetchStatus = useCallback(async (forceRefresh: boolean = false, skipLoading: boolean = false) => {

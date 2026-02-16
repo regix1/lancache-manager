@@ -19,8 +19,8 @@ export const useSpeed = (): SpeedContextType => {
 export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedProviderProps) => {
   const signalR = useSignalR();
   const { getRefreshInterval } = useRefreshRate();
-  const { isAuthenticated, authMode, isLoading: authLoading } = useAuth();
-  const hasAccess = !authLoading && (isAuthenticated || authMode === 'guest');
+  const { hasSession, isLoading: authLoading } = useAuth();
+  const hasAccess = !authLoading && hasSession;
   const [speedSnapshot, setSpeedSnapshot] = useState<DownloadSpeedSnapshot | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 

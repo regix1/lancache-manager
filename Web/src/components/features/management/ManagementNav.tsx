@@ -31,13 +31,13 @@ interface TabConfig {
 interface ManagementNavProps {
   activeSection: ManagementSection;
   onSectionChange: (section: ManagementSection) => void;
-  isAuthenticated: boolean;
+  isAdmin: boolean;
 }
 
 const ManagementNav: React.FC<ManagementNavProps> = ({
   activeSection,
   onSectionChange,
-  isAuthenticated
+  isAdmin
 }) => {
   const { t } = useTranslation();
 
@@ -104,7 +104,7 @@ const ManagementNav: React.FC<ManagementNavProps> = ({
           <div className="flex">
             {tabs.map((tab, index) => {
               const isActive = activeSection === tab.id;
-              const isDisabled = tab.id !== 'settings' && !isAuthenticated;
+              const isDisabled = tab.id !== 'settings' && !isAdmin;
               const Icon = tab.icon;
               const isFirst = index === 0;
               const isLast = index === tabs.length - 1;
@@ -199,7 +199,7 @@ const ManagementNav: React.FC<ManagementNavProps> = ({
         <div className="flex overflow-x-auto gap-0.5 p-1 rounded-b-lg border border-t-0 custom-scrollbar bg-themed-tertiary border-themed-primary">
           {tabs.map((tab) => {
             const isActive = activeSection === tab.id;
-            const isDisabled = tab.id !== 'settings' && !isAuthenticated;
+            const isDisabled = tab.id !== 'settings' && !isAdmin;
             const Icon = tab.icon;
 
             return (

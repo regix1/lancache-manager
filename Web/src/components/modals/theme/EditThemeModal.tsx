@@ -13,7 +13,7 @@ interface EditThemeModalProps {
   opened: boolean;
   onClose: () => void;
   onSave: () => void;
-  isAuthenticated: boolean;
+  isAdmin: boolean;
   editingTheme: Theme | null;
   editedTheme: EditableTheme;
   setEditedTheme: React.Dispatch<React.SetStateAction<EditableTheme>>;
@@ -32,7 +32,7 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
   opened,
   onClose,
   onSave,
-  isAuthenticated,
+  isAdmin,
   editingTheme,
   editedTheme,
   setEditedTheme,
@@ -483,7 +483,7 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
             variant="filled"
             leftSection={<Save className="w-4 h-4" />}
             onClick={onSave}
-            disabled={!editedTheme.name || !isAuthenticated || loading}
+            disabled={!editedTheme.name || !isAdmin || loading}
             className="themed-button-primary"
           >
             {t('modals.theme.edit.saveButton')}

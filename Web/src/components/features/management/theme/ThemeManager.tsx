@@ -37,7 +37,7 @@ import { colorGroups } from './constants';
 import { type Theme, type ThemeManagerProps, type EditableTheme, type ThemeColors } from './types';
 import { useNotifications } from '@contexts/notifications';
 
-const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
+const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
   const { t } = useTranslation();
   const { addNotification } = useNotifications();
 
@@ -135,7 +135,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
       return;
     }
     try {
-      if (isAuthenticated) {
+      if (isAdmin) {
         const saved = await preferencesService.setPreference('selectedTheme', themeId);
         if (!saved) {
           addNotification({
@@ -576,7 +576,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
             </HelpPopover>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
-            {isAuthenticated ? (
+            {isAdmin ? (
               <>
                 <Tooltip content={t('management.themes.createNewTheme')} position="bottom">
                   <Button
@@ -726,7 +726,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                     isActive={currentTheme === theme.meta.id && !previewTheme}
                     isPreviewing={previewTheme === theme.meta.id}
                     isSystem={isSystemTheme(theme.meta.id)}
-                    isAuthenticated={isAuthenticated}
+                    isAdmin={isAdmin}
                     isGuest={authService.authMode === 'guest'}
                     themeActionMenu={themeActionMenu}
                     currentMenuId={theme.meta.id}
@@ -743,14 +743,14 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
 
             {/* Community Themes */}
             <CommunityThemeImporter
-              isAuthenticated={isAuthenticated}
+              isAdmin={isAdmin}
               onThemeImported={loadThemes}
               installedThemes={themes}
               autoCheckUpdates={true}
             />
 
             {/* Upload Section */}
-            {isAuthenticated && (
+            {isAdmin && (
               <div>
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
                   <h4 className="text-sm font-medium text-themed-secondary">{t('management.themes.uploadCustomTheme')}</h4>
@@ -803,7 +803,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
               </div>
             )}
 
-            {!isAuthenticated && (
+            {!isAdmin && (
               <Alert color="yellow">
                 {t('management.themes.authRequired')}
               </Alert>
@@ -825,7 +825,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                   size="sm"
                   leftSection={<Plus className="w-4 h-4" />}
                   onClick={openCreateModal}
-                  disabled={!isAuthenticated}
+                  disabled={!isAdmin}
                   className="w-full sm:w-auto"
                 >
                   {t('management.themes.customize.createNewTheme')}
@@ -845,7 +845,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
                     size="sm"
                     leftSection={<Edit className="w-4 h-4" />}
                     onClick={() => handleEditTheme(themes.find((t) => t.meta.id === currentTheme)!)}
-                    disabled={!isAuthenticated}
+                    disabled={!isAdmin}
                     className="w-full sm:w-auto"
                   >
                     {t('management.themes.customize.editCurrentTheme')}
@@ -896,7 +896,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
         opened={createModalOpen}
         onClose={() => setCreateModalOpen(false)}
         onSave={handleCreateTheme}
-        isAuthenticated={isAuthenticated}
+        isAdmin={isAdmin}
         newTheme={newTheme}
         setNewTheme={setNewTheme}
         organizationMode={organizationMode}
@@ -917,7 +917,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAuthenticated }) => {
           setEditingTheme(null);
         }}
         onSave={handleSaveEditedTheme}
-        isAuthenticated={isAuthenticated}
+        isAdmin={isAdmin}
         editingTheme={editingTheme}
         editedTheme={editedTheme}
         setEditedTheme={setEditedTheme}

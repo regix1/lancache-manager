@@ -12,7 +12,7 @@ interface ServiceCardProps {
   isExpanding: boolean;
   isRemoving: boolean;
   isAnyRemovalRunning: boolean;
-  isAuthenticated: boolean;
+  isAdmin: boolean;
   cacheReadOnly: boolean;
   dockerSocketAvailable: boolean;
   checkingPermissions: boolean;
@@ -29,7 +29,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
   isExpanding,
   isRemoving,
   isAnyRemovalRunning,
-  isAuthenticated,
+  isAdmin,
   cacheReadOnly,
   dockerSocketAvailable,
   checkingPermissions,
@@ -62,7 +62,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
       isExpanding={isExpanding}
       isRemoving={isRemoving}
       isAnyRemovalRunning={isAnyRemovalRunning}
-      isAuthenticated={isAuthenticated}
+      isAdmin={isAdmin}
       cacheReadOnly={cacheReadOnly}
       dockerSocketAvailable={dockerSocketAvailable}
       checkingPermissions={checkingPermissions}

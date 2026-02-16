@@ -15,7 +15,7 @@ import ApiService from '@services/api.service';
 import DepotMappingManager from '../depot/DepotMappingManager';
 import DataImporter from '../data/DataImporter';
 interface DataSectionProps {
-  isAuthenticated: boolean;
+  isAdmin: boolean;
   authMode: AuthMode;
   steamAuthMode: 'anonymous' | 'authenticated';
   mockMode: boolean;
@@ -27,7 +27,7 @@ interface DataSectionProps {
 }
 
 const DataSection: React.FC<DataSectionProps> = ({
-  isAuthenticated,
+  isAdmin,
   authMode,
   steamAuthMode,
   mockMode,
@@ -258,7 +258,7 @@ const DataSection: React.FC<DataSectionProps> = ({
         </div>
 
         <DepotMappingManager
-          isAuthenticated={isAuthenticated}
+          isAdmin={isAdmin}
           mockMode={mockMode}
           steamAuthMode={steamAuthMode}
           actionLoading={depotActionLoading}
@@ -281,7 +281,7 @@ const DataSection: React.FC<DataSectionProps> = ({
         </div>
 
         <DataImporter
-          isAuthenticated={isAuthenticated}
+          isAdmin={isAdmin}
           mockMode={mockMode}
           onError={onError}
           onSuccess={onSuccess}

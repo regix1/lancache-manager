@@ -52,7 +52,7 @@ interface CommunityTheme {
 }
 
 interface CommunityThemeImporterProps {
-  isAuthenticated: boolean;
+  isAdmin: boolean;
   onThemeImported?: () => void;
   installedThemes?: { meta: { id: string; version?: string } }[];
   autoCheckUpdates?: boolean;
@@ -64,7 +64,7 @@ const GITHUB_RAW_BASE =
   'https://raw.githubusercontent.com/regix1/lancache-manager/refs/heads/main/community-themes';
 
 export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
-  isAuthenticated,
+  isAdmin,
   onThemeImported,
   installedThemes = [],
   autoCheckUpdates = true
@@ -96,11 +96,11 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
       communityThemes.length > 0 &&
       installedThemes.length > 0 &&
       autoCheckUpdates &&
-      isAuthenticated
+      isAdmin
     ) {
       checkAndUpdateThemes(communityThemes);
     }
-  }, [communityThemes, installedThemes, autoCheckUpdates, isAuthenticated]);
+  }, [communityThemes, installedThemes, autoCheckUpdates, isAdmin]);
 
   // Check which community themes are already installed
   const isThemeInstalled = (themeId: string): boolean => {
@@ -157,7 +157,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
       setCommunityThemes(themes);
 
       // Automatically check and update themes if enabled
-      if (autoCheckUpdates && isAuthenticated) {
+      if (autoCheckUpdates && isAdmin) {
         await checkAndUpdateThemes(themes);
       }
     } catch (err: unknown) {
@@ -175,7 +175,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
       return;
     }
 
-    if (!isAuthenticated) {
+    if (!isAdmin) {
       showToast('error', t('management.themes.community.authRequired'));
       return;
     }
@@ -254,7 +254,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
   };
 
   const checkAndUpdateThemes = async (themes: CommunityTheme[]) => {
-    if (!isAuthenticated || !autoCheckUpdates) return;
+    if (!isAdmin || !autoCheckUpdates) return;
 
     const themesToUpdate: CommunityTheme[] = [];
 
@@ -287,7 +287,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
   };
 
   const updateThemeSilently = async (theme: CommunityTheme): Promise<boolean> => {
-    if (!isAuthenticated) return false;
+    if (!isAdmin) return false;
 
     setUpdatingThemes((prev) => new Set([...prev, theme.fileName]));
 
@@ -546,7 +546,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
                     size="xs"
                     fullWidth
                     onClick={() => handleImportTheme(theme)}
-                    disabled={!isAuthenticated || isImporting || isImported || isInstalled}
+                    disabled={!isAdmin || isImporting || isImported || isInstalled}
                     loading={isImporting}
                   >
                     {isImported || isInstalled ? (

@@ -14,13 +14,13 @@ import LogRotationManager from '../LogRotationManager';
 interface SettingsSectionProps {
   optimizationsEnabled: boolean;
   logRotationEnabled: boolean;
-  isAuthenticated: boolean;
+  isAdmin: boolean;
 }
 
 const SettingsSection: React.FC<SettingsSectionProps> = ({
   optimizationsEnabled,
   logRotationEnabled,
-  isAuthenticated
+  isAdmin
 }) => {
   const { t } = useTranslation();
   const { mockMode, setMockMode } = useMockMode();
@@ -160,7 +160,7 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
           </div>
           {logRotationEnabled ? (
             <LogRotationManager
-              isAuthenticated={isAuthenticated}
+              isAdmin={isAdmin}
               onError={handleError}
               onSuccess={handleSuccess}
             />
@@ -202,7 +202,7 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
                 </div>
               }
             >
-              <GcManager isAuthenticated={isAuthenticated} />
+              <GcManager isAdmin={isAdmin} />
             </Suspense>
           ) : (
             <Alert color="yellow">

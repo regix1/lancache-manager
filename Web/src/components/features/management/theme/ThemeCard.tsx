@@ -27,7 +27,7 @@ interface ThemeCardProps {
   isActive: boolean;
   isPreviewing: boolean;
   isSystem: boolean;
-  isAuthenticated: boolean;
+  isAdmin: boolean;
   isGuest: boolean;
   themeActionMenu: string | null;
   currentMenuId: string;
@@ -44,7 +44,7 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
   isActive,
   isPreviewing,
   isSystem,
-  isAuthenticated,
+  isAdmin,
   isGuest,
   themeActionMenu,
   currentMenuId,
@@ -174,7 +174,7 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
               {isPreviewing ? t('management.themes.actions.stopPreview') : t('management.themes.actions.preview')}
             </ActionMenuItem>
           )}
-          {!isSystem && isAuthenticated && (
+          {!isSystem && isAdmin && (
             <ActionMenuItem
               onClick={() => {
                 onEdit(theme);
@@ -194,7 +194,7 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
           >
             {t('management.themes.actions.export')}
           </ActionMenuItem>
-          {!isSystem && isAuthenticated && (
+          {!isSystem && isAdmin && (
             <>
               <ActionMenuDivider />
               <ActionMenuDangerItem

@@ -8,7 +8,7 @@ interface ServicesListProps {
   totalServices: number;
   notifications: UnifiedNotification[];
   isAnyRemovalRunning: boolean;
-  isAuthenticated: boolean;
+  isAdmin: boolean;
   cacheReadOnly: boolean;
   dockerSocketAvailable: boolean;
   checkingPermissions: boolean;
@@ -20,7 +20,7 @@ const ServicesList: React.FC<ServicesListProps> = ({
   totalServices,
   notifications,
   isAnyRemovalRunning,
-  isAuthenticated,
+  isAdmin,
   cacheReadOnly,
   dockerSocketAvailable,
   checkingPermissions,
@@ -65,7 +65,7 @@ const ServicesList: React.FC<ServicesListProps> = ({
                 n.status === 'running'
             )}
             isAnyRemovalRunning={isAnyRemovalRunning}
-            isAuthenticated={isAuthenticated}
+            isAdmin={isAdmin}
             cacheReadOnly={cacheReadOnly}
             dockerSocketAvailable={dockerSocketAvailable}
             checkingPermissions={checkingPermissions}

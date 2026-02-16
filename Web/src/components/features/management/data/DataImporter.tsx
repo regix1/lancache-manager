@@ -30,7 +30,7 @@ import FileBrowser from '../file-browser/FileBrowser';
 type ImportType = 'develancache' | 'lancache-manager';
 
 interface DataImporterProps {
-  isAuthenticated: boolean;
+  isAdmin: boolean;
   mockMode: boolean;
   onError?: (message: string) => void;
   onSuccess?: (message: string) => void;
@@ -64,7 +64,7 @@ interface FileSystemItem {
 type InputMode = 'auto' | 'browse' | 'manual';
 
 const DataImporter: React.FC<DataImporterProps> = ({
-  isAuthenticated,
+  isAdmin,
   mockMode,
   onError,
   onSuccess,
@@ -102,7 +102,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
 
   // Auto-search for databases when in auto mode
   const searchForDatabases = useCallback(async () => {
-    if (!isAuthenticated || mockMode) return;
+    if (!isAdmin || mockMode) return;
 
     setAutoSearching(true);
     try {
@@ -118,14 +118,14 @@ const DataImporter: React.FC<DataImporterProps> = ({
     } finally {
       setAutoSearching(false);
     }
-  }, [isAuthenticated, mockMode]);
+  }, [isAdmin, mockMode]);
 
   // Trigger search when switching to auto mode
   useEffect(() => {
-    if (inputMode === 'auto' && isAuthenticated && !mockMode && foundDatabases.length === 0) {
+    if (inputMode === 'auto' && isAdmin && !mockMode && foundDatabases.length === 0) {
       searchForDatabases();
     }
-  }, [inputMode, isAuthenticated, mockMode, foundDatabases.length, searchForDatabases]);
+  }, [inputMode, isAdmin, mockMode, foundDatabases.length, searchForDatabases]);
 
   const handleValidate = async () => {
     if (!connectionString.trim()) {
@@ -311,7 +311,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
               setValidationResult(null);
               setImportResult(null);
             }}
-            disabled={mockMode || !isAuthenticated || importing}
+            disabled={mockMode || !isAdmin || importing}
           />
         </div>
 
@@ -321,7 +321,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
           <div className="inline-flex items-center gap-1 p-1 rounded-lg bg-themed-tertiary">
             <button
               onClick={() => setInputMode('auto')}
-              disabled={mockMode || !isAuthenticated}
+              disabled={mockMode || !isAdmin}
               className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${
                 inputMode === 'auto' ? 'toggle-btn-active' : 'toggle-btn-inactive'
               }`}
@@ -330,7 +330,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
             </button>
             <button
               onClick={() => setInputMode('browse')}
-              disabled={mockMode || !isAuthenticated}
+              disabled={mockMode || !isAdmin}
               className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${
                 inputMode === 'browse' ? 'toggle-btn-active' : 'toggle-btn-inactive'
               }`}
@@ -339,7 +339,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
             </button>
             <button
               onClick={() => setInputMode('manual')}
-              disabled={mockMode || !isAuthenticated}
+              disabled={mockMode || !isAdmin}
               className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${
                 inputMode === 'manual' ? 'toggle-btn-active' : 'toggle-btn-inactive'
               }`}
@@ -359,7 +359,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
               </p>
               <Button
                 onClick={searchForDatabases}
-                disabled={autoSearching || mockMode || !isAuthenticated}
+                disabled={autoSearching || mockMode || !isAdmin}
                 variant="subtle"
                 size="sm"
               >
@@ -413,7 +413,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
         {inputMode === 'browse' && (
           <FileBrowser
             onSelectFile={handleFileSelect}
-            isAuthenticated={isAuthenticated}
+            isAdmin={isAdmin}
             mockMode={mockMode}
           />
         )}
@@ -437,7 +437,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
                        bg-themed-secondary text-themed-primary
                        border border-themed-secondary focus:border-themed-focus
                        placeholder:text-themed-muted"
-              disabled={mockMode || !isAuthenticated}
+              disabled={mockMode || !isAdmin}
             />
             <p className="text-xs text-themed-muted mt-1">
               {t('management.dataImporter.manual.example')} <code className="bg-themed-tertiary px-1 py-0.5 rounded">/path/to/database.db</code>
@@ -498,14 +498,14 @@ const DataImporter: React.FC<DataImporterProps> = ({
                 className="w-full px-3 py-2 rounded-lg transition-colors
                          bg-themed-secondary text-themed-primary
                          border border-themed-secondary focus:border-themed-focus"
-                disabled={mockMode || !isAuthenticated}
+                disabled={mockMode || !isAdmin}
               />
               <div className="spinner-buttons">
                 <button
                   type="button"
                   className="spinner-btn up"
                   onClick={() => setBatchSize(Math.min(10000, batchSize + 100))}
-                  disabled={mockMode || !isAuthenticated}
+                  disabled={mockMode || !isAdmin}
                   aria-label={t('management.dataImporter.aria.increaseBatchSize')}
                 >
                   <ChevronUp />
@@ -514,7 +514,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
                   type="button"
                   className="spinner-btn down"
                   onClick={() => setBatchSize(Math.max(100, batchSize - 100))}
-                  disabled={mockMode || !isAuthenticated}
+                  disabled={mockMode || !isAdmin}
                   aria-label={t('management.dataImporter.aria.decreaseBatchSize')}
                 >
                   <ChevronDown />
@@ -531,7 +531,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
               checked={overwriteExisting}
               onChange={(e) => setOverwriteExisting(e.target.checked)}
               label={t('management.dataImporter.options.overwriteExisting')}
-              disabled={mockMode || !isAuthenticated}
+              disabled={mockMode || !isAdmin}
             />
             <p className="text-xs text-themed-muted mt-1 ml-6">
               {overwriteExisting ? t('management.dataImporter.options.syncMode') : t('management.dataImporter.options.appendMode')}
@@ -602,7 +602,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Button
             onClick={handleValidate}
-            disabled={mockMode || !isAuthenticated || validating || !connectionString.trim()}
+            disabled={mockMode || !isAdmin || validating || !connectionString.trim()}
             loading={validating}
             variant="default"
             fullWidth
@@ -614,7 +614,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
             onClick={handleImportClick}
             disabled={
               mockMode ||
-              !isAuthenticated ||
+              !isAdmin ||
               importing ||
               !validationResult?.valid
             }
@@ -637,7 +637,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
           </Button>
         </div>
 
-        {!isAuthenticated && (
+        {!isAdmin && (
           <Alert color="yellow">
             {t('management.dataImporter.alerts.authRequired')}
           </Alert>

@@ -24,7 +24,7 @@ interface GcTriggerResult {
 }
 
 interface GcManagerProps {
-  isAuthenticated: boolean;
+  isAdmin: boolean;
 }
 
 // Fetch GC settings
@@ -98,7 +98,7 @@ const SettingRow: React.FC<SettingRowProps> = ({ label, description, children })
   </div>
 );
 
-const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
+const GcManager: React.FC<GcManagerProps> = ({ isAdmin }) => {
   const { t } = useTranslation();
   const { addNotification } = useNotifications();
   const [loading, setLoading] = useState(true);
@@ -266,7 +266,7 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
               options={aggressivenessOptions}
               value={settings.aggressiveness}
               onChange={handleAggressivenessChange}
-              disabled={!isAuthenticated || saving}
+              disabled={!isAdmin || saving}
               className="w-full"
             />
           </SettingRow>
@@ -286,7 +286,7 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
               options={memoryThresholdOptions}
               value={settings.memoryThresholdMB.toString()}
               onChange={handleMemoryThresholdChange}
-              disabled={!isAuthenticated || saving}
+              disabled={!isAdmin || saving}
               className="w-full"
             />
           </SettingRow>
@@ -304,7 +304,7 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
           <Button
             onClick={saveSettings}
-            disabled={!isAuthenticated || saving || !hasChanges}
+            disabled={!isAdmin || saving || !hasChanges}
             variant="filled"
             color="blue"
             size="sm"
@@ -315,7 +315,7 @@ const GcManager: React.FC<GcManagerProps> = ({ isAuthenticated }) => {
           </Button>
           <Button
             onClick={triggerGarbageCollection}
-            disabled={!isAuthenticated || triggering}
+            disabled={!isAdmin || triggering}
             variant="default"
             size="sm"
             leftSection={triggering ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}

@@ -20,13 +20,13 @@ interface LogRotationStatus {
 }
 
 interface LogRotationManagerProps {
-  isAuthenticated: boolean;
+  isAdmin: boolean;
   onError?: (message: string) => void;
   onSuccess?: (message: string) => void;
 }
 
 const LogRotationManager: React.FC<LogRotationManagerProps> = ({
-  isAuthenticated,
+  isAdmin,
   onError,
   onSuccess
 }) => {
@@ -66,7 +66,7 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
   }, []);
 
   const handleScheduleChange = async (value: string) => {
-    if (!isAuthenticated || isUpdatingSchedule) return;
+    if (!isAdmin || isUpdatingSchedule) return;
 
     const hours = parseInt(value, 10);
     setIsUpdatingSchedule(true);
@@ -100,7 +100,7 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
   }, [fetchStatus]);
 
   const handleForceRotation = async () => {
-    if (!isAuthenticated) return;
+    if (!isAdmin) return;
 
     setIsStartingRotation(true);
     try {
@@ -202,7 +202,7 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
               options={SCHEDULE_OPTIONS}
               value={getScheduleValue(status.scheduleHours)}
               onChange={handleScheduleChange}
-              disabled={!isAuthenticated || isUpdatingSchedule}
+              disabled={!isAdmin || isUpdatingSchedule}
               dropdownWidth="280px"
               alignRight
             />
@@ -282,7 +282,7 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({
         </div>
         <Button
           onClick={handleForceRotation}
-          disabled={!isAuthenticated || isStartingRotation}
+          disabled={!isAdmin || isStartingRotation}
           variant="outline"
           loading={isStartingRotation}
           leftSection={!isStartingRotation ? <RefreshCw className="w-4 h-4" /> : undefined}

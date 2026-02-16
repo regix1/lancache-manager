@@ -17,7 +17,7 @@ import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { ManagerCardHeader } from '@components/ui/ManagerCard';
 
 interface DepotMappingManagerProps {
-  isAuthenticated: boolean;
+  isAdmin: boolean;
   mockMode: boolean;
   steamAuthMode: 'anonymous' | 'authenticated';
   actionLoading: boolean;
@@ -32,7 +32,7 @@ interface DepotMappingManagerProps {
 type DepotSource = 'incremental' | 'full' | 'github';
 
 const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
-  isAuthenticated,
+  isAdmin,
   mockMode,
   steamAuthMode,
   actionLoading,
@@ -222,7 +222,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     // 4. Current mode is incremental or full (which require Web API)
     // 5. Haven't already attempted auto-switch
     if (
-      isAuthenticated &&
+      isAdmin &&
       webApiNotAvailable &&
       !webApiStatus?.hasApiKey &&
       depotConfig?.crawlIncrementalMode !== 'github' &&
@@ -279,7 +279,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       // console.log('[DepotMapping] Web API is now available - resetting auto-switch flag');
       autoSwitchAttemptedRef.current = false;
     }
-  }, [isAuthenticated, picsProgress?.isWebApiAvailable, webApiStatus?.hasApiKey, webApiStatus?.isFullyOperational, webApiLoading, steamAuthMode, depotConfig?.crawlIncrementalMode, refreshProgress]);
+  }, [isAdmin, picsProgress?.isWebApiAvailable, webApiStatus?.hasApiKey, webApiStatus?.isFullyOperational, webApiLoading, steamAuthMode, depotConfig?.crawlIncrementalMode, refreshProgress]);
 
   // Check for pending GitHub download from localStorage on mount
   useEffect(() => {
@@ -324,7 +324,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
 
   // Check if full scan is required (for incremental mode) - for UI display only
   useEffect(() => {
-    if (!depotConfig || mockMode || !isAuthenticated) {
+    if (!depotConfig || mockMode || !isAdmin) {
       setFullScanRequired(false);
       return;
     }
@@ -361,7 +361,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       setFullScanRequired(false);
       lastViabilityCheck.current = 0;
     }
-  }, [depotConfig, localNextCrawlIn, mockMode, isAuthenticated, actionLoading]);
+  }, [depotConfig, localNextCrawlIn, mockMode, isAdmin, actionLoading]);
 
   // Listen for PICS scan completion via SignalR and refresh state
   // ONLY react if we're expecting a completion (operationType is set)
@@ -518,7 +518,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     }
     applyInProgressRef.current = true;
 
-    if (!isAuthenticated) {
+    if (!isAdmin) {
       onError?.('Authentication required');
       applyInProgressRef.current = false;
       return;
@@ -858,7 +858,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                         console.error('Failed to update crawl interval:', error);
                       }
                     }}
-                    disabled={!isAuthenticated || mockMode}
+                    disabled={!isAdmin || mockMode}
                     className="w-full"
                   />
                 );
@@ -941,7 +941,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                   }
                 }}
                 disabled={
-                  !isAuthenticated ||
+                  !isAdmin ||
                   mockMode ||
                   !depotConfig ||
                   depotConfig.crawlIntervalHours === 0
@@ -988,7 +988,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
               // Save to localStorage for persistence
               storage.setItem('depotSource', newSource);
             }}
-            disabled={!isAuthenticated || mockMode}
+            disabled={!isAdmin || mockMode}
             className="w-full"
           />
         </div>
@@ -1005,7 +1005,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
               isProcessingLogs ||
               depotConfig?.isProcessing ||
               mockMode ||
-              !isAuthenticated ||
+              !isAdmin ||
               githubDownloading
             }
             loading={actionLoading || depotConfig?.isProcessing}

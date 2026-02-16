@@ -12,7 +12,7 @@ interface GamesListProps {
   totalGames: number;
   notifications: UnifiedNotification[];
   isAnyRemovalRunning: boolean;
-  isAuthenticated: boolean;
+  isAdmin: boolean;
   cacheReadOnly: boolean;
   dockerSocketAvailable: boolean;
   checkingPermissions: boolean;
@@ -26,7 +26,7 @@ const GamesList: React.FC<GamesListProps> = ({
   totalGames,
   notifications,
   isAnyRemovalRunning,
-  isAuthenticated,
+  isAdmin,
   cacheReadOnly,
   dockerSocketAvailable,
   checkingPermissions,
@@ -140,7 +140,7 @@ const GamesList: React.FC<GamesListProps> = ({
                     n.status === 'running'
                 )}
                 isAnyRemovalRunning={isAnyRemovalRunning}
-                isAuthenticated={isAuthenticated}
+                isAdmin={isAdmin}
                 cacheReadOnly={cacheReadOnly}
                 dockerSocketAvailable={dockerSocketAvailable}
                 checkingPermissions={checkingPermissions}

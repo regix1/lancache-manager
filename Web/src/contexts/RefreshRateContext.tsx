@@ -47,6 +47,9 @@ export const RefreshRateProvider: React.FC<RefreshRateProviderProps> = ({ childr
 
   // Fetch refresh rate based on auth mode
   useEffect(() => {
+    // Wait for auth to resolve before fetching
+    if (authMode === 'unauthenticated') return;
+
     const fetchRefreshRate = async () => {
       try {
         if (authMode === 'guest') {

@@ -24,7 +24,7 @@ interface CreateThemeModalProps {
   opened: boolean;
   onClose: () => void;
   onSave: () => void;
-  isAuthenticated: boolean;
+  isAdmin: boolean;
   newTheme: EditableTheme;
   setNewTheme: React.Dispatch<React.SetStateAction<EditableTheme>>;
   organizationMode: 'category' | 'page';
@@ -42,7 +42,7 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
   opened,
   onClose,
   onSave,
-  isAuthenticated,
+  isAdmin,
   newTheme,
   setNewTheme,
   organizationMode,
@@ -591,7 +591,7 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
             variant="filled"
             leftSection={<Save className="w-4 h-4" />}
             onClick={onSave}
-            disabled={!newTheme.name || !isAuthenticated || loading}
+            disabled={!newTheme.name || !isAdmin || loading}
             className="themed-button-primary"
           >
             {t('modals.theme.create.saveButton')}

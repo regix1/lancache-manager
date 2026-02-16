@@ -17,7 +17,7 @@ import {
 import type { Config, DatasourceInfo, DatasourceLogPosition } from '../../../../types';
 
 interface DatasourcesManagerProps {
-  isAuthenticated: boolean;
+  isAdmin: boolean;
   mockMode: boolean;
   onError?: (message: string) => void;
   onSuccess?: (message: string) => void;
@@ -35,7 +35,7 @@ const fetchLogPositions = async (): Promise<DatasourceLogPosition[]> => {
 };
 
 const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
-  isAuthenticated,
+  isAdmin,
   mockMode,
   onError,
   onSuccess,
@@ -110,7 +110,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   };
 
   const handleProcessAll = async () => {
-    if (!isAuthenticated || isProcessing) return;
+    if (!isAdmin || isProcessing) return;
 
     setActionLoading('all');
     try {
@@ -125,7 +125,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   };
 
   const handleProcessDatasource = async (datasourceName: string) => {
-    if (!isAuthenticated || isProcessing) return;
+    if (!isAdmin || isProcessing) return;
 
     setActionLoading(`access-${datasourceName}`);
     try {
@@ -140,7 +140,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   };
 
   const handleResetPosition = async (datasourceName: string | null, position: 'top' | 'bottom') => {
-    if (!isAuthenticated) return;
+    if (!isAdmin) return;
 
     const targetName = datasourceName || 'all';
     setActionLoading(`reset-${targetName}`);
@@ -240,7 +240,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
         variant="subtle"
         size="sm"
         onClick={() => setResetModal({ datasource: null, all: true })}
-        disabled={actionLoading !== null || isProcessing || mockMode || !isAuthenticated}
+        disabled={actionLoading !== null || isProcessing || mockMode || !isAdmin}
       >
         {t('management.datasources.reposition')}
       </Button>
@@ -249,7 +249,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
         color="green"
         size="sm"
         onClick={handleProcessAll}
-        disabled={actionLoading !== null || isProcessing || mockMode || !isAuthenticated}
+        disabled={actionLoading !== null || isProcessing || mockMode || !isAdmin}
         loading={actionLoading === 'all'}
       >
         {t('common.processAll')}
@@ -322,7 +322,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                           e.stopPropagation();
                           setResetModal({ datasource: ds.name, all: false });
                         }}
-                        disabled={actionLoading !== null || isProcessing || mockMode || !isAuthenticated || !ds.enabled}
+                        disabled={actionLoading !== null || isProcessing || mockMode || !isAdmin || !ds.enabled}
                         className="flex-1 sm:flex-initial"
                       >
                         {t('management.datasources.reposition')}
@@ -336,7 +336,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                           e.stopPropagation();
                           handleProcessDatasource(ds.name);
                         }}
-                        disabled={actionLoading !== null || isProcessing || mockMode || !isAuthenticated || !ds.enabled || position?.totalLines === 0}
+                        disabled={actionLoading !== null || isProcessing || mockMode || !isAdmin || !ds.enabled || position?.totalLines === 0}
                         loading={actionLoading === `access-${ds.name}`}
                         className="flex-1 sm:flex-initial"
                       >

@@ -8,7 +8,7 @@ import CacheManager from '../cache/CacheManager';
 import CorruptionManager from '../cache/CorruptionManager';
 import GameCacheDetector from '../game-detection/GameCacheDetector';
 interface StorageSectionProps {
-  isAuthenticated: boolean;
+  isAdmin: boolean;
   authMode: AuthMode;
   mockMode: boolean;
   gameCacheRefreshKey: number;
@@ -18,7 +18,7 @@ interface StorageSectionProps {
 }
 
 const StorageSection: React.FC<StorageSectionProps> = ({
-  isAuthenticated,
+  isAdmin,
   authMode,
   mockMode,
   gameCacheRefreshKey,
@@ -57,7 +57,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
         <div className="space-y-4">
           {/* Log Processing */}
           <DatasourcesManager
-            isAuthenticated={isAuthenticated}
+            isAdmin={isAdmin}
             mockMode={mockMode}
             onError={onError}
             onSuccess={onSuccess}
@@ -94,7 +94,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
             }
           >
             <CacheManager
-              isAuthenticated={isAuthenticated}
+              isAdmin={isAdmin}
               authMode={authMode}
               mockMode={mockMode}
               onError={onError}
@@ -112,7 +112,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
           {/* Game Detection */}
           <GameCacheDetector
             mockMode={mockMode}
-            isAuthenticated={authMode === 'authenticated'}
+            isAdmin={isAdmin}
             onDataRefresh={onDataRefresh}
             refreshKey={gameCacheRefreshKey}
           />

@@ -59,8 +59,8 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({ ch
   const { getTimeRangeParams, timeRange, customStartDate, customEndDate, selectedEventIds } = useTimeFilter();
   const { getRefreshInterval } = useRefreshRate();
   const signalR = useSignalR();
-  const { isAuthenticated, authMode, isLoading: authLoading } = useAuth();
-  const hasAccess = isAuthenticated || authMode === 'guest';
+  const { hasSession, authMode, isLoading: authLoading } = useAuth();
+  const hasAccess = hasSession;
   const isAdmin = authMode === 'authenticated';
 
   // State

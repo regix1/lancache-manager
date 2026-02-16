@@ -18,6 +18,8 @@ public class SessionAuthMiddleware
         "/api/auth/guest/status",
         "/api/system/setup",
         "/api/system/config",
+        "/api/system/refresh-rate",
+        "/api/user-preferences",
         "/api/version",
         "/health"
     };

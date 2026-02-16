@@ -3,11 +3,11 @@ import { useTranslation } from 'react-i18next';
 import ThemeManager from '../theme/ThemeManager';
 
 interface PreferencesSectionProps {
-  isAuthenticated: boolean;
+  isAdmin: boolean;
 }
 
 const PreferencesSection: React.FC<PreferencesSectionProps> = ({
-  isAuthenticated
+  isAdmin
 }) => {
   const { t } = useTranslation();
 
@@ -28,7 +28,7 @@ const PreferencesSection: React.FC<PreferencesSectionProps> = ({
         </p>
       </div>
 
-      <ThemeManager isAuthenticated={isAuthenticated} />
+      <ThemeManager isAdmin={isAdmin} />
     </div>
   );
 };
