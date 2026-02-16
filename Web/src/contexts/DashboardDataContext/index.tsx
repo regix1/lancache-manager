@@ -194,9 +194,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({ ch
         if (!hasData.current) {
           setError('Cannot connect to API server');
         }
-        if (showLoading) {
-          setLoading(false);
-        }
+        setLoading(false);
         return;
       }
 
@@ -248,11 +246,13 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({ ch
             setLatestDownloads(downloads.value);
           }
           setError(null);
-          if (showLoading) {
-            setLoading(false);
-          }
         }
-        // If filters are invalid, DON'T change loading - let the next correct fetch handle it
+        // Always clear loading when fetch completes — showLoading only controls
+        // whether loading is SET to true, not whether it's cleared. This prevents
+        // a race where one call sets loading=true but a superseding call with
+        // showLoading=false never clears it (e.g. auth transition triggers both
+        // the initial load effect and the time range change effect simultaneously).
+        setLoading(false);
       });
     } catch (err: unknown) {
       // Check if we're still the current request before setting error state
@@ -262,9 +262,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({ ch
       if (!hasData.current && !isAbortError(err)) {
         setError('Failed to fetch dashboard data from API');
       }
-      if (showLoading) {
-        setLoading(false);
-      }
+      setLoading(false);
     } finally {
       // Only update fetchInProgress if we're still the current request
       if (currentRequestIdRef.current === thisRequestId) {
@@ -353,6 +351,18 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({ ch
       isInitialLoad.current = false;
     }
   }, [mockMode]);
+
+  // Reset stale refs when access is lost (logout) so that re-login triggers
+  // a clean initial load instead of racing with the time range change effect.
+  const prevHasAccessRef = useRef(hasAccess);
+  useEffect(() => {
+    if (prevHasAccessRef.current && !hasAccess) {
+      // Access lost — reset to initial state so the next login starts clean
+      isInitialLoad.current = true;
+      hasData.current = false;
+    }
+    prevHasAccessRef.current = hasAccess;
+  }, [hasAccess]);
 
   // Initial load
   useEffect(() => {
