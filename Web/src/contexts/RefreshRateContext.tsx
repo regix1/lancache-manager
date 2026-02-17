@@ -2,11 +2,11 @@ import React, { createContext, useContext, useState, useEffect, useCallback, use
 import { REFRESH_RATES, type RefreshRate } from '@utils/constants';
 import { useSignalR } from '@contexts/SignalRContext';
 import { useAuth } from '@contexts/AuthContext';
+import { useSessionPreferences } from '@contexts/SessionPreferencesContext';
 import type {
   GuestRefreshRateUpdatedEvent,
   DefaultGuestRefreshRateChangedEvent,
-  GuestRefreshRateLockChangedEvent,
-  UserPreferencesUpdatedEvent
+  GuestRefreshRateLockChangedEvent
 } from '@contexts/SignalRContext/types';
 
 interface RefreshRateContextType {
@@ -35,17 +35,44 @@ export const RefreshRateProvider: React.FC<RefreshRateProviderProps> = ({ childr
   const [refreshRate, setRefreshRateState] = useState<RefreshRate>('STANDARD');
   const [isLoaded, setIsLoaded] = useState(false);
   const [isControlledByAdmin, setIsControlledByAdmin] = useState(false);
+  const [defaultGuestRate, setDefaultGuestRate] = useState<string | null>(null);
+  const [globalLocked, setGlobalLocked] = useState<boolean>(true);
 
   const { on, off } = useSignalR();
   const { authMode, sessionId } = useAuth();
+  const { currentPreferences } = useSessionPreferences();
 
   // Refs to avoid stale closures in SignalR handlers
   const authModeRef = useRef(authMode);
   const sessionIdRef = useRef(sessionId);
+  const defaultGuestRateRef = useRef(defaultGuestRate);
   useEffect(() => { authModeRef.current = authMode; }, [authMode]);
   useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
+  useEffect(() => { defaultGuestRateRef.current = defaultGuestRate; }, [defaultGuestRate]);
 
-  // Fetch refresh rate based on auth mode
+  // Fetch global default guest rate and lock state (for guests only)
+  useEffect(() => {
+    if (authMode !== 'guest') return;
+
+    const fetchGlobalDefaults = async () => {
+      try {
+        const response = await fetch('/api/system/default-guest-refresh-rate', {
+          credentials: 'include'
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setGlobalLocked(data.locked ?? true);
+          setDefaultGuestRate(data.refreshRate || null);
+        }
+      } catch (error) {
+        console.error('Failed to fetch global guest defaults:', error);
+      }
+    };
+
+    fetchGlobalDefaults();
+  }, [authMode]);
+
+  // Derive refresh rate from SessionPreferencesContext (guests and authenticated)
   useEffect(() => {
     // For unauthenticated users, just mark as loaded with defaults so the
     // UI tree below this provider can render (e.g. the login modal).
@@ -54,49 +81,32 @@ export const RefreshRateProvider: React.FC<RefreshRateProviderProps> = ({ childr
       return;
     }
 
-    const fetchRefreshRate = async () => {
-      try {
-        if (authMode === 'guest') {
-          // Fetch global lock and default rate
-          const defaultResponse = await fetch('/api/system/default-guest-refresh-rate', {
-            credentials: 'include'
-          });
-          let globalLocked = true;
-          let defaultRate: string | null = null;
-          if (defaultResponse.ok) {
-            const defaultData = await defaultResponse.json();
-            globalLocked = defaultData.locked ?? true;
-            defaultRate = defaultData.refreshRate;
-          }
+    if (!currentPreferences) {
+      // Preferences not loaded yet
+      return;
+    }
 
-          // Fetch per-session preferences (may have per-session lock override)
-          const prefsResponse = await fetch('/api/user-preferences', {
-            credentials: 'include'
-          });
+    if (authMode === 'guest') {
+      // Guest: use per-session refreshRate, or fall back to global default
+      const perSessionRate = currentPreferences.refreshRate;
+      const perSessionLocked = currentPreferences.refreshRateLocked;
 
-          let perSessionLocked: boolean | null = null;
-          if (prefsResponse.ok) {
-            const prefsData = await prefsResponse.json();
-            perSessionLocked = prefsData.refreshRateLocked ?? null;
+      if (perSessionRate && perSessionRate in REFRESH_RATES) {
+        setRefreshRateState(perSessionRate as RefreshRate);
+      } else if (defaultGuestRate && defaultGuestRate in REFRESH_RATES) {
+        setRefreshRateState(defaultGuestRate as RefreshRate);
+      }
 
-            if (prefsData.refreshRate && prefsData.refreshRate in REFRESH_RATES) {
-              setRefreshRateState(prefsData.refreshRate as RefreshRate);
-            } else if (defaultRate && defaultRate in REFRESH_RATES) {
-              setRefreshRateState(defaultRate as RefreshRate);
-            }
-          } else if (defaultRate && defaultRate in REFRESH_RATES) {
-            setRefreshRateState(defaultRate as RefreshRate);
-          }
+      // Per-session override takes precedence: false means unlocked, true means locked
+      // null/undefined means use global default
+      const effectiveLocked = perSessionLocked !== null && perSessionLocked !== undefined ? perSessionLocked : globalLocked;
+      setIsControlledByAdmin(effectiveLocked);
+    } else {
+      // Authenticated: fetch global system refresh rate (not from user preferences)
+      setIsControlledByAdmin(false);
 
-          // Per-session override takes precedence: false means unlocked, true means locked
-          // null means use global default. The toggle is "allow guest to change" so
-          // refreshRateLocked=false means unlocked (guest CAN change)
-          const effectiveLocked = perSessionLocked !== null ? perSessionLocked : globalLocked;
-          setIsControlledByAdmin(effectiveLocked);
-        } else {
-          // For authenticated users, fetch the global rate
-          setIsControlledByAdmin(false);
-
+      const fetchSystemRate = async () => {
+        try {
           const response = await fetch('/api/system/refresh-rate', {
             credentials: 'include'
           });
@@ -106,21 +116,23 @@ export const RefreshRateProvider: React.FC<RefreshRateProviderProps> = ({ childr
               setRefreshRateState(data.refreshRate as RefreshRate);
             }
           }
+        } catch (error) {
+          console.error('Failed to fetch system refresh rate:', error);
         }
-      } catch (error) {
-        console.error('Failed to fetch refresh rate:', error);
-      } finally {
-        setIsLoaded(true);
-      }
-    };
+      };
 
-    fetchRefreshRate();
-  }, [authMode]);
+      fetchSystemRate();
+    }
+
+    setIsLoaded(true);
+  }, [authMode, currentPreferences, defaultGuestRate, globalLocked]);
 
   // Listen for SignalR events.
   // All handlers read authMode/sessionId from refs to avoid stale closures.
   useEffect(() => {
     // Handle admin pushing a new rate to this specific guest
+    // SessionPreferencesContext will handle the UserPreferencesUpdated event,
+    // but this event is guest-specific and immediate
     const handleGuestRefreshRateUpdated = (data: GuestRefreshRateUpdatedEvent) => {
       if (data.refreshRate && data.refreshRate in REFRESH_RATES) {
         setRefreshRateState(data.refreshRate as RefreshRate);
@@ -128,77 +140,35 @@ export const RefreshRateProvider: React.FC<RefreshRateProviderProps> = ({ childr
     };
 
     // Handle default guest rate change (affects guests using default)
+    // Only apply if guest doesn't have a per-session override
     const handleDefaultGuestRefreshRateChanged = (data: DefaultGuestRefreshRateChangedEvent) => {
       if (authModeRef.current === 'guest' && data.refreshRate && data.refreshRate in REFRESH_RATES) {
-        fetch('/api/user-preferences', { credentials: 'include' })
-          .then((res) => res.json())
-          .then((prefsData) => {
-            if (!prefsData.refreshRate) {
-              setRefreshRateState(data.refreshRate as RefreshRate);
-            }
-          })
-          .catch(() => {
-            setRefreshRateState(data.refreshRate as RefreshRate);
-          });
+        setDefaultGuestRate(data.refreshRate);
+        // If no per-session rate is set (using default), update immediately
+        // SessionPreferencesContext will have currentPreferences.refreshRate === null
       }
     };
 
-    // Handle global lock state change - respect per-session override
+    // Handle global lock state change
+    // Update global lock state, effective lock will be recalculated in the main effect
     const handleGuestRefreshRateLockChanged = (data: GuestRefreshRateLockChangedEvent) => {
       if (authModeRef.current === 'guest') {
-        fetch('/api/user-preferences', { credentials: 'include' })
-          .then((res) => res.json())
-          .then((prefsData) => {
-            const perSessionLocked: boolean | null = prefsData.refreshRateLocked ?? null;
-            const effectiveLocked = perSessionLocked !== null ? perSessionLocked : data.locked;
-            setIsControlledByAdmin(effectiveLocked);
-          })
-          .catch(() => {
-            setIsControlledByAdmin(data.locked);
-          });
+        setGlobalLocked(data.locked);
+        // The main effect will recalculate effectiveLocked based on per-session override
       }
     };
 
-    // Handle per-session preferences update (includes refreshRateLocked changes)
-    const handleUserPreferencesUpdated = (data: UserPreferencesUpdatedEvent) => {
-      if (authModeRef.current !== 'guest') return;
-      if (data.sessionId !== sessionIdRef.current) return;
-
-      // Update refresh rate if changed
-      if (data.preferences.refreshRate && data.preferences.refreshRate in REFRESH_RATES) {
-        setRefreshRateState(data.preferences.refreshRate as RefreshRate);
-      }
-
-      // Re-evaluate lock state: fetch global lock to use as fallback
-      fetch('/api/system/default-guest-refresh-rate', { credentials: 'include' })
-        .then((res) => res.json())
-        .then((globalData) => {
-          const globalLocked = globalData.locked ?? true;
-          // The preferences payload doesn't include refreshRateLocked directly,
-          // so re-fetch per-session prefs to get the current value
-          return fetch('/api/user-preferences', { credentials: 'include' })
-            .then((res) => res.json())
-            .then((prefsData) => {
-              const perSessionLocked: boolean | null = prefsData.refreshRateLocked ?? null;
-              const effectiveLocked = perSessionLocked !== null ? perSessionLocked : globalLocked;
-              setIsControlledByAdmin(effectiveLocked);
-            });
-        })
-        .catch(() => {
-          // On error, leave current state
-        });
-    };
+    // UserPreferencesUpdated is now handled by SessionPreferencesContext
+    // The main effect will react to currentPreferences changes automatically
 
     on('GuestRefreshRateUpdated', handleGuestRefreshRateUpdated);
     on('DefaultGuestRefreshRateChanged', handleDefaultGuestRefreshRateChanged);
     on('GuestRefreshRateLockChanged', handleGuestRefreshRateLockChanged);
-    on('UserPreferencesUpdated', handleUserPreferencesUpdated);
 
     return () => {
       off('GuestRefreshRateUpdated', handleGuestRefreshRateUpdated);
       off('DefaultGuestRefreshRateChanged', handleDefaultGuestRefreshRateChanged);
       off('GuestRefreshRateLockChanged', handleGuestRefreshRateLockChanged);
-      off('UserPreferencesUpdated', handleUserPreferencesUpdated);
     };
   }, [on, off]);
 

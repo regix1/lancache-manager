@@ -7,7 +7,7 @@ const storedLanguage = typeof window !== 'undefined'
   ? window.localStorage.getItem(STORAGE_KEY)
   : null;
 
-export const i18nInitPromise = i18n
+i18n
   .use(initReactI18next)
   .init({
     resources: {

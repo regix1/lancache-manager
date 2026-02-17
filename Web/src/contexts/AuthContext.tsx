@@ -35,8 +35,6 @@ interface AuthProviderProps {
   children: ReactNode;
 }
 
-const AUTH_FETCH_MAX_WAIT_MS = 12000;
-
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [authMode, setAuthMode] = useState<AuthMode>('unauthenticated');
   const [sessionType, setSessionType] = useState<SessionType | null>(null);
@@ -55,6 +53,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   // Handlers must read current values without being recreated on every state change.
   const sessionIdRef = useRef<string | null>(sessionId);
   const sessionTypeRef = useRef<SessionType | null>(sessionType);
+  const isFetchingAuthRef = useRef(false);
   useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
   useEffect(() => { sessionTypeRef.current = sessionType; }, [sessionType]);
   const notifyAuthSessionUpdated = useCallback(() => {
@@ -62,17 +61,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   }, []);
 
   const fetchAuth = useCallback(async () => {
-    let timeoutId: ReturnType<typeof setTimeout> | null = null;
-
+    // Timeout is handled by AbortController in auth.service.ts (10s)
     try {
-      const data = await Promise.race([
-        authService.checkAuth(),
-        new Promise<never>((_, reject) => {
-          timeoutId = setTimeout(() => {
-            reject(new Error(`Auth context timeout after ${AUTH_FETCH_MAX_WAIT_MS}ms`));
-          }, AUTH_FETCH_MAX_WAIT_MS);
-        })
-      ]);
+      const data = await authService.checkAuth();
 
       setSessionType(data.sessionType);
       setSessionId(data.sessionId);
@@ -96,9 +87,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setPrefillEnabled(false);
       setPrefillExpiresAt(null);
     } finally {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
       setIsLoading(false);
       notifyAuthSessionUpdated();
     }
@@ -140,10 +128,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     fetchAuth();
   }, [fetchAuth]);
 
-  // Listen for 401 events from API calls to trigger re-auth
+  // Listen for 401 events from API calls to trigger re-auth.
+  // Deduplicate concurrent 401s to avoid multiple fetchAuth calls in quick succession.
   useEffect(() => {
     const handleAuthStateChanged = () => {
-      fetchAuth();
+      if (isFetchingAuthRef.current) {
+        return;
+      }
+      isFetchingAuthRef.current = true;
+      fetchAuth().finally(() => {
+        isFetchingAuthRef.current = false;
+      });
     };
 
     window.addEventListener('auth-state-changed', handleAuthStateChanged);

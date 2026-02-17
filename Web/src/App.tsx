@@ -307,11 +307,16 @@ const AppContent: React.FC = () => {
     }
 
     const checkDepotStatus = async () => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => {
+        controller.abort();
+      }, 10000);
+
       try {
         setCheckingDepotStatus(true);
         const response = await fetch(
           '/api/depots/status',
-          ApiService.getFetchOptions({ cache: 'no-store' })
+          ApiService.getFetchOptions({ cache: 'no-store', signal: controller.signal })
         );
         if (response.ok) {
           const data = await response.json();
@@ -320,14 +325,18 @@ const AppContent: React.FC = () => {
             (data.steamKit2?.isReady && data.steamKit2?.depotCount > 0);
 
           setDepotInitialized(hasData);
-          setCheckingDepotStatus(false);
         } else {
           setDepotInitialized(false);
-          setCheckingDepotStatus(false);
         }
       } catch (error) {
-        console.error('Failed to check depot initialization status:', error);
+        if (error instanceof Error && error.name === 'AbortError') {
+          console.warn('[App] checkDepotStatus timed out after 10000ms');
+        } else {
+          console.error('Failed to check depot initialization status:', error);
+        }
         setDepotInitialized(false);
+      } finally {
+        clearTimeout(timeoutId);
         setCheckingDepotStatus(false);
       }
     };

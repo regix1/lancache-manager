@@ -21,6 +21,7 @@ interface UserPreferences {
   showDatasourceLabels: boolean;
   showYearInDates: boolean;
   refreshRate?: string | null;
+  refreshRateLocked?: boolean | null;
   allowedTimeFormats?: string[] | null;
 }
 
@@ -36,6 +37,7 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   showDatasourceLabels: true,
   showYearInDates: false,
   refreshRate: null,
+  refreshRateLocked: null,
   allowedTimeFormats: null
 };
 
@@ -62,8 +64,8 @@ export const useSessionPreferences = () => {
 
 export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [preferences, setPreferences] = useState<Record<string, UserPreferences>>({});
-  const [loadingIds, setLoadingIds] = useState<Set<string>>(new Set());
-  const [loadedIds, setLoadedIds] = useState<Set<string>>(new Set());
+  const loadingIds = useRef<Set<string>>(new Set());
+  const loadedIds = useRef<Set<string>>(new Set());
   const failedIds = useRef<Set<string>>(new Set());
   const preferencesRef = useRef<Record<string, UserPreferences>>({});
   const initialLoadDone = useRef(false);
@@ -84,7 +86,7 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
   }, [preferences]);
 
   const loadSessionPreferences = useCallback(async (sessionId: string) => {
-    if (loadingIds.has(sessionId) || loadedIds.has(sessionId) || failedIds.current.has(sessionId)) return;
+    if (loadingIds.current.has(sessionId) || loadedIds.current.has(sessionId) || failedIds.current.has(sessionId)) return;
 
     const currentSession = getCurrentSessionId();
 
@@ -92,11 +94,11 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
     if (sessionId !== currentSession && !isAdmin) {
       console.warn(`[SessionPreferencesContext] Skipping load for session ${sessionId} - not authenticated`);
       failedIds.current.add(sessionId);
-      setLoadedIds(prev => new Set(prev).add(sessionId));
+      loadedIds.current.add(sessionId);
       return;
     }
 
-    setLoadingIds(prev => new Set(prev).add(sessionId));
+    loadingIds.current.add(sessionId);
 
     try {
       // Use cookie-based endpoint for current session, session-specific for others
@@ -110,14 +112,14 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
         // 401 means unauthorized - mark as failed and loaded to prevent retries
         console.warn(`[SessionPreferencesContext] 401 for session ${sessionId} - marking as failed`);
         failedIds.current.add(sessionId);
-        setLoadedIds(prev => new Set(prev).add(sessionId));
+        loadedIds.current.add(sessionId);
         return;
       }
 
       if (!response.ok) {
         // Any other error - mark as loaded to prevent infinite retries
         console.error(`[SessionPreferencesContext] HTTP ${response.status} for session ${sessionId}`);
-        setLoadedIds(prev => new Set(prev).add(sessionId));
+        loadedIds.current.add(sessionId);
         return;
       }
 
@@ -134,40 +136,39 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
         use24HourFormat: prefs.use24HourFormat ?? true,
         showYearInDates: prefs.showYearInDates ?? false,
         refreshRate: prefs.refreshRate ?? null,
+        refreshRateLocked: prefs.refreshRateLocked ?? null,
         allowedTimeFormats: prefs.allowedTimeFormats ?? null
       };
 
       setPreferences(prev => ({ ...prev, [sessionId]: normalizedPrefs }));
-      setLoadedIds(prev => new Set(prev).add(sessionId));
+      loadedIds.current.add(sessionId);
     } catch (err) {
       console.error('[SessionPreferencesContext] Failed to load session preferences:', err);
       // Mark as loaded to prevent infinite retries on network errors
-      setLoadedIds(prev => new Set(prev).add(sessionId));
+      loadedIds.current.add(sessionId);
     } finally {
-      setLoadingIds(prev => {
-        const next = new Set(prev);
-        next.delete(sessionId);
-        return next;
-      });
+      loadingIds.current.delete(sessionId);
     }
-  }, [loadingIds, loadedIds, isAdmin, getCurrentSessionId]);
+  }, [isAdmin, getCurrentSessionId]);
 
+  // Combined effect: reset and load atomically when session becomes available
   useEffect(() => {
     if (authLoading) return;
     if (!hasSession) return;
 
     const sessionId = getCurrentSessionId();
     if (sessionId && !initialLoadDone.current) {
+      // Atomic reset and load - no intermediate state changes
+      failedIds.current.clear();
+      loadedIds.current.clear();
       initialLoadDone.current = true;
       loadSessionPreferences(sessionId);
     }
   }, [getCurrentSessionId, loadSessionPreferences, authLoading, hasSession]);
 
-  // Reset auth failure state when transitioning TO authenticated/guest
+  // Reset when session is lost
   useEffect(() => {
-    if (hasSession) {
-      failedIds.current.clear();
-      setLoadedIds(new Set());
+    if (!hasSession) {
       initialLoadDone.current = false;
     }
   }, [hasSession]);
@@ -202,6 +203,7 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
       use24HourFormat,
       showYearInDates,
       refreshRate: newPrefs.refreshRate ?? null,
+      refreshRateLocked: newPrefs.refreshRateLocked ?? null,
       allowedTimeFormats: newPrefs.allowedTimeFormats ?? null
     };
 
@@ -234,13 +236,15 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
     }
 
     setPreferences(prev => ({ ...prev, [sessionId]: normalizedPrefs }));
-    setLoadedIds(prev => prev.has(sessionId) ? prev : new Set(prev).add(sessionId));
+    if (!loadedIds.current.has(sessionId)) {
+      loadedIds.current.add(sessionId);
+    }
   }, [getCurrentSessionId]);
 
   // When bulk preferences are reset, clear all cached prefs so badges refresh
   const handleUserPreferencesReset = useCallback(() => {
     setPreferences({});
-    setLoadedIds(new Set());
+    loadedIds.current.clear();
     failedIds.current.clear();
     initialLoadDone.current = false;
 
@@ -264,8 +268,8 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
     return preferences[sessionId] || null;
   }, [preferences]);
 
-  const isLoaded = useCallback((sessionId: string): boolean => loadedIds.has(sessionId), [loadedIds]);
-  const isLoading = useCallback((sessionId: string): boolean => loadingIds.has(sessionId), [loadingIds]);
+  const isLoaded = useCallback((sessionId: string): boolean => loadedIds.current.has(sessionId), []);
+  const isLoading = useCallback((sessionId: string): boolean => loadingIds.current.has(sessionId), []);
 
   const setOptimisticPreference = useCallback(<K extends keyof UserPreferences>(key: K, value: UserPreferences[K]) => {
     // Session identity is cookie-based, use the current session ID from getCurrentSessionId

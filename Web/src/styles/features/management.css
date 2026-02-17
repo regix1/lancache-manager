@@ -22,8 +22,10 @@
 }
 
 /* Allow overflow when highlight glow is active so box-shadow is not clipped */
-.management-section:has(.highlight-glow-active) {
-  overflow: visible;
+@supports selector(:has(div)) {
+  .management-section:has(.highlight-glow-active) {
+    overflow: visible;
+  }
 }
 
 @keyframes sectionFadeIn {

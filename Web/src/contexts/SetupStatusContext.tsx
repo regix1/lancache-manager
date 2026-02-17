@@ -36,11 +36,16 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
   const { isLoading: authLoading } = useAuth();
 
   const fetchSetupStatus = async () => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, 10000);
+
     try {
       // This is a public endpoint - no auth required
       const response = await fetch(
         `${API_BASE}/system/setup`,
-        ApiService.getFetchOptions({ cache: 'no-store' })
+        ApiService.getFetchOptions({ cache: 'no-store', signal: controller.signal })
       );
       if (response.ok) {
         const data = await response.json();
@@ -53,10 +58,28 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
           hasProcessedLogs: data.hasProcessedLogs === true,
           isSetupCompleted: isCompleted
         });
+      } else {
+        // Non-OK response: set reasonable defaults
+        setSetupStatus({
+          isCompleted: false,
+          hasProcessedLogs: false,
+          isSetupCompleted: false
+        });
       }
     } catch (error) {
-      console.error('[SetupStatus] Failed to fetch setup status:', error);
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.warn('[SetupStatus] fetchSetupStatus timed out after 10000ms');
+      } else {
+        console.error('[SetupStatus] Failed to fetch setup status:', error);
+      }
+      // On error/timeout: set reasonable defaults
+      setSetupStatus({
+        isCompleted: false,
+        hasProcessedLogs: false,
+        isSetupCompleted: false
+      });
     } finally {
+      clearTimeout(timeoutId);
       setIsLoading(false);
     }
   };

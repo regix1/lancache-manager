@@ -220,10 +220,12 @@
 }
 
 /* Parent overflow fix - ensure frame extends outside content boundaries */
-.management-section:has(.event-frame-active),
-.themed-card:has(.event-frame-active),
-.glass-card:has(.event-frame-active) {
-  overflow: visible !important;
+@supports selector(:has(div)) {
+  .management-section:has(.event-frame-active),
+  .themed-card:has(.event-frame-active),
+  .glass-card:has(.event-frame-active) {
+    overflow: visible !important;
+  }
 }
 
 /* Mobile responsive: reduce spacing on smaller screens */

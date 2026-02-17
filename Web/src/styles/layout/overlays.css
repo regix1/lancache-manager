@@ -2,10 +2,12 @@
   /* ===== UNIVERSAL OVERLAY FIXES ===== */
 
   /* Fix ALL dropdown containers */
-  .relative:has(> .absolute),
-  .relative:has(.fixed + .absolute) {
-    position: relative !important;
-    z-index: auto !important;
+  @supports selector(:has(div)) {
+    .relative:has(> .absolute),
+    .relative:has(.fixed + .absolute) {
+      position: relative !important;
+      z-index: auto !important;
+    }
   }
 
   /* Fix ALL absolute positioned overlays */
@@ -36,28 +38,33 @@
   }
 
   /* CRITICAL FIX: Ensure parent containers don't expand when dropdowns open */
-  .relative:has(> .fixed + .absolute),
-  .relative:has(> .absolute.z-20) {
-    position: relative !important;
-    overflow: visible !important;
-    display: inline-block !important;
-    vertical-align: top !important;
+  /* Note: inline-block may not work correctly in flex/grid contexts - consider reviewing if layout issues occur */
+  @supports selector(:has(div)) {
+    .relative:has(> .fixed + .absolute),
+    .relative:has(> .absolute.z-20) {
+      position: relative !important;
+      overflow: visible !important;
+      display: inline-block !important;
+      vertical-align: top !important;
+    }
   }
 
   /* Settings button specific - prevent layout shift */
-  .relative:has(button svg.lucide-settings) {
-    position: relative !important;
-    display: inline-block !important;
-    vertical-align: top !important;
-  }
+  @supports selector(:has(div)) {
+    .relative:has(button svg.lucide-settings) {
+      position: relative !important;
+      display: inline-block !important;
+      vertical-align: top !important;
+    }
 
-  /* Ensure dropdown is positioned from button, not affecting layout */
-  .relative:has(button svg.lucide-settings) > .absolute {
-    position: absolute !important;
-    z-index: 60 !important;
-    top: calc(100% + 0.5rem) !important;
-    right: 0 !important;
-    margin: 0 !important;
+    /* Ensure dropdown is positioned from button, not affecting layout */
+    .relative:has(button svg.lucide-settings) > .absolute {
+      position: absolute !important;
+      z-index: 60 !important;
+      top: calc(100% + 0.5rem) !important;
+      right: 0 !important;
+      margin: 0 !important;
+    }
   }
 
   /* Prevent any layout reflow when dropdown opens */
@@ -88,8 +95,10 @@
   }
 
   /* Prevent overflow issues on containers */
-  .relative:has(.absolute) {
-    overflow: visible !important;
+  @supports selector(:has(div)) {
+    .relative:has(.absolute) {
+      overflow: visible !important;
+    }
   }
 
   /* Ensure dropdown content is absolute */
