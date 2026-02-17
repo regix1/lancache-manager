@@ -931,6 +931,8 @@
       "browser": "Browser"
     },
     "unknownDeviceLower": "Unknown device",
+    "thisDevice": "This device",
+    "currentSession": "Current session",
     "empty": {
       "title": "No active sessions",
       "subtitle": "Sessions will appear here when users connect"
@@ -1230,6 +1232,7 @@
           "individualDescription": "Downloads that couldn't be grouped by game name"
         },
         "stats": {
+          "title": "Analytics Overview",
           "totalDownloaded": "Total Downloaded",
           "cacheSaved": "Cache Saved",
           "efficiency": "Efficiency",
@@ -1274,6 +1277,7 @@
         "headers": {
           "timestamp": "Timestamp",
           "app": "App",
+          "banner": "Banner",
           "source": "Source",
           "events": "Events",
           "depot": "Depot",
@@ -1647,6 +1651,7 @@
     "corruption": {
       "title": "Corruption Detection",
       "subtitle": "Find and fix corrupted cache files",
+      "directoryMissing": "Required directories not found",
       "loadPreviousResults": "Load previous scan results from database",
       "scanForCorrupted": "Scan for corrupted cache chunks",
       "deleteCorrupted": "Delete cache files and remove log entries for corrupted chunks",
@@ -1697,7 +1702,11 @@
         "warning": "Needs write access to both cache and log directories."
       },
       "alerts": {
+        "cacheMissing": "Cache directory does not exist",
+        "directoryNotFound": "The required directories were not found. Ensure they are mounted correctly in docker-compose.",
+        "logsAndCacheMissing": "Logs and cache directories do not exist",
         "logsAndCacheReadOnly": "Logs and cache directories are read-only",
+        "logsMissing": "Logs directory does not exist",
         "logsReadOnly": "Logs directory is read-only",
         "cacheReadOnly": "Cache directory is read-only",
         "requiresWriteAccess": "Corruption removal requires write access to both logs and cache. Remove",
@@ -2002,6 +2011,7 @@
     "logRemoval": {
       "title": "Log Removal",
       "subtitle": "Remove service entries from log files",
+      "logsMissing": "Logs directory not found",
       "readOnly": "Read-only",
       "dockerSocketRequired": "Docker socket required",
       "refreshServiceCounts": "Refresh service counts",
@@ -2057,6 +2067,10 @@
         "logsReadOnly": {
           "title": "Logs directory is read-only",
           "description": "Remove :ro from your docker-compose volume mounts to enable log removal."
+        },
+        "logsMissing": {
+          "title": "Logs directory does not exist",
+          "description": "The logs directory was not found. Ensure it is mounted correctly in docker-compose."
         },
         "dockerSocket": {
           "title": "Docker socket not available",
@@ -4250,7 +4264,10 @@
       "guestModeHours": "Continue as Guest ({{hours}}h)",
       "whereToFind": "Where to find your API key:",
       "whereToFindDesc": "Check your server logs for \"API Key:\" or look in",
-      "noDataTooltip": "No data available. Complete setup first."
+      "noDataTooltip": "No data available. Complete setup first.",
+      "errors": {
+        "required": "API key is required"
+      }
     },
     "permissionsCheck": {
       "title": "Permissions Check",
