@@ -684,7 +684,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                   </span>
                 </div>
                 <p className="text-xs truncate text-themed-muted">
-                  {session.isCurrentSession ? t('activeSessions.currentSession') : session.ipAddress || t('activeSessions.unknownDeviceLower')}
+                  {session.isCurrentSession ? t('activeSessions.currentSession') : (session.ipAddress ? cleanIpAddress(session.ipAddress) : t('activeSessions.unknownDeviceLower'))}
                 </p>
                 <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                   {isGuestSession(session) && !session.isRevoked && !session.isExpired && (
