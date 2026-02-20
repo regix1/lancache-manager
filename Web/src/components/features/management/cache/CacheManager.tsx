@@ -1,4 +1,4 @@
-import React, { useState, useEffect, use, useRef, useCallback } from 'react';
+import React, { use, useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Server, AlertTriangle, FolderOpen, Clock, Loader2, RefreshCw } from 'lucide-react';
 import ApiService from '@services/api.service';
@@ -6,6 +6,7 @@ import { type AuthMode } from '@services/auth.service';
 import { useSignalR } from '@contexts/SignalRContext';
 import { useCacheSize } from '@contexts/CacheSizeContext';
 import { useNotifications } from '@contexts/notifications';
+import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
@@ -35,20 +36,9 @@ const fetchRsyncAvailability = async (): Promise<boolean> => {
   }
 };
 
-const fetchDirectoryPermissions = async (): Promise<boolean> => {
-  try {
-    const data = await ApiService.getDirectoryPermissions();
-    return data.cache.readOnly;
-  } catch (err) {
-    console.error('Failed to check directory permissions:', err);
-    return false; // Assume writable on error
-  }
-};
-
 // Cache promises to avoid refetching on every render
 let configPromise: Promise<Config> | null = null;
 let rsyncPromise: Promise<boolean> | null = null;
-let permissionsPromise: Promise<boolean> | null = null;
 
 const getCacheConfigPromise = () => {
   if (!configPromise) {
@@ -62,13 +52,6 @@ const getRsyncPromise = () => {
     rsyncPromise = fetchRsyncAvailability();
   }
   return rsyncPromise;
-};
-
-const getPermissionsPromise = () => {
-  if (!permissionsPromise) {
-    permissionsPromise = fetchDirectoryPermissions();
-  }
-  return permissionsPromise;
 };
 
 interface CacheManagerProps {
@@ -91,7 +74,9 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   // Use the 'use' hook to load data
   const config = use(getCacheConfigPromise());
   const rsyncAvailable = use(getRsyncPromise());
-  const cacheReadOnly = use(getPermissionsPromise());
+
+  // Directory permissions from shared hook (auto-refreshes via SignalR)
+  const { cacheReadOnly, checkingPermissions: checkingCachePermissions } = useDirectoryPermissions();
 
   // Cache size from global context (persists across navigation)
   const { cacheSize, isLoading: cacheSizeLoading, error: cacheSizeError, fetchCacheSize, clearCacheSize } = useCacheSize();
@@ -330,7 +315,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
           helpContent={helpContent}
           permissions={{
             cacheReadOnly,
-            checkingPermissions: false
+            checkingPermissions: checkingCachePermissions
           }}
           actions={headerActions}
         />

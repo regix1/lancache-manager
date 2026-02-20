@@ -1,7 +1,10 @@
-import React, { Suspense } from 'react';
+import React, { Suspense, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { RefreshCw, Loader2 } from 'lucide-react';
 import { Card } from '@components/ui/Card';
+import { Button } from '@components/ui/Button';
 import { type AuthMode } from '@services/auth.service';
+import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
 import DatasourcesManager from '../datasources/DatasourcesInfo';
 import LogRemovalManager from '../log-processing/LogRemovalManager';
 import CacheManager from '../cache/CacheManager';
@@ -27,6 +30,20 @@ const StorageSection: React.FC<StorageSectionProps> = ({
   onDataRefresh
 }) => {
   const { t } = useTranslation();
+  const { logsReadOnly, cacheReadOnly, reload: reloadPermissions } = useDirectoryPermissions();
+  const [isRechecking, setIsRechecking] = useState(false);
+
+  const handleRecheckPermissions = async () => {
+    setIsRechecking(true);
+    try {
+      await reloadPermissions();
+    } finally {
+      setIsRechecking(false);
+    }
+  };
+
+  // Only show the recheck button when at least one directory is read-only
+  const hasPermissionIssues = logsReadOnly || cacheReadOnly;
 
   return (
     <div
@@ -37,12 +54,33 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     >
       {/* Section Header */}
       <div className="mb-4 sm:mb-6">
-        <h2 className="text-xl font-semibold text-themed-primary mb-1">
-          {t('management.sections.storage.title')}
-        </h2>
-        <p className="text-themed-secondary text-sm">
-          {t('management.sections.storage.subtitle')}
-        </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-xl font-semibold text-themed-primary mb-1">
+              {t('management.sections.storage.title')}
+            </h2>
+            <p className="text-themed-secondary text-sm">
+              {t('management.sections.storage.subtitle')}
+            </p>
+          </div>
+          {hasPermissionIssues && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleRecheckPermissions}
+              disabled={isRechecking}
+            >
+              {isRechecking ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+              )}
+              {isRechecking
+                ? t('management.sections.storage.recheckingPermissions')
+                : t('management.sections.storage.recheckPermissions')}
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* ==================== LOG OPERATIONS ==================== */}

@@ -18,6 +18,10 @@ public class LiveLogMonitorService : BackgroundService
     private readonly Dictionary<string, long> _lastFileSizes = new(); // Per-datasource file sizes
     private bool _isProcessing = false;
 
+    // Per-datasource permission error tracking for exponential backoff
+    private readonly Dictionary<string, int> _consecutivePermissionErrors = new();
+    private readonly Dictionary<string, DateTime> _lastPermissionErrorLogTime = new();
+
     // Static pause mechanism for log file operations (corruption removal, etc.)
     private static readonly SemaphoreSlim _pauseLock = new SemaphoreSlim(1, 1);
     private static bool _isPaused = false;
@@ -102,6 +106,11 @@ public class LiveLogMonitorService : BackgroundService
                 // File is locked by another process, wait and retry with exponential backoff
                 var delayMs = baseDelayMs * (int)Math.Pow(2, attempt);
                 Thread.Sleep(delayMs);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Permission denied - don't retry, propagate immediately for proper backoff handling
+                throw;
             }
         }
 
@@ -240,6 +249,18 @@ public class LiveLogMonitorService : BackgroundService
             _logger.LogInformation("Datasource '{Name}': Log file now exists. Resuming live monitoring.", datasource.Name);
         }
 
+        // Check if we should skip this datasource due to permission error backoff
+        if (_consecutivePermissionErrors.TryGetValue(datasource.Name, out var errorCount) && errorCount > 0)
+        {
+            // Exponential backoff: skip for 2^(errorCount-1) seconds, capped at 60 seconds
+            var backoffSeconds = Math.Min(Math.Pow(2, errorCount - 1), 60);
+            var lastErrorTime = _lastPermissionErrorLogTime.GetValueOrDefault(datasource.Name, DateTime.MinValue);
+            if ((DateTime.UtcNow - lastErrorTime).TotalSeconds < backoffSeconds)
+            {
+                return; // Still in backoff period
+            }
+        }
+
         try
         {
             // Check file size (very fast operation)
@@ -318,6 +339,34 @@ public class LiveLogMonitorService : BackgroundService
                 {
                     _isProcessing = false;
                 }
+            }
+
+            // If we got here without exception, the datasource is accessible - reset error tracking
+            if (_consecutivePermissionErrors.TryGetValue(datasource.Name, out var prevErrors) && prevErrors > 0)
+            {
+                _logger.LogInformation("Datasource '{Name}': Log file permissions restored, resuming normal monitoring", datasource.Name);
+                _consecutivePermissionErrors[datasource.Name] = 0;
+            }
+        }
+        catch (UnauthorizedAccessException)
+        {
+            _isProcessing = false;
+
+            // Track consecutive permission errors for this datasource
+            _consecutivePermissionErrors.TryGetValue(datasource.Name, out var currentErrors);
+            _consecutivePermissionErrors[datasource.Name] = currentErrors + 1;
+
+            // Throttle logging: warn on first error, then once per minute
+            var lastLogTime = _lastPermissionErrorLogTime.GetValueOrDefault(datasource.Name, DateTime.MinValue);
+            var timeSinceLastLog = (DateTime.UtcNow - lastLogTime).TotalSeconds;
+
+            if (currentErrors == 0 || timeSinceLastLog >= 60)
+            {
+                _logger.LogWarning(
+                    "Datasource '{Name}': Permission denied reading log file. Check PUID/PGID settings. " +
+                    "Backing off (consecutive errors: {ErrorCount})",
+                    datasource.Name, currentErrors + 1);
+                _lastPermissionErrorLogTime[datasource.Name] = DateTime.UtcNow;
             }
         }
         catch (Exception ex)

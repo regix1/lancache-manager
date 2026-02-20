@@ -11,6 +11,7 @@ import { AccordionSection } from '@components/ui/AccordionSection';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { useNotifications } from '@contexts/notifications';
 import { useDockerSocket } from '@contexts/DockerSocketContext';
+import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import {
   ManagerCardHeader,
@@ -39,6 +40,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const { t } = useTranslation();
   const { addNotification, updateNotification, notifications, isAnyRemovalRunning } = useNotifications();
   const { isDockerAvailable } = useDockerSocket();
+  const { cacheReadOnly, checkingPermissions } = useDirectoryPermissions();
 
   // Derive game detection state from notifications (standardized pattern)
   const activeGameDetectionNotification = notifications.find(
@@ -58,8 +60,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const [services, setServices] = useState<ServiceCacheInfo[]>([]);
   const [gameToRemove, setGameToRemove] = useState<GameCacheInfo | null>(null);
   const [serviceToRemove, setServiceToRemove] = useState<ServiceCacheInfo | null>(null);
-  const [cacheReadOnly, setCacheReadOnly] = useState(false);
-  const [checkingPermissions, setCheckingPermissions] = useState(false);
   const [hasProcessedLogs, setHasProcessedLogs] = useState(false);
   const [checkingLogs, setCheckingLogs] = useState(false);
   const [lastDetectionTime, setLastDetectionTime] = useState<string | null>(null);
@@ -163,27 +163,13 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
     loadCachedGames();
     if (refreshKey === 0) {
-      // Only check permissions, logs, and datasources on initial mount
-      loadDirectoryPermissions();
+      // Only check logs and datasources on initial mount (permissions handled by useDirectoryPermissions hook)
       loadDatasources();
       checkIfLogsProcessed(); // Check database for LogEntries
       // Note: Recovery is now handled by NotificationsContext's recoverGameDetection
       // which queries the backend and creates the notification on page load
     }
   }, [mockMode, refreshKey]); // Re-run when mockMode or refreshKey changes
-
-  const loadDirectoryPermissions = async () => {
-    try {
-      setCheckingPermissions(true);
-      const data = await ApiService.getDirectoryPermissions();
-      setCacheReadOnly(data.cache.readOnly);
-    } catch (err) {
-      console.error('Failed to check directory permissions:', err);
-      setCacheReadOnly(false); // Assume writable on error
-    } finally {
-      setCheckingPermissions(false);
-    }
-  };
 
   const loadDatasources = async () => {
     try {

@@ -47,6 +47,9 @@ export const SIGNALR_EVENTS = [
   'PrefillSessionsCleared',
   'BannedSteamUsersCleared',
 
+  // Directory Permissions
+  'DirectoryPermissionsChanged',
+
   // SteamKit2 / Depot Mapping
   'DepotMappingStarted',
   'DepotMappingProgress',

@@ -449,6 +449,19 @@ public class DatasourceService
     }
 
     /// <summary>
+    /// Re-check directory permissions for all datasources and update cached writable flags.
+    /// Call this when permissions may have changed (e.g., Docker volume remount, PUID/PGID change).
+    /// </summary>
+    public void RefreshPermissions()
+    {
+        foreach (var ds in _datasources)
+        {
+            ds.CacheWritable = _pathResolver.IsDirectoryWritable(ds.CachePath);
+            ds.LogsWritable = _pathResolver.IsDirectoryWritable(ds.LogPath);
+        }
+    }
+
+    /// <summary>
     /// Check if multiple datasources are configured.
     /// </summary>
     public bool HasMultipleDatasources => _datasources.Count > 1;

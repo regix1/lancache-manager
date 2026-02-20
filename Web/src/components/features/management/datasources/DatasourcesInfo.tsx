@@ -10,6 +10,7 @@ import { DatasourceListItem } from '@components/ui/DatasourceListItem';
 import { useSignalR } from '@contexts/SignalRContext';
 import type { LogProcessingCompleteEvent } from '@contexts/SignalRContext/types';
 import { useNotifications } from '@contexts/notifications';
+import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
 import {
   ManagerCardHeader,
   LoadingState
@@ -51,6 +52,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
 
   const { notifications } = useNotifications();
   const signalR = useSignalR();
+  const { logsReadOnly, checkingPermissions } = useDirectoryPermissions();
 
   // Check if processing is running
   const isProcessing = notifications.some(n => n.type === 'log_processing' && n.status === 'running');
@@ -202,9 +204,6 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
 
   const hasMultiple = datasources.length > 1;
 
-  // Check if any datasource has read-only logs
-  const logsReadOnly = datasources.some(ds => !ds.logsWritable);
-
   // Help content
   const helpContent = (
     <HelpPopover position="left" width={320}>
@@ -266,7 +265,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
           title={t('management.datasources.title')}
           subtitle={t('management.datasources.subtitleLoading')}
           helpContent={helpContent}
-          permissions={{ logsReadOnly, checkingPermissions: true }}
+          permissions={{ logsReadOnly, checkingPermissions }}
         />
         <LoadingState message={t('management.datasources.loadingDatasources')} />
       </Card>
@@ -284,7 +283,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
             ? t('management.datasources.subtitleMultiple', { count: datasources.length })
             : t('management.datasources.subtitleSingle')}
           helpContent={helpContent}
-          permissions={{ logsReadOnly, checkingPermissions: false }}
+          permissions={{ logsReadOnly, checkingPermissions }}
           actions={headerActions}
         />
 

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import ApiService from '@services/api.service';
+import { useSignalR } from '@contexts/SignalRContext';
 
 interface DirectoryPermissions {
   logsReadOnly: boolean;
@@ -13,8 +14,10 @@ interface DirectoryPermissions {
 /**
  * Hook to check directory permissions for logs and cache directories.
  * Calls ApiService.getDirectoryPermissions() on mount and provides a reload function.
+ * Auto-refreshes when DirectoryPermissionsChanged SignalR event is received.
  */
 export const useDirectoryPermissions = (): DirectoryPermissions => {
+  const { on, off } = useSignalR();
   const [logsReadOnly, setLogsReadOnly] = useState(false);
   const [cacheReadOnly, setCacheReadOnly] = useState(false);
   const [logsExist, setLogsExist] = useState(true);
@@ -41,9 +44,20 @@ export const useDirectoryPermissions = (): DirectoryPermissions => {
     }
   }, []);
 
-  useEffect(() => {
+  // Auto-refresh when backend detects permission changes
+  const handlePermissionsChanged = useCallback(() => {
     loadDirectoryPermissions();
   }, [loadDirectoryPermissions]);
+
+  useEffect(() => {
+    loadDirectoryPermissions();
+
+    on('DirectoryPermissionsChanged', handlePermissionsChanged);
+
+    return () => {
+      off('DirectoryPermissionsChanged', handlePermissionsChanged);
+    };
+  }, [loadDirectoryPermissions, on, off, handlePermissionsChanged]);
 
   return {
     logsReadOnly,

@@ -1479,7 +1479,9 @@
         "subtitle": "Manage cache directories, process logs, detect corrupted files, and identify cached games",
         "logOperations": "Log Operations",
         "cacheOperations": "Cache Operations",
-        "loadingCacheConfig": "Loading cache configuration..."
+        "loadingCacheConfig": "Loading cache configuration...",
+        "recheckPermissions": "Recheck Permissions",
+        "recheckingPermissions": "Checking..."
       },
       "settings": {
         "title": "Settings",

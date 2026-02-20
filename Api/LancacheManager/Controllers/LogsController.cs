@@ -124,7 +124,7 @@ public class LogsController : ControllerBase
             {
                 datasource = ds.Name,
                 logsPath = ds.LogPath,
-                logsWritable = ds.LogsWritable,
+                logsWritable = _pathResolver.IsDirectoryWritable(ds.LogPath),
                 enabled = ds.Enabled,
                 serviceCounts = new Dictionary<string, ulong>()
             };
@@ -158,7 +158,7 @@ public class LogsController : ControllerBase
                 {
                     datasource = ds.Name,
                     logsPath = ds.LogPath,
-                    logsWritable = ds.LogsWritable,
+                    logsWritable = _pathResolver.IsDirectoryWritable(ds.LogPath),
                     enabled = ds.Enabled,
                     serviceCounts = serviceCounts ?? new Dictionary<string, ulong>()
                 });

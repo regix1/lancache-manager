@@ -109,6 +109,9 @@ public static class SignalREvents
     public const string PrefillHistoryUpdated = "PrefillHistoryUpdated";
     public const string SessionEnded = "SessionEnded";
 
+    // Directory Permissions
+    public const string DirectoryPermissionsChanged = "DirectoryPermissionsChanged";
+
     // SteamKit2 / Depot Mapping
     public const string DepotMappingStarted = "DepotMappingStarted";
     public const string DepotMappingProgress = "DepotMappingProgress";
