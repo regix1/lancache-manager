@@ -269,7 +269,6 @@ const ClientsTab: React.FC = () => {
           <table className="w-full">
             <thead>
               <tr className="text-left text-xs text-themed-muted uppercase tracking-wider">
-                <th className="pb-3">Client</th>
                 <th className="pb-3">{t('clients.table.client')}</th>
                 <th className="pb-3">{t('clients.table.totalDownloads')}</th>
                 <th className="pb-3">{t('clients.table.totalData')}</th>
