@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next';
 import { Card } from '../../ui/Card';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { MultiSelectDropdown } from '@components/ui/MultiSelectDropdown';
-import { Shield, Monitor, Network, Loader2 } from 'lucide-react';
+import { Shield, Monitor, Link, Loader2 } from 'lucide-react';
 import {
   CommandButton,
   CommandType,
@@ -171,7 +171,7 @@ export function PrefillCommandButtons({
               </div>
               <div className="cmd-settings-field">
                 <label className="cmd-settings-label flex items-center gap-1.5">
-                  <Network className="w-3 h-3" />
+                  <Link className="w-3 h-3" />
                   {t('prefill.settings.downloadThreads')}
                 </label>
                 <EnhancedDropdown

@@ -3021,7 +3021,7 @@
     },
     "settings": {
       "targetPlatforms": "Target Platforms",
-      "downloadThreads": "Download Threads",
+      "downloadThreads": "Connections",
       "os": {
         "windows": {
           "label": "Windows",
@@ -3038,44 +3038,44 @@
       },
       "threads": {
         "auto": {
-          "label": "Auto",
-          "description": "Recommended — leaves resources for other processes"
+          "label": "Auto (30)",
+          "description": "Recommended for most setups"
         },
         "1": {
-          "label": "1 Thread",
-          "description": "Minimal bandwidth usage"
+          "label": "1",
+          "description": "Single connection"
         },
         "2": {
-          "label": "2 Threads",
-          "description": "Low bandwidth usage"
+          "label": "2",
+          "description": "2 concurrent connections"
         },
         "4": {
-          "label": "4 Threads",
-          "description": "Moderate bandwidth"
+          "label": "4",
+          "description": "4 concurrent connections"
         },
         "8": {
-          "label": "8 Threads",
-          "description": "High bandwidth"
+          "label": "8",
+          "description": "8 concurrent connections"
         },
         "16": {
-          "label": "16 Threads",
-          "description": "Very high bandwidth"
+          "label": "16",
+          "description": "16 concurrent connections"
         },
         "32": {
-          "label": "32 Threads",
-          "description": "High — For fast networks"
+          "label": "32",
+          "description": "32 concurrent connections"
         },
         "64": {
-          "label": "64 Threads",
-          "description": "Very high — For fast local networks"
+          "label": "64",
+          "description": "64 concurrent connections"
         },
         "128": {
-          "label": "128 Threads",
-          "description": "Extreme — For 1Gbps+ connections"
+          "label": "128",
+          "description": "128 concurrent connections"
         },
         "256": {
-          "label": "256 Threads",
-          "description": "Maximum — For 10Gbps+ connections"
+          "label": "256",
+          "description": "256 concurrent connections"
         }
       }
     },
