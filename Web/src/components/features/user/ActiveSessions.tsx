@@ -19,7 +19,6 @@ import {
   Palette,
   LogOut,
   History,
-  Cpu
 } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
@@ -35,7 +34,6 @@ import ApiService from '@services/api.service';
 import themeService from '@services/theme.service';
 import authService from '@services/auth.service';
 import { getErrorMessage } from '@utils/error';
-import { API_BASE } from '@utils/constants';
 import { useAuth } from '@contexts/AuthContext';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { useSignalR } from '@contexts/SignalRContext';
@@ -160,7 +158,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [historyExpanded, setHistoryExpanded] = useState(false);
-  const [serverThreadCount, setServerThreadCount] = useState<number>(0);
+
   const [defaultGuestMaxThreadCount, setDefaultGuestMaxThreadCount] = useState<number | null>(null);
 
   const toggleSessionExpanded = (sessionId: string) => {
@@ -271,18 +269,11 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     ));
   }, [setSessions]);
 
-  // Load server thread count and default guest max thread count
+  // Load default guest max thread count
   useEffect(() => {
     const loadThreadConfig = async () => {
       try {
-        const [defaultsRes, configRes] = await Promise.all([
-          fetch(`${API_BASE}/system/prefill-defaults`, { credentials: 'include' }),
-          fetch('/api/auth/guest/prefill/config', ApiService.getFetchOptions())
-        ]);
-        if (defaultsRes.ok) {
-          const data = await defaultsRes.json();
-          if (typeof data.serverThreadCount === 'number') setServerThreadCount(data.serverThreadCount);
-        }
+        const configRes = await fetch('/api/auth/guest/prefill/config', ApiService.getFetchOptions());
         if (configRes.ok) {
           const data = await configRes.json();
           setDefaultGuestMaxThreadCount(data.maxThreadCount ?? null);
@@ -1645,7 +1636,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                   ...THREAD_VALUES.map((n) => ({
                     value: String(n),
                     label: `${n} threads`,
-                    disabled: serverThreadCount > 0 && n > serverThreadCount
+                    disabled: false
                   }))
                 ];
                 const hasOverride = editingPreferences.maxThreadCount != null;
@@ -1654,7 +1645,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                   <div>
                     <div className="flex items-center justify-between mb-2">
                       <label className="text-sm font-medium text-themed-primary flex items-center gap-1.5">
-                        <Cpu className="w-4 h-4" />
+                        <Network className="w-4 h-4" />
                         {t('user.guest.prefill.maxThreads.label')}
                       </label>
                       {hasOverride ? (

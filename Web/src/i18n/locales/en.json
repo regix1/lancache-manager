@@ -3041,10 +3041,6 @@
           "label": "Auto",
           "description": "Recommended — leaves resources for other processes"
         },
-        "max": {
-          "label": "Max",
-          "description": "Uses all server threads"
-        },
         "1": {
           "label": "1 Thread",
           "description": "Minimal bandwidth usage"

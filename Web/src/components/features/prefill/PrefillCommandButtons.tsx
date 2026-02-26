@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next';
 import { Card } from '../../ui/Card';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { MultiSelectDropdown } from '@components/ui/MultiSelectDropdown';
-import { Shield, Monitor, Cpu, Loader2 } from 'lucide-react';
+import { Shield, Monitor, Network, Loader2 } from 'lucide-react';
 import {
   CommandButton,
   CommandType,
@@ -22,7 +22,6 @@ interface PrefillCommandButtonsProps {
   selectedAppIds: number[];
   selectedOS: string[];
   maxConcurrency: string;
-  serverThreadCount: number;
   maxThreadLimit?: number | null;
   onCommandClick: (commandType: CommandType) => void;
   onSelectedOSChange: (values: string[]) => void;
@@ -38,7 +37,6 @@ export function PrefillCommandButtons({
   selectedAppIds,
   selectedOS,
   maxConcurrency,
-  serverThreadCount,
   maxThreadLimit,
   onCommandClick,
   onSelectedOSChange,
@@ -173,11 +171,11 @@ export function PrefillCommandButtons({
               </div>
               <div className="cmd-settings-field">
                 <label className="cmd-settings-label flex items-center gap-1.5">
-                  <Cpu className="h-3 w-3" />
+                  <Network className="w-3 h-3" />
                   {t('prefill.settings.downloadThreads')}
                 </label>
                 <EnhancedDropdown
-                  options={getThreadOptions(serverThreadCount, maxThreadLimit).map((opt) => ({
+                  options={getThreadOptions(maxThreadLimit).map((opt) => ({
                     ...opt,
                     label: t(`prefill.settings.threads.${opt.value}.label`),
                     description: t(`prefill.settings.threads.${opt.value}.description`)

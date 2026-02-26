@@ -77,7 +77,6 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   // Prefill settings state
   const [selectedOS, setSelectedOS] = useState<string[]>(['windows', 'linux', 'macos']);
   const [maxConcurrency, setMaxConcurrency] = useState<string>('auto');
-  const [serverThreadCount, setServerThreadCount] = useState<number>(0);
   const [maxThreadLimit, setMaxThreadLimit] = useState<number | null>(null);
 
   // Load prefill defaults from server (reusable for initial load + SignalR refresh)
@@ -91,23 +90,20 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         if (data.operatingSystems && Array.isArray(data.operatingSystems)) {
           setSelectedOS(data.operatingSystems);
         }
-        if (typeof data.serverThreadCount === 'number' && data.serverThreadCount > 0) {
-          setServerThreadCount(data.serverThreadCount);
-        }
         const limit: number | null = data.maxThreadLimit ?? null;
         setMaxThreadLimit(limit);
 
         // Clamp concurrency to the guest thread limit so the dropdown
         // never selects a value that exceeds the allowed maximum
         let concurrency: string = data.maxConcurrency || 'auto';
+        // Migrate legacy "max" saved value to numeric equivalent
+        if (concurrency === 'max') {
+          concurrency = String(limit ?? 256);
+        }
         if (limit != null) {
-          if (concurrency === 'max') {
+          const numeric = parseInt(concurrency, 10);
+          if (!isNaN(numeric) && numeric > limit) {
             concurrency = String(limit);
-          } else {
-            const numeric = parseInt(concurrency, 10);
-            if (!isNaN(numeric) && numeric > limit) {
-              concurrency = String(limit);
-            }
           }
         }
         setMaxConcurrency(concurrency);
@@ -292,9 +288,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         requestBody.operatingSystems = selectedOS;
       }
 
-      if (maxConcurrency === 'max' && serverThreadCount > 0) {
-        requestBody.maxConcurrency = serverThreadCount;
-      } else if (maxConcurrency !== 'auto') {
+      if (maxConcurrency !== 'auto') {
         const parsed = parseInt(maxConcurrency, 10);
         if (!isNaN(parsed) && parsed > 0) {
           requestBody.maxConcurrency = parsed;
@@ -317,7 +311,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
 
       return response.json();
     },
-    [selectedOS, maxConcurrency, serverThreadCount, signalR.isCancelling]
+    [selectedOS, maxConcurrency, maxThreadLimit, signalR.isCancelling]
   );
 
   const loadGames = useCallback(
@@ -933,7 +927,6 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
             selectedAppIds={selectedAppIds}
             selectedOS={selectedOS}
             maxConcurrency={maxConcurrency}
-            serverThreadCount={serverThreadCount}
             maxThreadLimit={maxThreadLimit}
             onCommandClick={handleCommandClick}
             onSelectedOSChange={handleOSChange}

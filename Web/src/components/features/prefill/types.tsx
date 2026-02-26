@@ -152,19 +152,20 @@ export const OS_OPTIONS: MultiSelectOption[] = [
 // Static thread count values
 const STATIC_THREAD_VALUES = [1, 2, 4, 8, 16, 32, 64, 128, 256];
 
-// Build dynamic thread options based on server thread count and optional limit
-export function getThreadOptions(serverThreadCount: number, maxThreadLimit?: number | null): DropdownOption[] {
-  const autoThreads = Math.max(1, serverThreadCount - 2);
-  const effectiveCap = maxThreadLimit ?? serverThreadCount;
-  const maxValue = maxThreadLimit ? Math.min(maxThreadLimit, serverThreadCount) : serverThreadCount;
+// Daemon default when no concurrency value is specified
+const DAEMON_DEFAULT_THREADS = 30;
+const MAX_THREAD_VALUE = 256;
+
+// Build dynamic thread options based on optional guest thread limit
+export function getThreadOptions(maxThreadLimit?: number | null): DropdownOption[] {
+  const effectiveCap = maxThreadLimit ?? MAX_THREAD_VALUE;
   return [
-    { value: 'auto', label: '', description: '', shortLabel: `Auto (${Math.min(autoThreads, effectiveCap)})` },
-    { value: 'max', label: '', description: '', shortLabel: `Max (${maxValue})`, disabled: maxThreadLimit != null && serverThreadCount > maxThreadLimit },
+    { value: 'auto', label: '', description: '', shortLabel: `Auto (${Math.min(DAEMON_DEFAULT_THREADS, effectiveCap)})` },
     ...STATIC_THREAD_VALUES.map((n: number): DropdownOption => ({
       value: String(n),
       label: '',
       description: '',
-      disabled: n > serverThreadCount || n > effectiveCap
+      disabled: n > effectiveCap
     }))
   ];
 }

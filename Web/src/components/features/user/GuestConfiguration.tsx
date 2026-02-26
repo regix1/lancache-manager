@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Settings2, Loader2, Globe, MapPin, Download, AlertTriangle, Lock, Unlock, Cpu } from 'lucide-react';
+import { Settings2, Loader2, Globe, MapPin, Download, AlertTriangle, Lock, Unlock, Network } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { MultiSelectDropdown } from '@components/ui/MultiSelectDropdown';
@@ -8,7 +8,6 @@ import ApiService from '@services/api.service';
 import { getErrorMessage } from '@utils/error';
 import { useSignalR } from '@contexts/SignalRContext';
 import { useAuth } from '@contexts/AuthContext';
-import { API_BASE } from '@utils/constants';
 import { ThemeOption, durationOptions, refreshRateOptions, showToast } from './types';
 
 type TimeSettingValue = 'server-24h' | 'server-12h' | 'local-24h' | 'local-12h';
@@ -78,7 +77,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   });
   const [loadingPrefillConfig, setLoadingPrefillConfig] = useState(false);
   const [updatingPrefillConfig, setUpdatingPrefillConfig] = useState(false);
-  const [serverThreadCount, setServerThreadCount] = useState<number>(0);
+
 
   // Helper to update default time format based on a format value
   const updateDefaultTimeFormat = async (format: TimeSettingValue) => {
@@ -161,7 +160,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     ...THREAD_VALUES.map((n) => ({
       value: String(n),
       label: `${n} threads`,
-      disabled: serverThreadCount > 0 && n > serverThreadCount
+      disabled: false
     }))
   ];
   const preferenceLabels: Record<string, string> = {
@@ -295,10 +294,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   const loadPrefillConfig = async () => {
     try {
       setLoadingPrefillConfig(true);
-      const [configResponse, defaultsResponse] = await Promise.all([
-        fetch('/api/auth/guest/prefill/config', ApiService.getFetchOptions()),
-        fetch(`${API_BASE}/system/prefill-defaults`, { credentials: 'include' })
-      ]);
+      const configResponse = await fetch('/api/auth/guest/prefill/config', ApiService.getFetchOptions());
       if (configResponse.ok) {
         const data = await configResponse.json();
         setPrefillConfig({
@@ -306,12 +302,6 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
           durationHours: data.durationHours ?? 2,
           maxThreadCount: data.maxThreadCount ?? null
         });
-      }
-      if (defaultsResponse.ok) {
-        const defaults = await defaultsResponse.json();
-        if (typeof defaults.serverThreadCount === 'number' && defaults.serverThreadCount > 0) {
-          setServerThreadCount(defaults.serverThreadCount);
-        }
       }
     } catch (err) {
       console.error('Failed to load prefill config:', err);
@@ -459,7 +449,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
 
           <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
             <div className="toggle-row-label whitespace-nowrap flex items-center gap-1.5">
-              <Cpu className="w-3.5 h-3.5 text-themed-accent" />
+              <Network className="w-3.5 h-3.5 text-themed-accent" />
               {t('user.guest.prefill.maxThreads.label')}
             </div>
             <div className="flex items-center gap-2">

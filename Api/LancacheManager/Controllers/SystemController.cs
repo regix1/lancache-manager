@@ -513,7 +513,7 @@ public class SystemController : ControllerBase
         {
             operatingSystems = _stateService.GetDefaultPrefillOperatingSystems(),
             maxConcurrency,
-            serverThreadCount = Environment.ProcessorCount,
+            serverThreadCount = 256,
             maxThreadLimit
         });
     }
@@ -539,7 +539,7 @@ public class SystemController : ControllerBase
         {
             operatingSystems = _stateService.GetDefaultPrefillOperatingSystems(),
             maxConcurrency = _stateService.GetDefaultPrefillMaxConcurrency(),
-            serverThreadCount = Environment.ProcessorCount,
+            serverThreadCount = 256,
             maxThreadLimit
         });
 
@@ -547,7 +547,7 @@ public class SystemController : ControllerBase
         {
             operatingSystems = _stateService.GetDefaultPrefillOperatingSystems(),
             maxConcurrency = _stateService.GetDefaultPrefillMaxConcurrency(),
-            serverThreadCount = Environment.ProcessorCount,
+            serverThreadCount = 256,
             maxThreadLimit
         });
     }
@@ -567,16 +567,13 @@ public class SystemController : ControllerBase
 
     /// <summary>
     /// Clamp the default concurrency value so it does not exceed the guest thread limit.
-    /// "auto" passes through unchanged; "max" and numeric values are capped.
+    /// "auto" passes through unchanged; numeric values are capped.
     /// </summary>
     private static string ClampConcurrencyToLimit(string concurrency, int? maxThreadLimit)
     {
         if (!maxThreadLimit.HasValue) return concurrency;
 
         var limit = maxThreadLimit.Value;
-
-        if (concurrency.Equals("max", StringComparison.OrdinalIgnoreCase))
-            return limit.ToString();
 
         if (int.TryParse(concurrency, out var numeric) && numeric > limit)
             return limit.ToString();

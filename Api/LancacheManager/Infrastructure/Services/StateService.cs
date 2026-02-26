@@ -1244,8 +1244,8 @@ public class StateService : IStateService
 
         if (int.TryParse(normalized, out var numericValue) && numericValue > 0)
         {
-            // Cap at server thread count
-            var capped = Math.Min(numericValue, Environment.ProcessorCount);
+            // Cap at UI max (these are HTTP connections, not CPU threads)
+            var capped = Math.Min(numericValue, 256);
             UpdateState(state => state.DefaultPrefillMaxConcurrency = capped.ToString());
             return;
         }
@@ -1265,7 +1265,7 @@ public class StateService : IStateService
         if (value.HasValue)
         {
             if (value.Value < 1) value = 1;
-            value = Math.Min(value.Value, Environment.ProcessorCount);
+            value = Math.Min(value.Value, 256);
         }
         UpdateState(state => state.DefaultGuestMaxThreadCount = value);
     }
