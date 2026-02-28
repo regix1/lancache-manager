@@ -17,7 +17,12 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  lint:
+    name: Lint
+    uses: ./.github/workflows/lint.yml
+
   build-and-push:
+    needs: lint
     strategy:
       matrix:
         include:
