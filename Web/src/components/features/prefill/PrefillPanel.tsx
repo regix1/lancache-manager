@@ -598,9 +598,6 @@ function ServicePrefillPanel({ onSessionEnd, hubPath, serviceId, pendingService,
     async (appIds: string[]) => {
       if (!signalR.session) return;
 
-      setSelectedAppIds(appIds);
-      setShowGameSelection(false);
-
       try {
         const response = await fetch(
           `${API_BASE}/${serviceBasePath}/sessions/${signalR.session.id}/selected-apps`,
@@ -616,6 +613,8 @@ function ServicePrefillPanel({ onSessionEnd, hubPath, serviceId, pendingService,
         if (!response.ok) {
           throw new Error(`Failed to save selection: HTTP ${response.status}`);
         }
+        setSelectedAppIds(appIds);
+        setShowGameSelection(false);
         addLog('success', t('prefill.log.selectedGames', { count: appIds.length }));
       } catch (err) {
         console.error('Failed to save selection:', err);
