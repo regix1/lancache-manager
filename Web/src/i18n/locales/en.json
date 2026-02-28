@@ -758,11 +758,16 @@
       "title": "Guest Configuration",
       "subtitle": "Configure default settings for guest sessions",
       "sections": {
+        "accessSecurity": "Access & Security",
+        "accessSecuritySubtitle": "Critical settings that control guest session access",
+        "appearanceDisplay": "Appearance & Display",
+        "appearanceDisplaySubtitle": "Default visual settings for new guest sessions",
         "sessionDuration": "Session Duration",
         "defaultTheme": "Default Theme",
         "refreshRate": "Refresh Rate",
         "dateTime": "Date & Time",
-        "display": "Display"
+        "display": "Display",
+        "appearance": "Appearance"
       },
       "durationOptions": {
         "1": "1 hour",
@@ -820,6 +825,10 @@
         "datasourceLabels": {
           "label": "Datasource Labels",
           "description": "Show in multi-source mode"
+        },
+        "lockRefreshRate": {
+          "label": "Lock Refresh Rate",
+          "description": "Prevent guests from changing their refresh rate"
         }
       },
       "prefillDurationOptions": {

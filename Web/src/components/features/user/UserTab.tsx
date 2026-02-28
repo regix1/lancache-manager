@@ -1,13 +1,13 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Users, User } from 'lucide-react';
+import { Users, Settings2 } from 'lucide-react';
 import ApiService from '@services/api.service';
 import themeService from '@services/theme.service';
 import { getErrorMessage } from '@utils/error';
 import { useSignalR } from '@contexts/SignalRContext';
+import { SegmentedControl } from '@components/ui/SegmentedControl';
 import ActiveSessions from './ActiveSessions';
 import GuestConfiguration from './GuestConfiguration';
-import BulkActions from './BulkActions';
 import { Session, ThemeOption, showToast } from './types';
 
 const UserTab: React.FC = () => {
@@ -26,6 +26,9 @@ const UserTab: React.FC = () => {
   const [updatingGuestRefreshRate, setUpdatingGuestRefreshRate] = useState(false);
   const [guestRefreshRateLocked, setGuestRefreshRateLocked] = useState<boolean>(true);
   const [updatingGuestRefreshRateLock, setUpdatingGuestRefreshRateLock] = useState(false);
+
+  const [activeTab, setActiveTab] = useState<'sessions' | 'defaults'>('sessions');
+  const [activeFilter, setActiveFilter] = useState<'all' | 'admin' | 'guest'>('all');
 
   const loadGuestDuration = async () => {
     try {
@@ -201,7 +204,7 @@ const UserTab: React.FC = () => {
   };
 
   const handleSessionsChange = useCallback(() => {
-    setSessionRefreshKey(prev => prev + 1);
+    setSessionRefreshKey((prev: number) => prev + 1);
   }, []);
 
   // SignalR handlers for live config updates
@@ -250,82 +253,73 @@ const UserTab: React.FC = () => {
 
   return (
     <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-5 sm:space-y-6 animate-fadeIn">
-      {/* Header with integrated stats */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 bg-themed-accent-subtle shadow-md">
-            <Users className="w-6 h-6 text-themed-accent" />
-          </div>
-          <div>
-            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-themed-primary">
-              {t('user.title')}
-            </h1>
-            <p className="text-sm text-themed-muted">
-              {t('user.subtitle')}
-            </p>
-          </div>
+      {/* Header */}
+      <div className="flex items-center gap-3">
+        <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 bg-themed-accent-subtle shadow-md">
+          <Users className="w-6 h-6 text-themed-accent" />
         </div>
-
-        {/* Stats pills + refresh */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="stat-pill">
-            <Users className="w-4 h-4 text-themed-accent" />
-            <span className="stat-value text-themed-primary">{sessions.length}</span>
-            <span className="text-themed-muted">{t('user.stats.total')}</span>
-          </div>
-          <div className="stat-pill">
-            <User className="w-4 h-4 user-session-icon" />
-            <span className="stat-value text-themed-primary">
-              {sessions.filter((s) => s.sessionType === 'admin').length}
-            </span>
-            <span className="text-themed-muted">{t('user.stats.users')}</span>
-          </div>
-          <div className="stat-pill">
-            <User className="w-4 h-4 guest-session-icon" />
-            <span className="stat-value text-themed-primary">
-              {sessions.filter((s) => s.sessionType === 'guest').length}
-            </span>
-            <span className="text-themed-muted">{t('user.stats.guests')}</span>
-          </div>
+        <div>
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-themed-primary">
+            {t('user.title')}
+          </h1>
+          <p className="text-sm text-themed-muted">{t('user.subtitle')}</p>
         </div>
       </div>
 
-      {/* Active Sessions */}
-      <ActiveSessions
-        guestDurationHours={guestDurationHours}
-        guestModeLocked={guestModeLocked}
-        updatingGuestLock={updatingGuestLock}
-        onToggleGuestLock={handleToggleGuestLock}
-        availableThemes={availableThemes}
-        defaultGuestTheme={defaultGuestTheme}
-        defaultGuestRefreshRate={defaultGuestRefreshRate}
-        sessions={sessions}
-        setSessions={setSessions}
-        loading={loading}
-        setLoading={setLoading}
-        onSessionsChange={handleSessionsChange}
-        refreshKey={sessionRefreshKey}
+      {/* Tab Bar */}
+      <SegmentedControl
+        options={[
+          { value: 'sessions', label: 'Sessions', icon: <Users /> },
+          { value: 'defaults', label: 'Guest Defaults', icon: <Settings2 /> }
+        ]}
+        value={activeTab}
+        onChange={(value: string) => setActiveTab(value as 'sessions' | 'defaults')}
+        size="md"
+        showLabels="responsive"
       />
 
-      {/* Guest Configuration */}
-      <GuestConfiguration
-        guestDurationHours={guestDurationHours}
-        onDurationChange={handleUpdateDuration}
-        updatingDuration={updatingDuration}
-        defaultGuestTheme={defaultGuestTheme}
-        onGuestThemeChange={handleUpdateGuestTheme}
-        updatingGuestTheme={updatingGuestTheme}
-        defaultGuestRefreshRate={defaultGuestRefreshRate}
-        onGuestRefreshRateChange={handleUpdateGuestRefreshRate}
-        updatingGuestRefreshRate={updatingGuestRefreshRate}
-        guestRefreshRateLocked={guestRefreshRateLocked}
-        onGuestRefreshRateLockChange={handleUpdateGuestRefreshRateLock}
-        updatingGuestRefreshRateLock={updatingGuestRefreshRateLock}
-        availableThemes={availableThemes}
-      />
+      {/* Tab Content */}
+      {activeTab === 'sessions' && (
+        <div className="user-tab-content">
+          <ActiveSessions
+            guestDurationHours={guestDurationHours}
+            guestModeLocked={guestModeLocked}
+            updatingGuestLock={updatingGuestLock}
+            onToggleGuestLock={handleToggleGuestLock}
+            availableThemes={availableThemes}
+            defaultGuestTheme={defaultGuestTheme}
+            defaultGuestRefreshRate={defaultGuestRefreshRate}
+            sessions={sessions}
+            setSessions={setSessions}
+            loading={loading}
+            setLoading={setLoading}
+            onSessionsChange={handleSessionsChange}
+            refreshKey={sessionRefreshKey}
+            activeFilter={activeFilter}
+            onFilterChange={setActiveFilter}
+          />
+        </div>
+      )}
 
-      {/* Bulk Actions */}
-      <BulkActions onSessionsChange={handleSessionsChange} />
+      {activeTab === 'defaults' && (
+        <div className="user-tab-content">
+          <GuestConfiguration
+            guestDurationHours={guestDurationHours}
+            onDurationChange={handleUpdateDuration}
+            updatingDuration={updatingDuration}
+            defaultGuestTheme={defaultGuestTheme}
+            onGuestThemeChange={handleUpdateGuestTheme}
+            updatingGuestTheme={updatingGuestTheme}
+            defaultGuestRefreshRate={defaultGuestRefreshRate}
+            onGuestRefreshRateChange={handleUpdateGuestRefreshRate}
+            updatingGuestRefreshRate={updatingGuestRefreshRate}
+            guestRefreshRateLocked={guestRefreshRateLocked}
+            onGuestRefreshRateLockChange={handleUpdateGuestRefreshRateLock}
+            updatingGuestRefreshRateLock={updatingGuestRefreshRateLock}
+            availableThemes={availableThemes}
+          />
+        </div>
+      )}
     </div>
   );
 };

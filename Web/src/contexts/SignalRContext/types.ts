@@ -502,6 +502,7 @@ export interface GuestPrefillPermissionChangedEvent {
   sessionId: string;
   enabled: boolean;
   prefillExpiresAt?: string;
+  service?: 'steam' | 'epic';
 }
 
 export interface GuestRefreshRateLockChangedEvent {

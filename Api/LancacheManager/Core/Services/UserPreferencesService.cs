@@ -32,7 +32,8 @@ public class UserPreferencesService
         public string? RefreshRate { get; set; } // Refresh rate for guest users (null = use default)
         public bool? RefreshRateLocked { get; set; } // Per-session lock override (null = use global, true/false = override)
         public string[]? AllowedTimeFormats { get; set; } // Allowed time formats for this user (null = all formats)
-        public int? MaxThreadCount { get; set; } // Per-session max thread count limit (null = use system default)
+        public int? SteamMaxThreadCount { get; set; } // Per-session Steam max thread count limit (null = use system default)
+        public int? EpicMaxThreadCount { get; set; } // Per-session Epic max thread count limit (null = use system default)
     }
 
     /// <summary>
@@ -91,7 +92,8 @@ public class UserPreferencesService
                 existingPreferences.RefreshRate = preferencesDto.RefreshRate;
                 existingPreferences.RefreshRateLocked = preferencesDto.RefreshRateLocked;
                 existingPreferences.AllowedTimeFormats = SerializeAllowedTimeFormats(preferencesDto.AllowedTimeFormats);
-                existingPreferences.MaxThreadCount = preferencesDto.MaxThreadCount;
+                existingPreferences.SteamMaxThreadCount = preferencesDto.SteamMaxThreadCount;
+                existingPreferences.EpicMaxThreadCount = preferencesDto.EpicMaxThreadCount;
                 existingPreferences.UpdatedAtUtc = DateTime.UtcNow;
             }
             else
@@ -113,7 +115,8 @@ public class UserPreferencesService
                     RefreshRate = preferencesDto.RefreshRate,
                     RefreshRateLocked = preferencesDto.RefreshRateLocked,
                     AllowedTimeFormats = SerializeAllowedTimeFormats(preferencesDto.AllowedTimeFormats),
-                    MaxThreadCount = preferencesDto.MaxThreadCount,
+                    SteamMaxThreadCount = preferencesDto.SteamMaxThreadCount,
+                    EpicMaxThreadCount = preferencesDto.EpicMaxThreadCount,
                     UpdatedAtUtc = DateTime.UtcNow
                 };
                 context.UserPreferences.Add(newPreferences);
@@ -204,8 +207,11 @@ public class UserPreferencesService
                 case "allowedtimeformats":
                     preferences.AllowedTimeFormats = SerializeAllowedTimeFormats(GetValueAsStringArray(value));
                     break;
-                case "maxthreadcount":
-                    preferences.MaxThreadCount = GetNullableInt(value);
+                case "steammaxthreadcount":
+                    preferences.SteamMaxThreadCount = GetNullableInt(value);
+                    break;
+                case "epicmaxthreadcount":
+                    preferences.EpicMaxThreadCount = GetNullableInt(value);
                     break;
                 default:
                     _logger.LogWarning("Unknown preference key: {Key}", preferenceKey);
@@ -378,6 +384,7 @@ public class UserPreferencesService
         RefreshRate = prefs.RefreshRate,
         RefreshRateLocked = prefs.RefreshRateLocked,
         AllowedTimeFormats = ParseAllowedTimeFormats(prefs.AllowedTimeFormats),
-        MaxThreadCount = prefs.MaxThreadCount
+        SteamMaxThreadCount = prefs.SteamMaxThreadCount,
+        EpicMaxThreadCount = prefs.EpicMaxThreadCount
     };
 }

@@ -56,13 +56,18 @@
 
   /* --- Service Cards Grid --- */
   .prefill-home-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    display: flex;
+    justify-content: center;
     gap: 1.25rem;
     width: 100%;
-    max-width: 52rem;
+    max-width: 62rem;
     position: relative;
     z-index: 1;
+  }
+
+  .prefill-home-grid > .prefill-service-card {
+    flex: 1 1 0;
+    max-width: 30rem;
   }
 
   /* --- Individual Service Card --- */
@@ -282,6 +287,11 @@
     opacity: 0.6;
   }
 
+  .prefill-service-action button {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+
   /* --- Light mode card shadow --- */
   [data-theme='light'] .prefill-service-card {
     box-shadow:
@@ -303,7 +313,8 @@
     }
 
     .prefill-home-grid {
-      grid-template-columns: 1fr;
+      flex-direction: column;
+      align-items: center;
     }
 
     .prefill-home-title {

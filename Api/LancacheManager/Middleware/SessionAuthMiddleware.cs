@@ -185,19 +185,28 @@ public class SessionAuthMiddleware
             }
         }
 
-        // Check prefill endpoints (GET + POST) - only if guest has active prefill access
-        var hasPrefillAccess = session.PrefillExpiresAtUtc != null && session.PrefillExpiresAtUtc > DateTime.UtcNow;
-        if (hasPrefillAccess &&
-            (string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase) ||
-             string.Equals(method, "POST", StringComparison.OrdinalIgnoreCase) ||
-             string.Equals(method, "PATCH", StringComparison.OrdinalIgnoreCase) ||
-             string.Equals(method, "DELETE", StringComparison.OrdinalIgnoreCase)))
+        // Check prefill endpoints (GET + POST) - check per-service expiry based on path
+        var hasSteamPrefillAccess = session.SteamPrefillExpiresAtUtc != null && session.SteamPrefillExpiresAtUtc > DateTime.UtcNow;
+        var hasEpicPrefillAccess = session.EpicPrefillExpiresAtUtc != null && session.EpicPrefillExpiresAtUtc > DateTime.UtcNow;
+
+        var isPrefillMethod =
+            string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(method, "POST", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(method, "PATCH", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(method, "DELETE", StringComparison.OrdinalIgnoreCase);
+
+        if (isPrefillMethod)
         {
-            foreach (var prefix in GuestPrefillPrefixes)
-            {
-                if (path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                    return true;
-            }
+            if (hasSteamPrefillAccess && path.StartsWith("/api/steam-daemon", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            if (hasEpicPrefillAccess && path.StartsWith("/api/epic-daemon", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            // /api/prefill-admin/cache is allowed if EITHER service is active
+            if ((hasSteamPrefillAccess || hasEpicPrefillAccess) &&
+                path.StartsWith("/api/prefill-admin/cache", StringComparison.OrdinalIgnoreCase))
+                return true;
         }
 
         return false;

@@ -40,23 +40,7 @@ public class SessionsController : ControllerBase
         var currentSessionId = HttpContext.GetUserSession()?.Id;
         var now = DateTime.UtcNow;
 
-        var dtos = sessions.Select(s => new SessionDto
-        {
-            Id = s.Id.ToString(),
-            SessionType = s.SessionType,
-            IpAddress = s.IpAddress,
-            UserAgent = s.UserAgent,
-            CreatedAt = DateTime.SpecifyKind(s.CreatedAtUtc, DateTimeKind.Utc),
-            LastSeenAt = DateTime.SpecifyKind(s.LastSeenAtUtc, DateTimeKind.Utc),
-            ExpiresAt = DateTime.SpecifyKind(s.ExpiresAtUtc, DateTimeKind.Utc),
-            IsRevoked = s.IsRevoked,
-            IsCurrentSession = s.Id == currentSessionId,
-            IsExpired = !s.IsRevoked && s.ExpiresAtUtc <= now,
-            RevokedAt = s.RevokedAtUtc.HasValue ? DateTime.SpecifyKind(s.RevokedAtUtc.Value, DateTimeKind.Utc) : (DateTime?)null,
-            PrefillEnabled = s.SessionType == "admin" || (s.PrefillExpiresAtUtc != null && s.PrefillExpiresAtUtc > now),
-            PrefillExpiresAt = s.SessionType == "guest" && s.PrefillExpiresAtUtc > now
-                ? DateTime.SpecifyKind(s.PrefillExpiresAtUtc!.Value, DateTimeKind.Utc) : null
-        }).ToList();
+        var dtos = sessions.Select(s => MapSessionToDto(s, currentSessionId, now)).ToList();
 
         var totalPages = (int)Math.Ceiling((double)totalCount / pageSize);
 
@@ -74,6 +58,35 @@ public class SessionsController : ControllerBase
                 totalPages
             }
         });
+    }
+
+    private static SessionDto MapSessionToDto(UserSession s, Guid? currentSessionId, DateTime now)
+    {
+        var isAdmin = s.SessionType == "admin";
+        var steamPrefillEnabled = isAdmin || (s.SteamPrefillExpiresAtUtc != null && s.SteamPrefillExpiresAtUtc > now);
+        var epicPrefillEnabled = isAdmin || (s.EpicPrefillExpiresAtUtc != null && s.EpicPrefillExpiresAtUtc > now);
+
+        return new SessionDto
+        {
+            Id = s.Id.ToString(),
+            SessionType = s.SessionType,
+            IpAddress = s.IpAddress,
+            UserAgent = s.UserAgent,
+            CreatedAt = DateTime.SpecifyKind(s.CreatedAtUtc, DateTimeKind.Utc),
+            LastSeenAt = DateTime.SpecifyKind(s.LastSeenAtUtc, DateTimeKind.Utc),
+            ExpiresAt = DateTime.SpecifyKind(s.ExpiresAtUtc, DateTimeKind.Utc),
+            IsRevoked = s.IsRevoked,
+            IsCurrentSession = s.Id == currentSessionId,
+            IsExpired = !s.IsRevoked && s.ExpiresAtUtc <= now,
+            RevokedAt = s.RevokedAtUtc.HasValue ? DateTime.SpecifyKind(s.RevokedAtUtc.Value, DateTimeKind.Utc) : (DateTime?)null,
+            PrefillEnabled = steamPrefillEnabled || epicPrefillEnabled,
+            SteamPrefillEnabled = steamPrefillEnabled,
+            SteamPrefillExpiresAt = !isAdmin && s.SteamPrefillExpiresAtUtc > now
+                ? DateTime.SpecifyKind(s.SteamPrefillExpiresAtUtc!.Value, DateTimeKind.Utc) : null,
+            EpicPrefillEnabled = epicPrefillEnabled,
+            EpicPrefillExpiresAt = !isAdmin && s.EpicPrefillExpiresAtUtc > now
+                ? DateTime.SpecifyKind(s.EpicPrefillExpiresAtUtc!.Value, DateTimeKind.Utc) : null
+        };
     }
 
     [HttpPatch("{id:guid}/revoke")]

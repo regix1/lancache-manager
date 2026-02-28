@@ -40,8 +40,8 @@ public class EpicPrefillDaemonHub : Hub
 
         var session = await _sessionService.ValidateSessionAsync(rawToken);
         var isAdmin = session?.SessionType == "admin";
-        var hasPrefillAccess = session?.PrefillExpiresAtUtc != null && session.PrefillExpiresAtUtc > DateTime.UtcNow;
-        if (session == null || (!isAdmin && !hasPrefillAccess))
+        var hasEpicPrefillAccess = session?.EpicPrefillExpiresAtUtc != null && session.EpicPrefillExpiresAtUtc > DateTime.UtcNow;
+        if (session == null || (!isAdmin && !hasEpicPrefillAccess))
         {
             _logger.LogWarning("Epic prefill hub connection rejected - no prefill access: {ConnectionId}", Context.ConnectionId);
             Context.Abort();

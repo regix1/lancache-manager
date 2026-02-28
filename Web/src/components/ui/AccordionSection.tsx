@@ -32,7 +32,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
   const handleHeaderClick = (e: React.MouseEvent) => {
     // Don't toggle if clicking on an interactive element inside the header
     const target = e.target as HTMLElement;
-    if (target.closest('button, input, select, a, [role="button"], [role="listbox"], [role="combobox"], .ed-trigger, .ed-dropdown')) {
+    if (target.closest('button, input, select, a, [role="listbox"], [role="combobox"], .ed-trigger, .ed-dropdown')) {
       return;
     }
     onToggle();
@@ -41,7 +41,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
   const handleTouchEnd = (e: React.TouchEvent) => {
     // Don't toggle if touching an interactive element inside the header
     const target = e.target as HTMLElement;
-    if (target.closest('button, input, select, a, [role="button"], [role="listbox"], [role="combobox"], .ed-trigger, .ed-dropdown')) {
+    if (target.closest('button, input, select, a, [role="listbox"], [role="combobox"], .ed-trigger, .ed-dropdown')) {
       return;
     }
   };

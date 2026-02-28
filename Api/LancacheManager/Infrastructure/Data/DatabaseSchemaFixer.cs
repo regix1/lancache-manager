@@ -33,8 +33,13 @@ public static class DatabaseSchemaFixer
             // Per-session refresh rate lock override (nullable bool: null = use global, 0 = unlocked, 1 = locked)
             await AddColumnIfNotExistsAsync(connection, "UserPreferences", "RefreshRateLocked", "INTEGER", logger);
 
-            // Per-session max thread count limit (nullable int: null = use system default)
-            await AddColumnIfNotExistsAsync(connection, "UserPreferences", "MaxThreadCount", "INTEGER", logger);
+            // Per-session max thread count limit per service (nullable int: null = use system default)
+            await AddColumnIfNotExistsAsync(connection, "UserPreferences", "SteamMaxThreadCount", "INTEGER", logger);
+            await AddColumnIfNotExistsAsync(connection, "UserPreferences", "EpicMaxThreadCount", "INTEGER", logger);
+
+            // Per-session prefill expiry per service (nullable datetime: null = no access)
+            await AddColumnIfNotExistsAsync(connection, "UserSessions", "SteamPrefillExpiresAtUtc", "TEXT", logger);
+            await AddColumnIfNotExistsAsync(connection, "UserSessions", "EpicPrefillExpiresAtUtc", "TEXT", logger);
 
             // Token rotation columns for mobile SignalR authentication
             await AddColumnIfNotExistsAsync(connection, "UserSessions", "PreviousSessionTokenHash", "TEXT", logger);

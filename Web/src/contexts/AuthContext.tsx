@@ -18,6 +18,8 @@ interface AuthContextType {
   setAuthMode: (mode: AuthMode) => void;
   prefillEnabled: boolean;
   prefillTimeRemaining: number | null;
+  steamPrefillEnabled: boolean;
+  epicPrefillEnabled: boolean;
   isBanned: boolean;
 }
 
@@ -41,8 +43,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [sessionExpiresAt, setSessionExpiresAt] = useState<string | null>(null);
-  const [prefillEnabled, setPrefillEnabled] = useState(false);
-  const [prefillExpiresAt, setPrefillExpiresAt] = useState<string | null>(null);
+  const [steamPrefillEnabled, setSteamPrefillEnabled] = useState(false);
+  const [steamPrefillExpiresAt, setSteamPrefillExpiresAt] = useState<string | null>(null);
+  const [epicPrefillEnabled, setEpicPrefillEnabled] = useState(false);
+  const [epicPrefillExpiresAt, setEpicPrefillExpiresAt] = useState<string | null>(null);
   const signalR = useSignalR();
 
   // Derive isAdmin and hasSession from authMode
@@ -68,8 +72,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setSessionType(data.sessionType);
       setSessionId(data.sessionId);
       setSessionExpiresAt(data.expiresAt);
-      setPrefillEnabled(data.prefillEnabled);
-      setPrefillExpiresAt(data.prefillExpiresAt);
+      setSteamPrefillEnabled(data.steamPrefillEnabled ?? data.prefillEnabled);
+      setSteamPrefillExpiresAt(data.steamPrefillExpiresAt ?? data.prefillExpiresAt);
+      setEpicPrefillEnabled(data.epicPrefillEnabled ?? false);
+      setEpicPrefillExpiresAt(data.epicPrefillExpiresAt ?? null);
 
       if (data.isAuthenticated && data.sessionType === 'admin') {
         setAuthMode('authenticated');
@@ -84,8 +90,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setSessionType(null);
       setSessionId(null);
       setSessionExpiresAt(null);
-      setPrefillEnabled(false);
-      setPrefillExpiresAt(null);
+      setSteamPrefillEnabled(false);
+      setSteamPrefillExpiresAt(null);
+      setEpicPrefillEnabled(false);
+      setEpicPrefillExpiresAt(null);
     } finally {
       setIsLoading(false);
       notifyAuthSessionUpdated();
@@ -118,8 +126,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     setSessionType(null);
     setSessionId(null);
     setSessionExpiresAt(null);
-    setPrefillEnabled(false);
-    setPrefillExpiresAt(null);
+    setSteamPrefillEnabled(false);
+    setSteamPrefillExpiresAt(null);
+    setEpicPrefillEnabled(false);
+    setEpicPrefillExpiresAt(null);
     notifyAuthSessionUpdated();
   }, [notifyAuthSessionUpdated]);
 
@@ -155,8 +165,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setSessionType(null);
       setSessionId(null);
       setSessionExpiresAt(null);
-      setPrefillEnabled(false);
-      setPrefillExpiresAt(null);
+      setSteamPrefillEnabled(false);
+      setSteamPrefillExpiresAt(null);
+      setEpicPrefillEnabled(false);
+      setEpicPrefillExpiresAt(null);
     };
 
     const handleSessionRevoked = (data: { sessionId: string; sessionType: string }) => {
@@ -177,10 +189,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       }
     };
 
-    const handlePrefillPermissionChanged = (data: { sessionId?: string; enabled?: boolean; prefillExpiresAt?: string }) => {
+    const handlePrefillPermissionChanged = (data: { sessionId?: string; enabled?: boolean; prefillExpiresAt?: string; service?: string }) => {
       if (data.sessionId && data.sessionId === sessionIdRef.current) {
-        setPrefillEnabled(data.enabled ?? false);
-        setPrefillExpiresAt(data.prefillExpiresAt ?? null);
+        const isEnabled = data.enabled ?? false;
+        const expiresAt = data.prefillExpiresAt ?? null;
+        if (data.service === 'epic') {
+          setEpicPrefillEnabled(isEnabled);
+          setEpicPrefillExpiresAt(expiresAt);
+        } else {
+          // 'steam' or legacy (no service field) — default to steam
+          setSteamPrefillEnabled(isEnabled);
+          setSteamPrefillExpiresAt(expiresAt);
+        }
       }
     };
 
@@ -206,15 +226,26 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   }, [signalR.isConnected, signalR.invoke, hasSession]);
 
-  // Calculate time remaining for prefill access
-  // Ensure UTC interpretation for timestamps without timezone suffix
-  const prefillTimeRemaining = prefillExpiresAt
-    ? Math.max(0, Math.floor((new Date(
-        prefillExpiresAt.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(prefillExpiresAt)
-          ? prefillExpiresAt
-          : prefillExpiresAt + 'Z'
-      ).getTime() - Date.now()) / 1000 / 60))
-    : null;
+  // Derive combined prefillEnabled as OR of both services (for backward compat — nav tab visibility)
+  const prefillEnabled = steamPrefillEnabled || epicPrefillEnabled;
+
+  // Calculate time remaining — use the earliest expiring active service
+  const calcTimeRemaining = (expiresAt: string | null): number | null => {
+    if (!expiresAt) return null;
+    const normalized = expiresAt.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(expiresAt)
+      ? expiresAt
+      : expiresAt + 'Z';
+    return Math.max(0, Math.floor((new Date(normalized).getTime() - Date.now()) / 1000 / 60));
+  };
+
+  const steamTimeRemaining = steamPrefillEnabled ? calcTimeRemaining(steamPrefillExpiresAt) : null;
+  const epicTimeRemaining = epicPrefillEnabled ? calcTimeRemaining(epicPrefillExpiresAt) : null;
+
+  // prefillTimeRemaining: minimum non-null remaining time across active services
+  const prefillTimeRemaining = (() => {
+    const values = [steamTimeRemaining, epicTimeRemaining].filter((v): v is number => v !== null);
+    return values.length > 0 ? Math.min(...values) : null;
+  })();
 
   return (
     <AuthContext.Provider
@@ -233,6 +264,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         setAuthMode,
         prefillEnabled,
         prefillTimeRemaining,
+        steamPrefillEnabled,
+        epicPrefillEnabled,
         isBanned: false,
       }}
     >

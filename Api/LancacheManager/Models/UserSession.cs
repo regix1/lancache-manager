@@ -29,8 +29,9 @@ public class UserSession
     public bool IsRevoked { get; set; }
     public DateTime? RevokedAtUtc { get; set; }
 
-    // Prefill access - when set and in the future, guest has prefill tab access
-    public DateTime? PrefillExpiresAtUtc { get; set; }
+    // Prefill access - when set and in the future, guest has prefill tab access for the given service
+    public DateTime? SteamPrefillExpiresAtUtc { get; set; }
+    public DateTime? EpicPrefillExpiresAtUtc { get; set; }
 
     // Token rotation - previous token remains valid during grace period
     public string? PreviousSessionTokenHash { get; set; }

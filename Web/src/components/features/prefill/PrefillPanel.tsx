@@ -100,7 +100,7 @@ function ServicePrefillPanel({ onSessionEnd, hubPath, serviceId, pendingService,
   } = usePrefillContext();
 
   // Check if user is authenticated (not guest) for auth-only features
-  const { isAdmin } = useAuth();
+  const { isAdmin, steamPrefillEnabled, epicPrefillEnabled } = useAuth();
   const isUserAuthenticated = isAdmin;
 
   // Main SignalR hub for system-level events (PrefillDefaultsChanged)
@@ -802,6 +802,9 @@ function ServicePrefillPanel({ onSessionEnd, hubPath, serviceId, pendingService,
           onServiceStart={onServiceStart}
           error={signalR.error}
           errorService={serviceId as GameServiceId}
+          isAdmin={isAdmin}
+          steamPrefillEnabled={steamPrefillEnabled}
+          epicPrefillEnabled={epicPrefillEnabled}
         />
       </>
     );

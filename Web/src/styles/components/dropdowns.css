@@ -19,6 +19,26 @@
     transition: background-color 0.15s ease, border-color 0.15s ease;
   }
 
+  /* When open: square bottom, no bottom border (dropdown provides the edge) */
+  .ed-trigger.ed-trigger--open {
+    border-bottom-left-radius: 0 !important;
+    border-bottom-right-radius: 0 !important;
+    border-bottom-color: transparent !important;
+  }
+
+  /* Main menu panel: square top (flush with trigger), rounded bottom. No themed-border-radius - we control all corners here. */
+  .ed-dropdown.ed-dropdown--menu {
+    border-top-left-radius: 0 !important;
+    border-top-right-radius: 0 !important;
+    border-bottom-left-radius: var(--theme-border-radius-lg) !important;
+    border-bottom-right-radius: var(--theme-border-radius-lg) !important;
+  }
+
+  /* Gap between options so they are not stuck together */
+  .ed-option + .ed-option {
+    margin-top: 0.25rem;
+  }
+
   /* Mobile: Compact triggers with reduced padding and font size */
   @media (max-width: 640px) {
     .ed-trigger {

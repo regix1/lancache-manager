@@ -11,8 +11,12 @@ public class AuthStatusResponse
     public bool HasDataLoaded { get; set; }
     public bool GuestAccessEnabled { get; set; }
     public int GuestDurationHours { get; set; }
+    /// <summary>Backward-compatible: true if either Steam or Epic prefill is active.</summary>
     public bool PrefillEnabled { get; set; }
-    public DateTime? PrefillExpiresAt { get; set; }
+    public bool SteamPrefillEnabled { get; set; }
+    public DateTime? SteamPrefillExpiresAt { get; set; }
+    public bool EpicPrefillEnabled { get; set; }
+    public DateTime? EpicPrefillExpiresAt { get; set; }
     public string? Token { get; set; }
 }
 
@@ -42,8 +46,12 @@ public class SessionDto
     public bool IsCurrentSession { get; set; }
     public bool IsExpired { get; set; }
     public DateTime? RevokedAt { get; set; }
+    /// <summary>Backward-compatible: true if either Steam or Epic prefill is active, or session is admin.</summary>
     public bool PrefillEnabled { get; set; }
-    public DateTime? PrefillExpiresAt { get; set; }
+    public bool SteamPrefillEnabled { get; set; }
+    public DateTime? SteamPrefillExpiresAt { get; set; }
+    public bool EpicPrefillEnabled { get; set; }
+    public DateTime? EpicPrefillExpiresAt { get; set; }
 }
 
 public class ApiKeyStatusResponse

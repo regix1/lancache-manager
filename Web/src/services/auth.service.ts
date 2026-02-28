@@ -13,6 +13,10 @@ interface AuthStatusResponse {
   guestDurationHours: number;
   prefillEnabled: boolean;
   prefillExpiresAt: string | null;
+  steamPrefillEnabled: boolean;
+  steamPrefillExpiresAt: string | null;
+  epicPrefillEnabled: boolean;
+  epicPrefillExpiresAt: string | null;
   token?: string;
 }
 
@@ -102,6 +106,10 @@ class AuthService {
         guestDurationHours: 6,
         prefillEnabled: false,
         prefillExpiresAt: null,
+        steamPrefillEnabled: false,
+        steamPrefillExpiresAt: null,
+        epicPrefillEnabled: false,
+        epicPrefillExpiresAt: null,
       };
     } finally {
       clearTimeout(timeoutId);

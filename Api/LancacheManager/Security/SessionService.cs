@@ -310,15 +310,20 @@ public class SessionService
 
     // --- Guest Prefill Configuration (persisted via StateService) ---
 
-    public bool IsGuestPrefillEnabled()
+    public bool IsSteamPrefillEnabled()
     {
         return _stateService.GetGuestPrefillEnabledByDefault();
     }
 
-    public void SetGuestPrefillEnabled(bool enabled)
+    public bool IsEpicPrefillEnabled()
+    {
+        return _stateService.GetEpicGuestPrefillEnabledByDefault();
+    }
+
+    public void SetSteamGuestPrefillEnabled(bool enabled)
     {
         _stateService.SetGuestPrefillEnabledByDefault(enabled);
-        _logger.LogInformation("Guest prefill set to {Enabled}", enabled);
+        _logger.LogInformation("Guest Steam prefill set to {Enabled}", enabled);
     }
 
     public int GetGuestPrefillDurationHours()
@@ -334,25 +339,47 @@ public class SessionService
 
     // --- Per-Session Prefill Grants ---
 
-    public async Task GrantPrefillAccessAsync(Guid sessionId, int durationHours)
+    public async Task GrantSteamPrefillAccessAsync(Guid sessionId, int durationHours)
     {
         var session = await _dbContext.UserSessions.FindAsync(sessionId);
         if (session != null)
         {
-            session.PrefillExpiresAtUtc = DateTime.UtcNow.AddHours(durationHours);
+            session.SteamPrefillExpiresAtUtc = DateTime.UtcNow.AddHours(durationHours);
             await _dbContext.SaveChangesAsync();
-            _logger.LogInformation("Granted prefill access to session {SessionId}, expires at {ExpiresAt}", sessionId, session.PrefillExpiresAtUtc);
+            _logger.LogInformation("Granted Steam prefill access to session {SessionId}, expires at {ExpiresAt}", sessionId, session.SteamPrefillExpiresAtUtc);
         }
     }
 
-    public async Task RevokePrefillAccessAsync(Guid sessionId)
+    public async Task GrantEpicPrefillAccessAsync(Guid sessionId, int durationHours)
     {
         var session = await _dbContext.UserSessions.FindAsync(sessionId);
         if (session != null)
         {
-            session.PrefillExpiresAtUtc = null;
+            session.EpicPrefillExpiresAtUtc = DateTime.UtcNow.AddHours(durationHours);
             await _dbContext.SaveChangesAsync();
-            _logger.LogInformation("Revoked prefill access for session {SessionId}", sessionId);
+            _logger.LogInformation("Granted Epic prefill access to session {SessionId}, expires at {ExpiresAt}", sessionId, session.EpicPrefillExpiresAtUtc);
+        }
+    }
+
+    public async Task RevokeSteamPrefillAccessAsync(Guid sessionId)
+    {
+        var session = await _dbContext.UserSessions.FindAsync(sessionId);
+        if (session != null)
+        {
+            session.SteamPrefillExpiresAtUtc = null;
+            await _dbContext.SaveChangesAsync();
+            _logger.LogInformation("Revoked Steam prefill access for session {SessionId}", sessionId);
+        }
+    }
+
+    public async Task RevokeEpicPrefillAccessAsync(Guid sessionId)
+    {
+        var session = await _dbContext.UserSessions.FindAsync(sessionId);
+        if (session != null)
+        {
+            session.EpicPrefillExpiresAtUtc = null;
+            await _dbContext.SaveChangesAsync();
+            _logger.LogInformation("Revoked Epic prefill access for session {SessionId}", sessionId);
         }
     }
 

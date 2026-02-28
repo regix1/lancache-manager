@@ -405,6 +405,6 @@ public class SteamDaemonController : ControllerBase
     {
         if (session.SessionType == "admin") return null;
         var prefs = _userPreferencesService.GetPreferences(session.Id);
-        return prefs?.MaxThreadCount ?? _stateService.GetDefaultGuestMaxThreadCount();
+        return prefs?.SteamMaxThreadCount ?? _stateService.GetDefaultGuestMaxThreadCount();
     }
 }

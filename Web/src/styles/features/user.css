@@ -1,16 +1,16 @@
 /* ==============================================
- * USER - Session cards, Status dots, Config sections
+ * USER - Sessions, Status, Config, Settings Groups
  * ============================================== */
 
-/* ===== USER MANAGEMENT REFINED STYLES ===== */
+/* ===== STAT PILL ===== */
 
-/* Stat pill - compact inline stat display */
 .stat-pill {
   @apply inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium;
   border-radius: var(--theme-border-radius-xl);
   background: var(--theme-bg-secondary);
   border: 1px solid var(--theme-border-secondary);
   transition: all 0.2s ease;
+  cursor: pointer;
 }
 
 .stat-pill:hover {
@@ -18,12 +18,23 @@
   border-color: var(--theme-border);
 }
 
+.stat-pill--active {
+  background: color-mix(in srgb, var(--theme-accent) 12%, transparent);
+  border-color: var(--theme-accent);
+}
+
+.stat-pill--active:hover {
+  background: color-mix(in srgb, var(--theme-accent) 18%, transparent);
+  border-color: var(--theme-accent);
+}
+
 .stat-pill .stat-value {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 
-/* Session avatar */
+/* ===== SESSION AVATAR ===== */
+
 .session-avatar {
   @apply w-10 h-10 flex items-center justify-center flex-shrink-0;
   border-radius: var(--theme-border-radius-lg);
@@ -34,7 +45,8 @@
   transform: scale(1.05);
 }
 
-/* Status dot with pulse animation */
+/* ===== STATUS DOT WITH PULSE ===== */
+
 .status-dot {
   @apply w-2 h-2 rounded-full;
   box-shadow: 0 0 0 2px var(--theme-bg-secondary);
@@ -64,7 +76,8 @@
   50% { box-shadow: 0 0 0 2px var(--theme-bg-secondary), 0 0 0 6px color-mix(in srgb, var(--theme-warning) 10%, transparent); }
 }
 
-/* Config section */
+/* ===== CONFIG SECTION ===== */
+
 .config-section {
   @apply p-4;
   border-radius: var(--theme-border-radius-lg);
@@ -78,7 +91,8 @@
   letter-spacing: 0.05em;
 }
 
-/* Toggle row */
+/* ===== TOGGLE ROW ===== */
+
 .toggle-row {
   @apply flex items-center justify-between py-2.5 px-3 -mx-3;
   border-radius: var(--theme-border-radius-lg);
@@ -99,16 +113,56 @@
   color: var(--theme-text-muted);
 }
 
-/* Preference badge */
+/* ===== PREFERENCE BADGE ===== */
+
 .pref-badge {
-  @apply inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium;
+  @apply inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium;
   border-radius: var(--theme-border-radius);
   background: var(--theme-bg-tertiary);
   color: var(--theme-text-muted);
   border: 1px solid var(--theme-border-secondary);
 }
 
-/* Tooltip styles */
+/* ===== PREFILL ACCESS SECTION (edit modal) ===== */
+
+.prefill-access-section {
+  @apply flex flex-col gap-3 p-4;
+  border-radius: var(--theme-border-radius-lg);
+  background: var(--theme-bg-tertiary);
+  border: 1px solid var(--theme-border-secondary);
+}
+
+.prefill-access-header {
+  @apply flex items-center gap-2;
+}
+
+.prefill-access-subtitle {
+  @apply m-0;
+}
+
+.prefill-service-row {
+  @apply flex items-center justify-between gap-3;
+  padding: 0.625rem 0.75rem;
+  border-radius: var(--theme-border-radius);
+  background: var(--theme-bg-secondary);
+  border: 1px solid var(--theme-border-secondary);
+}
+
+.prefill-service-row-label {
+  @apply flex items-center gap-2 flex-1 min-w-0;
+}
+
+.prefill-service-row-icon {
+  @apply flex-shrink-0;
+  color: var(--theme-text-muted);
+}
+
+.prefill-service-row-controls {
+  @apply flex items-center gap-2 flex-shrink-0;
+}
+
+/* ===== TOOLTIP ===== */
+
 .tooltip-overlay {
   @apply fixed max-w-xs px-2.5 py-1.5 text-xs pointer-events-none;
   border-radius: var(--theme-border-radius);
@@ -123,4 +177,396 @@
   -webkit-backdrop-filter: blur(8px);
   border: 1px solid var(--theme-card-border);
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+}
+
+/* ==============================================
+ * SESSION DATA TABLE (desktop view)
+ * ============================================== */
+
+.session-table {
+  @apply w-full;
+  border-collapse: collapse;
+}
+
+.session-table-header {
+  @apply sticky top-0;
+  z-index: 5;
+}
+
+.session-table-header th {
+  @apply py-2.5 px-4 text-xs font-semibold uppercase tracking-wider text-left;
+  color: var(--theme-text-muted);
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--theme-border-secondary);
+}
+
+.session-table-row {
+  transition: background 0.15s ease;
+}
+
+.session-table-row:hover {
+  background: var(--theme-bg-hover);
+}
+
+.session-table-row--current {
+  border-left: 3px solid var(--theme-success);
+}
+
+.session-table-row td {
+  @apply py-3.5 px-4 text-sm;
+  vertical-align: middle;
+  color: var(--theme-text-primary);
+  border-bottom: 1px solid var(--theme-border-secondary);
+}
+
+/* ==============================================
+ * HOVER-TO-REVEAL ACTIONS
+ * ============================================== */
+
+.session-row-actions {
+  @apply flex items-center gap-1;
+  opacity: 0;
+  transition: opacity 150ms ease;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.session-table-row:hover .session-row-actions {
+  opacity: 1;
+}
+
+.session-row-actions button {
+  white-space: nowrap;
+}
+
+.session-table-header th:last-child,
+.session-table-row td:last-child {
+  width: 1%;
+  white-space: nowrap;
+}
+
+/* Always show actions on touch devices */
+@media (hover: none) {
+  .session-row-actions {
+    opacity: 1;
+  }
+}
+
+/* ==============================================
+ * ROW EXPANSION PANEL
+ * ============================================== */
+
+.session-expansion {
+  overflow: hidden;
+  transition: max-height 300ms ease, opacity 200ms ease;
+}
+
+.session-expansion--collapsed {
+  max-height: 0;
+  opacity: 0;
+}
+
+.session-expansion--expanded {
+  max-height: 520px;
+  opacity: 1;
+}
+
+.session-expansion-content {
+  @apply px-6 py-5;
+  margin: 0.5rem 1rem 1rem;
+  border-radius: var(--theme-border-radius-lg);
+  background: var(--theme-bg-tertiary);
+  border: 1px solid var(--theme-border-secondary);
+}
+
+.session-expansion-content > * + * {
+  margin-top: 1rem;
+}
+
+.session-expansion-dates {
+  @apply grid grid-cols-2 gap-4;
+}
+
+@media (min-width: 1024px) {
+  .session-expansion-dates {
+    @apply grid-cols-4;
+  }
+}
+
+.session-expansion-date-label {
+  @apply text-[10px] uppercase tracking-wider mb-1;
+  color: var(--theme-text-muted);
+  letter-spacing: 0.05em;
+}
+
+.session-expansion-date-label--error {
+  color: var(--theme-text-error);
+}
+
+.session-expansion-date-value {
+  @apply text-sm;
+  color: var(--theme-text-primary);
+}
+
+.session-expansion-date-value--error {
+  color: var(--theme-text-error);
+}
+
+.session-expansion-session-id {
+  @apply text-[11px] font-mono;
+  color: var(--theme-text-muted);
+  opacity: 0.7;
+  word-break: break-all;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--theme-border-secondary);
+}
+
+.session-expansion-badges {
+  @apply flex flex-wrap items-center gap-2;
+}
+
+.session-expansion-prefill {
+  @apply flex items-center flex-wrap gap-2;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--theme-border-secondary);
+}
+
+.session-expansion-prefill-label {
+  @apply text-xs;
+  color: var(--theme-text-muted);
+}
+
+/* ==============================================
+ * FILTER CHIPS
+ * ============================================== */
+
+.filter-chip {
+  @apply inline-flex items-center gap-1.5 px-3 py-1 text-xs font-medium cursor-pointer;
+  border-radius: var(--theme-border-radius-xl);
+  background: transparent;
+  border: 1px solid var(--theme-border-secondary);
+  color: var(--theme-text-muted);
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.filter-chip:hover {
+  border-color: var(--theme-border);
+  color: var(--theme-text-primary);
+}
+
+.filter-chip--active {
+  background: color-mix(in srgb, var(--theme-accent) 12%, transparent);
+  border-color: var(--theme-accent);
+  color: var(--theme-accent);
+}
+
+.filter-chip--active:hover {
+  background: color-mix(in srgb, var(--theme-accent) 18%, transparent);
+  border-color: var(--theme-accent);
+  color: var(--theme-accent);
+}
+
+.filter-chip-count {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ==============================================
+ * SETTINGS GROUP WITH ACCENT LINES
+ * ============================================== */
+
+.settings-group {
+  @apply p-4 space-y-4;
+  border-radius: var(--theme-border-radius-lg);
+  background: var(--theme-bg-tertiary);
+  border: 1px solid var(--theme-border-secondary);
+  border-left: 3px solid transparent;
+}
+
+.settings-group--access {
+  border-left-color: hsl(38, 92%, 50%);
+}
+
+.settings-group--steam {
+  border-left-color: var(--theme-steam);
+}
+
+.settings-group--epic {
+  border-left-color: var(--theme-epic);
+}
+
+.settings-group--look {
+  border-left-color: hsl(210, 80%, 60%);
+}
+
+.settings-group--display {
+  border-left-color: hsl(260, 60%, 65%);
+}
+
+/* ==============================================
+ * TAB BAR & TAB CONTENT
+ * ============================================== */
+
+.user-tab-bar {
+  @apply flex items-center;
+}
+
+.user-tab-content {
+  animation: settingsContentFadeIn 200ms ease forwards;
+}
+
+.active-sessions-layout {
+  @apply space-y-4 sm:space-y-5;
+}
+
+/* ==============================================
+ * GUEST DEFAULTS GRID
+ * ============================================== */
+
+.guest-defaults-grid {
+  @apply grid gap-4;
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.guest-defaults-grid > :last-child {
+  grid-column: 1 / -1;
+}
+
+/* ==============================================
+ * ANIMATIONS
+ * ============================================== */
+
+@keyframes settingsContentFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideUpFade {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.session-panel-enter {
+  animation: slideUpFade 300ms ease forwards;
+}
+
+/* ==============================================
+ * BULK ACTIONS DROPDOWN
+ * ============================================== */
+
+.bulk-actions-dropdown {
+  @apply flex items-center gap-2;
+}
+
+.bulk-actions-dropdown .bulk-actions-trigger {
+  @apply inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium cursor-pointer;
+  border-radius: var(--theme-border-radius);
+  background: var(--theme-bg-secondary);
+  border: 1px solid var(--theme-border-secondary);
+  color: var(--theme-text-muted);
+  transition: all 0.15s ease;
+}
+
+.bulk-actions-dropdown .bulk-actions-trigger:hover {
+  background: var(--theme-bg-tertiary);
+  border-color: var(--theme-border);
+  color: var(--theme-text-primary);
+}
+
+.bulk-actions-dropdown .bulk-actions-menu {
+  @apply absolute mt-1 py-1;
+  min-width: 160px;
+  border-radius: var(--theme-border-radius-lg);
+  background: var(--theme-bg-secondary);
+  border: 1px solid var(--theme-border);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  z-index: 20;
+}
+
+.bulk-actions-dropdown .bulk-actions-menu-item {
+  @apply flex items-center gap-2 w-full px-3 py-2 text-sm cursor-pointer;
+  color: var(--theme-text-primary);
+  transition: background 0.1s ease;
+}
+
+.bulk-actions-dropdown .bulk-actions-menu-item:hover {
+  background: var(--theme-bg-hover);
+}
+
+.bulk-actions-dropdown .bulk-actions-menu-item--danger {
+  color: var(--theme-error);
+}
+
+.bulk-actions-dropdown .bulk-actions-menu-item--danger:hover {
+  background: color-mix(in srgb, var(--theme-error) 10%, transparent);
+}
+
+/* ==============================================
+ * RESPONSIVE BREAKPOINTS
+ * ============================================== */
+
+/* Tablet: hide less important columns, keep grid 2-col */
+@media (max-width: 1023px) {
+  .session-table-header th:nth-child(n+4),
+  .session-table-row td:nth-child(n+4) {
+    display: none;
+  }
+
+  .guest-defaults-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* Mobile: single column everything */
+@media (max-width: 767px) {
+  .guest-defaults-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .guest-defaults-grid > :last-child {
+    grid-column: auto;
+  }
+
+  .session-table-header th:nth-child(n+3),
+  .session-table-row td:nth-child(n+3) {
+    display: none;
+  }
+
+  .session-table-row td {
+    @apply py-2 px-2 text-xs;
+  }
+
+  .session-table-header th {
+    @apply py-2 px-2;
+  }
+
+  .stat-pill {
+    @apply px-2 py-1 text-xs;
+  }
+
+  .filter-chip {
+    @apply px-2 py-0.5;
+    font-size: 0.6875rem;
+  }
+
+  .settings-group {
+    @apply p-3;
+  }
+
+  .session-expansion-content {
+    @apply p-3;
+  }
 }

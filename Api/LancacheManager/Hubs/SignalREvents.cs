@@ -90,6 +90,9 @@ public static class SignalREvents
     public const string GuestModeLockChanged = "GuestModeLockChanged";
     public const string GuestRefreshRateLockChanged = "GuestRefreshRateLockChanged";
     public const string GuestDurationUpdated = "GuestDurationUpdated";
+    /// <summary>
+    /// Payload: { sessionId, service ("steam"|"epic"), enabled, prefillExpiresAt }
+    /// </summary>
     public const string GuestPrefillPermissionChanged = "GuestPrefillPermissionChanged";
     public const string GuestPrefillConfigChanged = "GuestPrefillConfigChanged";
     public const string PrefillDefaultsChanged = "PrefillDefaultsChanged";

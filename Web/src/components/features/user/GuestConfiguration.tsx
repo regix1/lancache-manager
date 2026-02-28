@@ -1,14 +1,17 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Settings2, Loader2, Globe, MapPin, Download, AlertTriangle, Lock, Unlock, Network } from 'lucide-react';
+import { Download } from 'lucide-react';
 import { Card } from '@components/ui/Card';
-import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
-import { MultiSelectDropdown } from '@components/ui/MultiSelectDropdown';
 import ApiService from '@services/api.service';
 import { getErrorMessage } from '@utils/error';
 import { useSignalR } from '@contexts/SignalRContext';
 import { useAuth } from '@contexts/AuthContext';
+import { SteamIcon } from '@components/ui/SteamIcon';
+import { EpicIcon } from '@components/ui/EpicIcon';
 import { ThemeOption, durationOptions, refreshRateOptions, showToast } from './types';
+import AccessSecurityCard from './AccessSecurityCard';
+import PrefillServicePanel from './PrefillServicePanel';
+import AppearanceDisplayCard from './AppearanceDisplayCard';
 
 type TimeSettingValue = 'server-24h' | 'server-12h' | 'local-24h' | 'local-12h';
 
@@ -107,7 +110,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     ]);
 
     if (localResponse.ok && formatResponse.ok) {
-      setDefaultGuestPreferences(prev => ({
+      setDefaultGuestPreferences((prev: DefaultGuestPreferences) => ({
         ...prev,
         useLocalTimezone: newUseLocal,
         use24HourFormat: newUse24Hour
@@ -125,37 +128,11 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     return 'server-12h';
   };
 
-  const timeFormatOptions = [
-    {
-      value: 'server-24h',
-      label: t('user.guest.timeFormats.server24h.label'),
-      description: t('user.guest.timeFormats.server24h.description'),
-      icon: Globe
-    },
-    {
-      value: 'server-12h',
-      label: t('user.guest.timeFormats.server12h.label'),
-      description: t('user.guest.timeFormats.server12h.description'),
-      icon: Globe
-    },
-    {
-      value: 'local-24h',
-      label: t('user.guest.timeFormats.local24h.label'),
-      description: t('user.guest.timeFormats.local24h.description'),
-      icon: MapPin
-    },
-    {
-      value: 'local-12h',
-      label: t('user.guest.timeFormats.local12h.label'),
-      description: t('user.guest.timeFormats.local12h.description'),
-      icon: MapPin
-    }
-  ];
-  const translatedDurationOptions = durationOptions.map((option) => ({
+  const translatedDurationOptions = durationOptions.map((option: { value: string; label: string }) => ({
     ...option,
     label: t(`user.guest.durationOptions.${option.value}`)
   }));
-  const translatedRefreshRateOptions = refreshRateOptions.map((option) => ({
+  const translatedRefreshRateOptions = refreshRateOptions.map((option: { value: string; label: string }) => ({
     ...option,
     label: t(`user.guest.refreshRates.${option.value}`)
   }));
@@ -166,7 +143,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   const THREAD_VALUES = [1, 2, 4, 8, 16, 32, 64, 128, 256];
   const maxThreadOptions = [
     { value: '', label: t('user.guest.prefill.maxThreads.noLimit') },
-    ...THREAD_VALUES.map((n) => ({
+    ...THREAD_VALUES.map((n: number) => ({
       value: String(n),
       label: `${n} threads`,
       disabled: false
@@ -215,7 +192,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
       }));
 
       if (response.ok) {
-        setDefaultGuestPreferences((prev) => ({
+        setDefaultGuestPreferences((prev: DefaultGuestPreferences) => ({
           ...prev,
           [key]: value
         }));
@@ -236,7 +213,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
 
   const handleDefaultGuestPreferencesChanged = useCallback(
     (data: { key: string; value: boolean }) => {
-      setDefaultGuestPreferences((prev) => ({
+      setDefaultGuestPreferences((prev: DefaultGuestPreferences) => ({
         ...prev,
         [data.key]: data.value
       }));
@@ -246,7 +223,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
 
   const handleAllowedTimeFormatsChanged = useCallback(
     (data: { formats: string[] }) => {
-      setDefaultGuestPreferences((prev) => ({
+      setDefaultGuestPreferences((prev: DefaultGuestPreferences) => ({
         ...prev,
         allowedTimeFormats: data.formats
       }));
@@ -295,7 +272,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
           await updateDefaultTimeFormat(formats[0] as TimeSettingValue);
         }
 
-        setDefaultGuestPreferences((prev) => ({
+        setDefaultGuestPreferences((prev: DefaultGuestPreferences) => ({
           ...prev,
           allowedTimeFormats: formats
         }));
@@ -424,6 +401,31 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     }
   };
 
+  // Handler callbacks for PrefillServicePanel
+  const handleSteamToggleEnabled = () => {
+    updatePrefillConfig(!prefillConfig.enabledByDefault, prefillConfig.durationHours);
+  };
+
+  const handleSteamDurationChange = (hours: number) => {
+    updatePrefillConfig(prefillConfig.enabledByDefault, hours);
+  };
+
+  const handleSteamMaxThreadsChange = (threads: number | null) => {
+    updatePrefillConfig(prefillConfig.enabledByDefault, prefillConfig.durationHours, threads);
+  };
+
+  const handleEpicToggleEnabled = () => {
+    updateEpicPrefillConfig(!epicPrefillConfig.enabledByDefault, epicPrefillConfig.durationHours);
+  };
+
+  const handleEpicDurationChange = (hours: number) => {
+    updateEpicPrefillConfig(epicPrefillConfig.enabledByDefault, hours);
+  };
+
+  const handleEpicMaxThreadsChange = (threads: number | null) => {
+    updateEpicPrefillConfig(epicPrefillConfig.enabledByDefault, epicPrefillConfig.durationHours, threads);
+  };
+
   useEffect(() => {
     loadDefaultGuestPreferences();
     loadPrefillConfig();
@@ -443,396 +445,89 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   }, [on, off, handleDefaultGuestPreferencesChanged, handleAllowedTimeFormatsChanged, handlePrefillConfigChanged, handleEpicPrefillConfigChanged]);
 
   return (
-    <Card padding="none">
-      {/* Header */}
-      <div className="p-4 sm:p-5 border-b border-themed-secondary">
-        <h3 className="text-lg font-semibold flex items-center gap-2 text-themed-primary">
-          <Settings2 className="w-5 h-5 text-themed-accent" />
-          Guest Defaults
-        </h3>
-        <p className="text-sm mt-1 text-themed-muted">
-          These settings apply to newly created guest sessions only. Existing sessions are not affected.
-        </p>
-      </div>
+    <div className="space-y-4">
+      {/* Access & Security card */}
+      <AccessSecurityCard
+        guestDurationHours={guestDurationHours}
+        onDurationChange={onDurationChange}
+        updatingDuration={updatingDuration}
+        durationOptions={translatedDurationOptions}
+      />
 
-      <div className="p-4 sm:p-5 space-y-4">
-        {/* Session & Access */}
-        <div className="rounded-lg bg-themed-secondary p-4 space-y-4">
-          <div className="text-xs font-semibold uppercase tracking-wider text-themed-muted">
-            Session &amp; Access
-          </div>
-
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
-            <div className="toggle-row-label whitespace-nowrap">{t('user.guest.sections.sessionDuration')}</div>
-            <div className="flex items-center gap-2">
-              <EnhancedDropdown
-                options={translatedDurationOptions}
-                value={guestDurationHours.toString()}
-                onChange={(value) => onDurationChange(Number(value))}
-                disabled={updatingDuration}
-                className="w-48"
-              />
-              {updatingDuration && (
-                <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
-              )}
-            </div>
-          </div>
-
-          {/* Steam Prefill */}
-          <div className="text-xs font-semibold uppercase tracking-wider text-themed-muted pt-2">
-            Steam Prefill
-          </div>
-
-          <div
-            className="toggle-row cursor-pointer"
-            onClick={() =>
-              !loadingPrefillConfig &&
-              !updatingPrefillConfig &&
-              updatePrefillConfig(!prefillConfig.enabledByDefault, prefillConfig.durationHours)
-            }
-          >
-            <div>
-              <div className="toggle-row-label flex items-center gap-1.5">
-                <Download className="w-3.5 h-3.5 text-themed-accent" />
-                {t('user.guest.prefill.enableByDefault.label')}
-              </div>
-              <div className="toggle-row-description">
-                {t('user.guest.prefill.enableByDefault.description')}
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {updatingPrefillConfig && (
-                <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
-              )}
-              <div className={`modern-toggle ${prefillConfig.enabledByDefault ? 'checked' : ''}`}>
-                <span className="toggle-thumb" />
-              </div>
-            </div>
-          </div>
-
-          {prefillConfig.enabledByDefault && (
-            <div className="flex items-start gap-2 p-3 rounded-md text-sm bg-themed-warning border border-themed-warning text-themed-warning">
-              <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-              <span>{t('user.guest.prefill.warning')}</span>
-            </div>
-          )}
-
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
-            <div className="toggle-row-label whitespace-nowrap">{t('user.guest.prefill.duration.label')}</div>
-            <div className="flex items-center gap-2">
-              <EnhancedDropdown
-                options={prefillDurationOptions}
-                value={prefillConfig.durationHours.toString()}
-                onChange={(value) =>
-                  updatePrefillConfig(prefillConfig.enabledByDefault, Number(value))
-                }
-                disabled={updatingPrefillConfig || loadingPrefillConfig}
-                className="w-48"
-              />
-            </div>
-          </div>
-
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
-            <div className="toggle-row-label whitespace-nowrap flex items-center gap-1.5">
-              <Network className="w-3.5 h-3.5 text-themed-accent" />
-              {t('user.guest.prefill.maxThreads.label')}
-            </div>
-            <div className="flex items-center gap-2">
-              <EnhancedDropdown
-                options={maxThreadOptions}
-                value={prefillConfig.maxThreadCount != null ? String(prefillConfig.maxThreadCount) : ''}
-                onChange={(value) => {
-                  const newValue = value === '' ? null : Number(value);
-                  updatePrefillConfig(prefillConfig.enabledByDefault, prefillConfig.durationHours, newValue);
-                }}
-                disabled={updatingPrefillConfig || loadingPrefillConfig}
-                className="w-48"
-              />
-              {updatingPrefillConfig && (
-                <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
-              )}
-            </div>
-          </div>
-
-          {/* Epic Games Prefill */}
-          <div className="text-xs font-semibold uppercase tracking-wider text-themed-muted pt-2">
-            Epic Games Prefill
-          </div>
-
-          <div
-            className="toggle-row cursor-pointer"
-            onClick={() =>
-              !loadingEpicPrefillConfig &&
-              !updatingEpicPrefillConfig &&
-              updateEpicPrefillConfig(!epicPrefillConfig.enabledByDefault, epicPrefillConfig.durationHours)
-            }
-          >
-            <div>
-              <div className="toggle-row-label flex items-center gap-1.5">
-                <Download className="w-3.5 h-3.5 text-themed-accent" />
-                {t('user.guest.prefill.enableByDefault.label')}
-              </div>
-              <div className="toggle-row-description">
-                {t('user.guest.prefill.enableByDefault.description')}
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {updatingEpicPrefillConfig && (
-                <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
-              )}
-              <div className={`modern-toggle ${epicPrefillConfig.enabledByDefault ? 'checked' : ''}`}>
-                <span className="toggle-thumb" />
-              </div>
-            </div>
-          </div>
-
-          {epicPrefillConfig.enabledByDefault && (
-            <div className="flex items-start gap-2 p-3 rounded-md text-sm bg-themed-warning border border-themed-warning text-themed-warning">
-              <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-              <span>{t('user.guest.prefill.warning')}</span>
-            </div>
-          )}
-
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
-            <div className="toggle-row-label whitespace-nowrap">{t('user.guest.prefill.duration.label')}</div>
-            <div className="flex items-center gap-2">
-              <EnhancedDropdown
-                options={prefillDurationOptions}
-                value={epicPrefillConfig.durationHours.toString()}
-                onChange={(value) =>
-                  updateEpicPrefillConfig(epicPrefillConfig.enabledByDefault, Number(value))
-                }
-                disabled={updatingEpicPrefillConfig || loadingEpicPrefillConfig}
-                className="w-48"
-              />
-            </div>
-          </div>
-
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
-            <div className="toggle-row-label whitespace-nowrap flex items-center gap-1.5">
-              <Network className="w-3.5 h-3.5 text-themed-accent" />
-              {t('user.guest.prefill.maxThreads.label')}
-            </div>
-            <div className="flex items-center gap-2">
-              <EnhancedDropdown
-                options={maxThreadOptions}
-                value={epicPrefillConfig.maxThreadCount != null ? String(epicPrefillConfig.maxThreadCount) : ''}
-                onChange={(value) => {
-                  const newValue = value === '' ? null : Number(value);
-                  updateEpicPrefillConfig(epicPrefillConfig.enabledByDefault, epicPrefillConfig.durationHours, newValue);
-                }}
-                disabled={updatingEpicPrefillConfig || loadingEpicPrefillConfig}
-                className="w-48"
-              />
-              {updatingEpicPrefillConfig && (
-                <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
-              )}
-            </div>
-          </div>
+      {/* Prefill Services card */}
+      <Card padding="none">
+        <div className="p-4 sm:p-5 border-b border-themed-secondary">
+          <h3 className="text-lg font-semibold flex items-center gap-2 text-themed-primary">
+            <Download className="w-5 h-5 text-themed-accent" />
+            Prefill Services
+          </h3>
+          <p className="text-sm mt-1 text-themed-muted">
+            Control guest prefill permissions per service
+          </p>
         </div>
-
-        {/* Appearance */}
-        <div className="rounded-lg bg-themed-secondary p-4 space-y-4">
-          <div className="text-xs font-semibold uppercase tracking-wider text-themed-muted">
-            Appearance
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <div className="toggle-row-label">{t('user.guest.sections.defaultTheme')}</div>
-              <div className="flex items-center gap-2">
-                <EnhancedDropdown
-                  options={availableThemes.map((theme) => ({
-                    value: theme.id,
-                    label: theme.name
-                  }))}
-                  value={defaultGuestTheme}
-                  onChange={onGuestThemeChange}
-                  disabled={updatingGuestTheme}
-                  className="w-full"
-                />
-                {updatingGuestTheme && (
-                  <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
-                )}
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <div className="toggle-row-label">{t('user.guest.sections.refreshRate')}</div>
-              <div className="flex items-center gap-2">
-                <EnhancedDropdown
-                  options={translatedRefreshRateOptions}
-                  value={defaultGuestRefreshRate}
-                  onChange={onGuestRefreshRateChange}
-                  disabled={updatingGuestRefreshRate}
-                  className="w-full"
-                />
-                {updatingGuestRefreshRate && (
-                  <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div
-            className="toggle-row cursor-pointer"
-            onClick={() =>
-              !updatingGuestRefreshRateLock &&
-              onGuestRefreshRateLockChange(!guestRefreshRateLocked)
-            }
-          >
-            <div>
-              <div className="toggle-row-label flex items-center gap-1.5">
-                {guestRefreshRateLocked ? (
-                  <Lock className="w-3.5 h-3.5 text-themed-accent" />
-                ) : (
-                  <Unlock className="w-3.5 h-3.5 text-themed-accent" />
-                )}
-                Lock Refresh Rate
-              </div>
-              <div className="toggle-row-description">
-                When locked, guests cannot change their refresh rate
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              {updatingGuestRefreshRateLock && (
-                <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
-              )}
-              <div className={`modern-toggle ${guestRefreshRateLocked ? 'checked' : ''}`}>
-                <span className="toggle-thumb" />
-              </div>
-            </div>
-          </div>
+        <div className="p-4 sm:p-5 space-y-4">
+          <PrefillServicePanel
+            serviceName="Steam"
+            serviceNameClass="text-steam"
+            serviceIcon={<SteamIcon size={14} />}
+            accentClass="settings-group--steam"
+            config={prefillConfig}
+            onToggleEnabled={handleSteamToggleEnabled}
+            onDurationChange={handleSteamDurationChange}
+            onMaxThreadsChange={handleSteamMaxThreadsChange}
+            loading={loadingPrefillConfig}
+            updating={updatingPrefillConfig}
+            warningText={t('user.guest.prefill.warning')}
+            durationLabel={t('user.guest.prefill.duration.label')}
+            maxThreadsLabel={t('user.guest.prefill.maxThreads.label')}
+            enableLabel={t('user.guest.prefill.enableByDefault.label')}
+            enableDescription={t('user.guest.prefill.enableByDefault.description')}
+            prefillDurationOptions={prefillDurationOptions}
+            maxThreadOptions={maxThreadOptions}
+          />
+          <PrefillServicePanel
+            serviceName="Epic Games"
+            serviceNameClass="text-epic"
+            serviceIcon={<EpicIcon size={14} />}
+            accentClass="settings-group--epic"
+            config={epicPrefillConfig}
+            onToggleEnabled={handleEpicToggleEnabled}
+            onDurationChange={handleEpicDurationChange}
+            onMaxThreadsChange={handleEpicMaxThreadsChange}
+            loading={loadingEpicPrefillConfig}
+            updating={updatingEpicPrefillConfig}
+            warningText={t('user.guest.prefill.warning')}
+            durationLabel={t('user.guest.prefill.duration.label')}
+            maxThreadsLabel={t('user.guest.prefill.maxThreads.label')}
+            enableLabel={t('user.guest.prefill.enableByDefault.label')}
+            enableDescription={t('user.guest.prefill.enableByDefault.description')}
+            prefillDurationOptions={prefillDurationOptions}
+            maxThreadOptions={maxThreadOptions}
+          />
         </div>
+      </Card>
 
-        {/* Date & Time */}
-        <div className="rounded-lg bg-themed-secondary p-4 space-y-4">
-          <div className="text-xs font-semibold uppercase tracking-wider text-themed-muted">
-            {t('user.guest.sections.dateTime')}
-          </div>
-
-          <div className="space-y-1.5">
-            <div className="toggle-row-label">{t('user.guest.timeFormats.title')}</div>
-            <div className="relative">
-              <MultiSelectDropdown
-                options={timeFormatOptions.map((opt) => ({
-                  value: opt.value,
-                  label: opt.label,
-                  description: opt.description,
-                  icon: opt.icon
-                }))}
-                values={defaultGuestPreferences.allowedTimeFormats}
-                onChange={handleAllowedFormatsChange}
-                placeholder={t('user.guest.timeFormats.placeholder')}
-                minSelections={1}
-                disabled={updatingAllowedFormats || loadingDefaultPrefs}
-                dropdownWidth="w-80"
-              />
-              {updatingAllowedFormats && (
-                <Loader2 className="w-4 h-4 animate-spin absolute right-10 top-1/2 -translate-y-1/2 text-themed-accent" />
-              )}
-            </div>
-            <div className="toggle-row-description">
-              {t('user.guest.timeFormats.note')}
-            </div>
-          </div>
-
-          <div
-            className="toggle-row cursor-pointer"
-            onClick={() =>
-              !loadingDefaultPrefs &&
-              handleUpdateDefaultGuestPref(
-                'showYearInDates',
-                !defaultGuestPreferences.showYearInDates
-              )
-            }
-          >
-            <div>
-              <div className="toggle-row-label">{t('user.guest.preferences.showYear.label')}</div>
-              <div className="toggle-row-description">{t('user.guest.preferences.showYear.description')}</div>
-            </div>
-            <div className="flex items-center gap-2">
-              {updatingDefaultPref === 'showYearInDates' && (
-                <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
-              )}
-              <div className={`modern-toggle ${defaultGuestPreferences.showYearInDates ? 'checked' : ''}`}>
-                <span className="toggle-thumb" />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Display */}
-        <div className="rounded-lg bg-themed-secondary p-4 space-y-4">
-          <div className="text-xs font-semibold uppercase tracking-wider text-themed-muted">
-            {t('user.guest.sections.display')}
-          </div>
-
-          <div
-            className="toggle-row cursor-pointer"
-            onClick={() =>
-              !loadingDefaultPrefs &&
-              handleUpdateDefaultGuestPref('sharpCorners', !defaultGuestPreferences.sharpCorners)
-            }
-          >
-            <div>
-              <div className="toggle-row-label">{t('user.guest.preferences.sharpCorners.label')}</div>
-              <div className="toggle-row-description">{t('user.guest.preferences.sharpCorners.description')}</div>
-            </div>
-            <div className="flex items-center gap-2">
-              {updatingDefaultPref === 'sharpCorners' && (
-                <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
-              )}
-              <div className={`modern-toggle ${defaultGuestPreferences.sharpCorners ? 'checked' : ''}`}>
-                <span className="toggle-thumb" />
-              </div>
-            </div>
-          </div>
-
-          <div
-            className="toggle-row cursor-pointer"
-            onClick={() =>
-              !loadingDefaultPrefs &&
-              handleUpdateDefaultGuestPref('disableTooltips', !defaultGuestPreferences.disableTooltips)
-            }
-          >
-            <div>
-              <div className="toggle-row-label">{t('user.guest.preferences.disableTooltips.label')}</div>
-              <div className="toggle-row-description">{t('user.guest.preferences.disableTooltips.description')}</div>
-            </div>
-            <div className="flex items-center gap-2">
-              {updatingDefaultPref === 'disableTooltips' && (
-                <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
-              )}
-              <div className={`modern-toggle ${defaultGuestPreferences.disableTooltips ? 'checked' : ''}`}>
-                <span className="toggle-thumb" />
-              </div>
-            </div>
-          </div>
-
-          <div
-            className="toggle-row cursor-pointer"
-            onClick={() =>
-              !loadingDefaultPrefs &&
-              handleUpdateDefaultGuestPref('showDatasourceLabels', !defaultGuestPreferences.showDatasourceLabels)
-            }
-          >
-            <div>
-              <div className="toggle-row-label">{t('user.guest.preferences.datasourceLabels.label')}</div>
-              <div className="toggle-row-description">{t('user.guest.preferences.datasourceLabels.description')}</div>
-            </div>
-            <div className="flex items-center gap-2">
-              {updatingDefaultPref === 'showDatasourceLabels' && (
-                <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
-              )}
-              <div className={`modern-toggle ${defaultGuestPreferences.showDatasourceLabels ? 'checked' : ''}`}>
-                <span className="toggle-thumb" />
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </Card>
+      {/* Appearance & Display card - spans full width as last child */}
+      <AppearanceDisplayCard
+        defaultGuestTheme={defaultGuestTheme}
+        onGuestThemeChange={onGuestThemeChange}
+        updatingGuestTheme={updatingGuestTheme}
+        availableThemes={availableThemes}
+        defaultGuestRefreshRate={defaultGuestRefreshRate}
+        onGuestRefreshRateChange={onGuestRefreshRateChange}
+        updatingGuestRefreshRate={updatingGuestRefreshRate}
+        guestRefreshRateLocked={guestRefreshRateLocked}
+        onGuestRefreshRateLockChange={onGuestRefreshRateLockChange}
+        updatingGuestRefreshRateLock={updatingGuestRefreshRateLock}
+        refreshRateOptions={translatedRefreshRateOptions}
+        defaultGuestPreferences={defaultGuestPreferences}
+        onUpdateDefaultPref={handleUpdateDefaultGuestPref}
+        updatingDefaultPref={updatingDefaultPref}
+        loadingDefaultPrefs={loadingDefaultPrefs}
+        onAllowedFormatsChange={handleAllowedFormatsChange}
+        updatingAllowedFormats={updatingAllowedFormats}
+      />
+    </div>
   );
 };
 

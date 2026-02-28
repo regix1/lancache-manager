@@ -56,23 +56,33 @@ public class AuthController : ControllerBase
         try { hasDataLoaded = _stateService.HasDataLoaded(); }
         catch (Exception ex) { _logger.LogWarning(ex, "Failed to check if data has been loaded"); }
 
-        // Determine prefill access
-        var prefillEnabled = false;
-        DateTime? prefillExpiresAt = null;
+        // Determine per-service prefill access
+        var steamPrefillEnabled = false;
+        DateTime? steamPrefillExpiresAt = null;
+        var epicPrefillEnabled = false;
+        DateTime? epicPrefillExpiresAt = null;
 
         if (session != null)
         {
             if (session.SessionType == "admin")
             {
-                prefillEnabled = true;
+                steamPrefillEnabled = true;
+                epicPrefillEnabled = true;
             }
             else if (session.SessionType == "guest")
             {
-                prefillEnabled = session.PrefillExpiresAtUtc != null && session.PrefillExpiresAtUtc > DateTime.UtcNow;
-                prefillExpiresAt = session.PrefillExpiresAtUtc > DateTime.UtcNow
-                    ? DateTime.SpecifyKind(session.PrefillExpiresAtUtc.Value, DateTimeKind.Utc) : null;
+                steamPrefillEnabled = session.SteamPrefillExpiresAtUtc != null && session.SteamPrefillExpiresAtUtc > DateTime.UtcNow;
+                steamPrefillExpiresAt = steamPrefillEnabled
+                    ? DateTime.SpecifyKind(session.SteamPrefillExpiresAtUtc!.Value, DateTimeKind.Utc) : null;
+
+                epicPrefillEnabled = session.EpicPrefillExpiresAtUtc != null && session.EpicPrefillExpiresAtUtc > DateTime.UtcNow;
+                epicPrefillExpiresAt = epicPrefillEnabled
+                    ? DateTime.SpecifyKind(session.EpicPrefillExpiresAtUtc!.Value, DateTimeKind.Utc) : null;
             }
         }
+
+        // Backward-compat: prefillEnabled is true if either service is active
+        var prefillEnabled = steamPrefillEnabled || epicPrefillEnabled;
 
         // Token rotation: provide a fresh token for SignalR accessTokenFactory (mobile support)
         string? token = null;
@@ -94,7 +104,10 @@ public class AuthController : ControllerBase
             GuestAccessEnabled = _sessionService.IsGuestAccessEnabled(),
             GuestDurationHours = _sessionService.GetGuestDurationHours(),
             PrefillEnabled = prefillEnabled,
-            PrefillExpiresAt = prefillExpiresAt,
+            SteamPrefillEnabled = steamPrefillEnabled,
+            SteamPrefillExpiresAt = steamPrefillExpiresAt,
+            EpicPrefillEnabled = epicPrefillEnabled,
+            EpicPrefillExpiresAt = epicPrefillExpiresAt,
             Token = token
         });
     }
@@ -162,10 +175,15 @@ public class AuthController : ControllerBase
         var (rawToken, session) = result.Value;
         _sessionService.SetSessionCookie(HttpContext, rawToken, session.ExpiresAtUtc);
 
-        // Auto-grant prefill access if enabled by default
-        if (_sessionService.IsGuestPrefillEnabled())
+        // Auto-grant per-service prefill access if enabled by default
+        if (_sessionService.IsSteamPrefillEnabled())
         {
-            await _sessionService.GrantPrefillAccessAsync(session.Id, _sessionService.GetGuestPrefillDurationHours());
+            await _sessionService.GrantSteamPrefillAccessAsync(session.Id, _sessionService.GetGuestPrefillDurationHours());
+        }
+
+        if (_sessionService.IsEpicPrefillEnabled())
+        {
+            await _sessionService.GrantEpicPrefillAccessAsync(session.Id, _stateService.GetEpicGuestPrefillDurationHours());
         }
 
         // Broadcast session created
@@ -271,7 +289,7 @@ public class AuthController : ControllerBase
     {
         return Ok(new
         {
-            enabledByDefault = _sessionService.IsGuestPrefillEnabled(),
+            enabledByDefault = _sessionService.IsSteamPrefillEnabled(),
             durationHours = _sessionService.GetGuestPrefillDurationHours(),
             maxThreadCount = _stateService.GetDefaultGuestMaxThreadCount(),
             epicEnabledByDefault = _stateService.GetEpicGuestPrefillEnabledByDefault(),
@@ -288,7 +306,7 @@ public class AuthController : ControllerBase
             return BadRequest(new { error = "Duration must be 1 or 2 hours" });
         }
 
-        _sessionService.SetGuestPrefillEnabled(request.EnabledByDefault);
+        _sessionService.SetSteamGuestPrefillEnabled(request.EnabledByDefault);
         _sessionService.SetGuestPrefillDurationHours(request.DurationHours);
         _stateService.SetDefaultGuestMaxThreadCount(request.MaxThreadCount);
 
@@ -304,7 +322,7 @@ public class AuthController : ControllerBase
 
         return Ok(new {
             success = true,
-            enabledByDefault = _sessionService.IsGuestPrefillEnabled(),
+            enabledByDefault = _sessionService.IsSteamPrefillEnabled(),
             durationHours = _sessionService.GetGuestPrefillDurationHours(),
             maxThreadCount = _stateService.GetDefaultGuestMaxThreadCount()
         });
@@ -354,30 +372,51 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("guest/prefill/toggle/{sessionId:guid}")]
-    public async Task<IActionResult> ToggleGuestPrefill(Guid sessionId, [FromBody] GuestPrefillToggleRequest request)
+    public async Task<IActionResult> ToggleGuestPrefill(Guid sessionId, [FromBody] GuestPrefillToggleRequest request, [FromQuery] string service = "steam")
     {
-        if (request.Enabled)
+        var normalizedService = service.Trim().ToLowerInvariant();
+
+        if (normalizedService == "epic")
         {
-            await _sessionService.GrantPrefillAccessAsync(sessionId, _sessionService.GetGuestPrefillDurationHours());
+            if (request.Enabled)
+                await _sessionService.GrantEpicPrefillAccessAsync(sessionId, _stateService.GetEpicGuestPrefillDurationHours());
+            else
+                await _sessionService.RevokeEpicPrefillAccessAsync(sessionId);
         }
         else
         {
-            await _sessionService.RevokePrefillAccessAsync(sessionId);
+            // Default to steam for backward compatibility
+            if (request.Enabled)
+                await _sessionService.GrantSteamPrefillAccessAsync(sessionId, _sessionService.GetGuestPrefillDurationHours());
+            else
+                await _sessionService.RevokeSteamPrefillAccessAsync(sessionId);
         }
 
         var updatedSession = await _dbContext.UserSessions.FindAsync(sessionId);
-        var prefillExpiresAt = updatedSession?.PrefillExpiresAtUtc != null
-            ? DateTime.SpecifyKind(updatedSession.PrefillExpiresAtUtc!.Value, DateTimeKind.Utc)
-            : (DateTime?)null;
+        DateTime? prefillExpiresAt = null;
+
+        if (normalizedService == "epic")
+        {
+            prefillExpiresAt = updatedSession?.EpicPrefillExpiresAtUtc != null
+                ? DateTime.SpecifyKind(updatedSession.EpicPrefillExpiresAtUtc.Value, DateTimeKind.Utc)
+                : (DateTime?)null;
+        }
+        else
+        {
+            prefillExpiresAt = updatedSession?.SteamPrefillExpiresAtUtc != null
+                ? DateTime.SpecifyKind(updatedSession.SteamPrefillExpiresAtUtc.Value, DateTimeKind.Utc)
+                : (DateTime?)null;
+        }
 
         await _signalR.NotifyAllAsync(SignalREvents.GuestPrefillPermissionChanged, new
         {
             sessionId = sessionId.ToString(),
+            service = normalizedService,
             enabled = request.Enabled,
             prefillExpiresAt
         });
 
-        return Ok(new { success = true, sessionId = sessionId.ToString(), enabled = request.Enabled, prefillExpiresAt });
+        return Ok(new { success = true, sessionId = sessionId.ToString(), service = normalizedService, enabled = request.Enabled, prefillExpiresAt });
     }
 }
 

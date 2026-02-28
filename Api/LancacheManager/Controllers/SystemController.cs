@@ -505,18 +505,19 @@ public class SystemController : ControllerBase
     [HttpGet("prefill-defaults")]
     public IActionResult GetPrefillDefaults()
     {
-        var maxThreadLimit = ResolveEffectiveThreadLimit();
+        var steamMaxThreadLimit = ResolveEffectiveSteamThreadLimit();
+        var epicMaxThreadLimit = ResolveEffectiveEpicThreadLimit();
         var maxConcurrency = ClampConcurrencyToLimit(
-            _stateService.GetDefaultPrefillMaxConcurrency(), maxThreadLimit);
+            _stateService.GetDefaultPrefillMaxConcurrency(), steamMaxThreadLimit);
         var epicMaxConcurrency = ClampConcurrencyToLimit(
-            _stateService.GetEpicDefaultPrefillMaxConcurrency(), maxThreadLimit);
+            _stateService.GetEpicDefaultPrefillMaxConcurrency(), epicMaxThreadLimit);
 
         return Ok(new
         {
             operatingSystems = _stateService.GetDefaultPrefillOperatingSystems(),
             maxConcurrency,
             serverThreadCount = 256,
-            maxThreadLimit,
+            maxThreadLimit = steamMaxThreadLimit,
             epicDefaultPrefillMaxConcurrency = epicMaxConcurrency
         });
     }
@@ -540,14 +541,15 @@ public class SystemController : ControllerBase
             _stateService.SetEpicDefaultPrefillMaxConcurrency(request.EpicDefaultPrefillMaxConcurrency);
         }
 
-        var maxThreadLimit = ResolveEffectiveThreadLimit();
+        var steamMaxThreadLimit = ResolveEffectiveSteamThreadLimit();
+        var epicMaxThreadLimit = ResolveEffectiveEpicThreadLimit();
 
         await _notifications.NotifyAllAsync(SignalREvents.PrefillDefaultsChanged, new
         {
             operatingSystems = _stateService.GetDefaultPrefillOperatingSystems(),
             maxConcurrency = _stateService.GetDefaultPrefillMaxConcurrency(),
             serverThreadCount = 256,
-            maxThreadLimit,
+            maxThreadLimit = steamMaxThreadLimit,
             epicDefaultPrefillMaxConcurrency = _stateService.GetEpicDefaultPrefillMaxConcurrency()
         });
 
@@ -556,14 +558,14 @@ public class SystemController : ControllerBase
             operatingSystems = _stateService.GetDefaultPrefillOperatingSystems(),
             maxConcurrency = _stateService.GetDefaultPrefillMaxConcurrency(),
             serverThreadCount = 256,
-            maxThreadLimit,
+            maxThreadLimit = steamMaxThreadLimit,
             epicDefaultPrefillMaxConcurrency = _stateService.GetEpicDefaultPrefillMaxConcurrency()
         });
     }
 
     private UserSession? GetSession() => HttpContext.Items["Session"] as UserSession;
 
-    private int? ResolveEffectiveThreadLimit()
+    private int? ResolveEffectiveSteamThreadLimit()
     {
         var session = GetSession();
         if (session == null) return null;
@@ -571,7 +573,18 @@ public class SystemController : ControllerBase
 
         // Guest: check per-user override first, then system default
         var prefs = _userPreferencesService.GetPreferences(session.Id);
-        return prefs?.MaxThreadCount ?? _stateService.GetDefaultGuestMaxThreadCount();
+        return prefs?.SteamMaxThreadCount ?? _stateService.GetDefaultGuestMaxThreadCount();
+    }
+
+    private int? ResolveEffectiveEpicThreadLimit()
+    {
+        var session = GetSession();
+        if (session == null) return null;
+        if (session.SessionType == "admin") return null;
+
+        // Guest: check per-user override first, then system default
+        var prefs = _userPreferencesService.GetPreferences(session.Id);
+        return prefs?.EpicMaxThreadCount ?? _stateService.GetEpicDefaultGuestMaxThreadCount();
     }
 
     /// <summary>

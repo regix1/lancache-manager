@@ -190,9 +190,9 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
       const maxLeft = Math.max(VIEWPORT_PADDING_PX, window.innerWidth - dropdownWidthPx - VIEWPORT_PADDING_PX);
       const left = Math.min(Math.max(desiredLeft, VIEWPORT_PADDING_PX), maxLeft);
 
-      // Calculate vertical position
-      const top = shouldOpenUpward ? undefined : rect.bottom + 4;
-      const bottom = shouldOpenUpward ? window.innerHeight - rect.top + 8 : undefined;
+      // Calculate vertical position (flush: no gap so trigger and panel connect)
+      const top = shouldOpenUpward ? undefined : rect.bottom;
+      const bottom = shouldOpenUpward ? window.innerHeight - rect.top : undefined;
 
       return { top, bottom, left, width: rect.width, shouldOpenUpward };
     };
@@ -314,7 +314,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
         disabled={disabled}
         aria-label={resolvedAriaLabel}
         className={`ed-trigger w-full px-3 py-2 themed-border-radius border text-left flex items-center justify-between text-sm themed-card text-themed-primary ${
-          isOpen ? 'border-themed-focus' : 'border-themed-primary'
+          isOpen ? 'ed-trigger--open border-themed-focus' : 'border-themed-primary'
         } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
       >
         <div className={`flex items-center flex-1 truncate ${iconOnly ? 'justify-center' : 'gap-1.5'}`}>
@@ -337,7 +337,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
       {isOpen && dropdownPosition && createPortal(
       <div
           ref={dropdownRef}
-          className={`ed-dropdown fixed themed-border-radius border border-themed-primary overflow-hidden bg-themed-secondary max-w-[calc(100vw-32px)] shadow-[0_10px_25px_-5px_rgba(0,0,0,0.3),0_8px_10px_-6px_rgba(0,0,0,0.2)] z-[85] ${dropdownWidth?.trim().startsWith('w-') ? dropdownWidth : ''}`}
+          className={`ed-dropdown ed-dropdown--menu fixed border border-themed-primary overflow-hidden bg-themed-secondary max-w-[calc(100vw-32px)] shadow-[0_10px_25px_-5px_rgba(0,0,0,0.3),0_8px_10px_-6px_rgba(0,0,0,0.2)] z-[85] ${dropdownWidth?.trim().startsWith('w-') ? dropdownWidth : ''}`}
           style={{
             top: dropdownPosition.top,
             bottom: dropdownPosition.bottom,

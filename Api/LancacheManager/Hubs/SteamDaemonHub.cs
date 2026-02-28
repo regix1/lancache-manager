@@ -44,8 +44,8 @@ public class SteamDaemonHub : Hub
 
         var session = await _sessionService.ValidateSessionAsync(rawToken);
         var isAdmin = session?.SessionType == "admin";
-        var hasPrefillAccess = session?.PrefillExpiresAtUtc != null && session.PrefillExpiresAtUtc > DateTime.UtcNow;
-        if (session == null || (!isAdmin && !hasPrefillAccess))
+        var hasSteamPrefillAccess = session?.SteamPrefillExpiresAtUtc != null && session.SteamPrefillExpiresAtUtc > DateTime.UtcNow;
+        if (session == null || (!isAdmin && !hasSteamPrefillAccess))
         {
             _logger.LogWarning("Steam daemon hub connection rejected - no prefill access: {ConnectionId}", Context.ConnectionId);
             Context.Abort();

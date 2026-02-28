@@ -12,6 +12,10 @@ export interface Session {
   isCurrentSession: boolean;
   prefillEnabled: boolean;
   prefillExpiresAt?: string | null;
+  steamPrefillEnabled: boolean;
+  steamPrefillExpiresAt?: string | null;
+  epicPrefillEnabled: boolean;
+  epicPrefillExpiresAt?: string | null;
 }
 
 export interface UserPreferences {
