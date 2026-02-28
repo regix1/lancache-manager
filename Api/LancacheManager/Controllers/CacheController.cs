@@ -509,8 +509,8 @@ public class CacheController : ControllerBase
         // This prevents the DB/filesystem state mismatch when PUID/PGID is wrong
         foreach (ResolvedDatasource datasource in datasources)
         {
-            var cacheWritable = _pathResolver.IsDirectoryWritable(datasource.CachePath);
             var logsWritable = _pathResolver.IsDirectoryWritable(datasource.LogPath);
+            var cacheWritable = compareToCacheLogs ? _pathResolver.IsDirectoryWritable(datasource.CachePath) : true;
 
             if (!cacheWritable || !logsWritable)
             {
@@ -669,8 +669,11 @@ public class CacheController : ControllerBase
                         // Clear cached detection result so page reload doesn't show stale data
                         await _corruptionDetectionService.RemoveCachedServiceAsync(service);
 
-                        // Invalidate service count cache since corruption removal affects counts
-                        await _cacheService.InvalidateServiceCountsCache();
+                        // Invalidate service count cache since corruption removal affects counts (only when cache files were deleted)
+                        if (compareToCacheLogs)
+                        {
+                            await _cacheService.InvalidateServiceCountsCache();
+                        }
 
                         _operationTracker.CompleteOperation(operationId, success: true);
                         await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,

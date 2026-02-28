@@ -1373,7 +1373,7 @@
           "userSessionsLogout": "All devices will be logged out and the application will reload",
           "userSessionsCleared": "All registered devices will be cleared - you will need to re-authenticate",
           "clientGroups": "All client groups and their member associations will be permanently deleted",
-          "prefillSessions": "All prefill sessions and their history entries will be permanently deleted",
+          "prefillSessions": "All prefill sessions will be permanently deleted",
           "bannedSteamUsers": "All banned Steam users will be unblocked and can prefill again"
         },
         "clearTables": "Clear {{count}} Table",
@@ -1442,7 +1442,13 @@
           "prefillSessions": {
             "label": "Prefill Sessions",
             "description": "Steam-lancache-prefill session tracking",
-            "details": "Active and historical prefill sessions with status and configuration. Also clears prefill history.",
+            "details": "Active and historical prefill sessions with status and configuration",
+            "affectedPages": "Management → Prefill Sessions section"
+          },
+          "prefillHistoryEntries": {
+            "label": "Prefill History",
+            "description": "Per-game prefill download history within sessions",
+            "details": "Records of individual game prefill operations including progress and status",
             "affectedPages": "Management → Prefill Sessions section"
           },
           "bannedSteamUsers": {
@@ -1710,7 +1716,8 @@
           "databaseRecordsLabel": "Database records",
           "databaseRecords": "Download records are cleaned up if no log entries remain for them"
         },
-        "warning": "Needs write access to both cache and log directories."
+        "warning": "Needs write access to both cache and log directories.",
+        "warningLogsOnly": "Needs write access to log directories only."
       },
       "alerts": {
         "cacheMissing": "Cache directory does not exist",
@@ -1721,6 +1728,7 @@
         "logsReadOnly": "Logs directory is read-only",
         "cacheReadOnly": "Cache directory is read-only",
         "requiresWriteAccess": "Corruption removal requires write access to both logs and cache. Remove",
+        "requiresLogsWriteAccess": "Corruption removal requires write access to logs. Remove",
         "fromVolumeMounts": "from your docker-compose volume mounts.",
         "dockerSocketUnavailable": "Docker socket not available",
         "requiresNginxSignal": "Corruption removal requires signaling nginx to reopen logs afterward."
@@ -1760,7 +1768,8 @@
         "mayTakeSeveralMinutes": "May take several minutes for large cache directories",
         "validFilesRemain": "Valid {{service}} cache files will remain intact",
         "removesApproximately": "Removes approximately {{count}} corrupted chunks",
-        "deleteCacheAndLogs": "Delete Cache & Logs"
+        "deleteCacheAndLogs": "Delete Cache & Logs",
+        "deleteLogsOnly": "Delete Logs Only"
       }
     },
     "gameDetection": {
@@ -3825,12 +3834,24 @@
         "success": {
           "label": "Success Primary",
           "description": "Success state primary color (border for alerts)",
-          "affects": ["Success icons", "Success buttons", "Positive actions", "Alert borders", "Success notifications"]
+          "affects": [
+            "Success icons",
+            "Success buttons",
+            "Positive actions",
+            "Alert borders",
+            "Success notifications"
+          ]
         },
         "successBg": {
           "label": "Success Background",
           "description": "Success state background (alert background)",
-          "affects": ["Success alerts", "Success badges", "Success cards", "Alert backgrounds", "Success banners"]
+          "affects": [
+            "Success alerts",
+            "Success badges",
+            "Success cards",
+            "Alert backgrounds",
+            "Success banners"
+          ]
         },
         "successText": {
           "label": "Success Text",
@@ -3855,12 +3876,24 @@
         "error": {
           "label": "Error Primary",
           "description": "Error state primary color (border for alerts)",
-          "affects": ["Error icons", "Delete buttons", "Critical actions", "Alert borders", "Error notifications"]
+          "affects": [
+            "Error icons",
+            "Delete buttons",
+            "Critical actions",
+            "Alert borders",
+            "Error notifications"
+          ]
         },
         "errorBg": {
           "label": "Error Background",
           "description": "Error state background (alert background)",
-          "affects": ["Error alerts", "Error badges", "Alert backgrounds", "Error banners", "Danger zones"]
+          "affects": [
+            "Error alerts",
+            "Error badges",
+            "Alert backgrounds",
+            "Error banners",
+            "Danger zones"
+          ]
         },
         "errorText": {
           "label": "Error Text",
@@ -3875,7 +3908,13 @@
         "infoBg": {
           "label": "Info Background",
           "description": "Information state background (alert background)",
-          "affects": ["Info alerts", "Info cards", "Alert backgrounds", "Notification panels", "Info banners"]
+          "affects": [
+            "Info alerts",
+            "Info cards",
+            "Alert backgrounds",
+            "Notification panels",
+            "Info banners"
+          ]
         },
         "infoText": {
           "label": "Info Text",

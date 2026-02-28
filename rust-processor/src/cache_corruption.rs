@@ -638,83 +638,56 @@ fn main() -> Result<()> {
             // Step 3: Delete ALL cache file chunks from disk
             // IMPORTANT: Use same logic as game_cache_remover - try no-range format first!
             // Track permission errors separately - these indicate PUID/PGID mismatch
-            eprintln!("Step 3: Deleting cache files...");
             let mut deleted_count = 0;
             let mut permission_errors = 0;
             let mut other_errors = 0;
-            let slice_size: i64 = 1_048_576; // 1MB
 
-            for (url_index, (url, response_size)) in corrupted_urls_with_sizes.iter().enumerate() {
-                // Update progress during cache removal (70-95%)
-                if url_index % 50 == 0 || url_index == total_urls - 1 {
-                    let cache_percent = 70.0 + (url_index as f64 / total_urls.max(1) as f64) * 20.0;
-                    write_progress(&progress_path, "removing_cache", &format!("Removing cache file {}/{}", url_index + 1, total_urls), cache_percent, url_index, total_urls)?;
-                    reporter.emit_progress(cache_percent, &format!("Removing cache file {}/{}", url_index + 1, total_urls));
-                }
-                
-                // FIRST: Try the no-range format (standard lancache format)
-                let cache_path_no_range = cache_utils::calculate_cache_path_no_range(&cache_dir, &service_lower, url);
+            if !no_cache_check {
+                eprintln!("Step 3: Deleting cache files...");
+                let slice_size: i64 = 1_048_576; // 1MB
 
-                if cache_path_no_range.exists() {
-                    // Found file with no-range format - delete it
-                    match std::fs::remove_file(&cache_path_no_range) {
-                        Ok(_) => {
-                            deleted_count += 1;
-                            if deleted_count % 100 == 0 {
-                                eprintln!("  Deleted {} cache files...", deleted_count);
-                            }
-                        }
-                        Err(e) => {
-                            // Check if this is a permission error
-                            if e.kind() == std::io::ErrorKind::PermissionDenied {
-                                permission_errors += 1;
-                                if permission_errors <= 5 {
-                                    eprintln!("  ERROR: Permission denied deleting {}: {}", cache_path_no_range.display(), e);
-                                }
-                            } else {
-                                other_errors += 1;
-                                eprintln!("  Warning: Failed to delete {}: {}", cache_path_no_range.display(), e);
-                            }
-                        }
+                for (url_index, (url, response_size)) in corrupted_urls_with_sizes.iter().enumerate() {
+                    // Update progress during cache removal (70-95%)
+                    if url_index % 50 == 0 || url_index == total_urls - 1 {
+                        let cache_percent = 70.0 + (url_index as f64 / total_urls.max(1) as f64) * 20.0;
+                        write_progress(&progress_path, "removing_cache", &format!("Removing cache file {}/{}", url_index + 1, total_urls), cache_percent, url_index, total_urls)?;
+                        reporter.emit_progress(cache_percent, &format!("Removing cache file {}/{}", url_index + 1, total_urls));
                     }
-                } else {
-                    // FALLBACK: Try the chunked format with bytes range
-                    if *response_size == 0 {
-                        // If no response size, check at least the first chunk
-                        let cache_path = cache_utils::calculate_cache_path(&cache_dir, &service_lower, url, 0, 1_048_575);
 
-                        if cache_path.exists() {
-                            match std::fs::remove_file(&cache_path) {
-                                Ok(_) => deleted_count += 1,
-                                Err(e) => {
-                                    if e.kind() == std::io::ErrorKind::PermissionDenied {
-                                        permission_errors += 1;
-                                        if permission_errors <= 5 {
-                                            eprintln!("  ERROR: Permission denied deleting {}: {}", cache_path.display(), e);
-                                        }
-                                    } else {
-                                        other_errors += 1;
-                                        eprintln!("  Warning: Failed to delete {}: {}", cache_path.display(), e);
+                    // FIRST: Try the no-range format (standard lancache format)
+                    let cache_path_no_range = cache_utils::calculate_cache_path_no_range(&cache_dir, &service_lower, url);
+
+                    if cache_path_no_range.exists() {
+                        // Found file with no-range format - delete it
+                        match std::fs::remove_file(&cache_path_no_range) {
+                            Ok(_) => {
+                                deleted_count += 1;
+                                if deleted_count % 100 == 0 {
+                                    eprintln!("  Deleted {} cache files...", deleted_count);
+                                }
+                            }
+                            Err(e) => {
+                                // Check if this is a permission error
+                                if e.kind() == std::io::ErrorKind::PermissionDenied {
+                                    permission_errors += 1;
+                                    if permission_errors <= 5 {
+                                        eprintln!("  ERROR: Permission denied deleting {}: {}", cache_path_no_range.display(), e);
                                     }
+                                } else {
+                                    other_errors += 1;
+                                    eprintln!("  Warning: Failed to delete {}: {}", cache_path_no_range.display(), e);
                                 }
                             }
                         }
                     } else {
-                        // Calculate ALL chunks based on actual response size
-                        let mut start: i64 = 0;
-                        while start < *response_size {
-                            let end = start + slice_size - 1;
-
-                            let cache_path = cache_utils::calculate_cache_path(&cache_dir, &service_lower, url, start as u64, end as u64);
+                        // FALLBACK: Try the chunked format with bytes range
+                        if *response_size == 0 {
+                            // If no response size, check at least the first chunk
+                            let cache_path = cache_utils::calculate_cache_path(&cache_dir, &service_lower, url, 0, 1_048_575);
 
                             if cache_path.exists() {
                                 match std::fs::remove_file(&cache_path) {
-                                    Ok(_) => {
-                                        deleted_count += 1;
-                                        if deleted_count % 100 == 0 {
-                                            eprintln!("  Deleted {} cache files...", deleted_count);
-                                        }
-                                    }
+                                    Ok(_) => deleted_count += 1,
                                     Err(e) => {
                                         if e.kind() == std::io::ErrorKind::PermissionDenied {
                                             permission_errors += 1;
@@ -728,11 +701,43 @@ fn main() -> Result<()> {
                                     }
                                 }
                             }
+                        } else {
+                            // Calculate ALL chunks based on actual response size
+                            let mut start: i64 = 0;
+                            while start < *response_size {
+                                let end = start + slice_size - 1;
 
-                            start += slice_size;
+                                let cache_path = cache_utils::calculate_cache_path(&cache_dir, &service_lower, url, start as u64, end as u64);
+
+                                if cache_path.exists() {
+                                    match std::fs::remove_file(&cache_path) {
+                                        Ok(_) => {
+                                            deleted_count += 1;
+                                            if deleted_count % 100 == 0 {
+                                                eprintln!("  Deleted {} cache files...", deleted_count);
+                                            }
+                                        }
+                                        Err(e) => {
+                                            if e.kind() == std::io::ErrorKind::PermissionDenied {
+                                                permission_errors += 1;
+                                                if permission_errors <= 5 {
+                                                    eprintln!("  ERROR: Permission denied deleting {}: {}", cache_path.display(), e);
+                                                }
+                                            } else {
+                                                other_errors += 1;
+                                                eprintln!("  Warning: Failed to delete {}: {}", cache_path.display(), e);
+                                            }
+                                        }
+                                    }
+                                }
+
+                                start += slice_size;
+                            }
                         }
                     }
                 }
+            } else {
+                eprintln!("Step 3: Skipping cache file deletion (logs-only mode)");
             }
 
             eprintln!("Deleted {} cache files", deleted_count);
@@ -749,7 +754,7 @@ fn main() -> Result<()> {
 
             // CRITICAL: If we had permission errors, do NOT delete database records
             // This prevents the DB/filesystem state mismatch that causes issues
-            if permission_errors > 0 {
+            if !no_cache_check && permission_errors > 0 {
                 let error_msg = format!(
                     "ABORTED: Cannot delete database records because {} cache files could not be deleted due to permission errors. \
                     This is likely caused by incorrect PUID/PGID settings. The lancache container typically runs as UID/GID 33:33 (www-data). \

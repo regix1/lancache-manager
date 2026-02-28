@@ -344,8 +344,8 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     .filter(([_, count]) => count > 0)
     .sort((a, b) => b[1] - a[1]);
 
-  const isReadOnly = logsReadOnly || cacheReadOnly;
-  const directoryMissing = !logsExist || !cacheExist;
+  const isReadOnly = compareToCacheLogs ? logsReadOnly || cacheReadOnly : logsReadOnly;
+  const directoryMissing = compareToCacheLogs ? !logsExist || !cacheExist : !logsExist;
   const hasPermissionIssue = isReadOnly || directoryMissing;
 
   // Help content
@@ -387,7 +387,11 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         </div>
       </HelpSection>
 
-      <HelpNote type="warning">{t('management.corruption.help.warning')}</HelpNote>
+      <HelpNote type="warning">
+        {compareToCacheLogs
+          ? t('management.corruption.help.warning')
+          : t('management.corruption.help.warningLogsOnly')}
+      </HelpNote>
     </HelpPopover>
   );
 
@@ -501,14 +505,18 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
           <Alert color="orange" className="mb-6">
             <div>
               <p className="font-medium">
-                {logsReadOnly && cacheReadOnly
-                  ? t('management.corruption.alerts.logsAndCacheReadOnly')
-                  : logsReadOnly
-                    ? t('management.corruption.alerts.logsReadOnly')
-                    : t('management.corruption.alerts.cacheReadOnly')}
+                {compareToCacheLogs
+                  ? logsReadOnly && cacheReadOnly
+                    ? t('management.corruption.alerts.logsAndCacheReadOnly')
+                    : logsReadOnly
+                      ? t('management.corruption.alerts.logsReadOnly')
+                      : t('management.corruption.alerts.cacheReadOnly')
+                  : t('management.corruption.alerts.logsReadOnly')}
               </p>
               <p className="text-sm mt-1">
-                {t('management.corruption.alerts.requiresWriteAccess')}{' '}
+                {compareToCacheLogs
+                  ? t('management.corruption.alerts.requiresWriteAccess')
+                  : t('management.corruption.alerts.requiresLogsWriteAccess')}{' '}
                 <code className="bg-themed-tertiary px-1 rounded">:ro</code>{' '}
                 {t('management.corruption.alerts.fromVolumeMounts')}
               </p>
@@ -593,7 +601,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                             !!startingCorruptionRemoval ||
                             authMode !== 'authenticated' ||
                             logsReadOnly ||
-                            cacheReadOnly ||
+                            (compareToCacheLogs && cacheReadOnly) ||
                             !isDockerAvailable ||
                             checkingPermissions
                           }
@@ -707,10 +715,12 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                 {t('management.corruption.modal.willDelete')}
               </p>
               <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-                <li>
-                  <strong>{t('management.corruption.modal.cacheFilesLabel')}</strong>{' '}
-                  {t('management.corruption.modal.cacheFilesDesc')}
-                </li>
+                {compareToCacheLogs && (
+                  <li>
+                    <strong>{t('management.corruption.modal.cacheFilesLabel')}</strong>{' '}
+                    {t('management.corruption.modal.cacheFilesDesc')}
+                  </li>
+                )}
                 <li>
                   <strong>{t('management.corruption.modal.logEntriesLabel')}</strong>{' '}
                   {t('management.corruption.modal.logEntriesDesc')}
@@ -748,7 +758,9 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
               {t('common.cancel')}
             </Button>
             <Button variant="filled" color="red" onClick={confirmRemoveCorruption}>
-              {t('management.corruption.modal.deleteCacheAndLogs')}
+              {compareToCacheLogs
+                ? t('management.corruption.modal.deleteCacheAndLogs')
+                : t('management.corruption.modal.deleteLogsOnly')}
             </Button>
           </div>
         </div>

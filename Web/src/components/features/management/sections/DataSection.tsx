@@ -132,6 +132,13 @@ const DataSection: React.FC<DataSectionProps> = ({
       affectedPages: t('management.sections.data.tables.prefillSessions.affectedPages')
     },
     {
+      name: 'PrefillHistoryEntries',
+      label: t('management.sections.data.tables.prefillHistoryEntries.label'),
+      description: t('management.sections.data.tables.prefillHistoryEntries.description'),
+      details: t('management.sections.data.tables.prefillHistoryEntries.details'),
+      affectedPages: t('management.sections.data.tables.prefillHistoryEntries.affectedPages')
+    },
+    {
       name: 'PrefillCachedDepots',
       label: t('management.sections.data.tables.prefillCachedDepots.label'),
       description: t('management.sections.data.tables.prefillCachedDepots.description'),

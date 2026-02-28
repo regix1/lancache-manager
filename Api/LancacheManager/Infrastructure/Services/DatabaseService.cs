@@ -326,7 +326,7 @@ public class DatabaseService : IDatabaseService
             });
 
             // Validate table names to prevent SQL injection
-            var validTables = new HashSet<string> { "LogEntries", "Downloads", "ClientStats", "ServiceStats", "SteamDepotMappings", "CachedGameDetections", "CachedServiceDetections", "CachedCorruptionDetections", "ClientGroups", "UserSessions", "UserPreferences", "Events", "EventDownloads", "PrefillSessions", "PrefillCachedDepots", "BannedSteamUsers", "CacheSnapshots" };
+            var validTables = new HashSet<string> { "LogEntries", "Downloads", "ClientStats", "ServiceStats", "SteamDepotMappings", "CachedGameDetections", "CachedServiceDetections", "CachedCorruptionDetections", "ClientGroups", "UserSessions", "UserPreferences", "Events", "EventDownloads", "PrefillSessions", "PrefillHistoryEntries", "PrefillCachedDepots", "BannedSteamUsers", "CacheSnapshots" };
             var tablesToClear = tableNames.Where(t => validTables.Contains(t)).ToList();
 
             if (tablesToClear.Count == 0)
@@ -368,6 +368,7 @@ public class DatabaseService : IDatabaseService
                             "Events" => await context.Events.CountAsync(cancellationToken),
                             "EventDownloads" => await context.EventDownloads.CountAsync(cancellationToken),
                             "PrefillSessions" => await context.PrefillSessions.CountAsync(cancellationToken),
+                            "PrefillHistoryEntries" => await context.PrefillHistoryEntries.CountAsync(cancellationToken),
                             "PrefillCachedDepots" => await context.PrefillCachedDepots.CountAsync(cancellationToken),
                             "BannedSteamUsers" => await context.BannedSteamUsers.CountAsync(cancellationToken),
                             "CacheSnapshots" => await context.CacheSnapshots.CountAsync(cancellationToken),
@@ -420,13 +421,14 @@ public class DatabaseService : IDatabaseService
                 var orderedTables = tablesToClear.OrderBy(t =>
                     t == "UserSessions" ? 0 :           // HIGHEST PRIORITY - invalidate sessions first
                     t == "UserPreferences" ? 1 :        // Second - FK dependency on UserSessions
-                    t == "PrefillSessions" ? 2 :        // Third - PrefillHistoryEntries FK dependency (cascade will handle)
-                    t == "EventDownloads" ? 3 :         // Fourth - FK dependency from Events and Downloads
-                    t == "LogEntries" ? 4 :             // Fifth - FK dependency from Downloads
-                    t == "Downloads" ? 5 :              // Sixth - depends on LogEntries
-                    t == "Events" ? 6 :                 // Seventh - EventDownloads depend on this
-                    t == "ClientGroups" ? 7 :           // Eighth - ClientGroupMembers FK dependency (cascade will handle)
-                    8).ToList();
+                    t == "PrefillHistoryEntries" ? 2 :  // Third - FK dependency on PrefillSessions
+                    t == "PrefillSessions" ? 3 :        // Fourth - must be after PrefillHistoryEntries
+                    t == "EventDownloads" ? 4 :         // Fifth - FK dependency from Events and Downloads
+                    t == "LogEntries" ? 5 :             // Sixth - FK dependency from Downloads
+                    t == "Downloads" ? 6 :              // Seventh - depends on LogEntries
+                    t == "Events" ? 7 :                 // Eighth - EventDownloads depend on this
+                    t == "ClientGroups" ? 8 :           // Ninth - ClientGroupMembers FK dependency (cascade will handle)
+                    9).ToList();
 
                 // Special case: If deleting Downloads but NOT LogEntries, we must null out the foreign keys first
                 if (tablesToClear.Contains("Downloads") && !tablesToClear.Contains("LogEntries"))
@@ -618,9 +620,8 @@ public class DatabaseService : IDatabaseService
                         case "CachedGameDetections":
                             // Use ExecuteDeleteAsync for direct deletion (more efficient for this table)
                             var gameDetectionCount = await context.CachedGameDetections.ExecuteDeleteAsync(cancellationToken);
-                            var serviceDetectionCount = await context.CachedServiceDetections.ExecuteDeleteAsync(cancellationToken);
-                            _logger.LogInformation($"Cleared {gameDetectionCount:N0} cached game detections and {serviceDetectionCount:N0} cached service detections");
-                            deletedRows += gameDetectionCount + serviceDetectionCount;
+                            _logger.LogInformation($"Cleared {gameDetectionCount:N0} cached game detections");
+                            deletedRows += gameDetectionCount;
 
                             await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
                             {
@@ -628,7 +629,7 @@ public class DatabaseService : IDatabaseService
                                 isProcessing = true,
                                 percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
                                 status = "deleting",
-                                message = $"Cleared cached game detections ({gameDetectionCount:N0} games, {serviceDetectionCount:N0} services)",
+                                message = $"Cleared cached game detections ({gameDetectionCount:N0} rows)",
                                 timestamp = DateTime.UtcNow
                             });
                             break;
@@ -805,6 +806,23 @@ public class DatabaseService : IDatabaseService
                             await _notifications.NotifyAllAsync(SignalREvents.PrefillSessionsCleared, new
                             {
                                 message = "All prefill sessions have been cleared",
+                                timestamp = DateTime.UtcNow
+                            });
+                            break;
+
+                        case "PrefillHistoryEntries":
+                            // Use ExecuteDeleteAsync for direct deletion
+                            var prefillHistoryCount = await context.PrefillHistoryEntries.ExecuteDeleteAsync(cancellationToken);
+                            _logger.LogInformation($"Cleared {prefillHistoryCount:N0} prefill history entries");
+                            deletedRows += prefillHistoryCount;
+
+                            await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
+                            {
+                                operationId,
+                                isProcessing = true,
+                                percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
+                                status = "deleting",
+                                message = $"Cleared prefill history ({prefillHistoryCount:N0} rows)",
                                 timestamp = DateTime.UtcNow
                             });
                             break;
