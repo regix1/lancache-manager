@@ -169,8 +169,16 @@ public sealed class SocketDaemonClient : IDaemonClient
         catch (Exception ex)
         {
             _logger?.LogError(ex, "Failed to connect to daemon socket at {SocketPath}", _socketPath);
+
+            // Full cleanup so retry can start fresh
+            _receiveCts?.Cancel();
+            _receiveCts?.Dispose();
+            _receiveCts = null;
+            _stream?.Dispose();
+            _stream = null;
             _socket?.Dispose();
             _socket = null;
+            _isAuthenticated = false;
             throw;
         }
     }
@@ -254,7 +262,7 @@ public sealed class SocketDaemonClient : IDaemonClient
                 var bytesRead = await ReadExactlyAsync(_stream, lengthBuffer, cancellationToken);
                 if (bytesRead == 0)
                 {
-                    _logger?.LogWarning("Daemon socket disconnected");
+                    _logger?.LogWarning("Daemon socket disconnected (remote closed connection)");
                     break;
                 }
 
@@ -270,7 +278,7 @@ public sealed class SocketDaemonClient : IDaemonClient
                 bytesRead = await ReadExactlyAsync(_stream, messageBuffer, cancellationToken);
                 if (bytesRead == 0)
                 {
-                    _logger?.LogWarning("Daemon socket disconnected while reading message");
+                    _logger?.LogWarning("Daemon socket disconnected while reading message body");
                     break;
                 }
 
@@ -290,6 +298,18 @@ public sealed class SocketDaemonClient : IDaemonClient
         }
         finally
         {
+            // Cancel all pending commands so they fail fast instead of waiting for timeout
+            var pendingCount = _pendingCommands.Count;
+            if (pendingCount > 0)
+            {
+                _logger?.LogWarning("Cancelling {Count} pending commands due to socket disconnection", pendingCount);
+                foreach (var kvp in _pendingCommands)
+                {
+                    kvp.Value.TrySetException(new IOException("Daemon socket disconnected while waiting for response"));
+                }
+                _pendingCommands.Clear();
+            }
+
             if (OnDisconnected != null)
             {
                 _ = OnDisconnected.Invoke();

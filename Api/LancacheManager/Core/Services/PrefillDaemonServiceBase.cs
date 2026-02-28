@@ -607,9 +607,39 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             await Task.CompletedTask;
         };
 
-        // Connect to daemon (socket or TCP)
-        await daemonClient.ConnectAsync(cancellationToken);
-        _logger.LogInformation("Connected to daemon for session {SessionId}", sessionId);
+        // Connect to daemon (socket or TCP) with retry
+        const int maxRetries = 3;
+        for (var attempt = 1; attempt <= maxRetries; attempt++)
+        {
+            try
+            {
+                _logger.LogInformation("Connecting to daemon for session {SessionId} (attempt {Attempt}/{MaxRetries})",
+                    sessionId, attempt, maxRetries);
+                await daemonClient.ConnectAsync(cancellationToken);
+                _logger.LogInformation("Connected to daemon for session {SessionId}", sessionId);
+                break;
+            }
+            catch (Exception ex) when (attempt < maxRetries)
+            {
+                _logger.LogWarning(ex, "Socket connection attempt {Attempt} failed for session {SessionId}, retrying...",
+                    attempt, sessionId);
+
+                // Fetch daemon container logs to diagnose why the connection failed
+                await LogDaemonContainerLogsAsync(containerId, sessionId, cancellationToken);
+
+                // Wait before retry with increasing delay
+                await Task.Delay(TimeSpan.FromSeconds(attempt * 2), cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "All {MaxRetries} socket connection attempts failed for session {SessionId}", maxRetries, sessionId);
+
+                // Fetch daemon container logs to diagnose why the connection failed
+                await LogDaemonContainerLogsAsync(containerId, sessionId, cancellationToken);
+
+                throw;
+            }
+        }
 
         session.Client = daemonClient;
 
@@ -630,6 +660,46 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         await _notifications.NotifyAllBothHubsAsync(EventSessionCreated, sessionDto);
 
         return session;
+    }
+
+    /// <summary>
+    /// Fetches and logs the daemon container's stdout/stderr to help diagnose socket connection failures.
+    /// </summary>
+    private async Task LogDaemonContainerLogsAsync(string containerId, string sessionId, CancellationToken cancellationToken)
+    {
+        if (_dockerClient == null) return;
+
+        try
+        {
+            // Check if container is still running
+            var inspect = await _dockerClient.Containers.InspectContainerAsync(containerId, cancellationToken);
+            _logger.LogWarning("Daemon container state for session {SessionId}: Running={Running}, Status={Status}, ExitCode={ExitCode}",
+                sessionId, inspect.State.Running, inspect.State.Status, inspect.State.ExitCode);
+
+            var logParams = new ContainerLogsParameters { ShowStdout = true, ShowStderr = true, Tail = "50" };
+            using var logStream = await _dockerClient.Containers.GetContainerLogsAsync(containerId, false, logParams, cancellationToken);
+            using var memoryStream = new MemoryStream();
+            await logStream.CopyOutputToAsync(null, memoryStream, null, cancellationToken);
+            memoryStream.Position = 0;
+            using var reader = new StreamReader(memoryStream);
+            var logs = await reader.ReadToEndAsync(cancellationToken);
+            if (!string.IsNullOrWhiteSpace(logs))
+            {
+                _logger.LogWarning("Daemon container logs for session {SessionId}:\n{Logs}", sessionId, logs);
+            }
+            else
+            {
+                _logger.LogWarning("Daemon container produced no logs for session {SessionId}", sessionId);
+            }
+        }
+        catch (DockerContainerNotFoundException)
+        {
+            _logger.LogWarning("Daemon container {ContainerId} already removed (AutoRemove) for session {SessionId}", containerId, sessionId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not retrieve daemon container logs for session {SessionId}", sessionId);
+        }
     }
 
     private static string GenerateSocketSecret()
