@@ -11,7 +11,6 @@ export function getServiceColorClass(service: string): string {
     case 'steam':
       return 'service-steam';
     case 'epic':
-    case 'epicgames':
       return 'service-epic';
     case 'origin':
     case 'ea':
@@ -46,7 +45,6 @@ export function getServiceBadgeStyles(service: string): { backgroundColor: strin
         color: 'var(--theme-steam)'
       };
     case 'epic':
-    case 'epicgames':
       return {
         backgroundColor: 'var(--theme-bg-tertiary)',
         color: 'var(--theme-epic)'

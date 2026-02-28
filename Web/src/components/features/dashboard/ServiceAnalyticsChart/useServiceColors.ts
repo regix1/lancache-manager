@@ -3,7 +3,6 @@ import { useCallback, useEffect, useState } from 'react';
 const SERVICE_COLOR_MAP: Record<string, string> = {
   steam: '--theme-steam',
   epic: '--theme-epic',
-  epicgames: '--theme-epic',
   origin: '--theme-origin',
   ea: '--theme-origin',
   blizzard: '--theme-blizzard',

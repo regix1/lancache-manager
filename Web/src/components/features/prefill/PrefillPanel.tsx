@@ -810,7 +810,7 @@ function ServicePrefillPanel({ onSessionEnd, hubPath, serviceId, pendingService,
   // Loading/Creating/Pending state
   if (!signalR.session) {
     const status = signalR.isCreating ? 'creating' : 'checking';
-    return <PrefillLoadingState status={status} />;
+    return <PrefillLoadingState status={status} serviceId={serviceId} />;
   }
 
   // Active session - full interface

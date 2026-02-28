@@ -97,7 +97,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
   const isSteam = serviceLower === 'steam';
   const isWsus = serviceLower === 'wsus' || serviceLower === 'windows';
   const isRiot = serviceLower === 'riot' || serviceLower === 'riotgames';
-  const isEpic = serviceLower === 'epic' || serviceLower === 'epicgames';
+  const isEpic = serviceLower === 'epic';
   const isEA = serviceLower === 'origin' || serviceLower === 'ea';
   const isBlizzard =
     serviceLower === 'blizzard' || serviceLower === 'battle.net' || serviceLower === 'battlenet';

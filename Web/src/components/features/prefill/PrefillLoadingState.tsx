@@ -4,10 +4,12 @@ import { Loader2 } from 'lucide-react';
 
 interface PrefillLoadingStateProps {
   status: 'checking' | 'creating';
+  serviceId: string;
 }
 
-export function PrefillLoadingState({ status }: PrefillLoadingStateProps) {
+export function PrefillLoadingState({ status, serviceId }: PrefillLoadingStateProps) {
   const { t } = useTranslation();
+  const themeColor = serviceId === 'epic' ? '--theme-epic' : '--theme-steam';
 
   const title =
     status === 'creating'
@@ -19,8 +21,11 @@ export function PrefillLoadingState({ status }: PrefillLoadingStateProps) {
       <Card className="max-w-2xl mx-auto">
         <CardContent className="py-12">
           <div className="flex flex-col items-center justify-center gap-4">
-            <div className="w-16 h-16 rounded-xl flex items-center justify-center bg-[color-mix(in_srgb,var(--theme-steam)_15%,transparent)]">
-              <Loader2 className="h-8 w-8 animate-spin text-[var(--theme-steam)]" />
+            <div
+              className="w-16 h-16 rounded-xl flex items-center justify-center"
+              style={{ backgroundColor: `color-mix(in srgb, var(${themeColor}) 15%, transparent)` }}
+            >
+              <Loader2 className="h-8 w-8 animate-spin" style={{ color: `var(${themeColor})` }} />
             </div>
             <div className="text-center">
               <p className="text-lg font-medium text-themed-primary">
