@@ -24,7 +24,7 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
   children
 }) => {
   const { t } = useTranslation();
-  
+
   return (
     <div
       className={`group themed-border-radius overflow-hidden transition-all duration-300 border ${
@@ -139,9 +139,7 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
               : 'max-h-0 opacity-0 -translate-y-2'
           }`}
         >
-          <div
-            className="px-3 pb-3 border-t border-themed-secondary bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-bg-tertiary)_25%,transparent)_0%,transparent_100%)]"
-          >
+          <div className="px-3 pb-3 border-t border-themed-secondary bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-bg-tertiary)_25%,transparent)_0%,transparent_100%)]">
             {children}
           </div>
         </div>

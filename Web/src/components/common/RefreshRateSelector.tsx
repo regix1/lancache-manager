@@ -11,7 +11,10 @@ interface RefreshRateSelectorProps {
   iconOnly?: boolean;
 }
 
-const RefreshRateSelector: React.FC<RefreshRateSelectorProps> = ({ disabled = false, iconOnly = false }) => {
+const RefreshRateSelector: React.FC<RefreshRateSelectorProps> = ({
+  disabled = false,
+  iconOnly = false
+}) => {
   const { t } = useTranslation();
   const { refreshRate, setRefreshRate, isControlledByAdmin } = useRefreshRate();
 

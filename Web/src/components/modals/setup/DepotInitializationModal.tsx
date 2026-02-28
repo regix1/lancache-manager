@@ -50,17 +50,55 @@ type InitStep =
   | 'log-processing'
   | 'depot-mapping';
 
-const getStepInfo = (t: (key: string) => string): Record<InitStep, { number: number; title: string; total: number }> => ({
+const getStepInfo = (
+  t: (key: string) => string
+): Record<InitStep, { number: number; title: string; total: number }> => ({
   'api-key': { number: 1, title: t('initialization.modal.stepTitles.authentication'), total: 10 },
-  'permissions-check': { number: 2, title: t('initialization.modal.stepTitles.permissionsCheck'), total: 10 },
-  'import-historical-data': { number: 3, title: t('initialization.modal.stepTitles.importHistoricalData'), total: 10 },
-  'data-source-choice': { number: 4, title: t('initialization.modal.stepTitles.dataSourceSelection'), total: 10 },
-  'steam-api-key': { number: 5, title: t('initialization.modal.stepTitles.steamApiKey'), total: 10 },
-  'steam-auth': { number: 6, title: t('initialization.modal.stepTitles.steamPicsAuthentication'), total: 10 },
-  'depot-init': { number: 7, title: t('initialization.modal.stepTitles.depotInitialization'), total: 10 },
-  'pics-progress': { number: 8, title: t('initialization.modal.stepTitles.picsDataProgress'), total: 10 },
-  'log-processing': { number: 9, title: t('initialization.modal.stepTitles.logProcessing'), total: 10 },
-  'depot-mapping': { number: 10, title: t('initialization.modal.stepTitles.depotMapping'), total: 10 }
+  'permissions-check': {
+    number: 2,
+    title: t('initialization.modal.stepTitles.permissionsCheck'),
+    total: 10
+  },
+  'import-historical-data': {
+    number: 3,
+    title: t('initialization.modal.stepTitles.importHistoricalData'),
+    total: 10
+  },
+  'data-source-choice': {
+    number: 4,
+    title: t('initialization.modal.stepTitles.dataSourceSelection'),
+    total: 10
+  },
+  'steam-api-key': {
+    number: 5,
+    title: t('initialization.modal.stepTitles.steamApiKey'),
+    total: 10
+  },
+  'steam-auth': {
+    number: 6,
+    title: t('initialization.modal.stepTitles.steamPicsAuthentication'),
+    total: 10
+  },
+  'depot-init': {
+    number: 7,
+    title: t('initialization.modal.stepTitles.depotInitialization'),
+    total: 10
+  },
+  'pics-progress': {
+    number: 8,
+    title: t('initialization.modal.stepTitles.picsDataProgress'),
+    total: 10
+  },
+  'log-processing': {
+    number: 9,
+    title: t('initialization.modal.stepTitles.logProcessing'),
+    total: 10
+  },
+  'depot-mapping': {
+    number: 10,
+    title: t('initialization.modal.stepTitles.depotMapping'),
+    total: 10
+  }
 });
 
 const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
@@ -102,7 +140,10 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
   const checkDataAvailability = async () => {
     setCheckingDataAvailability(true);
     try {
-      const setupResponse = await fetch('/api/system/setup', ApiService.getFetchOptions({ cache: 'no-store' }));
+      const setupResponse = await fetch(
+        '/api/system/setup',
+        ApiService.getFetchOptions({ cache: 'no-store' })
+      );
       if (setupResponse.ok) {
         const setupData = await setupResponse.json();
         const hasData = setupData.isSetupCompleted || setupData.hasProcessedLogs || false;
@@ -133,12 +174,15 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
 
   const markSetupCompleted = async () => {
     try {
-      await fetch('/api/system/setup', ApiService.getFetchOptions({
-        cache: 'no-store',
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ completed: true })
-      }));
+      await fetch(
+        '/api/system/setup',
+        ApiService.getFetchOptions({
+          cache: 'no-store',
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ completed: true })
+        })
+      );
     } catch (error) {
       console.warn('Failed to mark setup as completed:', error);
     }
@@ -192,7 +236,10 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
         // If not authenticated, user needs to authenticate or start guest session
         setAuthDisabled(false);
 
-        const setupResponse = await fetch('/api/system/setup', ApiService.getFetchOptions({ cache: 'no-store' }));
+        const setupResponse = await fetch(
+          '/api/system/setup',
+          ApiService.getFetchOptions({ cache: 'no-store' })
+        );
         const setupData = await setupResponse.json();
 
         // Setup complete and authenticated → go to app
@@ -249,6 +296,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
     };
 
     checkSetupStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handlePermissionsCheckComplete = () => {
@@ -387,13 +435,14 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
         );
 
       case 'permissions-check':
-        return (
-          <PermissionsCheckStep onComplete={handlePermissionsCheckComplete} />
-        );
+        return <PermissionsCheckStep onComplete={handlePermissionsCheckComplete} />;
 
       case 'import-historical-data':
         return (
-          <ImportHistoricalDataStep onComplete={handleImportComplete} onSkip={handleImportComplete} />
+          <ImportHistoricalDataStep
+            onComplete={handleImportComplete}
+            onSkip={handleImportComplete}
+          />
         );
 
       case 'data-source-choice':
@@ -447,7 +496,10 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
 
       case 'depot-mapping':
         return (
-          <DepotMappingStep onComplete={handleDepotMappingComplete} onSkip={handleDepotMappingSkip} />
+          <DepotMappingStep
+            onComplete={handleDepotMappingComplete}
+            onSkip={handleDepotMappingSkip}
+          />
         );
 
       default:
@@ -469,7 +521,6 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
 
       {/* Main Card */}
       <div className="relative z-10 w-full max-w-4xl rounded-xl border overflow-hidden flex flex-col bg-themed-secondary border-themed-primary max-h-[min(calc(100vh-2rem),800px)]">
-
         {/* Header */}
         <div className="px-8 py-5 border-b flex items-center justify-between border-themed-secondary">
           <div className="flex items-center gap-3">
@@ -482,14 +533,20 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
                     ? 'text-themed-muted cursor-not-allowed opacity-50'
                     : 'text-themed-secondary cursor-pointer'
                 }`}
-                title={backButtonDisabled ? t('initialization.modal.cannotGoBack') : t('initialization.modal.goBack')}
+                title={
+                  backButtonDisabled
+                    ? t('initialization.modal.cannotGoBack')
+                    : t('initialization.modal.goBack')
+                }
               >
                 <ArrowLeft className="w-5 h-5" />
               </button>
             )}
             <div className="flex items-center gap-2">
               <Rocket className="w-5 h-5 text-primary" />
-              <span className="font-semibold text-themed-primary">{t('initialization.modal.setupWizard')}</span>
+              <span className="font-semibold text-themed-primary">
+                {t('initialization.modal.setupWizard')}
+              </span>
             </div>
           </div>
           <div className="text-xs font-medium px-2.5 py-1 rounded-full bg-themed-tertiary text-themed-secondary">
@@ -506,9 +563,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
         </div>
 
         {/* Content */}
-        <div className="p-8 overflow-y-auto min-h-0">
-          {renderStep()}
-        </div>
+        <div className="p-8 overflow-y-auto min-h-0">{renderStep()}</div>
       </div>
     </div>
   );

@@ -12,9 +12,7 @@ const getSupportedLanguages = (): string[] => {
   const supported = i18n.options.supportedLngs;
   const fallback = Object.keys(i18n.options.resources ?? {});
   const normalized = Array.isArray(supported) ? supported : fallback;
-  return normalized.filter(
-    (lang): lang is string => typeof lang === 'string' && lang !== 'cimode'
-  );
+  return normalized.filter((lang): lang is string => typeof lang === 'string' && lang !== 'cimode');
 };
 
 const normalizeLanguage = (value: string, supported: string[]): string => {

@@ -1,4 +1,12 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  type ReactNode
+} from 'react';
 import { storage } from '@utils/storage';
 
 // Time range controls WHEN to look at data
@@ -137,9 +145,9 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
 
   // Toggle a single event ID
   const toggleEventId = useCallback((id: number) => {
-    setSelectedEventIdsState(prev => {
+    setSelectedEventIdsState((prev) => {
       if (prev.includes(id)) {
-        return prev.filter(eid => eid !== id);
+        return prev.filter((eid) => eid !== id);
       } else {
         return [...prev, id];
       }
@@ -222,40 +230,39 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
     setCustomEndDate(date);
   }, []);
 
-  const value = useMemo(() => ({
-    timeRange,
-    setTimeRange,
-    customStartDate,
-    customEndDate,
-    setCustomStartDate: setCustomStartDateWithLogging,
-    setCustomEndDate: setCustomEndDateWithLogging,
-    getTimeRangeInHours,
-    getTimeRangeParams,
-    rangeAnchorTime,
-    extendTimeAnchor,
-    selectedEventIds,
-    setSelectedEventIds,
-    toggleEventId,
-    clearEventFilter
-  }), [
-    timeRange,
-    customStartDate,
-    customEndDate,
-    setCustomStartDateWithLogging,
-    setCustomEndDateWithLogging,
-    getTimeRangeInHours,
-    getTimeRangeParams,
-    rangeAnchorTime,
-    extendTimeAnchor,
-    selectedEventIds,
-    setSelectedEventIds,
-    toggleEventId,
-    clearEventFilter
-  ]);
-
-  return (
-    <TimeFilterContext.Provider value={value}>
-      {children}
-    </TimeFilterContext.Provider>
+  const value = useMemo(
+    () => ({
+      timeRange,
+      setTimeRange,
+      customStartDate,
+      customEndDate,
+      setCustomStartDate: setCustomStartDateWithLogging,
+      setCustomEndDate: setCustomEndDateWithLogging,
+      getTimeRangeInHours,
+      getTimeRangeParams,
+      rangeAnchorTime,
+      extendTimeAnchor,
+      selectedEventIds,
+      setSelectedEventIds,
+      toggleEventId,
+      clearEventFilter
+    }),
+    [
+      timeRange,
+      customStartDate,
+      customEndDate,
+      setCustomStartDateWithLogging,
+      setCustomEndDateWithLogging,
+      getTimeRangeInHours,
+      getTimeRangeParams,
+      rangeAnchorTime,
+      extendTimeAnchor,
+      selectedEventIds,
+      setSelectedEventIds,
+      toggleEventId,
+      clearEventFilter
+    ]
   );
+
+  return <TimeFilterContext.Provider value={value}>{children}</TimeFilterContext.Provider>;
 };

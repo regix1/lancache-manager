@@ -14,7 +14,9 @@ interface AnimatedValueProps {
  * Parses a formatted string like "1.5 GB" into { number: 1.5, suffix: " GB" }
  * Returns isTextOnly: true when the value is pure text (no leading number)
  */
-const parseFormattedValue = (value: string | number): { number: number; suffix: string; decimals: number; isTextOnly: boolean } => {
+const parseFormattedValue = (
+  value: string | number
+): { number: number; suffix: string; decimals: number; isTextOnly: boolean } => {
   if (typeof value === 'number') {
     return { number: value, suffix: '', decimals: 0, isTextOnly: false };
   }
@@ -44,11 +46,7 @@ const parseFormattedValue = (value: string | number): { number: number; suffix: 
  * Component that displays a value with smooth digit-spinning animation
  * Uses NumberFlow for buttery smooth transitions
  */
-const AnimatedValue: React.FC<AnimatedValueProps> = ({
-  value,
-  className = '',
-  animate = true,
-}) => {
+const AnimatedValue: React.FC<AnimatedValueProps> = ({ value, className = '', animate = true }) => {
   const parsed = useMemo(() => parseFormattedValue(value), [value]);
 
   // If animation is disabled, just show the raw value
@@ -62,21 +60,16 @@ const AnimatedValue: React.FC<AnimatedValueProps> = ({
 
   // For text-only values (like "Disabled" or "No data"), just display the text
   if (parsed.isTextOnly) {
-    return (
-      <span className={`${className} tabular-nums text-themed-primary`}>
-        {parsed.suffix}
-      </span>
-    );
+    return <span className={`${className} tabular-nums text-themed-primary`}>{parsed.suffix}</span>;
   }
 
   return (
     <span className={`${className} tabular-nums text-themed-primary inline-flex items-baseline`}>
-
       <NumberFlow
         value={parsed.number}
         format={{
           minimumFractionDigits: parsed.decimals,
-          maximumFractionDigits: parsed.decimals,
+          maximumFractionDigits: parsed.decimals
         }}
         transformTiming={{
           duration: 400,

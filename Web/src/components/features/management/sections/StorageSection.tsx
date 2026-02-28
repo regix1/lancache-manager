@@ -103,11 +103,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
           />
 
           {/* Log Removal */}
-          <LogRemovalManager
-            authMode={authMode}
-            mockMode={mockMode}
-            onError={onError}
-          />
+          <LogRemovalManager authMode={authMode} mockMode={mockMode} onError={onError} />
         </div>
       </div>
 
@@ -126,7 +122,9 @@ const StorageSection: React.FC<StorageSectionProps> = ({
             fallback={
               <Card>
                 <div className="flex items-center justify-center py-8">
-                  <div className="text-themed-muted">{t('management.sections.storage.loadingCacheConfig')}</div>
+                  <div className="text-themed-muted">
+                    {t('management.sections.storage.loadingCacheConfig')}
+                  </div>
                 </div>
               </Card>
             }
@@ -141,11 +139,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
           </Suspense>
 
           {/* Corruption Detection */}
-          <CorruptionManager
-            authMode={authMode}
-            mockMode={mockMode}
-            onError={onError}
-          />
+          <CorruptionManager authMode={authMode} mockMode={mockMode} onError={onError} />
 
           {/* Game Detection */}
           <GameCacheDetector

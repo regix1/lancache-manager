@@ -108,7 +108,17 @@ export const colorGroups: ColorGroup[] = [
         description: 'Main brand color used throughout',
         affects: ['Primary buttons', 'Links', 'Active states', 'Focus rings'],
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'users', 'events', 'prefill', 'management', 'charts']
+        pages: [
+          'dashboard',
+          'downloads',
+          'clients',
+          'services',
+          'users',
+          'events',
+          'prefill',
+          'management',
+          'charts'
+        ]
       },
       {
         key: 'secondaryColor',
@@ -142,7 +152,16 @@ export const colorGroups: ColorGroup[] = [
         description: 'Main content text color',
         affects: ['Headings', 'Body text', 'Labels'],
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'users', 'events', 'prefill', 'management']
+        pages: [
+          'dashboard',
+          'downloads',
+          'clients',
+          'services',
+          'users',
+          'events',
+          'prefill',
+          'management'
+        ]
       },
       {
         key: 'textSecondary',
@@ -150,7 +169,16 @@ export const colorGroups: ColorGroup[] = [
         description: 'Supporting content text',
         affects: ['Descriptions', 'Subtitles', 'Help text'],
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'users', 'events', 'prefill', 'management']
+        pages: [
+          'dashboard',
+          'downloads',
+          'clients',
+          'services',
+          'users',
+          'events',
+          'prefill',
+          'management'
+        ]
       },
       {
         key: 'textMuted',
@@ -158,7 +186,17 @@ export const colorGroups: ColorGroup[] = [
         description: 'De-emphasized text',
         affects: ['Disabled text', 'Timestamps', 'Minor labels'],
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'users', 'events', 'prefill', 'management', 'charts']
+        pages: [
+          'dashboard',
+          'downloads',
+          'clients',
+          'services',
+          'users',
+          'events',
+          'prefill',
+          'management',
+          'charts'
+        ]
       },
       {
         key: 'textAccent',
@@ -192,7 +230,16 @@ export const colorGroups: ColorGroup[] = [
         description: 'Main application background',
         affects: ['Body', 'Main container', 'Base layer'],
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'users', 'events', 'prefill', 'management']
+        pages: [
+          'dashboard',
+          'downloads',
+          'clients',
+          'services',
+          'users',
+          'events',
+          'prefill',
+          'management'
+        ]
       },
       {
         key: 'bgSecondary',
@@ -200,7 +247,16 @@ export const colorGroups: ColorGroup[] = [
         description: 'Elevated surface backgrounds',
         affects: ['Cards', 'Panels', 'Modals', 'Dialogs'],
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'users', 'events', 'prefill', 'management']
+        pages: [
+          'dashboard',
+          'downloads',
+          'clients',
+          'services',
+          'users',
+          'events',
+          'prefill',
+          'management'
+        ]
       },
       {
         key: 'bgTertiary',
@@ -216,7 +272,17 @@ export const colorGroups: ColorGroup[] = [
         description: 'Interactive hover backgrounds',
         affects: ['Button hovers', 'List hovers', 'Menu hovers'],
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'users', 'events', 'prefill', 'management', 'charts']
+        pages: [
+          'dashboard',
+          'downloads',
+          'clients',
+          'services',
+          'users',
+          'events',
+          'prefill',
+          'management',
+          'charts'
+        ]
       },
       {
         key: 'cardBg',
@@ -416,7 +482,17 @@ export const colorGroups: ColorGroup[] = [
         description: 'Main divider and border color',
         affects: ['Card borders', 'Dividers', 'Separators'],
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'users', 'events', 'prefill', 'management', 'charts']
+        pages: [
+          'dashboard',
+          'downloads',
+          'clients',
+          'services',
+          'users',
+          'events',
+          'prefill',
+          'management',
+          'charts'
+        ]
       },
       {
         key: 'borderSecondary',
@@ -424,7 +500,16 @@ export const colorGroups: ColorGroup[] = [
         description: 'Subtle borders and dividers',
         affects: ['Input borders', 'Section dividers', 'Subtle lines'],
         supportsAlpha: true,
-        pages: ['dashboard', 'downloads', 'clients', 'services', 'users', 'events', 'prefill', 'management']
+        pages: [
+          'dashboard',
+          'downloads',
+          'clients',
+          'services',
+          'users',
+          'events',
+          'prefill',
+          'management'
+        ]
       },
       {
         key: 'borderFocus',

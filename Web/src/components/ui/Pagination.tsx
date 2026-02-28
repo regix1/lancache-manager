@@ -1,10 +1,5 @@
 import React from 'react';
-import {
-  ChevronLeft,
-  ChevronRight,
-  ChevronsLeft,
-  ChevronsRight
-} from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { EnhancedDropdown } from './EnhancedDropdown';
 
@@ -36,13 +31,13 @@ export const Pagination: React.FC<PaginationProps> = ({
   compact = false
 }) => {
   const { t } = useTranslation();
-  
+
   // Calculate offset based on parent padding
   const paddingValues = {
     none: '0',
-    sm: '0.75rem',  // p-3
-    md: '1rem',     // p-4
-    lg: '1.5rem'    // p-6
+    sm: '0.75rem', // p-3
+    md: '1rem', // p-4
+    lg: '1.5rem' // p-6
   };
   const offset = paddingValues[parentPadding];
   if (totalPages <= 1) return null;
@@ -108,14 +103,21 @@ export const Pagination: React.FC<PaginationProps> = ({
   }
 
   const content = (
-    <div className={`flex flex-col sm:flex-row items-center justify-between gap-3 ${!showCard ? className : ''}`}>
+    <div
+      className={`flex flex-col sm:flex-row items-center justify-between gap-3 ${!showCard ? className : ''}`}
+    >
       {/* Page Info */}
       <div className="flex items-center gap-4">
         <span className="text-sm font-medium text-themed-primary">
           {t('ui.pagination.pageInfo', { current: currentPage, total: totalPages })}
         </span>
         <span className="text-sm text-themed-secondary">
-          {t('ui.pagination.itemRange', { start: startItem, end: endItem, total: totalItems, label: itemLabel })}
+          {t('ui.pagination.itemRange', {
+            start: startItem,
+            end: endItem,
+            total: totalItems,
+            label: itemLabel
+          })}
         </span>
       </div>
 
@@ -156,9 +158,7 @@ export const Pagination: React.FC<PaginationProps> = ({
                 }`}
                 style={{
                   backgroundColor:
-                    currentPage === pageNum
-                      ? 'var(--theme-primary)'
-                      : 'var(--theme-bg-tertiary)',
+                    currentPage === pageNum ? 'var(--theme-primary)' : 'var(--theme-bg-tertiary)',
                   color:
                     currentPage === pageNum
                       ? 'var(--theme-button-text)'
@@ -186,9 +186,7 @@ export const Pagination: React.FC<PaginationProps> = ({
                   backgroundColor:
                     currentPage === 1 ? 'var(--theme-primary)' : 'var(--theme-bg-tertiary)',
                   color:
-                    currentPage === 1
-                      ? 'var(--theme-button-text)'
-                      : 'var(--theme-text-primary)',
+                    currentPage === 1 ? 'var(--theme-button-text)' : 'var(--theme-text-primary)',
                   border:
                     currentPage === 1
                       ? '1px solid var(--theme-primary)'
@@ -200,9 +198,7 @@ export const Pagination: React.FC<PaginationProps> = ({
                 1
               </button>
 
-              {currentPage > 3 && (
-                <span className="px-2 text-themed-muted">•••</span>
-              )}
+              {currentPage > 3 && <span className="px-2 text-themed-muted">•••</span>}
 
               {Array.from({ length: 5 }, (_, i) => {
                 const pageNum = currentPage - 2 + i;
@@ -236,9 +232,7 @@ export const Pagination: React.FC<PaginationProps> = ({
                 );
               }).filter(Boolean)}
 
-              {currentPage < totalPages - 2 && (
-                <span className="px-2 text-themed-muted">•••</span>
-              )}
+              {currentPage < totalPages - 2 && <span className="px-2 text-themed-muted">•••</span>}
 
               <button
                 onClick={() => onPageChange(totalPages)}

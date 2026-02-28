@@ -52,27 +52,27 @@ const ServicesList: React.FC<ServicesListProps> = ({
 
   return (
     <div className="space-y-3">
-        {services.map((service) => (
-          <ServiceCard
-            key={service.service_name}
-            service={service}
-            isExpanded={expandedServiceName === service.service_name}
-            isExpanding={expandingServiceName === service.service_name}
-            isRemoving={notifications.some(
-              (n) =>
-                n.type === 'service_removal' &&
-                n.details?.service === service.service_name &&
-                n.status === 'running'
-            )}
-            isAnyRemovalRunning={isAnyRemovalRunning}
-            isAdmin={isAdmin}
-            cacheReadOnly={cacheReadOnly}
-            dockerSocketAvailable={dockerSocketAvailable}
-            checkingPermissions={checkingPermissions}
-            onToggleDetails={toggleServiceDetails}
-            onRemove={onRemoveService}
-          />
-        ))}
+      {services.map((service) => (
+        <ServiceCard
+          key={service.service_name}
+          service={service}
+          isExpanded={expandedServiceName === service.service_name}
+          isExpanding={expandingServiceName === service.service_name}
+          isRemoving={notifications.some(
+            (n) =>
+              n.type === 'service_removal' &&
+              n.details?.service === service.service_name &&
+              n.status === 'running'
+          )}
+          isAnyRemovalRunning={isAnyRemovalRunning}
+          isAdmin={isAdmin}
+          cacheReadOnly={cacheReadOnly}
+          dockerSocketAvailable={dockerSocketAvailable}
+          checkingPermissions={checkingPermissions}
+          onToggleDetails={toggleServiceDetails}
+          onRemove={onRemoveService}
+        />
+      ))}
     </div>
   );
 };

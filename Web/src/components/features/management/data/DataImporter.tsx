@@ -18,11 +18,7 @@ import { Checkbox } from '@components/ui/Checkbox';
 import { Modal } from '@components/ui/Modal';
 import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
-import {
-  ManagerCardHeader,
-  LoadingState,
-  EmptyState
-} from '@components/ui/ManagerCard';
+import { ManagerCardHeader, LoadingState, EmptyState } from '@components/ui/ManagerCard';
 import ApiService from '@services/api.service';
 import { formatBytes } from '@utils/formatters';
 import FileBrowser from '../file-browser/FileBrowser';
@@ -150,10 +146,12 @@ const DataImporter: React.FC<DataImporterProps> = ({
 
       if (result.valid) {
         const recordCount = result.recordCount ?? 0;
-        onSuccess?.(t('management.dataImporter.messages.connectionValidated', {
-          count: recordCount,
-          formattedCount: recordCount.toLocaleString()
-        }));
+        onSuccess?.(
+          t('management.dataImporter.messages.connectionValidated', {
+            count: recordCount,
+            formattedCount: recordCount.toLocaleString()
+          })
+        );
       } else {
         onError?.(result.message);
       }
@@ -182,20 +180,24 @@ const DataImporter: React.FC<DataImporterProps> = ({
     setImporting(true);
     setImportResult(null);
 
-    const endpoint = importType === 'lancache-manager'
-      ? '/api/migration/import-lancache-manager'
-      : '/api/migration/import-develancache';
+    const endpoint =
+      importType === 'lancache-manager'
+        ? '/api/migration/import-lancache-manager'
+        : '/api/migration/import-develancache';
 
     try {
-      const res = await fetch(endpoint, ApiService.getFetchOptions({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          connectionString,
-          batchSize,
-          overwriteExisting
+      const res = await fetch(
+        endpoint,
+        ApiService.getFetchOptions({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            connectionString,
+            batchSize,
+            overwriteExisting
+          })
         })
-      }));
+      );
 
       const result = await ApiService.handleResponse<ImportResult>(res);
       setImportResult(result);
@@ -211,7 +213,10 @@ const DataImporter: React.FC<DataImporterProps> = ({
         setTimeout(() => onDataRefresh(), 1000);
       }
     } catch (error: unknown) {
-      onError?.(t('management.dataImporter.errors.importFailed') + (error instanceof Error ? error.message : String(error)));
+      onError?.(
+        t('management.dataImporter.errors.importFailed') +
+          (error instanceof Error ? error.message : String(error))
+      );
     } finally {
       setImporting(false);
     }
@@ -241,37 +246,55 @@ const DataImporter: React.FC<DataImporterProps> = ({
       <HelpSection title={t('management.dataImporter.help.importTypes.title')} variant="subtle">
         <div className="divide-y divide-[var(--theme-text-muted)]">
           <div className="py-1.5 first:pt-0 last:pb-0">
-            <div className="font-medium text-themed-primary">{t('management.dataImporter.help.importTypes.deveLanCache.term')}</div>
-            <div className="mt-0.5">{t('management.dataImporter.help.importTypes.deveLanCache.description')}</div>
+            <div className="font-medium text-themed-primary">
+              {t('management.dataImporter.help.importTypes.deveLanCache.term')}
+            </div>
+            <div className="mt-0.5">
+              {t('management.dataImporter.help.importTypes.deveLanCache.description')}
+            </div>
           </div>
           <div className="py-1.5 first:pt-0 last:pb-0">
-            <div className="font-medium text-themed-primary">{t('management.dataImporter.help.importTypes.lancacheManager.term')}</div>
-            <div className="mt-0.5">{t('management.dataImporter.help.importTypes.lancacheManager.description')}</div>
+            <div className="font-medium text-themed-primary">
+              {t('management.dataImporter.help.importTypes.lancacheManager.term')}
+            </div>
+            <div className="mt-0.5">
+              {t('management.dataImporter.help.importTypes.lancacheManager.description')}
+            </div>
           </div>
           <div className="py-1.5 first:pt-0 last:pb-0">
-            <div className="font-medium text-themed-primary">{t('management.dataImporter.help.inputMethods.browse.term')}</div>
-            <div className="mt-0.5">{t('management.dataImporter.help.inputMethods.browse.description')}</div>
+            <div className="font-medium text-themed-primary">
+              {t('management.dataImporter.help.inputMethods.browse.term')}
+            </div>
+            <div className="mt-0.5">
+              {t('management.dataImporter.help.inputMethods.browse.description')}
+            </div>
           </div>
           <div className="py-1.5 first:pt-0 last:pb-0">
-            <div className="font-medium text-themed-primary">{t('management.dataImporter.help.inputMethods.manual.term')}</div>
-            <div className="mt-0.5">{t('management.dataImporter.help.inputMethods.manual.description')}</div>
+            <div className="font-medium text-themed-primary">
+              {t('management.dataImporter.help.inputMethods.manual.term')}
+            </div>
+            <div className="mt-0.5">
+              {t('management.dataImporter.help.inputMethods.manual.description')}
+            </div>
           </div>
         </div>
       </HelpSection>
 
-      <HelpNote type="warning">
-        {t('management.dataImporter.help.warning')}
-      </HelpNote>
+      <HelpNote type="warning">{t('management.dataImporter.help.warning')}</HelpNote>
     </HelpPopover>
   );
 
   // Get the selected import type label for display
-  const selectedImportTypeLabel = importTypeOptions.find(o => o.value === importType)?.label || t('management.dataImporter.importTypes.unknown');
+  const selectedImportTypeLabel =
+    importTypeOptions.find((o) => o.value === importType)?.label ||
+    t('management.dataImporter.importTypes.unknown');
 
   // Header actions - compatibility badge
   const headerActions = (
     <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm bg-themed-tertiary border border-themed-secondary">
-      <Database className={`w-4 h-4 ${importType === 'develancache' ? 'icon-purple' : 'icon-blue'}`} />
+      <Database
+        className={`w-4 h-4 ${importType === 'develancache' ? 'icon-purple' : 'icon-blue'}`}
+      />
       <span className="text-themed-secondary font-medium">{selectedImportTypeLabel}</span>
     </div>
   );
@@ -355,7 +378,9 @@ const DataImporter: React.FC<DataImporterProps> = ({
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <p className="text-sm text-themed-secondary">
-                {autoSearching ? t('management.dataImporter.auto.searching') : t('management.dataImporter.auto.found', { count: foundDatabases.length })}
+                {autoSearching
+                  ? t('management.dataImporter.auto.searching')
+                  : t('management.dataImporter.auto.found', { count: foundDatabases.length })}
               </p>
               <Button
                 onClick={searchForDatabases}
@@ -389,7 +414,9 @@ const DataImporter: React.FC<DataImporterProps> = ({
                         <Database className="w-4 h-4 icon-green" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="font-medium text-themed-primary truncate text-sm">{item.name}</div>
+                        <div className="font-medium text-themed-primary truncate text-sm">
+                          {item.name}
+                        </div>
                         <div className="text-xs text-themed-muted mt-0.5 truncate">{item.path}</div>
                       </div>
                       <div className="text-xs text-themed-muted flex-shrink-0">
@@ -411,11 +438,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
 
         {/* Browse Mode */}
         {inputMode === 'browse' && (
-          <FileBrowser
-            onSelectFile={handleFileSelect}
-            isAdmin={isAdmin}
-            mockMode={mockMode}
-          />
+          <FileBrowser onSelectFile={handleFileSelect} isAdmin={isAdmin} mockMode={mockMode} />
         )}
 
         {/* Manual Mode */}
@@ -440,7 +463,8 @@ const DataImporter: React.FC<DataImporterProps> = ({
               disabled={mockMode || !isAdmin}
             />
             <p className="text-xs text-themed-muted mt-1">
-              {t('management.dataImporter.manual.example')} <code className="bg-themed-tertiary px-1 py-0.5 rounded">/path/to/database.db</code>
+              {t('management.dataImporter.manual.example')}{' '}
+              <code className="bg-themed-tertiary px-1 py-0.5 rounded">/path/to/database.db</code>
             </p>
           </div>
         )}
@@ -450,7 +474,9 @@ const DataImporter: React.FC<DataImporterProps> = ({
           <div className="flex items-center gap-3 p-3 rounded-lg bg-themed-success border border-success">
             <CheckCircle2 className="w-5 h-5 flex-shrink-0 icon-success" />
             <div>
-              <p className="font-medium text-themed-success">{t('management.dataImporter.validation.valid')}</p>
+              <p className="font-medium text-themed-success">
+                {t('management.dataImporter.validation.valid')}
+              </p>
               <p className="text-sm text-themed-secondary">
                 {t('management.dataImporter.validation.foundRecords', {
                   count: validationResult.recordCount ?? 0,
@@ -534,7 +560,9 @@ const DataImporter: React.FC<DataImporterProps> = ({
               disabled={mockMode || !isAdmin}
             />
             <p className="text-xs text-themed-muted mt-1 ml-6">
-              {overwriteExisting ? t('management.dataImporter.options.syncMode') : t('management.dataImporter.options.appendMode')}
+              {overwriteExisting
+                ? t('management.dataImporter.options.syncMode')
+                : t('management.dataImporter.options.appendMode')}
             </p>
           </div>
         </div>
@@ -544,7 +572,10 @@ const DataImporter: React.FC<DataImporterProps> = ({
           <Alert color="blue">
             <div className="flex items-center gap-2">
               <Loader2 className="w-4 h-4 animate-spin" />
-              <span>{t('management.dataImporter.progress.importing')} - {t('management.dataImporter.progress.checkNotifications')}</span>
+              <span>
+                {t('management.dataImporter.progress.importing')} -{' '}
+                {t('management.dataImporter.progress.checkNotifications')}
+              </span>
             </div>
           </Alert>
         )}
@@ -553,7 +584,9 @@ const DataImporter: React.FC<DataImporterProps> = ({
         {importResult && (
           <div
             className={`p-4 rounded-lg border ${
-              importResult.errors > 0 ? 'bg-themed-warning border-warning' : 'bg-themed-success border-success'
+              importResult.errors > 0
+                ? 'bg-themed-warning border-warning'
+                : 'bg-themed-success border-success'
             }`}
           >
             <p
@@ -563,23 +596,33 @@ const DataImporter: React.FC<DataImporterProps> = ({
             </p>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm mb-3">
               <div>
-                <span className="text-themed-muted">{t('management.dataImporter.result.total')}:</span>{' '}
-                <span className="font-medium text-themed-primary">{importResult.totalRecords.toLocaleString()}</span>
+                <span className="text-themed-muted">
+                  {t('management.dataImporter.result.total')}:
+                </span>{' '}
+                <span className="font-medium text-themed-primary">
+                  {importResult.totalRecords.toLocaleString()}
+                </span>
               </div>
               <div>
-                <span className="text-themed-muted">{t('management.dataImporter.result.imported')}:</span>{' '}
+                <span className="text-themed-muted">
+                  {t('management.dataImporter.result.imported')}:
+                </span>{' '}
                 <span className="font-medium text-themed-success">
                   {importResult.imported.toLocaleString()}
                 </span>
               </div>
               <div>
-                <span className="text-themed-muted">{t('management.dataImporter.result.skipped')}:</span>{' '}
+                <span className="text-themed-muted">
+                  {t('management.dataImporter.result.skipped')}:
+                </span>{' '}
                 <span className="font-medium text-themed-warning">
                   {importResult.skipped.toLocaleString()}
                 </span>
               </div>
               <div>
-                <span className="text-themed-muted">{t('management.dataImporter.result.errors')}:</span>{' '}
+                <span className="text-themed-muted">
+                  {t('management.dataImporter.result.errors')}:
+                </span>{' '}
                 <span className="font-medium text-themed-error">
                   {importResult.errors.toLocaleString()}
                 </span>
@@ -589,7 +632,9 @@ const DataImporter: React.FC<DataImporterProps> = ({
               <div
                 className={`pt-3 border-t ${importResult.errors > 0 ? 'border-warning' : 'border-success'}`}
               >
-                <p className="text-xs text-themed-muted mb-1">{t('management.dataImporter.result.backupCreated')}:</p>
+                <p className="text-xs text-themed-muted mb-1">
+                  {t('management.dataImporter.result.backupCreated')}:
+                </p>
                 <p className="text-xs font-mono text-themed-secondary bg-themed-tertiary px-2 py-1 rounded break-all">
                   {importResult.backupPath}
                 </p>
@@ -607,17 +652,16 @@ const DataImporter: React.FC<DataImporterProps> = ({
             variant="default"
             fullWidth
           >
-            {validating ? t('management.dataImporter.buttons.validating') : validationResult?.valid ? t('management.dataImporter.buttons.revalidate') : t('management.dataImporter.buttons.validate')}
+            {validating
+              ? t('management.dataImporter.buttons.validating')
+              : validationResult?.valid
+                ? t('management.dataImporter.buttons.revalidate')
+                : t('management.dataImporter.buttons.validate')}
           </Button>
 
           <Button
             onClick={handleImportClick}
-            disabled={
-              mockMode ||
-              !isAdmin ||
-              importing ||
-              !validationResult?.valid
-            }
+            disabled={mockMode || !isAdmin || importing || !validationResult?.valid}
             loading={importing}
             variant="filled"
             color="green"
@@ -638,9 +682,7 @@ const DataImporter: React.FC<DataImporterProps> = ({
         </div>
 
         {!isAdmin && (
-          <Alert color="yellow">
-            {t('management.dataImporter.alerts.authRequired')}
-          </Alert>
+          <Alert color="yellow">{t('management.dataImporter.alerts.authRequired')}</Alert>
         )}
       </div>
 
@@ -664,7 +706,9 @@ const DataImporter: React.FC<DataImporterProps> = ({
               <div className="text-sm text-themed-muted space-y-1">
                 {overwriteExisting ? (
                   <>
-                    <p className="font-medium text-themed-warning">{t('management.dataImporter.confirm.mergeMode')}:</p>
+                    <p className="font-medium text-themed-warning">
+                      {t('management.dataImporter.confirm.mergeMode')}:
+                    </p>
                     <ul className="list-disc list-inside space-y-0.5 ml-2">
                       <li>{t('management.dataImporter.confirm.newRecordsAdded')}</li>
                       <li>{t('management.dataImporter.confirm.existingUpdated')}</li>
@@ -672,7 +716,9 @@ const DataImporter: React.FC<DataImporterProps> = ({
                   </>
                 ) : (
                   <>
-                    <p className="font-medium text-themed-success">{t('management.dataImporter.confirm.appendMode')}:</p>
+                    <p className="font-medium text-themed-success">
+                      {t('management.dataImporter.confirm.appendMode')}:
+                    </p>
                     <ul className="list-disc list-inside space-y-0.5 ml-2">
                       <li>{t('management.dataImporter.confirm.newRecordsAdded')}</li>
                       <li>{t('management.dataImporter.confirm.existingSkipped')}</li>
@@ -687,17 +733,10 @@ const DataImporter: React.FC<DataImporterProps> = ({
           </div>
 
           <div className="flex justify-end space-x-3 pt-4 border-t border-themed-secondary">
-            <Button
-              onClick={() => setShowConfirmModal(false)}
-              variant="outline"
-            >
+            <Button onClick={() => setShowConfirmModal(false)} variant="outline">
               {t('common.cancel')}
             </Button>
-            <Button
-              onClick={handleConfirmImport}
-              variant="filled"
-              color="green"
-            >
+            <Button onClick={handleConfirmImport} variant="filled" color="green">
               {t('management.dataImporter.buttons.import')}
             </Button>
           </div>

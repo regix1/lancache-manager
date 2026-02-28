@@ -33,11 +33,7 @@ interface WeekRow {
   spanningEvents: SpanningEvent[];
 }
 
-const EventCalendar: React.FC<EventCalendarProps> = ({
-  events,
-  onEventClick,
-  onDayClick
-}) => {
+const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onDayClick }) => {
   const { t } = useTranslation();
   const { useLocalTimezone } = useTimezone();
   const { settings } = useCalendarSettings();
@@ -65,20 +61,23 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [expandedDay]);
 
-  const monthNames = useMemo(() => [
-    t('events.calendar.months.january'),
-    t('events.calendar.months.february'),
-    t('events.calendar.months.march'),
-    t('events.calendar.months.april'),
-    t('events.calendar.months.may'),
-    t('events.calendar.months.june'),
-    t('events.calendar.months.july'),
-    t('events.calendar.months.august'),
-    t('events.calendar.months.september'),
-    t('events.calendar.months.october'),
-    t('events.calendar.months.november'),
-    t('events.calendar.months.december')
-  ], [t]);
+  const monthNames = useMemo(
+    () => [
+      t('events.calendar.months.january'),
+      t('events.calendar.months.february'),
+      t('events.calendar.months.march'),
+      t('events.calendar.months.april'),
+      t('events.calendar.months.may'),
+      t('events.calendar.months.june'),
+      t('events.calendar.months.july'),
+      t('events.calendar.months.august'),
+      t('events.calendar.months.september'),
+      t('events.calendar.months.october'),
+      t('events.calendar.months.november'),
+      t('events.calendar.months.december')
+    ],
+    [t]
+  );
 
   // Week days order based on settings
   const weekDays = useMemo(() => {
@@ -131,7 +130,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
   // Filter events based on settings
   const filteredEvents = useMemo(() => {
     if (settings.hideEndedEvents) {
-      return events.filter(event => !hasEventEnded(event));
+      return events.filter((event) => !hasEventEnded(event));
     }
     return events;
   }, [events, settings.hideEndedEvents]);
@@ -142,7 +141,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
     const dayNum = d.getUTCDay() || 7;
     d.setUTCDate(d.getUTCDate() + 4 - dayNum);
     const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-    return Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+    return Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
   };
 
   const isToday = (day: number): boolean => {
@@ -221,12 +220,16 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
       }
 
       // Find events that span into this week
-      const weekStartDate = new Date(year, month, days.find(d => d !== null) || 1);
-      const weekEndDate = new Date(year, month, [...days].reverse().find(d => d !== null) || daysInMonth);
+      const weekStartDate = new Date(year, month, days.find((d) => d !== null) || 1);
+      const weekEndDate = new Date(
+        year,
+        month,
+        [...days].reverse().find((d) => d !== null) || daysInMonth
+      );
 
       const spanningEvents: SpanningEvent[] = [];
 
-      filteredEvents.forEach(event => {
+      filteredEvents.forEach((event) => {
         const eventStart = new Date(event.startTimeUtc);
         const eventEnd = new Date(event.endTimeUtc);
 
@@ -319,11 +322,12 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
     }
 
     return rows;
-  }, [filteredEvents, currentMonth, firstDayOfMonth, daysInMonth, useLocalTimezone, settings.weekStartDay]);
+  }, [filteredEvents, currentMonth, firstDayOfMonth, daysInMonth, useLocalTimezone]);
 
   // Check if current view includes today
   const now = new Date();
-  const isCurrentMonth = currentMonth.getFullYear() === now.getFullYear() && currentMonth.getMonth() === now.getMonth();
+  const isCurrentMonth =
+    currentMonth.getFullYear() === now.getFullYear() && currentMonth.getMonth() === now.getMonth();
 
   // Get events for a specific day
   const getEventsForDay = useMemo(() => {
@@ -334,7 +338,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
     return (day: number): Event[] => {
       const checkDate = new Date(year, month, day);
 
-      return filteredEvents.filter(event => {
+      return filteredEvents.filter((event) => {
         const eventStart = new Date(event.startTimeUtc);
         const eventEnd = new Date(event.endTimeUtc);
 
@@ -370,12 +374,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         {/* Left: Month/Year Selection */}
         <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => changeMonth(-1)}
-            className="!p-2"
-          >
+          <Button variant="outline" size="sm" onClick={() => changeMonth(-1)} className="!p-2">
             <ChevronLeft className="w-4 h-4" />
           </Button>
 
@@ -398,12 +397,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
             />
           </div>
 
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => changeMonth(1)}
-            className="!p-2"
-          >
+          <Button variant="outline" size="sm" onClick={() => changeMonth(1)} className="!p-2">
             <ChevronRight className="w-4 h-4" />
           </Button>
         </div>
@@ -411,11 +405,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
         {/* Right: Today Button + Settings */}
         <div className="flex items-center gap-2">
           {!isCurrentMonth && (
-            <Button
-              variant="subtle"
-              size="sm"
-              onClick={goToToday}
-            >
+            <Button variant="subtle" size="sm" onClick={goToToday}>
               {t('events.calendar.today')}
             </Button>
           )}
@@ -424,7 +414,9 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
       </div>
 
       {/* Week Days Header */}
-      <div className={`grid gap-1 mb-2 rounded-lg p-2 bg-[var(--theme-bg-tertiary)] ${settings.showWeekNumbers ? 'grid-cols-8' : 'grid-cols-7'}`}>
+      <div
+        className={`grid gap-1 mb-2 rounded-lg p-2 bg-[var(--theme-bg-tertiary)] ${settings.showWeekNumbers ? 'grid-cols-8' : 'grid-cols-7'}`}
+      >
         {settings.showWeekNumbers && (
           <div
             className="text-center text-xs font-semibold py-2 text-[var(--theme-text-muted)]"
@@ -447,448 +439,562 @@ const EventCalendar: React.FC<EventCalendarProps> = ({
       <div className="space-y-1">
         {weekRows.map((week) => {
           // Get the first valid day in this week for week number calculation
-          const firstDayInWeek = week.days.find(d => d !== null);
+          const firstDayInWeek = week.days.find((d) => d !== null);
           const weekNumber = firstDayInWeek
-            ? getWeekNumber(new Date(currentMonth.getFullYear(), currentMonth.getMonth(), firstDayInWeek))
+            ? getWeekNumber(
+                new Date(currentMonth.getFullYear(), currentMonth.getMonth(), firstDayInWeek)
+              )
             : null;
 
           return (
-          <div key={week.weekIndex} className="relative">
-            {/* Day cells grid */}
-            <div className={`grid gap-1 ${settings.showWeekNumbers ? 'grid-cols-8' : 'grid-cols-7'}`}>
-              {/* Week number cell */}
-              {settings.showWeekNumbers && (
-                <div
-                  className={`${settings.compactMode ? 'min-h-[90px] sm:min-h-[100px]' : 'min-h-[130px] sm:min-h-[150px]'} rounded-lg flex items-start justify-center pt-2 bg-[color-mix(in_srgb,var(--theme-bg-tertiary)_50%,transparent)]`}
-                >
-                  <span className="text-xs font-semibold px-1.5 py-0.5 rounded text-[var(--theme-text-muted)] bg-[var(--theme-bg-tertiary)]">
-                    {weekNumber}
-                  </span>
-                </div>
-              )}
-              {week.days.map((day, colIndex) => {
-                if (day === null) {
-                  // Calculate adjacent month day if setting is enabled
-                  if (settings.showAdjacentMonths) {
-                    const cellIndex = week.weekIndex * 7 + colIndex;
-                    const isBeforeMonth = cellIndex < firstDayOfMonth;
+            <div key={week.weekIndex} className="relative">
+              {/* Day cells grid */}
+              <div
+                className={`grid gap-1 ${settings.showWeekNumbers ? 'grid-cols-8' : 'grid-cols-7'}`}
+              >
+                {/* Week number cell */}
+                {settings.showWeekNumbers && (
+                  <div
+                    className={`${settings.compactMode ? 'min-h-[90px] sm:min-h-[100px]' : 'min-h-[130px] sm:min-h-[150px]'} rounded-lg flex items-start justify-center pt-2 bg-[color-mix(in_srgb,var(--theme-bg-tertiary)_50%,transparent)]`}
+                  >
+                    <span className="text-xs font-semibold px-1.5 py-0.5 rounded text-[var(--theme-text-muted)] bg-[var(--theme-bg-tertiary)]">
+                      {weekNumber}
+                    </span>
+                  </div>
+                )}
+                {week.days.map((day, colIndex) => {
+                  if (day === null) {
+                    // Calculate adjacent month day if setting is enabled
+                    if (settings.showAdjacentMonths) {
+                      const cellIndex = week.weekIndex * 7 + colIndex;
+                      const isBeforeMonth = cellIndex < firstDayOfMonth;
 
-                    let adjacentDay: number;
+                      let adjacentDay: number;
 
-                    if (isBeforeMonth) {
-                      // Previous month - calculate the day number
-                      const prevMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1);
-                      const daysInPrevMonth = getDaysInMonth(prevMonth);
-                      adjacentDay = daysInPrevMonth - (firstDayOfMonth - cellIndex - 1);
-                    } else {
-                      // Next month - calculate the day number
-                      const cellsAfterLastDay = cellIndex - (firstDayOfMonth + daysInMonth);
-                      adjacentDay = cellsAfterLastDay + 1;
+                      if (isBeforeMonth) {
+                        // Previous month - calculate the day number
+                        const prevMonth = new Date(
+                          currentMonth.getFullYear(),
+                          currentMonth.getMonth() - 1,
+                          1
+                        );
+                        const daysInPrevMonth = getDaysInMonth(prevMonth);
+                        adjacentDay = daysInPrevMonth - (firstDayOfMonth - cellIndex - 1);
+                      } else {
+                        // Next month - calculate the day number
+                        const cellsAfterLastDay = cellIndex - (firstDayOfMonth + daysInMonth);
+                        adjacentDay = cellsAfterLastDay + 1;
+                      }
+
+                      return (
+                        <div
+                          key={`adjacent-${week.weekIndex}-${colIndex}`}
+                          className={`${settings.compactMode ? 'min-h-[90px] sm:min-h-[100px]' : 'min-h-[130px] sm:min-h-[150px]'} p-1.5 sm:p-2 rounded-lg bg-[color-mix(in_srgb,var(--theme-bg-tertiary)_30%,transparent)]`}
+                        >
+                          <span className="text-sm font-medium w-6 h-6 flex items-center justify-center rounded-full text-[var(--theme-text-muted)] opacity-50">
+                            {adjacentDay}
+                          </span>
+                        </div>
+                      );
                     }
 
                     return (
                       <div
-                        key={`adjacent-${week.weekIndex}-${colIndex}`}
-                        className={`${settings.compactMode ? 'min-h-[90px] sm:min-h-[100px]' : 'min-h-[130px] sm:min-h-[150px]'} p-1.5 sm:p-2 rounded-lg bg-[color-mix(in_srgb,var(--theme-bg-tertiary)_30%,transparent)]`}
-                      >
-                        <span className="text-sm font-medium w-6 h-6 flex items-center justify-center rounded-full text-[var(--theme-text-muted)] opacity-50">
-                          {adjacentDay}
-                        </span>
-                      </div>
+                        key={`empty-${week.weekIndex}-${colIndex}`}
+                        className={`${settings.compactMode ? 'min-h-[90px] sm:min-h-[100px]' : 'min-h-[130px] sm:min-h-[150px]'} rounded-lg bg-[color-mix(in_srgb,var(--theme-bg-tertiary)_30%,transparent)]`}
+                      />
                     );
                   }
+
+                  const today = isToday(day);
+                  const pastDay = isPastDay(day);
+                  const eventCount = getEventCountForDay(day);
 
                   return (
                     <div
-                      key={`empty-${week.weekIndex}-${colIndex}`}
-                      className={`${settings.compactMode ? 'min-h-[90px] sm:min-h-[100px]' : 'min-h-[130px] sm:min-h-[150px]'} rounded-lg bg-[color-mix(in_srgb,var(--theme-bg-tertiary)_30%,transparent)]`}
-                    />
-                  );
-                }
-
-                const today = isToday(day);
-                const pastDay = isPastDay(day);
-                const eventCount = getEventCountForDay(day);
-
-                return (
-                  <div
-                    key={day}
-                    onClick={() => {
-                      if (!pastDay) {
-                        onDayClick(new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day));
-                      }
-                    }}
-                    className={`${settings.compactMode ? 'min-h-[90px] sm:min-h-[100px]' : 'min-h-[130px] sm:min-h-[150px]'} p-1.5 sm:p-2 rounded-lg border transition-all duration-200 ${pastDay ? 'cursor-not-allowed opacity-60' : 'cursor-pointer group'}`}
-                    style={{
-                      backgroundColor: today
-                        ? 'color-mix(in srgb, var(--theme-primary) 8%, transparent)'
-                        : 'var(--theme-bg-secondary)',
-                      borderColor: today ? 'var(--theme-primary)' : 'var(--theme-border-secondary)',
-                      borderWidth: today ? '2px' : '1px'
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!today && !pastDay) {
-                        e.currentTarget.style.borderColor = 'var(--theme-primary)';
-                        e.currentTarget.style.backgroundColor = 'var(--theme-bg-tertiary)';
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!today && !pastDay) {
-                        e.currentTarget.style.borderColor = 'var(--theme-border-secondary)';
-                        e.currentTarget.style.backgroundColor = 'var(--theme-bg-secondary)';
-                      }
-                    }}
-                  >
-                    {/* Day number */}
-                    <div className="flex items-center justify-between mb-1">
-                      <span
-                        className={`text-sm font-semibold w-6 h-6 flex items-center justify-center rounded-full transition-colors ${
-                          today ? '' : pastDay ? '' : 'group-hover:bg-[var(--theme-bg-hover)]'
-                        }`}
-                        style={{
-                          color: today ? 'var(--theme-primary)' : pastDay ? 'var(--theme-text-muted)' : 'var(--theme-text-primary)',
-                          backgroundColor: today ? 'color-mix(in srgb, var(--theme-primary) 15%, transparent)' : 'transparent'
-                        }}
-                      >
-                        {day}
-                      </span>
-                      {eventCount > 0 && settings.eventDisplayStyle === 'spanning' && (
-                        eventCount > 5 ? (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setExpandedDay(
-                                expandedDay?.day === day && expandedDay?.weekIndex === week.weekIndex
-                                  ? null
-                                  : { day, weekIndex: week.weekIndex }
-                              );
-                            }}
-                            className="text-[10px] font-semibold px-1.5 rounded-full transition-all hover:scale-105"
-                            style={{
-                              backgroundColor: 'var(--theme-primary)',
-                              color: 'var(--theme-primary-text)'
-                            }}
-                            title={t('events.calendar.eventCountTooltip', { count: eventCount })}
-                          >
-                            {eventCount}
-                          </button>
-                        ) : (
-                          <span
-                            className="text-[10px] font-medium px-1.5 rounded-full"
-                            style={{
-                              backgroundColor: 'var(--theme-bg-tertiary)',
-                              color: 'var(--theme-text-secondary)'
-                            }}
-                          >
-                            {eventCount}
-                          </span>
-                        )
-                      )}
-                    </div>
-
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Events overlay */}
-            {(() => {
-              const eventCount = week.spanningEvents.length;
-              const maxEvents = settings.compactMode ? 6 : 5;
-              const visibleEvents = week.spanningEvents.slice(0, maxEvents);
-
-              // Dynamic sizing based on event count and compact mode
-              const getEventHeight = () => {
-                if (settings.compactMode) {
-                  return '5px'; // Just colored lines in compact mode
-                }
-                if (isMobile) {
-                  return eventCount <= 3 ? '20px' : '16px';
-                }
-                return eventCount <= 3 ? '24px' : '18px'; // Bigger events in normal mode
-              };
-
-              const getEventGap = () => {
-                if (settings.compactMode) return '2px';
-                if (eventCount <= 3) return '3px';
-                return '2px';
-              };
-
-              const getFontSize = () => {
-                if (settings.compactMode) {
-                  return '0px'; // No text in compact mode
-                }
-                if (isMobile) {
-                  return eventCount <= 3 ? '11px' : '10px';
-                }
-                return eventCount <= 3 ? '13px' : '11px'; // Bigger text
-              };
-
-              const getPaddingTop = () => {
-                if (settings.compactMode) return '32px';
-                if (isMobile) return eventCount <= 3 ? '34px' : '30px';
-                return eventCount <= 3 ? '42px' : '36px'; // More space for bigger cells
-              };
-
-              // Offset for week numbers column
-              const gridColOffset = settings.showWeekNumbers ? 1 : 0;
-
-              // Get event background style based on opacity setting
-              const getEventBackground = (colorVar: string, isEnded: boolean) => {
-                if (settings.eventOpacity === 'solid') {
-                  // Solid mode: more vibrant, less transparent
-                  if (isEnded) {
-                    return `linear-gradient(90deg, color-mix(in srgb, ${colorVar} 45%, var(--theme-bg-secondary)) 0%, color-mix(in srgb, ${colorVar} 35%, var(--theme-bg-secondary)) 100%)`;
-                  }
-                  return `linear-gradient(90deg, color-mix(in srgb, ${colorVar} 65%, var(--theme-bg-secondary)) 0%, color-mix(in srgb, ${colorVar} 50%, var(--theme-bg-secondary)) 100%)`;
-                }
-                // Transparent mode (default): subtle, transparent
-                return `linear-gradient(90deg, color-mix(in srgb, ${colorVar} ${isEnded ? '20%' : '30%'}, transparent) 0%, color-mix(in srgb, ${colorVar} ${isEnded ? '12%' : '20%'}, transparent) 100%)`;
-              };
-
-              return (
-                <div
-                  className={`absolute inset-0 grid pointer-events-none ${settings.showWeekNumbers ? 'grid-cols-8' : 'grid-cols-7'}`}
-                  style={{
-                    paddingTop: getPaddingTop(),
-                    gap: `${getEventGap()} 4px`,
-                    alignContent: 'start',
-                    gridAutoRows: getEventHeight(),
-                  }}
-                >
-                  {visibleEvents.map((spanEvent, eventIndex) => {
-                    const colorVar = getEventColorVar(spanEvent.event.colorIndex);
-                    const isEnded = hasEventEnded(spanEvent.event);
-                    const isSingleDayMobile = isMobile && !settings.compactMode && spanEvent.span === 1;
-
-                    // Daily mode: render individual bars for each day
-                    if (settings.eventDisplayStyle === 'daily') {
-                      const dayBars = [];
-                      for (let col = spanEvent.startCol; col < spanEvent.startCol + spanEvent.span; col++) {
-                        dayBars.push(
-                          <Tooltip
-                            key={`${spanEvent.event.id}-${week.weekIndex}-${col}`}
-                            content={isEnded ? t('events.calendar.eventEnded', { name: spanEvent.event.name }) : spanEvent.event.name}
-                            strategy="overlay"
-                            className="pointer-events-auto"
-                            style={{
-                              gridColumn: `${col + gridColOffset} / span 1`,
-                              gridRow: eventIndex + 1,
-                              marginLeft: '4px',
-                              marginRight: '4px',
-                            }}
-                          >
+                      key={day}
+                      onClick={() => {
+                        if (!pastDay) {
+                          onDayClick(
+                            new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day)
+                          );
+                        }
+                      }}
+                      className={`${settings.compactMode ? 'min-h-[90px] sm:min-h-[100px]' : 'min-h-[130px] sm:min-h-[150px]'} p-1.5 sm:p-2 rounded-lg border transition-all duration-200 ${pastDay ? 'cursor-not-allowed opacity-60' : 'cursor-pointer group'}`}
+                      style={{
+                        backgroundColor: today
+                          ? 'color-mix(in srgb, var(--theme-primary) 8%, transparent)'
+                          : 'var(--theme-bg-secondary)',
+                        borderColor: today
+                          ? 'var(--theme-primary)'
+                          : 'var(--theme-border-secondary)',
+                        borderWidth: today ? '2px' : '1px'
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!today && !pastDay) {
+                          e.currentTarget.style.borderColor = 'var(--theme-primary)';
+                          e.currentTarget.style.backgroundColor = 'var(--theme-bg-tertiary)';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!today && !pastDay) {
+                          e.currentTarget.style.borderColor = 'var(--theme-border-secondary)';
+                          e.currentTarget.style.backgroundColor = 'var(--theme-bg-secondary)';
+                        }
+                      }}
+                    >
+                      {/* Day number */}
+                      <div className="flex items-center justify-between mb-1">
+                        <span
+                          className={`text-sm font-semibold w-6 h-6 flex items-center justify-center rounded-full transition-colors ${
+                            today ? '' : pastDay ? '' : 'group-hover:bg-[var(--theme-bg-hover)]'
+                          }`}
+                          style={{
+                            color: today
+                              ? 'var(--theme-primary)'
+                              : pastDay
+                                ? 'var(--theme-text-muted)'
+                                : 'var(--theme-text-primary)',
+                            backgroundColor: today
+                              ? 'color-mix(in srgb, var(--theme-primary) 15%, transparent)'
+                              : 'transparent'
+                          }}
+                        >
+                          {day}
+                        </span>
+                        {eventCount > 0 &&
+                          settings.eventDisplayStyle === 'spanning' &&
+                          (eventCount > 5 ? (
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                onEventClick(spanEvent.event);
+                                setExpandedDay(
+                                  expandedDay?.day === day &&
+                                    expandedDay?.weekIndex === week.weekIndex
+                                    ? null
+                                    : { day, weekIndex: week.weekIndex }
+                                );
                               }}
-                              className="w-full h-full truncate font-bold"
+                              className="text-[10px] font-semibold px-1.5 rounded-full transition-all hover:scale-105"
                               style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                height: getEventHeight(),
-                                fontSize: isSingleDayMobile ? '10px' : getFontSize(),
-                                lineHeight: '1',
-                                textAlign: 'left',
-                                paddingLeft: settings.compactMode ? '0' : (isSingleDayMobile ? '4px' : '8px'),
-                                paddingRight: settings.compactMode ? '0' : (isSingleDayMobile ? '4px' : '6px'),
-                                borderRadius: isSingleDayMobile ? '3px' : '4px',
-                                background: settings.compactMode
-                                  ? (settings.eventOpacity === 'solid'
-                                      ? (isEnded ? `color-mix(in srgb, ${colorVar} 60%, transparent)` : colorVar)
-                                      : (isEnded ? `color-mix(in srgb, ${colorVar} 35%, transparent)` : `color-mix(in srgb, ${colorVar} 55%, transparent)`))
-                                  : getEventBackground(colorVar, isEnded),
-                                borderLeft: settings.compactMode ? 'none' : `3px solid ${isEnded ? `color-mix(in srgb, ${colorVar} 60%, transparent)` : colorVar}`,
-                                borderTop: settings.compactMode ? 'none' : `1px solid color-mix(in srgb, ${colorVar} ${isEnded ? '25%' : '40%'}, transparent)`,
-                                borderBottom: settings.compactMode ? 'none' : `1px solid color-mix(in srgb, ${colorVar} ${isEnded ? '25%' : '40%'}, transparent)`,
-                                borderRight: settings.compactMode ? 'none' : `1px solid color-mix(in srgb, ${colorVar} ${isEnded ? '25%' : '40%'}, transparent)`,
-                                color: settings.compactMode ? 'transparent' : (isEnded ? 'rgba(255,255,255,0.7)' : '#ffffff'),
-                                opacity: isEnded ? 0.7 : 1,
+                                backgroundColor: 'var(--theme-primary)',
+                                color: 'var(--theme-primary-text)'
+                              }}
+                              title={t('events.calendar.eventCountTooltip', { count: eventCount })}
+                            >
+                              {eventCount}
+                            </button>
+                          ) : (
+                            <span
+                              className="text-[10px] font-medium px-1.5 rounded-full"
+                              style={{
+                                backgroundColor: 'var(--theme-bg-tertiary)',
+                                color: 'var(--theme-text-secondary)'
                               }}
                             >
-                              {!settings.compactMode && (
-                                <>
-                                  {isEnded && <span style={{ marginRight: '4px' }}>{t('events.ended')}</span>}
-                                  {spanEvent.event.name}
-                                </>
-                              )}
-                            </button>
-                          </Tooltip>
-                        );
-                      }
-                      return dayBars;
-                    }
+                              {eventCount}
+                            </span>
+                          ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
 
-                    // Spanning mode: render one bar across multiple days
-                    return (
-                      <Tooltip
-                        key={`${spanEvent.event.id}-${week.weekIndex}`}
-                        content={isEnded ? t('events.calendar.eventEnded', { name: spanEvent.event.name }) : spanEvent.event.name}
-                        strategy="overlay"
-                        className="pointer-events-auto"
-                        style={{
-                          gridColumn: `${spanEvent.startCol + gridColOffset} / span ${spanEvent.span}`,
-                          gridRow: eventIndex + 1,
-                          marginLeft: spanEvent.isStart ? '4px' : '0',
-                          marginRight: spanEvent.isEnd ? '4px' : '0',
-                        }}
-                      >
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onEventClick(spanEvent.event);
-                          }}
-                          className="w-full h-full truncate font-bold"
+              {/* Events overlay */}
+              {(() => {
+                const eventCount = week.spanningEvents.length;
+                const maxEvents = settings.compactMode ? 6 : 5;
+                const visibleEvents = week.spanningEvents.slice(0, maxEvents);
+
+                // Dynamic sizing based on event count and compact mode
+                const getEventHeight = () => {
+                  if (settings.compactMode) {
+                    return '5px'; // Just colored lines in compact mode
+                  }
+                  if (isMobile) {
+                    return eventCount <= 3 ? '20px' : '16px';
+                  }
+                  return eventCount <= 3 ? '24px' : '18px'; // Bigger events in normal mode
+                };
+
+                const getEventGap = () => {
+                  if (settings.compactMode) return '2px';
+                  if (eventCount <= 3) return '3px';
+                  return '2px';
+                };
+
+                const getFontSize = () => {
+                  if (settings.compactMode) {
+                    return '0px'; // No text in compact mode
+                  }
+                  if (isMobile) {
+                    return eventCount <= 3 ? '11px' : '10px';
+                  }
+                  return eventCount <= 3 ? '13px' : '11px'; // Bigger text
+                };
+
+                const getPaddingTop = () => {
+                  if (settings.compactMode) return '32px';
+                  if (isMobile) return eventCount <= 3 ? '34px' : '30px';
+                  return eventCount <= 3 ? '42px' : '36px'; // More space for bigger cells
+                };
+
+                // Offset for week numbers column
+                const gridColOffset = settings.showWeekNumbers ? 1 : 0;
+
+                // Get event background style based on opacity setting
+                const getEventBackground = (colorVar: string, isEnded: boolean) => {
+                  if (settings.eventOpacity === 'solid') {
+                    // Solid mode: more vibrant, less transparent
+                    if (isEnded) {
+                      return `linear-gradient(90deg, color-mix(in srgb, ${colorVar} 45%, var(--theme-bg-secondary)) 0%, color-mix(in srgb, ${colorVar} 35%, var(--theme-bg-secondary)) 100%)`;
+                    }
+                    return `linear-gradient(90deg, color-mix(in srgb, ${colorVar} 65%, var(--theme-bg-secondary)) 0%, color-mix(in srgb, ${colorVar} 50%, var(--theme-bg-secondary)) 100%)`;
+                  }
+                  // Transparent mode (default): subtle, transparent
+                  return `linear-gradient(90deg, color-mix(in srgb, ${colorVar} ${isEnded ? '20%' : '30%'}, transparent) 0%, color-mix(in srgb, ${colorVar} ${isEnded ? '12%' : '20%'}, transparent) 100%)`;
+                };
+
+                return (
+                  <div
+                    className={`absolute inset-0 grid pointer-events-none ${settings.showWeekNumbers ? 'grid-cols-8' : 'grid-cols-7'}`}
+                    style={{
+                      paddingTop: getPaddingTop(),
+                      gap: `${getEventGap()} 4px`,
+                      alignContent: 'start',
+                      gridAutoRows: getEventHeight()
+                    }}
+                  >
+                    {visibleEvents.map((spanEvent, eventIndex) => {
+                      const colorVar = getEventColorVar(spanEvent.event.colorIndex);
+                      const isEnded = hasEventEnded(spanEvent.event);
+                      const isSingleDayMobile =
+                        isMobile && !settings.compactMode && spanEvent.span === 1;
+
+                      // Daily mode: render individual bars for each day
+                      if (settings.eventDisplayStyle === 'daily') {
+                        const dayBars = [];
+                        for (
+                          let col = spanEvent.startCol;
+                          col < spanEvent.startCol + spanEvent.span;
+                          col++
+                        ) {
+                          dayBars.push(
+                            <Tooltip
+                              key={`${spanEvent.event.id}-${week.weekIndex}-${col}`}
+                              content={
+                                isEnded
+                                  ? t('events.calendar.eventEnded', { name: spanEvent.event.name })
+                                  : spanEvent.event.name
+                              }
+                              strategy="overlay"
+                              className="pointer-events-auto"
+                              style={{
+                                gridColumn: `${col + gridColOffset} / span 1`,
+                                gridRow: eventIndex + 1,
+                                marginLeft: '4px',
+                                marginRight: '4px'
+                              }}
+                            >
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onEventClick(spanEvent.event);
+                                }}
+                                className="w-full h-full truncate font-bold"
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  height: getEventHeight(),
+                                  fontSize: isSingleDayMobile ? '10px' : getFontSize(),
+                                  lineHeight: '1',
+                                  textAlign: 'left',
+                                  paddingLeft: settings.compactMode
+                                    ? '0'
+                                    : isSingleDayMobile
+                                      ? '4px'
+                                      : '8px',
+                                  paddingRight: settings.compactMode
+                                    ? '0'
+                                    : isSingleDayMobile
+                                      ? '4px'
+                                      : '6px',
+                                  borderRadius: isSingleDayMobile ? '3px' : '4px',
+                                  background: settings.compactMode
+                                    ? settings.eventOpacity === 'solid'
+                                      ? isEnded
+                                        ? `color-mix(in srgb, ${colorVar} 60%, transparent)`
+                                        : colorVar
+                                      : isEnded
+                                        ? `color-mix(in srgb, ${colorVar} 35%, transparent)`
+                                        : `color-mix(in srgb, ${colorVar} 55%, transparent)`
+                                    : getEventBackground(colorVar, isEnded),
+                                  borderLeft: settings.compactMode
+                                    ? 'none'
+                                    : `3px solid ${isEnded ? `color-mix(in srgb, ${colorVar} 60%, transparent)` : colorVar}`,
+                                  borderTop: settings.compactMode
+                                    ? 'none'
+                                    : `1px solid color-mix(in srgb, ${colorVar} ${isEnded ? '25%' : '40%'}, transparent)`,
+                                  borderBottom: settings.compactMode
+                                    ? 'none'
+                                    : `1px solid color-mix(in srgb, ${colorVar} ${isEnded ? '25%' : '40%'}, transparent)`,
+                                  borderRight: settings.compactMode
+                                    ? 'none'
+                                    : `1px solid color-mix(in srgb, ${colorVar} ${isEnded ? '25%' : '40%'}, transparent)`,
+                                  color: settings.compactMode
+                                    ? 'transparent'
+                                    : isEnded
+                                      ? 'rgba(255,255,255,0.7)'
+                                      : '#ffffff',
+                                  opacity: isEnded ? 0.7 : 1
+                                }}
+                              >
+                                {!settings.compactMode && (
+                                  <>
+                                    {isEnded && (
+                                      <span style={{ marginRight: '4px' }}>
+                                        {t('events.ended')}
+                                      </span>
+                                    )}
+                                    {spanEvent.event.name}
+                                  </>
+                                )}
+                              </button>
+                            </Tooltip>
+                          );
+                        }
+                        return dayBars;
+                      }
+
+                      // Spanning mode: render one bar across multiple days
+                      return (
+                        <Tooltip
+                          key={`${spanEvent.event.id}-${week.weekIndex}`}
+                          content={
+                            isEnded
+                              ? t('events.calendar.eventEnded', { name: spanEvent.event.name })
+                              : spanEvent.event.name
+                          }
+                          strategy="overlay"
+                          className="pointer-events-auto"
                           style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            height: getEventHeight(),
-                            fontSize: isSingleDayMobile ? '10px' : getFontSize(),
-                            lineHeight: '1',
-                            textAlign: 'left',
-                            paddingLeft: settings.compactMode ? '0' : (spanEvent.isStart ? (isSingleDayMobile ? '4px' : '8px') : '6px'),
-                            paddingRight: settings.compactMode ? '0' : (isSingleDayMobile ? '4px' : '6px'),
-                            borderRadius: settings.compactMode ? '2px' : (
-                              spanEvent.isStart && spanEvent.isEnd
-                                ? (isSingleDayMobile ? '3px' : '4px')
-                                : spanEvent.isStart
-                                  ? (isSingleDayMobile ? '3px 0 0 3px' : '4px 0 0 4px')
-                                  : spanEvent.isEnd
-                                    ? (isSingleDayMobile ? '0 3px 3px 0' : '0 4px 4px 0')
-                                    : '0'
-                            ),
-                            background: settings.compactMode
-                              ? (settings.eventOpacity === 'solid'
-                                  ? (isEnded ? `color-mix(in srgb, ${colorVar} 60%, transparent)` : colorVar)
-                                  : (isEnded ? `color-mix(in srgb, ${colorVar} 35%, transparent)` : `color-mix(in srgb, ${colorVar} 55%, transparent)`))
-                              : getEventBackground(colorVar, isEnded),
-                            borderLeft: settings.compactMode ? 'none' : (spanEvent.isStart ? `3px solid ${isEnded ? `color-mix(in srgb, ${colorVar} 60%, transparent)` : colorVar}` : 'none'),
-                            borderTop: settings.compactMode ? 'none' : `1px solid color-mix(in srgb, ${colorVar} ${isEnded ? '25%' : '40%'}, transparent)`,
-                            borderBottom: settings.compactMode ? 'none' : `1px solid color-mix(in srgb, ${colorVar} ${isEnded ? '25%' : '40%'}, transparent)`,
-                            borderRight: settings.compactMode ? 'none' : (spanEvent.isEnd ? `1px solid color-mix(in srgb, ${colorVar} ${isEnded ? '25%' : '40%'}, transparent)` : 'none'),
-                            color: settings.compactMode ? 'transparent' : (isEnded ? 'rgba(255,255,255,0.7)' : '#ffffff'),
-                            opacity: isEnded ? 0.7 : 1,
+                            gridColumn: `${spanEvent.startCol + gridColOffset} / span ${spanEvent.span}`,
+                            gridRow: eventIndex + 1,
+                            marginLeft: spanEvent.isStart ? '4px' : '0',
+                            marginRight: spanEvent.isEnd ? '4px' : '0'
                           }}
                         >
-                          {!settings.compactMode && spanEvent.isStart ? (
-                            <>
-                              {isEnded && <span style={{ marginRight: '4px' }}>(Ended)</span>}
-                              {spanEvent.event.name}
-                            </>
-                          ) : ''}
-                        </button>
-                      </Tooltip>
-                    );
-                  })}
-
-                </div>
-              );
-            })()}
-
-
-            {/* Expanded day events popover */}
-            {expandedDay?.weekIndex === week.weekIndex && (() => {
-              const dayEvents = getEventsForDay(expandedDay.day);
-              const dayIndex = week.days.indexOf(expandedDay.day);
-              // Position popover to avoid going off-screen
-              const isRightSide = dayIndex >= 4;
-              // Account for week numbers column in positioning
-              const totalCols = settings.showWeekNumbers ? 8 : 7;
-              const adjustedIndex = settings.showWeekNumbers ? dayIndex + 1 : dayIndex;
-              const maxIndex = settings.showWeekNumbers ? 7 : 6;
-
-              return (
-                <div
-                  ref={popoverRef}
-                  className="absolute z-50 min-w-[200px] max-w-[260px] overflow-hidden animate-fadeIn"
-                  style={{
-                    top: '4px',
-                    ...(isRightSide
-                      ? { right: `calc(${((maxIndex - adjustedIndex) / totalCols) * 100}% + 8px)` }
-                      : { left: `calc(${(adjustedIndex / totalCols) * 100}% + 8px)` }
-                    ),
-                    backgroundColor: 'var(--theme-card-bg)',
-                    border: '1px solid var(--theme-card-border)',
-                    borderRadius: '12px',
-                    boxShadow: '0 20px 50px -12px rgba(0, 0, 0, 0.5), 0 8px 20px -8px rgba(0, 0, 0, 0.3)',
-                  }}
-                >
-                  {/* Header */}
-                  <div className="flex items-center justify-between px-3 py-2.5 border-b border-[var(--theme-border-secondary)] bg-[var(--theme-bg-tertiary)]">
-                    <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-md flex items-center justify-center text-xs font-bold bg-[var(--theme-primary)] text-[var(--theme-primary-text)]">
-                        {expandedDay.day}
-                      </div>
-                      <span className="text-sm font-medium text-[var(--theme-text-primary)]">
-                        {monthNames[currentMonth.getMonth()]}
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => setExpandedDay(null)}
-                      className="w-6 h-6 flex items-center justify-center rounded-md transition-all text-[var(--theme-text-muted)] bg-transparent hover:bg-[var(--theme-bg-hover)] hover:text-[var(--theme-text-primary)]"
-                    >
-                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                        <path d="M2 2l8 8M10 2l-8 8" />
-                      </svg>
-                    </button>
-                  </div>
-
-                  {/* Events count */}
-                  <div className="px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-[var(--theme-text-muted)] border-b border-[var(--theme-border-secondary)]">
-                    {t('events.calendar.eventCount', { count: dayEvents.length })}
-                  </div>
-
-                  {/* Events list */}
-                  <CustomScrollbar maxHeight="200px" paddingMode="compact" className="p-2">
-                    <div className="space-y-1.5">
-                      {dayEvents.map((event) => {
-                        const colorVar = getEventColorVar(event.colorIndex);
-                        const isEnded = hasEventEnded(event);
-                        return (
                           <button
-                            key={event.id}
                             onClick={(e) => {
                               e.stopPropagation();
-                              onEventClick(event);
-                              setExpandedDay(null);
+                              onEventClick(spanEvent.event);
                             }}
-                            className="w-full text-left px-3 py-2.5 text-xs font-medium truncate transition-all rounded-lg flex items-center gap-2"
+                            className="w-full h-full truncate font-bold"
                             style={{
-                              backgroundColor: `color-mix(in srgb, ${colorVar} ${isEnded ? '12%' : '20%'}, transparent)`,
-                              borderLeft: `3px solid ${isEnded ? `color-mix(in srgb, ${colorVar} 60%, transparent)` : colorVar}`,
-                              color: isEnded ? `color-mix(in srgb, ${colorVar} 70%, transparent)` : colorVar,
-                              opacity: isEnded ? 0.8 : 1,
+                              display: 'flex',
+                              alignItems: 'center',
+                              height: getEventHeight(),
+                              fontSize: isSingleDayMobile ? '10px' : getFontSize(),
+                              lineHeight: '1',
+                              textAlign: 'left',
+                              paddingLeft: settings.compactMode
+                                ? '0'
+                                : spanEvent.isStart
+                                  ? isSingleDayMobile
+                                    ? '4px'
+                                    : '8px'
+                                  : '6px',
+                              paddingRight: settings.compactMode
+                                ? '0'
+                                : isSingleDayMobile
+                                  ? '4px'
+                                  : '6px',
+                              borderRadius: settings.compactMode
+                                ? '2px'
+                                : spanEvent.isStart && spanEvent.isEnd
+                                  ? isSingleDayMobile
+                                    ? '3px'
+                                    : '4px'
+                                  : spanEvent.isStart
+                                    ? isSingleDayMobile
+                                      ? '3px 0 0 3px'
+                                      : '4px 0 0 4px'
+                                    : spanEvent.isEnd
+                                      ? isSingleDayMobile
+                                        ? '0 3px 3px 0'
+                                        : '0 4px 4px 0'
+                                      : '0',
+                              background: settings.compactMode
+                                ? settings.eventOpacity === 'solid'
+                                  ? isEnded
+                                    ? `color-mix(in srgb, ${colorVar} 60%, transparent)`
+                                    : colorVar
+                                  : isEnded
+                                    ? `color-mix(in srgb, ${colorVar} 35%, transparent)`
+                                    : `color-mix(in srgb, ${colorVar} 55%, transparent)`
+                                : getEventBackground(colorVar, isEnded),
+                              borderLeft: settings.compactMode
+                                ? 'none'
+                                : spanEvent.isStart
+                                  ? `3px solid ${isEnded ? `color-mix(in srgb, ${colorVar} 60%, transparent)` : colorVar}`
+                                  : 'none',
+                              borderTop: settings.compactMode
+                                ? 'none'
+                                : `1px solid color-mix(in srgb, ${colorVar} ${isEnded ? '25%' : '40%'}, transparent)`,
+                              borderBottom: settings.compactMode
+                                ? 'none'
+                                : `1px solid color-mix(in srgb, ${colorVar} ${isEnded ? '25%' : '40%'}, transparent)`,
+                              borderRight: settings.compactMode
+                                ? 'none'
+                                : spanEvent.isEnd
+                                  ? `1px solid color-mix(in srgb, ${colorVar} ${isEnded ? '25%' : '40%'}, transparent)`
+                                  : 'none',
+                              color: settings.compactMode
+                                ? 'transparent'
+                                : isEnded
+                                  ? 'rgba(255,255,255,0.7)'
+                                  : '#ffffff',
+                              opacity: isEnded ? 0.7 : 1
                             }}
-                            onMouseEnter={(e) => {
-                              e.currentTarget.style.transform = 'translateX(3px)';
-                              e.currentTarget.style.backgroundColor = `color-mix(in srgb, ${colorVar} ${isEnded ? '18%' : '30%'}, transparent)`;
-                            }}
-                            onMouseLeave={(e) => {
-                              e.currentTarget.style.transform = 'translateX(0)';
-                              e.currentTarget.style.backgroundColor = `color-mix(in srgb, ${colorVar} ${isEnded ? '12%' : '20%'}, transparent)`;
-                            }}
-                            title={isEnded ? t('events.calendar.eventEnded', { name: event.name }) : event.name}
                           >
-                            <span
-                              className="w-2 h-2 rounded-full flex-shrink-0"
-                              style={{ backgroundColor: colorVar }}
-                            />
-                            <span className="truncate">
-                              {hasEventEnded(event) && (
-                                <span style={{ opacity: 0.7, marginRight: '4px' }}>(Ended)</span>
-                              )}
-                              {event.name}
-                            </span>
+                            {!settings.compactMode && spanEvent.isStart ? (
+                              <>
+                                {isEnded && <span style={{ marginRight: '4px' }}>(Ended)</span>}
+                                {spanEvent.event.name}
+                              </>
+                            ) : (
+                              ''
+                            )}
                           </button>
-                        );
-                      })}
+                        </Tooltip>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+
+              {/* Expanded day events popover */}
+              {expandedDay?.weekIndex === week.weekIndex &&
+                (() => {
+                  const dayEvents = getEventsForDay(expandedDay.day);
+                  const dayIndex = week.days.indexOf(expandedDay.day);
+                  // Position popover to avoid going off-screen
+                  const isRightSide = dayIndex >= 4;
+                  // Account for week numbers column in positioning
+                  const totalCols = settings.showWeekNumbers ? 8 : 7;
+                  const adjustedIndex = settings.showWeekNumbers ? dayIndex + 1 : dayIndex;
+                  const maxIndex = settings.showWeekNumbers ? 7 : 6;
+
+                  return (
+                    <div
+                      ref={popoverRef}
+                      className="absolute z-50 min-w-[200px] max-w-[260px] overflow-hidden animate-fadeIn"
+                      style={{
+                        top: '4px',
+                        ...(isRightSide
+                          ? {
+                              right: `calc(${((maxIndex - adjustedIndex) / totalCols) * 100}% + 8px)`
+                            }
+                          : { left: `calc(${(adjustedIndex / totalCols) * 100}% + 8px)` }),
+                        backgroundColor: 'var(--theme-card-bg)',
+                        border: '1px solid var(--theme-card-border)',
+                        borderRadius: '12px',
+                        boxShadow:
+                          '0 20px 50px -12px rgba(0, 0, 0, 0.5), 0 8px 20px -8px rgba(0, 0, 0, 0.3)'
+                      }}
+                    >
+                      {/* Header */}
+                      <div className="flex items-center justify-between px-3 py-2.5 border-b border-[var(--theme-border-secondary)] bg-[var(--theme-bg-tertiary)]">
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-md flex items-center justify-center text-xs font-bold bg-[var(--theme-primary)] text-[var(--theme-primary-text)]">
+                            {expandedDay.day}
+                          </div>
+                          <span className="text-sm font-medium text-[var(--theme-text-primary)]">
+                            {monthNames[currentMonth.getMonth()]}
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => setExpandedDay(null)}
+                          className="w-6 h-6 flex items-center justify-center rounded-md transition-all text-[var(--theme-text-muted)] bg-transparent hover:bg-[var(--theme-bg-hover)] hover:text-[var(--theme-text-primary)]"
+                        >
+                          <svg
+                            width="12"
+                            height="12"
+                            viewBox="0 0 12 12"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                          >
+                            <path d="M2 2l8 8M10 2l-8 8" />
+                          </svg>
+                        </button>
+                      </div>
+
+                      {/* Events count */}
+                      <div className="px-3 py-1.5 text-[10px] font-medium uppercase tracking-wider text-[var(--theme-text-muted)] border-b border-[var(--theme-border-secondary)]">
+                        {t('events.calendar.eventCount', { count: dayEvents.length })}
+                      </div>
+
+                      {/* Events list */}
+                      <CustomScrollbar maxHeight="200px" paddingMode="compact" className="p-2">
+                        <div className="space-y-1.5">
+                          {dayEvents.map((event) => {
+                            const colorVar = getEventColorVar(event.colorIndex);
+                            const isEnded = hasEventEnded(event);
+                            return (
+                              <button
+                                key={event.id}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onEventClick(event);
+                                  setExpandedDay(null);
+                                }}
+                                className="w-full text-left px-3 py-2.5 text-xs font-medium truncate transition-all rounded-lg flex items-center gap-2"
+                                style={{
+                                  backgroundColor: `color-mix(in srgb, ${colorVar} ${isEnded ? '12%' : '20%'}, transparent)`,
+                                  borderLeft: `3px solid ${isEnded ? `color-mix(in srgb, ${colorVar} 60%, transparent)` : colorVar}`,
+                                  color: isEnded
+                                    ? `color-mix(in srgb, ${colorVar} 70%, transparent)`
+                                    : colorVar,
+                                  opacity: isEnded ? 0.8 : 1
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.transform = 'translateX(3px)';
+                                  e.currentTarget.style.backgroundColor = `color-mix(in srgb, ${colorVar} ${isEnded ? '18%' : '30%'}, transparent)`;
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.transform = 'translateX(0)';
+                                  e.currentTarget.style.backgroundColor = `color-mix(in srgb, ${colorVar} ${isEnded ? '12%' : '20%'}, transparent)`;
+                                }}
+                                title={
+                                  isEnded
+                                    ? t('events.calendar.eventEnded', { name: event.name })
+                                    : event.name
+                                }
+                              >
+                                <span
+                                  className="w-2 h-2 rounded-full flex-shrink-0"
+                                  style={{ backgroundColor: colorVar }}
+                                />
+                                <span className="truncate">
+                                  {hasEventEnded(event) && (
+                                    <span style={{ opacity: 0.7, marginRight: '4px' }}>
+                                      (Ended)
+                                    </span>
+                                  )}
+                                  {event.name}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </CustomScrollbar>
                     </div>
-                  </CustomScrollbar>
-                </div>
-              );
-            })()}
-          </div>
+                  );
+                })()}
+            </div>
           );
         })}
       </div>

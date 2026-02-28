@@ -9,7 +9,9 @@ function applyMinimumSlice(values: number[], minPercent: number): number[] {
   const total = values.reduce((sum, value) => sum + value, 0);
   if (total <= 0) return values;
 
-  const positiveIndices = values.map((value, index) => (value > 0 ? index : -1)).filter((v) => v >= 0);
+  const positiveIndices = values
+    .map((value, index) => (value > 0 ? index : -1))
+    .filter((v) => v >= 0);
   if (positiveIndices.length === 0) return values;
 
   const maxMinPercent = 1 / positiveIndices.length;
@@ -99,11 +101,11 @@ export function useChartData(serviceStats: ServiceStat[], activeTab: TabId): Cha
               borderWidth: 2,
               borderRadius: 4,
               spacing: 2,
-              hoverOffset: 8,
-            },
+              hoverOffset: 8
+            }
           ],
           total,
-          isEmpty: false,
+          isEmpty: false
         };
       }
 
@@ -131,11 +133,11 @@ export function useChartData(serviceStats: ServiceStat[], activeTab: TabId): Cha
               borderWidth: 2,
               borderRadius: 4,
               spacing: 2,
-              hoverOffset: 8,
-            },
+              hoverOffset: 8
+            }
           ],
           total,
-          isEmpty: false,
+          isEmpty: false
         };
       }
 
@@ -166,11 +168,11 @@ export function useChartData(serviceStats: ServiceStat[], activeTab: TabId): Cha
               borderWidth: 2,
               borderRadius: 4,
               spacing: 2,
-              hoverOffset: 8,
-            },
+              hoverOffset: 8
+            }
           ],
           total,
-          isEmpty: false,
+          isEmpty: false
         };
       }
 

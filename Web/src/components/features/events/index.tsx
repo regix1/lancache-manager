@@ -113,14 +113,17 @@ const EventsTab: React.FC = () => {
                 </span>
               </div>
               <div className="flex flex-wrap gap-2">
-                {activeEvents.map(event => (
+                {activeEvents.map((event) => (
                   <button
                     key={event.id}
                     onClick={() => handleEditEvent(event)}
                     className="inline-flex items-center gap-1.5 px-2.5 py-1 text-sm rounded-full font-medium transition-all hover:scale-105"
                     style={getEventColorStyles(event.colorIndex)}
                   >
-                    <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: getEventColorVar(event.colorIndex) }} />
+                    <span
+                      className="w-1.5 h-1.5 rounded-full animate-pulse"
+                      style={{ backgroundColor: getEventColorVar(event.colorIndex) }}
+                    />
                     {event.name}
                   </button>
                 ))}
@@ -142,20 +145,13 @@ const EventsTab: React.FC = () => {
             }}
           />
         ) : (
-          <EventList
-            events={events}
-            onEventClick={handleEditEvent}
-          />
+          <EventList events={events} onEventClick={handleEditEvent} />
         )}
       </Card>
 
       {/* Create/Edit Modal */}
       {showCreateModal && (
-        <EventModal
-          event={editingEvent}
-          onClose={handleCloseModal}
-          onSave={handleEventSaved}
-        />
+        <EventModal event={editingEvent} onClose={handleCloseModal} onSave={handleEventSaved} />
       )}
     </div>
   );

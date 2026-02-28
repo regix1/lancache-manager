@@ -116,7 +116,10 @@ export const useDraggableCards = ({
           const draggedIndex = newOrder.indexOf(draggedCard);
           const targetIndex = newOrder.indexOf(targetCardKey);
           // True swap - exchange positions directly
-          [newOrder[draggedIndex], newOrder[targetIndex]] = [newOrder[targetIndex], newOrder[draggedIndex]];
+          [newOrder[draggedIndex], newOrder[targetIndex]] = [
+            newOrder[targetIndex],
+            newOrder[draggedIndex]
+          ];
           return newOrder;
         });
       }
@@ -129,7 +132,7 @@ export const useDraggableCards = ({
 
   // Edit mode toggle for mobile - clean, intentional UX
   const toggleEditMode = useCallback(() => {
-    setIsEditMode(prev => {
+    setIsEditMode((prev) => {
       const newState = !prev;
       if (!newState) {
         // Exiting edit mode - clear selection
@@ -169,7 +172,10 @@ export const useDraggableCards = ({
             const newOrder = [...prevOrder];
             const draggedIndex = newOrder.indexOf(draggedCard);
             const targetIndex = newOrder.indexOf(cardKey);
-            [newOrder[draggedIndex], newOrder[targetIndex]] = [newOrder[targetIndex], newOrder[draggedIndex]];
+            [newOrder[draggedIndex], newOrder[targetIndex]] = [
+              newOrder[targetIndex],
+              newOrder[draggedIndex]
+            ];
             return newOrder;
           });
 

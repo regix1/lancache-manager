@@ -8,7 +8,7 @@ interface AccessSecurityCardProps {
   guestDurationHours: number;
   onDurationChange: (duration: number) => void;
   updatingDuration: boolean;
-  durationOptions: Array<{ value: string; label: string }>;
+  durationOptions: { value: string; label: string }[];
 }
 
 const AccessSecurityCard: React.FC<AccessSecurityCardProps> = ({

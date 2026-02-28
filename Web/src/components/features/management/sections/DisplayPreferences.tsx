@@ -155,12 +155,15 @@ const DisplayPreferences: React.FC = () => {
     await preferencesService.setPreference('showDatasourceLabels', checked);
   }, []);
 
-  const handleAlwaysShowYearChange = useCallback(async (checked: boolean) => {
-    setAlwaysShowYear(checked);
-    setGlobalAlwaysShowYearPreference(checked);
-    forceRefresh();
-    await preferencesService.setPreference('showYearInDates', checked);
-  }, [forceRefresh]);
+  const handleAlwaysShowYearChange = useCallback(
+    async (checked: boolean) => {
+      setAlwaysShowYear(checked);
+      setGlobalAlwaysShowYearPreference(checked);
+      forceRefresh();
+      await preferencesService.setPreference('showYearInDates', checked);
+    },
+    [forceRefresh]
+  );
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

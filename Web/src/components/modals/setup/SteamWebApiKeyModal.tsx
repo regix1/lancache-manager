@@ -32,13 +32,16 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
     setTestResult(null);
 
     try {
-      const response = await fetch('/api/steam-api-keys/test', ApiService.getFetchOptions({
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ apiKey: apiKey.trim() })
-      }));
+      const response = await fetch(
+        '/api/steam-api-keys/test',
+        ApiService.getFetchOptions({
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ apiKey: apiKey.trim() })
+        })
+      );
 
       const data = await response.json();
 
@@ -56,7 +59,9 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
     } catch (error: unknown) {
       setTestResult({
         valid: false,
-        message: (error instanceof Error ? error.message : String(error)) || t('modals.steamWebApi.errors.networkError')
+        message:
+          (error instanceof Error ? error.message : String(error)) ||
+          t('modals.steamWebApi.errors.networkError')
       });
     } finally {
       setTesting(false);
@@ -72,13 +77,16 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
     setSaving(true);
 
     try {
-      const response = await fetch('/api/steam-api-keys', ApiService.getFetchOptions({
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ apiKey: apiKey.trim() })
-      }));
+      const response = await fetch(
+        '/api/steam-api-keys',
+        ApiService.getFetchOptions({
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ apiKey: apiKey.trim() })
+        })
+      );
 
       const data = await response.json();
 
@@ -94,7 +102,9 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
     } catch (error: unknown) {
       setTestResult({
         valid: false,
-        message: (error instanceof Error ? error.message : String(error)) || t('modals.steamWebApi.errors.networkErrorSave')
+        message:
+          (error instanceof Error ? error.message : String(error)) ||
+          t('modals.steamWebApi.errors.networkErrorSave')
       });
     } finally {
       setSaving(false);
@@ -129,9 +139,7 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
           </p>
 
           <div className="space-y-2 text-sm text-themed-secondary">
-            <p className="font-medium text-info-text">
-              {t('modals.steamWebApi.info.stepsTitle')}
-            </p>
+            <p className="font-medium text-info-text">{t('modals.steamWebApi.info.stepsTitle')}</p>
             <ol className="list-decimal list-inside space-y-1 ml-2">
               <li>
                 {t('modals.steamWebApi.info.step1')}{' '}
@@ -179,18 +187,14 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
         {/* Security Notice */}
         <div className="flex items-start gap-2 text-xs text-themed-muted">
           <Lock className="w-4 h-4 flex-shrink-0 mt-0.5" />
-          <p>
-            {t('modals.steamWebApi.security.description')}
-          </p>
+          <p>{t('modals.steamWebApi.security.description')}</p>
         </div>
 
         {/* Test Result */}
         {testResult && (
           <div
             className={`rounded-lg p-3 border flex items-start gap-3 ${
-              testResult.valid
-                ? 'bg-success border-success'
-                : 'bg-error border-error'
+              testResult.valid ? 'bg-success border-success' : 'bg-error border-error'
             }`}
           >
             {testResult.valid ? (
@@ -219,7 +223,9 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
             loading={testing}
             className="flex-1"
           >
-            {testing ? t('modals.steamWebApi.actions.testing') : t('modals.steamWebApi.actions.testConnection')}
+            {testing
+              ? t('modals.steamWebApi.actions.testing')
+              : t('modals.steamWebApi.actions.testConnection')}
           </Button>
 
           <Button
@@ -230,7 +236,9 @@ const SteamWebApiKeyModal: React.FC<SteamWebApiKeyModalProps> = ({
             loading={saving}
             className="flex-1"
           >
-            {saving ? t('modals.steamWebApi.actions.saving') : t('modals.steamWebApi.actions.saveApiKey')}
+            {saving
+              ? t('modals.steamWebApi.actions.saving')
+              : t('modals.steamWebApi.actions.saveApiKey')}
           </Button>
 
           <Button onClick={handleClose} variant="default" disabled={testing || saving}>

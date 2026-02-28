@@ -32,7 +32,9 @@ interface NormalViewSectionLabels {
   individual: string;
 }
 
-const getDefaultSectionLabels = (t: (key: string, options?: Record<string, unknown>) => string): NormalViewSectionLabels => ({
+const getDefaultSectionLabels = (
+  t: (key: string, options?: Record<string, unknown>) => string
+): NormalViewSectionLabels => ({
   multipleDownloads: t('downloads.tab.normal.sections.multipleDownloads'),
   singleDownloads: t('downloads.tab.normal.sections.singleDownloads'),
   individual: t('downloads.tab.normal.sections.individual')
@@ -102,7 +104,8 @@ const GroupCard: React.FC<GroupCardProps> = ({
   const isBlizzard =
     serviceLower === 'blizzard' || serviceLower === 'battle.net' || serviceLower === 'battlenet';
   const isXbox = serviceLower === 'xbox' || serviceLower === 'xboxlive';
-  const isOtherService = !isSteam && !isWsus && !isRiot && !isEpic && !isEA && !isBlizzard && !isXbox;
+  const isOtherService =
+    !isSteam && !isWsus && !isRiot && !isEpic && !isEA && !isBlizzard && !isXbox;
   const steamAppId = primaryDownload?.gameAppId ? String(primaryDownload.gameAppId) : null;
   const primaryName = primaryDownload?.gameName ?? '';
   const isGenericSteamTitle =
@@ -145,16 +148,19 @@ const GroupCard: React.FC<GroupCardProps> = ({
   // This allows us to show event badges at the group level
   // refreshVersion triggers re-fetch when cache is invalidated (e.g., DownloadTagged event)
   React.useEffect(() => {
-    const downloadIds = group.downloads.map(d => d.id);
+    const downloadIds = group.downloads.map((d) => d.id);
     fetchAssociations(downloadIds);
   }, [group.downloads, fetchAssociations, refreshVersion]);
 
   // Aggregate unique events from all downloads in the group
   const groupEvents = React.useMemo(() => {
-    const eventsMap = new Map<number, { id: number; name: string; colorIndex: number; autoTagged: boolean }>();
-    group.downloads.forEach(d => {
+    const eventsMap = new Map<
+      number,
+      { id: number; name: string; colorIndex: number; autoTagged: boolean }
+    >();
+    group.downloads.forEach((d) => {
       const associations = getAssociations(d.id);
-      associations.events.forEach(event => {
+      associations.events.forEach((event) => {
         if (!eventsMap.has(event.id)) {
           eventsMap.set(event.id, { ...event, autoTagged: event.autoTagged ?? false });
         }
@@ -178,41 +184,27 @@ const GroupCard: React.FC<GroupCardProps> = ({
       );
     } else {
       bannerContent = (
-        <div
-          className="download-banner-placeholder"
-        >
+        <div className="download-banner-placeholder">
           {isSteam ? (
             <SteamIcon
               size={placeholderIconSize}
               className="opacity-75 text-[var(--theme-steam)]"
             />
           ) : isWsus ? (
-            <WsusIcon
-              size={placeholderIconSize}
-              className="opacity-75 text-[var(--theme-wsus)]"
-            />
+            <WsusIcon size={placeholderIconSize} className="opacity-75 text-[var(--theme-wsus)]" />
           ) : isRiot ? (
-            <RiotIcon
-              size={placeholderIconSize}
-              className="opacity-75 text-[var(--theme-riot)]"
-            />
+            <RiotIcon size={placeholderIconSize} className="opacity-75 text-[var(--theme-riot)]" />
           ) : isEpic ? (
             <EpicIcon size={placeholderIconSize} className="opacity-75 text-[var(--theme-epic)]" />
           ) : isEA ? (
-            <EAIcon
-              size={placeholderIconSize}
-              className="opacity-75 text-[var(--theme-origin)]"
-            />
+            <EAIcon size={placeholderIconSize} className="opacity-75 text-[var(--theme-origin)]" />
           ) : isBlizzard ? (
             <BlizzardIcon
               size={placeholderIconSize}
               className="opacity-75 text-[var(--theme-blizzard)]"
             />
           ) : isXbox ? (
-            <XboxIcon
-              size={placeholderIconSize}
-              className="opacity-75 text-[var(--theme-xbox)]"
-            />
+            <XboxIcon size={placeholderIconSize} className="opacity-75 text-[var(--theme-xbox)]" />
           ) : (
             <UnknownServiceIcon
               size={placeholderIconSize + 12}
@@ -229,15 +221,15 @@ const GroupCard: React.FC<GroupCardProps> = ({
       className={`flex flex-col ${fullHeightBanners ? 'sm:flex-row sm:items-stretch' : 'sm:flex-row'}`}
     >
       {bannerContent && (
-        <div className={`flex-shrink-0 overflow-hidden ${bannerWrapperClasses} sm:border-r sm:border-[var(--theme-border-secondary)]`}>
+        <div
+          className={`flex-shrink-0 overflow-hidden ${bannerWrapperClasses} sm:border-r sm:border-[var(--theme-border-secondary)]`}
+        >
           {bannerContent}
         </div>
       )}
       <div
         className={`flex-1 ${
-          fullHeightBanners
-            ? 'px-3 py-3 sm:px-4 sm:py-3'
-            : 'px-3 py-3 sm:px-5 sm:py-4'
+          fullHeightBanners ? 'px-3 py-3 sm:px-4 sm:py-3' : 'px-3 py-3 sm:px-5 sm:py-4'
         }`}
       >
         {/* Mobile Layout - Clean and Spacious */}
@@ -257,7 +249,12 @@ const GroupCard: React.FC<GroupCardProps> = ({
                 >
                   {group.service.toUpperCase()}
                 </span>
-                {group.downloads.some((d: Download) => d.gameName && d.gameName !== 'Unknown Steam Game' && !d.gameName.match(/^Steam App \d+$/)) && (
+                {group.downloads.some(
+                  (d: Download) =>
+                    d.gameName &&
+                    d.gameName !== 'Unknown Steam Game' &&
+                    !d.gameName.match(/^Steam App \d+$/)
+                ) && (
                   <h3 className="text-sm font-bold text-[var(--theme-text-primary)] truncate flex-1 min-w-0">
                     {group.name}
                   </h3>
@@ -272,9 +269,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                     {formatBytes(group.totalBytes)}
                   </span>
                   {hitPercent > 0 ? (
-                    <span className="cache-hit font-semibold">
-                      {formatPercent(hitPercent)}
-                    </span>
+                    <span className="cache-hit font-semibold">{formatPercent(hitPercent)}</span>
                   ) : (
                     <span className="text-[var(--theme-text-muted)]">0%</span>
                   )}
@@ -292,11 +287,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
               {/* Event badges - only show if present */}
               {groupEvents.length > 0 && (
                 <div className="mt-2">
-                  <DownloadBadges
-                    events={groupEvents}
-                    maxVisible={2}
-                    size="sm"
-                  />
+                  <DownloadBadges events={groupEvents} maxVisible={2} size="sm" />
                 </div>
               )}
             </div>
@@ -322,34 +313,42 @@ const GroupCard: React.FC<GroupCardProps> = ({
                 >
                   {group.service.toUpperCase()}
                 </span>
-                {group.downloads.some((d: Download) => d.gameName && d.gameName !== 'Unknown Steam Game' && !d.gameName.match(/^Steam App \d+$/)) && (
+                {group.downloads.some(
+                  (d: Download) =>
+                    d.gameName &&
+                    d.gameName !== 'Unknown Steam Game' &&
+                    !d.gameName.match(/^Steam App \d+$/)
+                ) && (
                   <h3
                     className={`${fullHeightBanners ? 'text-lg' : 'text-xl'} font-bold text-[var(--theme-text-primary)] truncate`}
                   >
                     {group.name}
                   </h3>
                 )}
-                {hasMultipleDatasources && showDatasourceLabels && group.downloads[0]?.datasource && (
-                  <Tooltip content={t('downloads.tab.normal.datasourceTooltip', { datasource: group.downloads[0].datasource })}>
-                    <span
-                      className={`${fullHeightBanners ? 'px-1.5 py-0.5 text-xs' : 'px-2.5 py-1 text-xs'} font-medium rounded-md flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)]`}
+                {hasMultipleDatasources &&
+                  showDatasourceLabels &&
+                  group.downloads[0]?.datasource && (
+                    <Tooltip
+                      content={t('downloads.tab.normal.datasourceTooltip', {
+                        datasource: group.downloads[0].datasource
+                      })}
                     >
-                      {group.downloads[0].datasource}
-                    </span>
-                  </Tooltip>
-                )}
+                      <span
+                        className={`${fullHeightBanners ? 'px-1.5 py-0.5 text-xs' : 'px-2.5 py-1 text-xs'} font-medium rounded-md flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)]`}
+                      >
+                        {group.downloads[0].datasource}
+                      </span>
+                    </Tooltip>
+                  )}
                 {groupEvents.length > 0 && (
-                  <DownloadBadges
-                    events={groupEvents}
-                    maxVisible={2}
-                    size="sm"
-                  />
+                  <DownloadBadges events={groupEvents} maxVisible={2} size="sm" />
                 )}
                 {group.count > 1 && (
                   <span
                     className={`${fullHeightBanners ? 'px-1.5 py-0.5 text-xs' : 'px-2.5 py-1 text-xs'} font-semibold rounded-full bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] flex-shrink-0`}
                   >
-                    {group.clientsSet.size} client{group.clientsSet.size !== 1 ? 's' : ''} · {group.count} request{group.count !== 1 ? 's' : ''}
+                    {group.clientsSet.size} client{group.clientsSet.size !== 1 ? 's' : ''} ·{' '}
+                    {group.count} request{group.count !== 1 ? 's' : ''}
                   </span>
                 )}
               </div>
@@ -418,7 +417,9 @@ const GroupCard: React.FC<GroupCardProps> = ({
                       hitPercent > 0 ? 'cache-hit' : 'text-[var(--theme-text-secondary)]'
                     }`}
                   >
-                    {hitPercent > 0 ? formatPercent(hitPercent) : t('downloads.tab.normal.stats.notAvailable')}
+                    {hitPercent > 0
+                      ? formatPercent(hitPercent)
+                      : t('downloads.tab.normal.stats.notAvailable')}
                   </span>
                 </div>
               </div>
@@ -458,7 +459,6 @@ const GroupCard: React.FC<GroupCardProps> = ({
           onClick={(event) => event.stopPropagation()}
         >
           <div className="flex flex-col gap-6">
-            
             {/* Stats Overview Section */}
             <div>
               <div className="flex items-center justify-between mb-3">
@@ -486,21 +486,27 @@ const GroupCard: React.FC<GroupCardProps> = ({
                   </h5>
                   <div className="flex flex-col gap-4">
                     <div className="flex items-baseline justify-between">
-                      <span className="text-sm text-[var(--theme-text-secondary)]">{t('downloads.tab.normal.stats.efficiencyRate')}</span>
-                      <span className={`text-xl font-bold ${hitPercent > 0 ? 'cache-hit' : 'text-[var(--theme-text-secondary)]'}`}>
+                      <span className="text-sm text-[var(--theme-text-secondary)]">
+                        {t('downloads.tab.normal.stats.efficiencyRate')}
+                      </span>
+                      <span
+                        className={`text-xl font-bold ${hitPercent > 0 ? 'cache-hit' : 'text-[var(--theme-text-secondary)]'}`}
+                      >
                         {hitPercent > 0 ? formatPercent(hitPercent) : '—'}
                       </span>
                     </div>
                     <div className="w-full bg-[var(--theme-bg-primary)] rounded-full h-1.5 overflow-hidden">
-                      <div 
+                      <div
                         className="h-full bg-[var(--theme-success)] transition-all duration-500"
                         style={{ width: `${hitPercent}%` }}
                       />
                     </div>
                     <div className="flex items-baseline justify-between pt-2 border-t border-[var(--theme-border-secondary)]">
-                      <span className="text-xs text-[var(--theme-text-muted)]">{t('downloads.tab.normal.stats.cacheSaved')}</span>
+                      <span className="text-xs text-[var(--theme-text-muted)]">
+                        {t('downloads.tab.normal.stats.cacheSaved')}
+                      </span>
                       <span className="text-sm font-bold text-[var(--theme-success-text)]">
-                         {group.cacheHitBytes > 0 ? formatBytes(group.cacheHitBytes) : '—'}
+                        {group.cacheHitBytes > 0 ? formatBytes(group.cacheHitBytes) : '—'}
                       </span>
                     </div>
                   </div>
@@ -513,16 +519,28 @@ const GroupCard: React.FC<GroupCardProps> = ({
                   </h5>
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
-                      <span className="text-sm text-[var(--theme-text-secondary)]">{t('downloads.tab.normal.stats.totalDownloaded')}</span>
-                      <span className="text-base font-bold text-[var(--theme-text-primary)]">{formatBytes(group.totalBytes)}</span>
+                      <span className="text-sm text-[var(--theme-text-secondary)]">
+                        {t('downloads.tab.normal.stats.totalDownloaded')}
+                      </span>
+                      <span className="text-base font-bold text-[var(--theme-text-primary)]">
+                        {formatBytes(group.totalBytes)}
+                      </span>
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-sm text-[var(--theme-text-secondary)]">{t('downloads.tab.normal.stats.cacheMiss')}</span>
-                      <span className="text-sm font-medium text-[var(--theme-text-muted)]">{formatBytes(group.cacheMissBytes || 0)}</span>
+                      <span className="text-sm text-[var(--theme-text-secondary)]">
+                        {t('downloads.tab.normal.stats.cacheMiss')}
+                      </span>
+                      <span className="text-sm font-medium text-[var(--theme-text-muted)]">
+                        {formatBytes(group.cacheMissBytes || 0)}
+                      </span>
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-sm text-[var(--theme-text-secondary)]">{t('downloads.tab.normal.stats.cacheHit')}</span>
-                      <span className="text-sm font-medium text-[var(--theme-success-text)]">{formatBytes(group.cacheHitBytes)}</span>
+                      <span className="text-sm text-[var(--theme-text-secondary)]">
+                        {t('downloads.tab.normal.stats.cacheHit')}
+                      </span>
+                      <span className="text-sm font-medium text-[var(--theme-success-text)]">
+                        {formatBytes(group.cacheHitBytes)}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -534,16 +552,28 @@ const GroupCard: React.FC<GroupCardProps> = ({
                   </h5>
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
-                      <span className="text-sm text-[var(--theme-text-secondary)]">{t('downloads.tab.normal.stats.downloadSessions')}</span>
-                      <span className="text-base font-bold text-[var(--theme-text-primary)]">{group.count}</span>
+                      <span className="text-sm text-[var(--theme-text-secondary)]">
+                        {t('downloads.tab.normal.stats.downloadSessions')}
+                      </span>
+                      <span className="text-base font-bold text-[var(--theme-text-primary)]">
+                        {group.count}
+                      </span>
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-sm text-[var(--theme-text-secondary)]">{t('downloads.tab.normal.stats.uniqueClients')}</span>
-                      <span className="text-sm font-medium text-[var(--theme-text-primary)]">{group.clientsSet.size}</span>
+                      <span className="text-sm text-[var(--theme-text-secondary)]">
+                        {t('downloads.tab.normal.stats.uniqueClients')}
+                      </span>
+                      <span className="text-sm font-medium text-[var(--theme-text-primary)]">
+                        {group.clientsSet.size}
+                      </span>
                     </div>
                     <div className="flex items-center justify-between pt-2 border-t border-[var(--theme-border-secondary)]">
-                      <span className="text-xs text-[var(--theme-text-muted)]">{t('downloads.tab.normal.stats.lastActivity')}</span>
-                      <span className="text-xs font-medium text-[var(--theme-text-secondary)]">{formatRelativeTime(group.lastSeen)}</span>
+                      <span className="text-xs text-[var(--theme-text-muted)]">
+                        {t('downloads.tab.normal.stats.lastActivity')}
+                      </span>
+                      <span className="text-xs font-medium text-[var(--theme-text-secondary)]">
+                        {formatRelativeTime(group.lastSeen)}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -605,7 +635,9 @@ const GroupCard: React.FC<GroupCardProps> = ({
                       <div className="flex items-center gap-3">
                         {excludedSessions > 0 && (
                           <span className="text-xs text-[var(--theme-text-muted)] italic">
-                            {t('downloads.tab.normal.sessions.excluded', { count: excludedSessions })}
+                            {t('downloads.tab.normal.sessions.excluded', {
+                              count: excludedSessions
+                            })}
                           </span>
                         )}
                         {totalPages > 1 && (
@@ -615,7 +647,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                         )}
                       </div>
                     </div>
-                    
+
                     {/* Group sessions by client IP */}
                     <div className="space-y-4">
                       {Object.entries(
@@ -636,9 +668,12 @@ const GroupCard: React.FC<GroupCardProps> = ({
                           (sum, d) => sum + (d.cacheHitBytes || 0),
                           0
                         );
-                        
+
                         return (
-                          <div key={clientIp} className="rounded-lg border border-[var(--theme-border-secondary)] overflow-hidden">
+                          <div
+                            key={clientIp}
+                            className="rounded-lg border border-[var(--theme-border-secondary)] overflow-hidden"
+                          >
                             {/* Client Header */}
                             <div className="bg-[var(--theme-bg-tertiary)] px-4 py-2 flex items-center justify-between border-b border-[var(--theme-border-secondary)]">
                               <div className="flex items-center gap-2">
@@ -652,16 +687,20 @@ const GroupCard: React.FC<GroupCardProps> = ({
                               </div>
                               <div className="flex items-center gap-3 text-xs">
                                 <span className="font-medium text-[var(--theme-text-secondary)]">
-                                  Total: <span className="text-[var(--theme-text-primary)] font-bold">{formatBytes(clientTotal)}</span>
+                                  Total:{' '}
+                                  <span className="text-[var(--theme-text-primary)] font-bold">
+                                    {formatBytes(clientTotal)}
+                                  </span>
                                 </span>
                                 {clientCacheHit > 0 && (
                                   <span className="font-medium text-[var(--theme-success-text)]">
-                                    Saved: <span className="font-bold">{formatBytes(clientCacheHit)}</span>
+                                    Saved:{' '}
+                                    <span className="font-bold">{formatBytes(clientCacheHit)}</span>
                                   </span>
                                 )}
                               </div>
                             </div>
-                            
+
                             {/* Sessions Table-like list */}
                             <div className="divide-y divide-[var(--theme-border-secondary)]">
                               {clientDownloads.map((download) => {
@@ -682,9 +721,15 @@ const GroupCard: React.FC<GroupCardProps> = ({
                                       <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-2 mb-1">
                                           {download.endTimeUtc ? (
-                                            <CheckCircle size={14} className="text-[var(--theme-success-text)]" />
+                                            <CheckCircle
+                                              size={14}
+                                              className="text-[var(--theme-success-text)]"
+                                            />
                                           ) : (
-                                            <AlertCircle size={14} className="text-[var(--theme-info-text)]" />
+                                            <AlertCircle
+                                              size={14}
+                                              className="text-[var(--theme-info-text)]"
+                                            />
                                           )}
                                           <span className="text-sm text-[var(--theme-text-primary)]">
                                             {formatRelativeTime(download.startTimeUtc)}
@@ -709,17 +754,27 @@ const GroupCard: React.FC<GroupCardProps> = ({
                                       {/* Stats */}
                                       <div className="flex items-center gap-4 sm:gap-6 text-sm">
                                         <div className="flex flex-col items-end">
-                                          <span className="text-[10px] uppercase text-[var(--theme-text-muted)] font-semibold">Size</span>
-                                          <span className="font-medium text-[var(--theme-text-primary)]">{formatBytes(totalBytes)}</span>
+                                          <span className="text-[10px] uppercase text-[var(--theme-text-muted)] font-semibold">
+                                            Size
+                                          </span>
+                                          <span className="font-medium text-[var(--theme-text-primary)]">
+                                            {formatBytes(totalBytes)}
+                                          </span>
                                         </div>
                                         <div className="flex flex-col items-end w-20">
-                                          <span className="text-[10px] uppercase text-[var(--theme-text-muted)] font-semibold">Cache</span>
+                                          <span className="text-[10px] uppercase text-[var(--theme-text-muted)] font-semibold">
+                                            Cache
+                                          </span>
                                           {download.cacheHitBytes > 0 ? (
                                             <div className="flex items-center gap-1.5">
-                                              <span className="font-bold text-[var(--theme-success-text)]">{formatPercent(cachePercent)}</span>
+                                              <span className="font-bold text-[var(--theme-success-text)]">
+                                                {formatPercent(cachePercent)}
+                                              </span>
                                             </div>
                                           ) : (
-                                            <span className="text-[var(--theme-text-muted)]">—</span>
+                                            <span className="text-[var(--theme-text-muted)]">
+                                              —
+                                            </span>
                                           )}
                                         </div>
                                       </div>
@@ -864,9 +919,7 @@ const NormalView: React.FC<NormalViewProps> = ({
               multipleDownloadsHeaderRendered = true;
               header = (
                 <div className="mb-4 mt-6 first:mt-0">
-                  <h2
-                    className="text-lg font-bold text-themed-primary border-b border-[var(--theme-border-secondary)] pb-2"
-                  >
+                  <h2 className="text-lg font-bold text-themed-primary border-b border-[var(--theme-border-secondary)] pb-2">
                     {labels.multipleDownloads}
                   </h2>
                   <p className="text-xs text-themed-muted mt-1">
@@ -878,9 +931,7 @@ const NormalView: React.FC<NormalViewProps> = ({
               singleDownloadsHeaderRendered = true;
               header = (
                 <div className="mb-4 mt-6 first:mt-0">
-                  <h2
-                    className="text-lg font-bold text-themed-primary border-b border-[var(--theme-border-secondary)] pb-2"
-                  >
+                  <h2 className="text-lg font-bold text-themed-primary border-b border-[var(--theme-border-secondary)] pb-2">
                     {labels.singleDownloads}
                   </h2>
                   <p className="text-xs text-themed-muted mt-1">
@@ -893,9 +944,7 @@ const NormalView: React.FC<NormalViewProps> = ({
             individualHeaderRendered = true;
             header = (
               <div className="mb-4 mt-6 first:mt-0">
-                <h2
-                  className="text-lg font-bold text-themed-primary border-b border-[var(--theme-border-secondary)] pb-2"
-                >
+                <h2 className="text-lg font-bold text-themed-primary border-b border-[var(--theme-border-secondary)] pb-2">
                   {labels.individual}
                 </h2>
                 <p className="text-xs text-themed-muted mt-1">

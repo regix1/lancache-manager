@@ -25,7 +25,9 @@ interface SimpleRecoveryConfig {
   notificationId: string;
   isProcessing: (data: Record<string, unknown>) => boolean;
   shouldSkip?: (data: Record<string, unknown>) => boolean;
-  createNotification: (data: Record<string, unknown>) => Omit<UnifiedNotification, 'id' | 'type' | 'status' | 'startedAt'>;
+  createNotification: (
+    data: Record<string, unknown>
+  ) => Omit<UnifiedNotification, 'id' | 'type' | 'status' | 'startedAt'>;
   staleMessage: string;
 }
 
@@ -46,7 +48,9 @@ function createSimpleRecoveryFunction(
       // Check if we should skip (e.g., silent mode)
       if (config.shouldSkip?.(data)) {
         localStorage.removeItem(config.storageKey);
-        setNotifications((prev: UnifiedNotification[]) => prev.filter((n) => n.type !== config.type));
+        setNotifications((prev: UnifiedNotification[]) =>
+          prev.filter((n) => n.type !== config.type)
+        );
         return;
       }
 
@@ -110,10 +114,17 @@ const RECOVERY_CONFIGS = {
     type: 'log_processing' as NotificationType,
     notificationId: NOTIFICATION_IDS.LOG_PROCESSING,
     isProcessing: (data: Record<string, unknown>) => Boolean(data.isProcessing) && !data.silentMode,
-    shouldSkip: (data: Record<string, unknown>) => Boolean(data.isProcessing) && Boolean(data.silentMode),
+    shouldSkip: (data: Record<string, unknown>) =>
+      Boolean(data.isProcessing) && Boolean(data.silentMode),
     createNotification: (data: Record<string, unknown>) => ({
-      message: formatLogProcessingRecoveryMessage(data.mbProcessed as number, data.mbTotal as number),
-      detailMessage: formatLogProcessingRecoveryDetailMessage(data.entriesProcessed as number, data.totalLines as number),
+      message: formatLogProcessingRecoveryMessage(
+        data.mbProcessed as number,
+        data.mbTotal as number
+      ),
+      detailMessage: formatLogProcessingRecoveryDetailMessage(
+        data.entriesProcessed as number,
+        data.totalLines as number
+      ),
       progress: Math.min(99.9, (data.percentComplete as number) || 0),
       details: {
         mbProcessed: data.mbProcessed as number,
@@ -138,7 +149,8 @@ const RECOVERY_CONFIGS = {
       const ops = data.operations as Record<string, unknown>[];
       const activeOp = ops?.[0] || {};
       return {
-        message: (activeOp.statusMessage as string) || (activeOp.message as string) || 'Clearing cache...',
+        message:
+          (activeOp.statusMessage as string) || (activeOp.message as string) || 'Clearing cache...',
         progress: (activeOp.percentComplete as number) || 0,
         details: {
           operationId: (activeOp.operationId as string) || (activeOp.id as string),
@@ -198,7 +210,8 @@ const RECOVERY_CONFIGS = {
     storageKey: NOTIFICATION_STORAGE_KEYS.LOG_REMOVAL,
     type: 'log_removal' as NotificationType,
     notificationId: NOTIFICATION_IDS.LOG_REMOVAL,
-    isProcessing: (data: Record<string, unknown>) => Boolean(data.isProcessing) && Boolean(data.service),
+    isProcessing: (data: Record<string, unknown>) =>
+      Boolean(data.isProcessing) && Boolean(data.service),
     createNotification: (data: Record<string, unknown>) => ({
       message: `Removing ${data.service} entries from logs`,
       progress: (data.percentComplete as number) || 0,
@@ -216,7 +229,8 @@ const RECOVERY_CONFIGS = {
     storageKey: NOTIFICATION_STORAGE_KEYS.GAME_DETECTION,
     type: 'game_detection' as NotificationType,
     notificationId: NOTIFICATION_IDS.GAME_DETECTION,
-    isProcessing: (data: Record<string, unknown>) => Boolean(data.isProcessing) && Boolean(data.operation),
+    isProcessing: (data: Record<string, unknown>) =>
+      Boolean(data.isProcessing) && Boolean(data.operation),
     createNotification: (data: Record<string, unknown>) => {
       const op = data.operation as Record<string, unknown>;
       return {
@@ -377,7 +391,10 @@ function recoverOperations(
   storageKey: string,
   type: NotificationType,
   getId: (op: CacheRemovalOperation) => string,
-  createData: (op: CacheRemovalOperation) => { message: string; details: UnifiedNotification['details'] },
+  createData: (op: CacheRemovalOperation) => {
+    message: string;
+    details: UnifiedNotification['details'];
+  },
   getIdFromSaved: (saved: UnifiedNotification) => string,
   staleMessage: string,
   setNotifications: SetNotifications,

@@ -1,4 +1,12 @@
-import React, { createContext, useContext, useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useCallback,
+  useMemo,
+  useRef
+} from 'react';
 import { useSignalR } from '@contexts/SignalRContext';
 import { useRefreshRate } from '@contexts/RefreshRateContext';
 import { useAuth } from '@contexts/AuthContext';
@@ -232,7 +240,15 @@ export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedP
       isLoading,
       refreshSpeed
     }),
-    [speedSnapshot, gameSpeeds, clientSpeeds, activeDownloadCount, totalActiveClients, isLoading, refreshSpeed]
+    [
+      speedSnapshot,
+      gameSpeeds,
+      clientSpeeds,
+      activeDownloadCount,
+      totalActiveClients,
+      isLoading,
+      refreshSpeed
+    ]
   );
 
   return <SpeedContext.Provider value={value}>{children}</SpeedContext.Provider>;

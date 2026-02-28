@@ -75,23 +75,14 @@ const EventFrame: React.FC<EventFrameProps> = ({
     '--event-frame-badge-offset': `${mergedTokens.badgeOffset}px`
   } as React.CSSProperties;
 
-  const wrapperClassName = [
-    'event-frame-wrapper',
-    'event-frame-active',
-    className
-  ]
+  const wrapperClassName = ['event-frame-wrapper', 'event-frame-active', className]
     .filter(Boolean)
     .join(' ');
 
   return (
-    <div
-      className={wrapperClassName}
-      style={wrapperStyle}
-    >
+    <div className={wrapperClassName} style={wrapperStyle}>
       <div className="event-frame-border" aria-hidden="true" />
-      <div className="event-frame-content">
-        {children}
-      </div>
+      <div className="event-frame-content">{children}</div>
 
       {/* Badge positioned at top center of frame */}
       {shouldShowBadge && (
@@ -103,9 +94,7 @@ const EventFrame: React.FC<EventFrameProps> = ({
               offset={8}
               content={
                 <div className="event-frame-tooltip">
-                  <div className="event-frame-tooltip-title">
-                    {t('eventFrame.activeEvents')}
-                  </div>
+                  <div className="event-frame-tooltip-title">{t('eventFrame.activeEvents')}</div>
                   <div className="event-frame-tooltip-list">
                     {allEvents.map((event) => (
                       <div key={event.id} className="event-frame-tooltip-item">

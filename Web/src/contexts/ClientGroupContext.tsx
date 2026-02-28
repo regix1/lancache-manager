@@ -1,4 +1,12 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  type ReactNode
+} from 'react';
 import ApiService from '@services/api.service';
 import { useAuth } from '@contexts/AuthContext';
 import { useSignalR } from '@contexts/SignalRContext';
@@ -71,42 +79,63 @@ export const ClientGroupProvider: React.FC<ClientGroupProviderProps> = ({ childr
   }, [authLoading, hasSession, refreshGroups]);
 
   // CRUD operations
-  const createClientGroup = useCallback(async (data: CreateClientGroupRequest): Promise<ClientGroup> => {
-    const created = await ApiService.createClientGroup(data);
-    await refreshGroups();
-    return created;
-  }, [refreshGroups]);
+  const createClientGroup = useCallback(
+    async (data: CreateClientGroupRequest): Promise<ClientGroup> => {
+      const created = await ApiService.createClientGroup(data);
+      await refreshGroups();
+      return created;
+    },
+    [refreshGroups]
+  );
 
-  const updateClientGroup = useCallback(async (id: number, data: UpdateClientGroupRequest): Promise<ClientGroup> => {
-    const updated = await ApiService.updateClientGroup(id, data);
-    await refreshGroups();
-    return updated;
-  }, [refreshGroups]);
+  const updateClientGroup = useCallback(
+    async (id: number, data: UpdateClientGroupRequest): Promise<ClientGroup> => {
+      const updated = await ApiService.updateClientGroup(id, data);
+      await refreshGroups();
+      return updated;
+    },
+    [refreshGroups]
+  );
 
-  const deleteClientGroup = useCallback(async (id: number): Promise<void> => {
-    await ApiService.deleteClientGroup(id);
-    await refreshGroups();
-  }, [refreshGroups]);
+  const deleteClientGroup = useCallback(
+    async (id: number): Promise<void> => {
+      await ApiService.deleteClientGroup(id);
+      await refreshGroups();
+    },
+    [refreshGroups]
+  );
 
-  const addMember = useCallback(async (groupId: number, clientIp: string): Promise<ClientGroup> => {
-    const updated = await ApiService.addClientGroupMember(groupId, clientIp);
-    await refreshGroups();
-    return updated;
-  }, [refreshGroups]);
+  const addMember = useCallback(
+    async (groupId: number, clientIp: string): Promise<ClientGroup> => {
+      const updated = await ApiService.addClientGroupMember(groupId, clientIp);
+      await refreshGroups();
+      return updated;
+    },
+    [refreshGroups]
+  );
 
-  const removeMember = useCallback(async (groupId: number, clientIp: string): Promise<void> => {
-    await ApiService.removeClientGroupMember(groupId, clientIp);
-    await refreshGroups();
-  }, [refreshGroups]);
+  const removeMember = useCallback(
+    async (groupId: number, clientIp: string): Promise<void> => {
+      await ApiService.removeClientGroupMember(groupId, clientIp);
+      await refreshGroups();
+    },
+    [refreshGroups]
+  );
 
   // Helper functions
-  const getGroupForIp = useCallback((clientIp: string): ClientGroup | null => {
-    return clientGroups.find(g => g.memberIps.includes(clientIp)) || null;
-  }, [clientGroups]);
+  const getGroupForIp = useCallback(
+    (clientIp: string): ClientGroup | null => {
+      return clientGroups.find((g) => g.memberIps.includes(clientIp)) || null;
+    },
+    [clientGroups]
+  );
 
-  const getGroupById = useCallback((id: number): ClientGroup | null => {
-    return clientGroups.find(g => g.id === id) || null;
-  }, [clientGroups]);
+  const getGroupById = useCallback(
+    (id: number): ClientGroup | null => {
+      return clientGroups.find((g) => g.id === id) || null;
+    },
+    [clientGroups]
+  );
 
   // Keep ref updated for SignalR handlers
   useEffect(() => {

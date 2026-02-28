@@ -32,9 +32,7 @@ const PopoverContent: React.FC<{
 }> = ({ sections, children }) => {
   if (children) {
     return (
-      <div className="space-y-3 text-xs leading-relaxed text-themed-secondary">
-        {children}
-      </div>
+      <div className="space-y-3 text-xs leading-relaxed text-themed-secondary">{children}</div>
     );
   }
 
@@ -46,9 +44,7 @@ const PopoverContent: React.FC<{
             key={section.title}
             className={sectionIndex > 0 ? 'border-t border-[var(--theme-border)] pt-4' : ''}
           >
-            <div className="text-xs font-semibold mb-2 text-themed-primary">
-              {section.title}
-            </div>
+            <div className="text-xs font-semibold mb-2 text-themed-primary">{section.title}</div>
             <div className="space-y-1.5">
               {section.items.map((item) => (
                 <div key={item.label} className="flex gap-2 text-xs">
@@ -58,9 +54,7 @@ const PopoverContent: React.FC<{
                   >
                     {item.label}
                   </span>
-                  <span className="text-themed-secondary">
-                    {item.description}
-                  </span>
+                  <span className="text-themed-secondary">{item.description}</span>
                 </div>
               ))}
             </div>
@@ -160,9 +154,7 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
       const viewportPadding = 12;
 
       // Start position: below trigger, aligned based on position prop
-      let x = position === 'left'
-        ? triggerRect.left
-        : triggerRect.right - effectiveWidth;
+      let x = position === 'left' ? triggerRect.left : triggerRect.right - effectiveWidth;
       let y = triggerRect.bottom + 8;
 
       // Clamp X to viewport bounds
@@ -203,37 +195,38 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
         <HelpCircle className="w-4 h-4" />
       </button>
 
-      {isOpen && createPortal(
-        <div
-          ref={popoverRef}
-          className="fixed themed-border-radius border shadow-[0_10px_40px_rgba(0,0,0,0.4)] themed-card max-w-[calc(100vw-24px)] z-[90]"
-          style={{
-            left: popoverPos.x,
-            top: popoverPos.y,
-            width: effectiveWidth,
-            maxHeight: maxHeight || `calc(100vh - 100px)`,
-            // Use opacity for instant appear/disappear without animation
-            opacity: isReady ? 1 : 0,
-            // Ensure no transitions that could cause flying effect
-            transition: 'none',
-            // Prevent interaction during measurement
-            pointerEvents: isReady ? 'auto' : 'none'
-          }}
-        >
-          {maxHeight ? (
-            <CustomScrollbar maxHeight={maxHeight}>
+      {isOpen &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            className="fixed themed-border-radius border shadow-[0_10px_40px_rgba(0,0,0,0.4)] themed-card max-w-[calc(100vw-24px)] z-[90]"
+            style={{
+              left: popoverPos.x,
+              top: popoverPos.y,
+              width: effectiveWidth,
+              maxHeight: maxHeight || `calc(100vh - 100px)`,
+              // Use opacity for instant appear/disappear without animation
+              opacity: isReady ? 1 : 0,
+              // Ensure no transitions that could cause flying effect
+              transition: 'none',
+              // Prevent interaction during measurement
+              pointerEvents: isReady ? 'auto' : 'none'
+            }}
+          >
+            {maxHeight ? (
+              <CustomScrollbar maxHeight={maxHeight}>
+                <div className="p-3 sm:p-4">
+                  <PopoverContent sections={sections}>{children}</PopoverContent>
+                </div>
+              </CustomScrollbar>
+            ) : (
               <div className="p-3 sm:p-4">
-                <PopoverContent sections={sections} children={children} />
+                <PopoverContent sections={sections}>{children}</PopoverContent>
               </div>
-            </CustomScrollbar>
-          ) : (
-            <div className="p-3 sm:p-4">
-              <PopoverContent sections={sections} children={children} />
-            </div>
-          )}
-        </div>,
-        document.body
-      )}
+            )}
+          </div>,
+          document.body
+        )}
     </>
   );
 };
@@ -243,22 +236,12 @@ export const HelpSection: React.FC<{
   title: string;
   children: React.ReactNode;
   variant?: 'default' | 'subtle';
-}> = ({
-  title,
-  children,
-  variant = 'default'
-}) => (
-  <div
-    className={`rounded-md ${
-      variant === 'subtle' ? 'bg-themed-secondary p-2.5 -mx-1' : ''
-    }`}
-  >
+}> = ({ title, children, variant = 'default' }) => (
+  <div className={`rounded-md ${variant === 'subtle' ? 'bg-themed-secondary p-2.5 -mx-1' : ''}`}>
     <div className="text-[11px] font-semibold mb-1.5 uppercase tracking-wide text-themed-muted">
       {title}
     </div>
-    <div className="text-xs leading-relaxed text-themed-secondary">
-      {children}
-    </div>
+    <div className="text-xs leading-relaxed text-themed-secondary">{children}</div>
   </div>
 );
 
@@ -266,10 +249,7 @@ export const HelpSection: React.FC<{
 export const HelpNote: React.FC<{
   children: React.ReactNode;
   type?: 'info' | 'warning' | 'success' | 'tip';
-}> = ({
-  children,
-  type = 'info'
-}) => {
+}> = ({ children, type = 'info' }) => {
   const config = {
     info: {
       border: 'var(--theme-info)',
@@ -311,9 +291,7 @@ export const HelpNote: React.FC<{
         className="w-3.5 h-3.5 flex-shrink-0 mt-0.5"
         style={{ color: config[type].iconColor }}
       />
-      <div className="text-themed-primary">
-        {children}
-      </div>
+      <div className="text-themed-primary">{children}</div>
     </div>
   );
 };

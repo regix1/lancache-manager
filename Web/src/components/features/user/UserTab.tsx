@@ -259,6 +259,7 @@ const UserTab: React.FC = () => {
       off('DefaultGuestRefreshRateChanged', handleDefaultGuestRefreshRateChanged);
       off('GuestRefreshRateLockChanged', handleGuestRefreshRateLockChanged);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     on,
     off,

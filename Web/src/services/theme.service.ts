@@ -4,7 +4,6 @@ import preferencesService from './preferences.service';
 import * as TOML from 'toml';
 import { storage } from '@utils/storage';
 
-
 interface ThemeColors {
   // Core colors
   primaryColor?: string;
@@ -166,16 +165,16 @@ interface ThemeColors {
   eventColor8?: string;
 
   // Firework/celebration colors
-  fireworkColor1?: string;  // Primary firework particle color
-  fireworkColor2?: string;  // Secondary firework particle color
-  fireworkColor3?: string;  // Tertiary firework particle color
-  fireworkColor4?: string;  // Quaternary firework particle color
-  fireworkColor5?: string;  // Fifth firework particle color
-  fireworkColor6?: string;  // Sixth firework particle color
-  fireworkColor7?: string;  // Seventh firework particle color
-  fireworkColor8?: string;  // Eighth firework particle color
-  fireworkRocketColor?: string;  // Main rocket/firecracker body color
-  fireworkGlowColor?: string;    // Glow effect color for rocket trail
+  fireworkColor1?: string; // Primary firework particle color
+  fireworkColor2?: string; // Secondary firework particle color
+  fireworkColor3?: string; // Tertiary firework particle color
+  fireworkColor4?: string; // Quaternary firework particle color
+  fireworkColor5?: string; // Fifth firework particle color
+  fireworkColor6?: string; // Sixth firework particle color
+  fireworkColor7?: string; // Seventh firework particle color
+  fireworkColor8?: string; // Eighth firework particle color
+  fireworkRocketColor?: string; // Main rocket/firecracker body color
+  fireworkGlowColor?: string; // Glow effect color for rocket trail
 
   // Index signature for dynamic color access
   [key: string]: string | undefined;
@@ -204,7 +203,6 @@ interface Theme {
 
 class ThemeService {
   // Get the best text color for a given background using theme colors
-
 
   private currentTheme: Theme | null = null;
   private styleElement: HTMLStyleElement | null = null;
@@ -242,19 +240,19 @@ class ThemeService {
               fetch(`${API_BASE}/themes/preferences/guest`, {
                 credentials: 'include'
               })
-                .then(response => {
+                .then((response) => {
                   if (response.ok) {
                     return response.json();
                   }
                   throw new Error('Failed to fetch default guest theme');
                 })
-                .then(data => {
+                .then((data) => {
                   const defaultTheme = data.themeId || 'dark-default';
                   if (defaultTheme !== this.getCurrentThemeId()) {
                     return this.setTheme(defaultTheme);
                   }
                 })
-                .catch(err => {
+                .catch((err) => {
                   console.error('[ThemeService] Failed to fetch default guest theme:', err);
                 });
             } else if (typeof value === 'string' && value !== this.getCurrentThemeId()) {
@@ -276,7 +274,10 @@ class ThemeService {
           case 'disableFocusOutlines':
             if (value !== null && value !== undefined) {
               this._disableFocusOutlines = value as boolean;
-              document.documentElement.setAttribute('data-disable-focus-outlines', value.toString());
+              document.documentElement.setAttribute(
+                'data-disable-focus-outlines',
+                value.toString()
+              );
               window.dispatchEvent(new Event('focusoutlineschange'));
             }
             break;
@@ -837,10 +838,6 @@ class ThemeService {
     }
   }
 
-  
-
-  
-
   private applyDefaultVariables(): void {
     const sharpCorners = this.getSharpCornersSync();
     const borderRadius = sharpCorners ? '0px' : '0.5rem';
@@ -1056,8 +1053,6 @@ class ThemeService {
     defaultStyleElement.textContent = defaultStyles;
   }
 
-  
-
   applyTheme(theme: Theme): void {
     if (!theme || !theme.colors) return;
 
@@ -1081,9 +1076,15 @@ class ThemeService {
     // Apply theme-specific settings
     // Use local state (initialized via loadSavedTheme or preference-changed events)
     // Fall back to theme defaults if not yet initialized
-    const sharpCorners = this._preferencesInitialized ? this._sharpCorners : (theme.meta.sharpCorners ?? false);
-    const disableFocusOutlines = this._preferencesInitialized ? this._disableFocusOutlines : (theme.meta.disableFocusOutlines ?? false);
-    const disableTooltips = this._preferencesInitialized ? this._disableTooltips : (theme.meta.disableTooltips ?? false);
+    const sharpCorners = this._preferencesInitialized
+      ? this._sharpCorners
+      : (theme.meta.sharpCorners ?? false);
+    const disableFocusOutlines = this._preferencesInitialized
+      ? this._disableFocusOutlines
+      : (theme.meta.disableFocusOutlines ?? false);
+    const disableTooltips = this._preferencesInitialized
+      ? this._disableTooltips
+      : (theme.meta.disableTooltips ?? false);
 
     // Apply focus outlines setting
     document.documentElement.setAttribute(
@@ -1359,14 +1360,16 @@ class ThemeService {
     window.dispatchEvent(new Event('themechange'));
   }
 
-  async loadSavedTheme(prefs?: {
-    selectedTheme?: string | null;
-    sharpCorners?: boolean;
-    disableFocusOutlines?: boolean;
-    disableTooltips?: boolean;
-    picsAlwaysVisible?: boolean;
-    disableStickyNotifications?: boolean;
-  } | null): Promise<void> {
+  async loadSavedTheme(
+    prefs?: {
+      selectedTheme?: string | null;
+      sharpCorners?: boolean;
+      disableFocusOutlines?: boolean;
+      disableTooltips?: boolean;
+      picsAlwaysVisible?: boolean;
+      disableStickyNotifications?: boolean;
+    } | null
+  ): Promise<void> {
     // Initialize local preference state from provided preferences
     if (prefs) {
       this.initializePreferences(prefs);
@@ -1453,10 +1456,6 @@ class ThemeService {
     return this.currentTheme?.meta.id || 'dark-default';
   }
 
-  
-
-  
-
   exportTheme(theme: Theme): string {
     let toml = '';
 
@@ -1517,8 +1516,6 @@ class ThemeService {
     }
   }
 
-  
-
   getSharpCornersSync(): boolean {
     return this._sharpCorners;
   }
@@ -1556,8 +1553,6 @@ class ThemeService {
     window.dispatchEvent(new Event('focusoutlineschange'));
   }
 
-  
-
   getDisableFocusOutlinesSync(): boolean {
     return this._disableFocusOutlines;
   }
@@ -1576,8 +1571,6 @@ class ThemeService {
     window.dispatchEvent(new Event('tooltipschange'));
   }
 
-  
-
   getDisableTooltipsSync(): boolean {
     return this._disableTooltips;
   }
@@ -1593,8 +1586,6 @@ class ThemeService {
     window.dispatchEvent(new Event('notificationvisibilitychange'));
   }
 
-  
-
   getPicsAlwaysVisibleSync(): boolean {
     return this._picsAlwaysVisible;
   }
@@ -1609,8 +1600,6 @@ class ThemeService {
     // Apply immediately for current user
     window.dispatchEvent(new Event('stickynotificationschange'));
   }
-
-  
 
   getDisableStickyNotificationsSync(): boolean {
     return this._disableStickyNotifications;

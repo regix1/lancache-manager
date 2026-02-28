@@ -6,7 +6,16 @@ import { HelpPopover } from '@components/ui/HelpPopover';
 import Sparkline from '@components/features/dashboard/components/Sparkline';
 import AnimatedValue from '@components/features/dashboard/components/AnimatedValue';
 
-type StatCardColor = 'blue' | 'green' | 'emerald' | 'purple' | 'indigo' | 'orange' | 'yellow' | 'cyan' | 'red';
+type StatCardColor =
+  | 'blue'
+  | 'green'
+  | 'emerald'
+  | 'purple'
+  | 'indigo'
+  | 'orange'
+  | 'yellow'
+  | 'cyan'
+  | 'red';
 
 interface StatCardProps {
   title: string;
@@ -37,7 +46,7 @@ const colorToSparklineColor: Record<StatCardColor, string> = {
   orange: 'var(--theme-icon-orange)',
   yellow: 'var(--theme-icon-yellow)',
   cyan: 'var(--theme-icon-cyan)',
-  red: 'var(--theme-icon-red)',
+  red: 'var(--theme-icon-red)'
 };
 
 const StatCard: React.FC<StatCardProps> = ({
@@ -51,7 +60,7 @@ const StatCard: React.FC<StatCardProps> = ({
   tooltip,
   animateValue = false,
   glassmorphism = false,
-  staggerIndex,
+  staggerIndex
 }) => {
   const { t } = useTranslation();
   // Map color names to CSS variables
@@ -75,7 +84,18 @@ const StatCard: React.FC<StatCardProps> = ({
 
   // Build class names - animation classes only added when staggerIndex is provided
   const cardClasses = useMemo(() => {
-    const classes = ['rounded-lg', 'p-4', 'border', 'transition-shadow', 'duration-300', 'relative', 'group', 'h-full', 'flex', 'flex-col'];
+    const classes = [
+      'rounded-lg',
+      'p-4',
+      'border',
+      'transition-shadow',
+      'duration-300',
+      'relative',
+      'group',
+      'h-full',
+      'flex',
+      'flex-col'
+    ];
 
     if (glassmorphism) {
       classes.push('glass-card');
@@ -101,16 +121,10 @@ const StatCard: React.FC<StatCardProps> = ({
       <div className="flex items-start justify-between">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1">
-            <p
-              className="text-sm font-medium inline-block transition-colors text-[var(--theme-text-muted)]"
-            >
+            <p className="text-sm font-medium inline-block transition-colors text-[var(--theme-text-muted)]">
               {title}
             </p>
-            {tooltip && (
-              <HelpPopover width={260}>
-                {tooltip}
-              </HelpPopover>
-            )}
+            {tooltip && <HelpPopover width={260}>{tooltip}</HelpPopover>}
           </div>
 
           {/* Main value with optional animation */}
@@ -122,18 +136,14 @@ const StatCard: React.FC<StatCardProps> = ({
                 animate={true}
               />
             ) : (
-              <p
-                className="text-2xl font-bold transition-all duration-300 text-[var(--theme-text-primary)]"
-              >
+              <p className="text-2xl font-bold transition-all duration-300 text-[var(--theme-text-primary)]">
                 {value}
               </p>
             )}
           </div>
 
           {subtitle && (
-            <p className="text-xs mt-1 text-[var(--theme-text-secondary)]">
-              {subtitle}
-            </p>
+            <p className="text-xs mt-1 text-[var(--theme-text-secondary)]">{subtitle}</p>
           )}
         </div>
         <div

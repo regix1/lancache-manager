@@ -35,7 +35,8 @@ class ErrorBoundary extends Component<Props, State> {
             justifyContent: 'center',
             padding: '1rem',
             backgroundColor: '#f5f5f5',
-            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+            fontFamily:
+              '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
           }}
         >
           <div
@@ -45,7 +46,7 @@ class ErrorBoundary extends Component<Props, State> {
               backgroundColor: '#ffffff',
               borderRadius: '8px',
               boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
-              padding: '2rem',
+              padding: '2rem'
             }}
           >
             <div
@@ -54,7 +55,7 @@ class ErrorBoundary extends Component<Props, State> {
                 flexDirection: 'column',
                 alignItems: 'center',
                 textAlign: 'center',
-                gap: '1.5rem',
+                gap: '1.5rem'
               }}
             >
               <div
@@ -65,7 +66,7 @@ class ErrorBoundary extends Component<Props, State> {
                   backgroundColor: '#fee2e2',
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center',
+                  justifyContent: 'center'
                 }}
               >
                 <svg
@@ -90,7 +91,7 @@ class ErrorBoundary extends Component<Props, State> {
                     fontSize: '1.5rem',
                     fontWeight: '600',
                     color: '#1f2937',
-                    marginBottom: '0.75rem',
+                    marginBottom: '0.75rem'
                   }}
                 >
                   {i18n.t('common.errorBoundary.title')}
@@ -107,7 +108,7 @@ class ErrorBoundary extends Component<Props, State> {
                     backgroundColor: '#f9fafb',
                     padding: '1rem',
                     borderRadius: '4px',
-                    border: '1px solid #e5e7eb',
+                    border: '1px solid #e5e7eb'
                   }}
                 >
                   {this.state.error?.message || i18n.t('common.errorBoundary.unexpectedError')}
@@ -126,7 +127,7 @@ class ErrorBoundary extends Component<Props, State> {
                   border: 'none',
                   borderRadius: '6px',
                   cursor: 'pointer',
-                  transition: 'background-color 0.2s',
+                  transition: 'background-color 0.2s'
                 }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.backgroundColor = '#b91c1c';

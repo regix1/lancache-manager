@@ -1,6 +1,17 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { LayoutDashboard, Download, Laptop, Settings, Menu, Users, Key, ChevronDown, CalendarDays, Terminal } from 'lucide-react';
+import {
+  LayoutDashboard,
+  Download,
+  Laptop,
+  Settings,
+  Menu,
+  Users,
+  Key,
+  ChevronDown,
+  CalendarDays,
+  Terminal
+} from 'lucide-react';
 import type { AuthMode } from '@services/auth.service';
 
 interface NavigationProps {
@@ -13,7 +24,14 @@ interface NavigationProps {
 }
 
 const Navigation: React.FC<NavigationProps> = React.memo(
-  ({ activeTab, setActiveTab, authMode = 'unauthenticated', prefillEnabled = false, isBanned = false, dockerAvailable = false }) => {
+  ({
+    activeTab,
+    setActiveTab,
+    authMode = 'unauthenticated',
+    prefillEnabled = false,
+    isBanned = false,
+    dockerAvailable = false
+  }) => {
     const { t } = useTranslation();
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [menuHeight, setMenuHeight] = useState(0);
@@ -27,14 +45,79 @@ const Navigation: React.FC<NavigationProps> = React.memo(
     }, [authMode, mobileMenuOpen]); // Recalculate when tabs change or menu opens
 
     const allTabs = [
-      { id: 'dashboard', label: t('nav.dashboard'), icon: LayoutDashboard, requiresAuth: false, guestOnly: false, guestOrder: 1, authOrder: 1 },
-      { id: 'downloads', label: t('nav.downloads'), icon: Download, requiresAuth: false, guestOnly: false, guestOrder: 2, authOrder: 2 },
-      { id: 'clients', label: t('nav.clients'), icon: Laptop, requiresAuth: false, guestOnly: false, guestOrder: 3, authOrder: 3 },
-      { id: 'prefill', label: t('nav.prefill'), icon: Terminal, requiresAuth: false, guestOnly: false, requiresPrefill: true, guestOrder: 4, authOrder: 7 },
-      { id: 'authenticate', label: t('nav.authenticate'), icon: Key, requiresAuth: false, guestOnly: true, guestOrder: 5, authOrder: 0 },
-      { id: 'users', label: t('nav.users'), icon: Users, requiresAuth: true, guestOnly: false, guestOrder: 0, authOrder: 4 },
-      { id: 'events', label: t('nav.events'), icon: CalendarDays, requiresAuth: true, guestOnly: false, guestOrder: 0, authOrder: 5 },
-      { id: 'management', label: t('nav.management'), icon: Settings, requiresAuth: true, guestOnly: false, guestOrder: 0, authOrder: 8 }
+      {
+        id: 'dashboard',
+        label: t('nav.dashboard'),
+        icon: LayoutDashboard,
+        requiresAuth: false,
+        guestOnly: false,
+        guestOrder: 1,
+        authOrder: 1
+      },
+      {
+        id: 'downloads',
+        label: t('nav.downloads'),
+        icon: Download,
+        requiresAuth: false,
+        guestOnly: false,
+        guestOrder: 2,
+        authOrder: 2
+      },
+      {
+        id: 'clients',
+        label: t('nav.clients'),
+        icon: Laptop,
+        requiresAuth: false,
+        guestOnly: false,
+        guestOrder: 3,
+        authOrder: 3
+      },
+      {
+        id: 'prefill',
+        label: t('nav.prefill'),
+        icon: Terminal,
+        requiresAuth: false,
+        guestOnly: false,
+        requiresPrefill: true,
+        guestOrder: 4,
+        authOrder: 7
+      },
+      {
+        id: 'authenticate',
+        label: t('nav.authenticate'),
+        icon: Key,
+        requiresAuth: false,
+        guestOnly: true,
+        guestOrder: 5,
+        authOrder: 0
+      },
+      {
+        id: 'users',
+        label: t('nav.users'),
+        icon: Users,
+        requiresAuth: true,
+        guestOnly: false,
+        guestOrder: 0,
+        authOrder: 4
+      },
+      {
+        id: 'events',
+        label: t('nav.events'),
+        icon: CalendarDays,
+        requiresAuth: true,
+        guestOnly: false,
+        guestOrder: 0,
+        authOrder: 5
+      },
+      {
+        id: 'management',
+        label: t('nav.management'),
+        icon: Settings,
+        requiresAuth: true,
+        guestOnly: false,
+        guestOrder: 0,
+        authOrder: 8
+      }
     ];
 
     // Filter and sort tabs based on authentication and prefill permission
@@ -57,10 +140,11 @@ const Navigation: React.FC<NavigationProps> = React.memo(
         // Show public tabs to everyone
         return true;
       });
-      
+
       // Sort by appropriate order based on auth mode
       const orderKey = authMode === 'authenticated' ? 'authOrder' : 'guestOrder';
       return filtered.sort((a, b) => a[orderKey] - b[orderKey]);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [authMode, prefillEnabled, isBanned, dockerAvailable, t]);
 
     const TabButton: React.FC<{
@@ -76,7 +160,9 @@ const Navigation: React.FC<NavigationProps> = React.memo(
           <button
             onClick={onClick}
             className={`flex items-center space-x-2 px-3 py-2 rounded-lg font-medium transition-all duration-200 bg-transparent ${className}`}
-            style={{ color: isActive ? 'var(--theme-nav-tab-active)' : 'var(--theme-nav-tab-inactive)' }}
+            style={{
+              color: isActive ? 'var(--theme-nav-tab-active)' : 'var(--theme-nav-tab-inactive)'
+            }}
             onMouseEnter={(e) => {
               if (!isActive) {
                 e.currentTarget.style.color = 'var(--theme-nav-tab-hover)';
@@ -93,9 +179,7 @@ const Navigation: React.FC<NavigationProps> = React.memo(
             <Icon className="w-5 h-5" />
             <span>{tab.label}</span>
             {isActive && (
-              <div
-                className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full bg-themed-nav-tab-active-border"
-              />
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full bg-themed-nav-tab-active-border" />
             )}
           </button>
         );
@@ -105,6 +189,7 @@ const Navigation: React.FC<NavigationProps> = React.memo(
         return prevProps.isActive === nextProps.isActive && prevProps.tab.id === nextProps.tab.id;
       }
     );
+    TabButton.displayName = 'TabButton';
 
     return (
       <nav className="border-b sticky top-0 z-50 md:relative bg-themed-nav border-themed-nav">
@@ -183,11 +268,13 @@ const Navigation: React.FC<NavigationProps> = React.memo(
   },
   (prevProps, nextProps) => {
     // Only re-render if activeTab, authMode, prefillEnabled, isBanned, or dockerAvailable changes
-    return prevProps.activeTab === nextProps.activeTab &&
-           prevProps.authMode === nextProps.authMode &&
-           prevProps.prefillEnabled === nextProps.prefillEnabled &&
-           prevProps.isBanned === nextProps.isBanned &&
-           prevProps.dockerAvailable === nextProps.dockerAvailable;
+    return (
+      prevProps.activeTab === nextProps.activeTab &&
+      prevProps.authMode === nextProps.authMode &&
+      prevProps.prefillEnabled === nextProps.prefillEnabled &&
+      prevProps.isBanned === nextProps.isBanned &&
+      prevProps.dockerAvailable === nextProps.dockerAvailable
+    );
   }
 );
 

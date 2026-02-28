@@ -78,7 +78,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
       onClose();
       return;
     }
-    
+
     // In prefill mode, closing during any auth state should cancel the login
     if (isPrefillMode && (loading || needsTwoFactor || needsEmailCode)) {
       cancelPendingRequest();
@@ -87,7 +87,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
       onClose();
       return;
     }
-    
+
     if (!loading && !isSubmitting) {
       onClose();
     }
@@ -150,9 +150,14 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
       <div className="space-y-5">
         {/* Step Indicator */}
         <div className="flex items-center justify-center gap-2">
-          <StepDot active={currentStep === 'credentials'} completed={currentStep !== 'credentials'} />
+          <StepDot
+            active={currentStep === 'credentials'}
+            completed={currentStep !== 'credentials'}
+          />
           <div className="w-8 h-px bg-themed-tertiary" />
-          <StepDot active={currentStep === '2fa' || currentStep === 'email' || currentStep === 'mobile'} />
+          <StepDot
+            active={currentStep === '2fa' || currentStep === 'email' || currentStep === 'mobile'}
+          />
         </div>
 
         {/* Content Area */}
@@ -172,7 +177,9 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
                 </p>
                 <div className="flex items-center gap-2 mt-4 text-themed-muted">
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span className="text-sm">{t('modals.steamAuth.mobileConfirmation.waiting')}</span>
+                  <span className="text-sm">
+                    {t('modals.steamAuth.mobileConfirmation.waiting')}
+                  </span>
                 </div>
                 <p className="text-xs text-themed-muted mt-2 max-w-xs">
                   {isPrefillMode
@@ -318,39 +325,39 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
 
         {/* Action Buttons - hide when waiting for mobile confirmation in prefill mode (has its own cancel) */}
         {!(isPrefillMode && waitingForMobileConfirmation) && (
-        <div className="flex gap-3 pt-2 border-t border-themed-secondary">
-          <Button
-            variant="default"
-            onClick={handleCloseModal}
-            disabled={(loading || isSubmitting) && !waitingForMobileConfirmation}
-            className="flex-1"
-          >
-            {t('common.cancel')}
-          </Button>
-          {!waitingForMobileConfirmation && (
+          <div className="flex gap-3 pt-2 border-t border-themed-secondary">
             <Button
-              variant="filled"
-              color="green"
-              onClick={handleSubmit}
-              disabled={
-                loading ||
-                isSubmitting ||
-                (!needsTwoFactor && !needsEmailCode && (!username.trim() || !password.trim())) ||
-                (useManualCode && !twoFactorCode.trim())
-              }
+              variant="default"
+              onClick={handleCloseModal}
+              disabled={(loading || isSubmitting) && !waitingForMobileConfirmation}
               className="flex-1"
             >
-              {(loading || isSubmitting) && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-              {loading || isSubmitting
-                ? t('modals.steamAuth.actions.authenticating')
-                : needsEmailCode
-                  ? t('modals.steamAuth.actions.verify')
-                  : needsTwoFactor
-                    ? t('modals.steamAuth.actions.confirm')
-                    : t('modals.steamAuth.actions.login')}
+              {t('common.cancel')}
             </Button>
-          )}
-        </div>
+            {!waitingForMobileConfirmation && (
+              <Button
+                variant="filled"
+                color="green"
+                onClick={handleSubmit}
+                disabled={
+                  loading ||
+                  isSubmitting ||
+                  (!needsTwoFactor && !needsEmailCode && (!username.trim() || !password.trim())) ||
+                  (useManualCode && !twoFactorCode.trim())
+                }
+                className="flex-1"
+              >
+                {(loading || isSubmitting) && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+                {loading || isSubmitting
+                  ? t('modals.steamAuth.actions.authenticating')
+                  : needsEmailCode
+                    ? t('modals.steamAuth.actions.verify')
+                    : needsTwoFactor
+                      ? t('modals.steamAuth.actions.confirm')
+                      : t('modals.steamAuth.actions.login')}
+              </Button>
+            )}
+          </div>
         )}
       </div>
     </Modal>
@@ -361,11 +368,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
 const StepDot: React.FC<{ active?: boolean; completed?: boolean }> = ({ active, completed }) => (
   <div
     className={`w-2.5 h-2.5 rounded-full transition-all duration-200 ${
-      active
-        ? 'bg-primary'
-        : completed
-          ? 'bg-success'
-          : 'bg-themed-hover'
+      active ? 'bg-primary' : completed ? 'bg-success' : 'bg-themed-hover'
     }`}
   />
 );

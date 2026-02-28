@@ -274,6 +274,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         setLoading(false);
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [currentPage, pageSize, setLoading, setSessions]
   );
 
@@ -773,6 +774,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       }
     };
     loadThreadConfig();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // SignalR subscriptions + initial load

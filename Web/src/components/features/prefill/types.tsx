@@ -161,13 +161,20 @@ const MAX_THREAD_VALUE = 256;
 export function getThreadOptions(maxThreadLimit?: number | null): DropdownOption[] {
   const effectiveCap = maxThreadLimit ?? MAX_THREAD_VALUE;
   return [
-    { value: 'auto', label: '', description: '', shortLabel: `Auto (${Math.min(DAEMON_DEFAULT_THREADS, effectiveCap)})` },
-    ...STATIC_THREAD_VALUES.map((n: number): DropdownOption => ({
-      value: String(n),
+    {
+      value: 'auto',
       label: '',
       description: '',
-      disabled: n > effectiveCap
-    }))
+      shortLabel: `Auto (${Math.min(DAEMON_DEFAULT_THREADS, effectiveCap)})`
+    },
+    ...STATIC_THREAD_VALUES.map(
+      (n: number): DropdownOption => ({
+        value: String(n),
+        label: '',
+        description: '',
+        disabled: n > effectiveCap
+      })
+    )
   ];
 }
 

@@ -32,19 +32,18 @@ const ClientRow: React.FC<ClientRowProps> = ({ client }) => {
   const { t } = useTranslation();
   const formattedLastActivity = useFormattedDateTime(client.lastActivityUtc);
   const displayLabel = client.displayName || client.clientIp;
-  const ipTooltip = client.isGrouped && client.groupMemberIps
-    ? t('clients.tooltips.groupIps', { ips: client.groupMemberIps.join(', ') })
-    : client.displayName
-    ? t('clients.tooltips.singleIp', { ip: client.clientIp })
-    : undefined;
+  const ipTooltip =
+    client.isGrouped && client.groupMemberIps
+      ? t('clients.tooltips.groupIps', { ips: client.groupMemberIps.join(', ') })
+      : client.displayName
+        ? t('clients.tooltips.singleIp', { ip: client.clientIp })
+        : undefined;
 
   return (
     <tr className="hover:bg-themed-hover transition-colors">
       <td className="py-3 text-themed-primary font-medium text-sm whitespace-nowrap">
         <div className="flex items-center gap-2">
-          {client.isGrouped && (
-            <Users className="w-4 h-4 text-themed-muted flex-shrink-0" />
-          )}
+          {client.isGrouped && <Users className="w-4 h-4 text-themed-muted flex-shrink-0" />}
           {ipTooltip ? (
             <Tooltip content={ipTooltip}>
               <span className="cursor-help border-b border-dashed border-themed-muted">
@@ -98,20 +97,19 @@ const ClientCard: React.FC<ClientRowProps> = ({ client }) => {
   const { t } = useTranslation();
   const formattedLastActivity = useFormattedDateTime(client.lastActivityUtc);
   const displayLabel = client.displayName || client.clientIp;
-  const ipTooltip = client.isGrouped && client.groupMemberIps
-    ? t('clients.tooltips.groupIps', { ips: client.groupMemberIps.join(', ') })
-    : client.displayName
-    ? t('clients.tooltips.singleIp', { ip: client.clientIp })
-    : undefined;
+  const ipTooltip =
+    client.isGrouped && client.groupMemberIps
+      ? t('clients.tooltips.groupIps', { ips: client.groupMemberIps.join(', ') })
+      : client.displayName
+        ? t('clients.tooltips.singleIp', { ip: client.clientIp })
+        : undefined;
 
   return (
     <div className="p-4 rounded-lg border bg-themed-secondary border-themed-primary">
       {/* Header: IP/Name and Hit Rate */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          {client.isGrouped && (
-            <Users className="w-4 h-4 text-themed-muted flex-shrink-0" />
-          )}
+          {client.isGrouped && <Users className="w-4 h-4 text-themed-muted flex-shrink-0" />}
           {ipTooltip ? (
             <Tooltip content={ipTooltip}>
               <span className="text-themed-primary font-medium cursor-help border-b border-dashed border-themed-muted">
@@ -196,11 +194,12 @@ const ClientsTab: React.FC = () => {
 
     sorted.sort((a, b) => {
       switch (sortBy) {
-        case 'ip':
+        case 'ip': {
           // Sort by display name (nickname if available, otherwise IP)
           const aName = a.displayName || a.clientIp;
           const bName = b.displayName || b.clientIp;
           return multiplier * aName.localeCompare(bName);
+        }
         case 'downloads':
           return multiplier * ((a.totalDownloads || 0) - (b.totalDownloads || 0));
         case 'totalData':
@@ -212,7 +211,10 @@ const ClientsTab: React.FC = () => {
         case 'hitRate':
           return multiplier * ((a.cacheHitPercent || 0) - (b.cacheHitPercent || 0));
         case 'lastActivity':
-          return multiplier * (new Date(a.lastActivityUtc).getTime() - new Date(b.lastActivityUtc).getTime());
+          return (
+            multiplier *
+            (new Date(a.lastActivityUtc).getTime() - new Date(b.lastActivityUtc).getTime())
+          );
         default:
           return 0;
       }
@@ -256,9 +258,7 @@ const ClientsTab: React.FC = () => {
         {/* Mobile: Card Layout */}
         <div className="md:hidden space-y-3">
           {sortedClients.length > 0 ? (
-            sortedClients.map((client, idx) => (
-              <ClientCard key={idx} client={client} />
-            ))
+            sortedClients.map((client, idx) => <ClientCard key={idx} client={client} />)
           ) : (
             <p className="py-8 text-center text-themed-muted">{t('clients.empty')}</p>
           )}
@@ -280,9 +280,7 @@ const ClientsTab: React.FC = () => {
             </thead>
             <tbody className="text-sm">
               {sortedClients.length > 0 ? (
-                sortedClients.map((client, idx) => (
-                  <ClientRow key={idx} client={client} />
-                ))
+                sortedClients.map((client, idx) => <ClientRow key={idx} client={client} />)
               ) : (
                 <tr>
                   <td colSpan={7} className="py-8 text-center text-themed-muted">

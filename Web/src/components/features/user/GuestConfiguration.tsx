@@ -501,6 +501,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
       off('GuestPrefillConfigChanged', handlePrefillConfigChanged);
       off('EpicGuestPrefillConfigChanged', handleEpicPrefillConfigChanged);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     on,
     off,

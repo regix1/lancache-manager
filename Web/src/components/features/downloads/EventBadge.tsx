@@ -8,14 +8,8 @@ interface EventBadgeProps {
   size?: 'sm' | 'md';
 }
 
-const EventBadge: React.FC<EventBadgeProps> = ({
-  event,
-  onClick,
-  size = 'sm'
-}) => {
-  const sizeClasses = size === 'sm'
-    ? 'px-1.5 py-0.5 text-xs'
-    : 'px-2 py-1 text-xs';
+const EventBadge: React.FC<EventBadgeProps> = ({ event, onClick, size = 'sm' }) => {
+  const sizeClasses = size === 'sm' ? 'px-1.5 py-0.5 text-xs' : 'px-2 py-1 text-xs';
 
   return (
     <span

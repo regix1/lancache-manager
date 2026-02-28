@@ -108,6 +108,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
     return () => {
       off('DatabaseResetProgress', handleDatabaseResetProgress);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [on, off]);
 
   // Subscribe directly to GuestModeLockChanged for fast updates
@@ -166,7 +167,10 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
         setAuthError(result.message || t('modals.auth.errors.authenticationFailed'));
       }
     } catch (error: unknown) {
-      setAuthError((error instanceof Error ? error.message : String(error)) || t('modals.auth.errors.authenticationFailed'));
+      setAuthError(
+        (error instanceof Error ? error.message : String(error)) ||
+          t('modals.auth.errors.authenticationFailed')
+      );
     } finally {
       setAuthenticating(false);
     }
@@ -196,8 +200,11 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
         setAuthError(result.message || t('modals.auth.errors.guestModeUnavailable'));
       }
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : t('modals.auth.errors.failedToStartGuest');
-      setAuthError(message.includes('disabled') ? message : t('modals.auth.errors.guestModeUnavailable'));
+      const message =
+        err instanceof Error ? err.message : t('modals.auth.errors.failedToStartGuest');
+      setAuthError(
+        message.includes('disabled') ? message : t('modals.auth.errors.guestModeUnavailable')
+      );
     }
   };
 
@@ -227,9 +234,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
           {(resetStatus.isResetting || resetJustCompleted) && (
             <div
               className={`mb-6 p-4 rounded-lg border ${
-                resetJustCompleted
-                  ? 'bg-success border-success'
-                  : 'bg-warning border-warning'
+                resetJustCompleted ? 'bg-success border-success' : 'bg-warning border-warning'
               }`}
             >
               <div className="flex items-center gap-3">
@@ -280,9 +285,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
             {allowGuestMode && (
               <>
                 <br />
-                <span
-                  className={`text-sm ${guestModeLocked ? 'text-error' : 'text-themed-muted'}`}
-                >
+                <span className={`text-sm ${guestModeLocked ? 'text-error' : 'text-themed-muted'}`}>
                   {guestModeLocked
                     ? t('modals.auth.guestMode.disabled')
                     : t('modals.auth.guestMode.available', { count: guestDurationHours })}
@@ -294,7 +297,9 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
           {/* API Key Form */}
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-themed-primary mb-2">{t('modals.auth.labels.apiKey')}</label>
+              <label className="block text-sm font-medium text-themed-primary mb-2">
+                {t('modals.auth.labels.apiKey')}
+              </label>
               <input
                 type="text"
                 value={apiKey}
@@ -304,7 +309,11 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
                     handleAuthenticate();
                   }
                 }}
-                placeholder={resetStatus.isResetting ? t('modals.auth.placeholders.waitForReset') : t('modals.auth.placeholders.enterApiKey')}
+                placeholder={
+                  resetStatus.isResetting
+                    ? t('modals.auth.placeholders.waitForReset')
+                    : t('modals.auth.placeholders.enterApiKey')
+                }
                 className="w-full p-3 text-sm themed-input"
                 disabled={authenticating || resetStatus.isResetting}
                 autoFocus={!resetStatus.isResetting}
@@ -326,7 +335,11 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
                 disabled={authenticating || !apiKey.trim() || resetStatus.isResetting}
                 fullWidth
               >
-                {resetStatus.isResetting ? t('modals.auth.actions.pleaseWait') : authenticating ? t('modals.auth.actions.authenticating') : t('modals.auth.actions.authenticate')}
+                {resetStatus.isResetting
+                  ? t('modals.auth.actions.pleaseWait')
+                  : authenticating
+                    ? t('modals.auth.actions.authenticating')
+                    : t('modals.auth.actions.authenticate')}
               </Button>
 
               {/* Show guest mode divider and button if allowed (disabled when locked) */}
@@ -342,21 +355,27 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
                     variant="default"
                     leftSection={<Eye className="w-4 h-4" />}
                     onClick={handleStartGuestMode}
-                    disabled={authenticating || checkingDataAvailability || !dataAvailable || resetStatus.isResetting || guestModeLocked}
+                    disabled={
+                      authenticating ||
+                      checkingDataAvailability ||
+                      !dataAvailable ||
+                      resetStatus.isResetting ||
+                      guestModeLocked
+                    }
                     fullWidth
                     title={
                       guestModeLocked
                         ? t('modals.auth.guestMode.disabledTitle')
                         : !dataAvailable
-                        ? t('modals.auth.guestMode.noDataTitle')
-                        : t('modals.auth.guestMode.viewDataTitle', { count: guestDurationHours })
+                          ? t('modals.auth.guestMode.noDataTitle')
+                          : t('modals.auth.guestMode.viewDataTitle', { count: guestDurationHours })
                     }
                   >
                     {guestModeLocked
                       ? t('modals.auth.guestMode.disabledButton')
                       : !dataAvailable
-                      ? t('modals.auth.guestMode.noDataButton')
-                      : t('modals.auth.guestMode.continueButton', { count: guestDurationHours })}
+                        ? t('modals.auth.guestMode.noDataButton')
+                        : t('modals.auth.guestMode.continueButton', { count: guestDurationHours })}
                   </Button>
                 </>
               )}

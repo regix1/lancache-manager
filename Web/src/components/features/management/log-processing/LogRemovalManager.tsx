@@ -24,8 +24,18 @@ import type { DatasourceServiceCounts } from '@/types';
 
 // Main services that should always be shown first
 const MAIN_SERVICES = [
-  'steam', 'epic', 'riot', 'blizzard', 'origin', 'uplay', 'gog',
-  'wsus', 'microsoft', 'sony', 'nintendo', 'apple'
+  'steam',
+  'epic',
+  'riot',
+  'blizzard',
+  'origin',
+  'uplay',
+  'gog',
+  'wsus',
+  'microsoft',
+  'sony',
+  'nintendo',
+  'apple'
 ];
 
 const ServiceButton: React.FC<{
@@ -37,7 +47,16 @@ const ServiceButton: React.FC<{
   clearLabel: string;
   entriesLabel: string;
   removingLabel: string;
-}> = ({ service, count, isRemoving, isDisabled, onClick, clearLabel, entriesLabel, removingLabel }) => {
+}> = ({
+  service,
+  count,
+  isRemoving,
+  isDisabled,
+  onClick,
+  clearLabel,
+  entriesLabel,
+  removingLabel
+}) => {
   return (
     <Button
       onClick={onClick}
@@ -49,8 +68,12 @@ const ServiceButton: React.FC<{
     >
       {!isRemoving ? (
         <>
-          <span className="capitalize font-medium text-sm sm:text-base">{clearLabel} {service}</span>
-          <span className="text-xs text-themed-muted mt-1">({count.toLocaleString()} {entriesLabel})</span>
+          <span className="capitalize font-medium text-sm sm:text-base">
+            {clearLabel} {service}
+          </span>
+          <span className="text-xs text-themed-muted mt-1">
+            ({count.toLocaleString()} {entriesLabel})
+          </span>
         </>
       ) : (
         <span className="capitalize font-medium text-sm sm:text-base">{removingLabel}</span>
@@ -65,11 +88,7 @@ interface LogRemovalManagerProps {
   onError?: (message: string) => void;
 }
 
-const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
-  authMode,
-  mockMode,
-  onError
-}) => {
+const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMode, onError }) => {
   const { t } = useTranslation();
   const { notifications, isAnyRemovalRunning } = useNotifications();
   const { isDockerAvailable } = useDockerSocket();
@@ -78,7 +97,10 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
   // State
   const [datasourceCounts, setDatasourceCounts] = useState<DatasourceServiceCounts[]>([]);
   const [expandedDatasources, setExpandedDatasources] = useState<Set<string>>(new Set());
-  const [pendingServiceRemoval, setPendingServiceRemoval] = useState<{ datasource: string; service: string } | null>(null);
+  const [pendingServiceRemoval, setPendingServiceRemoval] = useState<{
+    datasource: string;
+    service: string;
+  } | null>(null);
   const [pendingLogFileDeletion, setPendingLogFileDeletion] = useState<string | null>(null);
   const [deletingLogFile, setDeletingLogFile] = useState<string | null>(null);
   const [showMoreServices, setShowMoreServices] = useState<Record<string, boolean>>({});
@@ -90,9 +112,10 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
 
   // Derive active log removal from notifications
   const activeLogRemovalNotification = notifications.find(
-    n => n.type === 'log_removal' && n.status === 'running'
+    (n) => n.type === 'log_removal' && n.status === 'running'
   );
-  const activeLogRemoval = activeLogRemovalNotification?.details?.service as string | null ?? null;
+  const activeLogRemoval =
+    (activeLogRemovalNotification?.details?.service as string | null) ?? null;
 
   useEffect(() => {
     if (!hasInitiallyLoaded) {
@@ -100,13 +123,14 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
         loadData();
       }, 100);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasInitiallyLoaded]);
 
   // Listen for log removal completion via notifications to trigger reload
   // Use ref to prevent duplicate processing of the same completion notification
   useEffect(() => {
     const completedLogRemoval = notifications.find(
-      n => n.type === 'log_removal' && (n.status === 'completed' || n.status === 'failed')
+      (n) => n.type === 'log_removal' && (n.status === 'completed' || n.status === 'failed')
     );
 
     if (completedLogRemoval && hasInitiallyLoaded) {
@@ -119,6 +143,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
         }, 500);
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notifications, hasInitiallyLoaded]);
 
   const loadData = async (_forceRefresh = false) => {
@@ -195,17 +220,20 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
     }
   };
 
-  const getServicesForDatasource = useCallback((ds: DatasourceServiceCounts) => {
-    const allServices = Object.keys(ds.serviceCounts).filter((s) => ds.serviceCounts[s] > 0);
-    const main = allServices.filter((s) => MAIN_SERVICES.includes(s.toLowerCase())).sort();
-    const other = allServices.filter((s) => !MAIN_SERVICES.includes(s.toLowerCase())).sort();
-    const showMore = showMoreServices[ds.datasource] ?? false;
-    const displayed = showMore ? [...main, ...other] : main;
-    return { main, other, displayed };
-  }, [showMoreServices]);
+  const getServicesForDatasource = useCallback(
+    (ds: DatasourceServiceCounts) => {
+      const allServices = Object.keys(ds.serviceCounts).filter((s) => ds.serviceCounts[s] > 0);
+      const main = allServices.filter((s) => MAIN_SERVICES.includes(s.toLowerCase())).sort();
+      const other = allServices.filter((s) => !MAIN_SERVICES.includes(s.toLowerCase())).sort();
+      const showMore = showMoreServices[ds.datasource] ?? false;
+      const displayed = showMore ? [...main, ...other] : main;
+      return { main, other, displayed };
+    },
+    [showMoreServices]
+  );
 
   const toggleDatasourceExpanded = (name: string) => {
-    setExpandedDatasources(prev => {
+    setExpandedDatasources((prev) => {
       const next = new Set(prev);
       if (next.has(name)) next.delete(name);
       else next.add(name);
@@ -213,8 +241,8 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
     });
   };
 
-  const hasAnyLogEntries = datasourceCounts.some(ds =>
-    Object.values(ds.serviceCounts).some(count => count > 0)
+  const hasAnyLogEntries = datasourceCounts.some((ds) =>
+    Object.values(ds.serviceCounts).some((count) => count > 0)
   );
 
   const logsMissing = !logsExist;
@@ -238,9 +266,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
         </div>
       </HelpSection>
 
-      <HelpNote type="info">
-        {t('management.logRemoval.help.note')}
-      </HelpNote>
+      <HelpNote type="info">{t('management.logRemoval.help.note')}</HelpNote>
     </HelpPopover>
   );
 
@@ -278,9 +304,17 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
         {logsMissing && (
           <Alert color="red" className="mb-6">
             <div>
-              <p className="font-medium">{t('management.logRemoval.alerts.logsMissing.title', 'Logs directory does not exist')}</p>
+              <p className="font-medium">
+                {t(
+                  'management.logRemoval.alerts.logsMissing.title',
+                  'Logs directory does not exist'
+                )}
+              </p>
               <p className="text-sm mt-1">
-                {t('management.logRemoval.alerts.logsMissing.description', 'The logs directory was not found. Ensure it is mounted correctly in docker-compose.')}
+                {t(
+                  'management.logRemoval.alerts.logsMissing.description',
+                  'The logs directory was not found. Ensure it is mounted correctly in docker-compose.'
+                )}
               </p>
             </div>
           </Alert>
@@ -390,7 +424,9 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
                                   key={key}
                                   service={service}
                                   count={ds.serviceCounts[service] || 0}
-                                  isRemoving={activeLogRemoval === service || startingServiceRemoval === key}
+                                  isRemoving={
+                                    activeLogRemoval === service || startingServiceRemoval === key
+                                  }
                                   isDisabled={
                                     mockMode ||
                                     isAnyRemovalRunning ||
@@ -416,16 +452,24 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
                                 size="sm"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  setShowMoreServices(prev => ({
+                                  setShowMoreServices((prev) => ({
                                     ...prev,
                                     [ds.datasource]: !prev[ds.datasource]
                                   }));
                                 }}
                               >
                                 {showMoreServices[ds.datasource] ? (
-                                  <>{t('management.logRemoval.buttons.showLess', { count: other.length })}</>
+                                  <>
+                                    {t('management.logRemoval.buttons.showLess', {
+                                      count: other.length
+                                    })}
+                                  </>
                                 ) : (
-                                  <>{t('management.logRemoval.buttons.showMore', { count: other.length })}</>
+                                  <>
+                                    {t('management.logRemoval.buttons.showMore', {
+                                      count: other.length
+                                    })}
+                                  </>
                                 )}
                               </Button>
                             </div>
@@ -475,11 +519,17 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
 
           <Alert color="yellow">
             <div>
-              <p className="text-sm font-medium mb-2">{t('management.logRemoval.modal.important')}:</p>
+              <p className="text-sm font-medium mb-2">
+                {t('management.logRemoval.modal.important')}:
+              </p>
               <ul className="list-disc list-inside text-sm space-y-1 ml-2">
                 <li>{t('management.logRemoval.modal.cannotUndo')}</li>
                 <li>{t('management.logRemoval.modal.mayTakeMinutes')}</li>
-                <li>{t('management.logRemoval.modal.cachedFilesRemain', { service: pendingServiceRemoval?.service })}</li>
+                <li>
+                  {t('management.logRemoval.modal.cachedFilesRemain', {
+                    service: pendingServiceRemoval?.service
+                  })}
+                </li>
               </ul>
             </div>
           </Alert>
@@ -496,7 +546,11 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
               variant="filled"
               color="red"
               onClick={() =>
-                pendingServiceRemoval && executeRemoveServiceLogs(pendingServiceRemoval.datasource, pendingServiceRemoval.service)
+                pendingServiceRemoval &&
+                executeRemoveServiceLogs(
+                  pendingServiceRemoval.datasource,
+                  pendingServiceRemoval.service
+                )
               }
               loading={!!startingServiceRemoval}
             >
@@ -523,12 +577,16 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({
       >
         <div className="space-y-4">
           <p className="text-themed-secondary">
-            {t('management.logRemoval.modal.deleteQuestion', { datasource: pendingLogFileDeletion })}
+            {t('management.logRemoval.modal.deleteQuestion', {
+              datasource: pendingLogFileDeletion
+            })}
           </p>
 
           <Alert color="red">
             <div>
-              <p className="text-sm font-medium mb-2">{t('management.logRemoval.modal.warningDestructive')}:</p>
+              <p className="text-sm font-medium mb-2">
+                {t('management.logRemoval.modal.warningDestructive')}:
+              </p>
               <ul className="list-disc list-inside text-sm space-y-1 ml-2">
                 <li>{t('management.logRemoval.modal.permanentlyDelete')}</li>
                 <li>{t('management.logRemoval.modal.historyLost')}</li>

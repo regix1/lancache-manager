@@ -24,7 +24,7 @@ const ChartLegend: React.FC<ChartLegendProps> = React.memo(({ items }) => {
                 className="legend-bar-fill"
                 style={{
                   width: `${Math.max(item.percentage, 0.5)}%`,
-                  backgroundColor: item.color,
+                  backgroundColor: item.color
                 }}
               />
             </div>

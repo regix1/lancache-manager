@@ -35,9 +35,7 @@ const ActiveDownloadsView: React.FC = () => {
           </div>
         </div>
         <div className="empty-title">{t('downloads.active.empty.title')}</div>
-        <div className="empty-description">
-          {t('downloads.active.empty.description')}
-        </div>
+        <div className="empty-description">{t('downloads.active.empty.description')}</div>
       </div>
     );
   }
@@ -73,84 +71,87 @@ const ActiveDownloadsView: React.FC = () => {
 
       {/* Downloads List */}
       <div className="downloads-list">
-        {viewMode === 'games' ? (
-          games.map((game: GameSpeedInfo, index: number) => (
-            <div
-              key={`${game.depotId}-${game.clientIp ?? 'unknown'}`}
-              className={`download-item ${index === 0 ? 'top' : ''}`}
-            >
-              <div className="download-avatar">
-                <HardDrive className="fallback-icon" size={20} />
-                <div className="active-indicator" />
-              </div>
-
-              <div className="download-info">
-                <div
-                  className="download-name"
-                  title={game.gameName || t('downloads.active.depotLabel', { depotId: game.depotId })}
-                >
-                  {game.gameName || t('downloads.active.depotLabel', { depotId: game.depotId })}
+        {viewMode === 'games'
+          ? games.map((game: GameSpeedInfo, index: number) => (
+              <div
+                key={`${game.depotId}-${game.clientIp ?? 'unknown'}`}
+                className={`download-item ${index === 0 ? 'top' : ''}`}
+              >
+                <div className="download-avatar">
+                  <HardDrive className="fallback-icon" size={20} />
+                  <div className="active-indicator" />
                 </div>
-                <div className="download-meta">
-                  <span className="meta-item">{formatBytes(game.totalBytes)}</span>
-                  <span className="meta-divider">•</span>
-                  <span className={`meta-item cache-hit ${
-                    game.cacheHitPercent >= 80 ? '' : game.cacheHitPercent >= 50 ? 'medium' : 'low'
-                  }`}>
-                    {t('downloads.active.hitRate', { percent: game.cacheHitPercent.toFixed(0) })}
-                  </span>
-                  <span className="meta-divider">•</span>
-                  <span className="meta-item">
-                    {t('downloads.active.requests', { count: game.requestCount })}
-                  </span>
-                  {game.clientIp && (
-                    <>
-                      <span className="meta-divider">•</span>
-                      <span className="meta-item">
-                        <ClientIpDisplay clientIp={game.clientIp} />
-                      </span>
-                    </>
-                  )}
-                </div>
-              </div>
 
-              <div className="download-speed">
-                <span className="speed-value">{formatSpeed(game.bytesPerSecond)}</span>
-                <span className="speed-label">{t('downloads.active.speed')}</span>
-              </div>
-            </div>
-          ))
-        ) : (
-          clients.map((client: ClientSpeedInfo, index: number) => (
-            <div
-              key={client.clientIp}
-              className={`download-item ${index === 0 ? 'top' : ''}`}
-            >
-              <div className="download-avatar">
-                <Users className="fallback-icon" size={20} />
-                <div className="active-indicator" />
-              </div>
-
-              <div className="download-info">
-                <div className="download-name">
-                  <ClientIpDisplay clientIp={client.clientIp} />
+                <div className="download-info">
+                  <div
+                    className="download-name"
+                    title={
+                      game.gameName || t('downloads.active.depotLabel', { depotId: game.depotId })
+                    }
+                  >
+                    {game.gameName || t('downloads.active.depotLabel', { depotId: game.depotId })}
+                  </div>
+                  <div className="download-meta">
+                    <span className="meta-item">{formatBytes(game.totalBytes)}</span>
+                    <span className="meta-divider">•</span>
+                    <span
+                      className={`meta-item cache-hit ${
+                        game.cacheHitPercent >= 80
+                          ? ''
+                          : game.cacheHitPercent >= 50
+                            ? 'medium'
+                            : 'low'
+                      }`}
+                    >
+                      {t('downloads.active.hitRate', { percent: game.cacheHitPercent.toFixed(0) })}
+                    </span>
+                    <span className="meta-divider">•</span>
+                    <span className="meta-item">
+                      {t('downloads.active.requests', { count: game.requestCount })}
+                    </span>
+                    {game.clientIp && (
+                      <>
+                        <span className="meta-divider">•</span>
+                        <span className="meta-item">
+                          <ClientIpDisplay clientIp={game.clientIp} />
+                        </span>
+                      </>
+                    )}
+                  </div>
                 </div>
-                <div className="download-meta">
-                  <span className="meta-item">{formatBytes(client.totalBytes)}</span>
-                  <span className="meta-divider">•</span>
-                  <span className="meta-item">
-                    {t('downloads.active.gamesCount', { count: client.activeGames })}
-                  </span>
+
+                <div className="download-speed">
+                  <span className="speed-value">{formatSpeed(game.bytesPerSecond)}</span>
+                  <span className="speed-label">{t('downloads.active.speed')}</span>
                 </div>
               </div>
+            ))
+          : clients.map((client: ClientSpeedInfo, index: number) => (
+              <div key={client.clientIp} className={`download-item ${index === 0 ? 'top' : ''}`}>
+                <div className="download-avatar">
+                  <Users className="fallback-icon" size={20} />
+                  <div className="active-indicator" />
+                </div>
 
-              <div className="download-speed">
-                <span className="speed-value">{formatSpeed(client.bytesPerSecond)}</span>
-                <span className="speed-label">{t('downloads.active.speed')}</span>
+                <div className="download-info">
+                  <div className="download-name">
+                    <ClientIpDisplay clientIp={client.clientIp} />
+                  </div>
+                  <div className="download-meta">
+                    <span className="meta-item">{formatBytes(client.totalBytes)}</span>
+                    <span className="meta-divider">•</span>
+                    <span className="meta-item">
+                      {t('downloads.active.gamesCount', { count: client.activeGames })}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="download-speed">
+                  <span className="speed-value">{formatSpeed(client.bytesPerSecond)}</span>
+                  <span className="speed-label">{t('downloads.active.speed')}</span>
+                </div>
               </div>
-            </div>
-          ))
-        )}
+            ))}
       </div>
 
       {/* Summary Footer */}

@@ -44,9 +44,9 @@ export function getDateInTimezone(
   });
   const parts = formatter.formatToParts(date);
   return {
-    year: parseInt(parts.find(p => p.type === 'year')?.value || '0'),
-    month: parseInt(parts.find(p => p.type === 'month')?.value || '1') - 1, // 0-indexed
-    day: parseInt(parts.find(p => p.type === 'day')?.value || '1')
+    year: parseInt(parts.find((p) => p.type === 'year')?.value || '0'),
+    month: parseInt(parts.find((p) => p.type === 'month')?.value || '1') - 1, // 0-indexed
+    day: parseInt(parts.find((p) => p.type === 'day')?.value || '1')
   };
 }
 
@@ -67,9 +67,9 @@ export function getTimeInTimezone(
   });
   const parts = formatter.formatToParts(date);
   return {
-    hour: parseInt(parts.find(p => p.type === 'hour')?.value || '0'),
-    minute: parseInt(parts.find(p => p.type === 'minute')?.value || '0'),
-    second: parseInt(parts.find(p => p.type === 'second')?.value || '0')
+    hour: parseInt(parts.find((p) => p.type === 'hour')?.value || '0'),
+    minute: parseInt(parts.find((p) => p.type === 'minute')?.value || '0'),
+    second: parseInt(parts.find((p) => p.type === 'second')?.value || '0')
   };
 }
 

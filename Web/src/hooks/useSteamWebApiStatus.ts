@@ -20,7 +20,7 @@ export const useSteamWebApiStatus = () => {
   const hasAccess = authMode === 'authenticated';
   const hasFailedAuth = useRef(false);
 
-  const fetchStatus = useCallback(async (forceRefresh: boolean = false, skipLoading: boolean = false) => {
+  const fetchStatus = useCallback(async (forceRefresh = false, skipLoading = false) => {
     // Don't retry if we've already failed auth
     if (hasFailedAuth.current) {
       return;
@@ -52,7 +52,8 @@ export const useSteamWebApiStatus = () => {
       const data = await response.json();
       setStatus(data);
     } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch Steam Web API status';
+      const errorMessage =
+        err instanceof Error ? err.message : 'Failed to fetch Steam Web API status';
       setError(errorMessage);
       console.error('[SteamWebApiStatus] Error:', err);
     } finally {
@@ -81,9 +82,12 @@ export const useSteamWebApiStatus = () => {
 
   const refresh = useCallback(() => fetchStatus(true, true), [fetchStatus]);
 
-  const updateStatus = useCallback((updater: (prev: SteamWebApiStatus | null) => SteamWebApiStatus | null) => {
-    setStatus(updater);
-  }, []);
+  const updateStatus = useCallback(
+    (updater: (prev: SteamWebApiStatus | null) => SteamWebApiStatus | null) => {
+      setStatus(updater);
+    },
+    []
+  );
 
   return { status, loading, error, refresh, updateStatus };
 };

@@ -57,8 +57,7 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
 }) => {
   const { t } = useTranslation();
   const [createSearchQuery, setCreateSearchQuery] = useState('');
-  const getGroupTitle = (group: ColorGroup) =>
-    t(`modals.theme.groups.${group.name}.title`);
+  const getGroupTitle = (group: ColorGroup) => t(`modals.theme.groups.${group.name}.title`);
   const getGroupDescription = (group: ColorGroup) =>
     t(`modals.theme.groups.${group.name}.description`);
   const getColorLabel = (color: ColorGroup['colors'][number]) =>
@@ -66,15 +65,17 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
   const getColorDescription = (color: ColorGroup['colors'][number]) =>
     t(`modals.theme.colors.${color.key}.description`);
   const getColorAffects = (color: ColorGroup['colors'][number]) => {
-    const translatedAffects = t(`modals.theme.colors.${color.key}.affects`, { returnObjects: true });
+    const translatedAffects = t(`modals.theme.colors.${color.key}.affects`, {
+      returnObjects: true
+    });
     if (Array.isArray(translatedAffects)) {
       return translatedAffects as string[];
     }
     return color.affects;
   };
-  const getPageLabel = (page: typeof pageDefinitions[number]) =>
+  const getPageLabel = (page: (typeof pageDefinitions)[number]) =>
     t(`modals.theme.pages.${page.name}.label`);
-  const getPageDescription = (page: typeof pageDefinitions[number]) =>
+  const getPageDescription = (page: (typeof pageDefinitions)[number]) =>
     t(`modals.theme.pages.${page.name}.description`);
 
   const handleColorCommit = (key: string, previousColor: string) => {
@@ -354,6 +355,7 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
 
       return filtered;
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [organizationMode, selectedPage]
   );
 
@@ -384,7 +386,9 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1 text-themed-secondary">{t('modals.theme.form.author')}</label>
+              <label className="block text-sm font-medium mb-1 text-themed-secondary">
+                {t('modals.theme.form.author')}
+              </label>
               <input
                 type="text"
                 value={newTheme.author}
@@ -464,7 +468,9 @@ const CreateThemeModal: React.FC<CreateThemeModalProps> = ({
             organizationMode === 'page' ? 'max-h-40 opacity-100 mt-4' : 'max-h-0 opacity-0'
           }`}
         >
-          <label className="block text-sm font-medium text-themed-primary mb-2">{t('modals.theme.organization.selectPage')}</label>
+          <label className="block text-sm font-medium text-themed-primary mb-2">
+            {t('modals.theme.organization.selectPage')}
+          </label>
           <div className="grid grid-cols-3 gap-2">
             {pageDefinitions.map((page) => {
               const Icon = page.icon;

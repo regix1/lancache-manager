@@ -12,12 +12,12 @@ export const GAME_SERVICES: GameServiceConfig[] = [
     id: 'steam',
     name: 'Steam',
     enabled: true,
-    order: 0,
+    order: 0
   },
   {
     id: 'epic',
     name: 'Epic Games',
     enabled: true,
-    order: 1,
-  },
+    order: 1
+  }
 ];

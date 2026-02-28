@@ -1,5 +1,8 @@
 import React, { createContext, useContext, type ReactNode } from 'react';
-import { useSteamWebApiStatus as useHook, type SteamWebApiStatus } from '@hooks/useSteamWebApiStatus';
+import {
+  useSteamWebApiStatus as useHook,
+  type SteamWebApiStatus
+} from '@hooks/useSteamWebApiStatus';
 
 interface SteamWebApiStatusContextType {
   status: SteamWebApiStatus | null;
@@ -9,9 +12,7 @@ interface SteamWebApiStatusContextType {
   updateStatus: (updater: (prev: SteamWebApiStatus | null) => SteamWebApiStatus | null) => void;
 }
 
-const SteamWebApiStatusContext = createContext<SteamWebApiStatusContextType | undefined>(
-  undefined
-);
+const SteamWebApiStatusContext = createContext<SteamWebApiStatusContextType | undefined>(undefined);
 
 export const useSteamWebApiStatus = () => {
   const context = useContext(SteamWebApiStatusContext);

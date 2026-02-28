@@ -223,7 +223,8 @@ const renderCompletionDetails = ({ notification, t, formatBytesLocal }: ContentR
             count: filesDeletedCount,
             formattedCount: filesDeletedFormatted
           })}
-          {notification.details?.bytesDeleted !== undefined && notification.details.bytesDeleted > 0 &&
+          {notification.details?.bytesDeleted !== undefined &&
+            notification.details.bytesDeleted > 0 &&
             ` \u2022 ${t('common.notifications.freed', { value: formatBytesLocal(notification.details.bytesDeleted) })}`}
         </div>
       );
@@ -401,10 +402,7 @@ const UnifiedNotificationItem = ({
               <span>{t('common.notifications.cancelling')}</span>
             </div>
           ) : (
-            <Tooltip
-              content={t(CANCEL_TOOLTIP_KEYS[notification.type])}
-              position="left"
-            >
+            <Tooltip content={t(CANCEL_TOOLTIP_KEYS[notification.type])} position="left">
               <button
                 onClick={onCancel}
                 className="p-1 rounded hover:bg-themed-hover transition-colors"

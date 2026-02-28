@@ -1,4 +1,12 @@
-import React, { createContext, useContext, useState, useCallback, useRef, useEffect, type ReactNode } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  type ReactNode
+} from 'react';
 import ApiService from '@services/api.service';
 import type { CacheSizeInfo } from '@/types';
 
@@ -55,7 +63,7 @@ export const CacheSizeProvider: React.FC<CacheSizeProviderProps> = ({ children }
       if (err instanceof Error && err.name === 'AbortError') {
         return;
       }
-      
+
       console.error('[CacheSize] Failed to fetch cache size:', err);
       setError(err instanceof Error ? err.message : 'Failed to calculate cache size');
     } finally {
@@ -97,9 +105,5 @@ export const CacheSizeProvider: React.FC<CacheSizeProviderProps> = ({ children }
     clearCacheSize
   };
 
-  return (
-    <CacheSizeContext.Provider value={contextValue}>
-      {children}
-    </CacheSizeContext.Provider>
-  );
+  return <CacheSizeContext.Provider value={contextValue}>{children}</CacheSizeContext.Provider>;
 };

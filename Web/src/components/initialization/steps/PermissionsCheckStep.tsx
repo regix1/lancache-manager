@@ -1,5 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { Shield, CheckCircle, AlertTriangle, XCircle, Loader2, RefreshCw, FolderOpen, FileText, Container } from 'lucide-react';
+import {
+  Shield,
+  CheckCircle,
+  AlertTriangle,
+  XCircle,
+  Loader2,
+  RefreshCw,
+  FolderOpen,
+  FileText,
+  Container
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import ApiService from '@services/api.service';
@@ -25,9 +35,7 @@ interface PermissionCheck {
   impact?: string;
 }
 
-export const PermissionsCheckStep: React.FC<PermissionsCheckStepProps> = ({
-  onComplete
-}) => {
+export const PermissionsCheckStep: React.FC<PermissionsCheckStepProps> = ({ onComplete }) => {
   const { t } = useTranslation();
   const [error, setError] = useState<string | null>(null);
   const [checks, setChecks] = useState<PermissionCheck[]>([]);
@@ -36,15 +44,33 @@ export const PermissionsCheckStep: React.FC<PermissionsCheckStepProps> = ({
     setError(null);
 
     setChecks([
-      { id: 'cache', label: t('initialization.permissionsCheck.cacheDirectory'), status: 'loading', message: t('initialization.permissionsCheck.checking') },
-      { id: 'logs', label: t('initialization.permissionsCheck.logsDirectory'), status: 'loading', message: t('initialization.permissionsCheck.checking') },
-      { id: 'docker', label: t('initialization.permissionsCheck.dockerSocket'), status: 'loading', message: t('initialization.permissionsCheck.checking') }
+      {
+        id: 'cache',
+        label: t('initialization.permissionsCheck.cacheDirectory'),
+        status: 'loading',
+        message: t('initialization.permissionsCheck.checking')
+      },
+      {
+        id: 'logs',
+        label: t('initialization.permissionsCheck.logsDirectory'),
+        status: 'loading',
+        message: t('initialization.permissionsCheck.checking')
+      },
+      {
+        id: 'docker',
+        label: t('initialization.permissionsCheck.dockerSocket'),
+        status: 'loading',
+        message: t('initialization.permissionsCheck.checking')
+      }
     ]);
 
     try {
       const data: PermissionsData = await ApiService.getDirectoryPermissions();
 
-      const getDirectoryStatus = (dir: { exists: boolean; writable: boolean; readOnly: boolean }, impactKey: string): Pick<PermissionCheck, 'status' | 'message' | 'impact'> => {
+      const getDirectoryStatus = (
+        dir: { exists: boolean; writable: boolean; readOnly: boolean },
+        impactKey: string
+      ): Pick<PermissionCheck, 'status' | 'message' | 'impact'> => {
         if (!dir.exists) {
           return {
             status: 'warning',
@@ -92,7 +118,9 @@ export const PermissionsCheckStep: React.FC<PermissionsCheckStepProps> = ({
           message: data.dockerSocket.available
             ? t('initialization.permissionsCheck.available')
             : t('initialization.permissionsCheck.notAvailable'),
-          impact: data.dockerSocket.available ? undefined : t('initialization.permissionsCheck.dockerImpact')
+          impact: data.dockerSocket.available
+            ? undefined
+            : t('initialization.permissionsCheck.dockerImpact')
         }
       ];
 
@@ -105,6 +133,7 @@ export const PermissionsCheckStep: React.FC<PermissionsCheckStepProps> = ({
 
   useEffect(() => {
     checkPermissions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const getStatusIcon = (status: CheckStatus) => {
@@ -133,9 +162,9 @@ export const PermissionsCheckStep: React.FC<PermissionsCheckStepProps> = ({
     }
   };
 
-  const hasErrors = checks.some(c => c.status === 'error');
-  const allSuccess = checks.every(c => c.status === 'success');
-  const isChecking = checks.some(c => c.status === 'loading');
+  const hasErrors = checks.some((c) => c.status === 'error');
+  const allSuccess = checks.every((c) => c.status === 'success');
+  const isChecking = checks.some((c) => c.status === 'loading');
 
   return (
     <div className="space-y-4">
@@ -161,50 +190,53 @@ export const PermissionsCheckStep: React.FC<PermissionsCheckStepProps> = ({
           >
             {/* Icon and Status Row */}
             <div className="flex items-center justify-between mb-3">
-              <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                check.status === 'success'
-                  ? 'bg-themed-success icon-success'
-                  : check.status === 'warning'
-                    ? 'bg-themed-warning icon-warning'
-                    : check.status === 'error'
-                      ? 'bg-themed-error icon-error'
-                      : 'bg-themed-secondary text-themed-muted'
-              }`}>
+              <div
+                className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                  check.status === 'success'
+                    ? 'bg-themed-success icon-success'
+                    : check.status === 'warning'
+                      ? 'bg-themed-warning icon-warning'
+                      : check.status === 'error'
+                        ? 'bg-themed-error icon-error'
+                        : 'bg-themed-secondary text-themed-muted'
+                }`}
+              >
                 {getCheckIcon(check.id)}
               </div>
               {getStatusIcon(check.status)}
             </div>
 
             {/* Label */}
-            <h4 className="font-semibold text-themed-primary text-sm mb-1">
-              {check.label}
-            </h4>
+            <h4 className="font-semibold text-themed-primary text-sm mb-1">{check.label}</h4>
 
             {/* Status Message */}
-            <p className={`text-xs font-medium mb-2 ${
-              check.status === 'success'
-                ? 'text-themed-success'
-                : check.status === 'warning'
-                  ? 'text-themed-warning'
-                  : check.status === 'error'
-                    ? 'text-themed-error'
-                    : 'text-themed-muted'
-            }`}>
+            <p
+              className={`text-xs font-medium mb-2 ${
+                check.status === 'success'
+                  ? 'text-themed-success'
+                  : check.status === 'warning'
+                    ? 'text-themed-warning'
+                    : check.status === 'error'
+                      ? 'text-themed-error'
+                      : 'text-themed-muted'
+              }`}
+            >
               {check.message}
             </p>
 
             {/* Path (if exists) */}
             {check.path && (
-              <code className="text-xs px-2 py-1 rounded bg-themed-secondary text-themed-muted truncate mt-auto" title={check.path}>
+              <code
+                className="text-xs px-2 py-1 rounded bg-themed-secondary text-themed-muted truncate mt-auto"
+                title={check.path}
+              >
                 {check.path}
               </code>
             )}
 
             {/* Impact message (if exists) */}
             {check.impact && (
-              <p className="text-xs text-themed-muted mt-2 leading-relaxed">
-                {check.impact}
-              </p>
+              <p className="text-xs text-themed-muted mt-2 leading-relaxed">{check.impact}</p>
             )}
           </div>
         ))}
@@ -219,9 +251,11 @@ export const PermissionsCheckStep: React.FC<PermissionsCheckStepProps> = ({
 
       {/* Summary Banner */}
       {!isChecking && !error && (
-        <div className={`p-3 rounded-lg flex items-center gap-3 ${
-          allSuccess ? 'bg-themed-success' : hasErrors ? 'bg-themed-error' : 'bg-themed-warning'
-        }`}>
+        <div
+          className={`p-3 rounded-lg flex items-center gap-3 ${
+            allSuccess ? 'bg-themed-success' : hasErrors ? 'bg-themed-error' : 'bg-themed-warning'
+          }`}
+        >
           {allSuccess ? (
             <CheckCircle className="w-5 h-5 icon-success flex-shrink-0" />
           ) : hasErrors ? (
@@ -229,9 +263,15 @@ export const PermissionsCheckStep: React.FC<PermissionsCheckStepProps> = ({
           ) : (
             <AlertTriangle className="w-5 h-5 icon-warning flex-shrink-0" />
           )}
-          <p className={`text-sm ${
-            allSuccess ? 'text-themed-success' : hasErrors ? 'text-themed-error' : 'text-themed-warning'
-          }`}>
+          <p
+            className={`text-sm ${
+              allSuccess
+                ? 'text-themed-success'
+                : hasErrors
+                  ? 'text-themed-error'
+                  : 'text-themed-warning'
+            }`}
+          >
             {allSuccess
               ? t('initialization.permissionsCheck.allGood')
               : hasErrors

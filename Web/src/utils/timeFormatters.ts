@@ -2,7 +2,9 @@
  * Type guard to check if an object has a totalSeconds property
  */
 function hasTotalSeconds(obj: object): obj is { totalSeconds: number } {
-  return 'totalSeconds' in obj && typeof (obj as { totalSeconds: unknown }).totalSeconds === 'number';
+  return (
+    'totalSeconds' in obj && typeof (obj as { totalSeconds: unknown }).totalSeconds === 'number'
+  );
 }
 
 /**
@@ -15,7 +17,9 @@ function hasTotalHours(obj: object): obj is { totalHours: number } {
 /**
  * Type guard to check if an object has hours/minutes/seconds properties
  */
-function hasHoursMinutesSeconds(obj: object): obj is { hours: number; minutes: number; seconds: number } {
+function hasHoursMinutesSeconds(
+  obj: object
+): obj is { hours: number; minutes: number; seconds: number } {
   return 'hours' in obj && 'minutes' in obj && 'seconds' in obj;
 }
 
@@ -62,10 +66,18 @@ export function formatNextCrawlTime(
   if (typeof nextCrawlIn === 'object' && nextCrawlIn !== null && hasTotalSeconds(nextCrawlIn)) {
     // Object with totalSeconds property
     totalSeconds = nextCrawlIn.totalSeconds;
-  } else if (typeof nextCrawlIn === 'object' && nextCrawlIn !== null && hasTotalHours(nextCrawlIn)) {
+  } else if (
+    typeof nextCrawlIn === 'object' &&
+    nextCrawlIn !== null &&
+    hasTotalHours(nextCrawlIn)
+  ) {
     // Object with totalHours property
     totalSeconds = nextCrawlIn.totalHours * 3600;
-  } else if (typeof nextCrawlIn === 'object' && nextCrawlIn !== null && hasHoursMinutesSeconds(nextCrawlIn)) {
+  } else if (
+    typeof nextCrawlIn === 'object' &&
+    nextCrawlIn !== null &&
+    hasHoursMinutesSeconds(nextCrawlIn)
+  ) {
     // Object with {hours, minutes, seconds} properties
     totalSeconds = nextCrawlIn.hours * 3600 + nextCrawlIn.minutes * 60 + nextCrawlIn.seconds;
   } else if (typeof nextCrawlIn === 'string') {
@@ -104,7 +116,10 @@ export function formatNextCrawlTime(
   // Handle "due now" cases
   if (totalSeconds <= 0) {
     // Check if it's incremental mode (true or not "github")
-    const isIncrementalMode = typeof crawlIncrementalMode === 'boolean' ? crawlIncrementalMode : crawlIncrementalMode !== 'github';
+    const isIncrementalMode =
+      typeof crawlIncrementalMode === 'boolean'
+        ? crawlIncrementalMode
+        : crawlIncrementalMode !== 'github';
     if (fullScanRequired && isIncrementalMode) {
       return 'Due now (Full scan required)';
     }
@@ -135,7 +150,11 @@ export function toTotalSeconds(timeValue: TimeValue): number {
     return timeValue.totalSeconds;
   } else if (typeof timeValue === 'object' && timeValue !== null && hasTotalHours(timeValue)) {
     return timeValue.totalHours * 3600;
-  } else if (typeof timeValue === 'object' && timeValue !== null && hasHoursMinutesSeconds(timeValue)) {
+  } else if (
+    typeof timeValue === 'object' &&
+    timeValue !== null &&
+    hasHoursMinutesSeconds(timeValue)
+  ) {
     // Object with {hours, minutes, seconds} properties
     return timeValue.hours * 3600 + timeValue.minutes * 60 + timeValue.seconds;
   } else if (typeof timeValue === 'string') {

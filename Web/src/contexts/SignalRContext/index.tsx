@@ -10,6 +10,7 @@ import React, {
 import * as signalR from '@microsoft/signalr';
 import { SIGNALR_BASE } from '@utils/constants';
 import type { SignalRContextType, SignalRProviderProps, EventHandler } from './types';
+// eslint-disable-next-line no-duplicate-imports
 import { SIGNALR_EVENTS } from './types';
 import authService from '@services/auth.service';
 
@@ -91,13 +92,13 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
     const baseDelay = 2000; // 2 seconds
     const maxDelay = 60000; // 60 seconds max
     const attempts = reconnectAttemptsRef.current;
-    
+
     // Exponential backoff: 2s, 4s, 8s, 16s, 32s, 60s (capped)
     const exponentialDelay = Math.min(baseDelay * Math.pow(2, attempts), maxDelay);
-    
+
     // Add jitter (±25%) to prevent thundering herd
     const jitter = exponentialDelay * 0.25 * (Math.random() * 2 - 1);
-    
+
     return Math.round(exponentialDelay + jitter);
   }, []);
 
@@ -402,6 +403,7 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
   useEffect(() => {
     isMountedRef.current = true;
     let connectionStartTimeout: NodeJS.Timeout | null = null;
+    const eventHandlers = eventHandlersRef.current;
 
     // Don't connect in mock mode
     if (mockMode) {
@@ -446,7 +448,7 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
       }
 
       // Clear all event handlers
-      eventHandlersRef.current.clear();
+      eventHandlers.clear();
 
       // Reset setup flag only (keep hasInitializedRef to prevent duplicate connections)
       isSettingUpRef.current = false;

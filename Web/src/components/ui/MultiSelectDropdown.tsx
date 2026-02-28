@@ -1,4 +1,12 @@
-import React, { useState, useLayoutEffect, useEffect, useRef, useMemo, useCallback, memo } from 'react';
+import React, {
+  useState,
+  useLayoutEffect,
+  useEffect,
+  useRef,
+  useMemo,
+  useCallback,
+  memo
+} from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, Check } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -76,13 +84,9 @@ const OptionItem = memo<OptionItemProps>(({ option, isSelected, isDisabled, isLa
       )}
 
       <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium leading-tight text-themed-primary">
-          {option.label}
-        </div>
+        <div className="text-sm font-medium leading-tight text-themed-primary">{option.label}</div>
         {option.description && (
-          <div className="text-xs leading-[1.4] mt-1 text-themed-muted">
-            {option.description}
-          </div>
+          <div className="text-xs leading-[1.4] mt-1 text-themed-muted">{option.description}</div>
         )}
       </div>
     </button>
@@ -106,7 +110,12 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
 }) => {
   const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
-  const [dropdownStyle, setDropdownStyle] = useState<{ top?: number; bottom?: number; left: number; animation: string }>({ left: 0, animation: '' });
+  const [dropdownStyle, setDropdownStyle] = useState<{
+    top?: number;
+    bottom?: number;
+    left: number;
+    animation: string;
+  }>({ left: 0, animation: '' });
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const rafRef = useRef<number | null>(null);
@@ -118,7 +127,7 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
     const defaultPlaceholder = placeholder || t('ui.multiSelect.selectOptions');
     if (selectedCount === 0) return defaultPlaceholder;
     if (selectedCount === 1) {
-      const opt = options.find(o => valuesSet.has(o.value));
+      const opt = options.find((o) => valuesSet.has(o.value));
       return opt?.label || defaultPlaceholder;
     }
     if (selectedCount === options.length) return t('ui.multiSelect.allSelected');
@@ -140,12 +149,24 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
       const pos = rect.right - dropdownWidthPx;
       if (pos >= 8) left = pos;
     } else if (rect.left + dropdownWidthPx > window.innerWidth - 8) {
-      left = rect.right - dropdownWidthPx >= 8 ? rect.right - dropdownWidthPx : rect.left + (rect.width - dropdownWidthPx) / 2;
+      left =
+        rect.right - dropdownWidthPx >= 8
+          ? rect.right - dropdownWidthPx
+          : rect.left + (rect.width - dropdownWidthPx) / 2;
     }
 
-    setDropdownStyle(openUpward
-      ? { bottom: window.innerHeight - rect.top + 4, left, animation: 'msdFadeInUp 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards' }
-      : { top: rect.bottom + 4, left, animation: 'msdFadeInDown 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards' }
+    setDropdownStyle(
+      openUpward
+        ? {
+            bottom: window.innerHeight - rect.top + 4,
+            left,
+            animation: 'msdFadeInUp 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards'
+          }
+        : {
+            top: rect.bottom + 4,
+            left,
+            animation: 'msdFadeInDown 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards'
+          }
     );
   }, [alignRight]);
 
@@ -216,16 +237,19 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
     };
   }, [isOpen, updatePosition]);
 
-  const handleToggle = useCallback((optionValue: string) => {
-    const isSelected = valuesSet.has(optionValue);
-    if (isSelected) {
-      if (selectedCount > minSelections) {
-        onChange(values.filter(v => v !== optionValue));
+  const handleToggle = useCallback(
+    (optionValue: string) => {
+      const isSelected = valuesSet.has(optionValue);
+      if (isSelected) {
+        if (selectedCount > minSelections) {
+          onChange(values.filter((v) => v !== optionValue));
+        }
+      } else if (!maxSelections || selectedCount < maxSelections) {
+        onChange([...values, optionValue]);
       }
-    } else if (!maxSelections || selectedCount < maxSelections) {
-      onChange([...values, optionValue]);
-    }
-  }, [valuesSet, selectedCount, minSelections, maxSelections, onChange, values]);
+    },
+    [valuesSet, selectedCount, minSelections, maxSelections, onChange, values]
+  );
 
   const canDeselect = selectedCount > minSelections;
   const canSelect = !maxSelections || selectedCount < maxSelections;
@@ -248,56 +272,63 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
               {selectedCount}
             </span>
           )}
-          <ChevronDown className={`w-4 h-4 flex-shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+          <ChevronDown
+            className={`w-4 h-4 flex-shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
+          />
         </div>
       </button>
 
-      {isOpen && createPortal(
-        <div
-          ref={dropdownRef}
-          className={`msd-dropdown fixed z-[85] ${dropdownWidth || 'w-72'} themed-border-radius overflow-hidden bg-themed-secondary border border-themed-primary shadow-[0_4px_6px_-1px_rgba(0,0,0,0.1),0_10px_20px_-5px_rgba(0,0,0,0.2),0_20px_40px_-10px_rgba(0,0,0,0.15),inset_0_1px_0_0_color-mix(in_srgb,white_5%,transparent)]`}
-          style={{
-            top: dropdownStyle.top,
-            bottom: dropdownStyle.bottom,
-            left: dropdownStyle.left,
-            animation: dropdownStyle.animation
-          }}
-          onPointerDown={(event) => event.stopPropagation()}
-          onMouseDown={(event) => event.stopPropagation()}
-        >
-          {title && (
-            <div className="px-4 py-3 text-xs font-semibold uppercase tracking-wider border-b border-themed-secondary text-themed-muted bg-themed-tertiary">
-              {title}
-            </div>
-          )}
-
+      {isOpen &&
+        createPortal(
           <div
-            className="overflow-y-auto max-h-[280px] bg-themed-secondary"
-            style={{ overscrollBehavior: 'contain' }}
-            onWheel={(event) => event.stopPropagation()}
-            onTouchMove={(event) => event.stopPropagation()}
+            ref={dropdownRef}
+            className={`msd-dropdown fixed z-[85] ${dropdownWidth || 'w-72'} themed-border-radius overflow-hidden bg-themed-secondary border border-themed-primary shadow-[0_4px_6px_-1px_rgba(0,0,0,0.1),0_10px_20px_-5px_rgba(0,0,0,0.2),0_20px_40px_-10px_rgba(0,0,0,0.15),inset_0_1px_0_0_color-mix(in_srgb,white_5%,transparent)]`}
+            style={{
+              top: dropdownStyle.top,
+              bottom: dropdownStyle.bottom,
+              left: dropdownStyle.left,
+              animation: dropdownStyle.animation
+            }}
+            onPointerDown={(event) => event.stopPropagation()}
+            onMouseDown={(event) => event.stopPropagation()}
           >
-            {options.map((option, i) => (
-              <OptionItem
-                key={option.value}
-                option={option}
-                isSelected={valuesSet.has(option.value)}
-                isDisabled={option.disabled || (valuesSet.has(option.value) && !canDeselect) || (!valuesSet.has(option.value) && !canSelect)}
-                isLast={i === options.length - 1}
-                onToggle={handleToggle}
-              />
-            ))}
-          </div>
+            {title && (
+              <div className="px-4 py-3 text-xs font-semibold uppercase tracking-wider border-b border-themed-secondary text-themed-muted bg-themed-tertiary">
+                {title}
+              </div>
+            )}
 
-          {minSelections > 0 && (
-            <div className="px-4 py-3 text-xs border-t border-themed-secondary flex items-center gap-2 text-themed-muted bg-themed-tertiary">
-              <div className="w-1.5 h-1.5 rounded-full bg-[var(--theme-warning)]" />
-              <span>{t('ui.multiSelect.minimumSelections', { count: minSelections })}</span>
+            <div
+              className="overflow-y-auto max-h-[280px] bg-themed-secondary"
+              style={{ overscrollBehavior: 'contain' }}
+              onWheel={(event) => event.stopPropagation()}
+              onTouchMove={(event) => event.stopPropagation()}
+            >
+              {options.map((option, i) => (
+                <OptionItem
+                  key={option.value}
+                  option={option}
+                  isSelected={valuesSet.has(option.value)}
+                  isDisabled={
+                    option.disabled ||
+                    (valuesSet.has(option.value) && !canDeselect) ||
+                    (!valuesSet.has(option.value) && !canSelect)
+                  }
+                  isLast={i === options.length - 1}
+                  onToggle={handleToggle}
+                />
+              ))}
             </div>
-          )}
-        </div>,
-        document.body
-      )}
+
+            {minSelections > 0 && (
+              <div className="px-4 py-3 text-xs border-t border-themed-secondary flex items-center gap-2 text-themed-muted bg-themed-tertiary">
+                <div className="w-1.5 h-1.5 rounded-full bg-[var(--theme-warning)]" />
+                <span>{t('ui.multiSelect.minimumSelections', { count: minSelections })}</span>
+              </div>
+            )}
+          </div>,
+          document.body
+        )}
     </div>
   );
 };

@@ -43,10 +43,12 @@ const HighlightGlow: React.FC<HighlightGlowProps> = ({
   return (
     <div
       className={`highlight-glow-wrapper ${isAnimating ? 'highlight-glow-active' : ''} ${className || ''}`}
-      style={{
-        '--glow-color': color,
-        '--glow-duration': `${duration}ms`
-      } as React.CSSProperties}
+      style={
+        {
+          '--glow-color': color,
+          '--glow-duration': `${duration}ms`
+        } as React.CSSProperties
+      }
     >
       {children}
     </div>

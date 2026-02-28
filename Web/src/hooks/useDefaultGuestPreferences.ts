@@ -38,7 +38,10 @@ export const useDefaultGuestPreferences = () => {
 
   const loadPreferences = useCallback(async () => {
     try {
-      const response = await fetch('/api/system/default-guest-preferences', ApiService.getFetchOptions());
+      const response = await fetch(
+        '/api/system/default-guest-preferences',
+        ApiService.getFetchOptions()
+      );
       if (response.ok) {
         const data = await response.json();
         cachedPrefs = {
@@ -48,7 +51,12 @@ export const useDefaultGuestPreferences = () => {
           disableTooltips: data.disableTooltips ?? false,
           showDatasourceLabels: data.showDatasourceLabels ?? true,
           showYearInDates: data.showYearInDates ?? false,
-          allowedTimeFormats: data.allowedTimeFormats ?? ['server-24h', 'server-12h', 'local-24h', 'local-12h']
+          allowedTimeFormats: data.allowedTimeFormats ?? [
+            'server-24h',
+            'server-12h',
+            'local-24h',
+            'local-12h'
+          ]
         };
         loaded = true;
         setPrefs(cachedPrefs);
@@ -75,17 +83,14 @@ export const useDefaultGuestPreferences = () => {
   );
 
   // Listen for SignalR updates to allowed time formats
-  const handleAllowedTimeFormatsChanged = useCallback(
-    (data: { formats: string[] }) => {
-      cachedPrefs = {
-        ...cachedPrefs,
-        allowedTimeFormats: data.formats
-      };
-      setPrefs(cachedPrefs);
-      notifyListeners();
-    },
-    []
-  );
+  const handleAllowedTimeFormatsChanged = useCallback((data: { formats: string[] }) => {
+    cachedPrefs = {
+      ...cachedPrefs,
+      allowedTimeFormats: data.formats
+    };
+    setPrefs(cachedPrefs);
+    notifyListeners();
+  }, []);
 
   useEffect(() => {
     // Subscribe to global updates
@@ -106,7 +111,13 @@ export const useDefaultGuestPreferences = () => {
       off('DefaultGuestPreferencesChanged', handleDefaultGuestPreferencesChanged);
       off('AllowedTimeFormatsChanged', handleAllowedTimeFormatsChanged);
     };
-  }, [loadPreferences, on, off, handleDefaultGuestPreferencesChanged, handleAllowedTimeFormatsChanged]);
+  }, [
+    loadPreferences,
+    on,
+    off,
+    handleDefaultGuestPreferencesChanged,
+    handleAllowedTimeFormatsChanged
+  ]);
 
   return { prefs, loading };
 };

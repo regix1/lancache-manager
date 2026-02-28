@@ -60,7 +60,9 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
     >
       {/* Section Header */}
       <div className="mb-6">
-        <h2 className="text-xl font-semibold text-themed-primary mb-1">{t('management.sections.settings.title')}</h2>
+        <h2 className="text-xl font-semibold text-themed-primary mb-1">
+          {t('management.sections.settings.title')}
+        </h2>
         <p className="text-themed-secondary text-sm">
           {t('management.sections.settings.subtitle')}
         </p>
@@ -74,14 +76,15 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
               <Shield className="w-5 h-5 icon-green" />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-themed-primary">{t('management.sections.settings.apiAuth')}</h3>
-              <p className="text-xs text-themed-muted">{t('management.sections.settings.apiAuthDesc')}</p>
+              <h3 className="text-lg font-semibold text-themed-primary">
+                {t('management.sections.settings.apiAuth')}
+              </h3>
+              <p className="text-xs text-themed-muted">
+                {t('management.sections.settings.apiAuthDesc')}
+              </p>
             </div>
           </div>
-          <AuthenticationManager
-            onError={handleError}
-            onSuccess={handleSuccess}
-          />
+          <AuthenticationManager onError={handleError} onSuccess={handleSuccess} />
         </Card>
 
         {/* Demo Mode Card */}
@@ -91,14 +94,20 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
               <Sparkles className="w-5 h-5 icon-purple" />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-themed-primary">{t('management.sections.settings.demoMode')}</h3>
-              <p className="text-xs text-themed-muted">{t('management.sections.settings.demoModeDesc')}</p>
+              <h3 className="text-lg font-semibold text-themed-primary">
+                {t('management.sections.settings.demoMode')}
+              </h3>
+              <p className="text-xs text-themed-muted">
+                {t('management.sections.settings.demoModeDesc')}
+              </p>
             </div>
           </div>
           <div className="p-4 rounded-lg bg-themed-tertiary">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div className="flex-1">
-                <p className="text-themed-primary text-sm font-medium">{t('management.sections.settings.mockData')}</p>
+                <p className="text-themed-primary text-sm font-medium">
+                  {t('management.sections.settings.mockData')}
+                </p>
                 <p className="text-xs text-themed-muted mt-1">
                   {t('management.sections.settings.mockDataDesc')}
                 </p>
@@ -116,7 +125,9 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
                 }
                 className="w-full sm:w-36"
               >
-                {mockMode ? t('management.sections.settings.enabled') : t('management.sections.settings.disabled')}
+                {mockMode
+                  ? t('management.sections.settings.enabled')
+                  : t('management.sections.settings.disabled')}
               </Button>
             </div>
           </div>
@@ -136,8 +147,12 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
               <Settings className="w-5 h-5 icon-blue" />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-themed-primary">{t('management.sections.settings.displayPreferences')}</h3>
-              <p className="text-xs text-themed-muted">{t('management.sections.settings.displayPreferencesDesc')}</p>
+              <h3 className="text-lg font-semibold text-themed-primary">
+                {t('management.sections.settings.displayPreferences')}
+              </h3>
+              <p className="text-xs text-themed-muted">
+                {t('management.sections.settings.displayPreferencesDesc')}
+              </p>
             </div>
           </div>
           <DisplayPreferences />
@@ -152,22 +167,22 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
               <RotateCw className={`w-5 h-5 ${logRotationEnabled ? 'icon-cyan' : 'icon-gray'}`} />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-themed-primary">{t('management.sections.settings.nginxLogRotation')}</h3>
+              <h3 className="text-lg font-semibold text-themed-primary">
+                {t('management.sections.settings.nginxLogRotation')}
+              </h3>
               <p className="text-xs text-themed-muted">
                 {t('management.sections.settings.nginxLogRotationDesc')}
               </p>
             </div>
           </div>
           {logRotationEnabled ? (
-            <LogRotationManager
-              isAdmin={isAdmin}
-              onError={handleError}
-              onSuccess={handleSuccess}
-            />
+            <LogRotationManager isAdmin={isAdmin} onError={handleError} onSuccess={handleSuccess} />
           ) : (
             <Alert color="yellow">
               <div className="min-w-0">
-                <p className="font-medium">{t('management.sections.settings.nginxLogRotationDisabled')}</p>
+                <p className="font-medium">
+                  {t('management.sections.settings.nginxLogRotationDisabled')}
+                </p>
                 <p className="text-sm mt-1 mb-2">
                   {t('management.sections.settings.nginxLogRotationEnvVar')}
                 </p>
@@ -191,14 +206,18 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
               <h3 className="text-lg font-semibold text-themed-primary">
                 {t('management.sections.settings.performanceOptimizations')}
               </h3>
-              <p className="text-xs text-themed-muted">{t('management.sections.settings.performanceOptimizationsDesc')}</p>
+              <p className="text-xs text-themed-muted">
+                {t('management.sections.settings.performanceOptimizationsDesc')}
+              </p>
             </div>
           </div>
           {optimizationsEnabled ? (
             <Suspense
               fallback={
                 <div className="flex items-center justify-center py-8">
-                  <div className="text-themed-muted">{t('management.sections.settings.loadingGcSettings')}</div>
+                  <div className="text-themed-muted">
+                    {t('management.sections.settings.loadingGcSettings')}
+                  </div>
                 </div>
               }
             >
@@ -207,7 +226,9 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
           ) : (
             <Alert color="yellow">
               <div className="min-w-0">
-                <p className="font-medium">{t('management.sections.settings.performanceOptimizationsDisabled')}</p>
+                <p className="font-medium">
+                  {t('management.sections.settings.performanceOptimizationsDisabled')}
+                </p>
                 <p className="text-sm mt-1 mb-2">
                   {t('management.sections.settings.performanceOptimizationsEnvVar')}
                 </p>

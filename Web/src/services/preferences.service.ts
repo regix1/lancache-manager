@@ -55,7 +55,7 @@ const DEFAULT_PREFERENCES: UserPreferences = {
  * UserPreferencesUpdated events are handled by SessionPreferencesContext.
  */
 class PreferencesService {
-  private pendingUpdates: Map<string, Promise<boolean>> = new Map();
+  private pendingUpdates = new Map<string, Promise<boolean>>();
 
   /**
    * Load preferences from the API (no caching)
@@ -122,7 +122,10 @@ class PreferencesService {
         if (response.ok) {
           return true;
         } else {
-          console.error(`[PreferencesService] Failed to update preference ${key}:`, response.status);
+          console.error(
+            `[PreferencesService] Failed to update preference ${key}:`,
+            response.status
+          );
           return false;
         }
       } catch (error) {

@@ -6,7 +6,6 @@ import type {
   Download,
   ClientStat,
   ServiceStat,
-
   ProcessingStatus,
   ClearCacheResponse,
   MessageResponse,
@@ -17,7 +16,6 @@ import type {
   SparklineDataResponse,
   CacheSnapshotResponse,
   CorruptedChunkDetail,
-
   GameCacheInfo,
   ServiceCacheInfo,
   DatasourceLogPosition,
@@ -58,8 +56,6 @@ interface OperationResponse {
   changeGap?: number;
   estimatedApps?: number;
 }
-
-
 
 interface PicsStatus {
   isScanning: boolean;
@@ -117,7 +113,7 @@ class ApiService {
       let errorData = null;
       try {
         errorData = errorText ? JSON.parse(errorText) : null;
-      } catch (parseError) {
+      } catch (_parseError) {
         // Not JSON, use default error format
       }
 
@@ -149,7 +145,7 @@ class ApiService {
 
     try {
       return JSON.parse(text);
-    } catch (e) {
+    } catch (_e) {
       console.error('Failed to parse JSON response:', text);
       throw new Error('Invalid JSON response from server');
     }
@@ -445,11 +441,14 @@ class ApiService {
   // Start async cache clearing operation for all datasources (requires auth)
   static async clearAllCache(): Promise<ClearCacheResponse> {
     try {
-      const res = await fetch(`${API_BASE}/cache`, this.getFetchOptions({
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' }
-        // No timeout - Rust backend handles efficiently
-      }));
+      const res = await fetch(
+        `${API_BASE}/cache`,
+        this.getFetchOptions({
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' }
+          // No timeout - Rust backend handles efficiently
+        })
+      );
       return await this.handleResponse<ClearCacheResponse>(res);
     } catch (error) {
       console.error('clearAllCache error:', error);
@@ -460,10 +459,13 @@ class ApiService {
   // Start async cache clearing operation for a specific datasource (requires auth)
   static async clearDatasourceCache(datasourceName: string): Promise<ClearCacheResponse> {
     try {
-      const res = await fetch(`${API_BASE}/cache/datasources/${encodeURIComponent(datasourceName)}`, this.getFetchOptions({
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' }
-      }));
+      const res = await fetch(
+        `${API_BASE}/cache/datasources/${encodeURIComponent(datasourceName)}`,
+        this.getFetchOptions({
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' }
+        })
+      );
       return await this.handleResponse<ClearCacheResponse>(res);
     } catch (error) {
       console.error('clearDatasourceCache error:', error);
@@ -472,16 +474,18 @@ class ApiService {
   }
 
   // Get status of cache clearing operation
-  
 
   // Reset selected database tables (requires auth)
   static async resetSelectedTables(tableNames: string[]): Promise<OperationResponse> {
     try {
-      const res = await fetch(`${API_BASE}/database/tables`, this.getFetchOptions({
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tables: tableNames })
-      }));
+      const res = await fetch(
+        `${API_BASE}/database/tables`,
+        this.getFetchOptions({
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tables: tableNames })
+        })
+      );
       return await this.handleResponse<OperationResponse>(res);
     } catch (error) {
       console.error('resetSelectedTables error:', error);
@@ -492,12 +496,15 @@ class ApiService {
   // Reset log position (requires auth) - all datasources
   static async resetLogPosition(position: 'top' | 'bottom' = 'bottom'): Promise<OperationResponse> {
     try {
-      const res = await fetch(`${API_BASE}/logs/position`, this.getFetchOptions({
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reset: true, position: position === 'top' ? 0 : null })
-        // No timeout - may need to read entire log file to count lines
-      }));
+      const res = await fetch(
+        `${API_BASE}/logs/position`,
+        this.getFetchOptions({
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reset: true, position: position === 'top' ? 0 : null })
+          // No timeout - may need to read entire log file to count lines
+        })
+      );
       return await this.handleResponse<OperationResponse>(res);
     } catch (error: unknown) {
       console.error('resetLogPosition error:', error);
@@ -506,13 +513,19 @@ class ApiService {
   }
 
   // Reset log position for a specific datasource (requires auth)
-  static async resetDatasourceLogPosition(datasourceName: string, position: 'top' | 'bottom' = 'bottom'): Promise<OperationResponse> {
+  static async resetDatasourceLogPosition(
+    datasourceName: string,
+    position: 'top' | 'bottom' = 'bottom'
+  ): Promise<OperationResponse> {
     try {
-      const res = await fetch(`${API_BASE}/logs/position/${encodeURIComponent(datasourceName)}`, this.getFetchOptions({
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ position: position === 'top' ? 0 : null })
-      }));
+      const res = await fetch(
+        `${API_BASE}/logs/position/${encodeURIComponent(datasourceName)}`,
+        this.getFetchOptions({
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ position: position === 'top' ? 0 : null })
+        })
+      );
       return await this.handleResponse<OperationResponse>(res);
     } catch (error: unknown) {
       console.error('resetDatasourceLogPosition error:', error);
@@ -523,9 +536,12 @@ class ApiService {
   // Get log positions for all datasources
   static async getLogPositions(): Promise<DatasourceLogPosition[]> {
     try {
-      const res = await fetch(`${API_BASE}/logs/positions`, this.getFetchOptions({
-        signal: AbortSignal.timeout(10000)
-      }));
+      const res = await fetch(
+        `${API_BASE}/logs/positions`,
+        this.getFetchOptions({
+          signal: AbortSignal.timeout(10000)
+        })
+      );
       return await this.handleResponse<DatasourceLogPosition[]>(res);
     } catch (error: unknown) {
       console.error('getLogPositions error:', error);
@@ -536,11 +552,14 @@ class ApiService {
   // Process all logs (requires auth) - all datasources
   static async processAllLogs(): Promise<OperationResponse> {
     try {
-      const res = await fetch(`${API_BASE}/logs/process`, this.getFetchOptions({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-        // No timeout - Rust log processor handles large files efficiently
-      }));
+      const res = await fetch(
+        `${API_BASE}/logs/process`,
+        this.getFetchOptions({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+          // No timeout - Rust log processor handles large files efficiently
+        })
+      );
       return await this.handleResponse<OperationResponse>(res);
     } catch (error: unknown) {
       console.error('processAllLogs error:', error);
@@ -551,10 +570,13 @@ class ApiService {
   // Process logs for a specific datasource (requires auth)
   static async processDatasourceLogs(datasourceName: string): Promise<OperationResponse> {
     try {
-      const res = await fetch(`${API_BASE}/logs/process/${encodeURIComponent(datasourceName)}`, this.getFetchOptions({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      }));
+      const res = await fetch(
+        `${API_BASE}/logs/process/${encodeURIComponent(datasourceName)}`,
+        this.getFetchOptions({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        })
+      );
       return await this.handleResponse<OperationResponse>(res);
     } catch (error: unknown) {
       console.error('processDatasourceLogs error:', error);
@@ -564,9 +586,12 @@ class ApiService {
 
   static async getProcessingStatus(): Promise<ProcessingStatus> {
     try {
-      const res = await fetch(`${API_BASE}/logs/process/status`, this.getFetchOptions({
-        signal: AbortSignal.timeout(5000)
-      }));
+      const res = await fetch(
+        `${API_BASE}/logs/process/status`,
+        this.getFetchOptions({
+          signal: AbortSignal.timeout(5000)
+        })
+      );
       return await this.handleResponse<ProcessingStatus>(res);
     } catch (error) {
       console.error('getProcessingStatus error:', error);
@@ -575,14 +600,16 @@ class ApiService {
   }
 
   // Get log removal status
-  
 
   // Get counts of log entries per service, grouped by datasource
   static async getServiceLogCountsByDatasource(): Promise<DatasourceServiceCounts[]> {
     try {
-      const res = await fetch(`${API_BASE}/logs/service-counts/by-datasource`, this.getFetchOptions({
-        // No timeout - can take time for large log files
-      }));
+      const res = await fetch(
+        `${API_BASE}/logs/service-counts/by-datasource`,
+        this.getFetchOptions({
+          // No timeout - can take time for large log files
+        })
+      );
       return await this.handleResponse<DatasourceServiceCounts[]>(res);
     } catch (error) {
       console.error('getServiceLogCountsByDatasource error:', error);
@@ -591,7 +618,10 @@ class ApiService {
   }
 
   // Remove specific service entries from a specific datasource's logs (requires auth)
-  static async removeServiceFromDatasourceLogs(datasourceName: string, service: string): Promise<OperationResponse> {
+  static async removeServiceFromDatasourceLogs(
+    datasourceName: string,
+    service: string
+  ): Promise<OperationResponse> {
     try {
       const res = await fetch(
         `${API_BASE}/logs/datasources/${encodeURIComponent(datasourceName)}/services/${encodeURIComponent(service)}`,
@@ -638,9 +668,12 @@ class ApiService {
 
   // Get configuration info
   static async getConfig(): Promise<Config> {
-    const res = await fetch(`${API_BASE}/system/config`, this.getFetchOptions({
-      // No timeout - can take time for large log file scanning
-    }));
+    const res = await fetch(
+      `${API_BASE}/system/config`,
+      this.getFetchOptions({
+        // No timeout - can take time for large log file scanning
+      })
+    );
     return await this.handleResponse<Config>(res);
   }
 
@@ -665,14 +698,19 @@ class ApiService {
     }
   }
 
-
-  static async triggerSteamKitRebuild(incremental = false, signal?: AbortSignal): Promise<OperationResponse> {
+  static async triggerSteamKitRebuild(
+    incremental = false,
+    signal?: AbortSignal
+  ): Promise<OperationResponse> {
     try {
-      const res = await fetch(`${API_BASE}/depots/rebuild?incremental=${incremental}`, this.getFetchOptions({
-        method: 'POST',
-        signal,
-        headers: { 'Content-Type': 'application/json' }
-      }));
+      const res = await fetch(
+        `${API_BASE}/depots/rebuild?incremental=${incremental}`,
+        this.getFetchOptions({
+          method: 'POST',
+          signal,
+          headers: { 'Content-Type': 'application/json' }
+        })
+      );
       return await this.handleResponse<OperationResponse>(res);
     } catch (error: unknown) {
       console.error('triggerSteamKitRebuild error:', error);
@@ -682,11 +720,14 @@ class ApiService {
 
   static async cancelSteamKitRebuild(signal?: AbortSignal): Promise<void> {
     try {
-      const res = await fetch(`${API_BASE}/depots/rebuild`, this.getFetchOptions({
-        method: 'DELETE',
-        signal,
-        headers: { 'Content-Type': 'application/json' }
-      }));
+      const res = await fetch(
+        `${API_BASE}/depots/rebuild`,
+        this.getFetchOptions({
+          method: 'DELETE',
+          signal,
+          headers: { 'Content-Type': 'application/json' }
+        })
+      );
       if (!res.ok) {
         throw new Error(`Failed to cancel scan: ${res.statusText}`);
       }
@@ -696,12 +737,17 @@ class ApiService {
     }
   }
 
-  static async checkIncrementalViability(signal?: AbortSignal): Promise<{ viable: boolean; reason?: string; willTriggerFullScan?: boolean }> {
+  static async checkIncrementalViability(
+    signal?: AbortSignal
+  ): Promise<{ viable: boolean; reason?: string; willTriggerFullScan?: boolean }> {
     try {
-      const res = await fetch(`${API_BASE}/depots/rebuild/check-incremental`, this.getFetchOptions({
-        method: 'GET',
-        signal
-      }));
+      const res = await fetch(
+        `${API_BASE}/depots/rebuild/check-incremental`,
+        this.getFetchOptions({
+          method: 'GET',
+          signal
+        })
+      );
       return await this.handleResponse<{ viable: boolean; reason?: string }>(res);
     } catch (error: unknown) {
       console.error('checkIncrementalViability error:', error);
@@ -711,10 +757,13 @@ class ApiService {
 
   static async downloadPrecreatedDepotData(signal?: AbortSignal): Promise<OperationResponse> {
     try {
-      const res = await fetch(`${API_BASE}/depots/import?source=github`, this.getFetchOptions({
-        method: 'POST',
-        signal
-      }));
+      const res = await fetch(
+        `${API_BASE}/depots/import?source=github`,
+        this.getFetchOptions({
+          method: 'POST',
+          signal
+        })
+      );
       return await this.handleResponse<OperationResponse>(res);
     } catch (error: unknown) {
       if (!isAbortError(error)) {
@@ -726,11 +775,14 @@ class ApiService {
 
   static async applyDepotMappings(signal?: AbortSignal): Promise<OperationResponse> {
     try {
-      const res = await fetch(`${API_BASE}/depots`, this.getFetchOptions({
-        method: 'PATCH',
-        signal,
-        headers: { 'Content-Type': 'application/json' }
-      }));
+      const res = await fetch(
+        `${API_BASE}/depots`,
+        this.getFetchOptions({
+          method: 'PATCH',
+          signal,
+          headers: { 'Content-Type': 'application/json' }
+        })
+      );
       return await this.handleResponse<OperationResponse>(res);
     } catch (error: unknown) {
       console.error('applyDepotMappings error:', error);
@@ -742,11 +794,14 @@ class ApiService {
   static async setCacheDeleteMode(
     deleteMode: string
   ): Promise<{ message: string; deleteMode: string }> {
-    const res = await fetch(`${API_BASE}/system/cache-delete-mode`, this.getFetchOptions({
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ deleteMode })
-    }));
+    const res = await fetch(
+      `${API_BASE}/system/cache-delete-mode`,
+      this.getFetchOptions({
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deleteMode })
+      })
+    );
     return await this.handleResponse<{ message: string; deleteMode: string }>(res);
   }
 
@@ -776,7 +831,6 @@ class ApiService {
     }
   }
 
-
   // Get cached corruption detection results (returns immediately without running a scan)
   static async getCachedCorruptionDetection(): Promise<{
     hasCachedResults: boolean;
@@ -786,9 +840,12 @@ class ApiService {
     lastDetectionTime?: string;
   }> {
     try {
-      const res = await fetch(`${API_BASE}/cache/corruption/cached`, this.getFetchOptions({
-        signal: AbortSignal.timeout(30000) // 30 seconds for large datasets
-      }));
+      const res = await fetch(
+        `${API_BASE}/cache/corruption/cached`,
+        this.getFetchOptions({
+          signal: AbortSignal.timeout(30000) // 30 seconds for large datasets
+        })
+      );
       return await this.handleResponse<{
         hasCachedResults: boolean;
         corruptionCounts?: Record<string, number>;
@@ -803,13 +860,21 @@ class ApiService {
   }
 
   // Start background corruption detection scan
-  static async startCorruptionDetection(threshold: number = 3, compareToCacheLogs: boolean = true): Promise<{ operationId: string; message: string; status: string }> {
+  static async startCorruptionDetection(
+    threshold = 3,
+    compareToCacheLogs = true
+  ): Promise<{ operationId: string; message: string; status: string }> {
     try {
-      const res = await fetch(`${API_BASE}/cache/corruption/detect?threshold=${threshold}&compareToCacheLogs=${compareToCacheLogs}`, this.getFetchOptions({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      }));
-      return await this.handleResponse<{ operationId: string; message: string; status: string }>(res);
+      const res = await fetch(
+        `${API_BASE}/cache/corruption/detect?threshold=${threshold}&compareToCacheLogs=${compareToCacheLogs}`,
+        this.getFetchOptions({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        })
+      );
+      return await this.handleResponse<{ operationId: string; message: string; status: string }>(
+        res
+      );
     } catch (error) {
       console.error('startCorruptionDetection error:', error);
       throw error;
@@ -818,19 +883,21 @@ class ApiService {
 
   // Get corruption detection status
 
-
   // Remove corrupted chunks for a specific service (requires auth)
   static async removeCorruptedChunks(
     service: string,
-    threshold: number = 3,
-    compareToCacheLogs: boolean = true
+    threshold = 3,
+    compareToCacheLogs = true
   ): Promise<{ message: string; service: string }> {
     try {
-      const res = await fetch(`${API_BASE}/cache/services/${encodeURIComponent(service)}/corruption?threshold=${threshold}&compareToCacheLogs=${compareToCacheLogs}`, this.getFetchOptions({
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' }
-        // No timeout - Rust corruption remover handles large operations efficiently
-      }));
+      const res = await fetch(
+        `${API_BASE}/cache/services/${encodeURIComponent(service)}/corruption?threshold=${threshold}&compareToCacheLogs=${compareToCacheLogs}`,
+        this.getFetchOptions({
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' }
+          // No timeout - Rust corruption remover handles large operations efficiently
+        })
+      );
       return await this.handleResponse<{ message: string; service: string }>(res);
     } catch (error) {
       console.error('removeCorruptedChunks error:', error);
@@ -842,8 +909,8 @@ class ApiService {
   static async getCorruptionDetails(
     service: string,
     forceRefresh = false,
-    threshold: number = 3,
-    compareToCacheLogs: boolean = true
+    threshold = 3,
+    compareToCacheLogs = true
   ): Promise<CorruptedChunkDetail[]> {
     try {
       const params = new URLSearchParams();
@@ -851,9 +918,12 @@ class ApiService {
       params.set('threshold', String(threshold));
       params.set('compareToCacheLogs', String(compareToCacheLogs));
       const url = `${API_BASE}/cache/services/${encodeURIComponent(service)}/corruption?${params.toString()}`;
-      const res = await fetch(url, this.getFetchOptions({
-        // No timeout - wait for backend to complete analysis (could take several minutes for large logs)
-      }));
+      const res = await fetch(
+        url,
+        this.getFetchOptions({
+          // No timeout - wait for backend to complete analysis (could take several minutes for large logs)
+        })
+      );
       return await this.handleResponse<CorruptedChunkDetail[]>(res);
     } catch (error) {
       console.error('getCorruptionDetails error:', error);
@@ -862,13 +932,16 @@ class ApiService {
   }
 
   // Start game cache detection as background operation
-  static async startGameCacheDetection(forceRefresh: boolean = false): Promise<{ operationId: string }> {
+  static async startGameCacheDetection(forceRefresh = false): Promise<{ operationId: string }> {
     try {
       const url = `${API_BASE}/games/detect${forceRefresh ? '?forceRefresh=true' : ''}`;
-      const res = await fetch(url, this.getFetchOptions({
-        method: 'POST',
-        signal: AbortSignal.timeout(10000) // Short timeout since it returns immediately
-      }));
+      const res = await fetch(
+        url,
+        this.getFetchOptions({
+          method: 'POST',
+          signal: AbortSignal.timeout(10000) // Short timeout since it returns immediately
+        })
+      );
       return await this.handleResponse<{ operationId: string }>(res);
     } catch (error) {
       console.error('startGameCacheDetection error:', error);
@@ -886,9 +959,12 @@ class ApiService {
     lastDetectionTime?: string;
   }> {
     try {
-      const res = await fetch(`${API_BASE}/games/detect/cached`, this.getFetchOptions({
-        signal: AbortSignal.timeout(30000) // 30 seconds for large datasets
-      }));
+      const res = await fetch(
+        `${API_BASE}/games/detect/cached`,
+        this.getFetchOptions({
+          signal: AbortSignal.timeout(30000) // 30 seconds for large datasets
+        })
+      );
       return await this.handleResponse<{
         hasCachedResults: boolean;
         games?: GameCacheInfo[];
@@ -908,10 +984,13 @@ class ApiService {
     gameAppId: string
   ): Promise<{ message: string; gameAppId: string; status: string }> {
     try {
-      const res = await fetch(`${API_BASE}/games/${gameAppId}`, this.getFetchOptions({
-        method: 'DELETE'
-        // Returns immediately with 202 Accepted - removal happens in background
-      }));
+      const res = await fetch(
+        `${API_BASE}/games/${gameAppId}`,
+        this.getFetchOptions({
+          method: 'DELETE'
+          // Returns immediately with 202 Accepted - removal happens in background
+        })
+      );
       return await this.handleResponse<{ message: string; gameAppId: string; status: string }>(res);
     } catch (error) {
       console.error('removeGameFromCache error:', error);
@@ -924,11 +1003,16 @@ class ApiService {
     serviceName: string
   ): Promise<{ message: string; serviceName: string; status: string }> {
     try {
-      const res = await fetch(`${API_BASE}/cache/services/${encodeURIComponent(serviceName)}`, this.getFetchOptions({
-        method: 'DELETE'
-        // Returns immediately with 202 Accepted - removal happens in background
-      }));
-      return await this.handleResponse<{ message: string; serviceName: string; status: string }>(res);
+      const res = await fetch(
+        `${API_BASE}/cache/services/${encodeURIComponent(serviceName)}`,
+        this.getFetchOptions({
+          method: 'DELETE'
+          // Returns immediately with 202 Accepted - removal happens in background
+        })
+      );
+      return await this.handleResponse<{ message: string; serviceName: string; status: string }>(
+        res
+      );
     } catch (error) {
       console.error('removeServiceFromCache error:', error);
       throw error;
@@ -937,23 +1021,23 @@ class ApiService {
 
   // Get active cache operations (for recovery on page load)
   // Note: Used by NotificationsContext for operation recovery
-  
-
 
   // Get all active removal operations (games, services, corruption)
   // Used for universal recovery on page refresh
-  
 
   // Set guest session duration configuration
   static async setGuestSessionDuration(
     durationHours: number
   ): Promise<{ success: boolean; durationHours: number; message: string }> {
     try {
-      const res = await fetch(`${API_BASE}/auth/guest/config/duration`, this.getFetchOptions({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ durationHours })
-      }));
+      const res = await fetch(
+        `${API_BASE}/auth/guest/config/duration`,
+        this.getFetchOptions({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ durationHours })
+        })
+      );
       return await this.handleResponse<{
         success: boolean;
         durationHours: number;
@@ -998,16 +1082,18 @@ class ApiService {
   }
 
   // Get a single event by ID
-  
 
   // Create a new event
   static async createEvent(data: CreateEventRequest): Promise<Event> {
     try {
-      const res = await fetch(`${API_BASE}/events`, this.getFetchOptions({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      }));
+      const res = await fetch(
+        `${API_BASE}/events`,
+        this.getFetchOptions({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        })
+      );
       return await this.handleResponse<Event>(res);
     } catch (error) {
       console.error('createEvent error:', error);
@@ -1018,11 +1104,14 @@ class ApiService {
   // Update an existing event
   static async updateEvent(id: number, data: UpdateEventRequest): Promise<Event> {
     try {
-      const res = await fetch(`${API_BASE}/events/${id}`, this.getFetchOptions({
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      }));
+      const res = await fetch(
+        `${API_BASE}/events/${id}`,
+        this.getFetchOptions({
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        })
+      );
       return await this.handleResponse<Event>(res);
     } catch (error) {
       console.error('updateEvent error:', error);
@@ -1033,9 +1122,12 @@ class ApiService {
   // Delete an event
   static async deleteEvent(id: number): Promise<void> {
     try {
-      const res = await fetch(`${API_BASE}/events/${id}`, this.getFetchOptions({
-        method: 'DELETE'
-      }));
+      const res = await fetch(
+        `${API_BASE}/events/${id}`,
+        this.getFetchOptions({
+          method: 'DELETE'
+        })
+      );
       if (!res.ok) {
         const errorText = await res.text().catch(() => '');
         throw new Error(`HTTP ${res.status}: ${errorText || res.statusText}`);
@@ -1047,29 +1139,35 @@ class ApiService {
   }
 
   // Get downloads for an event
-  
 
   // ==================== Downloads with Associations ====================
 
   // Get a single download with its events
-  
 
   // Get events for multiple downloads in a single batch request
   static async getBatchDownloadEvents(
     downloadIds: number[],
     signal?: AbortSignal
-  ): Promise<Record<number, { events: Array<{ id: number; name: string; colorIndex: number; autoTagged: boolean }> }>> {
+  ): Promise<
+    Record<
+      number,
+      { events: { id: number; name: string; colorIndex: number; autoTagged: boolean }[] }
+    >
+  > {
     if (downloadIds.length === 0) {
       return {};
     }
     try {
       // IMPORTANT: use getFetchOptions() to include credentials for HttpOnly session cookies.
-      const res = await fetch(`${API_BASE}/downloads/batch-download-events`, this.getFetchOptions({
-        signal,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ downloadIds })
-      }));
+      const res = await fetch(
+        `${API_BASE}/downloads/batch-download-events`,
+        this.getFetchOptions({
+          signal,
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ downloadIds })
+        })
+      );
       return await this.handleResponse(res);
     } catch (error: unknown) {
       if (isAbortError(error)) {
@@ -1101,9 +1199,12 @@ class ApiService {
   }
 
   // Get historical download speeds for a time period
-  static async getSpeedHistory(minutes: number = 60, signal?: AbortSignal): Promise<SpeedHistorySnapshot> {
+  static async getSpeedHistory(minutes = 60, signal?: AbortSignal): Promise<SpeedHistorySnapshot> {
     try {
-      const res = await fetch(`${API_BASE}/speeds/history?minutes=${minutes}`, this.getFetchOptions({ signal }));
+      const res = await fetch(
+        `${API_BASE}/speeds/history?minutes=${minutes}`,
+        this.getFetchOptions({ signal })
+      );
       return await this.handleResponse<SpeedHistorySnapshot>(res);
     } catch (error: unknown) {
       if (isAbortError(error)) {
@@ -1133,16 +1234,18 @@ class ApiService {
   }
 
   // Get a single client group by ID
-  
 
   // Create a new client group
   static async createClientGroup(data: CreateClientGroupRequest): Promise<ClientGroup> {
     try {
-      const res = await fetch(`${API_BASE}/client-groups`, this.getFetchOptions({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      }));
+      const res = await fetch(
+        `${API_BASE}/client-groups`,
+        this.getFetchOptions({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        })
+      );
       return await this.handleResponse<ClientGroup>(res);
     } catch (error) {
       console.error('createClientGroup error:', error);
@@ -1153,11 +1256,14 @@ class ApiService {
   // Update an existing client group
   static async updateClientGroup(id: number, data: UpdateClientGroupRequest): Promise<ClientGroup> {
     try {
-      const res = await fetch(`${API_BASE}/client-groups/${id}`, this.getFetchOptions({
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      }));
+      const res = await fetch(
+        `${API_BASE}/client-groups/${id}`,
+        this.getFetchOptions({
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        })
+      );
       return await this.handleResponse<ClientGroup>(res);
     } catch (error) {
       console.error('updateClientGroup error:', error);
@@ -1168,9 +1274,12 @@ class ApiService {
   // Delete a client group
   static async deleteClientGroup(id: number): Promise<void> {
     try {
-      const res = await fetch(`${API_BASE}/client-groups/${id}`, this.getFetchOptions({
-        method: 'DELETE'
-      }));
+      const res = await fetch(
+        `${API_BASE}/client-groups/${id}`,
+        this.getFetchOptions({
+          method: 'DELETE'
+        })
+      );
       if (!res.ok) {
         const errorText = await res.text().catch(() => '');
         throw new Error(`HTTP ${res.status}: ${errorText || res.statusText}`);
@@ -1184,11 +1293,14 @@ class ApiService {
   // Add a member (IP) to a client group
   static async addClientGroupMember(groupId: number, clientIp: string): Promise<ClientGroup> {
     try {
-      const res = await fetch(`${API_BASE}/client-groups/${groupId}/members`, this.getFetchOptions({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientIp })
-      }));
+      const res = await fetch(
+        `${API_BASE}/client-groups/${groupId}/members`,
+        this.getFetchOptions({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ clientIp })
+        })
+      );
       return await this.handleResponse<ClientGroup>(res);
     } catch (error) {
       console.error('addClientGroupMember error:', error);
@@ -1199,9 +1311,12 @@ class ApiService {
   // Remove a member (IP) from a client group
   static async removeClientGroupMember(groupId: number, clientIp: string): Promise<void> {
     try {
-      const res = await fetch(`${API_BASE}/client-groups/${groupId}/members/${encodeURIComponent(clientIp)}`, this.getFetchOptions({
-        method: 'DELETE'
-      }));
+      const res = await fetch(
+        `${API_BASE}/client-groups/${groupId}/members/${encodeURIComponent(clientIp)}`,
+        this.getFetchOptions({
+          method: 'DELETE'
+        })
+      );
       if (!res.ok) {
         const errorText = await res.text().catch(() => '');
         throw new Error(`HTTP ${res.status}: ${errorText || res.statusText}`);
@@ -1213,7 +1328,6 @@ class ApiService {
   }
 
   // Get IP to group mapping for efficient lookups
-  
 
   // =====================================================
   // Universal Operation Cancellation APIs
@@ -1222,11 +1336,14 @@ class ApiService {
   // Cancel any operation by ID
   static async cancelOperation(operationId: string): Promise<{ message: string }> {
     try {
-      const res = await fetch(`${API_BASE}/operations/${operationId}/cancel`, this.getFetchOptions({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(5000)
-      }));
+      const res = await fetch(
+        `${API_BASE}/operations/${operationId}/cancel`,
+        this.getFetchOptions({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: AbortSignal.timeout(5000)
+        })
+      );
       return await this.handleResponse<{ message: string }>(res);
     } catch (error: unknown) {
       console.error('cancelOperation error:', error);
@@ -1248,7 +1365,10 @@ class ApiService {
     try {
       const params = new URLSearchParams({ page: page.toString(), pageSize: pageSize.toString() });
       if (status) params.set('status', status);
-      const res = await fetch(`${API_BASE}/prefill-admin/sessions?${params}`, this.getFetchOptions({ signal }));
+      const res = await fetch(
+        `${API_BASE}/prefill-admin/sessions?${params}`,
+        this.getFetchOptions({ signal })
+      );
       return await this.handleResponse<PrefillSessionsResponse>(res);
     } catch (error: unknown) {
       if (!isAbortError(error)) console.error('getPrefillSessions error:', error);
@@ -1259,7 +1379,10 @@ class ApiService {
   // Get active prefill sessions (in-memory)
   static async getActivePrefillSessions(signal?: AbortSignal): Promise<DaemonSessionDto[]> {
     try {
-      const res = await fetch(`${API_BASE}/prefill-admin/sessions/active`, this.getFetchOptions({ signal }));
+      const res = await fetch(
+        `${API_BASE}/prefill-admin/sessions/active`,
+        this.getFetchOptions({ signal })
+      );
       return await this.handleResponse<DaemonSessionDto[]>(res);
     } catch (error: unknown) {
       if (!isAbortError(error)) console.error('getActivePrefillSessions error:', error);
@@ -1273,7 +1396,10 @@ class ApiService {
     signal?: AbortSignal
   ): Promise<PrefillHistoryEntryDto[]> {
     try {
-      const res = await fetch(`${API_BASE}/prefill-admin/sessions/${sessionId}/history`, this.getFetchOptions({ signal }));
+      const res = await fetch(
+        `${API_BASE}/prefill-admin/sessions/${sessionId}/history`,
+        this.getFetchOptions({ signal })
+      );
       return await this.handleResponse<PrefillHistoryEntryDto[]>(res);
     } catch (error: unknown) {
       if (!isAbortError(error)) console.error('getPrefillSessionHistory error:', error);
@@ -1288,11 +1414,14 @@ class ApiService {
     force = false
   ): Promise<{ message: string }> {
     try {
-      const res = await fetch(`${API_BASE}/prefill-admin/sessions/${sessionId}/terminate`, this.getFetchOptions({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason, force })
-      }));
+      const res = await fetch(
+        `${API_BASE}/prefill-admin/sessions/${sessionId}/terminate`,
+        this.getFetchOptions({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason, force })
+        })
+      );
       return await this.handleResponse<{ message: string }>(res);
     } catch (error: unknown) {
       console.error('terminatePrefillSession error:', error);
@@ -1301,13 +1430,19 @@ class ApiService {
   }
 
   // Terminate all prefill sessions
-  static async terminateAllPrefillSessions(reason?: string, force = true): Promise<{ message: string }> {
+  static async terminateAllPrefillSessions(
+    reason?: string,
+    force = true
+  ): Promise<{ message: string }> {
     try {
-      const res = await fetch(`${API_BASE}/prefill-admin/sessions/terminate-all`, this.getFetchOptions({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason, force })
-      }));
+      const res = await fetch(
+        `${API_BASE}/prefill-admin/sessions/terminate-all`,
+        this.getFetchOptions({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason, force })
+        })
+      );
       return await this.handleResponse<{ message: string }>(res);
     } catch (error: unknown) {
       console.error('terminateAllPrefillSessions error:', error);
@@ -1316,7 +1451,10 @@ class ApiService {
   }
 
   // Get Steam user bans
-  static async getSteamBans(includeLifted = false, signal?: AbortSignal): Promise<BannedSteamUserDto[]> {
+  static async getSteamBans(
+    includeLifted = false,
+    signal?: AbortSignal
+  ): Promise<BannedSteamUserDto[]> {
     try {
       const res = await fetch(
         `${API_BASE}/prefill-admin/bans?includeLifted=${includeLifted}`,
@@ -1336,11 +1474,14 @@ class ApiService {
     expiresAt?: string
   ): Promise<BannedSteamUserDto> {
     try {
-      const res = await fetch(`${API_BASE}/prefill-admin/bans/by-session/${sessionId}`, this.getFetchOptions({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason, expiresAt })
-      }));
+      const res = await fetch(
+        `${API_BASE}/prefill-admin/bans/by-session/${sessionId}`,
+        this.getFetchOptions({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason, expiresAt })
+        })
+      );
       return await this.handleResponse<BannedSteamUserDto>(res);
     } catch (error: unknown) {
       console.error('banSteamUserBySession error:', error);
@@ -1349,14 +1490,16 @@ class ApiService {
   }
 
   // Ban a Steam user by username
-  
 
   // Lift a Steam user ban
   static async liftSteamBan(banId: number): Promise<{ message: string }> {
     try {
-      const res = await fetch(`${API_BASE}/prefill-admin/bans/${banId}/lift`, this.getFetchOptions({
-        method: 'POST'
-      }));
+      const res = await fetch(
+        `${API_BASE}/prefill-admin/bans/${banId}/lift`,
+        this.getFetchOptions({
+          method: 'POST'
+        })
+      );
       return await this.handleResponse<{ message: string }>(res);
     } catch (error: unknown) {
       console.error('liftSteamBan error:', error);
@@ -1383,7 +1526,7 @@ class ApiService {
   static async getPrefillCacheStatus(
     sessionId: string,
     appIds: string[],
-    serviceBasePath: string = 'steam-daemon',
+    serviceBasePath = 'steam-daemon',
     signal?: AbortSignal
   ): Promise<PrefillCacheStatusDto> {
     try {
@@ -1404,17 +1547,18 @@ class ApiService {
   }
 
   // Check which apps are cached
-  
 
   // Clear cache for a specific app
-  
 
   // Clear entire prefill cache
   static async clearAllPrefillCache(): Promise<{ message: string }> {
     try {
-      const res = await fetch(`${API_BASE}/prefill-admin/cache`, this.getFetchOptions({
-        method: 'DELETE'
-      }));
+      const res = await fetch(
+        `${API_BASE}/prefill-admin/cache`,
+        this.getFetchOptions({
+          method: 'DELETE'
+        })
+      );
       return await this.handleResponse<{ message: string }>(res);
     } catch (error: unknown) {
       console.error('clearAllPrefillCache error:', error);
@@ -1535,7 +1679,5 @@ interface PrefillCacheStatusDto {
   outdatedAppIds: string[];
   message?: string;
 }
-
-
 
 export default ApiService;

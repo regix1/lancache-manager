@@ -44,14 +44,9 @@ const ExpandableList: React.FC<ExpandableListProps> = ({
       </div>
       <div className="space-y-1 max-h-48 overflow-y-auto">
         {(showAll ? items : items.slice(0, maxInitial)).map((item, idx) => (
-          <div
-            key={idx}
-            className="p-2 rounded border bg-themed-secondary border-themed-primary"
-          >
+          <div key={idx} className="p-2 rounded border bg-themed-secondary border-themed-primary">
             <Tooltip content={item}>
-              <span className="text-xs font-mono text-themed-primary truncate block">
-                {item}
-              </span>
+              <span className="text-xs font-mono text-themed-primary truncate block">{item}</span>
             </Tooltip>
           </div>
         ))}

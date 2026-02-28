@@ -6,9 +6,7 @@ interface PreferencesSectionProps {
   isAdmin: boolean;
 }
 
-const PreferencesSection: React.FC<PreferencesSectionProps> = ({
-  isAdmin
-}) => {
+const PreferencesSection: React.FC<PreferencesSectionProps> = ({ isAdmin }) => {
   const { t } = useTranslation();
 
   return (

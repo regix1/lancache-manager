@@ -8,7 +8,13 @@ interface CardProps {
   style?: React.CSSProperties;
 }
 
-export const Card: React.FC<CardProps> = ({ children, className = '', padding = 'lg', glassmorphism = false, style }) => {
+export const Card: React.FC<CardProps> = ({
+  children,
+  className = '',
+  padding = 'lg',
+  glassmorphism = false,
+  style
+}) => {
   const paddings = {
     none: '',
     sm: 'p-3',
@@ -19,7 +25,12 @@ export const Card: React.FC<CardProps> = ({ children, className = '', padding = 
   const baseClass = glassmorphism ? 'glass-card' : 'themed-card';
 
   return (
-    <div className={`${baseClass} themed-border-radius border ${paddings[padding]} ${className}`} style={style}>{children}</div>
+    <div
+      className={`${baseClass} themed-border-radius border ${paddings[padding]} ${className}`}
+      style={style}
+    >
+      {children}
+    </div>
   );
 };
 

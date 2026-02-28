@@ -1,12 +1,5 @@
 import React from 'react';
-import {
-  Loader2,
-  ScrollText,
-  HardDrive,
-  CheckCircle,
-  XCircle,
-  Lock
-} from 'lucide-react';
+import { Loader2, ScrollText, HardDrive, CheckCircle, XCircle, Lock } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Tooltip } from './Tooltip';
 
@@ -63,7 +56,9 @@ export const ManagerCardHeader: React.FC<ManagerCardHeaderProps> = ({
   return (
     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4 mb-6">
       <div className="flex items-center gap-3 min-w-0">
-        <div className={`w-10 h-10 rounded-lg flex items-center justify-center icon-bg-${iconColor} flex-shrink-0`}>
+        <div
+          className={`w-10 h-10 rounded-lg flex items-center justify-center icon-bg-${iconColor} flex-shrink-0`}
+        >
           <Icon className={`w-5 h-5 icon-${iconColor}`} />
         </div>
         <div className="min-w-0 flex-1">
@@ -108,7 +103,9 @@ const PermissionIndicators: React.FC<PermissionIndicatorsProps> = ({
     <div className="flex items-center gap-2">
       {showLogs && logsReadOnly !== undefined && (
         <Tooltip
-          content={logsReadOnly ? t('ui.managerCard.logsReadOnly') : t('ui.managerCard.logsWritable')}
+          content={
+            logsReadOnly ? t('ui.managerCard.logsReadOnly') : t('ui.managerCard.logsWritable')
+          }
           position="top"
         >
           <span className="flex items-center gap-0.5">
@@ -123,7 +120,9 @@ const PermissionIndicators: React.FC<PermissionIndicatorsProps> = ({
       )}
       {showCache && cacheReadOnly !== undefined && (
         <Tooltip
-          content={cacheReadOnly ? t('ui.managerCard.cacheReadOnly') : t('ui.managerCard.cacheWritable')}
+          content={
+            cacheReadOnly ? t('ui.managerCard.cacheReadOnly') : t('ui.managerCard.cacheWritable')
+          }
           position="top"
         >
           <span className="flex items-center gap-0.5">
@@ -152,19 +151,14 @@ interface LoadingStateProps {
 /**
  * Standardized loading state for management cards
  */
-export const LoadingState: React.FC<LoadingStateProps> = ({
-  message,
-  submessage
-}) => {
+export const LoadingState: React.FC<LoadingStateProps> = ({ message, submessage }) => {
   const { t } = useTranslation();
-  
+
   return (
     <div className="flex flex-col items-center justify-center py-8 gap-3">
       <Loader2 className="w-6 h-6 animate-spin text-themed-accent" />
       <p className="text-sm text-themed-secondary">{message || t('common.loading')}</p>
-      {submessage && (
-        <p className="text-xs text-themed-muted">{submessage}</p>
-      )}
+      {submessage && <p className="text-xs text-themed-muted">{submessage}</p>}
     </div>
   );
 };
@@ -183,12 +177,7 @@ interface EmptyStateProps {
 /**
  * Standardized empty state for management cards
  */
-export const EmptyState: React.FC<EmptyStateProps> = ({
-  icon: Icon,
-  title,
-  subtitle,
-  action
-}) => {
+export const EmptyState: React.FC<EmptyStateProps> = ({ icon: Icon, title, subtitle, action }) => {
   return (
     <div className="text-center py-8 text-themed-muted">
       {Icon && <Icon className="w-12 h-12 mx-auto mb-3 opacity-50" />}
@@ -210,11 +199,9 @@ interface ReadOnlyBadgeProps {
 /**
  * Standardized read-only badge for disabled states
  */
-export const ReadOnlyBadge: React.FC<ReadOnlyBadgeProps> = ({
-  message
-}) => {
+export const ReadOnlyBadge: React.FC<ReadOnlyBadgeProps> = ({ message }) => {
   const { t } = useTranslation();
-  
+
   return (
     <div className="flex items-center justify-center py-4">
       <span className="px-2 py-0.5 text-xs rounded font-medium flex items-center gap-1.5 border bg-[var(--theme-warning-bg)] text-[var(--theme-warning)] border-[var(--theme-warning)]">
@@ -224,4 +211,3 @@ export const ReadOnlyBadge: React.FC<ReadOnlyBadgeProps> = ({
     </div>
   );
 };
-

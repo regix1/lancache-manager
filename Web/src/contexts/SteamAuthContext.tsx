@@ -1,4 +1,11 @@
-import React, { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useCallback,
+  type ReactNode
+} from 'react';
 import ApiService from '@services/api.service';
 import { useSignalR } from '@contexts/SignalRContext';
 import { useAuth } from '@contexts/AuthContext';
@@ -94,7 +101,12 @@ export const SteamAuthProvider: React.FC<SteamAuthProviderProps> = ({ children }
     if (!isAdmin) return;
 
     const handleSteamSessionError = async (event: SteamSessionErrorEvent) => {
-      const authInvalidatingTypes = ['InvalidCredentials', 'AuthenticationRequired', 'SessionExpired', 'AutoLogout'];
+      const authInvalidatingTypes = [
+        'InvalidCredentials',
+        'AuthenticationRequired',
+        'SessionExpired',
+        'AutoLogout'
+      ];
       if (authInvalidatingTypes.includes(event.errorType)) {
         await fetchSteamAuth();
       }

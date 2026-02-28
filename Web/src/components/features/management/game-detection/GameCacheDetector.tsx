@@ -38,13 +38,14 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   refreshKey = 0
 }) => {
   const { t } = useTranslation();
-  const { addNotification, updateNotification, notifications, isAnyRemovalRunning } = useNotifications();
+  const { addNotification, updateNotification, notifications, isAnyRemovalRunning } =
+    useNotifications();
   const { isDockerAvailable } = useDockerSocket();
   const { cacheReadOnly, checkingPermissions } = useDirectoryPermissions();
 
   // Derive game detection state from notifications (standardized pattern)
   const activeGameDetectionNotification = notifications.find(
-    n => n.type === 'game_detection' && n.status === 'running'
+    (n) => n.type === 'game_detection' && n.status === 'running'
   );
   const isDetectionFromNotification = !!activeGameDetectionNotification;
 
@@ -133,17 +134,23 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
           if (!isActivelyScanning && !alreadyShownThisSession) {
             const parts = [];
             if (result.totalGamesDetected && result.totalGamesDetected > 0) {
-              parts.push(`${result.totalGamesDetected} game${result.totalGamesDetected !== 1 ? 's' : ''}`);
+              parts.push(
+                `${result.totalGamesDetected} game${result.totalGamesDetected !== 1 ? 's' : ''}`
+              );
             }
             if (result.totalServicesDetected && result.totalServicesDetected > 0) {
-              parts.push(`${result.totalServicesDetected} service${result.totalServicesDetected !== 1 ? 's' : ''}`);
+              parts.push(
+                `${result.totalServicesDetected} service${result.totalServicesDetected !== 1 ? 's' : ''}`
+              );
             }
 
             if (parts.length > 0) {
               addNotification({
                 type: 'generic',
                 status: 'completed',
-                message: t('management.gameDetection.loadedPreviousResults', { results: parts.join(' and ') }),
+                message: t('management.gameDetection.loadedPreviousResults', {
+                  results: parts.join(' and ')
+                }),
                 details: { notificationType: 'info' }
               });
               sessionStorage.setItem(sessionKey, 'true');
@@ -169,6 +176,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       // Note: Recovery is now handled by NotificationsContext's recoverGameDetection
       // which queries the backend and creates the notification on page load
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mockMode, refreshKey]); // Re-run when mockMode or refreshKey changes
 
   const loadDatasources = async () => {
@@ -178,14 +186,16 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         setDatasources(config.dataSources);
       } else {
         // Fallback to default datasource from config
-        setDatasources([{
-          name: 'default',
-          cachePath: config.cachePath || '/cache',
-          logsPath: config.logsPath || '/logs',
-          cacheWritable: config.cacheWritable ?? false,
-          logsWritable: config.logsWritable ?? false,
-          enabled: true
-        }]);
+        setDatasources([
+          {
+            name: 'default',
+            cachePath: config.cachePath || '/cache',
+            logsPath: config.logsPath || '/logs',
+            cacheWritable: config.cacheWritable ?? false,
+            logsWritable: config.logsWritable ?? false,
+            enabled: true
+          }
+        ]);
       }
     } catch (err) {
       console.error('Failed to load datasources:', err);
@@ -303,56 +313,64 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     }
   }, [notifications, isStartingDetection]);
 
-  const startDetection = useCallback(async (forceRefresh: boolean, scanTypeLabel: 'full' | 'incremental') => {
-    if (mockMode) {
-      const errorMsg = t('management.gameDetection.detectionDisabledMockMode');
-      addNotification({
-        type: 'generic',
-        status: 'failed',
-        message: errorMsg,
-        details: { notificationType: 'error' }
-      });
-      return;
-    }
+  const startDetection = useCallback(
+    async (forceRefresh: boolean, scanTypeLabel: 'full' | 'incremental') => {
+      if (mockMode) {
+        const errorMsg = t('management.gameDetection.detectionDisabledMockMode');
+        addNotification({
+          type: 'generic',
+          status: 'failed',
+          message: errorMsg,
+          details: { notificationType: 'error' }
+        });
+        return;
+      }
 
-    // Prevent duplicate API calls - check ref first (handles rapid clicks before state updates)
-    if (detectionInFlightRef.current || loading) {
-      console.log('[GameCacheDetector] Detection already in progress, ignoring duplicate call');
-      return;
-    }
+      // Prevent duplicate API calls - check ref first (handles rapid clicks before state updates)
+      if (detectionInFlightRef.current || loading) {
+        console.warn('[GameCacheDetector] Detection already in progress, ignoring duplicate call');
+        return;
+      }
 
-    // Set ref immediately to block any concurrent calls
-    detectionInFlightRef.current = true;
+      // Set ref immediately to block any concurrent calls
+      detectionInFlightRef.current = true;
 
-    setIsStartingDetection(true);
-    setScanType(scanTypeLabel);
-    setGames([]);
-    setServices([]);
-    setLastDetectionTime(null); // Clear previous detection time when starting new scan
+      setIsStartingDetection(true);
+      setScanType(scanTypeLabel);
+      setGames([]);
+      setServices([]);
+      setLastDetectionTime(null); // Clear previous detection time when starting new scan
 
-    try {
-      // Start background detection - SignalR will send GameDetectionStarted event
-      await ApiService.startGameCacheDetection(forceRefresh);
-      // Note: NotificationsContext will create a notification via SignalR (GameDetectionStarted event)
-      // and recovery is handled by recoverGameDetection
-    } catch (err: unknown) {
-      const errorMsg = (err instanceof Error ? err.message : String(err)) || t('management.gameDetection.failedToStartDetection');
-      addNotification({
-        type: 'generic',
-        status: 'failed',
-        message: errorMsg,
-        details: { notificationType: 'error' }
-      });
-      console.error('Detection error:', err);
-      setIsStartingDetection(false);
-      setScanType(null);
-      // Reset ref on error so user can retry
-      detectionInFlightRef.current = false;
-    }
-  }, [mockMode, loading, t, addNotification]);
+      try {
+        // Start background detection - SignalR will send GameDetectionStarted event
+        await ApiService.startGameCacheDetection(forceRefresh);
+        // Note: NotificationsContext will create a notification via SignalR (GameDetectionStarted event)
+        // and recovery is handled by recoverGameDetection
+      } catch (err: unknown) {
+        const errorMsg =
+          (err instanceof Error ? err.message : String(err)) ||
+          t('management.gameDetection.failedToStartDetection');
+        addNotification({
+          type: 'generic',
+          status: 'failed',
+          message: errorMsg,
+          details: { notificationType: 'error' }
+        });
+        console.error('Detection error:', err);
+        setIsStartingDetection(false);
+        setScanType(null);
+        // Reset ref on error so user can retry
+        detectionInFlightRef.current = false;
+      }
+    },
+    [mockMode, loading, t, addNotification]
+  );
 
   const handleFullScan = useCallback(() => startDetection(true, 'full'), [startDetection]);
-  const handleIncrementalScan = useCallback(() => startDetection(false, 'incremental'), [startDetection]);
+  const handleIncrementalScan = useCallback(
+    () => startDetection(false, 'incremental'),
+    [startDetection]
+  );
 
   const handleLoadData = async () => {
     if (mockMode) return;
@@ -385,17 +403,23 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         // Show notification
         const parts = [];
         if (result.totalGamesDetected && result.totalGamesDetected > 0) {
-          parts.push(`${result.totalGamesDetected} game${result.totalGamesDetected !== 1 ? 's' : ''}`);
+          parts.push(
+            `${result.totalGamesDetected} game${result.totalGamesDetected !== 1 ? 's' : ''}`
+          );
         }
         if (result.totalServicesDetected && result.totalServicesDetected > 0) {
-          parts.push(`${result.totalServicesDetected} service${result.totalServicesDetected !== 1 ? 's' : ''}`);
+          parts.push(
+            `${result.totalServicesDetected} service${result.totalServicesDetected !== 1 ? 's' : ''}`
+          );
         }
 
         if (parts.length > 0) {
           addNotification({
             type: 'generic',
             status: 'completed',
-            message: t('management.gameDetection.loadedFromPreviousScan', { results: parts.join(' and ') }),
+            message: t('management.gameDetection.loadedFromPreviousScan', {
+              results: parts.join(' and ')
+            }),
             details: { notificationType: 'success' }
           });
         } else {
@@ -476,7 +500,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         onDataRefresh?.();
       }, 30000); // Refresh after 30 seconds
     } catch (err: unknown) {
-      const errorMsg = (err instanceof Error ? err.message : String(err)) || t('management.gameDetection.failedToRemoveGame');
+      const errorMsg =
+        (err instanceof Error ? err.message : String(err)) ||
+        t('management.gameDetection.failedToRemoveGame');
 
       // Update notification to failed (ID is "game_removal-{gameAppId}")
       const notifId = `game_removal-${gameAppId}`;
@@ -532,7 +558,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         onDataRefresh?.();
       }, 30000); // Refresh after 30 seconds
     } catch (err: unknown) {
-      const errorMsg = (err instanceof Error ? err.message : String(err)) || t('management.gameDetection.failedToRemoveService');
+      const errorMsg =
+        (err instanceof Error ? err.message : String(err)) ||
+        t('management.gameDetection.failedToRemoveService');
 
       // Update notification to failed (ID is "service_removal-{serviceName}")
       const notifId = `service_removal-${serviceName}`;
@@ -565,19 +593,25 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       <HelpSection title={t('management.gameDetection.help.removal.title')} variant="subtle">
         <div className="divide-y divide-[var(--theme-text-muted)]">
           <div className="py-1.5 first:pt-0 last:pb-0">
-            <div className="font-medium text-themed-primary">{t('management.gameDetection.help.removal.game.term')}</div>
-            <div className="mt-0.5">{t('management.gameDetection.help.removal.game.description')}</div>
+            <div className="font-medium text-themed-primary">
+              {t('management.gameDetection.help.removal.game.term')}
+            </div>
+            <div className="mt-0.5">
+              {t('management.gameDetection.help.removal.game.description')}
+            </div>
           </div>
           <div className="py-1.5 first:pt-0 last:pb-0">
-            <div className="font-medium text-themed-primary">{t('management.gameDetection.help.removal.service.term')}</div>
-            <div className="mt-0.5">{t('management.gameDetection.help.removal.service.description')}</div>
+            <div className="font-medium text-themed-primary">
+              {t('management.gameDetection.help.removal.service.term')}
+            </div>
+            <div className="mt-0.5">
+              {t('management.gameDetection.help.removal.service.description')}
+            </div>
           </div>
         </div>
       </HelpSection>
 
-      <HelpNote type="info">
-        {t('management.gameDetection.help.note')}
-      </HelpNote>
+      <HelpNote type="info">{t('management.gameDetection.help.note')}</HelpNote>
     </HelpPopover>
   );
 
@@ -591,22 +625,42 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
           variant="subtle"
           size="sm"
         >
-          {loading && scanType === 'load' ? <Loader2 className="w-4 h-4 animate-spin" /> : t('common.load')}
+          {loading && scanType === 'load' ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            t('common.load')
+          )}
         </Button>
       </Tooltip>
 
-      <Tooltip content={!hasProcessedLogs && !checkingLogs ? t('management.gameDetection.processLogsFirst') : t('management.gameDetection.quickScan')}>
+      <Tooltip
+        content={
+          !hasProcessedLogs && !checkingLogs
+            ? t('management.gameDetection.processLogsFirst')
+            : t('management.gameDetection.quickScan')
+        }
+      >
         <Button
           onClick={handleIncrementalScan}
           disabled={loading || mockMode || checkingPermissions || !hasProcessedLogs || checkingLogs}
           variant="subtle"
           size="sm"
         >
-          {loading && scanType === 'incremental' ? <Loader2 className="w-4 h-4 animate-spin" /> : t('management.gameDetection.quick')}
+          {loading && scanType === 'incremental' ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            t('management.gameDetection.quick')
+          )}
         </Button>
       </Tooltip>
 
-      <Tooltip content={!hasProcessedLogs && !checkingLogs ? t('management.gameDetection.processLogsFirst') : t('management.gameDetection.fullScan')}>
+      <Tooltip
+        content={
+          !hasProcessedLogs && !checkingLogs
+            ? t('management.gameDetection.processLogsFirst')
+            : t('management.gameDetection.fullScan')
+        }
+      >
         <Button
           onClick={handleFullScan}
           disabled={loading || mockMode || checkingPermissions || !hasProcessedLogs || checkingLogs}
@@ -614,7 +668,11 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
           color="blue"
           size="sm"
         >
-          {loading && scanType === 'full' ? <Loader2 className="w-4 h-4 animate-spin" /> : t('management.gameDetection.fullScanButton')}
+          {loading && scanType === 'full' ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            t('management.gameDetection.fullScanButton')
+          )}
         </Button>
       </Tooltip>
     </div>
@@ -631,7 +689,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
             subtitle={t('management.gameDetection.subtitle')}
             helpContent={helpContent}
             permissions={{
-              logsReadOnly: datasources.some(ds => !ds.logsWritable),
+              logsReadOnly: datasources.some((ds) => !ds.logsWritable),
               cacheReadOnly,
               checkingPermissions
             }}
@@ -643,7 +701,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
             <>
               <Alert color="orange" className="mb-2">
                 <div>
-                  <p className="font-medium">{t('management.gameDetection.alerts.cacheReadOnly.title')}</p>
+                  <p className="font-medium">
+                    {t('management.gameDetection.alerts.cacheReadOnly.title')}
+                  </p>
                   <p className="text-sm mt-1">
                     {t('management.gameDetection.alerts.cacheReadOnly.description')}
                   </p>
@@ -659,10 +719,12 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
               <EnhancedDropdown
                 options={[
                   { value: '', label: t('management.gameDetection.placeholders.allDatasources') },
-                  ...datasources.map((ds): DropdownOption => ({
-                    value: ds.name,
-                    label: ds.name
-                  }))
+                  ...datasources.map(
+                    (ds): DropdownOption => ({
+                      value: ds.name,
+                      label: ds.name
+                    })
+                  )
                 ]}
                 value={selectedDatasource || ''}
                 onChange={(value) => setSelectedDatasource(value || null)}
@@ -677,9 +739,13 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
           {/* Loading State */}
           {loading && (
             <LoadingState
-              message={datasources.length > 1
-                ? t('management.gameDetection.scanningMultipleDatasources', { count: datasources.length })
-                : t('management.gameDetection.scanningSingle')}
+              message={
+                datasources.length > 1
+                  ? t('management.gameDetection.scanningMultipleDatasources', {
+                      count: datasources.length
+                    })
+                  : t('management.gameDetection.scanningSingle')
+              }
               submessage={t('management.gameDetection.scanningNote')}
             />
           )}
@@ -700,12 +766,10 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                     </div>
                     {/* Expand/Collapse All button */}
                     {hasResults && (
-                      <Button
-                        variant="subtle"
-                        size="xs"
-                        onClick={handleExpandCollapseAll}
-                      >
-                        {allExpanded ? t('management.gameDetection.collapseAll') : t('management.gameDetection.expandAll')}
+                      <Button variant="subtle" size="xs" onClick={handleExpandCollapseAll}>
+                        {allExpanded
+                          ? t('management.gameDetection.collapseAll')
+                          : t('management.gameDetection.expandAll')}
                       </Button>
                     )}
                   </div>
@@ -717,17 +781,13 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                 <Alert color="blue">
                   <div className="flex items-center justify-between">
                     <span className="text-sm">
-                      {t('management.gameDetection.filteredBy', { 
-                        datasource: selectedDatasource, 
+                      {t('management.gameDetection.filteredBy', {
+                        datasource: selectedDatasource,
                         gameCount: filteredGames.length,
                         serviceCount: filteredServices.length
                       })}
                     </span>
-                    <Button
-                      variant="subtle"
-                      size="xs"
-                      onClick={() => setSelectedDatasource(null)}
-                    >
+                    <Button variant="subtle" size="xs" onClick={() => setSelectedDatasource(null)}>
                       {t('management.gameDetection.clearFilter')}
                     </Button>
                   </div>
@@ -786,21 +846,29 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
               {!hasResults && !loading && (
                 <EmptyState
                   icon={HardDrive}
-                  title={selectedDatasource
-                    ? t('management.gameDetection.emptyState.noGamesServicesDatasource', { datasource: selectedDatasource })
-                    : t('management.gameDetection.emptyState.noGamesServices')}
-                  subtitle={!hasProcessedLogs && !checkingLogs
-                    ? t('management.gameDetection.emptyState.processLogsFirst')
-                    : t('management.gameDetection.emptyState.clickFullScan')}
-                  action={selectedDatasource ? (
-                    <Button
-                      variant="subtle"
-                      size="sm"
-                      onClick={() => setSelectedDatasource(null)}
-                    >
-                      {t('management.gameDetection.clearFilter')}
-                    </Button>
-                  ) : undefined}
+                  title={
+                    selectedDatasource
+                      ? t('management.gameDetection.emptyState.noGamesServicesDatasource', {
+                          datasource: selectedDatasource
+                        })
+                      : t('management.gameDetection.emptyState.noGamesServices')
+                  }
+                  subtitle={
+                    !hasProcessedLogs && !checkingLogs
+                      ? t('management.gameDetection.emptyState.processLogsFirst')
+                      : t('management.gameDetection.emptyState.clickFullScan')
+                  }
+                  action={
+                    selectedDatasource ? (
+                      <Button
+                        variant="subtle"
+                        size="sm"
+                        onClick={() => setSelectedDatasource(null)}
+                      >
+                        {t('management.gameDetection.clearFilter')}
+                      </Button>
+                    ) : undefined
+                  }
                 />
               )}
             </>

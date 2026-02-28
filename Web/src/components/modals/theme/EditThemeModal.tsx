@@ -6,7 +6,11 @@ import { Button } from '../../ui/Button';
 import { Checkbox } from '../../ui/Checkbox';
 import { ImprovedColorPicker } from '../../features/management/theme/ImprovedColorPicker';
 import { colorGroups, pageDefinitions } from '../../features/management/theme/constants';
-import { type ColorGroup, type Theme, type EditableTheme } from '../../features/management/theme/types';
+import {
+  type ColorGroup,
+  type Theme,
+  type EditableTheme
+} from '../../features/management/theme/types';
 import { storage } from '@utils/storage';
 
 interface EditThemeModalProps {
@@ -48,8 +52,7 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
 }) => {
   const { t } = useTranslation();
   const [editSearchQuery, setEditSearchQuery] = useState('');
-  const getGroupTitle = (group: ColorGroup) =>
-    t(`modals.theme.groups.${group.name}.title`);
+  const getGroupTitle = (group: ColorGroup) => t(`modals.theme.groups.${group.name}.title`);
   const getGroupDescription = (group: ColorGroup) =>
     t(`modals.theme.groups.${group.name}.description`);
   const getColorLabel = (color: ColorGroup['colors'][number]) =>
@@ -57,15 +60,17 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
   const getColorDescription = (color: ColorGroup['colors'][number]) =>
     t(`modals.theme.colors.${color.key}.description`);
   const getColorAffects = (color: ColorGroup['colors'][number]) => {
-    const translatedAffects = t(`modals.theme.colors.${color.key}.affects`, { returnObjects: true });
+    const translatedAffects = t(`modals.theme.colors.${color.key}.affects`, {
+      returnObjects: true
+    });
     if (Array.isArray(translatedAffects)) {
       return translatedAffects as string[];
     }
     return color.affects;
   };
-  const getPageLabel = (page: typeof pageDefinitions[number]) =>
+  const getPageLabel = (page: (typeof pageDefinitions)[number]) =>
     t(`modals.theme.pages.${page.name}.label`);
-  const getPageDescription = (page: typeof pageDefinitions[number]) =>
+  const getPageDescription = (page: (typeof pageDefinitions)[number]) =>
     t(`modals.theme.pages.${page.name}.description`);
 
   const handleEditColorCommit = (key: string, previousColor: string) => {
@@ -238,6 +243,7 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
 
       return filtered;
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [editOrganizationMode, editSelectedPage]
   );
 
@@ -290,7 +296,9 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1 text-themed-secondary">{t('modals.theme.form.author')}</label>
+              <label className="block text-sm font-medium mb-1 text-themed-secondary">
+                {t('modals.theme.form.author')}
+              </label>
               <input
                 type="text"
                 value={editedTheme.author || ''}
@@ -320,7 +328,9 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
                 variant="rounded"
                 label={t('modals.theme.form.darkTheme')}
               />
-              <span className="text-xs text-themed-muted">{t('modals.theme.form.themeId', { id: editingTheme?.meta.id })}</span>
+              <span className="text-xs text-themed-muted">
+                {t('modals.theme.form.themeId', { id: editingTheme?.meta.id })}
+              </span>
             </div>
           </div>
         </div>
@@ -357,7 +367,9 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
             editOrganizationMode === 'page' ? 'max-h-40 opacity-100 mt-4' : 'max-h-0 opacity-0'
           }`}
         >
-          <label className="block text-sm font-medium text-themed-primary mb-2">{t('modals.theme.organization.selectPage')}</label>
+          <label className="block text-sm font-medium text-themed-primary mb-2">
+            {t('modals.theme.organization.selectPage')}
+          </label>
           <div className="grid grid-cols-3 gap-2">
             {pageDefinitions.map((page) => {
               const Icon = page.icon;

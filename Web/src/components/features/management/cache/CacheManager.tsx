@@ -14,17 +14,13 @@ import { Modal } from '@components/ui/Modal';
 import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
 import { DatasourceListItem } from '@components/ui/DatasourceListItem';
 import { Tooltip } from '@components/ui/Tooltip';
-import {
-  ManagerCardHeader,
-  ReadOnlyBadge
-} from '@components/ui/ManagerCard';
+import { ManagerCardHeader, ReadOnlyBadge } from '@components/ui/ManagerCard';
 import type { Config, DatasourceInfo } from '../../../../types';
 
 // Fetch initial cache configuration data
 const fetchCacheConfig = async (): Promise<Config> => {
   return await ApiService.getConfig();
 };
-
 
 const fetchRsyncAvailability = async (): Promise<boolean> => {
   try {
@@ -76,21 +72,30 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   const rsyncAvailable = use(getRsyncPromise());
 
   // Directory permissions from shared hook (auto-refreshes via SignalR)
-  const { cacheReadOnly, checkingPermissions: checkingCachePermissions } = useDirectoryPermissions();
+  const { cacheReadOnly, checkingPermissions: checkingCachePermissions } =
+    useDirectoryPermissions();
 
   // Cache size from global context (persists across navigation)
-  const { cacheSize, isLoading: cacheSizeLoading, error: cacheSizeError, fetchCacheSize, clearCacheSize } = useCacheSize();
+  const {
+    cacheSize,
+    isLoading: cacheSizeLoading,
+    error: cacheSizeError,
+    fetchCacheSize,
+    clearCacheSize
+  } = useCacheSize();
   const { notifications, addNotification, isAnyRemovalRunning } = useNotifications();
 
   // Derive cache clearing state from notifications (standardized pattern)
   const activeCacheClearNotification = notifications.find(
-    n => n.type === 'cache_clearing' && n.status === 'running'
+    (n) => n.type === 'cache_clearing' && n.status === 'running'
   );
   const isCacheClearing = !!activeCacheClearNotification;
 
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
-  const [deleteMode, setDeleteMode] = useState<'preserve' | 'full' | 'rsync'>(config.cacheDeleteMode as 'preserve' | 'full' | 'rsync');
+  const [deleteMode, setDeleteMode] = useState<'preserve' | 'full' | 'rsync'>(
+    config.cacheDeleteMode as 'preserve' | 'full' | 'rsync'
+  );
   const [deleteModeLoading, setDeleteModeLoading] = useState(false);
   const [clearingDatasource, setClearingDatasource] = useState<string | null>(null); // null = all, string = specific
   const [expandedDatasources, setExpandedDatasources] = useState<Set<string>>(new Set());
@@ -134,7 +139,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   }, [cacheSize, deleteMode]);
 
   const toggleExpanded = (name: string) => {
-    setExpandedDatasources(prev => {
+    setExpandedDatasources((prev) => {
       const next = new Set(prev);
       if (next.has(name)) {
         next.delete(name);
@@ -179,17 +184,23 @@ const CacheManager: React.FC<CacheManagerProps> = ({
       await ApiService.setCacheDeleteMode(newMode);
       setDeleteMode(newMode);
       const modeDesc =
-        newMode === 'rsync' ? t('management.cache.deleteModes.rsync') : newMode === 'full' ? t('management.cache.deleteModes.removeAll') : t('management.cache.deleteModes.preserve');
+        newMode === 'rsync'
+          ? t('management.cache.deleteModes.rsync')
+          : newMode === 'full'
+            ? t('management.cache.deleteModes.removeAll')
+            : t('management.cache.deleteModes.preserve');
       onSuccess?.(t('management.cache.deleteModeSet', { mode: modeDesc }));
     } catch (err: unknown) {
       console.error('Failed to update delete mode:', err);
-      onError?.((err instanceof Error ? err.message : String(err)) || t('management.cache.errors.updateDeleteMode'));
+      onError?.(
+        (err instanceof Error ? err.message : String(err)) ||
+          t('management.cache.errors.updateDeleteMode')
+      );
     } finally {
       setDeleteModeLoading(false);
       deleteModeChangeInProgressRef.current = false;
     }
   };
-
 
   const handleClearCache = (datasourceName: string | null = null) => {
     if (authMode !== 'authenticated') {
@@ -222,7 +233,11 @@ const CacheManager: React.FC<CacheManagerProps> = ({
       }
       // NotificationsContext handles success/error messages via SignalR
     } catch (err: unknown) {
-      onError?.(t('management.cache.errors.startCacheClearing', { error: (err instanceof Error ? err.message : String(err)) || t('common.unknownError') }));
+      onError?.(
+        t('management.cache.errors.startCacheClearing', {
+          error: (err instanceof Error ? err.message : String(err)) || t('common.unknownError')
+        })
+      );
       // Note: On error, NotificationsContext will handle the notification dismissal
     } finally {
       setActionLoading(false);
@@ -231,16 +246,19 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   };
 
   // Get datasources - use dataSources array if available, otherwise create single entry from legacy config
-  const datasources: DatasourceInfo[] = config.dataSources && config.dataSources.length > 0
-    ? config.dataSources
-    : [{
-        name: 'default',
-        cachePath: config.cachePath || '/cache',
-        logsPath: config.logsPath || '/logs',
-        cacheWritable: config.cacheWritable ?? false,
-        logsWritable: config.logsWritable ?? false,
-        enabled: true
-      }];
+  const datasources: DatasourceInfo[] =
+    config.dataSources && config.dataSources.length > 0
+      ? config.dataSources
+      : [
+          {
+            name: 'default',
+            cachePath: config.cachePath || '/cache',
+            logsPath: config.logsPath || '/logs',
+            cacheWritable: config.cacheWritable ?? false,
+            logsWritable: config.logsWritable ?? false,
+            enabled: true
+          }
+        ];
   const hasMultipleDatasources = datasources.length > 1;
 
   // Help content
@@ -249,23 +267,27 @@ const CacheManager: React.FC<CacheManagerProps> = ({
       <HelpSection title={t('management.cache.help.title')} variant="subtle">
         <div className="divide-y divide-[var(--theme-text-muted)]">
           <div className="py-1.5 first:pt-0 last:pb-0">
-            <div className="font-medium text-themed-primary">{t('management.cache.help.preserve.term')}</div>
+            <div className="font-medium text-themed-primary">
+              {t('management.cache.help.preserve.term')}
+            </div>
             <div className="mt-0.5">{t('management.cache.help.preserve.description')}</div>
           </div>
           <div className="py-1.5 first:pt-0 last:pb-0">
-            <div className="font-medium text-themed-primary">{t('management.cache.help.removeAll.term')}</div>
+            <div className="font-medium text-themed-primary">
+              {t('management.cache.help.removeAll.term')}
+            </div>
             <div className="mt-0.5">{t('management.cache.help.removeAll.description')}</div>
           </div>
           <div className="py-1.5 first:pt-0 last:pb-0">
-            <div className="font-medium text-themed-primary">{t('management.cache.help.rsync.term')}</div>
+            <div className="font-medium text-themed-primary">
+              {t('management.cache.help.rsync.term')}
+            </div>
             <div className="mt-0.5">{t('management.cache.help.rsync.description')}</div>
           </div>
         </div>
       </HelpSection>
 
-      <HelpNote type="warning">
-        {t('management.cache.help.warning')}
-      </HelpNote>
+      <HelpNote type="warning">{t('management.cache.help.warning')}</HelpNote>
     </HelpPopover>
   );
 
@@ -370,9 +392,15 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                         }
                         loading={isCacheClearing && clearingDatasource === ds.name}
                         fullWidth
-                        title={!ds.cacheWritable ? t('management.cache.alerts.readOnly.title') : t('management.cache.clearDatasourceCache', { datasource: ds.name })}
+                        title={
+                          !ds.cacheWritable
+                            ? t('management.cache.alerts.readOnly.title')
+                            : t('management.cache.clearDatasourceCache', { datasource: ds.name })
+                        }
                       >
-                        {isCacheClearing && clearingDatasource === ds.name ? t('common.clearing') : t('management.cache.clearCache')}
+                        {isCacheClearing && clearingDatasource === ds.name
+                          ? t('common.clearing')
+                          : t('management.cache.clearCache')}
                       </Button>
                     </div>
                   </DatasourceListItem>
@@ -389,7 +417,9 @@ const CacheManager: React.FC<CacheManagerProps> = ({
             {/* Cache Size Info */}
             <div className="p-4 rounded-lg bg-themed-tertiary/30 mb-4">
               <div className="flex items-center justify-between mb-2">
-                <p className="text-themed-primary font-medium text-sm">{t('management.cache.cacheSize')}</p>
+                <p className="text-themed-primary font-medium text-sm">
+                  {t('management.cache.cacheSize')}
+                </p>
                 <Tooltip content={t('management.cache.refreshCacheSize')} position="top">
                   <Button
                     variant="subtle"
@@ -416,16 +446,26 @@ const CacheManager: React.FC<CacheManagerProps> = ({
               ) : cacheSize ? (
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-themed-muted">{t('management.cache.totalSize')}</span>
-                    <span className="text-sm font-semibold text-themed-primary">{cacheSize.formattedSize}</span>
+                    <span className="text-xs text-themed-muted">
+                      {t('management.cache.totalSize')}
+                    </span>
+                    <span className="text-sm font-semibold text-themed-primary">
+                      {cacheSize.formattedSize}
+                    </span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-themed-muted">{t('management.cache.files')}</span>
-                    <span className="text-sm text-themed-secondary">{cacheSize.totalFiles.toLocaleString()}</span>
+                    <span className="text-sm text-themed-secondary">
+                      {cacheSize.totalFiles.toLocaleString()}
+                    </span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-themed-muted">{t('management.cache.directories')}</span>
-                    <span className="text-sm text-themed-secondary">{cacheSize.hexDirectories.toLocaleString()}</span>
+                    <span className="text-xs text-themed-muted">
+                      {t('management.cache.directories')}
+                    </span>
+                    <span className="text-sm text-themed-secondary">
+                      {cacheSize.hexDirectories.toLocaleString()}
+                    </span>
                   </div>
                   {getEstimatedTime() && (
                     <div className="flex items-center justify-between pt-2 border-t border-themed-secondary">
@@ -438,7 +478,9 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                   )}
                 </div>
               ) : (
-                <p className="text-xs text-themed-muted">{t('management.cache.clickRefreshToCalculate')}</p>
+                <p className="text-xs text-themed-muted">
+                  {t('management.cache.clickRefreshToCalculate')}
+                </p>
               )}
             </div>
 
@@ -447,7 +489,9 @@ const CacheManager: React.FC<CacheManagerProps> = ({
               {/* Delete Mode Configuration */}
               <div className="space-y-3">
                 <div>
-                  <p className="text-themed-primary font-medium text-sm mb-1">{t('management.cache.deletionMethod')}</p>
+                  <p className="text-themed-primary font-medium text-sm mb-1">
+                    {t('management.cache.deletionMethod')}
+                  </p>
                   <p className="text-xs text-themed-muted">
                     {deleteMode === 'rsync'
                       ? t('management.cache.deletionMethods.rsyncDesc')
@@ -502,7 +546,9 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                         authMode !== 'authenticated' ||
                         cacheReadOnly
                       }
-                      title={cacheReadOnly ? t('management.cache.alerts.readOnly.title') : undefined}
+                      title={
+                        cacheReadOnly ? t('management.cache.alerts.readOnly.title') : undefined
+                      }
                     >
                       {t('management.cache.deleteModes.rsync')}
                     </Button>
@@ -524,7 +570,11 @@ const CacheManager: React.FC<CacheManagerProps> = ({
         title={
           <div className="flex items-center space-x-3">
             <AlertTriangle className="w-6 h-6 text-themed-warning" />
-            <span>{clearingDatasource ? t('management.cache.confirmClear', { datasource: clearingDatasource }) : t('management.cache.confirmClearAll')}</span>
+            <span>
+              {clearingDatasource
+                ? t('management.cache.confirmClear', { datasource: clearingDatasource })
+                : t('management.cache.confirmClearAll')}
+            </span>
           </div>
         }
         size="md"
@@ -532,7 +582,11 @@ const CacheManager: React.FC<CacheManagerProps> = ({
         <div className="space-y-4">
           {clearingDatasource ? (
             <p className="text-themed-secondary">
-              {t('management.cache.modal.deleteFromDatasource', { datasource: clearingDatasource, path: datasources.find(ds => ds.name === clearingDatasource)?.cachePath || 'unknown' })}
+              {t('management.cache.modal.deleteFromDatasource', {
+                datasource: clearingDatasource,
+                path:
+                  datasources.find((ds) => ds.name === clearingDatasource)?.cachePath || 'unknown'
+              })}
             </p>
           ) : (
             <>
@@ -570,13 +624,12 @@ const CacheManager: React.FC<CacheManagerProps> = ({
             >
               {t('common.cancel')}
             </Button>
-            <Button
-              variant="filled"
-              color="red"
-              onClick={startCacheClear}
-              loading={actionLoading}
-            >
-              {clearingDatasource ? t('management.cache.modal.deleteDatasourceCache', { datasource: clearingDatasource }) : t('management.cache.modal.deleteAllCaches')}
+            <Button variant="filled" color="red" onClick={startCacheClear} loading={actionLoading}>
+              {clearingDatasource
+                ? t('management.cache.modal.deleteDatasourceCache', {
+                    datasource: clearingDatasource
+                  })
+                : t('management.cache.modal.deleteAllCaches')}
             </Button>
           </div>
         </div>

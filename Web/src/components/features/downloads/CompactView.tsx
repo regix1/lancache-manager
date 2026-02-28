@@ -20,7 +20,9 @@ interface CompactViewSectionLabels {
   downloadList: string;
 }
 
-const getDefaultSectionLabels = (t: (key: string, options?: Record<string, unknown>) => string): CompactViewSectionLabels => ({
+const getDefaultSectionLabels = (
+  t: (key: string, options?: Record<string, unknown>) => string
+): CompactViewSectionLabels => ({
   multipleDownloads: t('downloads.tab.compact.sections.multipleDownloads'),
   singleDownloads: t('downloads.tab.compact.sections.singleDownloads'),
   individual: t('downloads.tab.compact.sections.individual'),
@@ -84,7 +86,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
   // refreshVersion triggers re-fetch when cache is invalidated (e.g., DownloadTagged event)
   React.useEffect(() => {
     if (isExpanded) {
-      const downloadIds = group.downloads.map(d => d.id);
+      const downloadIds = group.downloads.map((d) => d.id);
       fetchAssociations(downloadIds);
     }
   }, [isExpanded, group.downloads, fetchAssociations, refreshVersion]);
@@ -134,7 +136,8 @@ const GroupRow: React.FC<GroupRowProps> = ({
         {/* Get datasource from primary download */}
         {(() => {
           const primaryDatasource = group.downloads[0]?.datasource;
-          const shouldShowDatasource = hasMultipleDatasources && showDatasourceLabels && primaryDatasource;
+          const shouldShowDatasource =
+            hasMultipleDatasources && showDatasourceLabels && primaryDatasource;
 
           return (
             <>
@@ -153,7 +156,12 @@ const GroupRow: React.FC<GroupRowProps> = ({
                   >
                     {group.service.toUpperCase()}
                   </span>
-                  {group.downloads.some((d: Download) => d.gameName && d.gameName !== 'Unknown Steam Game' && !d.gameName.match(/^Steam App \d+$/)) && (
+                  {group.downloads.some(
+                    (d: Download) =>
+                      d.gameName &&
+                      d.gameName !== 'Unknown Steam Game' &&
+                      !d.gameName.match(/^Steam App \d+$/)
+                  ) && (
                     <span className="text-sm font-medium text-[var(--theme-text-primary)] truncate flex-1">
                       {group.name}
                     </span>
@@ -166,10 +174,12 @@ const GroupRow: React.FC<GroupRowProps> = ({
                       · {t('downloads.tab.compact.counts.requests', { count: group.count })}
                     </span>
                     {shouldShowDatasource && (
-                      <Tooltip content={t('downloads.tab.compact.datasourceTooltip', { datasource: primaryDatasource })}>
-                        <span
-                          className="px-1.5 py-0.5 text-xs font-medium rounded flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)]"
-                        >
+                      <Tooltip
+                        content={t('downloads.tab.compact.datasourceTooltip', {
+                          datasource: primaryDatasource
+                        })}
+                      >
+                        <span className="px-1.5 py-0.5 text-xs font-medium rounded flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)]">
                           {primaryDatasource}
                         </span>
                       </Tooltip>
@@ -207,23 +217,30 @@ const GroupRow: React.FC<GroupRowProps> = ({
                   >
                     {group.service.toUpperCase()}
                   </span>
-                  {group.downloads.some((d: Download) => d.gameName && d.gameName !== 'Unknown Steam Game' && !d.gameName.match(/^Steam App \d+$/)) && (
+                  {group.downloads.some(
+                    (d: Download) =>
+                      d.gameName &&
+                      d.gameName !== 'Unknown Steam Game' &&
+                      !d.gameName.match(/^Steam App \d+$/)
+                  ) && (
                     <span className="text-sm font-medium text-[var(--theme-text-primary)] truncate">
                       {group.name}
                     </span>
                   )}
                   {shouldShowDatasource && (
-                    <Tooltip content={t('downloads.tab.compact.datasourceTooltip', { datasource: primaryDatasource })}>
-                      <span
-                        className="px-1.5 py-0.5 text-xs font-medium rounded flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)]"
-                      >
+                    <Tooltip
+                      content={t('downloads.tab.compact.datasourceTooltip', {
+                        datasource: primaryDatasource
+                      })}
+                    >
+                      <span className="px-1.5 py-0.5 text-xs font-medium rounded flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)]">
                         {primaryDatasource}
                       </span>
                     </Tooltip>
                   )}
                   <span className="text-xs text-themed-muted flex-shrink-0">
-                    {t('downloads.tab.compact.counts.clients', { count: group.clientsSet.size })}{' '}
-                    · {t('downloads.tab.compact.counts.requests', { count: group.count })}
+                    {t('downloads.tab.compact.counts.clients', { count: group.clientsSet.size })} ·{' '}
+                    {t('downloads.tab.compact.counts.requests', { count: group.count })}
                   </span>
                 </div>
                 <div className="flex items-center gap-3 flex-shrink-0">
@@ -235,9 +252,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                       {formatPercent(hitPercent)}
                     </span>
                   ) : (
-                    <span
-                      className="font-medium text-xs font-mono text-right min-w-[45px] text-[var(--theme-error-text)]"
-                    >
+                    <span className="font-medium text-xs font-mono text-right min-w-[45px] text-[var(--theme-error-text)]">
                       0%
                     </span>
                   )}
@@ -259,9 +274,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
             {showGameImage && primaryDownload?.gameAppId && (
               <div className="flex-shrink-0">
                 {aestheticMode || imageErrors.has(String(primaryDownload.gameAppId)) ? (
-                  <div
-                    className="compact-expanded-banner sm:w-[100px] sm:h-[46px] rounded border flex items-center justify-center bg-[var(--theme-bg-tertiary)] border-[var(--theme-border-secondary)]"
-                  >
+                  <div className="compact-expanded-banner sm:w-[100px] sm:h-[46px] rounded border flex items-center justify-center bg-[var(--theme-bg-tertiary)] border-[var(--theme-border-secondary)]">
                     <SteamIcon size={24} className="text-[var(--theme-steam)] opacity-60" />
                   </div>
                 ) : (
@@ -281,20 +294,28 @@ const GroupRow: React.FC<GroupRowProps> = ({
               {/* Compact stats row */}
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs mb-2">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[var(--theme-text-muted)]">{t('downloads.tab.compact.labels.hit')}</span>
+                  <span className="text-[var(--theme-text-muted)]">
+                    {t('downloads.tab.compact.labels.hit')}
+                  </span>
                   <span className="font-semibold text-[var(--theme-success-text)]">
                     {group.cacheHitBytes > 0 ? formatBytes(group.cacheHitBytes) : '—'}
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[var(--theme-text-muted)]">{t('downloads.tab.compact.labels.miss')}</span>
+                  <span className="text-[var(--theme-text-muted)]">
+                    {t('downloads.tab.compact.labels.miss')}
+                  </span>
                   <span className="font-medium text-[var(--theme-text-secondary)]">
                     {formatBytes(group.cacheMissBytes || 0)}
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[var(--theme-text-muted)]">{t('downloads.tab.compact.labels.last')}</span>
-                  <span className="text-[var(--theme-text-secondary)]">{formatRelativeTime(group.lastSeen)}</span>
+                  <span className="text-[var(--theme-text-muted)]">
+                    {t('downloads.tab.compact.labels.last')}
+                  </span>
+                  <span className="text-[var(--theme-text-secondary)]">
+                    {formatRelativeTime(group.lastSeen)}
+                  </span>
                 </div>
                 {storeLink && (
                   <a
@@ -314,8 +335,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
               {(() => {
                 const currentPage = groupPages[group.id] || 1;
                 const sortedDownloads = group.downloads.sort(
-                  (a, b) =>
-                    new Date(b.startTimeUtc).getTime() - new Date(a.startTimeUtc).getTime()
+                  (a, b) => new Date(b.startTimeUtc).getTime() - new Date(a.startTimeUtc).getTime()
                 );
                 const totalPages = Math.ceil(sortedDownloads.length / SESSIONS_PER_PAGE);
                 const startIndex = (currentPage - 1) * SESSIONS_PER_PAGE;
@@ -366,7 +386,11 @@ const GroupRow: React.FC<GroupRowProps> = ({
                         {t('downloads.tab.compact.labels.sessions', { count: group.count })}
                         {excludedSessions > 0 && (
                           <span className="ml-1 opacity-60">
-                            ({t('downloads.tab.compact.labels.excluded', { count: excludedSessions })})
+                            (
+                            {t('downloads.tab.compact.labels.excluded', {
+                              count: excludedSessions
+                            })}
+                            )
                           </span>
                         )}
                       </span>
@@ -574,9 +598,7 @@ const CompactView: React.FC<CompactViewProps> = ({
 
   return (
     <div className="space-y-1">
-      <div className="px-3 py-2 text-sm font-semibold text-themed-primary">
-        Downloads Overview
-      </div>
+      <div className="px-3 py-2 text-sm font-semibold text-themed-primary">Downloads Overview</div>
       <div>
         {items.map((item) => {
           const isGroup = 'downloads' in item;

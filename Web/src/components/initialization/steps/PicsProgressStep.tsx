@@ -88,7 +88,9 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({
           )}
         </div>
         <h3 className="text-xl font-semibold text-themed-primary mb-1">
-          {isComplete ? t('initialization.picsProgress.complete') : t('initialization.picsProgress.building')}
+          {isComplete
+            ? t('initialization.picsProgress.complete')
+            : t('initialization.picsProgress.building')}
         </h3>
         <p className="text-sm text-themed-secondary max-w-md">
           {isComplete
@@ -102,7 +104,9 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({
         <div className="p-4 rounded-lg text-center bg-themed-success">
           <p className="text-sm font-medium text-themed-success">
             {progress?.depotMappingsFound
-              ? t('initialization.picsProgress.mappingsReady', { count: progress.depotMappingsFound })
+              ? t('initialization.picsProgress.mappingsReady', {
+                  count: progress.depotMappingsFound
+                })
               : t('initialization.picsProgress.mappingsReadyGeneric')}
           </p>
         </div>
@@ -110,19 +114,27 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({
         <div className="space-y-4">
           {/* Status */}
           <div className="p-4 rounded-lg text-center bg-themed-tertiary">
-            <p className="text-base font-medium text-themed-primary mb-1">
-              {getStatusMessage()}
-            </p>
-            {!isInitializing() && progress?.processedBatches !== undefined && progress?.totalBatches !== undefined && progress.totalBatches > 0 && (
-              <p className="text-sm text-themed-secondary">
-                {t('initialization.picsProgress.batches', { processed: progress.processedBatches, total: progress.totalBatches })}
-              </p>
-            )}
-            {!isInitializing() && progress?.depotMappingsFound !== undefined && progress.depotMappingsFound > 0 && (
-              <p className="text-xs text-themed-muted mt-1">
-                {t('initialization.picsProgress.mappingsFound', { count: progress.depotMappingsFound })}
-              </p>
-            )}
+            <p className="text-base font-medium text-themed-primary mb-1">{getStatusMessage()}</p>
+            {!isInitializing() &&
+              progress?.processedBatches !== undefined &&
+              progress?.totalBatches !== undefined &&
+              progress.totalBatches > 0 && (
+                <p className="text-sm text-themed-secondary">
+                  {t('initialization.picsProgress.batches', {
+                    processed: progress.processedBatches,
+                    total: progress.totalBatches
+                  })}
+                </p>
+              )}
+            {!isInitializing() &&
+              progress?.depotMappingsFound !== undefined &&
+              progress.depotMappingsFound > 0 && (
+                <p className="text-xs text-themed-muted mt-1">
+                  {t('initialization.picsProgress.mappingsFound', {
+                    count: progress.depotMappingsFound
+                  })}
+                </p>
+              )}
           </div>
 
           {/* Progress Bar */}
@@ -161,7 +173,9 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({
             fullWidth
           >
             {isCancelling && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-            {isCancelling ? t('initialization.picsProgress.cancelling') : t('initialization.picsProgress.cancelUseGithub')}
+            {isCancelling
+              ? t('initialization.picsProgress.cancelling')
+              : t('initialization.picsProgress.cancelUseGithub')}
           </Button>
         ) : null}
       </div>

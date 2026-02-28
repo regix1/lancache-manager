@@ -25,18 +25,9 @@ interface ClientsSectionProps {
   onSuccess: (message: string) => void;
 }
 
-const ClientsSection: React.FC<ClientsSectionProps> = ({
-  isAdmin,
-  onError,
-  onSuccess
-}) => {
+const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuccess }) => {
   const { t } = useTranslation();
-  const {
-    clientGroups,
-    loading,
-    deleteClientGroup,
-    removeMember
-  } = useClientGroups();
+  const { clientGroups, loading, deleteClientGroup, removeMember } = useClientGroups();
   const { refreshStats } = useStats();
   const { refreshDownloads } = useDownloads();
 
@@ -49,9 +40,15 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
     const fetchAllClients = async () => {
       try {
         // Call getClientStats without time params to get all clients ever seen
-        const stats = await ApiService.getClientStats(undefined, undefined, undefined, undefined, true);
+        const stats = await ApiService.getClientStats(
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          true
+        );
         if (!cancelled) {
-          const ips = stats.map(stat => stat.clientIp);
+          const ips = stats.map((stat) => stat.clientIp);
           setAllClientIps(ips);
         }
       } catch (err) {
@@ -63,7 +60,9 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
       }
     };
     fetchAllClients();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const [excludedIps, setExcludedIps] = useState<string[]>([]);
@@ -73,9 +72,10 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
   const [loadingExcluded, setLoadingExcluded] = useState(false);
   const [savingExcluded, setSavingExcluded] = useState(false);
 
-  const hasExcludedChanges = useMemo(() => (
-    excludedIps.join('|') !== savedExcludedIps.join('|')
-  ), [excludedIps, savedExcludedIps]);
+  const hasExcludedChanges = useMemo(
+    () => excludedIps.join('|') !== savedExcludedIps.join('|'),
+    [excludedIps, savedExcludedIps]
+  );
 
   const loadExcludedIps = useCallback(async () => {
     if (!isAdmin) return;
@@ -86,10 +86,15 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
       setExcludedIps(ips);
       setSavedExcludedIps(ips);
     } catch (err) {
-      onError(err instanceof Error ? err.message : t('management.sections.clients.errors.failedToLoadExcluded'));
+      onError(
+        err instanceof Error
+          ? err.message
+          : t('management.sections.clients.errors.failedToLoadExcluded')
+      );
     } finally {
       setLoadingExcluded(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin, onError]);
 
   useEffect(() => {
@@ -99,7 +104,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
   const isValidIpv4 = (value: string) => {
     const parts = value.split('.');
     if (parts.length !== 4) return false;
-    return parts.every(part => {
+    return parts.every((part) => {
       if (!/^\d{1,3}$/.test(part)) return false;
       const num = Number(part);
       return num >= 0 && num <= 255;
@@ -111,23 +116,26 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
     if (!/^[0-9a-fA-F:]+$/.test(value)) return false;
     const parts = value.split(':');
     if (parts.length < 3 || parts.length > 8) return false;
-    return parts.every(part => part.length <= 4);
+    return parts.every((part) => part.length <= 4);
   };
 
-  const parseIpCandidates = useCallback((input: string) => (
-    input
-      .split(/[,\s]+/)
-      .map(ip => ip.trim())
-      .filter(Boolean)
-  ), []);
+  const parseIpCandidates = useCallback(
+    (input: string) =>
+      input
+        .split(/[,\s]+/)
+        .map((ip) => ip.trim())
+        .filter(Boolean),
+    []
+  );
 
-  const invalidInputIps = useMemo(() => (
-    parseIpCandidates(excludeInput).filter(ip => !isValidIpv4(ip) && !isValidIpv6(ip))
-  ), [excludeInput, parseIpCandidates]);
+  const invalidInputIps = useMemo(
+    () => parseIpCandidates(excludeInput).filter((ip) => !isValidIpv4(ip) && !isValidIpv6(ip)),
+    [excludeInput, parseIpCandidates]
+  );
 
   const handleAddExcluded = () => {
     const candidates = parseIpCandidates(excludeInput);
-    const validCandidates = candidates.filter(ip => isValidIpv4(ip) || isValidIpv6(ip));
+    const validCandidates = candidates.filter((ip) => isValidIpv4(ip) || isValidIpv6(ip));
 
     if (validCandidates.length === 0) return;
 
@@ -159,7 +167,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
   };
 
   const handleRemoveExcluded = (ip: string) => {
-    setExcludedIps((prev) => prev.filter(item => item !== ip));
+    setExcludedIps((prev) => prev.filter((item) => item !== ip));
   };
 
   const handleSaveExcluded = async () => {
@@ -173,7 +181,11 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
       await refreshStats(true);
       await refreshDownloads();
     } catch (err) {
-      onError(err instanceof Error ? err.message : t('management.sections.clients.errors.failedToUpdateExcluded'));
+      onError(
+        err instanceof Error
+          ? err.message
+          : t('management.sections.clients.errors.failedToUpdateExcluded')
+      );
     } finally {
       setSavingExcluded(false);
     }
@@ -181,8 +193,8 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
 
   const nicknameByIp = useMemo(() => {
     const map = new Map<string, string>();
-    clientGroups.forEach(group => {
-      group.memberIps.forEach(ip => map.set(ip, group.nickname));
+    clientGroups.forEach((group) => {
+      group.memberIps.forEach((ip) => map.set(ip, group.nickname));
     });
     return map;
   }, [clientGroups]);
@@ -190,9 +202,9 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
   const knownClientOptions = useMemo(() => {
     const excludedSet = new Set(excludedIps);
     return allClientIps
-      .filter(ip => !excludedSet.has(ip))
+      .filter((ip) => !excludedSet.has(ip))
       .sort((a, b) => a.localeCompare(b))
-      .map(ip => {
+      .map((ip) => {
         const nickname = nicknameByIp.get(ip);
         return {
           value: ip,
@@ -204,20 +216,22 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<ClientGroup | null>(null);
   const [deletingGroupId, setDeletingGroupId] = useState<number | null>(null);
-  const [removingMember, setRemovingMember] = useState<{ groupId: number; ip: string } | null>(null);
+  const [removingMember, setRemovingMember] = useState<{ groupId: number; ip: string } | null>(
+    null
+  );
   const [deleteConfirmGroup, setDeleteConfirmGroup] = useState<ClientGroup | null>(null);
   const [ungroupedPage, setUngroupedPage] = useState(1);
 
   // Get all IPs that are in groups
   const groupedIps = useMemo(() => {
     const ips = new Set<string>();
-    clientGroups.forEach(g => g.memberIps.forEach(ip => ips.add(ip)));
+    clientGroups.forEach((g) => g.memberIps.forEach((ip) => ips.add(ip)));
     return ips;
   }, [clientGroups]);
 
   // Get ungrouped clients (IPs that aren't in any group)
   const ungroupedClients = useMemo(() => {
-    return allClientIps.filter(ip => !groupedIps.has(ip));
+    return allClientIps.filter((ip) => !groupedIps.has(ip));
   }, [allClientIps, groupedIps]);
 
   // Pagination for ungrouped clients
@@ -247,7 +261,9 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
     setDeletingGroupId(deleteConfirmGroup.id);
     try {
       await deleteClientGroup(deleteConfirmGroup.id);
-      onSuccess(t('management.sections.clients.deletedNickname', { nickname: deleteConfirmGroup.nickname }));
+      onSuccess(
+        t('management.sections.clients.deletedNickname', { nickname: deleteConfirmGroup.nickname })
+      );
       setDeleteConfirmGroup(null);
     } catch (err) {
       onError(err instanceof Error ? err.message : t('modals.clientGroup.errors.failedToDelete'));
@@ -296,10 +312,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
           </p>
         </div>
         {isAdmin && (
-          <Button
-            onClick={handleCreateGroup}
-            className="flex items-center gap-2"
-          >
+          <Button onClick={handleCreateGroup} className="flex items-center gap-2">
             <Plus className="w-4 h-4" />
             {t('management.sections.clients.addNickname')}
           </Button>
@@ -320,7 +333,9 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
           <Card>
             <CardContent className="py-8 flex items-center justify-center">
               <Loader2 className="w-6 h-6 animate-spin text-themed-muted" />
-              <span className="ml-2 text-themed-muted">{t('management.sections.clients.loadingNicknames')}</span>
+              <span className="ml-2 text-themed-muted">
+                {t('management.sections.clients.loadingNicknames')}
+              </span>
             </CardContent>
           </Card>
         ) : clientGroups.length === 0 ? (
@@ -328,14 +343,12 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
             <CardContent className="py-8 text-center text-themed-muted">
               <User className="w-12 h-12 mx-auto mb-3 opacity-50" />
               <p className="mb-2">{t('management.sections.clients.noNicknamesYet')}</p>
-              <p className="text-sm">
-                {t('management.sections.clients.noNicknamesDesc')}
-              </p>
+              <p className="text-sm">{t('management.sections.clients.noNicknamesDesc')}</p>
             </CardContent>
           </Card>
         ) : (
           <div className="grid gap-4">
-            {clientGroups.map(group => {
+            {clientGroups.map((group) => {
               const isMultiIp = group.memberIps.length > 1;
               return (
                 <Card key={group.id}>
@@ -353,9 +366,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                           <CardTitle className="text-base">{group.nickname}</CardTitle>
                           {isMultiIp && (
                             <Tooltip content={t('modals.clientGroup.multiIpWarning')}>
-                              <span
-                              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs icon-bg-orange icon-orange"
-                              >
+                              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs icon-bg-orange icon-orange">
                                 <AlertTriangle className="w-3 h-3" />
                                 {group.memberIps.length} {t('management.sections.clients.ipsLabel')}
                               </span>
@@ -396,7 +407,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                   </CardHeader>
                   <CardContent className="pt-0 pb-4">
                     <div className="flex flex-wrap gap-2">
-                      {group.memberIps.map(ip => (
+                      {group.memberIps.map((ip) => (
                         <div
                           key={ip}
                           className="flex items-center gap-1 px-2 py-1 rounded text-sm font-mono bg-themed-tertiary text-themed-secondary"
@@ -408,7 +419,9 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                                 e.stopPropagation();
                                 handleRemoveMember(group.id, ip, group.nickname);
                               }}
-                              disabled={removingMember?.groupId === group.id && removingMember?.ip === ip}
+                              disabled={
+                                removingMember?.groupId === group.id && removingMember?.ip === ip
+                              }
                               className="ml-1 p-0.5 rounded text-themed-muted delete-hover"
                               title={t('management.sections.clients.removeIp')}
                             >
@@ -437,7 +450,9 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
             <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-orange)]" />
             <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
               {t('management.sections.clients.withoutNicknames')}
-              {!loadingClients && ungroupedClients.length > 0 && <span className="count-badge">{ungroupedClients.length}</span>}
+              {!loadingClients && ungroupedClients.length > 0 && (
+                <span className="count-badge">{ungroupedClients.length}</span>
+              )}
             </h3>
           </div>
 
@@ -446,7 +461,9 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
               {loadingClients ? (
                 <div className="flex items-center justify-center py-4">
                   <Loader2 className="w-5 h-5 animate-spin text-themed-muted" />
-                  <span className="ml-2 text-themed-muted">{t('management.sections.clients.loadingClients')}</span>
+                  <span className="ml-2 text-themed-muted">
+                    {t('management.sections.clients.loadingClients')}
+                  </span>
                 </div>
               ) : (
                 <>
@@ -454,8 +471,11 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                     {t('management.sections.clients.withoutNicknamesDesc')}
                   </p>
                   <div className="flex flex-wrap gap-2">
-                    {paginatedUngroupedClients.map(ip => (
-                      <Tooltip key={ip} content={t('management.sections.clients.clickAddNicknameTooltip')}>
+                    {paginatedUngroupedClients.map((ip) => (
+                      <Tooltip
+                        key={ip}
+                        content={t('management.sections.clients.clickAddNicknameTooltip')}
+                      >
                         <div className="px-2 py-1 rounded text-sm font-mono cursor-help bg-themed-tertiary text-themed-muted">
                           {ip}
                         </div>
@@ -499,12 +519,13 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
 
             {!isAdmin ? (
               <Alert color="yellow">
-                <span className="text-sm">{t('management.sections.clients.authenticateToManage')}</span>
+                <span className="text-sm">
+                  {t('management.sections.clients.authenticateToManage')}
+                </span>
               </Alert>
             ) : (
               <>
                 <div className="space-y-3">
-
                   <div className="text-xs text-themed-muted uppercase tracking-wide font-semibold">
                     {t('management.sections.clients.pickFromKnownClients')}
                   </div>
@@ -515,7 +536,9 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                       onChange={setSelectedKnownIps}
                       placeholder={t('management.sections.clients.selectClients')}
                       minSelections={0}
-                      disabled={loadingExcluded || savingExcluded || knownClientOptions.length === 0}
+                      disabled={
+                        loadingExcluded || savingExcluded || knownClientOptions.length === 0
+                      }
                       className="w-full"
                     />
                     <Button
@@ -554,7 +577,12 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                     variant="filled"
                     color="blue"
                     className="sm:w-32"
-                    disabled={loadingExcluded || savingExcluded || excludeInput.trim().length === 0 || invalidInputIps.length > 0}
+                    disabled={
+                      loadingExcluded ||
+                      savingExcluded ||
+                      excludeInput.trim().length === 0 ||
+                      invalidInputIps.length > 0
+                    }
                   >
                     {t('management.sections.clients.add')}
                   </Button>
@@ -567,7 +595,9 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                 {invalidInputIps.length > 0 && (
                   <Alert color="yellow">
                     <span className="text-sm">
-                      {t('management.sections.clients.invalidIps', { ips: invalidInputIps.join(', ') })}
+                      {t('management.sections.clients.invalidIps', {
+                        ips: invalidInputIps.join(', ')
+                      })}
                     </span>
                   </Alert>
                 )}
@@ -583,7 +613,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
                   </div>
                 ) : (
                   <div className="flex flex-col gap-2">
-                    {excludedIps.map(ip => (
+                    {excludedIps.map((ip) => (
                       <div
                         key={ip}
                         className="flex items-center justify-between p-3 rounded-lg bg-themed-tertiary"
@@ -656,7 +686,9 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({
       >
         <div className="space-y-4">
           <p className="text-themed-secondary">
-            {t('management.sections.clients.deleteNicknameConfirm', { nickname: deleteConfirmGroup?.nickname })}
+            {t('management.sections.clients.deleteNicknameConfirm', {
+              nickname: deleteConfirmGroup?.nickname
+            })}
           </p>
 
           <Alert color="yellow">

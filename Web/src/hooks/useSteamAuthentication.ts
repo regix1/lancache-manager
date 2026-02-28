@@ -151,7 +151,7 @@ export function useSteamAuthentication(options: SteamAuthOptions = {}) {
       let result;
       try {
         result = await response.json();
-      } catch (jsonError) {
+      } catch (_jsonError) {
         addNotification({
           type: 'generic',
           status: 'failed',

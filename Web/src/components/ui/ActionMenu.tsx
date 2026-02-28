@@ -77,7 +77,7 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
     }
 
     // Track position changes (e.g., from notification dismissal causing layout shift)
-    let lastTriggerTop = initialPos?.triggerTop ?? 0;
+    const lastTriggerTop = initialPos?.triggerTop ?? 0;
     let animationFrameId: number;
 
     const checkPosition = () => {
@@ -157,22 +157,25 @@ export const ActionMenu: React.FC<ActionMenuProps> = ({
   return (
     <div className="relative inline-flex">
       {/* Trigger button wrapper - adds data attribute */}
-      <div ref={triggerRef} data-action-menu-trigger="true" className="inline-flex">{trigger}</div>
+      <div ref={triggerRef} data-action-menu-trigger="true" className="inline-flex">
+        {trigger}
+      </div>
 
       {/* Dropdown Menu - rendered via portal to escape stacking context */}
-      {isOpen && createPortal(
-        <div
-          ref={dropdownRef}
-          className={`fixed ${width} bg-themed-secondary themed-border-radius shadow-xl overflow-hidden border border-themed-primary z-[85] animate-[dropdownSlide_0.15s_ease-out]`}
-          style={{
-            top: position.top,
-            left: position.left,
-          }}
-        >
-          {children}
-        </div>,
-        document.body
-      )}
+      {isOpen &&
+        createPortal(
+          <div
+            ref={dropdownRef}
+            className={`fixed ${width} bg-themed-secondary themed-border-radius shadow-xl overflow-hidden border border-themed-primary z-[85] animate-[dropdownSlide_0.15s_ease-out]`}
+            style={{
+              top: position.top,
+              left: position.left
+            }}
+          >
+            {children}
+          </div>,
+          document.body
+        )}
     </div>
   );
 };

@@ -137,6 +137,7 @@ const ManagementTab: React.FC = () => {
     };
 
     initialize();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setSuccess]);
 
   // Handle section change

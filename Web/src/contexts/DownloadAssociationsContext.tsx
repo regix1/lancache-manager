@@ -1,4 +1,12 @@
-import React, { createContext, useContext, useState, useCallback, useRef, useEffect, ReactNode } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  type ReactNode
+} from 'react';
 import ApiService from '@services/api.service';
 import { useSignalR } from '@contexts/SignalRContext';
 import { useAuth } from '@contexts/AuthContext';
@@ -8,9 +16,7 @@ interface DownloadAssociations {
   events: EventSummary[];
 }
 
-interface AssociationsCache {
-  [downloadId: number]: DownloadAssociations;
-}
+type AssociationsCache = Record<number, DownloadAssociations>;
 
 interface DownloadAssociationsContextType {
   associations: AssociationsCache;
@@ -22,13 +28,17 @@ interface DownloadAssociationsContextType {
   refreshVersion: number;
 }
 
-const DownloadAssociationsContext = createContext<DownloadAssociationsContextType | undefined>(undefined);
+const DownloadAssociationsContext = createContext<DownloadAssociationsContextType | undefined>(
+  undefined
+);
 
 interface DownloadAssociationsProviderProps {
   children: ReactNode;
 }
 
-export const DownloadAssociationsProvider: React.FC<DownloadAssociationsProviderProps> = ({ children }) => {
+export const DownloadAssociationsProvider: React.FC<DownloadAssociationsProviderProps> = ({
+  children
+}) => {
   const { on, off } = useSignalR();
   const { authMode } = useAuth();
   const isAdmin = authMode === 'authenticated';
@@ -47,7 +57,7 @@ export const DownloadAssociationsProvider: React.FC<DownloadAssociationsProvider
     if (!isAdminRef.current) return;
 
     // Filter out already fetched IDs
-    const newIds = downloadIds.filter(id => !fetchedIds.current.has(id));
+    const newIds = downloadIds.filter((id) => !fetchedIds.current.has(id));
     if (newIds.length === 0) return;
 
     setLoading(true);
@@ -60,11 +70,16 @@ export const DownloadAssociationsProvider: React.FC<DownloadAssociationsProvider
         const id = Number(idStr);
         fetchedIds.current.add(id);
         newAssociations[id] = {
-          events: data.events.map(e => ({ id: e.id, name: e.name, colorIndex: e.colorIndex, autoTagged: e.autoTagged }))
+          events: data.events.map((e) => ({
+            id: e.id,
+            name: e.name,
+            colorIndex: e.colorIndex,
+            autoTagged: e.autoTagged
+          }))
         };
       }
 
-      setAssociations(prev => ({ ...prev, ...newAssociations }));
+      setAssociations((prev) => ({ ...prev, ...newAssociations }));
     } catch (err) {
       console.error('Failed to fetch download associations:', err);
     } finally {
@@ -72,9 +87,12 @@ export const DownloadAssociationsProvider: React.FC<DownloadAssociationsProvider
     }
   }, []);
 
-  const getAssociations = useCallback((downloadId: number): DownloadAssociations => {
-    return associations[downloadId] || { events: [] };
-  }, [associations]);
+  const getAssociations = useCallback(
+    (downloadId: number): DownloadAssociations => {
+      return associations[downloadId] || { events: [] };
+    },
+    [associations]
+  );
 
   const clearCache = useCallback(() => {
     setAssociations({});
@@ -83,7 +101,7 @@ export const DownloadAssociationsProvider: React.FC<DownloadAssociationsProvider
 
   // Remove a specific event from all cached associations
   const removeEventFromCache = useCallback((eventId: number) => {
-    setAssociations(prev => {
+    setAssociations((prev) => {
       const updated: AssociationsCache = {};
       for (const [downloadId, assoc] of Object.entries(prev)) {
         updated[Number(downloadId)] = {
@@ -96,20 +114,23 @@ export const DownloadAssociationsProvider: React.FC<DownloadAssociationsProvider
   }, []);
 
   // Update event color in all cached associations when an event is updated
-  const updateEventInCache = useCallback((event: { id: number; name: string; colorIndex: number }) => {
-    setAssociations(prev => {
-      const updated: AssociationsCache = {};
-      for (const [downloadId, assoc] of Object.entries(prev)) {
-        updated[Number(downloadId)] = {
-          ...assoc,
-          events: assoc.events.map((e: EventSummary) =>
-            e.id === event.id ? { ...e, name: event.name, colorIndex: event.colorIndex } : e
-          )
-        };
-      }
-      return updated;
-    });
-  }, []);
+  const updateEventInCache = useCallback(
+    (event: { id: number; name: string; colorIndex: number }) => {
+      setAssociations((prev) => {
+        const updated: AssociationsCache = {};
+        for (const [downloadId, assoc] of Object.entries(prev)) {
+          updated[Number(downloadId)] = {
+            ...assoc,
+            events: assoc.events.map((e: EventSummary) =>
+              e.id === event.id ? { ...e, name: event.name, colorIndex: event.colorIndex } : e
+            )
+          };
+        }
+        return updated;
+      });
+    },
+    []
+  );
 
   // Listen for SignalR events to keep cache in sync
   useEffect(() => {
@@ -126,13 +147,13 @@ export const DownloadAssociationsProvider: React.FC<DownloadAssociationsProvider
       // Remove from fetchedIds so it will be re-fetched
       fetchedIds.current.delete(downloadId);
       // Remove from associations cache - this triggers a state change
-      setAssociations(prev => {
+      setAssociations((prev) => {
         const updated = { ...prev };
         delete updated[downloadId];
         return updated;
       });
       // Increment refresh version to trigger re-fetch in components
-      setRefreshVersion(v => v + 1);
+      setRefreshVersion((v) => v + 1);
     };
 
     // Clear cache when downloads are refreshed (new downloads may have been auto-tagged)
@@ -151,19 +172,19 @@ export const DownloadAssociationsProvider: React.FC<DownloadAssociationsProvider
         }
         refreshDebounceRef.current = setTimeout(() => {
           lastRefreshTimeRef.current = Date.now();
-          setRefreshVersion(v => v + 1);
+          setRefreshVersion((v) => v + 1);
           refreshDebounceRef.current = null;
         }, 500);
       } else {
         // Enough time has passed - refresh immediately
         lastRefreshTimeRef.current = now;
-        setRefreshVersion(v => v + 1);
+        setRefreshVersion((v) => v + 1);
       }
     };
 
     // Clear all event associations when events table is cleared
     const handleEventsCleared = () => {
-      setAssociations(prev => {
+      setAssociations((prev) => {
         const updated: AssociationsCache = {};
         for (const [downloadId, assoc] of Object.entries(prev)) {
           updated[Number(downloadId)] = {

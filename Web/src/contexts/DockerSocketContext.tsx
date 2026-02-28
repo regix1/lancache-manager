@@ -1,4 +1,11 @@
-import React, { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useCallback,
+  type ReactNode
+} from 'react';
 import ApiService from '@services/api.service';
 import { useAuth } from '@contexts/AuthContext';
 

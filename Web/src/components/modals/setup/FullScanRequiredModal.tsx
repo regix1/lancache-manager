@@ -28,7 +28,7 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
   isDownloading = false
 }) => {
   const { t } = useTranslation();
-  
+
   const formatNumber = (num: number) => {
     if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
     if (num >= 1000) return `${(num / 1000).toFixed(0)}K`;
@@ -59,7 +59,9 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
               </div>
               <div className="full-scan-modal-stat-content">
                 <span className="full-scan-modal-stat-value">{formatNumber(changeGap)}</span>
-                <span className="full-scan-modal-stat-label">{t('modals.fullScan.stats.updatesBehind')}</span>
+                <span className="full-scan-modal-stat-label">
+                  {t('modals.fullScan.stats.updatesBehind')}
+                </span>
               </div>
             </div>
           )}
@@ -71,15 +73,15 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
               <span className="full-scan-modal-stat-value">
                 {estimatedApps ? `~${formatNumber(estimatedApps)}` : '300K+'}
               </span>
-              <span className="full-scan-modal-stat-label">{t('modals.fullScan.stats.appsToScan')}</span>
+              <span className="full-scan-modal-stat-label">
+                {t('modals.fullScan.stats.appsToScan')}
+              </span>
             </div>
           </div>
         </div>
 
         {/* Description */}
-        <p className="full-scan-modal-description">
-          {t('modals.fullScan.description')}
-        </p>
+        <p className="full-scan-modal-description">{t('modals.fullScan.description')}</p>
 
         {/* GitHub Option */}
         {showDownloadOption && (
@@ -87,7 +89,9 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
             <div className="full-scan-modal-option-header">
               <Github className="w-4 h-4" />
               <span>{t('modals.fullScan.github.title')}</span>
-              <span className="full-scan-modal-badge">{t('modals.fullScan.github.recommended')}</span>
+              <span className="full-scan-modal-badge">
+                {t('modals.fullScan.github.recommended')}
+              </span>
             </div>
             <div className="full-scan-modal-option-features">
               <div className="full-scan-modal-feature">
@@ -107,7 +111,9 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
               loading={isDownloading}
               leftSection={!isDownloading ? <Download className="w-4 h-4" /> : undefined}
             >
-              {isDownloading ? t('modals.fullScan.github.downloading') : t('modals.fullScan.github.downloadButton')}
+              {isDownloading
+                ? t('modals.fullScan.github.downloading')
+                : t('modals.fullScan.github.downloadButton')}
             </Button>
           </div>
         )}

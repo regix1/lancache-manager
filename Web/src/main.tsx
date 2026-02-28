@@ -8,7 +8,8 @@ import { initializeFavicon } from './utils/favicon';
 
 // Load preferences first, then theme based on preference
 // Migration will happen after authentication in App.tsx
-preferencesService.loadPreferences()
+preferencesService
+  .loadPreferences()
   .then((preferences) => {
     // Load theme and initialize all preferences at once
     return themeService.loadSavedTheme(preferences);
@@ -27,7 +28,8 @@ preferencesService.loadPreferences()
 
     // Listen for guest session creation to reload preferences and reapply theme
     window.addEventListener('guest-session-created', () => {
-      preferencesService.loadPreferences()
+      preferencesService
+        .loadPreferences()
         .then((preferences) => {
           // Reapply theme based on new preferences
           return themeService.loadSavedTheme(preferences);

@@ -15,9 +15,11 @@ const AuthenticateTab: React.FC = () => {
 
   // Helper to show toast notifications
   const showToast = (type: 'success' | 'error' | 'info', message: string) => {
-    window.dispatchEvent(new CustomEvent('show-toast', {
-      detail: { type, message, duration: 4000 }
-    }));
+    window.dispatchEvent(
+      new CustomEvent('show-toast', {
+        detail: { type, message, duration: 4000 }
+      })
+    );
   };
 
   const handleAuthenticate = async () => {
@@ -47,7 +49,10 @@ const AuthenticateTab: React.FC = () => {
       }
     } catch (err: unknown) {
       console.error('Authentication error:', err);
-      showToast('error', (err instanceof Error ? err.message : String(err)) || t('auth.errors.failed'));
+      showToast(
+        'error',
+        (err instanceof Error ? err.message : String(err)) || t('auth.errors.failed')
+      );
     } finally {
       setLoading(false);
     }
@@ -64,9 +69,7 @@ const AuthenticateTab: React.FC = () => {
           <h1 className="text-xl sm:text-2xl font-bold text-themed-primary">
             {t('auth.header.title')}
           </h1>
-          <p className="text-xs sm:text-sm text-themed-secondary">
-            {t('auth.header.subtitle')}
-          </p>
+          <p className="text-xs sm:text-sm text-themed-secondary">{t('auth.header.subtitle')}</p>
         </div>
       </div>
 
@@ -121,11 +124,15 @@ const AuthenticateTab: React.FC = () => {
                 <li>{t('auth.help.step1')}</li>
                 <li>
                   {t('auth.help.step2.before')}
-                  <code className="bg-themed-tertiary px-1 rounded">{t('auth.help.step2.code')}</code>
+                  <code className="bg-themed-tertiary px-1 rounded">
+                    {t('auth.help.step2.code')}
+                  </code>
                 </li>
                 <li>
                   {t('auth.help.step3.before')}
-                  <code className="bg-themed-tertiary px-1 rounded">{t('auth.help.step3.code')}</code>
+                  <code className="bg-themed-tertiary px-1 rounded">
+                    {t('auth.help.step3.code')}
+                  </code>
                 </li>
               </ol>
             </div>

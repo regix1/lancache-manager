@@ -22,18 +22,9 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
   onCancelLogin
 }) => {
   const { t } = useTranslation();
-  const {
-    loading,
-    needsAuthorizationCode,
-    authorizationUrl,
-    authorizationCode
-  } = state;
+  const { loading, needsAuthorizationCode, authorizationUrl, authorizationCode } = state;
 
-  const {
-    setAuthorizationCode,
-    handleAuthenticate,
-    cancelPendingRequest
-  } = actions;
+  const { setAuthorizationCode, handleAuthenticate, cancelPendingRequest } = actions;
 
   const [isSubmitting, setIsSubmitting] = React.useState(false);
 
@@ -110,16 +101,16 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
                   Sign in with Epic Games
                 </h3>
                 <p className="text-sm text-themed-secondary max-w-xs">
-                  You'll be redirected to Epic Games to authorize access to your game library.
-                  After signing in, you'll receive a code to paste back here.
+                  You&apos;ll be redirected to Epic Games to authorize access to your game library.
+                  After signing in, you&apos;ll receive a code to paste back here.
                 </p>
               </div>
 
               <div className="flex items-start gap-3 p-3 rounded-lg bg-themed-tertiary">
                 <Shield className="w-4 h-4 mt-0.5 flex-shrink-0 text-success" />
                 <p className="text-xs text-themed-muted leading-relaxed">
-                  Authentication uses Epic's official OAuth flow. Your credentials are entered
-                  directly on Epic's website and are never shared with this application.
+                  Authentication uses Epic&apos;s official OAuth flow. Your credentials are entered
+                  directly on Epic&apos;s website and are never shared with this application.
                 </p>
               </div>
             </div>
@@ -132,9 +123,7 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
               <h3 className="text-lg font-semibold text-themed-primary mb-2">
                 Connecting to Epic Games...
               </h3>
-              <p className="text-sm text-themed-muted">
-                Starting the authorization process
-              </p>
+              <p className="text-sm text-themed-muted">Starting the authorization process</p>
             </div>
           )}
 
@@ -149,18 +138,14 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
                   Enter Authorization Code
                 </h3>
                 <p className="text-sm text-themed-secondary max-w-sm">
-                  Click the button below to open Epic Games login, then paste the
-                  authorization code you receive.
+                  Click the button below to open Epic Games login, then paste the authorization code
+                  you receive.
                 </p>
               </div>
 
               {/* Open Epic Login Button */}
               {authorizationUrl && (
-                <Button
-                  variant="filled"
-                  onClick={handleOpenAuthUrl}
-                  className="w-full"
-                >
+                <Button variant="filled" onClick={handleOpenAuthUrl} className="w-full">
                   <ExternalLink className="w-4 h-4" />
                   Open Epic Games Login
                 </Button>
@@ -174,8 +159,12 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
                 <input
                   type="text"
                   value={authorizationCode}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAuthorizationCode(e.target.value)}
-                  onKeyPress={(e: React.KeyboardEvent<HTMLInputElement>) => e.key === 'Enter' && handleSubmit()}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                    setAuthorizationCode(e.target.value)
+                  }
+                  onKeyPress={(e: React.KeyboardEvent<HTMLInputElement>) =>
+                    e.key === 'Enter' && handleSubmit()
+                  }
                   placeholder="Paste your authorization code here"
                   className="w-full px-3 py-2.5 themed-input font-mono text-sm"
                   disabled={loading}
@@ -196,11 +185,7 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
 
         {/* Action Buttons */}
         <div className="flex gap-3 pt-2 border-t border-themed-secondary">
-          <Button
-            variant="default"
-            onClick={handleCloseModal}
-            className="flex-1"
-          >
+          <Button variant="default" onClick={handleCloseModal} className="flex-1">
             {t('common.cancel')}
           </Button>
           {needsAuthorizationCode ? (
@@ -233,11 +218,7 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
 const StepDot: React.FC<{ active?: boolean; completed?: boolean }> = ({ active, completed }) => (
   <div
     className={`w-2.5 h-2.5 rounded-full transition-all duration-200 ${
-      active
-        ? 'bg-primary'
-        : completed
-          ? 'bg-success'
-          : 'bg-themed-hover'
+      active ? 'bg-primary' : completed ? 'bg-success' : 'bg-themed-hover'
     }`}
   />
 );

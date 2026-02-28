@@ -1,9 +1,9 @@
 /**
  * Centralized utility for handling optimistic preference updates with stale protection.
- * 
+ *
  * When a user changes a preference, we track the "expected value" during a cooldown period.
  * Any SignalR updates that arrive with stale data are corrected to use the expected value.
- * 
+ *
  * Usage:
  *   1. Call setPendingPreference() when user changes a preference (before API call)
  *   2. Use getCorrectedValue() when processing SignalR updates
@@ -21,7 +21,7 @@ const COOLDOWN_MS = 2000;
 const pending = new Map<string, PendingEntry>();
 const listeners = new Set<() => void>();
 
-const notify = () => listeners.forEach(fn => fn());
+const notify = () => listeners.forEach((fn) => fn());
 
 // ============================================================================
 // Core API
@@ -82,7 +82,9 @@ export const getCorrectedValue = <T extends PreferenceValue>(key: string, incomi
  */
 export const subscribe = (listener: () => void): (() => void) => {
   listeners.add(listener);
-  return () => { listeners.delete(listener); };
+  return () => {
+    listeners.delete(listener);
+  };
 };
 
 // ============================================================================

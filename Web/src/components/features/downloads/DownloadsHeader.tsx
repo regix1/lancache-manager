@@ -55,7 +55,7 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
 
   // Use speedSnapshot from SpeedContext (single source of truth for real-time data)
   const isActive = speedSnapshot?.hasActiveDownloads || false;
-  const totalSpeed = isActive ? (speedSnapshot?.totalBytesPerSecond || 0) : 0;
+  const totalSpeed = isActive ? speedSnapshot?.totalBytesPerSecond || 0 : 0;
   const activeGamesCount = activeDownloadCount;
   const activeClientsCount = totalActiveClients;
   const todayTotal = historySnapshot?.totalBytes || 0;
@@ -90,9 +90,7 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
                   {isActive ? t('downloads.header.transferSpeed') : t('downloads.header.idle')}
                 </span>
                 <div className="speed-value">
-                  <span className={`speed-number ${isActive ? 'active' : ''}`}>
-                    {speedValue}
-                  </span>
+                  <span className={`speed-number ${isActive ? 'active' : ''}`}>{speedValue}</span>
                   <span className="speed-unit">{speedUnit}</span>
                 </div>
                 <div className="stats-row">
@@ -108,9 +106,7 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
                       {t('downloads.header.activeClients', { count: activeClientsCount })}
                     </span>
                   )}
-                  {!isActive && (
-                    <span className="stat-chip">{t('downloads.header.noActive')}</span>
-                  )}
+                  {!isActive && <span className="stat-chip">{t('downloads.header.noActive')}</span>}
                 </div>
               </>
             )}
@@ -122,10 +118,7 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
           <div className="tab-container">
             {isHistoricalView ? (
               <Tooltip content={t('downloads.header.activeTooltip')}>
-                <button
-                  className={`tab-button disabled`}
-                  onClick={(e) => e.preventDefault()}
-                >
+                <button className={`tab-button disabled`} onClick={(e) => e.preventDefault()}>
                   <Zap />
                   {t('downloads.header.activeTab')}
                   <span className="tab-badge">—</span>
@@ -138,7 +131,9 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
               >
                 <Zap />
                 {t('downloads.header.activeTab')}
-                <span className={`tab-badge ${activeGamesCount > 0 && activeTab !== 'active' ? 'has-active' : ''}`}>
+                <span
+                  className={`tab-badge ${activeGamesCount > 0 && activeTab !== 'active' ? 'has-active' : ''}`}
+                >
                   {activeGamesCount}
                 </span>
               </button>

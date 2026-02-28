@@ -1,5 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { FileText, Loader2, CheckCircle, FolderOpen, ChevronDown, ChevronUp, PlayCircle, XCircle } from 'lucide-react';
+import {
+  FileText,
+  Loader2,
+  CheckCircle,
+  FolderOpen,
+  ChevronDown,
+  ChevronUp,
+  PlayCircle,
+  XCircle
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { Tooltip } from '@components/ui/Tooltip';
@@ -154,7 +163,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
   }, [signalR, t]);
 
   const toggleExpanded = (name: string) => {
-    setExpandedDatasources(prev => {
+    setExpandedDatasources((prev) => {
       const next = new Set(prev);
       if (next.has(name)) {
         next.delete(name);
@@ -179,7 +188,10 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
       await ApiService.resetLogPosition('top');
       await ApiService.processAllLogs();
     } catch (err: unknown) {
-      setError((err instanceof Error ? err.message : String(err)) || t('initialization.logProcessing.failedToProcess'));
+      setError(
+        (err instanceof Error ? err.message : String(err)) ||
+          t('initialization.logProcessing.failedToProcess')
+      );
       setProcessing(false);
     } finally {
       setActionLoading(null);
@@ -200,7 +212,10 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
       await ApiService.resetDatasourceLogPosition(datasourceName, 'top');
       await ApiService.processDatasourceLogs(datasourceName);
     } catch (err: unknown) {
-      setError((err instanceof Error ? err.message : String(err)) || t('initialization.logProcessing.failedToProcessDatasource'));
+      setError(
+        (err instanceof Error ? err.message : String(err)) ||
+          t('initialization.logProcessing.failedToProcessDatasource')
+      );
       setProcessing(false);
     } finally {
       setActionLoading(null);
@@ -208,16 +223,21 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
   };
 
   // Get datasources - ensure at least one exists
-  const datasources = config?.dataSources && config.dataSources.length > 0
-    ? config.dataSources
-    : config ? [{
-        name: 'default',
-        cachePath: config.cachePath || '/cache',
-        logsPath: config.logsPath || '/logs',
-        cacheWritable: config.cacheWritable ?? false,
-        logsWritable: config.logsWritable ?? false,
-        enabled: true
-      } as DatasourceInfo] : [];
+  const datasources =
+    config?.dataSources && config.dataSources.length > 0
+      ? config.dataSources
+      : config
+        ? [
+            {
+              name: 'default',
+              cachePath: config.cachePath || '/cache',
+              logsPath: config.logsPath || '/logs',
+              cacheWritable: config.cacheWritable ?? false,
+              logsWritable: config.logsWritable ?? false,
+              enabled: true
+            } as DatasourceInfo
+          ]
+        : [];
 
   const hasMultiple = datasources.length > 1;
   const progressPercent = progress?.progress || 0;
@@ -253,7 +273,9 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
           )}
         </div>
         <h3 className="text-xl font-semibold text-themed-primary mb-1">
-          {complete ? t('initialization.logProcessing.titleComplete') : t('initialization.logProcessing.title')}
+          {complete
+            ? t('initialization.logProcessing.titleComplete')
+            : t('initialization.logProcessing.title')}
         </h3>
         <p className="text-sm text-themed-secondary max-w-md">
           {complete
@@ -275,32 +297,51 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
               />
             </div>
             <p className="text-sm text-themed-secondary text-center mt-2">
-              {t('initialization.logProcessing.percentComplete', { percent: progressPercent.toFixed(1) })}
+              {t('initialization.logProcessing.percentComplete', {
+                percent: progressPercent.toFixed(1)
+              })}
             </p>
           </div>
 
           <div className="grid grid-cols-2 gap-3 p-4 rounded-lg bg-themed-tertiary">
             <div>
-              <p className="text-xs text-themed-muted">{t('initialization.logProcessing.status')}</p>
-              <p className="text-sm font-medium text-themed-primary">{progress.status || t('initialization.logProcessing.processing')}</p>
+              <p className="text-xs text-themed-muted">
+                {t('initialization.logProcessing.status')}
+              </p>
+              <p className="text-sm font-medium text-themed-primary">
+                {progress.status || t('initialization.logProcessing.processing')}
+              </p>
             </div>
             {progress.linesProcessed !== undefined && (
               <div>
-                <p className="text-xs text-themed-muted">{t('initialization.logProcessing.lines')}</p>
-                <p className="text-sm font-medium text-themed-primary">{progress.linesProcessed.toLocaleString()}</p>
+                <p className="text-xs text-themed-muted">
+                  {t('initialization.logProcessing.lines')}
+                </p>
+                <p className="text-sm font-medium text-themed-primary">
+                  {progress.linesProcessed.toLocaleString()}
+                </p>
               </div>
             )}
             {progress.entriesProcessed !== undefined && (
               <div>
-                <p className="text-xs text-themed-muted">{t('initialization.logProcessing.entries')}</p>
-                <p className="text-sm font-medium text-themed-primary">{progress.entriesProcessed.toLocaleString()}</p>
+                <p className="text-xs text-themed-muted">
+                  {t('initialization.logProcessing.entries')}
+                </p>
+                <p className="text-sm font-medium text-themed-primary">
+                  {progress.entriesProcessed.toLocaleString()}
+                </p>
               </div>
             )}
             {progress.mbProcessed !== undefined && progress.mbTotal !== undefined && (
               <div>
-                <p className="text-xs text-themed-muted">{t('initialization.logProcessing.data')}</p>
+                <p className="text-xs text-themed-muted">
+                  {t('initialization.logProcessing.data')}
+                </p>
                 <p className="text-sm font-medium text-themed-primary">
-                  {t('initialization.logProcessing.dataMbProgress', { processed: progress.mbProcessed.toFixed(1), total: progress.mbTotal.toFixed(1) })}
+                  {t('initialization.logProcessing.dataMbProgress', {
+                    processed: progress.mbProcessed.toFixed(1),
+                    total: progress.mbTotal.toFixed(1)
+                  })}
                 </p>
               </div>
             )}
@@ -316,9 +357,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
             <p className="text-sm text-themed-secondary mb-2">
               {t('initialization.logProcessing.description')}
             </p>
-            <p className="text-sm text-themed-muted">
-              {t('initialization.logProcessing.canSkip')}
-            </p>
+            <p className="text-sm text-themed-muted">{t('initialization.logProcessing.canSkip')}</p>
           </div>
 
           {/* Process All button */}
@@ -349,10 +388,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
                   }`}
                 >
                   {/* Header - clickable to expand */}
-                  <div
-                    className="p-3 cursor-pointer"
-                    onClick={() => toggleExpanded(ds.name)}
-                  >
+                  <div className="p-3 cursor-pointer" onClick={() => toggleExpanded(ds.name)}>
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <span className="font-semibold text-themed-primary">{ds.name}</span>
@@ -364,7 +400,14 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
                       </div>
                       <div className="flex items-center gap-3">
                         <div className="flex items-center gap-2">
-                          <Tooltip content={ds.cacheWritable ? t('initialization.logProcessing.cacheWritable') : t('initialization.logProcessing.cacheReadOnly')} position="top">
+                          <Tooltip
+                            content={
+                              ds.cacheWritable
+                                ? t('initialization.logProcessing.cacheWritable')
+                                : t('initialization.logProcessing.cacheReadOnly')
+                            }
+                            position="top"
+                          >
                             <span className="flex items-center gap-1 text-xs">
                               {ds.cacheWritable ? (
                                 <CheckCircle className="w-3.5 h-3.5 text-themed-success" />
@@ -373,7 +416,14 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
                               )}
                             </span>
                           </Tooltip>
-                          <Tooltip content={ds.logsWritable ? t('initialization.logProcessing.logsWritable') : t('initialization.logProcessing.logsReadOnly')} position="top">
+                          <Tooltip
+                            content={
+                              ds.logsWritable
+                                ? t('initialization.logProcessing.logsWritable')
+                                : t('initialization.logProcessing.logsReadOnly')
+                            }
+                            position="top"
+                          >
                             <span className="flex items-center gap-1 text-xs">
                               {ds.logsWritable ? (
                                 <CheckCircle className="w-3.5 h-3.5 text-themed-success" />
@@ -398,14 +448,18 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
                       <div className="py-2 space-y-1">
                         <div className="flex items-center gap-2 text-xs">
                           <FolderOpen className="w-3.5 h-3.5 text-themed-muted flex-shrink-0" />
-                          <span className="text-themed-muted">{t('initialization.logProcessing.cache')}</span>
+                          <span className="text-themed-muted">
+                            {t('initialization.logProcessing.cache')}
+                          </span>
                           <code className="bg-themed-tertiary px-1.5 py-0.5 rounded text-themed-secondary truncate">
                             {ds.cachePath}
                           </code>
                         </div>
                         <div className="flex items-center gap-2 text-xs">
                           <FileText className="w-3.5 h-3.5 text-themed-muted flex-shrink-0" />
-                          <span className="text-themed-muted">{t('initialization.logProcessing.logs')}</span>
+                          <span className="text-themed-muted">
+                            {t('initialization.logProcessing.logs')}
+                          </span>
                           <code className="bg-themed-tertiary px-1.5 py-0.5 rounded text-themed-secondary truncate">
                             {ds.logsPath}
                           </code>

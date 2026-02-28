@@ -46,7 +46,12 @@ interface FileItemRowProps {
   isRootLevel?: boolean;
 }
 
-const FileItemRow: React.FC<FileItemRowProps> = ({ item, selectedFile, onItemClick, isRootLevel }) => {
+const FileItemRow: React.FC<FileItemRowProps> = ({
+  item,
+  selectedFile,
+  onItemClick,
+  isRootLevel
+}) => {
   const formattedLastModified = useFormattedDateTime(item.lastModified);
   const isSelected = selectedFile === item.path;
   const isDrive = isRootLevel && item.isDirectory;
@@ -117,6 +122,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAdmin, mockMo
     if (!mockMode && isAdmin) {
       loadDirectory(null);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mockMode, isAdmin]);
 
   const loadDirectory = async (path: string | null) => {
@@ -136,7 +142,10 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAdmin, mockMo
       setParentPath(result.parentPath);
       setItems(result.items);
     } catch (err: unknown) {
-      setError((err instanceof Error ? err.message : String(err)) || t('management.fileBrowser.failedToLoadDirectory'));
+      setError(
+        (err instanceof Error ? err.message : String(err)) ||
+          t('management.fileBrowser.failedToLoadDirectory')
+      );
     } finally {
       setLoading(false);
     }
@@ -191,7 +200,10 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAdmin, mockMo
         setError(t('management.fileBrowser.noDatabaseFiles'));
       }
     } catch (err: unknown) {
-      setError((err instanceof Error ? err.message : String(err)) || t('management.fileBrowser.searchFailed'));
+      setError(
+        (err instanceof Error ? err.message : String(err)) ||
+          t('management.fileBrowser.searchFailed')
+      );
     } finally {
       setSearching(false);
     }
@@ -242,7 +254,11 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAdmin, mockMo
             disabled={searching || loading || mockMode}
             title={t('management.fileBrowser.searchForDb')}
           >
-            {searching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
+            {searching ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Search className="w-3.5 h-3.5" />
+            )}
           </Button>
         )}
       </div>
@@ -296,15 +312,12 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAdmin, mockMo
               <Database className="w-5 h-5 icon-success" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs text-themed-muted mb-0.5">{t('management.fileBrowser.selectedDatabase')}</p>
+              <p className="text-xs text-themed-muted mb-0.5">
+                {t('management.fileBrowser.selectedDatabase')}
+              </p>
               <p className="text-sm font-mono text-themed-primary truncate">{selectedFile}</p>
             </div>
-            <Button
-              onClick={handleSelectFile}
-              size="sm"
-              variant="filled"
-              color="green"
-            >
+            <Button onClick={handleSelectFile} size="sm" variant="filled" color="green">
               {t('management.fileBrowser.useFile')}
             </Button>
           </div>
@@ -317,11 +330,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAdmin, mockMo
           <span className="text-themed-secondary">
             {t('management.fileBrowser.foundFiles', { count: searchResults.length })}
           </span>
-          <Button
-            onClick={() => setSearchResults([])}
-            size="xs"
-            variant="default"
-          >
+          <Button onClick={() => setSearchResults([])} size="xs" variant="default">
             {t('common.clear')}
           </Button>
         </div>

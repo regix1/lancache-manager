@@ -1,4 +1,11 @@
-import React, { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useCallback,
+  type ReactNode
+} from 'react';
 import { useSignalR } from '@contexts/SignalRContext';
 import { useAuth } from '@contexts/AuthContext';
 import type {
@@ -93,7 +100,7 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
       if (cached) {
         return JSON.parse(cached);
       }
-    } catch (error) {
+    } catch (_error) {
       // Ignore errors, return null
     }
     return null;
@@ -104,7 +111,7 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
     try {
       const cached = sessionStorage.getItem('pics_progress_cache');
       return !cached; // Show loading only if no cache
-    } catch (error) {
+    } catch (_error) {
       return true;
     }
   });
@@ -141,15 +148,19 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
     await fetchProgress();
   };
 
-  const updateProgress = useCallback((updater: (prev: PicsProgress | null) => PicsProgress | null) => {
-    setProgress(updater);
-  }, []);
+  const updateProgress = useCallback(
+    (updater: (prev: PicsProgress | null) => PicsProgress | null) => {
+      setProgress(updater);
+    },
+    []
+  );
 
   // Initial fetch - only when auth is ready and user has access
   useEffect(() => {
     if (!mockMode && !authLoading && hasAccess) {
       fetchProgress();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mockMode, authLoading, hasAccess]);
 
   // Monitor SignalR connection state - re-fetch state on reconnection
@@ -164,6 +175,7 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
     if (signalR.connectionState === 'connected') {
       fetchProgress();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signalR.connectionState, mockMode, authLoading, hasAccess]);
 
   // Listen for real-time depot mapping updates via SignalR
@@ -199,7 +211,8 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
               totalBatches: event.totalBatches || prev.totalBatches,
               processedBatches: event.processedBatches || prev.processedBatches,
               // Backend sends 'percentComplete', map it to 'progressPercent'
-              progressPercent: event.percentComplete ?? event.progressPercent ?? prev.progressPercent,
+              progressPercent:
+                event.percentComplete ?? event.progressPercent ?? prev.progressPercent,
               depotMappingsFound: event.depotMappingsFound || prev.depotMappingsFound,
               failedBatches: event.failedBatches,
               remainingApps: event.remainingApps
@@ -210,11 +223,11 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
 
     const handleDepotMappingComplete = (event: DepotMappingCompleteEvent) => {
       const now = new Date().toISOString();
-      
+
       // Handle both success and failure cases
       const isSuccess = event.success !== false && !event.cancelled;
       const isCancelled = event.cancelled === true;
-      
+
       setProgress((prev) =>
         prev
           ? {
@@ -227,7 +240,10 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
               depotMappingsFound: event.depotMappingsFound || prev.depotMappingsFound,
               // Only update lastCrawlTime and nextCrawlIn on success
               lastCrawlTime: isSuccess ? now : prev.lastCrawlTime,
-              nextCrawlIn: isSuccess && prev.crawlIntervalHours ? prev.crawlIntervalHours * 3600 : prev.nextCrawlIn,
+              nextCrawlIn:
+                isSuccess && prev.crawlIntervalHours
+                  ? prev.crawlIntervalHours * 3600
+                  : prev.nextCrawlIn,
               // Store error message if present
               errorMessage: event.error || null
             }

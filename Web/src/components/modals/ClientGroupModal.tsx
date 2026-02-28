@@ -66,21 +66,19 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
   const isEditing = group !== null;
 
   // Filter available IPs based on search query
-  const filteredIps = useMemo(() =>
-    ungroupedIps.filter(ip =>
-      ip.toLowerCase().includes(ipSearchQuery.toLowerCase())
-    ),
+  const filteredIps = useMemo(
+    () => ungroupedIps.filter((ip) => ip.toLowerCase().includes(ipSearchQuery.toLowerCase())),
     [ungroupedIps, ipSearchQuery]
   );
 
   // Pagination calculations for available IPs (excluding already selected/pending)
-  const availableIpsForCreate = useMemo(() =>
-    filteredIps.filter(ip => !selectedIps.includes(ip)),
+  const availableIpsForCreate = useMemo(
+    () => filteredIps.filter((ip) => !selectedIps.includes(ip)),
     [filteredIps, selectedIps]
   );
 
-  const availableIpsForEdit = useMemo(() =>
-    filteredIps.filter(ip => !pendingIps.includes(ip)),
+  const availableIpsForEdit = useMemo(
+    () => filteredIps.filter((ip) => !pendingIps.includes(ip)),
     [filteredIps, pendingIps]
   );
 
@@ -105,7 +103,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
   };
 
   const handleRemoveIp = (ip: string) => {
-    setSelectedIps(selectedIps.filter(i => i !== ip));
+    setSelectedIps(selectedIps.filter((i) => i !== ip));
   };
 
   // Edit mode: Add IP to pending list (saved on submit)
@@ -118,48 +116,73 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
 
   // Edit mode: Remove IP from pending list
   const handleRemovePendingIp = (ip: string) => {
-    setPendingIps(pendingIps.filter(i => i !== ip));
+    setPendingIps(pendingIps.filter((i) => i !== ip));
   };
 
-  const handleSubmit = useCallback(async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
+  const handleSubmit = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      setError(null);
 
-    if (!nickname.trim()) {
-      setError(t('modals.clientGroup.errors.nicknameRequired'));
-      return;
-    }
-
-    setSaving(true);
-    try {
-      if (isEditing) {
-        // Update nickname/description
-        await updateClientGroup(group.id, {
-          nickname: nickname.trim(),
-          description: description.trim() || undefined
-        });
-        // Add any pending IPs
-        for (const ip of pendingIps) {
-          await addMember(group.id, ip);
-        }
-        const ipsAdded = pendingIps.length > 0 ? t('modals.clientGroup.messages.andAddedIps', { count: pendingIps.length }) : '';
-        onSuccess(t('modals.clientGroup.messages.updatedNickname', { nickname: nickname.trim(), ipsAdded }));
-      } else {
-        await createClientGroup({
-          nickname: nickname.trim(),
-          description: description.trim() || undefined,
-          initialIps: selectedIps.length > 0 ? selectedIps : undefined
-        });
-        onSuccess(t('modals.clientGroup.messages.addedNickname', { nickname: nickname.trim() }));
+      if (!nickname.trim()) {
+        setError(t('modals.clientGroup.errors.nicknameRequired'));
+        return;
       }
-      onClose();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : t('modals.clientGroup.errors.failedToSave');
-      setError(message);
-    } finally {
-      setSaving(false);
-    }
-  }, [nickname, description, selectedIps, pendingIps, isEditing, group, createClientGroup, updateClientGroup, addMember, onClose, onSuccess]);
+
+      setSaving(true);
+      try {
+        if (isEditing) {
+          // Update nickname/description
+          await updateClientGroup(group.id, {
+            nickname: nickname.trim(),
+            description: description.trim() || undefined
+          });
+          // Add any pending IPs
+          for (const ip of pendingIps) {
+            await addMember(group.id, ip);
+          }
+          const ipsAdded =
+            pendingIps.length > 0
+              ? t('modals.clientGroup.messages.andAddedIps', { count: pendingIps.length })
+              : '';
+          onSuccess(
+            t('modals.clientGroup.messages.updatedNickname', {
+              nickname: nickname.trim(),
+              ipsAdded
+            })
+          );
+        } else {
+          await createClientGroup({
+            nickname: nickname.trim(),
+            description: description.trim() || undefined,
+            initialIps: selectedIps.length > 0 ? selectedIps : undefined
+          });
+          onSuccess(t('modals.clientGroup.messages.addedNickname', { nickname: nickname.trim() }));
+        }
+        onClose();
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : t('modals.clientGroup.errors.failedToSave');
+        setError(message);
+      } finally {
+        setSaving(false);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      nickname,
+      description,
+      selectedIps,
+      pendingIps,
+      isEditing,
+      group,
+      createClientGroup,
+      updateClientGroup,
+      addMember,
+      onClose,
+      onSuccess
+    ]
+  );
 
   if (!isOpen) return null;
 
@@ -197,7 +220,9 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
             <div>
               <strong>{t('modals.clientGroup.warnings.sharedNicknameTitle')}</strong>
               <p className="text-themed-secondary text-xs mt-1">
-                {t('modals.clientGroup.warnings.sharedNicknameDesc', { count: group.memberIps.length })}
+                {t('modals.clientGroup.warnings.sharedNicknameDesc', {
+                  count: group.memberIps.length
+                })}
               </p>
             </div>
           </div>
@@ -229,7 +254,8 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
             htmlFor="description"
             className="block text-sm font-medium text-themed-secondary mb-1"
           >
-            {t('modals.clientGroup.labels.description')} <span className="text-themed-muted">({t('modals.clientGroup.labels.optional')})</span>
+            {t('modals.clientGroup.labels.description')}{' '}
+            <span className="text-themed-muted">({t('modals.clientGroup.labels.optional')})</span>
           </label>
           <textarea
             id="description"
@@ -246,10 +272,11 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
           // Edit mode: Show current members and option to add more
           <div className="mb-4">
             <label className="block text-sm font-medium text-themed-secondary mb-2">
-              {t('modals.clientGroup.labels.currentIps')} <span className="count-badge">{group.memberIps.length}</span>
+              {t('modals.clientGroup.labels.currentIps')}{' '}
+              <span className="count-badge">{group.memberIps.length}</span>
             </label>
             <div className="flex flex-wrap gap-2 mb-3">
-              {group.memberIps.map(ip => (
+              {group.memberIps.map((ip) => (
                 <div
                   key={ip}
                   className="px-2 py-1 rounded text-sm font-mono bg-themed-tertiary text-themed-secondary"
@@ -263,10 +290,11 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
             {pendingIps.length > 0 && (
               <>
                 <label className="block text-sm font-medium text-themed-secondary mb-2">
-                  {t('modals.clientGroup.labels.ipsToAdd')} <span className="count-badge">{pendingIps.length}</span>
+                  {t('modals.clientGroup.labels.ipsToAdd')}{' '}
+                  <span className="count-badge">{pendingIps.length}</span>
                 </label>
                 <div className="flex flex-wrap gap-2 mb-3">
-                  {pendingIps.map(ip => (
+                  {pendingIps.map((ip) => (
                     <div
                       key={ip}
                       className="flex items-center gap-1 px-2 py-1 rounded text-sm font-mono bg-primary text-themed-button"
@@ -285,7 +313,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
               </>
             )}
 
-            {ungroupedIps.filter(ip => !pendingIps.includes(ip)).length > 0 && (
+            {ungroupedIps.filter((ip) => !pendingIps.includes(ip)).length > 0 && (
               <>
                 <label className="block text-sm font-medium text-themed-secondary mb-2">
                   {t('modals.clientGroup.labels.addMoreIps')}
@@ -302,12 +330,14 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
                 <div className="max-h-32 overflow-y-auto rounded-lg border p-2 bg-themed-tertiary border-themed-primary">
                   {availableIpsForEdit.length === 0 ? (
                     <p className="text-sm text-themed-muted text-center py-2">
-                      {ipSearchQuery ? t('modals.clientGroup.emptyStates.noMatchingIps') : t('modals.clientGroup.emptyStates.noUngroupedIps')}
+                      {ipSearchQuery
+                        ? t('modals.clientGroup.emptyStates.noMatchingIps')
+                        : t('modals.clientGroup.emptyStates.noUngroupedIps')}
                     </p>
                   ) : (
                     <>
                       <div className="flex flex-wrap gap-2">
-                        {paginatedIpsForEdit.map(ip => (
+                        {paginatedIpsForEdit.map((ip) => (
                           <button
                             key={ip}
                             type="button"
@@ -341,13 +371,16 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
           // Create mode: Select initial IPs
           <div className="mb-4">
             <label className="block text-sm font-medium text-themed-secondary mb-2">
-              {t('modals.clientGroup.labels.clientIps')} <span className="text-themed-muted">({t('modals.clientGroup.labels.selectAtLeastOne')})</span>
+              {t('modals.clientGroup.labels.clientIps')}{' '}
+              <span className="text-themed-muted">
+                ({t('modals.clientGroup.labels.selectAtLeastOne')})
+              </span>
             </label>
 
             {/* Selected IPs */}
             {selectedIps.length > 0 && (
               <div className="flex flex-wrap gap-2 mb-2">
-                {selectedIps.map(ip => (
+                {selectedIps.map((ip) => (
                   <div
                     key={ip}
                     className="flex items-center gap-1 px-2 py-1 rounded text-sm font-mono bg-primary text-themed-button"
@@ -379,12 +412,14 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
                 <div className="max-h-32 overflow-y-auto rounded-lg border p-2 bg-themed-tertiary border-themed-primary">
                   {availableIpsForCreate.length === 0 ? (
                     <p className="text-sm text-themed-muted text-center py-2">
-                      {ipSearchQuery ? t('modals.clientGroup.emptyStates.noMatchingIps') : t('modals.clientGroup.emptyStates.allSelected')}
+                      {ipSearchQuery
+                        ? t('modals.clientGroup.emptyStates.noMatchingIps')
+                        : t('modals.clientGroup.emptyStates.allSelected')}
                     </p>
                   ) : (
                     <>
                       <div className="flex flex-wrap gap-2">
-                        {paginatedIpsForCreate.map(ip => (
+                        {paginatedIpsForCreate.map((ip) => (
                           <button
                             key={ip}
                             type="button"
@@ -424,25 +459,21 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
 
         {/* Actions */}
         <div className="flex justify-end gap-3 pt-4 border-t border-themed-primary">
-          <Button
-            type="button"
-            variant="subtle"
-            onClick={onClose}
-            disabled={saving}
-          >
+          <Button type="button" variant="subtle" onClick={onClose} disabled={saving}>
             {t('common.cancel')}
           </Button>
-          <Button
-            type="submit"
-            disabled={saving || !nickname.trim()}
-          >
+          <Button type="submit" disabled={saving || !nickname.trim()}>
             {saving ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                {isEditing ? t('modals.clientGroup.actions.saving') : t('modals.clientGroup.actions.adding')}
+                {isEditing
+                  ? t('modals.clientGroup.actions.saving')
+                  : t('modals.clientGroup.actions.adding')}
               </>
+            ) : isEditing ? (
+              t('modals.clientGroup.actions.saveChanges')
             ) : (
-              isEditing ? t('modals.clientGroup.actions.saveChanges') : t('modals.clientGroup.actions.addNickname')
+              t('modals.clientGroup.actions.addNickname')
             )}
           </Button>
         </div>

@@ -94,6 +94,7 @@ export const useActivityTracker = (
   }, []);
 
   useEffect(() => {
+    const heartbeatInterval = heartbeatIntervalRef;
     // Check for idle status periodically
     const checkIdleStatus = () => {
       const timeSinceActivity = Date.now() - lastActivityRef.current;
@@ -140,8 +141,8 @@ export const useActivityTracker = (
         clearInterval(idleCheckIntervalRef.current);
       }
 
-      if (heartbeatIntervalRef.current) {
-        clearInterval(heartbeatIntervalRef.current);
+      if (heartbeatInterval.current) {
+        clearInterval(heartbeatInterval.current);
       }
     };
   }, [handleActivity, handleIdle]);

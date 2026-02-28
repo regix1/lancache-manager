@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
 import { Activity, Clock, Loader2, HardDrive, TrendingUp, RefreshCw } from 'lucide-react';
+import { type TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { formatBytes, formatPercent, formatSpeed } from '@utils/formatters';
 import { Card } from '@components/ui/Card';
@@ -38,12 +39,13 @@ interface RecentDownloadsPanelProps {
 }
 
 // Active download item component using real-time speed data
-const ActiveDownloadItem: React.FC<{ game: GameSpeedInfo; index: number; t: any }> = ({ game, index, t }) => {
+const ActiveDownloadItem: React.FC<{ game: GameSpeedInfo; index: number; t: TFunction }> = ({
+  game,
+  index,
+  t
+}) => {
   return (
-    <div
-      className="download-item active-item"
-      style={{ animationDelay: `${index * 50}ms` }}
-    >
+    <div className="download-item active-item" style={{ animationDelay: `${index * 50}ms` }}>
       <div className="item-left">
         <div className="item-indicator">
           <div className="pulse-ring" />
@@ -51,7 +53,9 @@ const ActiveDownloadItem: React.FC<{ game: GameSpeedInfo; index: number; t: any 
         </div>
         <div className="item-info">
           <div className="item-name">
-            {game.gameName && game.gameName !== 'Unknown Steam Game' && !game.gameName.match(/^Steam App \d+$/)
+            {game.gameName &&
+            game.gameName !== 'Unknown Steam Game' &&
+            !game.gameName.match(/^Steam App \d+$/)
               ? game.gameName
               : game.gameName || `Depot ${game.depotId}`}
           </div>
@@ -60,7 +64,9 @@ const ActiveDownloadItem: React.FC<{ game: GameSpeedInfo; index: number; t: any 
             <span className="meta-separator">•</span>
             <span className="meta-text">{formatBytes(game.totalBytes)}</span>
             <span className="meta-separator">•</span>
-            <span className="meta-text">{game.requestCount} {t('dashboard.downloadsPanel.req')}</span>
+            <span className="meta-text">
+              {game.requestCount} {t('dashboard.downloadsPanel.req')}
+            </span>
           </div>
         </div>
       </div>
@@ -69,7 +75,9 @@ const ActiveDownloadItem: React.FC<{ game: GameSpeedInfo; index: number; t: any 
           <span className="speed-value">{formatSpeed(game.bytesPerSecond)}</span>
           <Loader2 className="speed-spinner" />
         </div>
-        <div className={`hit-badge ${game.cacheHitPercent >= 80 ? 'high' : game.cacheHitPercent >= 50 ? 'medium' : 'low'}`}>
+        <div
+          className={`hit-badge ${game.cacheHitPercent >= 80 ? 'high' : game.cacheHitPercent >= 50 ? 'medium' : 'low'}`}
+        >
           {game.cacheHitPercent.toFixed(0)}%
         </div>
       </div>
@@ -91,34 +99,43 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({ item, events = 
         service: item.service,
         name: item.name,
         totalBytes: item.totalBytes,
-        cacheHitPercent: item.totalDownloaded > 0 ? (item.cacheHitBytes / item.totalDownloaded) * 100 : 0,
+        cacheHitPercent:
+          item.totalDownloaded > 0 ? (item.cacheHitBytes / item.totalDownloaded) * 100 : 0,
         startTime: item.lastSeen,
         clientInfo: `${item.clientsSet.size} client${item.clientsSet.size !== 1 ? 's' : ''}`,
         clientIp: null as string | null, // Multiple clients, no single IP
         count: item.count,
-        hasGameName: item.downloads.some((d: Download) => d.gameName && d.gameName !== 'Unknown Steam Game' && !d.gameName.match(/^Steam App \d+$/))
+        hasGameName: item.downloads.some(
+          (d: Download) =>
+            d.gameName &&
+            d.gameName !== 'Unknown Steam Game' &&
+            !d.gameName.match(/^Steam App \d+$/)
+        )
       }
     : {
         service: item.service,
-        name: item.gameName && item.gameName !== 'Unknown Steam Game' && !item.gameName.match(/^Steam App \d+$/)
-          ? item.gameName
-          : item.gameName || (item.depotId ? `Depot ${item.depotId}` : item.service),
+        name:
+          item.gameName &&
+          item.gameName !== 'Unknown Steam Game' &&
+          !item.gameName.match(/^Steam App \d+$/)
+            ? item.gameName
+            : item.gameName || (item.depotId ? `Depot ${item.depotId}` : item.service),
         totalBytes: item.totalBytes,
         cacheHitPercent: item.cacheHitPercent,
         startTime: item.startTimeUtc,
         clientInfo: item.clientIp, // Fallback for display
         clientIp: item.clientIp, // Single client IP for nickname lookup
         count: 1,
-        hasGameName: item.gameName && item.gameName !== 'Unknown Steam Game' && !item.gameName.match(/^Steam App \d+$/)
+        hasGameName:
+          item.gameName &&
+          item.gameName !== 'Unknown Steam Game' &&
+          !item.gameName.match(/^Steam App \d+$/)
       };
 
   const formattedTime = useFormattedDateTime(display.startTime);
 
   return (
-    <div
-      className="download-item recent-item"
-      style={{ animationDelay: `${index * 30}ms` }}
-    >
+    <div className="download-item recent-item" style={{ animationDelay: `${index * 30}ms` }}>
       <div className="item-left">
         <div className="item-icon">
           <HardDrive size={16} />
@@ -126,9 +143,7 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({ item, events = 
         <div className="item-info">
           <div className="item-name">
             {display.name}
-            {isGroup && display.count > 1 && (
-              <span className="count-badge">{display.count}×</span>
-            )}
+            {isGroup && display.count > 1 && <span className="count-badge">{display.count}×</span>}
           </div>
           <div className="item-meta">
             <span className="service-badge">{display.service}</span>
@@ -140,9 +155,10 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({ item, events = 
                 display.clientInfo
               )}
             </span>
-            {events.length > 0 && events.slice(0, 1).map(event => (
-              <EventBadge key={event.id} event={event} size="sm" />
-            ))}
+            {events.length > 0 &&
+              events
+                .slice(0, 1)
+                .map((event) => <EventBadge key={event.id} event={event} size="sm" />)}
           </div>
         </div>
       </div>
@@ -151,7 +167,9 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({ item, events = 
           <span className="size-value">{formatBytes(display.totalBytes)}</span>
           <span className="time-value">{formattedTime}</span>
         </div>
-        <div className={`hit-badge ${display.cacheHitPercent >= 75 ? 'high' : display.cacheHitPercent >= 50 ? 'medium' : display.cacheHitPercent >= 25 ? 'low' : 'critical'}`}>
+        <div
+          className={`hit-badge ${display.cacheHitPercent >= 75 ? 'high' : display.cacheHitPercent >= 50 ? 'medium' : display.cacheHitPercent >= 25 ? 'low' : 'critical'}`}
+        >
           {formatPercent(display.cacheHitPercent)}
         </div>
       </div>
@@ -188,73 +206,77 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
   // Fetch associations for visible downloads - moved after groupedItems is computed
 
   // Grouping logic
-  const createGroups = useCallback((downloads: Download[]): { groups: DownloadGroup[]; individuals: Download[] } => {
-    const groups: Record<string, DownloadGroup> = {};
-    const individuals: Download[] = [];
+  const createGroups = useCallback(
+    (downloads: Download[]): { groups: DownloadGroup[]; individuals: Download[] } => {
+      const groups: Record<string, DownloadGroup> = {};
+      const individuals: Download[] = [];
 
-    downloads.forEach((download) => {
-      let groupKey: string;
-      let groupName: string;
-      let groupType: 'game' | 'metadata' | 'content';
+      downloads.forEach((download) => {
+        let groupKey: string;
+        let groupName: string;
+        let groupType: 'game' | 'metadata' | 'content';
 
-      // Check if we have a valid game (either by appId or by name)
-      const hasValidGameAppId = !!download.gameAppId;
-      const hasValidGameName = download.gameName &&
-        download.gameName !== 'Unknown Steam Game' &&
-        !download.gameName.match(/^Steam App \d+$/);
+        // Check if we have a valid game (either by appId or by name)
+        const hasValidGameAppId = !!download.gameAppId;
+        const hasValidGameName =
+          download.gameName &&
+          download.gameName !== 'Unknown Steam Game' &&
+          !download.gameName.match(/^Steam App \d+$/);
 
-      if (hasValidGameName) {
-        // Only show as a named game when we have an actual resolved name
-        groupKey = hasValidGameAppId
-          ? `game-appid-${download.gameAppId}`
-          : `game-${download.gameName}`;
-        groupName = download.gameName!;
-        groupType = 'game';
-      } else if (download.service.toLowerCase() !== 'steam') {
-        groupKey = `service-${download.service.toLowerCase()}`;
-        groupName = `${download.service} Downloads`;
-        groupType = download.totalBytes === 0 ? 'metadata' : 'content';
-      } else {
-        individuals.push(download);
-        return;
-      }
+        if (hasValidGameName) {
+          // Only show as a named game when we have an actual resolved name
+          groupKey = hasValidGameAppId
+            ? `game-appid-${download.gameAppId}`
+            : `game-${download.gameName}`;
+          groupName = download.gameName!;
+          groupType = 'game';
+        } else if (download.service.toLowerCase() !== 'steam') {
+          groupKey = `service-${download.service.toLowerCase()}`;
+          groupName = `${download.service} Downloads`;
+          groupType = download.totalBytes === 0 ? 'metadata' : 'content';
+        } else {
+          individuals.push(download);
+          return;
+        }
 
-      if (!groups[groupKey]) {
-        groups[groupKey] = {
-          id: groupKey,
-          name: groupName,
-          type: groupType,
-          service: download.service,
-          downloads: [],
-          totalBytes: 0,
-          totalDownloaded: 0,
-          cacheHitBytes: 0,
-          cacheMissBytes: 0,
-          clientsSet: new Set<string>(),
-          firstSeen: download.startTimeUtc,
-          lastSeen: download.startTimeUtc,
-          count: 0
-        };
-      }
+        if (!groups[groupKey]) {
+          groups[groupKey] = {
+            id: groupKey,
+            name: groupName,
+            type: groupType,
+            service: download.service,
+            downloads: [],
+            totalBytes: 0,
+            totalDownloaded: 0,
+            cacheHitBytes: 0,
+            cacheMissBytes: 0,
+            clientsSet: new Set<string>(),
+            firstSeen: download.startTimeUtc,
+            lastSeen: download.startTimeUtc,
+            count: 0
+          };
+        }
 
-      groups[groupKey].downloads.push(download);
-      groups[groupKey].totalBytes += download.totalBytes || 0;
-      groups[groupKey].totalDownloaded += download.totalBytes || 0;
-      groups[groupKey].cacheHitBytes += download.cacheHitBytes || 0;
-      groups[groupKey].cacheMissBytes += download.cacheMissBytes || 0;
-      groups[groupKey].clientsSet.add(download.clientIp);
-      groups[groupKey].count++;
+        groups[groupKey].downloads.push(download);
+        groups[groupKey].totalBytes += download.totalBytes || 0;
+        groups[groupKey].totalDownloaded += download.totalBytes || 0;
+        groups[groupKey].cacheHitBytes += download.cacheHitBytes || 0;
+        groups[groupKey].cacheMissBytes += download.cacheMissBytes || 0;
+        groups[groupKey].clientsSet.add(download.clientIp);
+        groups[groupKey].count++;
 
-      if (download.startTimeUtc < groups[groupKey].firstSeen) {
-        groups[groupKey].firstSeen = download.startTimeUtc;
-      }
-      if (download.startTimeUtc > groups[groupKey].lastSeen) {
-        groups[groupKey].lastSeen = download.startTimeUtc;
-      }
-    });
+        if (download.startTimeUtc < groups[groupKey].firstSeen) {
+          groups[groupKey].firstSeen = download.startTimeUtc;
+        }
+        if (download.startTimeUtc > groups[groupKey].lastSeen) {
+          groups[groupKey].lastSeen = download.startTimeUtc;
+        }
+      });
 
-    return { groups: Object.values(groups), individuals };
-  }, []);
+      return { groups: Object.values(groups), individuals };
+    },
+    []
+  );
 
   const getTimeRangeLabel = useMemo(() => {
     const key = `dashboard.downloadsPanel.timeRanges.${timeRange}` as const;
@@ -275,7 +297,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
 
   const clientOptions = useMemo(() => {
     // Build a map of group IDs to the IPs in downloads that belong to that group
-    const groupedIps = new Map<number, { group: typeof clientGroups[0]; ips: string[] }>();
+    const groupedIps = new Map<number, { group: (typeof clientGroups)[0]; ips: string[] }>();
     const ungroupedIps: string[] = [];
 
     availableClients.forEach((clientIp) => {
@@ -316,7 +338,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
     });
 
     return options;
-  }, [availableClients, getGroupForIp, clientGroups, t]);
+  }, [availableClients, getGroupForIp, t]);
 
   const filteredDownloads = useMemo(() => {
     return latestDownloads.filter((download) => {
@@ -325,7 +347,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
         // Check if it's a group selection (e.g., "group-123")
         if (selectedClient.startsWith('group-')) {
           const groupId = parseInt(selectedClient.replace('group-', ''), 10);
-          const group = clientGroups.find(g => g.id === groupId);
+          const group = clientGroups.find((g) => g.id === groupId);
           if (group) {
             // Filter by any IP in the group
             if (!group.memberIps.includes(download.clientIp)) return false;
@@ -344,7 +366,11 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
     const { groups, individuals } = createGroups(filteredDownloads);
 
     const filteredIndividuals = individuals.filter((download) => {
-      if (download.gameName && download.gameName !== 'Unknown Steam Game' && !download.gameName.match(/^Steam App \d+$/)) {
+      if (
+        download.gameName &&
+        download.gameName !== 'Unknown Steam Game' &&
+        !download.gameName.match(/^Steam App \d+$/)
+      ) {
         return true;
       }
       if (download.service.toLowerCase() !== 'steam') return true;
@@ -354,12 +380,14 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
     const allItems: (DownloadGroup | Download)[] = [...groups, ...filteredIndividuals];
 
     allItems.sort((a, b) => {
-      const aTime = 'downloads' in a
-        ? Math.max(...a.downloads.map((d: Download) => new Date(d.startTimeUtc).getTime()))
-        : new Date(a.startTimeUtc).getTime();
-      const bTime = 'downloads' in b
-        ? Math.max(...b.downloads.map((d: Download) => new Date(d.startTimeUtc).getTime()))
-        : new Date(b.startTimeUtc).getTime();
+      const aTime =
+        'downloads' in a
+          ? Math.max(...a.downloads.map((d: Download) => new Date(d.startTimeUtc).getTime()))
+          : new Date(a.startTimeUtc).getTime();
+      const bTime =
+        'downloads' in b
+          ? Math.max(...b.downloads.map((d: Download) => new Date(d.startTimeUtc).getTime()))
+          : new Date(b.startTimeUtc).getTime();
       return bTime - aTime;
     });
 
@@ -367,12 +395,12 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
       displayedItems: allItems.slice(0, displayCount),
       totalGroups: allItems.length
     };
-  }, [filteredDownloads, createGroups, getAssociations]); // getAssociations triggers re-render when associations load
+  }, [filteredDownloads, createGroups]);
 
   // Fetch associations for all downloads in displayed groups
   useEffect(() => {
     const downloadIds: number[] = [];
-    groupedItems.displayedItems.forEach(item => {
+    groupedItems.displayedItems.forEach((item) => {
       if ('downloads' in item) {
         // It's a group - get all download IDs in the group
         item.downloads.forEach((d: Download) => downloadIds.push(d.id));
@@ -945,13 +973,26 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
 
           <SegmentedControl
             options={[
-              { value: 'recent', label: t('dashboard.downloadsPanel.recent'), icon: <Clock size={14} /> },
+              {
+                value: 'recent',
+                label: t('dashboard.downloadsPanel.recent'),
+                icon: <Clock size={14} />
+              },
               {
                 value: 'active',
-                label: <>{t('dashboard.downloadsPanel.active')}{!isHistoricalView && activeCount > 0 && <span className="count-badge">{activeCount}</span>}</>,
+                label: (
+                  <>
+                    {t('dashboard.downloadsPanel.active')}
+                    {!isHistoricalView && activeCount > 0 && (
+                      <span className="count-badge">{activeCount}</span>
+                    )}
+                  </>
+                ),
                 icon: <Activity size={14} />,
                 disabled: isHistoricalView,
-                tooltip: isHistoricalView ? t('dashboard.downloadsPanel.activeDownloadsOnly') : undefined
+                tooltip: isHistoricalView
+                  ? t('dashboard.downloadsPanel.activeDownloadsOnly')
+                  : undefined
               }
             ]}
             value={viewMode}
@@ -973,7 +1014,8 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
               )}
               <div className="stat-item">
                 <HardDrive />
-                <span className="stat-value">{activeCount}</span> {t('dashboard.downloadsPanel.game', { count: activeCount })}
+                <span className="stat-value">{activeCount}</span>{' '}
+                {t('dashboard.downloadsPanel.game', { count: activeCount })}
               </div>
               <div className="stat-item">
                 <span>{t('dashboard.downloadsPanel.live')}</span>
@@ -982,7 +1024,9 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
           ) : (
             <>
               <div className="stat-item">
-                <span className={`stat-value ${stats.overallHitRate >= 75 ? 'hit-high' : stats.overallHitRate >= 50 ? 'hit-medium' : 'hit-low'}`}>
+                <span
+                  className={`stat-value ${stats.overallHitRate >= 75 ? 'hit-high' : stats.overallHitRate >= 50 ? 'hit-medium' : 'hit-low'}`}
+                >
                   {formatPercent(stats.overallHitRate)}
                 </span>
                 <span>{t('dashboard.downloadsPanel.hitRate')}</span>
@@ -1000,7 +1044,10 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
             <EnhancedDropdown
               options={availableServices.map((service) => ({
                 value: service,
-                label: service === 'all' ? t('dashboard.downloadsPanel.allServices') : service.charAt(0).toUpperCase() + service.slice(1)
+                label:
+                  service === 'all'
+                    ? t('dashboard.downloadsPanel.allServices')
+                    : service.charAt(0).toUpperCase() + service.slice(1)
               }))}
               value={selectedService}
               onChange={setSelectedService}
@@ -1038,8 +1085,12 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
                 <div className="empty-icon-bg" />
                 <Activity size={24} />
               </div>
-              <div className="empty-title">{t('dashboard.downloadsPanel.emptyStates.noActive')}</div>
-              <div className="empty-desc">{t('dashboard.downloadsPanel.emptyStates.noActiveDesc')}</div>
+              <div className="empty-title">
+                {t('dashboard.downloadsPanel.emptyStates.noActive')}
+              </div>
+              <div className="empty-desc">
+                {t('dashboard.downloadsPanel.emptyStates.noActiveDesc')}
+              </div>
             </div>
           )
         ) : loading ? (
@@ -1053,7 +1104,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
             const events = isGroup
               ? Array.from(
                   item.downloads.reduce((acc, d) => {
-                    getAssociations(d.id).events.forEach(e => acc.set(e.id, e));
+                    getAssociations(d.id).events.forEach((e) => acc.set(e.id, e));
                     return acc;
                   }, new Map<number, EventSummary>())
                 ).map(([, e]) => e)
@@ -1073,8 +1124,14 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
               <div className="empty-icon-bg" />
               <Clock size={24} />
             </div>
-            <div className="empty-title">{t('dashboard.downloadsPanel.emptyStates.noDownloads')}</div>
-            <div className="empty-desc">{t('dashboard.downloadsPanel.emptyStates.noDownloadsInPeriod', { period: getTimeRangeLabel.toLowerCase() })}</div>
+            <div className="empty-title">
+              {t('dashboard.downloadsPanel.emptyStates.noDownloads')}
+            </div>
+            <div className="empty-desc">
+              {t('dashboard.downloadsPanel.emptyStates.noDownloadsInPeriod', {
+                period: getTimeRangeLabel.toLowerCase()
+              })}
+            </div>
           </div>
         )}
       </div>
@@ -1083,7 +1140,9 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
       {viewMode === 'active' && hasActiveDownloads && (
         <div className="panel-footer">
           <div className="footer-stat">
-            <strong>{activeGames.length}</strong> {t('dashboard.downloadsPanel.game', { count: activeGames.length })} {t('dashboard.downloadsPanel.downloading')}
+            <strong>{activeGames.length}</strong>{' '}
+            {t('dashboard.downloadsPanel.game', { count: activeGames.length })}{' '}
+            {t('dashboard.downloadsPanel.downloading')}
           </div>
           <button className="refresh-btn" onClick={refreshSpeed}>
             <RefreshCw />
@@ -1094,12 +1153,15 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
 
       {viewMode === 'recent' && groupedItems.totalGroups > displayCount && (
         <div className="panel-footer">
-          <div className="footer-stat" dangerouslySetInnerHTML={{ 
-            __html: t('dashboard.downloadsPanel.showing', { 
-              displayed: Math.min(displayCount, groupedItems.displayedItems.length), 
-              total: groupedItems.totalGroups 
-            })
-          }} />
+          <div
+            className="footer-stat"
+            dangerouslySetInnerHTML={{
+              __html: t('dashboard.downloadsPanel.showing', {
+                displayed: Math.min(displayCount, groupedItems.displayedItems.length),
+                total: groupedItems.totalGroups
+              })
+            }}
+          />
           <div className="footer-stat">
             <strong>{stats.totalDownloads}</strong> {t('dashboard.downloadsPanel.totalDownloads')}
           </div>

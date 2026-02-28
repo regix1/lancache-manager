@@ -42,12 +42,17 @@ export const Button: React.FC<ButtonProps> = ({
       const colors = {
         red: 'bg-transparent hover:bg-themed-hover focus:bg-[var(--theme-bg-hover)] text-themed-error border border-themed-secondary',
         blue: 'bg-transparent hover:bg-themed-hover focus:bg-[var(--theme-bg-hover)] text-themed-secondary border border-themed-secondary',
-        green: 'bg-transparent hover:bg-themed-hover focus:bg-[var(--theme-bg-hover)] text-themed-secondary border border-themed-secondary',
-        yellow: 'bg-transparent hover:bg-themed-hover focus:bg-[var(--theme-bg-hover)] text-themed-secondary border border-themed-secondary',
-        purple: 'bg-transparent hover:bg-themed-hover focus:bg-[var(--theme-bg-hover)] text-themed-secondary border border-themed-secondary',
+        green:
+          'bg-transparent hover:bg-themed-hover focus:bg-[var(--theme-bg-hover)] text-themed-secondary border border-themed-secondary',
+        yellow:
+          'bg-transparent hover:bg-themed-hover focus:bg-[var(--theme-bg-hover)] text-themed-secondary border border-themed-secondary',
+        purple:
+          'bg-transparent hover:bg-themed-hover focus:bg-[var(--theme-bg-hover)] text-themed-secondary border border-themed-secondary',
         gray: 'bg-transparent hover:bg-themed-hover focus:bg-[var(--theme-bg-hover)] text-themed-secondary border border-themed-secondary',
-        orange: 'bg-transparent hover:bg-themed-hover focus:bg-[var(--theme-bg-hover)] text-themed-secondary border border-themed-secondary',
-        default: 'bg-transparent hover:bg-themed-hover focus:bg-[var(--theme-bg-hover)] text-themed-secondary border border-themed-secondary'
+        orange:
+          'bg-transparent hover:bg-themed-hover focus:bg-[var(--theme-bg-hover)] text-themed-secondary border border-themed-secondary',
+        default:
+          'bg-transparent hover:bg-themed-hover focus:bg-[var(--theme-bg-hover)] text-themed-secondary border border-themed-secondary'
       };
       return colors[color];
     }

@@ -1,5 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Database, Loader2, CheckCircle, XCircle, FolderOpen, RefreshCw, Search, ChevronDown, ChevronUp, HardDrive } from 'lucide-react';
+import {
+  Database,
+  Loader2,
+  CheckCircle,
+  XCircle,
+  FolderOpen,
+  RefreshCw,
+  Search,
+  ChevronDown,
+  ChevronUp,
+  HardDrive
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { Checkbox } from '@components/ui/Checkbox';
@@ -130,7 +141,10 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
 
   const handleValidate = async () => {
     if (!connectionString.trim()) {
-      setValidationResult({ valid: false, message: t('initialization.importHistorical.pleaseEnter') });
+      setValidationResult({
+        valid: false,
+        message: t('initialization.importHistorical.pleaseEnter')
+      });
       return;
     }
 
@@ -145,7 +159,12 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
       const result = await ApiService.handleResponse<ValidationResult>(res);
       setValidationResult(result);
     } catch (error: unknown) {
-      setValidationResult({ valid: false, message: (error instanceof Error ? error.message : String(error)) || t('initialization.importHistorical.failedToValidate') });
+      setValidationResult({
+        valid: false,
+        message:
+          (error instanceof Error ? error.message : String(error)) ||
+          t('initialization.importHistorical.failedToValidate')
+      });
     } finally {
       setValidating(false);
     }
@@ -157,9 +176,10 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
     setImporting(true);
     setImportResult(null);
 
-    const endpoint = importType === 'lancache-manager'
-      ? '/api/migration/import-lancache-manager'
-      : '/api/migration/import-develancache';
+    const endpoint =
+      importType === 'lancache-manager'
+        ? '/api/migration/import-lancache-manager'
+        : '/api/migration/import-develancache';
 
     try {
       const res = await fetch(
@@ -174,7 +194,12 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
       setImportResult(result);
       setTimeout(() => onComplete(), 2000);
     } catch (error: unknown) {
-      setValidationResult({ valid: false, message: t('initialization.importHistorical.importFailed', { error: error instanceof Error ? error.message : String(error) }) });
+      setValidationResult({
+        valid: false,
+        message: t('initialization.importHistorical.importFailed', {
+          error: error instanceof Error ? error.message : String(error)
+        })
+      });
     } finally {
       setImporting(false);
     }
@@ -214,10 +239,30 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
             {importResult.message}
           </p>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm text-themed-success">
-            <div>{t('initialization.importHistorical.total', { count: importResult.totalRecords, formattedCount: importResult.totalRecords.toLocaleString() })}</div>
-            <div>{t('initialization.importHistorical.imported', { count: importResult.imported, formattedCount: importResult.imported.toLocaleString() })}</div>
-            <div>{t('initialization.importHistorical.skipped', { count: importResult.skipped, formattedCount: importResult.skipped.toLocaleString() })}</div>
-            <div>{t('initialization.importHistorical.errors', { count: importResult.errors, formattedCount: importResult.errors.toLocaleString() })}</div>
+            <div>
+              {t('initialization.importHistorical.total', {
+                count: importResult.totalRecords,
+                formattedCount: importResult.totalRecords.toLocaleString()
+              })}
+            </div>
+            <div>
+              {t('initialization.importHistorical.imported', {
+                count: importResult.imported,
+                formattedCount: importResult.imported.toLocaleString()
+              })}
+            </div>
+            <div>
+              {t('initialization.importHistorical.skipped', {
+                count: importResult.skipped,
+                formattedCount: importResult.skipped.toLocaleString()
+              })}
+            </div>
+            <div>
+              {t('initialization.importHistorical.errors', {
+                count: importResult.errors,
+                formattedCount: importResult.errors.toLocaleString()
+              })}
+            </div>
           </div>
         </div>
       )}
@@ -284,7 +329,9 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
             <p className="text-sm text-themed-secondary">
               {autoSearching
                 ? t('initialization.importHistorical.searching')
-                : t('initialization.importHistorical.foundDatabases', { count: foundDatabases.length })}
+                : t('initialization.importHistorical.foundDatabases', {
+                    count: foundDatabases.length
+                  })}
             </p>
             <Button
               onClick={searchForDatabases}
@@ -292,14 +339,20 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
               variant="subtle"
               size="xs"
             >
-              {autoSearching ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+              {autoSearching ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4" />
+              )}
             </Button>
           </div>
 
           {autoSearching ? (
             <div className="flex items-center justify-center py-8 rounded-lg bg-themed-tertiary">
               <Loader2 className="w-5 h-5 animate-spin text-themed-secondary mr-2" />
-              <span className="text-sm text-themed-secondary">{t('initialization.importHistorical.searchingStatus')}</span>
+              <span className="text-sm text-themed-secondary">
+                {t('initialization.importHistorical.searchingStatus')}
+              </span>
             </div>
           ) : foundDatabases.length > 0 ? (
             <div className="rounded-lg border overflow-hidden border-themed-secondary">
@@ -321,7 +374,9 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
                       <div className="font-medium text-themed-primary truncate">{item.name}</div>
                       <div className="text-xs text-themed-muted truncate">{item.path}</div>
                     </div>
-                    <div className="text-xs text-themed-muted flex-shrink-0">{formatBytes(item.size, 1, '-')}</div>
+                    <div className="text-xs text-themed-muted flex-shrink-0">
+                      {formatBytes(item.size, 1, '-')}
+                    </div>
                   </button>
                 ))}
               </div>
@@ -329,8 +384,12 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
           ) : (
             <div className="flex flex-col items-center justify-center py-6 rounded-lg bg-themed-tertiary">
               <Search className="w-8 h-8 text-themed-muted mb-2" />
-              <p className="text-sm text-themed-secondary font-medium">{t('initialization.importHistorical.noDatabasesFound')}</p>
-              <p className="text-xs text-themed-muted mt-1">{t('initialization.importHistorical.tryOtherModes')}</p>
+              <p className="text-sm text-themed-secondary font-medium">
+                {t('initialization.importHistorical.noDatabasesFound')}
+              </p>
+              <p className="text-xs text-themed-muted mt-1">
+                {t('initialization.importHistorical.tryOtherModes')}
+              </p>
             </div>
           )}
         </div>
@@ -365,7 +424,9 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
       {inputMode === 'auto' && connectionString && (
         <div className="p-3 rounded-lg flex items-center gap-2 bg-themed-tertiary">
           <Database className="w-4 h-4 text-themed-secondary flex-shrink-0" />
-          <span className="text-sm text-themed-primary font-medium truncate flex-1">{connectionString}</span>
+          <span className="text-sm text-themed-primary font-medium truncate flex-1">
+            {connectionString}
+          </span>
         </div>
       )}
 
@@ -407,19 +468,24 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
 
       {/* Validation Result */}
       {validationResult && (
-        <div className={`p-3 rounded-lg flex items-start gap-3 ${validationResult.valid ? 'bg-themed-success' : 'bg-themed-error'}`}>
+        <div
+          className={`p-3 rounded-lg flex items-start gap-3 ${validationResult.valid ? 'bg-themed-success' : 'bg-themed-error'}`}
+        >
           {validationResult.valid ? (
             <CheckCircle className="w-5 h-5 flex-shrink-0 icon-success" />
           ) : (
             <XCircle className="w-5 h-5 flex-shrink-0 icon-error" />
           )}
-          <div className={`text-sm ${validationResult.valid ? 'text-themed-success' : 'text-themed-error'}`}>
+          <div
+            className={`text-sm ${validationResult.valid ? 'text-themed-success' : 'text-themed-error'}`}
+          >
             <p>
               {validationResult.message}
-              {validationResult.recordCount != null && ` ${t('initialization.importHistorical.foundRecords', {
-                count: validationResult.recordCount ?? 0,
-                formattedCount: (validationResult.recordCount ?? 0).toLocaleString()
-              })}`}
+              {validationResult.recordCount != null &&
+                ` ${t('initialization.importHistorical.foundRecords', {
+                  count: validationResult.recordCount ?? 0,
+                  formattedCount: (validationResult.recordCount ?? 0).toLocaleString()
+                })}`}
             </p>
           </div>
         </div>
@@ -430,7 +496,10 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
         <Alert color="blue">
           <div className="flex items-center gap-2">
             <Loader2 className="w-4 h-4 animate-spin" />
-            <span>{t('initialization.importHistorical.importing')} - {t('initialization.importHistorical.checkNotifications')}</span>
+            <span>
+              {t('initialization.importHistorical.importing')} -{' '}
+              {t('initialization.importHistorical.checkNotifications')}
+            </span>
           </div>
         </Alert>
       )}
@@ -445,7 +514,9 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
             className="flex-1"
           >
             {validating && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-            {validating ? t('initialization.importHistorical.validating') : t('initialization.importHistorical.validate')}
+            {validating
+              ? t('initialization.importHistorical.validating')
+              : t('initialization.importHistorical.validate')}
           </Button>
 
           <Button
@@ -456,7 +527,9 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
             className="flex-1"
           >
             {importing && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-            {importing ? t('initialization.importHistorical.importing') : t('initialization.importHistorical.import')}
+            {importing
+              ? t('initialization.importHistorical.importing')
+              : t('initialization.importHistorical.import')}
           </Button>
 
           <Button variant="default" onClick={onSkip} disabled={importing} className="flex-1">

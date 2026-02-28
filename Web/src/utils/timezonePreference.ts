@@ -9,4 +9,3 @@ const timezonePreference = createGlobalPreference(false);
 
 export const setGlobalTimezonePreference = timezonePreference.set;
 export const getGlobalTimezonePreference = timezonePreference.get;
-

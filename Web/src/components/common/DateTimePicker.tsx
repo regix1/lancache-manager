@@ -30,8 +30,8 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
     return value ? new Date(value.getFullYear(), value.getMonth(), 1) : new Date();
   });
   const [selectedDate, setSelectedDate] = useState<Date | null>(value);
-  const [hours, setHours] = useState(() => value ? value.getHours() : new Date().getHours());
-  const [minutes, setMinutes] = useState(() => value ? value.getMinutes() : 0);
+  const [hours, setHours] = useState(() => (value ? value.getHours() : new Date().getHours()));
+  const [minutes, setMinutes] = useState(() => (value ? value.getMinutes() : 0));
   const [showYearDropdown, setShowYearDropdown] = useState(false);
   const [showMonthDropdown, setShowMonthDropdown] = useState(false);
   const [showHourDropdown, setShowHourDropdown] = useState(false);
@@ -55,24 +55,40 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Node;
 
-      if (showMonthDropdown && monthDropdownRef.current &&
-          !monthDropdownRef.current.contains(target) &&
-          monthButtonRef.current && !monthButtonRef.current.contains(target)) {
+      if (
+        showMonthDropdown &&
+        monthDropdownRef.current &&
+        !monthDropdownRef.current.contains(target) &&
+        monthButtonRef.current &&
+        !monthButtonRef.current.contains(target)
+      ) {
         setShowMonthDropdown(false);
       }
-      if (showYearDropdown && yearDropdownRef.current &&
-          !yearDropdownRef.current.contains(target) &&
-          yearButtonRef.current && !yearButtonRef.current.contains(target)) {
+      if (
+        showYearDropdown &&
+        yearDropdownRef.current &&
+        !yearDropdownRef.current.contains(target) &&
+        yearButtonRef.current &&
+        !yearButtonRef.current.contains(target)
+      ) {
         setShowYearDropdown(false);
       }
-      if (showHourDropdown && hourDropdownRef.current &&
-          !hourDropdownRef.current.contains(target) &&
-          hourButtonRef.current && !hourButtonRef.current.contains(target)) {
+      if (
+        showHourDropdown &&
+        hourDropdownRef.current &&
+        !hourDropdownRef.current.contains(target) &&
+        hourButtonRef.current &&
+        !hourButtonRef.current.contains(target)
+      ) {
         setShowHourDropdown(false);
       }
-      if (showMinuteDropdown && minuteDropdownRef.current &&
-          !minuteDropdownRef.current.contains(target) &&
-          minuteButtonRef.current && !minuteButtonRef.current.contains(target)) {
+      if (
+        showMinuteDropdown &&
+        minuteDropdownRef.current &&
+        !minuteDropdownRef.current.contains(target) &&
+        minuteButtonRef.current &&
+        !minuteButtonRef.current.contains(target)
+      ) {
         setShowMinuteDropdown(false);
       }
     };
@@ -229,13 +245,11 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
   const firstDayOfMonth = getFirstDayOfMonth(currentMonth);
 
   // Display hours for dropdown
-  const displayHour = use24HourFormat
-    ? hours
-    : hours === 0 ? 12 : hours > 12 ? hours - 12 : hours;
+  const displayHour = use24HourFormat ? hours : hours === 0 ? 12 : hours > 12 ? hours - 12 : hours;
 
   const hourOptions = use24HourFormat
     ? Array.from({ length: 24 }, (_, i) => i)
-    : Array.from({ length: 12 }, (_, i) => i === 0 ? 12 : i);
+    : Array.from({ length: 12 }, (_, i) => (i === 0 ? 12 : i));
 
   const minuteOptions = Array.from({ length: 60 }, (_, i) => i);
 
@@ -260,11 +274,7 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
       <div>
         {/* Month/Year Navigation */}
         <div className="mb-4 flex items-center justify-between">
-          <Button
-            variant="subtle"
-            size="sm"
-            onClick={() => changeMonth(-1)}
-          >
+          <Button variant="subtle" size="sm" onClick={() => changeMonth(-1)}>
             <ChevronLeft className="w-5 h-5" />
           </Button>
 
@@ -282,7 +292,9 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
                 className="flex items-center gap-1 px-3 py-1.5 text-[var(--theme-text-primary)] font-medium hover:bg-[var(--theme-bg-tertiary)] rounded-lg transition-colors border border-transparent hover:border-[var(--theme-border-primary)]"
               >
                 {monthNames[currentMonth.getMonth()]}
-                <ChevronDown className={`w-4 h-4 transition-transform ${showMonthDropdown ? 'rotate-180' : ''}`} />
+                <ChevronDown
+                  className={`w-4 h-4 transition-transform ${showMonthDropdown ? 'rotate-180' : ''}`}
+                />
               </button>
 
               {showMonthDropdown && (
@@ -324,7 +336,9 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
                 className="flex items-center gap-1 px-3 py-1.5 text-[var(--theme-text-primary)] font-medium hover:bg-[var(--theme-bg-tertiary)] rounded-lg transition-colors border border-transparent hover:border-[var(--theme-border-primary)]"
               >
                 {currentMonth.getFullYear()}
-                <ChevronDown className={`w-4 h-4 transition-transform ${showYearDropdown ? 'rotate-180' : ''}`} />
+                <ChevronDown
+                  className={`w-4 h-4 transition-transform ${showYearDropdown ? 'rotate-180' : ''}`}
+                />
               </button>
 
               {showYearDropdown && (
@@ -354,11 +368,7 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
             </div>
           </div>
 
-          <Button
-            variant="subtle"
-            size="sm"
-            onClick={() => changeMonth(1)}
-          >
+          <Button variant="subtle" size="sm" onClick={() => changeMonth(1)}>
             <ChevronRight className="w-5 h-5" />
           </Button>
         </div>
@@ -391,11 +401,14 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
             if (disabled) {
               className += 'text-[var(--theme-text-muted)] cursor-not-allowed opacity-40 ';
             } else if (selected) {
-              className += 'bg-[var(--theme-primary)] text-[var(--theme-button-text)] font-semibold cursor-pointer ';
+              className +=
+                'bg-[var(--theme-primary)] text-[var(--theme-button-text)] font-semibold cursor-pointer ';
             } else if (today) {
-              className += 'ring-2 ring-[var(--theme-primary)]/50 text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-tertiary)] cursor-pointer ';
+              className +=
+                'ring-2 ring-[var(--theme-primary)]/50 text-[var(--theme-text-primary)] hover:bg-[var(--theme-bg-tertiary)] cursor-pointer ';
             } else {
-              className += 'hover:bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] cursor-pointer ';
+              className +=
+                'hover:bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)] cursor-pointer ';
             }
 
             return (
@@ -418,7 +431,9 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
         <div className="mt-4 pt-4 border-t border-[var(--theme-border-primary)]">
           <div className="flex items-center justify-center gap-2">
             <Clock className="w-4 h-4 text-[var(--theme-text-secondary)]" />
-            <span className="text-sm text-[var(--theme-text-secondary)]">{t('common.dateTimePicker.timeLabel')}</span>
+            <span className="text-sm text-[var(--theme-text-secondary)]">
+              {t('common.dateTimePicker.timeLabel')}
+            </span>
 
             {/* Hour Dropdown */}
             <div className="relative">
@@ -555,7 +570,9 @@ const DateTimePicker: React.FC<DateTimePickerProps> = ({
         {/* Selected Value Display */}
         <div className="mt-4 pt-4 border-t border-[var(--theme-border-primary)]">
           <div className="text-center">
-            <span className="text-sm text-[var(--theme-text-secondary)]">{t('common.dateTimePicker.selectedLabel')}</span>
+            <span className="text-sm text-[var(--theme-text-secondary)]">
+              {t('common.dateTimePicker.selectedLabel')}
+            </span>
             <span className="text-[var(--theme-text-primary)] font-medium">
               {selectedDate
                 ? `${selectedDate.toLocaleDateString(undefined, { timeZone: getEffectiveTimezone(useLocalTimezone) })} ${formatTime()}`

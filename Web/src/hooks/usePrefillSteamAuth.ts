@@ -656,6 +656,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       setLoading(false);
       return false;
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     sessionId,
     hubConnection,

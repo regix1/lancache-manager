@@ -57,7 +57,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
   useEffect(() => {
     const checkMobile = () => {
       const mobile = window.innerWidth < 768;
-      setIsMobile(prev => prev === mobile ? prev : mobile);
+      setIsMobile((prev) => (prev === mobile ? prev : mobile));
     };
     checkMobile();
     window.addEventListener('resize', checkMobile);
@@ -188,10 +188,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
         !tooltipsDisabled &&
         strategy === 'overlay' &&
         createPortal(
-          <div
-            className="tooltip-overlay"
-            style={{ left: x + 10, top: y + 10 }}
-          >
+          <div className="tooltip-overlay" style={{ left: x + 10, top: y + 10 }}>
             {content}
           </div>,
           document.body
@@ -327,7 +324,7 @@ export const CacheInfoTooltip: React.FC = () => {
   useEffect(() => {
     const checkMobile = () => {
       const mobile = window.innerWidth < 768;
-      setIsMobile(prev => prev === mobile ? prev : mobile);
+      setIsMobile((prev) => (prev === mobile ? prev : mobile));
     };
     checkMobile();
     window.addEventListener('resize', checkMobile);
@@ -336,14 +333,12 @@ export const CacheInfoTooltip: React.FC = () => {
 
   const tooltipsDisabled = globallyDisabled || isMobile;
 
-  return (
-    <CacheInfoTooltipInner tooltipsDisabled={tooltipsDisabled} />
-  );
+  return <CacheInfoTooltipInner tooltipsDisabled={tooltipsDisabled} />;
 };
 
 const CacheInfoTooltipInner: React.FC<{ tooltipsDisabled: boolean }> = ({ tooltipsDisabled }) => {
   const { t } = useTranslation();
-  
+
   return (
     <Tooltip
       content={

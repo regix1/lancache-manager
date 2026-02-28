@@ -54,7 +54,7 @@ function measureTextWidth(text: string, font: string): number {
  * @param padding - Additional padding to add (default 16px for cell padding)
  * @returns Maximum width in pixels
  */
-function measureMaxTextWidth(texts: string[], font: string, padding: number = 16): number {
+function measureMaxTextWidth(texts: string[], font: string, padding = 16): number {
   if (texts.length === 0) return 0;
 
   const maxWidth = texts.reduce((max, text) => {
@@ -84,7 +84,7 @@ const RETRO_VIEW_FONTS = {
   // Cache values (text-xs)
   cacheValue: '400 12px system-ui, -apple-system, sans-serif',
   // Overall percentage (text-lg font-bold)
-  overall: '700 18px system-ui, -apple-system, sans-serif',
+  overall: '700 18px system-ui, -apple-system, sans-serif'
 };
 
 /**
@@ -93,13 +93,11 @@ const RETRO_VIEW_FONTS = {
  */
 const SAMPLE_DATA_PATTERNS = {
   // Timestamp patterns - longest format with full date on both sides including seconds
-  timestamp: [
-    'Dec 31, 2025, 10:05:19 PM - Dec 31, 2025, 10:05:48 PM',
-  ],
+  timestamp: ['Dec 31, 2025, 10:05:19 PM - Dec 31, 2025, 10:05:48 PM'],
   // App name patterns - use character width estimates (avg game name ~20 chars)
   // Using placeholder text to avoid hardcoding specific names
   appName: [
-    'XXXXXXXXXXXXXXXXXX', // ~18 chars typical app name
+    'XXXXXXXXXXXXXXXXXX' // ~18 chars typical app name
   ],
   // Header labels
   headers: {
@@ -112,8 +110,8 @@ const SAMPLE_DATA_PATTERNS = {
     speed: 'AVG SPEED',
     cacheHit: 'CACHE HIT',
     cacheMiss: 'CACHE MISS',
-    overall: 'OVERALL',
-  },
+    overall: 'OVERALL'
+  }
 };
 
 /**
@@ -163,7 +161,7 @@ export function calculateColumnWidths(actualData?: {
     speed: measureTextWidth(SAMPLE_DATA_PATTERNS.headers.speed, RETRO_VIEW_FONTS.header),
     cacheHit: measureTextWidth(SAMPLE_DATA_PATTERNS.headers.cacheHit, RETRO_VIEW_FONTS.header),
     cacheMiss: measureTextWidth(SAMPLE_DATA_PATTERNS.headers.cacheMiss, RETRO_VIEW_FONTS.header),
-    overall: measureTextWidth(SAMPLE_DATA_PATTERNS.headers.overall, RETRO_VIEW_FONTS.header),
+    overall: measureTextWidth(SAMPLE_DATA_PATTERNS.headers.overall, RETRO_VIEW_FONTS.header)
   };
 
   // Measure content widths from sample patterns
@@ -175,7 +173,11 @@ export function calculateColumnWidths(actualData?: {
     : SAMPLE_DATA_PATTERNS.appName;
 
   // Timestamp: measure the longest timestamp pattern
-  const timestampContentWidth = measureMaxTextWidth(timestampSamples, RETRO_VIEW_FONTS.timestamp, 0);
+  const timestampContentWidth = measureMaxTextWidth(
+    timestampSamples,
+    RETRO_VIEW_FONTS.timestamp,
+    0
+  );
 
   // App: text only (image is now in separate banner column)
   const appNameContentWidth = measureMaxTextWidth(appNameSamples, RETRO_VIEW_FONTS.appName, 0);
@@ -205,7 +207,7 @@ export function calculateColumnWidths(actualData?: {
   const eventsContentWidth = 90; // Space for 2 compact badges
 
   // Calculate final widths: max(header, content) + padding + resize handle
-  const calculateWidth = (headerW: number, contentW: number, extraPadding: number = 0): number => {
+  const calculateWidth = (headerW: number, contentW: number, extraPadding = 0): number => {
     return Math.max(
       MIN_COLUMN_WIDTH,
       Math.ceil(Math.max(headerW, contentW) + CELL_PADDING + RESIZE_HANDLE_WIDTH + extraPadding)
@@ -223,7 +225,7 @@ export function calculateColumnWidths(actualData?: {
     speed: calculateWidth(headerWidths.speed, speedContentWidth),
     cacheHit: calculateWidth(headerWidths.cacheHit, cacheContentWidth),
     cacheMiss: calculateWidth(headerWidths.cacheMiss, cacheContentWidth),
-    overall: Math.max(90, calculateWidth(headerWidths.overall, overallContentWidth + 24)), // Extra for label + reset button
+    overall: Math.max(90, calculateWidth(headerWidths.overall, overallContentWidth + 24)) // Extra for label + reset button
   };
 }
 

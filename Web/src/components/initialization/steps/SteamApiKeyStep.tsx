@@ -36,13 +36,16 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
     setTestResult(null);
 
     try {
-      const response = await fetch('/api/steam-api-keys/test', ApiService.getFetchOptions({
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ apiKey: apiKey.trim() })
-      }));
+      const response = await fetch(
+        '/api/steam-api-keys/test',
+        ApiService.getFetchOptions({
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ apiKey: apiKey.trim() })
+        })
+      );
 
       const data = await response.json();
 
@@ -60,7 +63,9 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
     } catch (error: unknown) {
       setTestResult({
         valid: false,
-        message: (error instanceof Error ? error.message : String(error)) || t('initialization.steamWebApiKey.networkError')
+        message:
+          (error instanceof Error ? error.message : String(error)) ||
+          t('initialization.steamWebApiKey.networkError')
       });
     } finally {
       setTesting(false);
@@ -76,13 +81,16 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
     setSaving(true);
 
     try {
-      const response = await fetch('/api/steam-api-keys', ApiService.getFetchOptions({
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ apiKey: apiKey.trim() })
-      }));
+      const response = await fetch(
+        '/api/steam-api-keys',
+        ApiService.getFetchOptions({
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ apiKey: apiKey.trim() })
+        })
+      );
 
       const data = await response.json();
 
@@ -97,7 +105,9 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
     } catch (error: unknown) {
       setTestResult({
         valid: false,
-        message: (error instanceof Error ? error.message : String(error)) || t('initialization.steamWebApiKey.networkErrorSave')
+        message:
+          (error instanceof Error ? error.message : String(error)) ||
+          t('initialization.steamWebApiKey.networkErrorSave')
       });
     } finally {
       setSaving(false);
@@ -111,7 +121,9 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
         <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-themed-primary-subtle">
           <Key className="w-7 h-7 icon-primary" />
         </div>
-        <h3 className="text-lg font-semibold text-themed-primary mb-1">{t('initialization.steamWebApiKey.title')}</h3>
+        <h3 className="text-lg font-semibold text-themed-primary mb-1">
+          {t('initialization.steamWebApiKey.title')}
+        </h3>
         <p className="text-sm text-themed-secondary max-w-md">
           {t('initialization.steamWebApiKey.subtitle')}
         </p>
@@ -119,7 +131,9 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
 
       {/* Instructions */}
       <div className="p-4 rounded-lg bg-themed-tertiary">
-        <p className="text-sm font-medium text-themed-primary mb-2">{t('initialization.steamWebApiKey.howToGet')}</p>
+        <p className="text-sm font-medium text-themed-primary mb-2">
+          {t('initialization.steamWebApiKey.howToGet')}
+        </p>
         <ol className="text-sm text-themed-secondary space-y-1.5 list-decimal list-inside">
           <li>
             {t('initialization.steamWebApiKey.step1')}{' '}
@@ -169,7 +183,9 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
           ) : (
             <XCircle className="w-5 h-5 flex-shrink-0 icon-error" />
           )}
-          <p className={`text-sm ${testResult.valid ? 'text-themed-success' : 'text-themed-error'}`}>
+          <p
+            className={`text-sm ${testResult.valid ? 'text-themed-success' : 'text-themed-error'}`}
+          >
             {testResult.message}
           </p>
         </div>
@@ -190,7 +206,9 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
           className="flex-1"
         >
           {testing && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-          {testing ? t('initialization.steamWebApiKey.testing') : t('initialization.steamWebApiKey.testConnection')}
+          {testing
+            ? t('initialization.steamWebApiKey.testing')
+            : t('initialization.steamWebApiKey.testConnection')}
         </Button>
 
         <Button
@@ -201,7 +219,9 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
           className="flex-1"
         >
           {saving && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-          {saving ? t('initialization.steamWebApiKey.saving') : t('initialization.steamWebApiKey.saveAndContinue')}
+          {saving
+            ? t('initialization.steamWebApiKey.saving')
+            : t('initialization.steamWebApiKey.saveAndContinue')}
         </Button>
       </div>
     </div>

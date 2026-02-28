@@ -26,16 +26,17 @@ const ActiveEventBorder: React.FC<ActiveEventBorderProps> = ({ children, enabled
   }
 
   // Build label: "Event Name" or "Event Name +2"
-  const label = additionalCount > 0
-    ? t('eventFrame.labelWithMore', {
-        name: activeEvent.name,
-        count: additionalCount,
-        defaultValue: '{{name}} +{{count}}'
-      })
-    : activeEvent.name;
+  const label =
+    additionalCount > 0
+      ? t('eventFrame.labelWithMore', {
+          name: activeEvent.name,
+          count: additionalCount,
+          defaultValue: '{{name}} +{{count}}'
+        })
+      : activeEvent.name;
 
   // Map events to the format EventFrame expects
-  const allEventsForFrame = activeEvents.map(event => ({
+  const allEventsForFrame = activeEvents.map((event) => ({
     id: event.id,
     name: event.name,
     colorIndex: event.colorIndex

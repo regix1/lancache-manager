@@ -250,7 +250,10 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
     resetAnimationState,
     serviceId,
     hubPath,
-    t
+    t,
+    cachedAnimationQueueRef,
+    currentAnimationAppIdRef,
+    isProcessingAnimationRef
   ]);
 
   const initializeSession = useCallback(async () => {

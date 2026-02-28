@@ -39,14 +39,46 @@ interface ActivityLogProps {
 
 // Type-to-style mapping using theme-aware color-mix for backgrounds
 const typeStyles: Record<LogEntryType, { color: string; bgColor: string; icon: typeof Info }> = {
-  success: { color: 'var(--theme-success)', bgColor: 'color-mix(in srgb, var(--theme-success) 12%, transparent)', icon: CheckCircle2 },
-  error: { color: 'var(--theme-error)', bgColor: 'color-mix(in srgb, var(--theme-error) 12%, transparent)', icon: XCircle },
-  warning: { color: 'var(--theme-warning)', bgColor: 'color-mix(in srgb, var(--theme-warning) 12%, transparent)', icon: AlertCircle },
-  download: { color: 'var(--theme-primary)', bgColor: 'color-mix(in srgb, var(--theme-primary) 12%, transparent)', icon: Download },
-  auth: { color: 'var(--theme-steam)', bgColor: 'color-mix(in srgb, var(--theme-steam) 12%, transparent)', icon: LogIn },
-  progress: { color: 'var(--theme-primary)', bgColor: 'color-mix(in srgb, var(--theme-primary) 12%, transparent)', icon: Loader2 },
-  command: { color: 'var(--theme-accent)', bgColor: 'color-mix(in srgb, var(--theme-accent) 12%, transparent)', icon: Terminal },
-  info: { color: 'var(--theme-text-muted)', bgColor: 'color-mix(in srgb, var(--theme-text-muted) 8%, transparent)', icon: Info }
+  success: {
+    color: 'var(--theme-success)',
+    bgColor: 'color-mix(in srgb, var(--theme-success) 12%, transparent)',
+    icon: CheckCircle2
+  },
+  error: {
+    color: 'var(--theme-error)',
+    bgColor: 'color-mix(in srgb, var(--theme-error) 12%, transparent)',
+    icon: XCircle
+  },
+  warning: {
+    color: 'var(--theme-warning)',
+    bgColor: 'color-mix(in srgb, var(--theme-warning) 12%, transparent)',
+    icon: AlertCircle
+  },
+  download: {
+    color: 'var(--theme-primary)',
+    bgColor: 'color-mix(in srgb, var(--theme-primary) 12%, transparent)',
+    icon: Download
+  },
+  auth: {
+    color: 'var(--theme-steam)',
+    bgColor: 'color-mix(in srgb, var(--theme-steam) 12%, transparent)',
+    icon: LogIn
+  },
+  progress: {
+    color: 'var(--theme-primary)',
+    bgColor: 'color-mix(in srgb, var(--theme-primary) 12%, transparent)',
+    icon: Loader2
+  },
+  command: {
+    color: 'var(--theme-accent)',
+    bgColor: 'color-mix(in srgb, var(--theme-accent) 12%, transparent)',
+    icon: Terminal
+  },
+  info: {
+    color: 'var(--theme-text-muted)',
+    bgColor: 'color-mix(in srgb, var(--theme-text-muted) 8%, transparent)',
+    icon: Info
+  }
 };
 
 const LogIcon = memo(({ type }: { type: LogEntryType }) => {
@@ -78,43 +110,45 @@ const formatTime = (date: Date, locale: string): string => {
   });
 };
 
-const LogEntryRow = memo(({ entry, isLast, locale }: { entry: LogEntry; isLast: boolean; locale: string }) => {
-  const style = typeStyles[entry.type];
+const LogEntryRow = memo(
+  ({ entry, isLast, locale }: { entry: LogEntry; isLast: boolean; locale: string }) => {
+    const style = typeStyles[entry.type];
 
-  return (
-    <div
-      className={`group flex items-start gap-2 sm:gap-3 px-2 sm:px-3 py-2 sm:py-2.5 transition-colors duration-100 hover:bg-[var(--theme-bg-hover)] ${
-        isLast ? '' : 'border-b border-[var(--theme-border-secondary)]'
-      }`}
-    >
-      {/* Timestamp - hidden on mobile, shown on sm+ */}
-      <span className="hidden sm:block text-[11px] font-mono flex-shrink-0 tabular-nums pt-1.5 opacity-50 group-hover:opacity-80 transition-opacity text-[var(--theme-text-muted)] tracking-[0.02em]">
-        {formatTime(entry.timestamp, locale)}
-      </span>
-
-      {/* Color indicator line */}
+    return (
       <div
-        className="w-0.5 self-stretch rounded-full flex-shrink-0 opacity-60 min-h-[20px] prefill-log-color-line"
-        style={{ '--log-line-color': style.color } as React.CSSProperties}
-      />
+        className={`group flex items-start gap-2 sm:gap-3 px-2 sm:px-3 py-2 sm:py-2.5 transition-colors duration-100 hover:bg-[var(--theme-bg-hover)] ${
+          isLast ? '' : 'border-b border-[var(--theme-border-secondary)]'
+        }`}
+      >
+        {/* Timestamp - hidden on mobile, shown on sm+ */}
+        <span className="hidden sm:block text-[11px] font-mono flex-shrink-0 tabular-nums pt-1.5 opacity-50 group-hover:opacity-80 transition-opacity text-[var(--theme-text-muted)] tracking-[0.02em]">
+          {formatTime(entry.timestamp, locale)}
+        </span>
 
-      {/* Icon */}
-      <LogIcon type={entry.type} />
+        {/* Color indicator line */}
+        <div
+          className="w-0.5 self-stretch rounded-full flex-shrink-0 opacity-60 min-h-[20px] prefill-log-color-line"
+          style={{ '--log-line-color': style.color } as React.CSSProperties}
+        />
 
-      {/* Message content */}
-      <div className="flex-1 min-w-0 pt-0.5">
-        <p className="text-xs sm:text-[13px] leading-snug text-[var(--theme-text-primary)] break-words">
-          {entry.message}
-        </p>
-        {entry.details && (
-          <p className="text-[11px] sm:text-xs mt-0.5 opacity-60 text-[var(--theme-text-muted)]">
-            {entry.details}
+        {/* Icon */}
+        <LogIcon type={entry.type} />
+
+        {/* Message content */}
+        <div className="flex-1 min-w-0 pt-0.5">
+          <p className="text-xs sm:text-[13px] leading-snug text-[var(--theme-text-primary)] break-words">
+            {entry.message}
           </p>
-        )}
+          {entry.details && (
+            <p className="text-[11px] sm:text-xs mt-0.5 opacity-60 text-[var(--theme-text-muted)]">
+              {entry.details}
+            </p>
+          )}
+        </div>
       </div>
-    </div>
-  );
-});
+    );
+  }
+);
 
 LogEntryRow.displayName = 'LogEntryRow';
 
@@ -182,9 +216,7 @@ export function ActivityLog({ entries, className = '' }: ActivityLogProps) {
 
           {/* Pagination Footer */}
           {totalPages > 1 && (
-            <div
-              className="flex items-center justify-between px-2 sm:px-3 h-12 min-h-[48px] border-t border-[var(--theme-border-secondary)] bg-[var(--theme-bg-secondary)] rounded-b-xl"
-            >
+            <div className="flex items-center justify-between px-2 sm:px-3 h-12 min-h-[48px] border-t border-[var(--theme-border-secondary)] bg-[var(--theme-bg-secondary)] rounded-b-xl">
               {/* Entry count - hidden on very small screens */}
               <span className="hidden xs:block text-[10px] sm:text-[11px] tabular-nums text-[var(--theme-text-muted)]">
                 {t('prefill.activityLog.paginationCount', {
@@ -228,11 +260,7 @@ export function ActivityLog({ entries, className = '' }: ActivityLogProps) {
 }
 
 // Helper to create log entries
-export function createLogEntry(
-  type: LogEntryType,
-  message: string,
-  details?: string
-): LogEntry {
+export function createLogEntry(type: LogEntryType, message: string, details?: string): LogEntry {
   return {
     id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
     timestamp: new Date(),

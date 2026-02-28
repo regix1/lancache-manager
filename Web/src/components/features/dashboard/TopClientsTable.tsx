@@ -38,19 +38,18 @@ const TopClientRow: React.FC<TopClientRowProps> = ({ client }) => {
   const { t } = useTranslation();
   const formattedLastActivity = useFormattedDateTime(client.lastActivityUtc);
   const displayLabel = client.displayName || client.clientIp;
-  const ipTooltip = client.isGrouped && client.groupMemberIps
-    ? t('dashboard.topClients.ipsTooltip', { ips: client.groupMemberIps.join(', ') })
-    : client.displayName
-    ? t('dashboard.topClients.ipTooltip', { ip: client.clientIp })
-    : undefined;
+  const ipTooltip =
+    client.isGrouped && client.groupMemberIps
+      ? t('dashboard.topClients.ipsTooltip', { ips: client.groupMemberIps.join(', ') })
+      : client.displayName
+        ? t('dashboard.topClients.ipTooltip', { ip: client.clientIp })
+        : undefined;
 
   return (
     <tr className="hover:bg-themed-hover transition-colors">
       <td className="py-3 text-themed-primary whitespace-nowrap">
         <div className="flex items-center gap-2">
-          {client.isGrouped && (
-            <Users className="w-4 h-4 text-themed-muted flex-shrink-0" />
-          )}
+          {client.isGrouped && <Users className="w-4 h-4 text-themed-muted flex-shrink-0" />}
           {ipTooltip ? (
             <Tooltip content={ipTooltip}>
               <span className="cursor-help border-b border-dashed border-themed-muted">
@@ -61,9 +60,7 @@ const TopClientRow: React.FC<TopClientRowProps> = ({ client }) => {
             <span>{displayLabel}</span>
           )}
           {client.isGrouped && client.groupMemberIps && client.groupMemberIps.length > 1 && (
-            <span className="text-xs text-themed-muted">
-              ({client.groupMemberIps.length})
-            </span>
+            <span className="text-xs text-themed-muted">({client.groupMemberIps.length})</span>
           )}
         </div>
       </td>
@@ -93,7 +90,13 @@ const TopClientRow: React.FC<TopClientRowProps> = ({ client }) => {
 };
 
 const TopClientsTable: React.FC<TopClientsTableProps> = memo(
-  ({ clientStats = [], timeRange = 'live', customStartDate, customEndDate, glassmorphism = false }) => {
+  ({
+    clientStats = [],
+    timeRange = 'live',
+    customStartDate,
+    customEndDate,
+    glassmorphism = false
+  }) => {
     const { t } = useTranslation();
     const { useLocalTimezone } = useTimezone();
     const [sortBy, setSortBy] = useState<SortOption>('total');
@@ -161,11 +164,19 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
               <thead>
                 <tr className="text-left text-xs text-themed-muted uppercase tracking-wider">
                   <th className="pb-3">{t('dashboard.topClients.columns.client')}</th>
-                  <th className="pb-3 hidden sm:table-cell">{t('dashboard.topClients.columns.total')}</th>
-                  <th className="pb-3 hidden md:table-cell">{t('dashboard.topClients.columns.hits')}</th>
-                  <th className="pb-3 hidden md:table-cell">{t('dashboard.topClients.columns.misses')}</th>
+                  <th className="pb-3 hidden sm:table-cell">
+                    {t('dashboard.topClients.columns.total')}
+                  </th>
+                  <th className="pb-3 hidden md:table-cell">
+                    {t('dashboard.topClients.columns.hits')}
+                  </th>
+                  <th className="pb-3 hidden md:table-cell">
+                    {t('dashboard.topClients.columns.misses')}
+                  </th>
                   <th className="pb-3">{t('dashboard.topClients.columns.hitRate')}</th>
-                  <th className="pb-3 hidden lg:table-cell">{t('dashboard.topClients.columns.lastSeen')}</th>
+                  <th className="pb-3 hidden lg:table-cell">
+                    {t('dashboard.topClients.columns.lastSeen')}
+                  </th>
                 </tr>
               </thead>
               <tbody className="text-sm">

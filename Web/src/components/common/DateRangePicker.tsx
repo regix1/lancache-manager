@@ -96,20 +96,24 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
       const target = event.target as Node;
 
       // Check month dropdown
-      if (showMonthDropdown &&
-          monthDropdownRef.current &&
-          !monthDropdownRef.current.contains(target) &&
-          monthButtonRef.current &&
-          !monthButtonRef.current.contains(target)) {
+      if (
+        showMonthDropdown &&
+        monthDropdownRef.current &&
+        !monthDropdownRef.current.contains(target) &&
+        monthButtonRef.current &&
+        !monthButtonRef.current.contains(target)
+      ) {
         setShowMonthDropdown(false);
       }
 
       // Check year dropdown
-      if (showYearDropdown &&
-          yearDropdownRef.current &&
-          !yearDropdownRef.current.contains(target) &&
-          yearButtonRef.current &&
-          !yearButtonRef.current.contains(target)) {
+      if (
+        showYearDropdown &&
+        yearDropdownRef.current &&
+        !yearDropdownRef.current.contains(target) &&
+        yearButtonRef.current &&
+        !yearButtonRef.current.contains(target)
+      ) {
         setShowYearDropdown(false);
       }
     };
@@ -275,9 +279,10 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
   const daysInMonth = getDaysInMonth(currentMonth);
   const firstDayOfMonth = getFirstDayOfMonth(currentMonth);
   const weekDays = t('common.dateRangePicker.weekDays', { returnObjects: true }) as string[];
-  const selectedDays = startDate && endDate
-    ? Math.abs(Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))) + 1
-    : 0;
+  const selectedDays =
+    startDate && endDate
+      ? Math.abs(Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24))) + 1
+      : 0;
 
   return (
     <Modal
@@ -312,7 +317,9 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
                 className="flex items-center gap-1 px-3 py-1.5 text-[var(--theme-text-primary)] font-medium hover:bg-[var(--theme-bg-tertiary)] rounded-lg transition-colors border border-transparent hover:border-[var(--theme-border-primary)]"
               >
                 {monthNames[currentMonth.getMonth()]}
-                <ChevronDown className={`w-4 h-4 transition-transform ${showMonthDropdown ? 'rotate-180' : ''}`} />
+                <ChevronDown
+                  className={`w-4 h-4 transition-transform ${showMonthDropdown ? 'rotate-180' : ''}`}
+                />
               </button>
 
               {showMonthDropdown && (
@@ -352,7 +359,9 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
                 className="flex items-center gap-1 px-3 py-1.5 text-[var(--theme-text-primary)] font-medium hover:bg-[var(--theme-bg-tertiary)] rounded-lg transition-colors border border-transparent hover:border-[var(--theme-border-primary)]"
               >
                 {currentMonth.getFullYear()}
-                <ChevronDown className={`w-4 h-4 transition-transform ${showYearDropdown ? 'rotate-180' : ''}`} />
+                <ChevronDown
+                  className={`w-4 h-4 transition-transform ${showYearDropdown ? 'rotate-180' : ''}`}
+                />
               </button>
 
               {showYearDropdown && (
@@ -428,7 +437,8 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
             }
 
             if (isStart || isEnd) {
-              className += 'bg-[var(--theme-primary)] text-[var(--theme-button-text)] font-semibold z-10 ';
+              className +=
+                'bg-[var(--theme-primary)] text-[var(--theme-button-text)] font-semibold z-10 ';
             } else if (inRange) {
               className += 'bg-[var(--theme-primary)]/20 text-[var(--theme-text-primary)] ';
             } else if (isHovered && startDate && !endDate) {
@@ -460,13 +470,19 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
         <div className="mt-4 pt-4 border-t border-[var(--theme-border-primary)]">
           <div className="flex justify-between text-sm">
             <div>
-              <span className="text-[var(--theme-text-secondary)]">{t('common.dateRangePicker.startLabel')}</span>
+              <span className="text-[var(--theme-text-secondary)]">
+                {t('common.dateRangePicker.startLabel')}
+              </span>
               <span className="text-[var(--theme-text-primary)] font-medium">
-                {startDate ? startDate.toLocaleDateString() : t('common.dateRangePicker.notSelected')}
+                {startDate
+                  ? startDate.toLocaleDateString()
+                  : t('common.dateRangePicker.notSelected')}
               </span>
             </div>
             <div>
-              <span className="text-[var(--theme-text-secondary)]">{t('common.dateRangePicker.endLabel')}</span>
+              <span className="text-[var(--theme-text-secondary)]">
+                {t('common.dateRangePicker.endLabel')}
+              </span>
               <span className="text-[var(--theme-text-primary)] font-medium">
                 {endDate ? endDate.toLocaleDateString() : t('common.dateRangePicker.notSelected')}
               </span>
@@ -483,7 +499,9 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
 
         {/* Quick Presets */}
         <div className="mt-4 pt-4 border-t border-[var(--theme-border-primary)]">
-          <div className="text-xs text-[var(--theme-text-secondary)] mb-2">{t('common.dateRangePicker.quickSelect')}</div>
+          <div className="text-xs text-[var(--theme-text-secondary)] mb-2">
+            {t('common.dateRangePicker.quickSelect')}
+          </div>
           <div className="flex flex-wrap gap-2">
             <button
               onClick={() => {
@@ -570,11 +588,15 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
         {/* Event Presets - Only show if there are events */}
         {sortedEvents.length > 0 && (
           <div className="mt-4 pt-4 border-t border-[var(--theme-border-primary)]">
-            <div className="text-xs text-[var(--theme-text-secondary)] mb-2">{t('common.dateRangePicker.eventDateRanges')}</div>
+            <div className="text-xs text-[var(--theme-text-secondary)] mb-2">
+              {t('common.dateRangePicker.eventDateRanges')}
+            </div>
             <div className="flex flex-wrap gap-2">
               {sortedEvents.slice(0, 6).map((event) => {
                 const status = getEventStatus(event.startTimeUtc, event.endTimeUtc);
-                const colorVar = event.colorIndex ? getEventColorVar(event.colorIndex) : 'var(--theme-primary)';
+                const colorVar = event.colorIndex
+                  ? getEventColorVar(event.colorIndex)
+                  : 'var(--theme-primary)';
 
                 return (
                   <button
@@ -592,7 +614,8 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
                       <span
                         className="px-1 py-0.5 text-[9px] rounded font-medium"
                         style={{
-                          backgroundColor: 'color-mix(in srgb, var(--theme-success) 20%, transparent)',
+                          backgroundColor:
+                            'color-mix(in srgb, var(--theme-success) 20%, transparent)',
                           color: 'var(--theme-success)'
                         }}
                       >

@@ -9,4 +9,3 @@ const timeFormatPreference = createGlobalPreference(true); // Default to 24-hour
 
 export const setGlobal24HourPreference = timeFormatPreference.set;
 export const getGlobal24HourPreference = timeFormatPreference.get;
-

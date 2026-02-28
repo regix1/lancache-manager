@@ -15,7 +15,14 @@ interface PrefillHomePageProps {
   epicPrefillEnabled: boolean;
 }
 
-export function PrefillHomePage({ onServiceStart, error, errorService, isAdmin, steamPrefillEnabled, epicPrefillEnabled }: PrefillHomePageProps) {
+export function PrefillHomePage({
+  onServiceStart,
+  error,
+  errorService,
+  isAdmin,
+  steamPrefillEnabled,
+  epicPrefillEnabled
+}: PrefillHomePageProps) {
   const { t } = useTranslation();
 
   const showSteam = isAdmin || steamPrefillEnabled;
@@ -45,11 +52,12 @@ export function PrefillHomePage({ onServiceStart, error, errorService, isAdmin, 
   return (
     <div className="prefill-home">
       <div className="prefill-home-header">
-        <h1 className="prefill-home-title">
-          {t('prefill.home.title', 'Game Prefill')}
-        </h1>
+        <h1 className="prefill-home-title">{t('prefill.home.title', 'Game Prefill')}</h1>
         <p className="prefill-home-subtitle">
-          {t('prefill.home.subtitle', 'Pre-download game content to your lancache before the event. Choose a platform to start a prefill session.')}
+          {t(
+            'prefill.home.subtitle',
+            'Pre-download game content to your lancache before the event. Choose a platform to start a prefill session.'
+          )}
         </p>
       </div>
 
@@ -71,11 +79,16 @@ export function PrefillHomePage({ onServiceStart, error, errorService, isAdmin, 
             </div>
 
             <p className="prefill-service-description">
-              {t('prefill.home.steamDescription', 'Prefill your Steam library including recent games, top titles, or hand-picked selections from your account.')}
+              {t(
+                'prefill.home.steamDescription',
+                'Prefill your Steam library including recent games, top titles, or hand-picked selections from your account.'
+              )}
             </p>
 
             <ul className="prefill-service-features">
-              <li>{t('prefill.home.steamFeature1', 'Prefill entire library or select specific games')}</li>
+              <li>
+                {t('prefill.home.steamFeature1', 'Prefill entire library or select specific games')}
+              </li>
               <li>{t('prefill.home.steamFeature2', 'Recent and top games presets')}</li>
               <li>{t('prefill.home.steamFeature3', 'Force re-download and cache management')}</li>
             </ul>
@@ -92,11 +105,7 @@ export function PrefillHomePage({ onServiceStart, error, errorService, isAdmin, 
                 <Shield size={14} />
                 {t('prefill.home.requiresSteamLogin', 'Username, password & Steam Guard')}
               </span>
-              <Button
-                variant="filled"
-                size="md"
-                onClick={() => onServiceStart('steam')}
-              >
+              <Button variant="filled" size="md" onClick={() => onServiceStart('steam')}>
                 <ArrowRight size={16} />
                 {t('prefill.home.startSession', 'Start Session')}
               </Button>
@@ -121,11 +130,16 @@ export function PrefillHomePage({ onServiceStart, error, errorService, isAdmin, 
             </div>
 
             <p className="prefill-service-description">
-              {t('prefill.home.epicDescription', 'Prefill your Epic Games library including recent games, top titles, or hand-picked selections from your account.')}
+              {t(
+                'prefill.home.epicDescription',
+                'Prefill your Epic Games library including recent games, top titles, or hand-picked selections from your account.'
+              )}
             </p>
 
             <ul className="prefill-service-features">
-              <li>{t('prefill.home.epicFeature1', 'Prefill entire library or select specific games')}</li>
+              <li>
+                {t('prefill.home.epicFeature1', 'Prefill entire library or select specific games')}
+              </li>
               <li>{t('prefill.home.epicFeature2', 'Recent and top games presets')}</li>
               <li>{t('prefill.home.epicFeature3', 'Force re-download and cache management')}</li>
             </ul>
@@ -142,11 +156,7 @@ export function PrefillHomePage({ onServiceStart, error, errorService, isAdmin, 
                 <Shield size={14} />
                 {t('prefill.home.requiresEpicLogin', 'Browser-based authorization code login')}
               </span>
-              <Button
-                variant="filled"
-                size="md"
-                onClick={() => onServiceStart('epic')}
-              >
+              <Button variant="filled" size="md" onClick={() => onServiceStart('epic')}>
                 <ArrowRight size={16} />
                 {t('prefill.home.startSession', 'Start Session')}
               </Button>

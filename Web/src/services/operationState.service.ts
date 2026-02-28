@@ -12,8 +12,6 @@ interface OperationState {
   expiresAt?: string;
 }
 
-
-
 interface QueuedRequest<T = unknown> {
   execute: () => Promise<T>;
   resolve: (value: T) => void;
@@ -34,8 +32,6 @@ class OperationStateService {
   private activeRequests = 0;
   private readonly MAX_CONCURRENT_REQUESTS = 3;
   private readonly REQUEST_DELAY_MS = 100;
-
-  
 
   async saveState(
     key: string,
@@ -72,12 +68,6 @@ class OperationStateService {
     });
   }
 
-  
-
-  
-
-  
-
   async migrateFromLocalStorage(): Promise<number> {
     const keys = [
       'activeCacheClearOperation',
@@ -109,6 +99,7 @@ class OperationStateService {
     }
 
     if (migrated > 0) {
+      // ignored
     }
 
     return migrated;
@@ -170,10 +161,7 @@ class OperationStateService {
         lastError = error;
 
         // Check for network error that should trigger retry
-        if (
-          error instanceof TypeError &&
-          error.message.includes('Failed to fetch')
-        ) {
+        if (error instanceof TypeError && error.message.includes('Failed to fetch')) {
           // Network error - will retry
         } else {
           throw error;

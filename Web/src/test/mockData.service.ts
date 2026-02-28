@@ -1,5 +1,15 @@
 import { SERVICES } from '../utils/constants';
-import type { Download, CacheInfo, ClientStat, ServiceStat, DashboardStats, HourlyActivityResponse, HourlyActivityItem, CacheGrowthResponse, CacheGrowthDataPoint } from '../types';
+import type {
+  Download,
+  CacheInfo,
+  ClientStat,
+  ServiceStat,
+  DashboardStats,
+  HourlyActivityResponse,
+  HourlyActivityItem,
+  CacheGrowthResponse,
+  CacheGrowthDataPoint
+} from '../types';
 
 interface MockData {
   cacheInfo: CacheInfo;
@@ -401,17 +411,20 @@ class MockDataService {
         bytesServed,
         avgBytesServed,
         cacheHitBytes: Math.floor(bytesServed * cacheHitRatio),
-        cacheMissBytes: Math.floor(bytesServed * (1 - cacheHitRatio)),
+        cacheMissBytes: Math.floor(bytesServed * (1 - cacheHitRatio))
       };
     });
 
     // Find peak hour (highest downloads)
-    const peakHour = hours.reduce((max, h) => h.downloads > max.downloads ? h : max, hours[0]).hour;
+    const peakHour = hours.reduce(
+      (max, h) => (h.downloads > max.downloads ? h : max),
+      hours[0]
+    ).hour;
     const totalDownloads = hours.reduce((sum, h) => sum + h.downloads, 0);
     const totalBytesServed = hours.reduce((sum, h) => sum + h.bytesServed, 0);
 
     const now = Math.floor(Date.now() / 1000);
-    const periodStart = now - (daysInPeriod * 24 * 60 * 60);
+    const periodStart = now - daysInPeriod * 24 * 60 * 60;
 
     return {
       hours,
@@ -421,14 +434,17 @@ class MockDataService {
       daysInPeriod,
       periodStart,
       periodEnd: now,
-      period: '7d',
+      period: '7d'
     };
   }
 
   /**
    * Generate mock cache growth data for CacheGrowthTrend widget
    */
-  static generateMockCacheGrowth(usedCacheSize: number = 1450000000000, totalCacheSize: number = 2000000000000): CacheGrowthResponse {
+  static generateMockCacheGrowth(
+    usedCacheSize = 1450000000000,
+    totalCacheSize = 2000000000000
+  ): CacheGrowthResponse {
     const now = new Date();
     const daysOfData = 14;
 
@@ -448,20 +464,25 @@ class MockDataService {
       dataPoints.push({
         timestamp: date.toISOString(),
         cumulativeCacheMissBytes: Math.floor(cumulativeBytes),
-        growthFromPrevious: i === daysOfData ? 0 : dailyGrowth,
+        growthFromPrevious: i === daysOfData ? 0 : dailyGrowth
       });
 
       cumulativeBytes += dailyGrowth;
     }
 
     // Calculate average daily growth
-    const totalGrowth = dataPoints[dataPoints.length - 1].cumulativeCacheMissBytes - dataPoints[0].cumulativeCacheMissBytes;
+    const totalGrowth =
+      dataPoints[dataPoints.length - 1].cumulativeCacheMissBytes -
+      dataPoints[0].cumulativeCacheMissBytes;
     const averageDailyGrowth = Math.floor(totalGrowth / daysOfData);
 
     // Calculate trend by comparing first half to second half
     const midpoint = Math.floor(dataPoints.length / 2);
-    const firstHalfGrowth = dataPoints[midpoint].cumulativeCacheMissBytes - dataPoints[0].cumulativeCacheMissBytes;
-    const secondHalfGrowth = dataPoints[dataPoints.length - 1].cumulativeCacheMissBytes - dataPoints[midpoint].cumulativeCacheMissBytes;
+    const firstHalfGrowth =
+      dataPoints[midpoint].cumulativeCacheMissBytes - dataPoints[0].cumulativeCacheMissBytes;
+    const secondHalfGrowth =
+      dataPoints[dataPoints.length - 1].cumulativeCacheMissBytes -
+      dataPoints[midpoint].cumulativeCacheMissBytes;
 
     let trend: 'up' | 'down' | 'stable';
     let percentChange = 0;
@@ -477,9 +498,8 @@ class MockDataService {
 
     // Calculate days until full
     const remainingSpace = totalCacheSize - usedCacheSize;
-    const estimatedDaysUntilFull = averageDailyGrowth > 0
-      ? Math.ceil(remainingSpace / averageDailyGrowth)
-      : null;
+    const estimatedDaysUntilFull =
+      averageDailyGrowth > 0 ? Math.ceil(remainingSpace / averageDailyGrowth) : null;
 
     return {
       dataPoints,
@@ -493,7 +513,7 @@ class MockDataService {
       period: '14d',
       hasDataDeletion: false,
       estimatedBytesDeleted: 0,
-      cacheWasCleared: false,
+      cacheWasCleared: false
     };
   }
 }

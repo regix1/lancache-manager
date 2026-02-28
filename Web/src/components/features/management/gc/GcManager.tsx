@@ -52,7 +52,6 @@ const fetchGcSettings = async (): Promise<GcSettings> => {
   }
 };
 
-
 interface SettingSectionProps {
   icon: React.ElementType;
   title: string;
@@ -90,9 +89,7 @@ const SettingRow: React.FC<SettingRowProps> = ({ label, description, children })
   <div className="space-y-2">
     <div>
       <p className="text-sm font-medium text-themed-primary">{label}</p>
-      {description && (
-        <p className="text-xs mt-0.5 text-themed-muted">{description}</p>
-      )}
+      {description && <p className="text-xs mt-0.5 text-themed-muted">{description}</p>}
     </div>
     {children}
   </div>
@@ -104,14 +101,46 @@ const GcManager: React.FC<GcManagerProps> = ({ isAdmin }) => {
   const [loading, setLoading] = useState(true);
 
   const aggressivenessOptions: DropdownOption[] = [
-    { value: 'disabled', label: t('management.gc.aggressiveness.disabled'), description: t('management.gc.aggressiveness.disabledDesc') },
-    { value: 'onpageload', label: t('management.gc.aggressiveness.onPageLoad'), description: t('management.gc.aggressiveness.onPageLoadDesc') },
-    { value: 'every60minutes', label: t('management.gc.aggressiveness.every60min'), description: t('management.gc.aggressiveness.every60minDesc') },
-    { value: 'every60seconds', label: t('management.gc.aggressiveness.every60sec'), description: t('management.gc.aggressiveness.every60secDesc') },
-    { value: 'every30seconds', label: t('management.gc.aggressiveness.every30sec'), description: t('management.gc.aggressiveness.every30secDesc') },
-    { value: 'every10seconds', label: t('management.gc.aggressiveness.every10sec'), description: t('management.gc.aggressiveness.every10secDesc') },
-    { value: 'every5seconds', label: t('management.gc.aggressiveness.every5sec'), description: t('management.gc.aggressiveness.every5secDesc') },
-    { value: 'every1second', label: t('management.gc.aggressiveness.every1sec'), description: t('management.gc.aggressiveness.every1secDesc') }
+    {
+      value: 'disabled',
+      label: t('management.gc.aggressiveness.disabled'),
+      description: t('management.gc.aggressiveness.disabledDesc')
+    },
+    {
+      value: 'onpageload',
+      label: t('management.gc.aggressiveness.onPageLoad'),
+      description: t('management.gc.aggressiveness.onPageLoadDesc')
+    },
+    {
+      value: 'every60minutes',
+      label: t('management.gc.aggressiveness.every60min'),
+      description: t('management.gc.aggressiveness.every60minDesc')
+    },
+    {
+      value: 'every60seconds',
+      label: t('management.gc.aggressiveness.every60sec'),
+      description: t('management.gc.aggressiveness.every60secDesc')
+    },
+    {
+      value: 'every30seconds',
+      label: t('management.gc.aggressiveness.every30sec'),
+      description: t('management.gc.aggressiveness.every30secDesc')
+    },
+    {
+      value: 'every10seconds',
+      label: t('management.gc.aggressiveness.every10sec'),
+      description: t('management.gc.aggressiveness.every10secDesc')
+    },
+    {
+      value: 'every5seconds',
+      label: t('management.gc.aggressiveness.every5sec'),
+      description: t('management.gc.aggressiveness.every5secDesc')
+    },
+    {
+      value: 'every1second',
+      label: t('management.gc.aggressiveness.every1sec'),
+      description: t('management.gc.aggressiveness.every1secDesc')
+    }
   ];
 
   const memoryThresholdOptions: DropdownOption[] = [
@@ -126,7 +155,10 @@ const GcManager: React.FC<GcManagerProps> = ({ isAdmin }) => {
     { value: '16384', label: '16 GB' }
   ];
 
-  const [settings, setSettings] = useState<GcSettings>({ aggressiveness: 'disabled', memoryThresholdMB: 4096 });
+  const [settings, setSettings] = useState<GcSettings>({
+    aggressiveness: 'disabled',
+    memoryThresholdMB: 4096
+  });
   const [saving, setSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [triggering, setTriggering] = useState(false);
@@ -148,11 +180,14 @@ const GcManager: React.FC<GcManagerProps> = ({ isAdmin }) => {
   const saveSettings = async () => {
     setSaving(true);
     try {
-      const response = await fetch(`${API_BASE}/gc/settings`, ApiService.getFetchOptions({
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings)
-      }));
+      const response = await fetch(
+        `${API_BASE}/gc/settings`,
+        ApiService.getFetchOptions({
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(settings)
+        })
+      );
 
       if (response.ok) {
         const data = await response.json();
@@ -194,9 +229,12 @@ const GcManager: React.FC<GcManagerProps> = ({ isAdmin }) => {
     setTriggering(true);
     setTriggerResult(null);
     try {
-      const response = await fetch(`${API_BASE}/gc/trigger`, ApiService.getFetchOptions({
-        method: 'POST'
-      }));
+      const response = await fetch(
+        `${API_BASE}/gc/trigger`,
+        ApiService.getFetchOptions({
+          method: 'POST'
+        })
+      );
 
       if (response.ok) {
         const data: GcTriggerResult = await response.json();
@@ -235,8 +273,12 @@ const GcManager: React.FC<GcManagerProps> = ({ isAdmin }) => {
             <p className="font-medium">{triggerResult.message}</p>
             {!triggerResult.skipped && triggerResult.beforeMB !== undefined && (
               <div className="mt-1 flex gap-4 text-xs text-themed-muted">
-                <span>{t('management.gc.before')}: {triggerResult.beforeMB} MB</span>
-                <span>{t('management.gc.after')}: {triggerResult.afterMB} MB</span>
+                <span>
+                  {t('management.gc.before')}: {triggerResult.beforeMB} MB
+                </span>
+                <span>
+                  {t('management.gc.after')}: {triggerResult.afterMB} MB
+                </span>
                 <span className="font-medium text-themed-primary">
                   {t('management.gc.freed')}: {triggerResult.freedMB} MB
                 </span>
@@ -244,7 +286,8 @@ const GcManager: React.FC<GcManagerProps> = ({ isAdmin }) => {
             )}
             {triggerResult.skipped && triggerResult.remainingSeconds !== undefined && (
               <p className="mt-1 text-xs">
-                {t('management.gc.cooldown')}: {Math.ceil(triggerResult.remainingSeconds)}s {t('management.gc.remaining')}
+                {t('management.gc.cooldown')}: {Math.ceil(triggerResult.remainingSeconds)}s{' '}
+                {t('management.gc.remaining')}
               </p>
             )}
           </div>
@@ -299,7 +342,9 @@ const GcManager: React.FC<GcManagerProps> = ({ isAdmin }) => {
           <div className="w-6 h-6 rounded flex items-center justify-center icon-bg-orange">
             <Cpu className="w-3.5 h-3.5 icon-orange" />
           </div>
-          <h4 className="text-sm font-semibold text-themed-secondary">{t('management.gc.actions')}</h4>
+          <h4 className="text-sm font-semibold text-themed-secondary">
+            {t('management.gc.actions')}
+          </h4>
         </div>
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
           <Button
@@ -308,7 +353,9 @@ const GcManager: React.FC<GcManagerProps> = ({ isAdmin }) => {
             variant="filled"
             color="blue"
             size="sm"
-            leftSection={saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            leftSection={
+              saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />
+            }
             className="flex-1"
           >
             {saving ? t('management.gc.saving') : t('management.gc.saveSettings')}
@@ -318,16 +365,20 @@ const GcManager: React.FC<GcManagerProps> = ({ isAdmin }) => {
             disabled={!isAdmin || triggering}
             variant="default"
             size="sm"
-            leftSection={triggering ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+            leftSection={
+              triggering ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Play className="w-4 h-4" />
+              )
+            }
             className="flex-1 sm:flex-none"
             title={t('management.gc.runGcTooltip')}
           >
             {triggering ? t('management.gc.running') : t('management.gc.runGcNow')}
           </Button>
         </div>
-        <p className="text-xs mt-3 text-themed-muted">
-          {t('management.gc.noRestartRequired')}
-        </p>
+        <p className="text-xs mt-3 text-themed-muted">{t('management.gc.noRestartRequired')}</p>
       </div>
     </div>
   );

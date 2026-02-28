@@ -35,12 +35,27 @@ export const Checkbox: React.FC<CheckboxProps> = ({
 
   if (label) {
     return (
-      <label className="flex items-center gap-2 cursor-pointer" onClick={(e) => e.stopPropagation()}>
-        <input type="checkbox" className={`${checkboxClasses} ${className}`} onClick={handleClick} {...props} />
+      <label
+        className="flex items-center gap-2 cursor-pointer"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <input
+          type="checkbox"
+          className={`${checkboxClasses} ${className}`}
+          onClick={handleClick}
+          {...props}
+        />
         <span className="text-sm text-themed-secondary">{label}</span>
       </label>
     );
   }
 
-  return <input type="checkbox" className={`${checkboxClasses} ${className}`} onClick={handleClick} {...props} />;
+  return (
+    <input
+      type="checkbox"
+      className={`${checkboxClasses} ${className}`}
+      onClick={handleClick}
+      {...props}
+    />
+  );
 };

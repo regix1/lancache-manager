@@ -9,4 +9,3 @@ const yearDisplayPreference = createGlobalPreference(false);
 
 export const setGlobalAlwaysShowYearPreference = yearDisplayPreference.set;
 export const getGlobalAlwaysShowYearPreference = yearDisplayPreference.get;
-

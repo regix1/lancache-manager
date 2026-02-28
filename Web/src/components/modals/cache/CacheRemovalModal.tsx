@@ -19,7 +19,7 @@ interface CacheRemovalModalProps {
 
 const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({ target, onClose, onConfirm }) => {
   const { t } = useTranslation();
-  
+
   if (!target) return null;
 
   const isGame = target.type === 'game';
@@ -37,13 +37,15 @@ const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({ target, onClose, 
       title={
         <div className="flex items-center space-x-3">
           <AlertTriangle className="w-6 h-6 text-themed-warning" />
-          <span>{isGame ? t('modals.cacheRemoval.titleGame') : t('modals.cacheRemoval.titleService')}</span>
+          <span>
+            {isGame ? t('modals.cacheRemoval.titleGame') : t('modals.cacheRemoval.titleService')}
+          </span>
         </div>
       }
     >
       <div className="space-y-4">
         <p className="text-themed-secondary">
-          {isGame 
+          {isGame
             ? t('modals.cacheRemoval.confirmGame', { name })
             : t('modals.cacheRemoval.confirmService', { name })}
         </p>
@@ -52,15 +54,17 @@ const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({ target, onClose, 
           <div>
             <p className="text-xs font-medium mb-2">{t('modals.cacheRemoval.thisWill')}</p>
             <ul className="list-disc list-inside text-xs space-y-1 ml-2">
-              <li>{t('modals.cacheRemoval.actions.deleteFiles', {
-                count: filesCount,
-                formattedCount: filesCount.toLocaleString()
-              })}</li>
-              <li>{t('modals.cacheRemoval.actions.freeSpace', { size: formatBytes(totalSize) })}</li>
+              <li>
+                {t('modals.cacheRemoval.actions.deleteFiles', {
+                  count: filesCount,
+                  formattedCount: filesCount.toLocaleString()
+                })}
+              </li>
+              <li>
+                {t('modals.cacheRemoval.actions.freeSpace', { size: formatBytes(totalSize) })}
+              </li>
               {isGame && (
-                <li>
-                  {t('modals.cacheRemoval.actions.removeDepots', { count: depotCount })}
-                </li>
+                <li>{t('modals.cacheRemoval.actions.removeDepots', { count: depotCount })}</li>
               )}
               {!isGame && (
                 <>

@@ -59,7 +59,7 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
 
         // Remove this modal from the stack
         if (modalId.current !== null) {
-          modalStack = modalStack.filter(id => id !== modalId.current);
+          modalStack = modalStack.filter((id) => id !== modalId.current);
           modalId.current = null;
         }
 
@@ -74,7 +74,7 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
     return () => {
       // Cleanup: remove from stack if component unmounts while open
       if (modalId.current !== null) {
-        modalStack = modalStack.filter(id => id !== modalId.current);
+        modalStack = modalStack.filter((id) => id !== modalId.current);
         modalId.current = null;
 
         // Restore scroll if this was the last modal
@@ -99,7 +99,9 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
       <div className="min-h-full flex items-center justify-center px-4">
         <div
           className={`themed-card border themed-border-radius ${sizes[size]} w-full max-h-[calc(100vh-2rem)] sm:max-h-[calc(100vh-4rem)] flex flex-col transform transition-all duration-250 ease-out ${
-            isAnimating ? 'opacity-100 scale-100 translate-y-0 delay-[50ms]' : 'opacity-0 scale-90 translate-y-8 delay-0'
+            isAnimating
+              ? 'opacity-100 scale-100 translate-y-0 delay-[50ms]'
+              : 'opacity-0 scale-90 translate-y-8 delay-0'
           }`}
         >
           {title && (
@@ -113,7 +115,9 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
               </button>
             </div>
           )}
-          <div className="p-4 sm:p-6 overflow-y-auto overflow-x-hidden flex-1 min-h-0">{children}</div>
+          <div className="p-4 sm:p-6 overflow-y-auto overflow-x-hidden flex-1 min-h-0">
+            {children}
+          </div>
         </div>
       </div>
     </div>

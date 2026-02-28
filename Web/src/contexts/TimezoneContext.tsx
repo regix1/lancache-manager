@@ -1,8 +1,19 @@
-import React, { createContext, useContext, useState, useEffect, useSyncExternalStore, useCallback, useMemo } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useSyncExternalStore,
+  useCallback,
+  useMemo
+} from 'react';
 import { useSessionPreferences } from './SessionPreferencesContext';
 import { setGlobalTimezonePreference } from '@utils/timezonePreference';
 import { setGlobal24HourPreference } from '@utils/timeFormatPreference';
-import { setGlobalAlwaysShowYearPreference, getGlobalAlwaysShowYearPreference } from '@utils/yearDisplayPreference';
+import {
+  setGlobalAlwaysShowYearPreference,
+  getGlobalAlwaysShowYearPreference
+} from '@utils/yearDisplayPreference';
 import {
   setPendingTimezone,
   subscribe as subscribeToPending,
@@ -23,8 +34,12 @@ const TimezoneContext = createContext<TimezoneContextType>({
   useLocalTimezone: false,
   use24HourFormat: true,
   refreshKey: 0,
-  setPendingTimeSetting: () => {},
-  forceRefresh: () => {}
+  setPendingTimeSetting: () => {
+    /* noop */
+  },
+  forceRefresh: () => {
+    /* noop */
+  }
 });
 
 export const useTimezone = () => useContext(TimezoneContext);
@@ -36,13 +51,11 @@ export const TimezoneProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [refreshKey, setRefreshKey] = useState(0);
 
   // Subscribe to pending preference changes for immediate UI updates
-  const pendingUseLocal = useSyncExternalStore(
-    subscribeToPending,
-    () => getPendingValue<boolean>('useLocalTimezone')
+  const pendingUseLocal = useSyncExternalStore(subscribeToPending, () =>
+    getPendingValue<boolean>('useLocalTimezone')
   );
-  const pendingUse24Hour = useSyncExternalStore(
-    subscribeToPending,
-    () => getPendingValue<boolean>('use24HourFormat')
+  const pendingUse24Hour = useSyncExternalStore(subscribeToPending, () =>
+    getPendingValue<boolean>('use24HourFormat')
   );
 
   // Derive effective values: pending takes precedence over actual
@@ -66,11 +79,11 @@ export const TimezoneProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const { key, value } = (e as CustomEvent<{ key: string; value: boolean }>).detail;
 
       if (key === 'useLocalTimezone') {
-        setActualUseLocal(prev => {
+        setActualUseLocal((prev) => {
           if (prev !== value) {
             setGlobalTimezonePreference(value);
             // Only increment refreshKey if no pending value (pending handles immediate UI)
-            if (pendingUseLocal === null) setRefreshKey(k => k + 1);
+            if (pendingUseLocal === null) setRefreshKey((k) => k + 1);
             return value;
           }
           return prev;
@@ -78,10 +91,10 @@ export const TimezoneProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
 
       if (key === 'use24HourFormat') {
-        setActualUse24Hour(prev => {
+        setActualUse24Hour((prev) => {
           if (prev !== value) {
             setGlobal24HourPreference(value);
-            if (pendingUse24Hour === null) setRefreshKey(k => k + 1);
+            if (pendingUse24Hour === null) setRefreshKey((k) => k + 1);
             return value;
           }
           return prev;
@@ -92,7 +105,7 @@ export const TimezoneProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         const current = getGlobalAlwaysShowYearPreference();
         if (current !== value) {
           setGlobalAlwaysShowYearPreference(value);
-          setRefreshKey(k => k + 1);
+          setRefreshKey((k) => k + 1);
         }
       }
     };
@@ -106,20 +119,19 @@ export const TimezoneProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   }, []);
 
   const forceRefresh = useCallback(() => {
-    setRefreshKey(k => k + 1);
+    setRefreshKey((k) => k + 1);
   }, []);
 
-  const contextValue = useMemo(() => ({
-    useLocalTimezone,
-    use24HourFormat,
-    refreshKey,
-    setPendingTimeSetting,
-    forceRefresh
-  }), [useLocalTimezone, use24HourFormat, refreshKey, setPendingTimeSetting, forceRefresh]);
-
-  return (
-    <TimezoneContext.Provider value={contextValue}>
-      {children}
-    </TimezoneContext.Provider>
+  const contextValue = useMemo(
+    () => ({
+      useLocalTimezone,
+      use24HourFormat,
+      refreshKey,
+      setPendingTimeSetting,
+      forceRefresh
+    }),
+    [useLocalTimezone, use24HourFormat, refreshKey, setPendingTimeSetting, forceRefresh]
   );
+
+  return <TimezoneContext.Provider value={contextValue}>{children}</TimezoneContext.Provider>;
 };

@@ -18,9 +18,8 @@ interface HeaderProps {
 
 const formatSessionTimeRemaining = (expiresAt: string | null): string | null => {
   if (!expiresAt) return null;
-  const expiryStr = expiresAt.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(expiresAt)
-    ? expiresAt
-    : expiresAt + 'Z';
+  const expiryStr =
+    expiresAt.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(expiresAt) ? expiresAt : expiresAt + 'Z';
   const diff = new Date(expiryStr).getTime() - Date.now();
   if (diff <= 0) return null;
   const hours = Math.floor(diff / (1000 * 60 * 60));
@@ -29,11 +28,7 @@ const formatSessionTimeRemaining = (expiresAt: string | null): string | null => 
   return `${minutes}m`;
 };
 
-const Header: React.FC<HeaderProps> = ({
-  title,
-  subtitle,
-  connectionStatus = 'connected'
-}) => {
+const Header: React.FC<HeaderProps> = ({ title, subtitle, connectionStatus = 'connected' }) => {
   const { t } = useTranslation();
   const { mockMode } = useMockMode();
   const { authMode, sessionExpiresAt } = useAuth();
@@ -96,7 +91,8 @@ const Header: React.FC<HeaderProps> = ({
                   <div
                     className="absolute bottom-0 left-1 w-7 h-1.5 rounded-full pointer-events-none z-0"
                     style={{
-                      background: 'radial-gradient(ellipse at center, color-mix(in srgb, var(--theme-text-primary) 60%, transparent) 0%, color-mix(in srgb, var(--theme-text-primary) 30%, transparent) 40%, transparent 70%)',
+                      background:
+                        'radial-gradient(ellipse at center, color-mix(in srgb, var(--theme-text-primary) 60%, transparent) 0%, color-mix(in srgb, var(--theme-text-primary) 30%, transparent) 40%, transparent 70%)',
                       animation: 'shadow-pulse 2.5s ease-in-out infinite'
                     }}
                   />
@@ -142,7 +138,8 @@ const Header: React.FC<HeaderProps> = ({
                         border: '1px solid var(--theme-warning)'
                       }}
                     >
-                      {t('guest.guestMode')}{timeRemaining ? ` \u00B7 ${timeRemaining}` : ''}
+                      {t('guest.guestMode')}
+                      {timeRemaining ? ` \u00B7 ${timeRemaining}` : ''}
                     </div>
                   )}
                 </div>
@@ -173,7 +170,8 @@ const Header: React.FC<HeaderProps> = ({
                     <div
                       className="absolute bottom-0 left-1 w-7 h-1.5 rounded-full pointer-events-none z-0"
                       style={{
-                        background: 'radial-gradient(ellipse at center, color-mix(in srgb, var(--theme-text-primary) 60%, transparent) 0%, color-mix(in srgb, var(--theme-text-primary) 30%, transparent) 40%, transparent 70%)',
+                        background:
+                          'radial-gradient(ellipse at center, color-mix(in srgb, var(--theme-text-primary) 60%, transparent) 0%, color-mix(in srgb, var(--theme-text-primary) 30%, transparent) 40%, transparent 70%)',
                         animation: 'shadow-pulse 2.5s ease-in-out infinite'
                       }}
                     />
@@ -183,11 +181,12 @@ const Header: React.FC<HeaderProps> = ({
                 <div
                   className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-[var(--theme-nav-bg)] z-10 ${connectionStatus === 'reconnecting' ? 'animate-pulse' : ''}`}
                   style={{
-                    backgroundColor: connectionStatus === 'connected'
-                      ? 'var(--theme-success)'
-                      : connectionStatus === 'disconnected'
-                      ? 'var(--theme-error)'
-                      : 'var(--theme-warning)'
+                    backgroundColor:
+                      connectionStatus === 'connected'
+                        ? 'var(--theme-success)'
+                        : connectionStatus === 'disconnected'
+                          ? 'var(--theme-error)'
+                          : 'var(--theme-warning)'
                   }}
                 />
               </div>
@@ -213,7 +212,8 @@ const Header: React.FC<HeaderProps> = ({
                     border: '1px solid var(--theme-warning)'
                   }}
                 >
-                  {t('guest.guest')}{timeRemaining ? ` \u00B7 ${timeRemaining}` : ''}
+                  {t('guest.guest')}
+                  {timeRemaining ? ` \u00B7 ${timeRemaining}` : ''}
                 </div>
               </div>
             )}

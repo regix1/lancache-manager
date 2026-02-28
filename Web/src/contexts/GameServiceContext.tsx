@@ -38,9 +38,9 @@ interface GameServiceProviderProps {
 export const GameServiceProvider: React.FC<GameServiceProviderProps> = ({ children }) => {
   const [selectedService, setSelectedServiceState] = useState<GameServiceId>(loadPersistedService);
 
-  const availableServices = GAME_SERVICES
-    .filter((service: GameServiceConfig) => service.enabled)
-    .sort((a: GameServiceConfig, b: GameServiceConfig) => a.order - b.order);
+  const availableServices = GAME_SERVICES.filter(
+    (service: GameServiceConfig) => service.enabled
+  ).sort((a: GameServiceConfig, b: GameServiceConfig) => a.order - b.order);
 
   const setSelectedService = useCallback((id: GameServiceId) => {
     setSelectedServiceState(id);

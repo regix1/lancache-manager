@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next';
 import { Modal } from '../../ui/Modal';
 import { Button } from '../../ui/Button';
 import { AlertCircle, Loader2 } from 'lucide-react';
-import { CommandType, formatBytes } from './types';
+import { type CommandType, formatBytes } from './types';
 
 interface EstimatedSizeApp {
   appId: string;
@@ -64,14 +64,18 @@ export function PrefillConfirmModal({
             {estimatedSize.loading ? (
               <div className="flex items-center gap-2">
                 <Loader2 className="h-4 w-4 animate-spin text-[var(--theme-primary)]" />
-                <span className="text-sm text-themed-muted">{t('prefill.confirm.calculatingSize')}</span>
+                <span className="text-sm text-themed-muted">
+                  {t('prefill.confirm.calculatingSize')}
+                </span>
               </div>
             ) : estimatedSize.error ? (
               <span className="text-sm text-themed-muted">{estimatedSize.error}</span>
             ) : (
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-themed-muted">{t('prefill.confirm.totalEstimated')}</span>
+                  <span className="text-sm text-themed-muted">
+                    {t('prefill.confirm.totalEstimated')}
+                  </span>
                   <span className="text-sm font-semibold text-[var(--theme-primary)]">
                     {formatBytes(estimatedSize.bytes)}
                   </span>
@@ -129,7 +133,9 @@ export function PrefillConfirmModal({
             onClick={onConfirm}
             disabled={pendingCommand === 'prefill' && estimatedSize.loading}
           >
-            {pendingCommand === 'prefill' ? t('prefill.confirm.startDownload') : t('prefill.confirm.yesContinue')}
+            {pendingCommand === 'prefill'
+              ? t('prefill.confirm.startDownload')
+              : t('prefill.confirm.yesContinue')}
           </Button>
         </div>
       </div>

@@ -12,7 +12,10 @@ import { getGlobalAlwaysShowYearPreference } from './yearDisplayPreference';
  * @param dateString - The date to format
  * @param forceYear - If true, always include the year in the output
  */
-export function formatDateTime(dateString: string | Date | null | undefined, forceYear = false): string {
+export function formatDateTime(
+  dateString: string | Date | null | undefined,
+  forceYear = false
+): string {
   if (!dateString) return 'N/A';
 
   try {
@@ -59,7 +62,7 @@ export function formatDateTime(dateString: string | Date | null | undefined, for
     // Convert to target timezone for display
     try {
       return date.toLocaleString(undefined, formatOptions);
-    } catch (tzError) {
+    } catch (_tzError) {
       // Timezone invalid, fall back to UTC
       console.warn(`Invalid timezone "${targetTimezone}", falling back to UTC`);
       return date.toLocaleString(undefined, {
@@ -67,7 +70,7 @@ export function formatDateTime(dateString: string | Date | null | undefined, for
         timeZone: 'UTC'
       });
     }
-  } catch (error) {
+  } catch (_error) {
     return 'Invalid Date';
   }
 }
@@ -174,7 +177,7 @@ export function formatRelativeTime(dateString: string | Date | null | undefined)
     if (diffHours > 0) return `${diffHours}h ago`;
     if (diffMins > 0) return `${diffMins}m ago`;
     return 'Just now';
-  } catch (error) {
+  } catch (_error) {
     return 'Invalid Date';
   }
 }

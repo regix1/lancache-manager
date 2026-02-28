@@ -17,7 +17,7 @@ const SERVICE_COLOR_MAP: Record<string, string> = {
   ubisoft: '--theme-ubisoft',
   uplay: '--theme-ubisoft',
   gog: '--theme-text-secondary',
-  rockstar: '--theme-warning',
+  rockstar: '--theme-warning'
 };
 
 interface ServiceColors {
@@ -38,7 +38,7 @@ export function useServiceColors(): ServiceColors {
     serviceColors: new Map(),
     cacheHit: '#22c55e',
     cacheMiss: '#ef4444',
-    border: '#1a1a2e',
+    border: '#1a1a2e'
   });
   const [isReady, setIsReady] = useState(false);
 
@@ -62,7 +62,7 @@ export function useServiceColors(): ServiceColors {
         serviceColors: newServiceColors,
         cacheHit,
         cacheMiss,
-        border,
+        border
       });
       setIsReady(true);
     };
@@ -95,6 +95,6 @@ export function useServiceColors(): ServiceColors {
     getCacheHitColor,
     getCacheMissColor,
     getBorderColor,
-    isReady,
+    isReady
   };
 }

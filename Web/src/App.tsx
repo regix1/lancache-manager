@@ -18,7 +18,10 @@ import { SetupStatusProvider, useSetupStatus } from '@contexts/SetupStatusContex
 import { SteamAuthProvider, useSteamAuth } from '@contexts/SteamAuthContext';
 import { PrefillProvider } from '@contexts/PrefillContext';
 import { AuthProvider, useAuth } from '@contexts/AuthContext';
-import { SteamWebApiStatusProvider, useSteamWebApiStatus } from '@contexts/SteamWebApiStatusContext';
+import {
+  SteamWebApiStatusProvider,
+  useSteamWebApiStatus
+} from '@contexts/SteamWebApiStatusContext';
 import { TimezoneProvider } from '@contexts/TimezoneContext';
 import { SessionPreferencesProvider } from '@contexts/SessionPreferencesContext';
 import { DockerSocketProvider, useDockerSocket } from '@contexts/DockerSocketContext';
@@ -39,7 +42,6 @@ import { isAbortError } from '@utils/error';
 import themeService from '@services/theme.service';
 import preferencesService from '@services/preferences.service';
 
-
 import Dashboard from '@components/features/dashboard/Dashboard';
 import DownloadsTab from '@components/features/downloads/DownloadsTab';
 import ClientsTab from '@components/features/clients/ClientsTab';
@@ -53,7 +55,9 @@ import { PrefillPanel } from '@components/features/prefill';
 import ActiveEventBorder from '@components/common/ActiveEventBorder';
 
 // Wrapper components to inject mockMode from context into providers
-const DashboardDataProviderWithMockMode: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+const DashboardDataProviderWithMockMode: React.FC<{ children: React.ReactNode }> = ({
+  children
+}) => {
   const { mockMode } = useMockMode();
   return <DashboardDataProvider mockMode={mockMode}>{children}</DashboardDataProvider>;
 };
@@ -275,7 +279,13 @@ const AppContent: React.FC = () => {
 
       // If backend was reset (setup not complete) but we have advanced initialization state,
       // this indicates /data was deleted while browser was open - clear everything
-      if (storedStep && storedStep !== 'api-key' && storedStep !== 'import-historical-data' && setupCompleted === false && hasProcessedLogs === false) {
+      if (
+        storedStep &&
+        storedStep !== 'api-key' &&
+        storedStep !== 'import-historical-data' &&
+        setupCompleted === false &&
+        hasProcessedLogs === false
+      ) {
         storage.removeItem('initializationFlowActive');
         storage.removeItem('initializationCurrentStep');
         storage.removeItem('initializationInProgress');
@@ -382,10 +392,7 @@ const AppContent: React.FC = () => {
 
     // Refresh Steam-related contexts to pick up data saved during setup
     // This ensures ManagementTab shows the correct Steam API status and auth mode
-    await Promise.all([
-      refreshSteamWebApiStatus(),
-      refreshSteamAuth()
-    ]);
+    await Promise.all([refreshSteamWebApiStatus(), refreshSteamAuth()]);
   };
 
   const handleAuthChanged = async () => {
@@ -489,7 +496,7 @@ const AppContent: React.FC = () => {
                 <p className="text-sm mb-3 text-themed-secondary">
                   {t('app.prefill.dockerNotAvailable.description')}
                 </p>
-                
+
                 {/* Linux instructions */}
                 <div className="mb-3">
                   <p className="text-sm font-medium text-themed-primary mb-2">
@@ -518,8 +525,18 @@ const AppContent: React.FC = () => {
             <div className="rounded-xl p-6 text-center bg-themed-error border border-[var(--theme-error)]">
               <div className="flex flex-col items-center gap-4">
                 <div className="w-16 h-16 rounded-full flex items-center justify-center bg-[var(--theme-error)]">
-                  <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                  <svg
+                    className="w-8 h-8 text-white"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"
+                    />
                   </svg>
                 </div>
                 <div>
@@ -566,9 +583,7 @@ const AppContent: React.FC = () => {
         <LoadingSpinner
           fullScreen={false}
           message={
-            checkingSetupStatus
-              ? t('app.loading.checkingSetup')
-              : t('app.loading.checkingDepot')
+            checkingSetupStatus ? t('app.loading.checkingSetup') : t('app.loading.checkingDepot')
           }
         />
       </div>
@@ -586,11 +601,7 @@ const AppContent: React.FC = () => {
   }
 
   // Show initialization modal if user hasn't completed first-time setup
-  if (
-    setupCompleted === false &&
-    !depotInitialized &&
-    hasProcessedLogs === false
-  ) {
+  if (setupCompleted === false && !depotInitialized && hasProcessedLogs === false) {
     // Mark initialization flow as active
     if (!isInitializationFlowActive) {
       setIsInitializationFlowActive(true);
@@ -630,7 +641,14 @@ const AppContent: React.FC = () => {
         <Header
           connectionStatus={connectionStatus as 'connected' | 'disconnected' | 'reconnecting'}
         />
-        <Navigation activeTab={activeTab} setActiveTab={setActiveTab} authMode={authMode} prefillEnabled={prefillEnabled} isBanned={isBanned} dockerAvailable={isDockerAvailable} />
+        <Navigation
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          authMode={authMode}
+          prefillEnabled={prefillEnabled}
+          isBanned={isBanned}
+          dockerAvailable={isDockerAvailable}
+        />
         {/* Only show Universal Notification Bar to authenticated users */}
         {authMode === 'authenticated' && <UniversalNotificationBar />}
         <main className="container mx-auto px-4 py-6 flex-grow">{renderContent()}</main>
@@ -646,47 +664,47 @@ const App: React.FC = () => {
       <MockModeProvider>
         <GameServiceProvider>
           <TimeFilterProvider>
-          <SignalRProvider>
-            <AuthProvider>
-              <DockerSocketProvider>
-                <SessionPreferencesProvider>
-                  <RefreshRateProvider>
-                    <SpeedProvider>
-                    <TimezoneProvider>
-                    <SteamWebApiStatusProvider>
-                    <GuestConfigProvider>
-                      <SetupStatusProvider>
-                        <SteamAuthProvider>
-                          <PrefillProvider>
-                          <PicsProgressProviderWithMockMode>
-                            <NotificationsProvider>
-                              <CacheSizeProvider>
-                                <DashboardDataProviderWithMockMode>
-                                  <CalendarSettingsProvider>
-                                    <EventProvider>
-                                      <ClientGroupProvider>
-                                      <DownloadAssociationsProvider>
-                                        <AppContent />
-                                      </DownloadAssociationsProvider>
-                                    </ClientGroupProvider>
-                                  </EventProvider>
-                                  </CalendarSettingsProvider>
-                                </DashboardDataProviderWithMockMode>
-                              </CacheSizeProvider>
-                            </NotificationsProvider>
-                          </PicsProgressProviderWithMockMode>
-                          </PrefillProvider>
-                        </SteamAuthProvider>
-                      </SetupStatusProvider>
-                    </GuestConfigProvider>
-                  </SteamWebApiStatusProvider>
-                    </TimezoneProvider>
-                    </SpeedProvider>
-                  </RefreshRateProvider>
-                </SessionPreferencesProvider>
-              </DockerSocketProvider>
-            </AuthProvider>
-          </SignalRProvider>
+            <SignalRProvider>
+              <AuthProvider>
+                <DockerSocketProvider>
+                  <SessionPreferencesProvider>
+                    <RefreshRateProvider>
+                      <SpeedProvider>
+                        <TimezoneProvider>
+                          <SteamWebApiStatusProvider>
+                            <GuestConfigProvider>
+                              <SetupStatusProvider>
+                                <SteamAuthProvider>
+                                  <PrefillProvider>
+                                    <PicsProgressProviderWithMockMode>
+                                      <NotificationsProvider>
+                                        <CacheSizeProvider>
+                                          <DashboardDataProviderWithMockMode>
+                                            <CalendarSettingsProvider>
+                                              <EventProvider>
+                                                <ClientGroupProvider>
+                                                  <DownloadAssociationsProvider>
+                                                    <AppContent />
+                                                  </DownloadAssociationsProvider>
+                                                </ClientGroupProvider>
+                                              </EventProvider>
+                                            </CalendarSettingsProvider>
+                                          </DashboardDataProviderWithMockMode>
+                                        </CacheSizeProvider>
+                                      </NotificationsProvider>
+                                    </PicsProgressProviderWithMockMode>
+                                  </PrefillProvider>
+                                </SteamAuthProvider>
+                              </SetupStatusProvider>
+                            </GuestConfigProvider>
+                          </SteamWebApiStatusProvider>
+                        </TimezoneProvider>
+                      </SpeedProvider>
+                    </RefreshRateProvider>
+                  </SessionPreferencesProvider>
+                </DockerSocketProvider>
+              </AuthProvider>
+            </SignalRProvider>
           </TimeFilterProvider>
         </GameServiceProvider>
       </MockModeProvider>

@@ -1,6 +1,14 @@
 import React, { useMemo } from 'react';
 import { Doughnut } from 'react-chartjs-2';
-import { Chart as ChartJS, ArcElement, Tooltip, Legend, ChartOptions, ChartData } from 'chart.js';
+import {
+  Chart as ChartJS,
+  ArcElement,
+  Tooltip,
+  Legend,
+  type ChartOptions,
+  type ChartData,
+  type ArcOptions
+} from 'chart.js';
 import { formatBytes } from '@utils/formatters';
 import type { DoughnutChartProps } from './types';
 
@@ -20,8 +28,8 @@ const DoughnutChart: React.FC<DoughnutChartProps> = React.memo(
           borderWidth: ds.borderWidth,
           borderRadius: ds.borderRadius ?? 4,
           spacing: ds.spacing ?? 2,
-          hoverOffset: ds.hoverOffset ?? 8,
-        })),
+          hoverOffset: ds.hoverOffset ?? 8
+        }))
       }),
       [labels, datasets]
     );
@@ -35,20 +43,20 @@ const DoughnutChart: React.FC<DoughnutChartProps> = React.memo(
         cutout: '70%',
         radius: '90%',
         layout: {
-          padding: 10,
+          padding: 10
         },
         elements: {
           arc: {
             // Ensure tiny slices are still visible.
             // Note: minAngle is a valid Chart.js runtime option but not in TS types
-            minAngle: 2,
-          } as any,
+            minAngle: 2
+          } as ArcOptions & { minAngle?: number }
         },
         animation: {
           animateRotate: true,
           animateScale: false,
           duration: 600,
-          easing: 'easeOutQuart',
+          easing: 'easeOutQuart'
         },
         plugins: {
           legend: { display: false },
@@ -68,10 +76,10 @@ const DoughnutChart: React.FC<DoughnutChartProps> = React.memo(
                 const value = dataset.originalData?.[context.dataIndex] ?? (context.raw as number);
                 const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : '0';
                 return `${context.label}: ${formatBytes(value)} (${percentage}%)`;
-              },
-            },
-          },
-        },
+              }
+            }
+          }
+        }
       }),
       [total]
     );

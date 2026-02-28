@@ -79,61 +79,79 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
     return t('events.modal.dateAt', { date: dateStr, time: timeStr });
   };
 
-  const isBeforeToday = (date: Date): boolean => {
-    const dateParts = getDateInTimezone(date, timezone);
-    if (dateParts.year !== todayParts.year) {
-      return dateParts.year < todayParts.year;
-    }
-    if (dateParts.month !== todayParts.month) {
-      return dateParts.month < todayParts.month;
-    }
-    return dateParts.day < todayParts.day;
-  };
-
-  const handleSubmit = useCallback(async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-
-    if (!name.trim()) {
-      setError(t('events.modal.errors.nameRequired'));
-      return;
-    }
-
-    if (isBeforeToday(startDateTime)) {
-      setError(t('events.modal.errors.startInPast'));
-      return;
-    }
-
-    const startTime = Math.floor(startDateTime.getTime() / 1000);
-    const endTime = Math.floor(endDateTime.getTime() / 1000);
-
-    if (endTime <= startTime) {
-      setError(t('events.modal.errors.endAfterStart'));
-      return;
-    }
-
-    setSaving(true);
-    try {
-      const data: CreateEventRequest | UpdateEventRequest = {
-        name: name.trim(),
-        description: description.trim() || undefined,
-        startTime,
-        endTime,
-        colorIndex
-      };
-
-      if (event) {
-        await updateEvent(event.id, data);
-      } else {
-        await createEvent(data);
+  const isBeforeToday = useCallback(
+    (date: Date): boolean => {
+      const dateParts = getDateInTimezone(date, timezone);
+      if (dateParts.year !== todayParts.year) {
+        return dateParts.year < todayParts.year;
       }
-      onSave();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : t('events.modal.errors.saveFailed'));
-    } finally {
-      setSaving(false);
-    }
-  }, [name, description, startDateTime, endDateTime, colorIndex, event, createEvent, updateEvent, onSave, t, timezone, todayParts]);
+      if (dateParts.month !== todayParts.month) {
+        return dateParts.month < todayParts.month;
+      }
+      return dateParts.day < todayParts.day;
+    },
+    [timezone, todayParts]
+  );
+
+  const handleSubmit = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      setError(null);
+
+      if (!name.trim()) {
+        setError(t('events.modal.errors.nameRequired'));
+        return;
+      }
+
+      if (isBeforeToday(startDateTime)) {
+        setError(t('events.modal.errors.startInPast'));
+        return;
+      }
+
+      const startTime = Math.floor(startDateTime.getTime() / 1000);
+      const endTime = Math.floor(endDateTime.getTime() / 1000);
+
+      if (endTime <= startTime) {
+        setError(t('events.modal.errors.endAfterStart'));
+        return;
+      }
+
+      setSaving(true);
+      try {
+        const data: CreateEventRequest | UpdateEventRequest = {
+          name: name.trim(),
+          description: description.trim() || undefined,
+          startTime,
+          endTime,
+          colorIndex
+        };
+
+        if (event) {
+          await updateEvent(event.id, data);
+        } else {
+          await createEvent(data);
+        }
+        onSave();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : t('events.modal.errors.saveFailed'));
+      } finally {
+        setSaving(false);
+      }
+    },
+    [
+      name,
+      description,
+      startDateTime,
+      endDateTime,
+      colorIndex,
+      event,
+      createEvent,
+      updateEvent,
+      onSave,
+      t,
+      isBeforeToday
+    ]
+  );
 
   const handleDeleteClick = useCallback(() => {
     setShowDeleteConfirm(true);
@@ -152,7 +170,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
     } finally {
       setDeleting(false);
     }
-  }, [event, deleteEvent, onSave]);
+  }, [event, deleteEvent, onSave, t]);
 
   const handleViewOnDashboard = useCallback(() => {
     if (!event) return;
@@ -229,7 +247,9 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
                 className="w-full min-w-0 px-3 py-2 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-primary)] text-[var(--theme-text-primary)] text-left hover:border-[var(--theme-primary)] focus:outline-none focus:border-[var(--theme-primary)] transition-colors flex items-center gap-2"
               >
                 <Calendar className="w-4 h-4 text-[var(--theme-text-secondary)] flex-shrink-0" />
-                <span className="truncate text-sm min-w-0 flex-1">{formatDateTime(startDateTime)}</span>
+                <span className="truncate text-sm min-w-0 flex-1">
+                  {formatDateTime(startDateTime)}
+                </span>
               </button>
             </div>
             <div>
@@ -242,7 +262,9 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
                 className="w-full min-w-0 px-3 py-2 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-primary)] text-[var(--theme-text-primary)] text-left hover:border-[var(--theme-primary)] focus:outline-none focus:border-[var(--theme-primary)] transition-colors flex items-center gap-2"
               >
                 <Calendar className="w-4 h-4 text-[var(--theme-text-secondary)] flex-shrink-0" />
-                <span className="truncate text-sm min-w-0 flex-1">{formatDateTime(endDateTime)}</span>
+                <span className="truncate text-sm min-w-0 flex-1">
+                  {formatDateTime(endDateTime)}
+                </span>
               </button>
             </div>
           </div>
@@ -270,7 +292,9 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
                         : 'none'
                     }}
                   >
-                    {isSelected && <Check className="w-5 h-5 text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.5)]" />}
+                    {isSelected && (
+                      <Check className="w-5 h-5 text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.5)]" />
+                    )}
                   </button>
                 );
               })}
@@ -311,12 +335,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
               >
                 {t('actions.cancel')}
               </Button>
-              <Button
-                type="submit"
-                variant="filled"
-                color="blue"
-                loading={saving}
-              >
+              <Button type="submit" variant="filled" color="blue" loading={saving}>
                 {event ? t('events.modal.actions.saveChanges') : t('events.modal.actions.create')}
               </Button>
             </div>
@@ -381,12 +400,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
             >
               {t('actions.cancel')}
             </Button>
-            <Button
-              variant="filled"
-              color="red"
-              onClick={handleDeleteConfirm}
-              loading={deleting}
-            >
+            <Button variant="filled" color="red" onClick={handleDeleteConfirm} loading={deleting}>
               {t('events.modal.actions.delete')}
             </Button>
           </div>

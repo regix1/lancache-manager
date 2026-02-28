@@ -12,7 +12,7 @@ export const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
   children,
   maxHeight = '32rem',
   className = '',
-  paddingMode = 'default',
+  paddingMode = 'default'
 }) => {
   const paddingRight = paddingMode === 'none' ? '0px' : paddingMode === 'compact' ? '6px' : '12px';
   const contentRef = useRef<HTMLDivElement>(null);
@@ -42,7 +42,7 @@ export const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
     setShowScrollbar(true);
 
     // Calculate thumb height (proportional to visible content, accounting for padding)
-    const availableTrackHeight = trackHeight - (padding * 2);
+    const availableTrackHeight = trackHeight - padding * 2;
     const newThumbHeight = Math.max(
       (clientHeight / scrollHeight) * availableTrackHeight,
       30 // Minimum thumb height
@@ -51,7 +51,7 @@ export const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
 
     // Calculate thumb position (with top padding offset)
     const scrollPercentage = scrollTop / (scrollHeight - clientHeight);
-    const newThumbTop = padding + (scrollPercentage * (availableTrackHeight - newThumbHeight));
+    const newThumbTop = padding + scrollPercentage * (availableTrackHeight - newThumbHeight);
     setThumbTop(newThumbTop);
   };
 
@@ -87,9 +87,9 @@ export const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
       const padding = 4; // Same padding as in updateScrollbar
 
       // Calculate scroll ratio (accounting for padding)
-      const availableTrackHeight = trackHeight - (padding * 2);
+      const availableTrackHeight = trackHeight - padding * 2;
       const scrollRatio = (scrollHeight - clientHeight) / (availableTrackHeight - thumbHeight);
-      const newScrollTop = dragStartScrollTop.current + (deltaY * scrollRatio);
+      const newScrollTop = dragStartScrollTop.current + deltaY * scrollRatio;
 
       contentRef.current.scrollTop = Math.max(
         0,
@@ -114,7 +114,8 @@ export const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
 
   // Handle track click
   const handleTrackClick = (e: React.MouseEvent) => {
-    if (!contentRef.current || !scrollTrackRef.current || e.target !== scrollTrackRef.current) return;
+    if (!contentRef.current || !scrollTrackRef.current || e.target !== scrollTrackRef.current)
+      return;
 
     const trackRect = scrollTrackRef.current.getBoundingClientRect();
     const mouseY = e.clientY - trackRect.top;
@@ -122,7 +123,7 @@ export const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
     const padding = 4; // Same padding as in updateScrollbar
 
     // Account for padding when calculating scroll position
-    const availableTrackHeight = trackHeight - (padding * 2);
+    const availableTrackHeight = trackHeight - padding * 2;
     const adjustedMouseY = Math.max(padding, Math.min(mouseY, trackHeight - padding));
     const scrollPercentage = (adjustedMouseY - padding) / availableTrackHeight;
 
@@ -163,10 +164,7 @@ export const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
   }, []);
 
   return (
-    <div
-      className={`relative isolate rounded-xl ${className}`}
-      style={{ maxHeight }}
-    >
+    <div className={`relative isolate rounded-xl ${className}`} style={{ maxHeight }}>
       {/* Content area */}
       <div
         ref={contentRef}
@@ -178,7 +176,7 @@ export const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
           scrollbarWidth: 'none',
           msOverflowStyle: 'none',
           WebkitOverflowScrolling: 'touch',
-          willChange: 'scroll-position',
+          willChange: 'scroll-position'
         }}
       >
         <style>{`
@@ -197,7 +195,7 @@ export const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
           showScrollbar ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
         }`}
         style={{
-          background: showScrollbar ? 'var(--theme-scrollbar-track)' : 'transparent',
+          background: showScrollbar ? 'var(--theme-scrollbar-track)' : 'transparent'
         }}
       >
         {/* Scrollbar thumb */}
@@ -211,7 +209,7 @@ export const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
               top: `${thumbTop}px`,
               backgroundColor: isDragging
                 ? 'var(--theme-scrollbar-hover)'
-                : 'var(--theme-scrollbar-thumb)',
+                : 'var(--theme-scrollbar-thumb)'
             }}
             onMouseEnter={(e) => {
               if (!isDragging) {

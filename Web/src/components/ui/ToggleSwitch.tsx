@@ -70,7 +70,7 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
   const button = (
     <button
       onClick={() => {
-        const currentIndex = options.findIndex(o => o.value === value);
+        const currentIndex = options.findIndex((o) => o.value === value);
         const nextIndex = currentIndex === 0 ? 1 : 0;
         onChange(options[nextIndex].value);
       }}
@@ -91,10 +91,12 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
           >
             {loading && isActive ? (
               <Loader2 className={`${iconSizes[size]} animate-spin`} />
+            ) : option.icon && React.isValidElement(option.icon) ? (
+              React.cloneElement(option.icon as React.ReactElement<{ className?: string }>, {
+                className: iconSizes[size]
+              })
             ) : (
-              option.icon && React.isValidElement(option.icon)
-                ? React.cloneElement(option.icon as React.ReactElement<{ className?: string }>, { className: iconSizes[size] })
-                : option.icon
+              option.icon
             )}
             {option.label}
           </span>

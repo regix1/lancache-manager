@@ -95,11 +95,7 @@ const ManagementNav: React.FC<ManagementNavProps> = ({
   return (
     <div className="management-nav-container mb-6">
       {/* Desktop Navigation */}
-      <nav
-        className="hidden md:block"
-        role="tablist"
-        aria-label={t('aria.managementSections')}
-      >
+      <nav className="hidden md:block" role="tablist" aria-label={t('aria.managementSections')}>
         <div className="rounded-lg border bg-themed-secondary border-themed-primary">
           <div className="flex">
             {tabs.map((tab, index) => {
@@ -150,9 +146,7 @@ const ManagementNav: React.FC<ManagementNavProps> = ({
                   <Icon
                     className="w-4 h-4 flex-shrink-0"
                     style={{
-                      color: isActive
-                        ? 'var(--theme-nav-tab-active)'
-                        : 'inherit'
+                      color: isActive ? 'var(--theme-nav-tab-active)' : 'inherit'
                     }}
                   />
                   <span className="whitespace-nowrap">{t(tab.labelKey)}</span>
@@ -169,15 +163,11 @@ const ManagementNav: React.FC<ManagementNavProps> = ({
       </nav>
 
       {/* Mobile Navigation */}
-      <nav
-        className="md:hidden"
-        role="tablist"
-        aria-label={t('aria.managementSections')}
-      >
+      <nav className="md:hidden" role="tablist" aria-label={t('aria.managementSections')}>
         {/* Active section header */}
         <div className="flex items-center gap-3 px-4 py-3 rounded-t-lg border border-b-0 bg-themed-secondary border-themed-primary">
           {(() => {
-            const activeTab = tabs.find(t => t.id === activeSection);
+            const activeTab = tabs.find((t) => t.id === activeSection);
             const Icon = activeTab?.icon || Settings;
             return (
               <>
@@ -218,9 +208,7 @@ const ManagementNav: React.FC<ManagementNavProps> = ({
                 `}
                 style={{
                   backgroundColor: isActive ? 'var(--theme-primary)' : 'transparent',
-                  color: isActive
-                    ? 'var(--theme-button-text)'
-                    : 'var(--theme-nav-tab-inactive)'
+                  color: isActive ? 'var(--theme-button-text)' : 'var(--theme-nav-tab-inactive)'
                 }}
                 onMouseEnter={(e) => {
                   if (!isActive && !isDisabled) {

@@ -26,7 +26,11 @@ import { useSpeed } from '@contexts/SpeedContext';
 import { useDraggableCards } from '@hooks/useDraggableCards';
 import { formatBytes, formatPercent } from '@utils/formatters';
 import { STORAGE_KEYS } from '@utils/constants';
-import { type StatCardData, type SparklineDataResponse, type CacheSnapshotResponse } from '../../../types';
+import {
+  type StatCardData,
+  type SparklineDataResponse,
+  type CacheSnapshotResponse
+} from '../../../types';
 import { storage } from '@utils/storage';
 import ApiService from '@services/api.service';
 import StatCard from '@components/common/StatCard';
@@ -111,8 +115,9 @@ const Dashboard: React.FC = () => {
   const { t } = useTranslation();
   const { cacheInfo, clientStats, serviceStats, dashboardStats, loading } = useStats();
   const { latestDownloads } = useDownloads();
-  const { timeRange, getTimeRangeParams, customStartDate, customEndDate, selectedEventIds } = useTimeFilter();
-  const { selectedEvent } = useEvents();
+  const { timeRange, getTimeRangeParams, customStartDate, customEndDate, selectedEventIds } =
+    useTimeFilter();
+  const { selectedEvent: _selectedEvent } = useEvents();
   const { speedSnapshot, activeDownloadCount } = useSpeed();
   const statTooltips = useMemo(() => getStatTooltips(t), [t]);
 
@@ -167,7 +172,12 @@ const Dashboard: React.FC = () => {
       try {
         const { startTime, endTime } = getTimeRangeParams();
         const eventId = selectedEventIds.length > 0 ? selectedEventIds[0] : undefined;
-        const data = await ApiService.getSparklineData(controller.signal, startTime, endTime, eventId);
+        const data = await ApiService.getSparklineData(
+          controller.signal,
+          startTime,
+          endTime,
+          eventId
+        );
         setSparklineData(data);
         prevSparklineDataRef.current = data;
       } catch (err) {
@@ -181,6 +191,7 @@ const Dashboard: React.FC = () => {
     fetchSparklines();
 
     return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeRange, getTimeRangeParams, selectedEventIds]);
 
   // Fetch historical cache snapshot when in historical view
@@ -216,6 +227,7 @@ const Dashboard: React.FC = () => {
     fetchCacheSnapshot();
 
     return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timeRange, getTimeRangeParams, isHistoricalView]);
 
   // Filter out services with only small files (< 1MB) and 0-byte files from dashboard data
@@ -232,7 +244,6 @@ const Dashboard: React.FC = () => {
       return true;
     });
   }, [latestDownloads]);
-
 
   const filteredServiceStats = useMemo(() => {
     return serviceStats.filter((service) => {
@@ -321,7 +332,7 @@ const Dashboard: React.FC = () => {
       default:
         return t('dashboard.timeRanges.24h');
     }
-  }, [timeRange, selectedEvent, t]);
+  }, [timeRange, t]);
 
   const [cardVisibility, setCardVisibility] = useState<CardVisibility>(() => {
     const saved = storage.getItem(STORAGE_KEYS.DASHBOARD_CARD_VISIBILITY);
@@ -392,7 +403,10 @@ const Dashboard: React.FC = () => {
       cacheHitRatio: hasPeriodData
         ? (dashboardStats.period.hitRatio ?? previousStatsRef.current.cacheHitRatio)
         : previousStatsRef.current.cacheHitRatio,
-      uniqueClients: dashboardStats?.uniqueClients ?? filteredClientStats.length ?? previousStatsRef.current.uniqueClients
+      uniqueClients:
+        dashboardStats?.uniqueClients ??
+        filteredClientStats.length ??
+        previousStatsRef.current.uniqueClients
     };
 
     // Update ref with valid data for next render
@@ -409,7 +423,13 @@ const Dashboard: React.FC = () => {
     }
 
     return newStats;
-  }, [filteredServiceStats, dashboardStats, filteredClientStats, speedSnapshot, activeDownloadCount]);
+  }, [
+    filteredServiceStats,
+    dashboardStats,
+    filteredClientStats,
+    speedSnapshot,
+    activeDownloadCount
+  ]);
 
   const allStatCards = useMemo<AllStatCards>(
     () => ({
@@ -417,9 +437,12 @@ const Dashboard: React.FC = () => {
         key: 'totalCache',
         title: t('dashboard.cards.totalCache'),
         value: cacheInfo ? formatBytes(cacheInfo.totalCacheSize) : '0 B',
-        subtitle: cacheInfo?.configuredCacheSize && cacheInfo.configuredCacheSize > 0
-          ? t('dashboard.cards.driveCapacityValue', { size: formatBytes(cacheInfo.driveCapacity) })
-          : t('dashboard.cards.driveCapacity'),
+        subtitle:
+          cacheInfo?.configuredCacheSize && cacheInfo.configuredCacheSize > 0
+            ? t('dashboard.cards.driveCapacityValue', {
+                size: formatBytes(cacheInfo.driveCapacity)
+              })
+            : t('dashboard.cards.driveCapacity'),
         icon: Database,
         color: 'blue' as const,
         visible: cardVisibility.totalCache,
@@ -427,15 +450,26 @@ const Dashboard: React.FC = () => {
       },
       usedSpace: {
         key: 'usedSpace',
-        title: isHistoricalView && cacheSnapshot?.hasData ? t('dashboard.cards.usedSpaceEnd') : t('dashboard.cards.usedSpace'),
+        title:
+          isHistoricalView && cacheSnapshot?.hasData
+            ? t('dashboard.cards.usedSpaceEnd')
+            : t('dashboard.cards.usedSpace'),
         value: isHistoricalView
-          ? (cacheSnapshot?.hasData ? formatBytes(cacheSnapshot.endUsedSize) : t('common.noDataAvailable'))
-          : (cacheInfo ? formatBytes(cacheInfo.usedCacheSize) : '0 B'),
+          ? cacheSnapshot?.hasData
+            ? formatBytes(cacheSnapshot.endUsedSize)
+            : t('common.noDataAvailable')
+          : cacheInfo
+            ? formatBytes(cacheInfo.usedCacheSize)
+            : '0 B',
         subtitle: isHistoricalView
-          ? (cacheSnapshot?.hasData
-            ? t('dashboard.cards.startedAt', { size: formatBytes(cacheSnapshot.startUsedSize) }) + ' • ' + t('dashboard.cards.snapshots', { count: cacheSnapshot.snapshotCount })
-            : t('dashboard.cards.noSnapshotsYet'))
-          : (cacheInfo ? formatPercent(cacheInfo.usagePercent) : '0%'),
+          ? cacheSnapshot?.hasData
+            ? t('dashboard.cards.startedAt', { size: formatBytes(cacheSnapshot.startUsedSize) }) +
+              ' • ' +
+              t('dashboard.cards.snapshots', { count: cacheSnapshot.snapshotCount })
+            : t('dashboard.cards.noSnapshotsYet')
+          : cacheInfo
+            ? formatPercent(cacheInfo.usagePercent)
+            : '0%',
         icon: HardDrive,
         color: 'green' as const,
         visible: cardVisibility.usedSpace,
@@ -512,11 +546,11 @@ const Dashboard: React.FC = () => {
       cacheSnapshot,
       cardVisibility,
       stats,
-      timeRange,
       getTimeRangeLabel,
       dashboardStats,
       filteredLatestDownloads,
-      isHistoricalView
+      isHistoricalView,
+      statTooltips
     ]
   );
 
@@ -554,9 +588,7 @@ const Dashboard: React.FC = () => {
   };
 
   return (
-    <div
-      className={`space-y-4 ${isEditMode ? 'edit-mode-active' : ''}`}
-    >
+    <div className={`space-y-4 ${isEditMode ? 'edit-mode-active' : ''}`}>
       {/* Dashboard Header */}
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
         <h2 className="text-2xl font-bold text-themed-primary tracking-tight hidden md:block">
@@ -589,13 +621,19 @@ const Dashboard: React.FC = () => {
           {/* Hidden Cards Button - only shows when cards are hidden */}
           {hiddenCardsCount > 0 && (
             <div className="relative" ref={dropdownRef}>
-              <Tooltip content={t('dashboard.hiddenCardsTooltip', { count: hiddenCardsCount })} strategy="overlay">
+              <Tooltip
+                content={t('dashboard.hiddenCardsTooltip', { count: hiddenCardsCount })}
+                strategy="overlay"
+              >
                 <button
                   onClick={() => setDropdownOpen(!dropdownOpen)}
                   className="hover-btn-trigger flex items-center gap-2 px-3 py-2 text-sm themed-border-radius border text-themed-secondary bg-themed-secondary border-themed-primary"
                 >
                   <EyeOff className="w-4 h-4" />
-                  <span className="hidden sm:inline">{t('dashboard.hiddenCount', { count: hiddenCardsCount })} {t('dashboard.hidden')}</span>
+                  <span className="hidden sm:inline">
+                    {t('dashboard.hiddenCount', { count: hiddenCardsCount })}{' '}
+                    {t('dashboard.hidden')}
+                  </span>
                   <span className="sm:hidden">{hiddenCardsCount}</span>
                   <ChevronDown
                     className={`w-3 h-3 transition-transform duration-200 ${dropdownOpen ? 'rotate-180' : ''}`}
@@ -605,9 +643,7 @@ const Dashboard: React.FC = () => {
 
               {/* Hidden Cards Dropdown */}
               {dropdownOpen && (
-                <div
-                  className="absolute right-0 mt-2 w-72 sm:w-80 themed-border-radius border shadow-xl z-50 themed-card border-themed-primary"
-                >
+                <div className="absolute right-0 mt-2 w-72 sm:w-80 themed-border-radius border shadow-xl z-50 themed-card border-themed-primary">
                   {/* Search - only show if more than 3 hidden cards */}
                   {hiddenCardsCount > 3 && (
                     <div className="p-3 border-b border-themed-primary">
@@ -743,16 +779,14 @@ const Dashboard: React.FC = () => {
       )}
 
       {/* Stats Grid */}
-      <div
-        className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 isolate"
-      >
-          {visibleCards.map((card: StatCardData, visualIndex: number) => {
-            // Check if this is a live-only card that should be disabled in historical view
-            // Note: usedSpace now supports historical data via snapshots, so it's never disabled
-            const isLiveOnlyCard = card.key === 'activeDownloads' || card.key === 'activeClients';
-            const isCardDisabled = isLiveOnlyCard && isHistoricalView;
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 isolate">
+        {visibleCards.map((card: StatCardData, visualIndex: number) => {
+          // Check if this is a live-only card that should be disabled in historical view
+          // Note: usedSpace now supports historical data via snapshots, so it's never disabled
+          const isLiveOnlyCard = card.key === 'activeDownloads' || card.key === 'activeClients';
+          const isCardDisabled = isLiveOnlyCard && isHistoricalView;
 
-            return (
+          return (
             <div
               key={card.key}
               data-card-key={card.key}
@@ -761,9 +795,10 @@ const Dashboard: React.FC = () => {
               } ${isDragMode && dragOverCard === card.key ? 'translate-y-1' : ''}`}
               style={{
                 boxShadow: dragOverCard === card.key ? `0 0 0 2px var(--theme-primary)` : 'none',
-                borderRadius: dragOverCard === card.key ? 'var(--theme-border-radius-lg)' : undefined,
-                cursor: isEditMode ? 'pointer' : (draggedCard === card.key ? 'grabbing' : 'default'),
-                opacity: isCardDisabled ? 0.5 : (isDragMode && draggedCard === card.key ? 0.9 : 1)
+                borderRadius:
+                  dragOverCard === card.key ? 'var(--theme-border-radius-lg)' : undefined,
+                cursor: isEditMode ? 'pointer' : draggedCard === card.key ? 'grabbing' : 'default',
+                opacity: isCardDisabled ? 0.5 : isDragMode && draggedCard === card.key ? 0.9 : 1
               }}
               draggable={!isDragMode && !isEditMode}
               onDragStart={(e) => dragHandlers.onDragStart(e, card.key)}
@@ -781,9 +816,7 @@ const Dashboard: React.FC = () => {
                   strategy="overlay"
                   className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-all hidden md:block z-[5]"
                 >
-                  <div
-                    className="p-1 themed-border-radius cursor-grab hover:bg-themed-hover"
-                  >
+                  <div className="p-1 themed-border-radius cursor-grab hover:bg-themed-hover">
                     <GripVertical className="w-4 h-4 text-themed-muted" />
                   </div>
                 </Tooltip>
@@ -791,24 +824,24 @@ const Dashboard: React.FC = () => {
 
               {/* Mobile edit mode indicator - shows grab handle in edit mode */}
               {isEditMode && (
-                <div
-                  className="absolute top-2 left-2 transition-all md:hidden z-[5] edit-mode-handle"
-                >
+                <div className="absolute top-2 left-2 transition-all md:hidden z-[5] edit-mode-handle">
                   <div
                     className="p-1.5 themed-border-radius"
                     style={{
-                      backgroundColor: draggedCard === card.key
-                        ? 'var(--theme-primary)'
-                        : 'color-mix(in srgb, var(--theme-bg-primary) 80%, transparent)',
+                      backgroundColor:
+                        draggedCard === card.key
+                          ? 'var(--theme-primary)'
+                          : 'color-mix(in srgb, var(--theme-bg-primary) 80%, transparent)',
                       backdropFilter: 'blur(4px)'
                     }}
                   >
                     <GripVertical
                       className="w-4 h-4 transition-colors"
                       style={{
-                        color: draggedCard === card.key
-                          ? 'var(--theme-button-text)'
-                          : 'var(--theme-text-secondary)'
+                        color:
+                          draggedCard === card.key
+                            ? 'var(--theme-button-text)'
+                            : 'var(--theme-text-secondary)'
                       }}
                     />
                   </div>
@@ -836,11 +869,15 @@ const Dashboard: React.FC = () => {
                 glassmorphism={true}
                 animateValue={!loading}
                 sparklineData={
-                  card.key === 'bandwidthSaved' ? sparklineData?.bandwidthSaved?.data :
-                  card.key === 'cacheHitRatio' ? sparklineData?.cacheHitRatio?.data :
-                  card.key === 'totalServed' ? sparklineData?.totalServed?.data :
-                  card.key === 'addedToCache' ? sparklineData?.addedToCache?.data :
-                  undefined
+                  card.key === 'bandwidthSaved'
+                    ? sparklineData?.bandwidthSaved?.data
+                    : card.key === 'cacheHitRatio'
+                      ? sparklineData?.cacheHitRatio?.data
+                      : card.key === 'totalServed'
+                        ? sparklineData?.totalServed?.data
+                        : card.key === 'addedToCache'
+                          ? sparklineData?.addedToCache?.data
+                          : undefined
                 }
                 staggerIndex={initialAnimationComplete ? undefined : visualIndex}
               />
@@ -869,23 +906,26 @@ const Dashboard: React.FC = () => {
               )}
             </div>
           );
-          })}
-        </div>
+        })}
+      </div>
 
       {/* Charts Row - Pass the actual data arrays */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <ServiceAnalyticsChart serviceStats={filteredServiceStats || []} timeRange={timeRange} glassmorphism={true} />
-        <RecentDownloadsPanel downloads={filteredLatestDownloads || []} timeRange={timeRange} glassmorphism={true} />
+        <ServiceAnalyticsChart
+          serviceStats={filteredServiceStats || []}
+          timeRange={timeRange}
+          glassmorphism={true}
+        />
+        <RecentDownloadsPanel
+          downloads={filteredLatestDownloads || []}
+          timeRange={timeRange}
+          glassmorphism={true}
+        />
       </div>
 
       {/* Analytics Widgets Row */}
-      <div
-        className="grid grid-cols-1 md:grid-cols-2 gap-4"
-      >
-        <PeakUsageHours
-          glassmorphism={true}
-          staggerIndex={8}
-        />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <PeakUsageHours glassmorphism={true} staggerIndex={8} />
         <CacheGrowthTrend
           usedCacheSize={cacheInfo?.usedCacheSize || 0}
           totalCacheSize={cacheInfo?.totalCacheSize || 0}

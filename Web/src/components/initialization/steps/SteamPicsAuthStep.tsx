@@ -45,13 +45,16 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
 
     try {
       // Save anonymous mode to backend
-      const response = await fetch('/api/steam-auth/mode', ApiService.getFetchOptions({
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ mode: 'anonymous' })
-      }));
+      const response = await fetch(
+        '/api/steam-auth/mode',
+        ApiService.getFetchOptions({
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ mode: 'anonymous' })
+        })
+      );
 
       if (response.ok) {
         onComplete(false);
@@ -60,7 +63,10 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
         setError(data.error || t('initialization.steamPicsAuth.failedToSave'));
       }
     } catch (err: unknown) {
-      setError((err instanceof Error ? err.message : String(err)) || t('initialization.steamPicsAuth.networkError'));
+      setError(
+        (err instanceof Error ? err.message : String(err)) ||
+          t('initialization.steamPicsAuth.networkError')
+      );
     } finally {
       setSaving(false);
     }
@@ -82,7 +88,9 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
           <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-themed-info">
             <Shield className="w-7 h-7 icon-info" />
           </div>
-          <h3 className="text-lg font-semibold text-themed-primary mb-1">{t('initialization.steamPicsAuth.title')}</h3>
+          <h3 className="text-lg font-semibold text-themed-primary mb-1">
+            {t('initialization.steamPicsAuth.title')}
+          </h3>
           <p className="text-sm text-themed-secondary max-w-md">
             {t('initialization.steamPicsAuth.subtitle')}
           </p>
@@ -91,7 +99,9 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
         {/* Info Box */}
         <div className="p-3 rounded-lg text-sm bg-themed-tertiary">
           <p className="text-themed-secondary">
-            <strong className="text-themed-primary">{t('initialization.steamPicsAuth.whatIsDepotMapping')}</strong>{' '}
+            <strong className="text-themed-primary">
+              {t('initialization.steamPicsAuth.whatIsDepotMapping')}
+            </strong>{' '}
             {t('initialization.steamPicsAuth.depotMappingDesc')}
           </p>
         </div>
@@ -112,8 +122,12 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
                 <Users className="w-5 h-5 icon-primary" />
               </div>
               <div className="flex-1 min-w-0">
-                <h4 className="font-semibold text-themed-primary">{t('initialization.steamPicsAuth.anonymousMode')}</h4>
-                <p className="text-sm text-themed-secondary">{t('initialization.steamPicsAuth.anonymousModeDesc')}</p>
+                <h4 className="font-semibold text-themed-primary">
+                  {t('initialization.steamPicsAuth.anonymousMode')}
+                </h4>
+                <p className="text-sm text-themed-secondary">
+                  {t('initialization.steamPicsAuth.anonymousModeDesc')}
+                </p>
               </div>
               {selectedMode === 'anonymous' && (
                 <CheckCircle className="w-5 h-5 flex-shrink-0 icon-primary" />
@@ -166,7 +180,9 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
             fullWidth
           >
             {saving && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-            {saving ? t('initialization.steamPicsAuth.saving') : t('initialization.steamPicsAuth.continueAnonymous')}
+            {saving
+              ? t('initialization.steamPicsAuth.saving')
+              : t('initialization.steamPicsAuth.continueAnonymous')}
           </Button>
         )}
       </div>

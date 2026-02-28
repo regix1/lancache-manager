@@ -39,8 +39,8 @@ const API_URL = getApiUrl();
 const AUTH_CHECK_TIMEOUT_MS = 10000;
 
 class AuthService {
-  public isAuthenticated: boolean = false;
-  public authChecked: boolean = false;
+  public isAuthenticated = false;
+  public authChecked = false;
   public authMode: AuthMode = 'unauthenticated';
   public sessionType: SessionType | null = null;
   public sessionId: string | null = null;
@@ -109,7 +109,7 @@ class AuthService {
         steamPrefillEnabled: false,
         steamPrefillExpiresAt: null,
         epicPrefillEnabled: false,
-        epicPrefillExpiresAt: null,
+        epicPrefillExpiresAt: null
       };
     } finally {
       clearTimeout(timeoutId);
@@ -122,7 +122,7 @@ class AuthService {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ apiKey }),
+        body: JSON.stringify({ apiKey })
       });
 
       if (!response.ok) {
@@ -149,7 +149,7 @@ class AuthService {
     try {
       const response = await fetch(`${API_URL}/api/auth/guest`, {
         method: 'POST',
-        credentials: 'include',
+        credentials: 'include'
       });
 
       if (!response.ok) {
@@ -176,7 +176,7 @@ class AuthService {
     try {
       await fetch(`${API_URL}/api/auth/logout`, {
         method: 'POST',
-        credentials: 'include',
+        credentials: 'include'
       });
     } catch (error) {
       console.error('[AuthService] logout error:', error);

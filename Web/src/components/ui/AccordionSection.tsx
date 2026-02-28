@@ -32,7 +32,11 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
   const handleHeaderClick = (e: React.MouseEvent) => {
     // Don't toggle if clicking on an interactive element inside the header
     const target = e.target as HTMLElement;
-    if (target.closest('button, input, select, a, [role="listbox"], [role="combobox"], .ed-trigger, .ed-dropdown')) {
+    if (
+      target.closest(
+        'button, input, select, a, [role="listbox"], [role="combobox"], .ed-trigger, .ed-dropdown'
+      )
+    ) {
       return;
     }
     onToggle();
@@ -41,7 +45,11 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
   const handleTouchEnd = (e: React.TouchEvent) => {
     // Don't toggle if touching an interactive element inside the header
     const target = e.target as HTMLElement;
-    if (target.closest('button, input, select, a, [role="listbox"], [role="combobox"], .ed-trigger, .ed-dropdown')) {
+    if (
+      target.closest(
+        'button, input, select, a, [role="listbox"], [role="combobox"], .ed-trigger, .ed-dropdown'
+      )
+    ) {
       return;
     }
   };
@@ -101,10 +109,14 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
               className={`inline-flex items-center justify-center min-w-[1.5rem] h-[1.5rem] px-2 ml-1.5 text-xs rounded-full font-semibold tabular-nums transition-all duration-300 flex-shrink-0 ${
                 isExpanded ? 'scale-105' : 'scale-100 bg-themed-tertiary text-themed-muted'
               }`}
-              style={isExpanded ? {
-                backgroundColor: `color-mix(in srgb, ${iconColor} 20%, transparent)`,
-                color: iconColor
-              } : undefined}
+              style={
+                isExpanded
+                  ? {
+                      backgroundColor: `color-mix(in srgb, ${iconColor} 20%, transparent)`,
+                      color: iconColor
+                    }
+                  : undefined
+              }
             >
               {count.toLocaleString()}
             </span>
@@ -146,11 +158,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
             : 'max-h-0 opacity-0 -translate-y-2'
         }`}
       >
-        <div
-          className="px-4 pb-4 pt-3 border-t border-themed-secondary"
-        >
-          {children}
-        </div>
+        <div className="px-4 pb-4 pt-3 border-t border-themed-secondary">{children}</div>
       </div>
     </div>
   );

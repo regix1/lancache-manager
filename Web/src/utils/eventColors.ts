@@ -31,4 +31,3 @@ export function getEventColorStyles(colorIndex: number): React.CSSProperties {
     border: `1px solid color-mix(in srgb, ${colorVar} 40%, transparent)`
   };
 }
-

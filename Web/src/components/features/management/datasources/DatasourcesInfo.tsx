@@ -11,10 +11,7 @@ import { useSignalR } from '@contexts/SignalRContext';
 import type { LogProcessingCompleteEvent } from '@contexts/SignalRContext/types';
 import { useNotifications } from '@contexts/notifications';
 import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
-import {
-  ManagerCardHeader,
-  LoadingState
-} from '@components/ui/ManagerCard';
+import { ManagerCardHeader, LoadingState } from '@components/ui/ManagerCard';
 import type { Config, DatasourceInfo, DatasourceLogPosition } from '../../../../types';
 
 interface DatasourcesManagerProps {
@@ -48,23 +45,24 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [expandedDatasources, setExpandedDatasources] = useState<Set<string>>(new Set());
-  const [resetModal, setResetModal] = useState<{ datasource: string | null; all: boolean } | null>(null);
+  const [resetModal, setResetModal] = useState<{ datasource: string | null; all: boolean } | null>(
+    null
+  );
 
   const { notifications } = useNotifications();
   const signalR = useSignalR();
   const { logsReadOnly, checkingPermissions } = useDirectoryPermissions();
 
   // Check if processing is running
-  const isProcessing = notifications.some(n => n.type === 'log_processing' && n.status === 'running');
+  const isProcessing = notifications.some(
+    (n) => n.type === 'log_processing' && n.status === 'running'
+  );
 
   // Load data
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [configData, positionsData] = await Promise.all([
-          fetchConfig(),
-          fetchLogPositions()
-        ]);
+        const [configData, positionsData] = await Promise.all([fetchConfig(), fetchLogPositions()]);
         setConfig(configData);
         setLogPositions(positionsData);
       } catch (err) {
@@ -100,7 +98,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   }, [signalR]);
 
   const toggleExpanded = (name: string) => {
-    setExpandedDatasources(prev => {
+    setExpandedDatasources((prev) => {
       const next = new Set(prev);
       if (next.has(name)) {
         next.delete(name);
@@ -120,7 +118,10 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
       // Note: Progress/completion notifications are handled via SignalR in NotificationsContext
       onDataRefresh?.();
     } catch (err: unknown) {
-      onError?.((err instanceof Error ? err.message : String(err)) || t('management.datasources.errors.processingFailed'));
+      onError?.(
+        (err instanceof Error ? err.message : String(err)) ||
+          t('management.datasources.errors.processingFailed')
+      );
     } finally {
       setActionLoading(null);
     }
@@ -135,7 +136,10 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
       // Note: Progress/completion notifications are handled via SignalR in NotificationsContext
       onDataRefresh?.();
     } catch (err: unknown) {
-      onError?.((err instanceof Error ? err.message : String(err)) || t('management.datasources.errors.processingFailed'));
+      onError?.(
+        (err instanceof Error ? err.message : String(err)) ||
+          t('management.datasources.errors.processingFailed')
+      );
     } finally {
       setActionLoading(null);
     }
@@ -149,7 +153,9 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     try {
       if (datasourceName) {
         await ApiService.resetDatasourceLogPosition(datasourceName, position);
-        onSuccess?.(t('management.datasources.messages.positionReset', { datasource: datasourceName }));
+        onSuccess?.(
+          t('management.datasources.messages.positionReset', { datasource: datasourceName })
+        );
       } else {
         await ApiService.resetLogPosition(position);
         onSuccess?.(t('management.datasources.messages.positionResetAll'));
@@ -159,7 +165,10 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
       setLogPositions(positions);
       onDataRefresh?.();
     } catch (err: unknown) {
-      onError?.((err instanceof Error ? err.message : String(err)) || t('management.datasources.errors.resetFailed'));
+      onError?.(
+        (err instanceof Error ? err.message : String(err)) ||
+          t('management.datasources.errors.resetFailed')
+      );
     } finally {
       setActionLoading(null);
       setResetModal(null);
@@ -167,7 +176,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   };
 
   const getPositionForDatasource = (name: string): DatasourceLogPosition | undefined => {
-    return logPositions.find(p => p.datasource === name);
+    return logPositions.find((p) => p.datasource === name);
   };
 
   const formatPosition = (pos: DatasourceLogPosition | undefined): string => {
@@ -177,7 +186,9 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     // When position equals or exceeds totalLines, we're "caught up" to where the log was
     // when last checked. The log may have grown since, so avoid showing misleading 100%.
     if (pos.position >= pos.totalLines) {
-      return t('management.datasources.position.caughtUp', { position: pos.position.toLocaleString() });
+      return t('management.datasources.position.caughtUp', {
+        position: pos.position.toLocaleString()
+      });
     }
 
     // Cap at 99% when not fully caught up to avoid misleading 100% display
@@ -191,16 +202,19 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   };
 
   // Get datasources - ensure at least one exists
-  const datasources = config?.dataSources && config.dataSources.length > 0
-    ? config.dataSources
-    : [{
-        name: 'default',
-        cachePath: config?.cachePath || '/cache',
-        logsPath: config?.logsPath || '/logs',
-        cacheWritable: config?.cacheWritable ?? false,
-        logsWritable: config?.logsWritable ?? false,
-        enabled: true
-      } as DatasourceInfo];
+  const datasources =
+    config?.dataSources && config.dataSources.length > 0
+      ? config.dataSources
+      : [
+          {
+            name: 'default',
+            cachePath: config?.cachePath || '/cache',
+            logsPath: config?.logsPath || '/logs',
+            cacheWritable: config?.cacheWritable ?? false,
+            logsWritable: config?.logsWritable ?? false,
+            enabled: true
+          } as DatasourceInfo
+        ];
 
   const hasMultiple = datasources.length > 1;
 
@@ -210,25 +224,31 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
       <HelpSection title={t('management.datasources.help.title')} variant="subtle">
         <div className="divide-y divide-[var(--theme-text-muted)]">
           <div className="py-1.5 first:pt-0 last:pb-0">
-            <div className="font-medium text-themed-primary">{t('management.datasources.help.process.term')}</div>
+            <div className="font-medium text-themed-primary">
+              {t('management.datasources.help.process.term')}
+            </div>
             <div className="mt-0.5">{t('management.datasources.help.process.description')}</div>
           </div>
           <div className="py-1.5 first:pt-0 last:pb-0">
-            <div className="font-medium text-themed-primary">{t('management.datasources.help.reposition.term')}</div>
+            <div className="font-medium text-themed-primary">
+              {t('management.datasources.help.reposition.term')}
+            </div>
             <div className="mt-0.5">{t('management.datasources.help.reposition.description')}</div>
           </div>
           {hasMultiple && (
             <div className="py-1.5 first:pt-0 last:pb-0">
-              <div className="font-medium text-themed-primary">{t('management.datasources.help.datasource.term')}</div>
-              <div className="mt-0.5">{t('management.datasources.help.datasource.description')}</div>
+              <div className="font-medium text-themed-primary">
+                {t('management.datasources.help.datasource.term')}
+              </div>
+              <div className="mt-0.5">
+                {t('management.datasources.help.datasource.description')}
+              </div>
             </div>
           )}
         </div>
       </HelpSection>
 
-      <HelpNote type="info">
-        {t('management.datasources.help.note')}
-      </HelpNote>
+      <HelpNote type="info">{t('management.datasources.help.note')}</HelpNote>
     </HelpPopover>
   );
 
@@ -279,9 +299,11 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
           icon={Logs}
           iconColor="purple"
           title={t('management.datasources.title')}
-          subtitle={hasMultiple
-            ? t('management.datasources.subtitleMultiple', { count: datasources.length })
-            : t('management.datasources.subtitleSingle')}
+          subtitle={
+            hasMultiple
+              ? t('management.datasources.subtitleMultiple', { count: datasources.length })
+              : t('management.datasources.subtitleSingle')
+          }
           helpContent={helpContent}
           permissions={{ logsReadOnly, checkingPermissions }}
           actions={headerActions}
@@ -310,7 +332,9 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                       <Logs className="w-4 h-4 text-themed-muted flex-shrink-0" />
                       <div className="min-w-0">
                         <div className="text-sm font-medium text-themed-primary">access.log</div>
-                        <div className="text-xs text-themed-muted truncate">{formatPosition(position)}</div>
+                        <div className="text-xs text-themed-muted truncate">
+                          {formatPosition(position)}
+                        </div>
                       </div>
                     </div>
                     <div className="flex gap-2 flex-shrink-0">
@@ -321,7 +345,13 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                           e.stopPropagation();
                           setResetModal({ datasource: ds.name, all: false });
                         }}
-                        disabled={actionLoading !== null || isProcessing || mockMode || !isAdmin || !ds.enabled}
+                        disabled={
+                          actionLoading !== null ||
+                          isProcessing ||
+                          mockMode ||
+                          !isAdmin ||
+                          !ds.enabled
+                        }
                         className="flex-1 sm:flex-initial"
                       >
                         {t('management.datasources.reposition')}
@@ -335,7 +365,14 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
                           e.stopPropagation();
                           handleProcessDatasource(ds.name);
                         }}
-                        disabled={actionLoading !== null || isProcessing || mockMode || !isAdmin || !ds.enabled || position?.totalLines === 0}
+                        disabled={
+                          actionLoading !== null ||
+                          isProcessing ||
+                          mockMode ||
+                          !isAdmin ||
+                          !ds.enabled ||
+                          position?.totalLines === 0
+                        }
                         loading={actionLoading === `access-${ds.name}`}
                         className="flex-1 sm:flex-initial"
                       >
@@ -357,7 +394,9 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
         title={
           resetModal?.all
             ? t('management.datasources.modal.repositionAll')
-            : t('management.datasources.modal.repositionSingle', { datasource: resetModal?.datasource })
+            : t('management.datasources.modal.repositionSingle', {
+                datasource: resetModal?.datasource
+              })
         }
       >
         <div className="space-y-4">
@@ -367,9 +406,11 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
 
           <div className="p-3 bg-themed-tertiary rounded-lg">
             <p className="text-xs text-themed-muted leading-relaxed">
-              <strong>{t('management.datasources.modal.startFromBeginning')}:</strong> {t('management.datasources.modal.beginningDescription')}
+              <strong>{t('management.datasources.modal.startFromBeginning')}:</strong>{' '}
+              {t('management.datasources.modal.beginningDescription')}
               <br />
-              <strong>{t('management.datasources.modal.startFromEnd')}:</strong> {t('management.datasources.modal.endDescription')}
+              <strong>{t('management.datasources.modal.startFromEnd')}:</strong>{' '}
+              {t('management.datasources.modal.endDescription')}
             </p>
           </div>
 

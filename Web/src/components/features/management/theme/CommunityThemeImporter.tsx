@@ -81,25 +81,24 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
 
   // Helper to show toast notifications
   const showToast = (type: 'success' | 'error' | 'info', message: string) => {
-    window.dispatchEvent(new CustomEvent('show-toast', {
-      detail: { type, message, duration: 4000 }
-    }));
+    window.dispatchEvent(
+      new CustomEvent('show-toast', {
+        detail: { type, message, duration: 4000 }
+      })
+    );
   };
 
   useEffect(() => {
     loadCommunityThemesAndCheckUpdates();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Watch for changes in both community themes and installed themes, and auto-update when both are ready
   useEffect(() => {
-    if (
-      communityThemes.length > 0 &&
-      installedThemes.length > 0 &&
-      autoCheckUpdates &&
-      isAdmin
-    ) {
+    if (communityThemes.length > 0 && installedThemes.length > 0 && autoCheckUpdates && isAdmin) {
       checkAndUpdateThemes(communityThemes);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [communityThemes, installedThemes, autoCheckUpdates, isAdmin]);
 
   // Check which community themes are already installed
@@ -161,7 +160,11 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
         await checkAndUpdateThemes(themes);
       }
     } catch (err: unknown) {
-      showToast('error', (err instanceof Error ? err.message : String(err)) || t('management.themes.errors.failedToLoadCommunity'));
+      showToast(
+        'error',
+        (err instanceof Error ? err.message : String(err)) ||
+          t('management.themes.errors.failedToLoadCommunity')
+      );
       console.error('Error loading community themes:', err);
     } finally {
       setLoading(false);
@@ -212,10 +215,13 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await fetch(`${API_BASE}/themes/upload`, ApiService.getFetchOptions({
-        method: 'POST',
-        body: formData
-      }));
+      const response = await fetch(
+        `${API_BASE}/themes/upload`,
+        ApiService.getFetchOptions({
+          method: 'POST',
+          body: formData
+        })
+      );
 
       if (!response.ok) {
         const error = await response.json();
@@ -224,14 +230,21 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
 
       // Mark theme as imported
       setImportedThemes((prev) => new Set([...prev, theme.fileName]));
-      showToast('success', t('management.themes.community.importSuccess', { name: theme.meta?.name || theme.name }));
+      showToast(
+        'success',
+        t('management.themes.community.importSuccess', { name: theme.meta?.name || theme.name })
+      );
 
       // Call the callback to refresh the theme list
       if (onThemeImported) {
         onThemeImported();
       }
     } catch (err: unknown) {
-      showToast('error', (err instanceof Error ? err.message : String(err)) || t('management.themes.community.importError'));
+      showToast(
+        'error',
+        (err instanceof Error ? err.message : String(err)) ||
+          t('management.themes.community.importError')
+      );
     } finally {
       setImporting(null);
       importingThemeRef.current = null;
@@ -281,7 +294,10 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
       }
 
       if (successCount > 0) {
-        showToast('success', t('management.themes.community.autoUpdateSuccess', { count: successCount }));
+        showToast(
+          'success',
+          t('management.themes.community.autoUpdateSuccess', { count: successCount })
+        );
       }
     }
   };
@@ -318,10 +334,13 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await fetch(`${API_BASE}/themes/upload`, ApiService.getFetchOptions({
-        method: 'POST',
-        body: formData
-      }));
+      const response = await fetch(
+        `${API_BASE}/themes/upload`,
+        ApiService.getFetchOptions({
+          method: 'POST',
+          body: formData
+        })
+      );
 
       if (!response.ok) {
         const error = await response.json();
@@ -378,34 +397,49 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
             <Globe className="w-4 h-4 icon-purple" />
           </div>
           <div className="min-w-0">
-            <h4 className="text-sm font-semibold text-themed-primary">{t('management.themes.community.title')}</h4>
+            <h4 className="text-sm font-semibold text-themed-primary">
+              {t('management.themes.community.title')}
+            </h4>
             <p className="text-xs text-themed-muted">
               {communityThemes.length} {t('management.themes.community.available')}
-              {installedThemes.filter(t => communityThemes.some(ct => ct.meta?.id === t.meta.id)).length > 0 && (
-                <span> · {installedThemes.filter(t => communityThemes.some(ct => ct.meta?.id === t.meta.id)).length} {t('management.themes.community.installed')}</span>
+              {installedThemes.filter((t) =>
+                communityThemes.some((ct) => ct.meta?.id === t.meta.id)
+              ).length > 0 && (
+                <span>
+                  {' '}
+                  ·{' '}
+                  {
+                    installedThemes.filter((t) =>
+                      communityThemes.some((ct) => ct.meta?.id === t.meta.id)
+                    ).length
+                  }{' '}
+                  {t('management.themes.community.installed')}
+                </span>
               )}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           {communityThemes.length > 0 && (
-            <Tooltip content={showImported ? t('management.themes.community.hideImported') : t('management.themes.community.showImported')} position="bottom">
-              <Button
-                variant="default"
-                size="xs"
-                onClick={() => setShowImported(!showImported)}
-              >
-                {showImported ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+            <Tooltip
+              content={
+                showImported
+                  ? t('management.themes.community.hideImported')
+                  : t('management.themes.community.showImported')
+              }
+              position="bottom"
+            >
+              <Button variant="default" size="xs" onClick={() => setShowImported(!showImported)}>
+                {showImported ? (
+                  <EyeOff className="w-3.5 h-3.5" />
+                ) : (
+                  <Eye className="w-3.5 h-3.5" />
+                )}
               </Button>
             </Tooltip>
           )}
           <Tooltip content={t('management.themes.community.refresh')} position="bottom">
-            <Button
-              variant="default"
-              size="xs"
-              onClick={loadCommunityThemes}
-              disabled={loading}
-            >
+            <Button variant="default" size="xs" onClick={loadCommunityThemes} disabled={loading}>
               {loading ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
               ) : (
@@ -457,7 +491,9 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
         {allImported && (
           <div className="text-center py-8 text-themed-muted">
             <Check className="w-10 h-10 mx-auto mb-2 opacity-50 icon-green" />
-            <p className="text-sm font-medium mb-1">{t('management.themes.community.allImported.title')}</p>
+            <p className="text-sm font-medium mb-1">
+              {t('management.themes.community.allImported.title')}
+            </p>
             <p className="text-xs">{t('management.themes.community.allImported.description')}</p>
           </div>
         )}

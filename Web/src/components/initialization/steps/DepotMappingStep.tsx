@@ -37,6 +37,7 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
       setMapping(true);
       setPhase('scanning');
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -54,7 +55,10 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
           }, 1000);
         } catch (err: unknown) {
           console.error('[DepotMapping] Error applying mappings:', err);
-          setError((err instanceof Error ? err.message : String(err)) || t('initialization.depotMapping.failedToApply'));
+          setError(
+            (err instanceof Error ? err.message : String(err)) ||
+              t('initialization.depotMapping.failedToApply')
+          );
           setMapping(false);
           setApplyingMappings(false);
           setPhase(null);
@@ -62,6 +66,7 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
       }
     };
     applyMappingsAfterScan();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapping, isRunning, progress, phase, applyingMappings]);
 
   const startDepotMapping = async () => {
@@ -88,7 +93,10 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
       }
     } catch (err: unknown) {
       console.error('[DepotMapping] Error:', err);
-      setError((err instanceof Error ? err.message : String(err)) || t('initialization.depotMapping.failedToStart'));
+      setError(
+        (err instanceof Error ? err.message : String(err)) ||
+          t('initialization.depotMapping.failedToStart')
+      );
       setMapping(false);
       setPhase(null);
     }
@@ -108,7 +116,10 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
       // Don't show error for user-initiated cancellation
       if (!isAbortError(err)) {
         console.error('[DepotMapping] Error downloading from GitHub:', err);
-        setError((err instanceof Error ? err.message : String(err)) || t('initialization.depotMapping.failedToDownload'));
+        setError(
+          (err instanceof Error ? err.message : String(err)) ||
+            t('initialization.depotMapping.failedToDownload')
+        );
       }
       setMapping(false);
     }
@@ -128,11 +139,7 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
       <div className="flex flex-col items-center text-center">
         <div
           className={`w-16 h-16 rounded-full flex items-center justify-center mb-4 ${
-            complete
-              ? 'bg-themed-success'
-              : mapping
-                ? 'bg-themed-primary-subtle'
-                : 'bg-themed-info'
+            complete ? 'bg-themed-success' : mapping ? 'bg-themed-primary-subtle' : 'bg-themed-info'
           }`}
         >
           {complete ? (
@@ -144,7 +151,9 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
           )}
         </div>
         <h3 className="text-xl font-semibold text-themed-primary mb-1">
-          {complete ? t('initialization.depotMapping.titleComplete') : t('initialization.depotMapping.title')}
+          {complete
+            ? t('initialization.depotMapping.titleComplete')
+            : t('initialization.depotMapping.title')}
         </h3>
         <p className="text-sm text-themed-secondary max-w-md">
           {complete
@@ -159,9 +168,7 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
           <p className="text-sm text-themed-secondary mb-2">
             {t('initialization.depotMapping.description')}
           </p>
-          <p className="text-sm text-themed-muted">
-            {t('initialization.depotMapping.canSkip')}
-          </p>
+          <p className="text-sm text-themed-muted">{t('initialization.depotMapping.canSkip')}</p>
         </div>
       )}
 
@@ -173,17 +180,23 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
               <p className="text-base font-medium text-themed-primary mb-1">
                 {statusMessage || t('initialization.depotMapping.scanning')}
               </p>
-              <p className="text-sm text-themed-secondary">{t('initialization.depotMapping.percentComplete', { percent: progress.toFixed(0) })}</p>
+              <p className="text-sm text-themed-secondary">
+                {t('initialization.depotMapping.percentComplete', { percent: progress.toFixed(0) })}
+              </p>
             </>
           ) : phase === 'applying' ? (
             <>
               <p className="text-base font-medium text-themed-primary mb-1">
                 {t('initialization.depotMapping.applyingMappings')}
               </p>
-              <p className="text-sm text-themed-secondary">{t('initialization.depotMapping.applyingNote')}</p>
+              <p className="text-sm text-themed-secondary">
+                {t('initialization.depotMapping.applyingNote')}
+              </p>
             </>
           ) : (
-            <p className="text-base font-medium text-themed-primary">{t('initialization.depotMapping.processing')}</p>
+            <p className="text-base font-medium text-themed-primary">
+              {t('initialization.depotMapping.processing')}
+            </p>
           )}
         </div>
       )}
@@ -198,7 +211,9 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
           </div>
 
           <div className="p-4 rounded-lg bg-themed-tertiary">
-            <h4 className="text-sm font-semibold text-themed-primary mb-3 text-center">{t('initialization.depotMapping.whatsNext')}</h4>
+            <h4 className="text-sm font-semibold text-themed-primary mb-3 text-center">
+              {t('initialization.depotMapping.whatsNext')}
+            </h4>
             <ul className="text-sm text-themed-secondary space-y-2">
               <li className="flex items-start gap-2">
                 <CheckCircle className="w-4 h-4 flex-shrink-0 mt-0.5 icon-success" />

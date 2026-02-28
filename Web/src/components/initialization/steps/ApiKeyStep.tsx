@@ -43,7 +43,9 @@ export const ApiKeyStep: React.FC<ApiKeyStepProps> = ({
           <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-themed-info">
             <Shield className="w-7 h-7 icon-info" />
           </div>
-          <h3 className="text-lg font-semibold text-themed-primary mb-1">{t('initialization.apiKey.titleChoice')}</h3>
+          <h3 className="text-lg font-semibold text-themed-primary mb-1">
+            {t('initialization.apiKey.titleChoice')}
+          </h3>
           <p className="text-sm text-themed-secondary max-w-md">
             {t('initialization.apiKey.subtitleDisabled')}
           </p>
@@ -51,12 +53,7 @@ export const ApiKeyStep: React.FC<ApiKeyStepProps> = ({
 
         {/* Options */}
         <div className="space-y-3">
-          <Button
-            variant="filled"
-            color="blue"
-            onClick={onContinueAsAdmin}
-            fullWidth
-          >
+          <Button variant="filled" color="blue" onClick={onContinueAsAdmin} fullWidth>
             {t('initialization.apiKey.continueAsAdmin')}
           </Button>
 
@@ -105,7 +102,9 @@ export const ApiKeyStep: React.FC<ApiKeyStepProps> = ({
         <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-themed-warning">
           <Key className="w-7 h-7 icon-warning" />
         </div>
-        <h3 className="text-lg font-semibold text-themed-primary mb-1">{t('initialization.apiKey.title')}</h3>
+        <h3 className="text-lg font-semibold text-themed-primary mb-1">
+          {t('initialization.apiKey.title')}
+        </h3>
         <p className="text-sm text-themed-secondary max-w-md">
           {apiKeyOnlyMode
             ? t('initialization.apiKey.subtitleNewKey')
@@ -138,7 +137,9 @@ export const ApiKeyStep: React.FC<ApiKeyStepProps> = ({
           fullWidth
         >
           {authenticating && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-          {authenticating ? t('initialization.apiKey.authenticating') : t('initialization.apiKey.authenticate')}
+          {authenticating
+            ? t('initialization.apiKey.authenticating')
+            : t('initialization.apiKey.authenticate')}
         </Button>
 
         {!apiKeyOnlyMode && (
@@ -169,7 +170,8 @@ export const ApiKeyStep: React.FC<ApiKeyStepProps> = ({
       <div className="p-3 rounded-lg text-sm bg-themed-tertiary">
         <p className="text-themed-secondary">
           <strong className="text-themed-primary">{t('initialization.apiKey.whereToFind')}</strong>{' '}
-          {t('initialization.apiKey.whereToFindDesc')} <code className="text-themed-accent">data/security/api_key.txt</code>
+          {t('initialization.apiKey.whereToFindDesc')}{' '}
+          <code className="text-themed-accent">data/security/api_key.txt</code>
         </p>
       </div>
 

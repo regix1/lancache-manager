@@ -1,9 +1,23 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  type ReactNode
+} from 'react';
 import { storage } from '@utils/storage';
 import ApiService from '@services/api.service';
 import { useAuth } from '@contexts/AuthContext';
 import { useSignalR } from '@contexts/SignalRContext';
-import type { Event, CreateEventRequest, UpdateEventRequest, EventFilterMode, EventDataStackMode } from '../types';
+import type {
+  Event,
+  CreateEventRequest,
+  UpdateEventRequest,
+  EventFilterMode,
+  EventDataStackMode
+} from '../types';
 
 interface EventContextType {
   // Event data
@@ -75,7 +89,7 @@ export const EventProvider: React.FC<EventProviderProps> = ({ children }) => {
 
   // Computed: get selected event object
   const selectedEvent = selectedEventId
-    ? events.find(e => e.id === selectedEventId) || null
+    ? events.find((e) => e.id === selectedEventId) || null
     : null;
 
   // Persist selected event ID
@@ -116,7 +130,10 @@ export const EventProvider: React.FC<EventProviderProps> = ({ children }) => {
         setActiveEvents(activeResult.value);
       } else {
         setActiveEvents([]);
-        const message = activeResult.reason instanceof Error ? activeResult.reason.message : 'Failed to fetch active events';
+        const message =
+          activeResult.reason instanceof Error
+            ? activeResult.reason.message
+            : 'Failed to fetch active events';
         setError(message);
         console.error('Failed to fetch active events:', activeResult.reason);
       }
@@ -126,13 +143,16 @@ export const EventProvider: React.FC<EventProviderProps> = ({ children }) => {
         setEvents(allEvents);
 
         // Clear selected event if it no longer exists
-        if (selectedEventId && !allEvents.find(e => e.id === selectedEventId)) {
+        if (selectedEventId && !allEvents.find((e) => e.id === selectedEventId)) {
           setSelectedEventId(null);
         }
       } else if (authMode === 'authenticated') {
         // Guests may not have access to the full event list; avoid surfacing a noisy error in that case.
-        const message = allEventsResult.reason instanceof Error ? allEventsResult.reason.message : 'Failed to fetch events';
-        setError(prev => prev ?? message);
+        const message =
+          allEventsResult.reason instanceof Error
+            ? allEventsResult.reason.message
+            : 'Failed to fetch events';
+        setError((prev) => prev ?? message);
         console.error('Failed to fetch events:', allEventsResult.reason);
       }
     } finally {
@@ -149,25 +169,34 @@ export const EventProvider: React.FC<EventProviderProps> = ({ children }) => {
   }, [authLoading, hasAccess, refreshEvents]);
 
   // CRUD operations
-  const createEvent = useCallback(async (data: CreateEventRequest): Promise<Event> => {
-    const created = await ApiService.createEvent(data);
-    await refreshEvents();
-    return created;
-  }, [refreshEvents]);
+  const createEvent = useCallback(
+    async (data: CreateEventRequest): Promise<Event> => {
+      const created = await ApiService.createEvent(data);
+      await refreshEvents();
+      return created;
+    },
+    [refreshEvents]
+  );
 
-  const updateEvent = useCallback(async (id: number, data: UpdateEventRequest): Promise<Event> => {
-    const updated = await ApiService.updateEvent(id, data);
-    await refreshEvents();
-    return updated;
-  }, [refreshEvents]);
+  const updateEvent = useCallback(
+    async (id: number, data: UpdateEventRequest): Promise<Event> => {
+      const updated = await ApiService.updateEvent(id, data);
+      await refreshEvents();
+      return updated;
+    },
+    [refreshEvents]
+  );
 
-  const deleteEvent = useCallback(async (id: number): Promise<void> => {
-    await ApiService.deleteEvent(id);
-    if (selectedEventId === id) {
-      setSelectedEventId(null);
-    }
-    await refreshEvents();
-  }, [selectedEventId, setSelectedEventId, refreshEvents]);
+  const deleteEvent = useCallback(
+    async (id: number): Promise<void> => {
+      await ApiService.deleteEvent(id);
+      if (selectedEventId === id) {
+        setSelectedEventId(null);
+      }
+      await refreshEvents();
+    },
+    [selectedEventId, setSelectedEventId, refreshEvents]
+  );
 
   // Keep ref updated for SignalR handlers
   useEffect(() => {

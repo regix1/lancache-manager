@@ -12,19 +12,89 @@ const GrafanaEndpoints: React.FC = () => {
   const { t } = useTranslation();
 
   const dataRefreshOptions = [
-    { value: '5', label: t('management.grafana.dataRefresh.5sec'), shortLabel: '5s', description: t('management.grafana.dataRefresh.5secDesc'), rightLabel: '5s', icon: RefreshCw },
-    { value: '10', label: t('management.grafana.dataRefresh.10sec'), shortLabel: '10s', description: t('management.grafana.dataRefresh.10secDesc'), rightLabel: '10s', icon: RefreshCw },
-    { value: '15', label: t('management.grafana.dataRefresh.15sec'), shortLabel: '15s', description: t('management.grafana.dataRefresh.15secDesc'), rightLabel: '15s', icon: RefreshCw },
-    { value: '30', label: t('management.grafana.dataRefresh.30sec'), shortLabel: '30s', description: t('management.grafana.dataRefresh.30secDesc'), rightLabel: '30s', icon: RefreshCw },
-    { value: '60', label: t('management.grafana.dataRefresh.60sec'), shortLabel: '60s', description: t('management.grafana.dataRefresh.60secDesc'), rightLabel: '60s', icon: RefreshCw },
+    {
+      value: '5',
+      label: t('management.grafana.dataRefresh.5sec'),
+      shortLabel: '5s',
+      description: t('management.grafana.dataRefresh.5secDesc'),
+      rightLabel: '5s',
+      icon: RefreshCw
+    },
+    {
+      value: '10',
+      label: t('management.grafana.dataRefresh.10sec'),
+      shortLabel: '10s',
+      description: t('management.grafana.dataRefresh.10secDesc'),
+      rightLabel: '10s',
+      icon: RefreshCw
+    },
+    {
+      value: '15',
+      label: t('management.grafana.dataRefresh.15sec'),
+      shortLabel: '15s',
+      description: t('management.grafana.dataRefresh.15secDesc'),
+      rightLabel: '15s',
+      icon: RefreshCw
+    },
+    {
+      value: '30',
+      label: t('management.grafana.dataRefresh.30sec'),
+      shortLabel: '30s',
+      description: t('management.grafana.dataRefresh.30secDesc'),
+      rightLabel: '30s',
+      icon: RefreshCw
+    },
+    {
+      value: '60',
+      label: t('management.grafana.dataRefresh.60sec'),
+      shortLabel: '60s',
+      description: t('management.grafana.dataRefresh.60secDesc'),
+      rightLabel: '60s',
+      icon: RefreshCw
+    }
   ];
 
   const scrapeIntervalOptions = [
-    { value: '5', label: t('management.grafana.scrapeInterval.5sec'), shortLabel: '5s', description: t('management.grafana.scrapeInterval.5secDesc'), rightLabel: '5s', icon: Clock },
-    { value: '10', label: t('management.grafana.scrapeInterval.10sec'), shortLabel: '10s', description: t('management.grafana.scrapeInterval.10secDesc'), rightLabel: '10s', icon: Clock },
-    { value: '15', label: t('management.grafana.scrapeInterval.15sec'), shortLabel: '15s', description: t('management.grafana.scrapeInterval.15secDesc'), rightLabel: '15s', icon: Clock },
-    { value: '30', label: t('management.grafana.scrapeInterval.30sec'), shortLabel: '30s', description: t('management.grafana.scrapeInterval.30secDesc'), rightLabel: '30s', icon: Clock },
-    { value: '60', label: t('management.grafana.scrapeInterval.60sec'), shortLabel: '60s', description: t('management.grafana.scrapeInterval.60secDesc'), rightLabel: '60s', icon: Clock },
+    {
+      value: '5',
+      label: t('management.grafana.scrapeInterval.5sec'),
+      shortLabel: '5s',
+      description: t('management.grafana.scrapeInterval.5secDesc'),
+      rightLabel: '5s',
+      icon: Clock
+    },
+    {
+      value: '10',
+      label: t('management.grafana.scrapeInterval.10sec'),
+      shortLabel: '10s',
+      description: t('management.grafana.scrapeInterval.10secDesc'),
+      rightLabel: '10s',
+      icon: Clock
+    },
+    {
+      value: '15',
+      label: t('management.grafana.scrapeInterval.15sec'),
+      shortLabel: '15s',
+      description: t('management.grafana.scrapeInterval.15secDesc'),
+      rightLabel: '15s',
+      icon: Clock
+    },
+    {
+      value: '30',
+      label: t('management.grafana.scrapeInterval.30sec'),
+      shortLabel: '30s',
+      description: t('management.grafana.scrapeInterval.30secDesc'),
+      rightLabel: '30s',
+      icon: Clock
+    },
+    {
+      value: '60',
+      label: t('management.grafana.scrapeInterval.60sec'),
+      shortLabel: '60s',
+      description: t('management.grafana.scrapeInterval.60secDesc'),
+      rightLabel: '60s',
+      icon: Clock
+    }
   ];
   const [copiedEndpoint, setCopiedEndpoint] = useState<string | null>(null);
   const [metricsSecured, setMetricsSecured] = useState<boolean>(false);
@@ -58,11 +128,14 @@ const GrafanaEndpoints: React.FC = () => {
   const handleDataRefreshChange = async (value: string) => {
     setDataRefreshRate(value);
     try {
-      await fetch('/api/metrics/interval', ApiService.getFetchOptions({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ interval: parseInt(value, 10) })
-      }));
+      await fetch(
+        '/api/metrics/interval',
+        ApiService.getFetchOptions({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ interval: parseInt(value, 10) })
+        })
+      );
     } catch (error) {
       console.error('Failed to update data refresh rate:', error);
     }
@@ -78,11 +151,14 @@ const GrafanaEndpoints: React.FC = () => {
     const newValue = value ? value === 'secured' : !metricsSecured;
     setMetricsSecured(newValue); // Optimistic update
     try {
-      const response = await fetch('/api/metrics/security', ApiService.getFetchOptions({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: newValue })
-      }));
+      const response = await fetch(
+        '/api/metrics/security',
+        ApiService.getFetchOptions({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: newValue })
+        })
+      );
       if (response.ok) {
         const data = await response.json();
         setMetricsSecured(data.requiresAuthentication);
@@ -102,7 +178,7 @@ const GrafanaEndpoints: React.FC = () => {
       await navigator.clipboard.writeText(text);
       setCopiedEndpoint(endpoint);
       setTimeout(() => setCopiedEndpoint(null), 2000);
-    } catch (err) {
+    } catch (_err) {
       // Fallback for older browsers or when clipboard API fails
       const textArea = document.createElement('textarea');
       textArea.value = text;
@@ -141,12 +217,20 @@ const GrafanaEndpoints: React.FC = () => {
             <HelpSection title={t('management.grafana.help.metrics.title')} variant="subtle">
               <div className="divide-y divide-[var(--theme-text-muted)]">
                 <div className="py-1.5 first:pt-0 last:pb-0">
-                  <div className="font-medium text-themed-primary">{t('management.grafana.help.metrics.cache.term')}</div>
-                  <div className="mt-0.5">{t('management.grafana.help.metrics.cache.description')}</div>
+                  <div className="font-medium text-themed-primary">
+                    {t('management.grafana.help.metrics.cache.term')}
+                  </div>
+                  <div className="mt-0.5">
+                    {t('management.grafana.help.metrics.cache.description')}
+                  </div>
                 </div>
                 <div className="py-1.5 first:pt-0 last:pb-0">
-                  <div className="font-medium text-themed-primary">{t('management.grafana.help.metrics.activity.term')}</div>
-                  <div className="mt-0.5">{t('management.grafana.help.metrics.activity.description')}</div>
+                  <div className="font-medium text-themed-primary">
+                    {t('management.grafana.help.metrics.activity.term')}
+                  </div>
+                  <div className="mt-0.5">
+                    {t('management.grafana.help.metrics.activity.description')}
+                  </div>
                 </div>
               </div>
             </HelpSection>
@@ -155,24 +239,34 @@ const GrafanaEndpoints: React.FC = () => {
               {t('management.grafana.help.integration.description')}
             </HelpSection>
 
-            <HelpNote type="info">
-              {t('management.grafana.help.note')}
-            </HelpNote>
+            <HelpNote type="info">{t('management.grafana.help.note')}</HelpNote>
           </HelpPopover>
         </div>
         {/* Connected toggle switch */}
         <ToggleSwitch
           options={[
-            { value: 'public', label: t('management.grafana.publicOption'), icon: <Unlock />, activeColor: 'default' },
-            { value: 'secured', label: t('management.grafana.securedOption'), icon: <Lock />, activeColor: 'success' }
+            {
+              value: 'public',
+              label: t('management.grafana.publicOption'),
+              icon: <Unlock />,
+              activeColor: 'default'
+            },
+            {
+              value: 'secured',
+              label: t('management.grafana.securedOption'),
+              icon: <Lock />,
+              activeColor: 'success'
+            }
           ]}
           value={metricsSecured ? 'secured' : 'public'}
           onChange={handleToggleAuth}
           disabled={isToggling}
           loading={isToggling}
-          title={metricsSecured
-            ? t('management.grafana.securedTooltip')
-            : t('management.grafana.publicTooltip')}
+          title={
+            metricsSecured
+              ? t('management.grafana.securedTooltip')
+              : t('management.grafana.publicTooltip')
+          }
         />
       </div>
 
@@ -184,7 +278,9 @@ const GrafanaEndpoints: React.FC = () => {
 
       <div className="p-4 rounded-lg bg-themed-tertiary">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-sm font-medium text-themed-primary">{t('management.grafana.prometheusMetrics')}</span>
+          <span className="text-sm font-medium text-themed-primary">
+            {t('management.grafana.prometheusMetrics')}
+          </span>
           <Button
             size="xs"
             variant={copiedEndpoint === 'prometheus' ? 'filled' : 'default'}
@@ -204,9 +300,7 @@ const GrafanaEndpoints: React.FC = () => {
         <code className="text-xs block break-all px-3 py-2 rounded-md mb-2 font-mono bg-themed-secondary text-themed-secondary">
           {apiBaseUrl}/metrics
         </code>
-        <p className="text-xs text-themed-muted">
-          {t('management.grafana.prometheusFormat')}
-        </p>
+        <p className="text-xs text-themed-muted">{t('management.grafana.prometheusFormat')}</p>
       </div>
 
       {/* Data Refresh Rate - Controls how often the app updates metrics */}
@@ -215,8 +309,12 @@ const GrafanaEndpoints: React.FC = () => {
           <div className="flex items-center gap-2">
             <RefreshCw className="w-4 h-4 text-themed-muted" />
             <div>
-              <span className="text-sm font-medium text-themed-primary">{t('management.grafana.dataRefreshRate')}</span>
-              <p className="text-xs text-themed-muted">{t('management.grafana.dataRefreshRateDesc')}</p>
+              <span className="text-sm font-medium text-themed-primary">
+                {t('management.grafana.dataRefreshRate')}
+              </span>
+              <p className="text-xs text-themed-muted">
+                {t('management.grafana.dataRefreshRateDesc')}
+              </p>
             </div>
           </div>
           <EnhancedDropdown
@@ -241,9 +339,13 @@ const GrafanaEndpoints: React.FC = () => {
           <div className="flex items-center gap-2">
             <Clock className="w-4 h-4 text-themed-muted" />
             <div>
-              <span className="text-sm font-medium text-themed-primary">{t('management.grafana.prometheusConfig')}</span>
+              <span className="text-sm font-medium text-themed-primary">
+                {t('management.grafana.prometheusConfig')}
+              </span>
               <p className="text-xs text-themed-muted">
-                {metricsSecured ? t('management.grafana.prometheusConfigSecured') : t('management.grafana.prometheusConfigPublic')}
+                {metricsSecured
+                  ? t('management.grafana.prometheusConfigSecured')
+                  : t('management.grafana.prometheusConfigPublic')}
               </p>
             </div>
           </div>
@@ -268,16 +370,18 @@ const GrafanaEndpoints: React.FC = () => {
             <p className="text-xs font-medium text-themed-secondary mb-1.5">prometheus.yml</p>
             <div className="bg-themed-secondary p-2 rounded font-mono text-[10px] text-themed-muted">
               <div>scrape_configs:</div>
-              <div className="ml-2">- job_name: 'lancache-manager'</div>
+              <div className="ml-2">- job_name: &apos;lancache-manager&apos;</div>
               <div className="ml-4">static_configs:</div>
-              <div className="ml-6">- targets: ['lancache-manager:80']</div>
+              <div className="ml-6">- targets: [&apos;lancache-manager:80&apos;]</div>
               <div className="ml-4">scrape_interval: {scrapeInterval}s</div>
-              <div className="ml-4">metrics_path: '/metrics'</div>
+              <div className="ml-4">metrics_path: &apos;/metrics&apos;</div>
               {metricsSecured && (
                 <>
                   <div className="ml-4 text-themed-success">authorization:</div>
                   <div className="ml-6 text-themed-success">type: Bearer</div>
-                  <div className="ml-6 text-themed-success">credentials: 'your-api-key-here'</div>
+                  <div className="ml-6 text-themed-success">
+                    credentials: &apos;your-api-key-here&apos;
+                  </div>
                 </>
               )}
             </div>
@@ -304,35 +408,63 @@ const GrafanaEndpoints: React.FC = () => {
 
       {/* Grafana Query Examples */}
       <div className="mt-4 p-3 rounded-lg border bg-themed-tertiary border-themed-secondary">
-        <p className="text-sm font-medium text-themed-primary mb-2">{t('management.grafana.queryExamples')}</p>
+        <p className="text-sm font-medium text-themed-primary mb-2">
+          {t('management.grafana.queryExamples')}
+        </p>
         <div className="space-y-2">
           <div className="bg-themed-secondary p-2 rounded">
-            <p className="text-[10px] text-themed-muted mb-1"># {t('management.grafana.queries.hitRate')}</p>
-            <code className="text-[10px] font-mono text-themed-secondary">lancache_cache_hit_ratio * 100</code>
+            <p className="text-[10px] text-themed-muted mb-1">
+              # {t('management.grafana.queries.hitRate')}
+            </p>
+            <code className="text-[10px] font-mono text-themed-secondary">
+              lancache_cache_hit_ratio * 100
+            </code>
           </div>
           <div className="bg-themed-secondary p-2 rounded">
-            <p className="text-[10px] text-themed-muted mb-1"># {t('management.grafana.queries.bandwidthSaved')}</p>
-            <code className="text-[10px] font-mono text-themed-secondary">increase(lancache_cache_hit_bytes_total[24h])</code>
+            <p className="text-[10px] text-themed-muted mb-1">
+              # {t('management.grafana.queries.bandwidthSaved')}
+            </p>
+            <code className="text-[10px] font-mono text-themed-secondary">
+              increase(lancache_cache_hit_bytes_total[24h])
+            </code>
           </div>
           <div className="bg-themed-secondary p-2 rounded">
-            <p className="text-[10px] text-themed-muted mb-1"># {t('management.grafana.queries.cacheUsage')}</p>
-            <code className="text-[10px] font-mono text-themed-secondary">lancache_cache_used_bytes / 1024 / 1024 / 1024</code>
+            <p className="text-[10px] text-themed-muted mb-1">
+              # {t('management.grafana.queries.cacheUsage')}
+            </p>
+            <code className="text-[10px] font-mono text-themed-secondary">
+              lancache_cache_used_bytes / 1024 / 1024 / 1024
+            </code>
           </div>
           <div className="bg-themed-secondary p-2 rounded">
-            <p className="text-[10px] text-themed-muted mb-1"># {t('management.grafana.queries.peakHour')}</p>
+            <p className="text-[10px] text-themed-muted mb-1">
+              # {t('management.grafana.queries.peakHour')}
+            </p>
             <code className="text-[10px] font-mono text-themed-secondary">lancache_peak_hour</code>
           </div>
           <div className="bg-themed-secondary p-2 rounded">
-            <p className="text-[10px] text-themed-muted mb-1"># {t('management.grafana.queries.hourlyDownloads')}</p>
-            <code className="text-[10px] font-mono text-themed-secondary">lancache_hourly_downloads</code>
+            <p className="text-[10px] text-themed-muted mb-1">
+              # {t('management.grafana.queries.hourlyDownloads')}
+            </p>
+            <code className="text-[10px] font-mono text-themed-secondary">
+              lancache_hourly_downloads
+            </code>
           </div>
           <div className="bg-themed-secondary p-2 rounded">
-            <p className="text-[10px] text-themed-muted mb-1"># {t('management.grafana.queries.growthRate')}</p>
-            <code className="text-[10px] font-mono text-themed-secondary">lancache_cache_growth_daily_bytes / 1024 / 1024 / 1024</code>
+            <p className="text-[10px] text-themed-muted mb-1">
+              # {t('management.grafana.queries.growthRate')}
+            </p>
+            <code className="text-[10px] font-mono text-themed-secondary">
+              lancache_cache_growth_daily_bytes / 1024 / 1024 / 1024
+            </code>
           </div>
           <div className="bg-themed-secondary p-2 rounded">
-            <p className="text-[10px] text-themed-muted mb-1"># {t('management.grafana.queries.daysUntilFull')}</p>
-            <code className="text-[10px] font-mono text-themed-secondary">lancache_cache_days_until_full</code>
+            <p className="text-[10px] text-themed-muted mb-1">
+              # {t('management.grafana.queries.daysUntilFull')}
+            </p>
+            <code className="text-[10px] font-mono text-themed-secondary">
+              lancache_cache_days_until_full
+            </code>
           </div>
         </div>
       </div>

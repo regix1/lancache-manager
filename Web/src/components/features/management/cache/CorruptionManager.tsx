@@ -1,11 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  AlertTriangle,
-  Loader2,
-  ChevronDown,
-  ChevronUp
-} from 'lucide-react';
+import { AlertTriangle, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { useDockerSocket } from '@contexts/DockerSocketContext';
@@ -34,18 +29,14 @@ interface CorruptionManagerProps {
   onError?: (message: string) => void;
 }
 
-const CorruptionManager: React.FC<CorruptionManagerProps> = ({
-  authMode,
-  mockMode,
-  onError
-}) => {
+const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMode, onError }) => {
   const { t } = useTranslation();
   const { notifications, addNotification, isAnyRemovalRunning } = useNotifications();
   const { isDockerAvailable } = useDockerSocket();
 
   // Derive corruption detection scan state from notifications (standardized pattern like GameCacheDetector)
   const activeCorruptionDetectionNotification = notifications.find(
-    n => n.type === 'corruption_detection' && n.status === 'running'
+    (n) => n.type === 'corruption_detection' && n.status === 'running'
   );
   const isScanningFromNotification = !!activeCorruptionDetectionNotification;
 
@@ -59,97 +50,128 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
   const [corruptionSummary, setCorruptionSummary] = useState<Record<string, number>>({});
   const [pendingCorruptionRemoval, setPendingCorruptionRemoval] = useState<string | null>(null);
   const [expandedCorruptionService, setExpandedCorruptionService] = useState<string | null>(null);
-  const [corruptionDetails, setCorruptionDetails] = useState<Record<string, CorruptedChunkDetail[]>>({});
+  const [corruptionDetails, setCorruptionDetails] = useState<
+    Record<string, CorruptedChunkDetail[]>
+  >({});
   const [loadingDetails, setLoadingDetails] = useState<string | null>(null);
   const { isLoading, hasInitiallyLoaded, setLoading, markLoaded } = useManagerLoading();
   const [startingCorruptionRemoval, setStartingCorruptionRemoval] = useState<string | null>(null);
 
   // Use shared directory permissions hook
-  const {
-    logsReadOnly,
-    cacheReadOnly,
-    logsExist,
-    cacheExist,
-    checkingPermissions
-  } = useDirectoryPermissions();
+  const { logsReadOnly, cacheReadOnly, logsExist, cacheExist, checkingPermissions } =
+    useDirectoryPermissions();
   const [lastDetectionTime, setLastDetectionTime] = useState<string | null>(null);
   const [hasCachedResults, setHasCachedResults] = useState(false);
   const [missThreshold, setMissThreshold] = useState(3);
   const [compareToCacheLogs, setCompareToCacheLogs] = useState(false);
 
   const detectionModeOptions = [
-    { value: 'false', label: t('management.corruption.detectionModeLogsOnly'), shortLabel: t('management.corruption.detectionModeLogsOnlyShort'), description: t('management.corruption.detectionModeLogsOnlyDesc') },
-    { value: 'true', label: t('management.corruption.detectionModeCacheLogs'), shortLabel: t('management.corruption.detectionModeCacheLogsShort'), description: t('management.corruption.detectionModeCacheLogsDesc') },
+    {
+      value: 'false',
+      label: t('management.corruption.detectionModeLogsOnly'),
+      shortLabel: t('management.corruption.detectionModeLogsOnlyShort'),
+      description: t('management.corruption.detectionModeLogsOnlyDesc')
+    },
+    {
+      value: 'true',
+      label: t('management.corruption.detectionModeCacheLogs'),
+      shortLabel: t('management.corruption.detectionModeCacheLogsShort'),
+      description: t('management.corruption.detectionModeCacheLogsDesc')
+    }
   ];
 
   const thresholdOptions = [
-    { value: '3', label: t('management.corruption.sensitivityHigh'), shortLabel: t('management.corruption.sensitivityHighShort'), description: t('management.corruption.sensitivityHighDesc') },
-    { value: '5', label: t('management.corruption.sensitivityMedium'), shortLabel: t('management.corruption.sensitivityMediumShort'), description: t('management.corruption.sensitivityMediumDesc') },
-    { value: '10', label: t('management.corruption.sensitivityLow'), shortLabel: t('management.corruption.sensitivityLowShort'), description: t('management.corruption.sensitivityLowDesc') },
+    {
+      value: '3',
+      label: t('management.corruption.sensitivityHigh'),
+      shortLabel: t('management.corruption.sensitivityHighShort'),
+      description: t('management.corruption.sensitivityHighDesc')
+    },
+    {
+      value: '5',
+      label: t('management.corruption.sensitivityMedium'),
+      shortLabel: t('management.corruption.sensitivityMediumShort'),
+      description: t('management.corruption.sensitivityMediumDesc')
+    },
+    {
+      value: '10',
+      label: t('management.corruption.sensitivityLow'),
+      shortLabel: t('management.corruption.sensitivityLowShort'),
+      description: t('management.corruption.sensitivityLowDesc')
+    }
   ];
 
   const formattedLastDetection = useFormattedDateTime(lastDetectionTime);
 
   // Derive active corruption removal from notifications
   const activeCorruptionRemovalNotification = notifications.find(
-    n => n.type === 'corruption_removal' && n.status === 'running'
+    (n) => n.type === 'corruption_removal' && n.status === 'running'
   );
-  const removingCorruption = activeCorruptionRemovalNotification?.details?.service as string | null ?? null;
+  const removingCorruption =
+    (activeCorruptionRemovalNotification?.details?.service as string | null) ?? null;
 
   // Load cached data from database
-  const loadCachedData = useCallback(async (showNotification: boolean = false) => {
-    setLoading(true);
-    try {
-      const cached = await ApiService.getCachedCorruptionDetection();
-      if (cached.hasCachedResults && cached.corruptionCounts) {
-        setCorruptionSummary(cached.corruptionCounts);
-        setLastDetectionTime(cached.lastDetectionTime || null);
-        setHasCachedResults(true);
+  const loadCachedData = useCallback(
+    async (showNotification = false) => {
+      setLoading(true);
+      try {
+        const cached = await ApiService.getCachedCorruptionDetection();
+        if (cached.hasCachedResults && cached.corruptionCounts) {
+          setCorruptionSummary(cached.corruptionCounts);
+          setLastDetectionTime(cached.lastDetectionTime || null);
+          setHasCachedResults(true);
 
-        // Show notification only when explicitly requested or once per session
-        const sessionKey = 'corruptionManager_loadedNotificationShown';
-        const alreadyShownThisSession = sessionStorage.getItem(sessionKey) === 'true';
-        const totalCorrupted = Object.values(cached.corruptionCounts).reduce((a, b) => a + b, 0);
-        const serviceCount = Object.keys(cached.corruptionCounts).filter(k => cached.corruptionCounts![k] > 0).length;
+          // Show notification only when explicitly requested or once per session
+          const sessionKey = 'corruptionManager_loadedNotificationShown';
+          const alreadyShownThisSession = sessionStorage.getItem(sessionKey) === 'true';
+          const totalCorrupted = Object.values(cached.corruptionCounts).reduce((a, b) => a + b, 0);
+          const serviceCount = Object.keys(cached.corruptionCounts).filter(
+            (k) => cached.corruptionCounts![k] > 0
+          ).length;
 
-        if (showNotification || !alreadyShownThisSession) {
-          if (totalCorrupted > 0) {
+          if (showNotification || !alreadyShownThisSession) {
+            if (totalCorrupted > 0) {
+              addNotification({
+                type: 'generic',
+                status: 'completed',
+                message: t('management.corruption.notifications.loadedResults', {
+                  chunks: totalCorrupted.toLocaleString(),
+                  services: serviceCount
+                }),
+                details: { notificationType: 'info' }
+              });
+            } else if (showNotification) {
+              addNotification({
+                type: 'generic',
+                status: 'completed',
+                message: t('management.corruption.notifications.noCorruptedInPrevious'),
+                details: { notificationType: 'success' }
+              });
+            }
+            sessionStorage.setItem(sessionKey, 'true');
+          }
+        } else {
+          setCorruptionSummary({});
+          setLastDetectionTime(null);
+          setHasCachedResults(false);
+
+          if (showNotification) {
             addNotification({
               type: 'generic',
               status: 'completed',
-              message: t('management.corruption.notifications.loadedResults', { chunks: totalCorrupted.toLocaleString(), services: serviceCount }),
+              message: t('management.corruption.notifications.noPreviousResults'),
               details: { notificationType: 'info' }
             });
-          } else if (showNotification) {
-            addNotification({
-              type: 'generic',
-              status: 'completed',
-              message: t('management.corruption.notifications.noCorruptedInPrevious'),
-              details: { notificationType: 'success' }
-            });
           }
-          sessionStorage.setItem(sessionKey, 'true');
         }
-      } else {
-        setCorruptionSummary({});
-        setLastDetectionTime(null);
-        setHasCachedResults(false);
-
-        if (showNotification) {
-          addNotification({
-            type: 'generic',
-            status: 'completed',
-            message: t('management.corruption.notifications.noPreviousResults'),
-            details: { notificationType: 'info' }
-          });
-        }
+        markLoaded();
+      } catch (err: unknown) {
+        console.error('Failed to load cached corruption data:', err);
+        setLoading(false);
       }
-      markLoaded();
-    } catch (err: unknown) {
-      console.error('Failed to load cached corruption data:', err);
-      setLoading(false);
-    }
-  }, [addNotification, t, setLoading, markLoaded]);
+    },
+    [addNotification, t, setLoading, markLoaded]
+  );
 
   // Start a background scan
   const startScan = useCallback(async () => {
@@ -178,7 +200,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
     // Handle corruption detection completion - ONLY if we were starting a scan
     if (isStartingScan) {
       const corruptionDetectionCompleteNotifs = notifications.filter(
-        n => n.type === 'corruption_detection' && n.status === 'completed'
+        (n) => n.type === 'corruption_detection' && n.status === 'completed'
       );
       if (corruptionDetectionCompleteNotifs.length > 0) {
         setIsStartingScan(false);
@@ -210,7 +232,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
 
       // Handle corruption detection failure - ONLY if we were starting a scan
       const corruptionDetectionFailedNotifs = notifications.filter(
-        n => n.type === 'corruption_detection' && n.status === 'failed'
+        (n) => n.type === 'corruption_detection' && n.status === 'failed'
       );
       if (corruptionDetectionFailedNotifs.length > 0) {
         console.error('[CorruptionManager] Corruption detection failed');
@@ -225,7 +247,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
   useEffect(() => {
     // Find all completed corruption removal notifications
     const completedCorruptionRemovals = notifications.filter(
-      n => n.type === 'corruption_removal' && n.status === 'completed'
+      (n) => n.type === 'corruption_removal' && n.status === 'completed'
     );
 
     completedCorruptionRemovals.forEach((notif) => {
@@ -299,7 +321,12 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
     if (!corruptionDetails[service]) {
       setLoadingDetails(service);
       try {
-        const details = await ApiService.getCorruptionDetails(service, false, missThreshold, compareToCacheLogs);
+        const details = await ApiService.getCorruptionDetails(
+          service,
+          false,
+          missThreshold,
+          compareToCacheLogs
+        );
         setCorruptionDetails((prev) => ({ ...prev, [service]: details }));
       } catch (err: unknown) {
         onError?.(
@@ -328,26 +355,39 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
         {t('management.corruption.help.whatThisDoes.description')}
       </HelpSection>
 
-      <HelpSection title={t('management.corruption.help.whatRemovalDeletes.title')} variant="subtle">
+      <HelpSection
+        title={t('management.corruption.help.whatRemovalDeletes.title')}
+        variant="subtle"
+      >
         <div className="divide-y divide-[var(--theme-text-muted)]">
           <div className="py-1.5 first:pt-0 last:pb-0">
-            <div className="font-medium text-themed-primary">{t('management.corruption.help.whatRemovalDeletes.cacheFilesLabel')}</div>
-            <div className="mt-0.5">{t('management.corruption.help.whatRemovalDeletes.cacheFiles')}</div>
+            <div className="font-medium text-themed-primary">
+              {t('management.corruption.help.whatRemovalDeletes.cacheFilesLabel')}
+            </div>
+            <div className="mt-0.5">
+              {t('management.corruption.help.whatRemovalDeletes.cacheFiles')}
+            </div>
           </div>
           <div className="py-1.5 first:pt-0 last:pb-0">
-            <div className="font-medium text-themed-primary">{t('management.corruption.help.whatRemovalDeletes.logEntriesLabel')}</div>
-            <div className="mt-0.5">{t('management.corruption.help.whatRemovalDeletes.logEntries')}</div>
+            <div className="font-medium text-themed-primary">
+              {t('management.corruption.help.whatRemovalDeletes.logEntriesLabel')}
+            </div>
+            <div className="mt-0.5">
+              {t('management.corruption.help.whatRemovalDeletes.logEntries')}
+            </div>
           </div>
           <div className="py-1.5 first:pt-0 last:pb-0">
-            <div className="font-medium text-themed-primary">{t('management.corruption.help.whatRemovalDeletes.databaseRecordsLabel')}</div>
-            <div className="mt-0.5">{t('management.corruption.help.whatRemovalDeletes.databaseRecords')}</div>
+            <div className="font-medium text-themed-primary">
+              {t('management.corruption.help.whatRemovalDeletes.databaseRecordsLabel')}
+            </div>
+            <div className="mt-0.5">
+              {t('management.corruption.help.whatRemovalDeletes.databaseRecords')}
+            </div>
           </div>
         </div>
       </HelpSection>
 
-      <HelpNote type="warning">
-        {t('management.corruption.help.warning')}
-      </HelpNote>
+      <HelpNote type="warning">{t('management.corruption.help.warning')}</HelpNote>
     </HelpPopover>
   );
 
@@ -420,20 +460,14 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
         {hasCachedResults && lastDetectionTime && !isScanning && !isLoading && (
           <Alert color="blue" className="mb-4">
             <div className="flex items-center gap-2">
-              <span className="text-sm font-medium">
-                {t('common.resultsFromPreviousScan')}
-              </span>
-              <span className="text-xs text-themed-muted">
-                {formattedLastDetection}
-              </span>
+              <span className="text-sm font-medium">{t('common.resultsFromPreviousScan')}</span>
+              <span className="text-xs text-themed-muted">{formattedLastDetection}</span>
             </div>
           </Alert>
         )}
 
         {/* Scanning Status */}
-        {isScanning && (
-          <LoadingState message={t('management.corruption.scanningMessage')} />
-        )}
+        {isScanning && <LoadingState message={t('management.corruption.scanningMessage')} />}
 
         {/* Directory Missing Warning */}
         {directoryMissing && (
@@ -441,13 +475,22 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
             <div>
               <p className="font-medium">
                 {!logsExist && !cacheExist
-                  ? t('management.corruption.alerts.logsAndCacheMissing', 'Logs and cache directories do not exist')
+                  ? t(
+                      'management.corruption.alerts.logsAndCacheMissing',
+                      'Logs and cache directories do not exist'
+                    )
                   : !logsExist
                     ? t('management.corruption.alerts.logsMissing', 'Logs directory does not exist')
-                    : t('management.corruption.alerts.cacheMissing', 'Cache directory does not exist')}
+                    : t(
+                        'management.corruption.alerts.cacheMissing',
+                        'Cache directory does not exist'
+                      )}
               </p>
               <p className="text-sm mt-1">
-                {t('management.corruption.alerts.directoryNotFound', 'The required directories were not found. Ensure they are mounted correctly in docker-compose.')}
+                {t(
+                  'management.corruption.alerts.directoryNotFound',
+                  'The required directories were not found. Ensure they are mounted correctly in docker-compose.'
+                )}
               </p>
             </div>
           </Alert>
@@ -477,11 +520,15 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
         {!isDockerAvailable && !hasPermissionIssue && (
           <Alert color="orange" className="mb-6">
             <div className="min-w-0">
-              <p className="font-medium">{t('management.corruption.alerts.dockerSocketUnavailable')}</p>
+              <p className="font-medium">
+                {t('management.corruption.alerts.dockerSocketUnavailable')}
+              </p>
               <p className="text-sm mt-1">
                 {t('management.corruption.alerts.requiresNginxSignal')}
               </p>
-              <p className="text-sm mt-2">{t('management.logRemoval.alerts.dockerSocket.addVolumes')}</p>
+              <p className="text-sm mt-2">
+                {t('management.logRemoval.alerts.dockerSocket.addVolumes')}
+              </p>
               <code className="block bg-themed-tertiary px-2 py-1 rounded text-xs mt-1 break-all">
                 - /var/run/docker.sock:/var/run/docker.sock
               </code>
@@ -656,11 +703,22 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
 
           <Alert color="red">
             <div>
-              <p className="text-sm font-medium mb-2">{t('management.corruption.modal.willDelete')}</p>
+              <p className="text-sm font-medium mb-2">
+                {t('management.corruption.modal.willDelete')}
+              </p>
               <ul className="list-disc list-inside text-sm space-y-1 ml-2">
-                <li><strong>{t('management.corruption.modal.cacheFilesLabel')}</strong> {t('management.corruption.modal.cacheFilesDesc')}</li>
-                <li><strong>{t('management.corruption.modal.logEntriesLabel')}</strong> {t('management.corruption.modal.logEntriesDesc')}</li>
-                <li><strong>{t('management.corruption.modal.databaseRecordsLabel')}</strong> {t('management.corruption.modal.databaseRecordsDesc')}</li>
+                <li>
+                  <strong>{t('management.corruption.modal.cacheFilesLabel')}</strong>{' '}
+                  {t('management.corruption.modal.cacheFilesDesc')}
+                </li>
+                <li>
+                  <strong>{t('management.corruption.modal.logEntriesLabel')}</strong>{' '}
+                  {t('management.corruption.modal.logEntriesDesc')}
+                </li>
+                <li>
+                  <strong>{t('management.corruption.modal.databaseRecordsLabel')}</strong>{' '}
+                  {t('management.corruption.modal.databaseRecordsDesc')}
+                </li>
               </ul>
             </div>
           </Alert>
@@ -671,9 +729,15 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({
               <ul className="list-disc list-inside text-sm space-y-1 ml-2">
                 <li>{t('management.corruption.modal.cannotBeUndone')}</li>
                 <li>{t('management.corruption.modal.mayTakeSeveralMinutes')}</li>
-                <li>{t('management.corruption.modal.validFilesRemain', { service: pendingCorruptionRemoval })}</li>
                 <li>
-                  {t('management.corruption.modal.removesApproximately', { count: corruptionSummary[pendingCorruptionRemoval || ''] || 0 })}
+                  {t('management.corruption.modal.validFilesRemain', {
+                    service: pendingCorruptionRemoval
+                  })}
+                </li>
+                <li>
+                  {t('management.corruption.modal.removesApproximately', {
+                    count: corruptionSummary[pendingCorruptionRemoval || ''] || 0
+                  })}
                 </li>
               </ul>
             </div>

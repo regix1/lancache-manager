@@ -1,4 +1,12 @@
-import React, { createContext, useContext, useState, useCallback, useRef, useMemo, type ReactNode } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  useRef,
+  useMemo,
+  type ReactNode
+} from 'react';
 import { useSignalR } from '../SignalRContext';
 import { useAuth } from '../AuthContext';
 import themeService from '@services/theme.service';
@@ -53,10 +61,7 @@ import {
   createStatusAwareProgressHandler,
   createDepotMappingCompletionHandler
 } from './handlerFactories';
-import {
-  createRecoveryRunner,
-  type FetchWithAuth
-} from './recoveryFactory';
+import { createRecoveryRunner, type FetchWithAuth } from './recoveryFactory';
 import {
   formatLogProcessingMessage,
   formatLogProcessingCompletionMessage,
@@ -115,6 +120,15 @@ const shouldAutoDismiss = (): boolean => {
   return !themeService.getPicsAlwaysVisibleSync();
 };
 
+// Removal/clearing operation types that share the backend _cacheLock
+const REMOVAL_TYPES = [
+  'log_removal',
+  'game_removal',
+  'service_removal',
+  'corruption_removal',
+  'cache_clearing'
+] as const;
+
 export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ children }) => {
   const [notifications, setNotifications] = useState<UnifiedNotification[]>(() => {
     // Restore notifications from localStorage on mount
@@ -146,7 +160,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
   const isAdmin = authMode === 'authenticated';
 
   // Timer management for auto-dismiss
-  const autoDismissTimersRef = useRef<Map<string, { timerId: ReturnType<typeof setTimeout>; instanceId: number }>>(new Map());
+  const autoDismissTimersRef = useRef<
+    Map<string, { timerId: ReturnType<typeof setTimeout>; instanceId: number }>
+  >(new Map());
   const instanceCounterRef = useRef<Map<string, number>>(new Map());
 
   // Track previous SignalR connection state to detect reconnections
@@ -167,52 +183,56 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     }
   }, []);
 
-  const addNotification = useCallback((notification: Omit<UnifiedNotification, 'id' | 'startedAt'>): string => {
-    let id = '';
+  const addNotification = useCallback(
+    (notification: Omit<UnifiedNotification, 'id' | 'startedAt'>): string => {
+      let id = '';
 
-    // Map notification types to their singleton IDs
-    const typeToIdMap: Record<string, string> = {
-      log_processing: NOTIFICATION_IDS.LOG_PROCESSING,
-      cache_clearing: NOTIFICATION_IDS.CACHE_CLEARING,
-      database_reset: NOTIFICATION_IDS.DATABASE_RESET,
-      depot_mapping: NOTIFICATION_IDS.DEPOT_MAPPING,
-      log_removal: NOTIFICATION_IDS.LOG_REMOVAL,
-      game_removal: NOTIFICATION_IDS.GAME_REMOVAL,
-      service_removal: NOTIFICATION_IDS.SERVICE_REMOVAL,
-      corruption_removal: NOTIFICATION_IDS.CORRUPTION_REMOVAL,
-      game_detection: NOTIFICATION_IDS.GAME_DETECTION,
-      corruption_detection: NOTIFICATION_IDS.CORRUPTION_DETECTION,
-      data_import: NOTIFICATION_IDS.DATA_IMPORT
-    };
+      // Map notification types to their singleton IDs
+      const typeToIdMap: Record<string, string> = {
+        log_processing: NOTIFICATION_IDS.LOG_PROCESSING,
+        cache_clearing: NOTIFICATION_IDS.CACHE_CLEARING,
+        database_reset: NOTIFICATION_IDS.DATABASE_RESET,
+        depot_mapping: NOTIFICATION_IDS.DEPOT_MAPPING,
+        log_removal: NOTIFICATION_IDS.LOG_REMOVAL,
+        game_removal: NOTIFICATION_IDS.GAME_REMOVAL,
+        service_removal: NOTIFICATION_IDS.SERVICE_REMOVAL,
+        corruption_removal: NOTIFICATION_IDS.CORRUPTION_REMOVAL,
+        game_detection: NOTIFICATION_IDS.GAME_DETECTION,
+        corruption_detection: NOTIFICATION_IDS.CORRUPTION_DETECTION,
+        data_import: NOTIFICATION_IDS.DATA_IMPORT
+      };
 
-    if (typeToIdMap[notification.type]) {
-      id = typeToIdMap[notification.type];
-    } else if (notification.type === 'generic' && notification.message) {
-      // For generic notifications, create a deterministic ID based on message
-      // This prevents duplicate notifications with the same message
-      const messageHash = notification.message.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
-      id = `generic_${messageHash}`;
-    } else {
-      id = `notification_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    }
+      if (typeToIdMap[notification.type]) {
+        id = typeToIdMap[notification.type];
+      } else if (notification.type === 'generic' && notification.message) {
+        // For generic notifications, create a deterministic ID based on message
+        // This prevents duplicate notifications with the same message
+        const messageHash = notification.message.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
+        id = `generic_${messageHash}`;
+      } else {
+        id = `notification_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      }
 
-    const newNotification: UnifiedNotification = {
-      ...notification,
-      id,
-      startedAt: new Date()
-    };
+      const newNotification: UnifiedNotification = {
+        ...notification,
+        id,
+        startedAt: new Date()
+      };
 
-    setNotifications((prev: UnifiedNotification[]) => {
-      const filtered = prev.filter((n) => n.id !== id);
-      return [...filtered, newNotification];
-    });
+      setNotifications((prev: UnifiedNotification[]) => {
+        const filtered = prev.filter((n) => n.id !== id);
+        return [...filtered, newNotification];
+      });
 
-    if (notification.status !== 'running') {
-      scheduleAutoDismiss(id);
-    }
+      if (notification.status !== 'running') {
+        scheduleAutoDismiss(id);
+      }
 
-    return id;
-  }, []);
+      return id;
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
 
   const updateNotification = useCallback((id: string, updates: Partial<UnifiedNotification>) => {
     setNotifications((prev: UnifiedNotification[]) =>
@@ -256,7 +276,10 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           setNotifications((prev: UnifiedNotification[]) => {
             const notification = prev.find((n) => n.id === notificationId);
             // Only dismiss if notification exists and is in a terminal state
-            if (notification && (notification.status === 'completed' || notification.status === 'failed')) {
+            if (
+              notification &&
+              (notification.status === 'completed' || notification.status === 'failed')
+            ) {
               autoDismissTimersRef.current.delete(notificationId);
               // Defer to avoid setState-during-render (CustomEvent triggers UniversalNotificationBar setState)
               queueMicrotask(() => removeNotificationAnimated(notificationId));
@@ -271,10 +294,13 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     [cancelAutoDismissTimer, getNextInstanceId, removeNotificationAnimated]
   );
 
-  const removeNotification = useCallback((id: string) => {
-    cancelAutoDismissTimer(id);
-    setNotifications((prev: UnifiedNotification[]) => prev.filter((n) => n.id !== id));
-  }, [cancelAutoDismissTimer]);
+  const removeNotification = useCallback(
+    (id: string) => {
+      cancelAutoDismissTimer(id);
+      setNotifications((prev: UnifiedNotification[]) => prev.filter((n) => n.id !== id));
+    },
+    [cancelAutoDismissTimer]
+  );
 
   const clearCompletedNotifications = useCallback(() => {
     setNotifications((prev: UnifiedNotification[]) => {
@@ -307,7 +333,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         storageKey: NOTIFICATION_STORAGE_KEYS.LOG_PROCESSING,
         getMessage: formatLogProcessingMessage,
         getProgress: (e) => Math.min(99.9, e.percentComplete || e.progress || 0),
-        getStatus: (e) => e.status?.toLowerCase() === 'completed' ? 'completed' : undefined,
+        getStatus: (e) => (e.status?.toLowerCase() === 'completed' ? 'completed' : undefined),
         getCompletedMessage: (e) => formatLogProcessingCompletionMessage(e.entriesProcessed),
         getDetails: (e) => ({ operationId: e.operationId })
       },
@@ -322,7 +348,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         getId: () => NOTIFICATION_IDS.LOG_PROCESSING,
         storageKey: NOTIFICATION_STORAGE_KEYS.LOG_PROCESSING,
         getSuccessMessage: () => 'Processing Complete!',
-        getDetailMessage: (e) => formatLogProcessingDetailMessage(e.entriesProcessed, e.linesProcessed, e.elapsed),
+        getDetailMessage: (e) =>
+          formatLogProcessingDetailMessage(e.entriesProcessed, e.linesProcessed, e.elapsed),
         supportFastCompletion: true,
         getFastCompletionId: () => NOTIFICATION_IDS.LOG_PROCESSING
       },
@@ -351,7 +378,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         storageKey: NOTIFICATION_STORAGE_KEYS.LOG_REMOVAL,
         getMessage: formatLogRemovalProgressMessage,
         getProgress: (e) => e.percentComplete || 0,
-        getStatus: (e) => e.status === 'completed' ? 'completed' : e.status === 'error' ? 'failed' : undefined,
+        getStatus: (e) =>
+          e.status === 'completed' ? 'completed' : e.status === 'error' ? 'failed' : undefined,
         getCompletedMessage: (e) => e.message || 'Log removal completed',
         getErrorMessage: (e) => e.message || 'Log removal failed',
         getDetails: (e) => ({ operationId: e.operationId })
@@ -374,7 +402,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         useAnimationDelay: true
       },
       setNotifications,
-      scheduleAutoDismiss  // Use direct scheduling - we know notification is in terminal state
+      scheduleAutoDismiss // Use direct scheduling - we know notification is in terminal state
     );
 
     // ========== Game Removal (using factory) ==========
@@ -398,7 +426,12 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         storageKey: NOTIFICATION_STORAGE_KEYS.GAME_REMOVAL,
         getMessage: formatGameRemovalProgressMessage,
         getProgress: (e) => e.percentComplete || 0,
-        getStatus: (e) => e.status === 'completed' ? 'completed' : (e.status === 'error' || e.status === 'cancelled') ? 'failed' : undefined,
+        getStatus: (e) =>
+          e.status === 'completed'
+            ? 'completed'
+            : e.status === 'error' || e.status === 'cancelled'
+              ? 'failed'
+              : undefined,
         getCompletedMessage: (e) => e.message || 'Game removal completed',
         getErrorMessage: (e) => e.message || 'Game removal failed',
         getDetails: (e) => ({ operationId: e.operationId })
@@ -421,7 +454,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         })
       },
       setNotifications,
-      scheduleAutoDismiss  // Use direct scheduling - we know notification is in terminal state
+      scheduleAutoDismiss // Use direct scheduling - we know notification is in terminal state
     );
 
     // ========== Service Removal (using factory) ==========
@@ -438,22 +471,28 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       cancelAutoDismissTimer
     );
 
-    const handleServiceRemovalProgress = createStatusAwareProgressHandler<ServiceRemovalProgressEvent>(
-      {
-        type: 'service_removal',
-        getId: () => NOTIFICATION_IDS.SERVICE_REMOVAL,
-        storageKey: NOTIFICATION_STORAGE_KEYS.SERVICE_REMOVAL,
-        getMessage: formatServiceRemovalProgressMessage,
-        getProgress: (e) => e.percentComplete || 0,
-        getStatus: (e) => e.status === 'completed' ? 'completed' : (e.status === 'error' || e.status === 'cancelled') ? 'failed' : undefined,
-        getCompletedMessage: (e) => e.message || 'Service removal completed',
-        getErrorMessage: (e) => e.message || 'Service removal failed',
-        getDetails: (e) => ({ operationId: e.operationId })
-      },
-      setNotifications,
-      scheduleAutoDismiss,
-      cancelAutoDismissTimer
-    );
+    const handleServiceRemovalProgress =
+      createStatusAwareProgressHandler<ServiceRemovalProgressEvent>(
+        {
+          type: 'service_removal',
+          getId: () => NOTIFICATION_IDS.SERVICE_REMOVAL,
+          storageKey: NOTIFICATION_STORAGE_KEYS.SERVICE_REMOVAL,
+          getMessage: formatServiceRemovalProgressMessage,
+          getProgress: (e) => e.percentComplete || 0,
+          getStatus: (e) =>
+            e.status === 'completed'
+              ? 'completed'
+              : e.status === 'error' || e.status === 'cancelled'
+                ? 'failed'
+                : undefined,
+          getCompletedMessage: (e) => e.message || 'Service removal completed',
+          getErrorMessage: (e) => e.message || 'Service removal failed',
+          getDetails: (e) => ({ operationId: e.operationId })
+        },
+        setNotifications,
+        scheduleAutoDismiss,
+        cancelAutoDismissTimer
+      );
 
     const handleServiceRemovalComplete = createCompletionHandler<ServiceRemovalCompleteEvent>(
       {
@@ -468,7 +507,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         })
       },
       setNotifications,
-      scheduleAutoDismiss  // Use direct scheduling - we know notification is in terminal state
+      scheduleAutoDismiss // Use direct scheduling - we know notification is in terminal state
     );
 
     // ========== Corruption Removal (using factory) ==========
@@ -485,22 +524,28 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       cancelAutoDismissTimer
     );
 
-    const handleCorruptionRemovalProgress = createStatusAwareProgressHandler<CorruptionRemovalProgressEvent>(
-      {
-        type: 'corruption_removal',
-        getId: () => NOTIFICATION_IDS.CORRUPTION_REMOVAL,
-        storageKey: NOTIFICATION_STORAGE_KEYS.CORRUPTION_REMOVAL,
-        getMessage: (e) => e.message || `Removing corrupted chunks: ${e.status}`,
-        getProgress: (e) => e.percentComplete || 0,
-        getStatus: (e) => e.status === 'completed' ? 'completed' : (e.status === 'failed' || e.status === 'cancelled') ? 'failed' : undefined,
-        getCompletedMessage: (e) => e.message || 'Corruption removal completed',
-        getErrorMessage: (e) => e.message || 'Corruption removal failed',
-        getDetails: (e) => ({ operationId: e.operationId, service: e.service })
-      },
-      setNotifications,
-      scheduleAutoDismiss,
-      cancelAutoDismissTimer
-    );
+    const handleCorruptionRemovalProgress =
+      createStatusAwareProgressHandler<CorruptionRemovalProgressEvent>(
+        {
+          type: 'corruption_removal',
+          getId: () => NOTIFICATION_IDS.CORRUPTION_REMOVAL,
+          storageKey: NOTIFICATION_STORAGE_KEYS.CORRUPTION_REMOVAL,
+          getMessage: (e) => e.message || `Removing corrupted chunks: ${e.status}`,
+          getProgress: (e) => e.percentComplete || 0,
+          getStatus: (e) =>
+            e.status === 'completed'
+              ? 'completed'
+              : e.status === 'failed' || e.status === 'cancelled'
+                ? 'failed'
+                : undefined,
+          getCompletedMessage: (e) => e.message || 'Corruption removal completed',
+          getErrorMessage: (e) => e.message || 'Corruption removal failed',
+          getDetails: (e) => ({ operationId: e.operationId, service: e.service })
+        },
+        setNotifications,
+        scheduleAutoDismiss,
+        cancelAutoDismissTimer
+      );
 
     const handleCorruptionRemovalComplete = createCompletionHandler<CorruptionRemovalCompleteEvent>(
       {
@@ -512,7 +557,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         useAnimationDelay: true
       },
       setNotifications,
-      scheduleAutoDismiss  // Use direct scheduling - we know notification is in terminal state
+      scheduleAutoDismiss // Use direct scheduling - we know notification is in terminal state
     );
 
     // ========== Game Detection (using factory) ==========
@@ -529,22 +574,28 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       cancelAutoDismissTimer
     );
 
-    const handleGameDetectionProgress = createStatusAwareProgressHandler<GameDetectionProgressEvent>(
-      {
-        type: 'game_detection',
-        getId: () => NOTIFICATION_IDS.GAME_DETECTION,
-        storageKey: NOTIFICATION_STORAGE_KEYS.GAME_DETECTION,
-        getMessage: formatGameDetectionProgressMessage,
-        getProgress: (e) => e.percentComplete || 0,
-        getStatus: (e) => e.status === 'completed' ? 'completed' : (e.status === 'failed' || e.status === 'cancelled') ? 'failed' : undefined,
-        getCompletedMessage: (e) => e.message || 'Game detection completed',
-        getErrorMessage: (e) => e.message || 'Game detection failed',
-        getDetails: (e) => ({ operationId: e.operationId })
-      },
-      setNotifications,
-      scheduleAutoDismiss,
-      cancelAutoDismissTimer
-    );
+    const handleGameDetectionProgress =
+      createStatusAwareProgressHandler<GameDetectionProgressEvent>(
+        {
+          type: 'game_detection',
+          getId: () => NOTIFICATION_IDS.GAME_DETECTION,
+          storageKey: NOTIFICATION_STORAGE_KEYS.GAME_DETECTION,
+          getMessage: formatGameDetectionProgressMessage,
+          getProgress: (e) => e.percentComplete || 0,
+          getStatus: (e) =>
+            e.status === 'completed'
+              ? 'completed'
+              : e.status === 'failed' || e.status === 'cancelled'
+                ? 'failed'
+                : undefined,
+          getCompletedMessage: (e) => e.message || 'Game detection completed',
+          getErrorMessage: (e) => e.message || 'Game detection failed',
+          getDetails: (e) => ({ operationId: e.operationId })
+        },
+        setNotifications,
+        scheduleAutoDismiss,
+        cancelAutoDismissTimer
+      );
 
     const handleGameDetectionComplete = createCompletionHandler<GameDetectionCompleteEvent>(
       {
@@ -562,7 +613,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         getFastCompletionId: () => NOTIFICATION_IDS.GAME_DETECTION
       },
       setNotifications,
-      scheduleAutoDismiss  // Use direct scheduling - we know notification is in terminal state
+      scheduleAutoDismiss // Use direct scheduling - we know notification is in terminal state
     );
 
     // ========== Corruption Detection (using factory) ==========
@@ -579,36 +630,43 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       cancelAutoDismissTimer
     );
 
-    const handleCorruptionDetectionProgress = createStatusAwareProgressHandler<CorruptionDetectionProgressEvent>(
-      {
-        type: 'corruption_detection',
-        getId: () => NOTIFICATION_IDS.CORRUPTION_DETECTION,
-        storageKey: NOTIFICATION_STORAGE_KEYS.CORRUPTION_DETECTION,
-        getMessage: formatCorruptionDetectionProgressMessage,
-        getProgress: (e) => e.percentComplete || 0,
-        getStatus: (e) => e.status === 'completed' ? 'completed' : (e.status === 'failed' || e.status === 'cancelled') ? 'failed' : undefined,
-        getCompletedMessage: (e) => e.message || 'Corruption detection completed',
-        getErrorMessage: (e) => e.message || 'Corruption detection failed',
-        getDetails: (e) => ({ operationId: e.operationId })
-      },
-      setNotifications,
-      scheduleAutoDismiss,
-      cancelAutoDismissTimer
-    );
+    const handleCorruptionDetectionProgress =
+      createStatusAwareProgressHandler<CorruptionDetectionProgressEvent>(
+        {
+          type: 'corruption_detection',
+          getId: () => NOTIFICATION_IDS.CORRUPTION_DETECTION,
+          storageKey: NOTIFICATION_STORAGE_KEYS.CORRUPTION_DETECTION,
+          getMessage: formatCorruptionDetectionProgressMessage,
+          getProgress: (e) => e.percentComplete || 0,
+          getStatus: (e) =>
+            e.status === 'completed'
+              ? 'completed'
+              : e.status === 'failed' || e.status === 'cancelled'
+                ? 'failed'
+                : undefined,
+          getCompletedMessage: (e) => e.message || 'Corruption detection completed',
+          getErrorMessage: (e) => e.message || 'Corruption detection failed',
+          getDetails: (e) => ({ operationId: e.operationId })
+        },
+        setNotifications,
+        scheduleAutoDismiss,
+        cancelAutoDismissTimer
+      );
 
-    const handleCorruptionDetectionComplete = createCompletionHandler<CorruptionDetectionCompleteEvent>(
-      {
-        type: 'corruption_detection',
-        getId: () => NOTIFICATION_IDS.CORRUPTION_DETECTION,
-        storageKey: NOTIFICATION_STORAGE_KEYS.CORRUPTION_DETECTION,
-        getSuccessMessage: formatCorruptionDetectionCompleteMessage,
-        getFailureMessage: formatCorruptionDetectionFailureMessage,
-        supportFastCompletion: true,
-        getFastCompletionId: () => NOTIFICATION_IDS.CORRUPTION_DETECTION
-      },
-      setNotifications,
-      scheduleAutoDismiss  // Use direct scheduling - we know notification is in terminal state
-    );
+    const handleCorruptionDetectionComplete =
+      createCompletionHandler<CorruptionDetectionCompleteEvent>(
+        {
+          type: 'corruption_detection',
+          getId: () => NOTIFICATION_IDS.CORRUPTION_DETECTION,
+          storageKey: NOTIFICATION_STORAGE_KEYS.CORRUPTION_DETECTION,
+          getSuccessMessage: formatCorruptionDetectionCompleteMessage,
+          getFailureMessage: formatCorruptionDetectionFailureMessage,
+          supportFastCompletion: true,
+          getFastCompletionId: () => NOTIFICATION_IDS.CORRUPTION_DETECTION
+        },
+        setNotifications,
+        scheduleAutoDismiss // Use direct scheduling - we know notification is in terminal state
+      );
 
     // ========== Database Reset ==========
     const handleDatabaseResetStarted = createStartedHandler<DatabaseResetStartedEvent>(
@@ -624,23 +682,29 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       cancelAutoDismissTimer
     );
 
-    const handleDatabaseResetProgress = createStatusAwareProgressHandler<DatabaseResetProgressEvent>(
-      {
-        type: 'database_reset',
-        getId: () => NOTIFICATION_IDS.DATABASE_RESET,
-        storageKey: NOTIFICATION_STORAGE_KEYS.DATABASE_RESET,
-        getMessage: formatDatabaseResetProgressMessage,
-        getProgress: (e) => e.percentComplete || 0,
-        getStatus: (e) => e.status === 'completed' ? 'completed' : (e.status === 'failed' || e.status === 'error' || e.status === 'cancelled') ? 'failed' : undefined,
-        getCompletedMessage: formatDatabaseResetCompleteMessage,
-        getErrorMessage: (e) => e.message,
-        supportFastCompletion: true,  // Handle fast operations where completion arrives before notification created
-        getDetails: (e) => ({ operationId: e.operationId })
-      },
-      setNotifications,
-      scheduleAutoDismiss,  // Use direct scheduling - we know notification is in terminal state
-      cancelAutoDismissTimer
-    );
+    const handleDatabaseResetProgress =
+      createStatusAwareProgressHandler<DatabaseResetProgressEvent>(
+        {
+          type: 'database_reset',
+          getId: () => NOTIFICATION_IDS.DATABASE_RESET,
+          storageKey: NOTIFICATION_STORAGE_KEYS.DATABASE_RESET,
+          getMessage: formatDatabaseResetProgressMessage,
+          getProgress: (e) => e.percentComplete || 0,
+          getStatus: (e) =>
+            e.status === 'completed'
+              ? 'completed'
+              : e.status === 'failed' || e.status === 'error' || e.status === 'cancelled'
+                ? 'failed'
+                : undefined,
+          getCompletedMessage: formatDatabaseResetCompleteMessage,
+          getErrorMessage: (e) => e.message,
+          supportFastCompletion: true, // Handle fast operations where completion arrives before notification created
+          getDetails: (e) => ({ operationId: e.operationId })
+        },
+        setNotifications,
+        scheduleAutoDismiss, // Use direct scheduling - we know notification is in terminal state
+        cancelAutoDismissTimer
+      );
 
     // ========== Cache Clearing (using factory pattern) ==========
     const handleCacheClearingStarted = createStartedHandler<CacheClearingStartedEvent>(
@@ -663,7 +727,12 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         storageKey: NOTIFICATION_STORAGE_KEYS.CACHE_CLEARING,
         getMessage: formatCacheClearProgressMessage,
         getProgress: (e) => e.percentComplete || 0,
-        getStatus: (e) => e.status === 'completed' ? 'completed' : (e.status === 'failed' || e.status === 'cancelled') ? 'failed' : undefined,
+        getStatus: (e) =>
+          e.status === 'completed'
+            ? 'completed'
+            : e.status === 'failed' || e.status === 'cancelled'
+              ? 'failed'
+              : undefined,
         getCompletedMessage: (e) => e.statusMessage || e.message || 'Cache cleared successfully',
         getErrorMessage: (e) => e.error || e.statusMessage || e.message || 'Cache clear failed',
         getDetails: (e) => ({
@@ -692,7 +761,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         getFailureMessage: formatCacheClearFailureMessage
       },
       setNotifications,
-      scheduleAutoDismiss  // Use direct scheduling - we know notification is in terminal state
+      scheduleAutoDismiss // Use direct scheduling - we know notification is in terminal state
     );
 
     // ========== Depot Mapping (using factory pattern) ==========
@@ -757,7 +826,12 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         storageKey: NOTIFICATION_STORAGE_KEYS.DATA_IMPORT,
         getMessage: formatDataImportProgressMessage,
         getProgress: (e) => e.percentComplete || 0,
-        getStatus: (e) => e.status === 'completed' ? 'completed' : (e.status === 'failed' || e.status === 'cancelled') ? 'failed' : undefined,
+        getStatus: (e) =>
+          e.status === 'completed'
+            ? 'completed'
+            : e.status === 'failed' || e.status === 'cancelled'
+              ? 'failed'
+              : undefined,
         getCompletedMessage: (e) => e.message || 'Data import completed',
         getErrorMessage: (e) => e.message || 'Data import failed',
         getDetails: (e) => ({ operationId: e.operationId })
@@ -824,7 +898,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       let shouldScheduleDismiss = false;
 
       setNotifications((prev: UnifiedNotification[]) => {
-        const existingNotification = prev.find((n) => n.id === NOTIFICATION_IDS.STEAM_SESSION_ERROR);
+        const existingNotification = prev.find(
+          (n) => n.id === NOTIFICATION_IDS.STEAM_SESSION_ERROR
+        );
 
         // If a Steam session error notification already exists and is recent (within 2 seconds),
         // skip creating a duplicate to handle the case where backend sends multiple events
@@ -980,7 +1056,11 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     };
 
     window.addEventListener('notificationvisibilitychange', handleNotificationVisibilityChange);
-    return () => window.removeEventListener('notificationvisibilitychange', handleNotificationVisibilityChange);
+    return () =>
+      window.removeEventListener(
+        'notificationvisibilitychange',
+        handleNotificationVisibilityChange
+      );
   }, [scheduleAutoDismiss]);
 
   // Authenticated fetch helper for recovery operations
@@ -1021,11 +1101,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     // Only trigger recovery on RECONNECTION (not initial connection)
     // Reconnection is when we transition TO 'connected' FROM 'reconnecting' or 'disconnected'
     // but NOT from null (initial mount) since the auth-based recovery handles that
-    if (
-      currentState === 'connected' &&
-      prevState !== null &&
-      prevState !== 'connected'
-    ) {
+    if (currentState === 'connected' && prevState !== null && prevState !== 'connected') {
       const recoverAllOperations = createRecoveryRunner(
         fetchWithAuth,
         setNotifications,
@@ -1036,17 +1112,22 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     }
   }, [signalR.connectionState, authLoading, isAdmin, fetchWithAuth, scheduleAutoDismiss]);
 
-  // Removal/clearing operation types that share the backend _cacheLock
-  const REMOVAL_TYPES = ['log_removal', 'game_removal', 'service_removal', 'corruption_removal', 'cache_clearing'] as const;
-
   // Compute if any removal operation is running (these all share a backend lock)
   const isAnyRemovalRunning = useMemo(
-    () => notifications.some(n => REMOVAL_TYPES.includes(n.type as typeof REMOVAL_TYPES[number]) && n.status === 'running'),
+    () =>
+      notifications.some(
+        (n) =>
+          REMOVAL_TYPES.includes(n.type as (typeof REMOVAL_TYPES)[number]) && n.status === 'running'
+      ),
     [notifications]
   );
 
   const activeRemovalType = useMemo(
-    () => notifications.find(n => REMOVAL_TYPES.includes(n.type as typeof REMOVAL_TYPES[number]) && n.status === 'running')?.type ?? null,
+    () =>
+      notifications.find(
+        (n) =>
+          REMOVAL_TYPES.includes(n.type as (typeof REMOVAL_TYPES)[number]) && n.status === 'running'
+      )?.type ?? null,
     [notifications]
   );
 

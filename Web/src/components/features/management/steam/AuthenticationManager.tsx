@@ -16,10 +16,7 @@ interface AuthenticationManagerProps {
   onSuccess?: (message: string) => void;
 }
 
-const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
-  onError,
-  onSuccess
-}) => {
+const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, onSuccess }) => {
   const { t } = useTranslation();
   const { guestDurationHours } = useGuestConfig();
   const { authMode, refreshAuth } = useAuth();
@@ -40,6 +37,7 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
 
   useEffect(() => {
     checkAuth();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Auto-show auth modal when unexpectedly logged out
@@ -126,7 +124,10 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
       }
     } catch (error: unknown) {
       console.error('Authentication error:', error);
-      setAuthError((error instanceof Error ? error.message : String(error)) || t('modals.steamAuth.errors.authenticationFailed'));
+      setAuthError(
+        (error instanceof Error ? error.message : String(error)) ||
+          t('modals.steamAuth.errors.authenticationFailed')
+      );
     } finally {
       setAuthLoading(false);
     }
@@ -143,7 +144,6 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
     );
   };
 
-
   const handleLogout = async () => {
     setAuthLoading(true);
 
@@ -151,18 +151,27 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
       // First, clear ALL Steam auth (PICS login AND Web API key)
       try {
         // Clear Steam PICS authentication
-        await fetch('/api/steam-auth', ApiService.getFetchOptions({
-          method: 'DELETE'
-        }));
+        await fetch(
+          '/api/steam-auth',
+          ApiService.getFetchOptions({
+            method: 'DELETE'
+          })
+        );
         // Clear Steam Web API key
-        await fetch('/api/steam-api-keys/current', ApiService.getFetchOptions({
-          method: 'DELETE'
-        }));
+        await fetch(
+          '/api/steam-api-keys/current',
+          ApiService.getFetchOptions({
+            method: 'DELETE'
+          })
+        );
         // Update frontend state immediately
         setSteamAuthMode('anonymous');
         setUsername('');
       } catch (steamError) {
-        console.warn('[AuthenticationManager] Failed to clear Steam auth during logout:', steamError);
+        console.warn(
+          '[AuthenticationManager] Failed to clear Steam auth during logout:',
+          steamError
+        );
       }
 
       await authService.logout();
@@ -336,7 +345,9 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
           </p>
 
           <div>
-            <label className="block text-sm font-medium text-themed-secondary mb-2">{t('management.auth.modal.apiKeyLabel')}</label>
+            <label className="block text-sm font-medium text-themed-secondary mb-2">
+              {t('management.auth.modal.apiKeyLabel')}
+            </label>
             <input
               type="password"
               value={apiKey}
@@ -356,7 +367,10 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
               <ol className="list-decimal list-inside text-sm space-y-1 ml-2">
                 <li>{t('management.auth.modal.step1')}</li>
                 <li>
-                  {t('management.auth.modal.step2Before')} <code className="bg-themed-tertiary px-1 rounded">/data/security/api_key.txt</code>
+                  {t('management.auth.modal.step2Before')}{' '}
+                  <code className="bg-themed-tertiary px-1 rounded">
+                    /data/security/api_key.txt
+                  </code>
                 </li>
                 <li>
                   {t('management.auth.modal.step3Before')}{' '}
@@ -403,7 +417,9 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({
               loading={authLoading}
               disabled={!apiKey.trim()}
             >
-              {authMode === 'guest' ? t('management.auth.modal.upgradeToFullAccess') : t('management.auth.authenticate')}
+              {authMode === 'guest'
+                ? t('management.auth.modal.upgradeToFullAccess')
+                : t('management.auth.authenticate')}
             </Button>
           </div>
         </div>

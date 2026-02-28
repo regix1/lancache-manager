@@ -50,7 +50,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
 
   // Derive depot mapping operation state from notifications (standardized pattern)
   const activeDepotNotification = notifications.find(
-    n => n.type === 'depot_mapping' && n.status === 'running'
+    (n) => n.type === 'depot_mapping' && n.status === 'running'
   );
   const isDepotMappingFromNotification = !!activeDepotNotification;
   const [localNextCrawlIn, setLocalNextCrawlIn] = useState<{
@@ -113,7 +113,9 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     if (isDepotMappingFromNotification && activeDepotNotification) {
       // Restore loading state based on notification
       // Note: operationType may be set dynamically, use type assertion for extensible details
-      const notificationDetails = activeDepotNotification.details as { operationType?: 'downloading' | 'scanning' } | undefined;
+      const notificationDetails = activeDepotNotification.details as
+        | { operationType?: 'downloading' | 'scanning' }
+        | undefined;
       if (notificationDetails?.operationType) {
         setOperationType(notificationDetails.operationType);
         setActionLoading(true);
@@ -123,6 +125,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
         setActionLoading(true);
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDepotMappingFromNotification]); // Only trigger on notification state changes
 
   // Refresh progress when component mounts to get accurate nextCrawlIn
@@ -186,8 +189,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
 
     // Web API is unavailable only if V2 is down AND there's no API key
     // If user has an API key, they can always use V1 fallback
-    const webApiNotAvailable =
-      !webApiStatus.isV2Available && !webApiStatus.hasApiKey;
+    const webApiNotAvailable = !webApiStatus.isV2Available && !webApiStatus.hasApiKey;
 
     // If Web API is not available, switch to GitHub
     // AND current selection requires Web API, switch to GitHub
@@ -232,26 +234,38 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       autoSwitchAttemptedRef.current = true;
 
       // Call API to switch to GitHub mode
-      fetch('/api/depots/rebuild/config/mode', ApiService.getFetchOptions({
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify('github')
-      }))
+      fetch(
+        '/api/depots/rebuild/config/mode',
+        ApiService.getFetchOptions({
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify('github')
+        })
+      )
         .then((response) => {
           if (response.ok) {
             // Also set interval to 30 minutes (0.5 hours) for GitHub mode
-            return fetch('/api/depots/rebuild/config/interval', ApiService.getFetchOptions({
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(0.5)
-            }));
+            return fetch(
+              '/api/depots/rebuild/config/interval',
+              ApiService.getFetchOptions({
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(0.5)
+              })
+            );
           } else if (response.status === 401) {
-            console.warn('[DepotMapping] Not authorized to switch scan mode - skipping auto-switch');
+            console.warn(
+              '[DepotMapping] Not authorized to switch scan mode - skipping auto-switch'
+            );
             // Reset flag so it can be retried when user authenticates
             autoSwitchAttemptedRef.current = false;
             return Promise.reject('Not authorized');
           } else {
-            console.error('[DepotMapping] Failed to set scan mode:', response.status, response.statusText);
+            console.error(
+              '[DepotMapping] Failed to set scan mode:',
+              response.status,
+              response.statusText
+            );
             // Reset flag so it can be retried
             autoSwitchAttemptedRef.current = false;
             return Promise.reject(`Failed with status ${response.status}`);
@@ -279,7 +293,17 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       // console.log('[DepotMapping] Web API is now available - resetting auto-switch flag');
       autoSwitchAttemptedRef.current = false;
     }
-  }, [isAdmin, picsProgress?.isWebApiAvailable, webApiStatus?.hasApiKey, webApiStatus?.isFullyOperational, webApiLoading, steamAuthMode, depotConfig?.crawlIncrementalMode, refreshProgress]);
+  }, [
+    isAdmin,
+    picsProgress?.isWebApiAvailable,
+    webApiStatus?.hasApiKey,
+    webApiStatus?.isFullyOperational,
+    webApiStatus,
+    webApiLoading,
+    steamAuthMode,
+    depotConfig?.crawlIncrementalMode,
+    refreshProgress
+  ]);
 
   // Check for pending GitHub download from localStorage on mount
   useEffect(() => {
@@ -313,7 +337,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       storage.removeItem('githubDownloadTime');
       storage.removeItem('githubDownloading'); // Make sure this is also cleared
     }
-  }, [depotConfig?.isProcessing, githubDownloadComplete]);
+  }, [depotConfig, depotConfig?.isProcessing, githubDownloadComplete]);
 
   // NOTE: "Apply Now Source" is intentionally NOT synced with the automatic schedule mode.
   // These are independent controls - users may want to run a different source manually
@@ -381,7 +405,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
         }, 1000);
       }
     }
-  }, [notifications, onDataRefresh, operationType]);
+  }, [notifications, onDataRefresh, operationType, refreshProgress]);
 
   // Clear operation type when scan completes
   useEffect(() => {
@@ -394,7 +418,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
         scanTimeoutRef.current = null;
       }
     }
-  }, [depotConfig?.isProcessing, operationType]);
+  }, [depotConfig?.isProcessing, operationType, setActionLoading]);
 
   // Safety timeout: Auto-clear stuck loading state if no progress for 5 minutes
   // This handles cases where SignalR messages are lost during concurrent operations
@@ -410,27 +434,30 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       }
 
       // Set a new timeout - if no state change for 5 minutes, assume stuck
-      scanTimeoutRef.current = setTimeout(() => {
-        const timeSinceUpdate = Date.now() - lastProgressUpdateRef.current;
-        console.warn(
-          '[DepotMapping] Scan timeout detected - no updates for',
-          Math.round(timeSinceUpdate / 1000),
-          'seconds'
-        );
+      scanTimeoutRef.current = setTimeout(
+        () => {
+          const timeSinceUpdate = Date.now() - lastProgressUpdateRef.current;
+          console.warn(
+            '[DepotMapping] Scan timeout detected - no updates for',
+            Math.round(timeSinceUpdate / 1000),
+            'seconds'
+          );
 
-        // Force refresh progress to check actual backend state
-        refreshProgress().then(() => {
-          // If still showing as running after refresh, something is wrong
-          // Clear the stuck state
-          if (depotConfig?.isProcessing) {
-            console.warn('[DepotMapping] Forcing clear of stuck loading state');
-            setOperationType(null);
-            setActionLoading(false);
-            // Note: Operation state now handled by NotificationsContext
-            onError?.('Depot scan may have stalled. Please check the status and try again.');
-          }
-        });
-      }, 5 * 60 * 1000); // 5 minutes
+          // Force refresh progress to check actual backend state
+          refreshProgress().then(() => {
+            // If still showing as running after refresh, something is wrong
+            // Clear the stuck state
+            if (depotConfig?.isProcessing) {
+              console.warn('[DepotMapping] Forcing clear of stuck loading state');
+              setOperationType(null);
+              setActionLoading(false);
+              // Note: Operation state now handled by NotificationsContext
+              onError?.('Depot scan may have stalled. Please check the status and try again.');
+            }
+          });
+        },
+        5 * 60 * 1000
+      ); // 5 minutes
 
       return () => {
         if (scanTimeoutRef.current) {
@@ -445,7 +472,14 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
         scanTimeoutRef.current = null;
       }
     }
-  }, [operationType, depotConfig?.isProcessing, depotConfig?.progressPercent]);
+  }, [
+    operationType,
+    depotConfig?.isProcessing,
+    depotConfig?.progressPercent,
+    refreshProgress,
+    onError,
+    setActionLoading
+  ]);
 
   // Listen for "change gap too large" errors from automatic scans
   useEffect(() => {
@@ -462,6 +496,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
 
     window.addEventListener('show-full-scan-modal', handleShowFullScanModal);
     return () => window.removeEventListener('show-full-scan-modal', handleShowFullScanModal);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleDownloadFromGitHub = async () => {
@@ -498,7 +533,10 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     } catch (err: unknown) {
       // Don't show error for user-initiated cancellation
       if (!isAbortError(err)) {
-        onError?.((err instanceof Error ? err.message : String(err)) || t('management.depotMapping.errors.failedToDownloadFromGitHub'));
+        onError?.(
+          (err instanceof Error ? err.message : String(err)) ||
+            t('management.depotMapping.errors.failedToDownloadFromGitHub')
+        );
       }
       setGithubDownloadComplete(false);
       setGithubDownloading(false);
@@ -542,7 +580,6 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     setOperationType('scanning');
 
     try {
-
       // Use Steam scan (incremental or full based on user selection)
       // Check if JSON file exists and needs to be imported to database
       const picsStatus = await ApiService.getPicsStatus();
@@ -555,9 +592,12 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       const useIncrementalScan = depotSource === 'incremental';
       if (hasJsonFile && !hasDatabaseMappings && useIncrementalScan) {
         // console.log('[DepotMapping] Importing JSON file to database before incremental scan');
-        await fetch('/api/depots/import?source=local', ApiService.getFetchOptions({
-          method: 'POST'
-        }));
+        await fetch(
+          '/api/depots/import?source=local',
+          ApiService.getFetchOptions({
+            method: 'POST'
+          })
+        );
         onSuccess?.(
           'Imported depot mappings to database - depot count will update after scan completes'
         );
@@ -601,7 +641,10 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
 
       // Keep operation type active - it will be cleared when scan completes
     } catch (err: unknown) {
-      onError?.((err instanceof Error ? err.message : String(err)) || t('management.depotMapping.errors.failedToProcessDepotMappings'));
+      onError?.(
+        (err instanceof Error ? err.message : String(err)) ||
+          t('management.depotMapping.errors.failedToProcessDepotMappings')
+      );
       setOperationType(null);
     } finally {
       setActionLoading(false);
@@ -631,30 +674,46 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
           subtitle={t('management.depotMapping.subtitle')}
           helpContent={
             <HelpPopover position="left" width={320}>
-              <HelpSection title={t('management.depotMapping.help.scanModes.title')} variant="subtle">
+              <HelpSection
+                title={t('management.depotMapping.help.scanModes.title')}
+                variant="subtle"
+              >
                 <div className="divide-y divide-[var(--theme-text-muted)]">
                   <div className="py-1.5 first:pt-0 last:pb-0">
-                    <div className="font-medium text-themed-primary">{t('management.depotMapping.help.scanModes.incremental.term')}</div>
-                    <div className="mt-0.5">{t('management.depotMapping.help.scanModes.incremental.description')}</div>
+                    <div className="font-medium text-themed-primary">
+                      {t('management.depotMapping.help.scanModes.incremental.term')}
+                    </div>
+                    <div className="mt-0.5">
+                      {t('management.depotMapping.help.scanModes.incremental.description')}
+                    </div>
                   </div>
                   <div className="py-1.5 first:pt-0 last:pb-0">
-                    <div className="font-medium text-themed-primary">{t('management.depotMapping.help.scanModes.full.term')}</div>
-                    <div className="mt-0.5">{t('management.depotMapping.help.scanModes.full.description')}</div>
+                    <div className="font-medium text-themed-primary">
+                      {t('management.depotMapping.help.scanModes.full.term')}
+                    </div>
+                    <div className="mt-0.5">
+                      {t('management.depotMapping.help.scanModes.full.description')}
+                    </div>
                   </div>
                   <div className="py-1.5 first:pt-0 last:pb-0">
-                    <div className="font-medium text-themed-primary">{t('management.depotMapping.help.scanModes.github.term')}</div>
-                    <div className="mt-0.5">{t('management.depotMapping.help.scanModes.github.description')}</div>
+                    <div className="font-medium text-themed-primary">
+                      {t('management.depotMapping.help.scanModes.github.term')}
+                    </div>
+                    <div className="mt-0.5">
+                      {t('management.depotMapping.help.scanModes.github.description')}
+                    </div>
                   </div>
                 </div>
               </HelpSection>
 
-              <HelpSection title={t('management.depotMapping.help.settings.title')} variant="subtle">
+              <HelpSection
+                title={t('management.depotMapping.help.settings.title')}
+                variant="subtle"
+              >
                 {t('management.depotMapping.help.settings.description')}
               </HelpSection>
 
-              <HelpNote type="info">
-                {t('management.depotMapping.help.note')}
-              </HelpNote>
+              <HelpNote type="info">{t('management.depotMapping.help.note')}</HelpNote>
             </HelpPopover>
           }
           actions={
@@ -707,6 +766,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
 
         {/* Automatic Scan Skipped Warning - Don't show if GitHub download is complete or in progress */}
         {/* Note: automaticScanSkipped is now handled via SignalR in App.tsx */}
+        {/* eslint-disable-next-line no-constant-binary-expression */}
         {false && (
           <div className="mb-4 p-3 rounded-lg border bg-themed-error border-themed-error">
             <div className="flex items-start gap-3">
@@ -735,7 +795,9 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
               </div>
               <div className="text-xs text-themed-muted space-y-2 sm:space-y-1.5">
                 <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-0.5 sm:gap-2">
-                  <span className="opacity-60 text-left whitespace-nowrap">{t('management.depotMapping.schedule.runsEvery')}</span>
+                  <span className="opacity-60 text-left whitespace-nowrap">
+                    {t('management.depotMapping.schedule.runsEvery')}
+                  </span>
                   <span className="font-medium text-themed-primary">
                     {!depotConfig
                       ? t('common.loading')
@@ -755,12 +817,16 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                               ? t('management.depotMapping.intervals.30min')
                               : depotConfig.crawlIntervalHours === 0.5
                                 ? t('management.depotMapping.intervals.30min')
-                                : t('management.depotMapping.intervals.hours', { count: depotConfig.crawlIntervalHours });
+                                : t('management.depotMapping.intervals.hours', {
+                                    count: depotConfig.crawlIntervalHours
+                                  });
                           })()}
                   </span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-0.5 sm:gap-2">
-                  <span className="opacity-60 text-left whitespace-nowrap">{t('management.depotMapping.schedule.scanMode')}</span>
+                  <span className="opacity-60 text-left whitespace-nowrap">
+                    {t('management.depotMapping.schedule.scanMode')}
+                  </span>
                   <span className="font-medium text-themed-primary">
                     {!depotConfig
                       ? t('common.loading')
@@ -785,7 +851,9 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                   </span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-0.5 sm:gap-2">
-                  <span className="opacity-60 text-left whitespace-nowrap">{t('management.depotMapping.schedule.nextRun')}</span>
+                  <span className="opacity-60 text-left whitespace-nowrap">
+                    {t('management.depotMapping.schedule.nextRun')}
+                  </span>
                   <span className="font-medium text-themed-primary">
                     {!depotConfig || depotConfig.crawlIntervalHours === 0
                       ? t('management.depotMapping.schedule.disabled')
@@ -794,7 +862,9 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                 </div>
                 {depotConfig?.lastCrawlTime && (
                   <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-0.5 sm:gap-2">
-                    <span className="opacity-60 text-left whitespace-nowrap">{t('management.depotMapping.schedule.lastRun')}</span>
+                    <span className="opacity-60 text-left whitespace-nowrap">
+                      {t('management.depotMapping.schedule.lastRun')}
+                    </span>
                     <span className="font-medium text-themed-primary">
                       {depotConfig.crawlIntervalHours === 0
                         ? t('management.depotMapping.schedule.disabled')
@@ -808,21 +878,24 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
               {/* GitHub Mode: Fixed 30-minute interval (either actual GitHub mode or forced due to Web API unavailability) */}
               {(() => {
                 // Web API is unavailable only if V2 is down AND there's no API key
-                const webApiNotAvailable =
-                  !webApiStatus?.isV2Available && !webApiStatus?.hasApiKey;
+                const webApiNotAvailable = !webApiStatus?.isV2Available && !webApiStatus?.hasApiKey;
                 const isGithubMode =
                   depotConfig?.crawlIncrementalMode === 'github' || webApiNotAvailable;
 
                 if (isGithubMode) {
                   return (
                     <div>
-                    <EnhancedDropdown
-                      options={[{ value: '0.5', label: t('management.depotMapping.intervals.every30Min') }]}
-                      value="0.5"
-                      onChange={() => {}}
-                      disabled={true}
-                      className="w-full"
-                    />
+                      <EnhancedDropdown
+                        options={[
+                          { value: '0.5', label: t('management.depotMapping.intervals.every30Min') }
+                        ]}
+                        value="0.5"
+                        onChange={() => {
+                          /* noop */
+                        }}
+                        disabled={true}
+                        className="w-full"
+                      />
                       <p className="text-xs text-themed-muted mt-1">
                         {t('management.depotMapping.intervalFixedNote')}
                       </p>
@@ -846,11 +919,14 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                     onChange={async (value) => {
                       const newInterval = Number(value);
                       try {
-                        await fetch('/api/depots/rebuild/config/interval', ApiService.getFetchOptions({
-                          method: 'PUT',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify(newInterval)
-                        }));
+                        await fetch(
+                          '/api/depots/rebuild/config/interval',
+                          ApiService.getFetchOptions({
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(newInterval)
+                          })
+                        );
 
                         // Refresh the progress data after updating the interval
                         refreshProgress();
@@ -867,17 +943,31 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                 options={[
                   {
                     value: 'incremental',
-                    label: (picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational || webApiStatus?.hasApiKey)
-                      ? t('management.depotMapping.modes.incremental')
-                      : t('management.depotMapping.modes.incrementalWebApiRequired'),
-                    disabled: !(picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational || webApiStatus?.hasApiKey)
+                    label:
+                      picsProgress?.isWebApiAvailable ||
+                      webApiStatus?.isFullyOperational ||
+                      webApiStatus?.hasApiKey
+                        ? t('management.depotMapping.modes.incremental')
+                        : t('management.depotMapping.modes.incrementalWebApiRequired'),
+                    disabled: !(
+                      picsProgress?.isWebApiAvailable ||
+                      webApiStatus?.isFullyOperational ||
+                      webApiStatus?.hasApiKey
+                    )
                   },
                   {
                     value: 'full',
-                    label: (picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational || webApiStatus?.hasApiKey)
-                      ? t('management.depotMapping.modes.full')
-                      : t('management.depotMapping.modes.fullWebApiRequired'),
-                    disabled: !(picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational || webApiStatus?.hasApiKey)
+                    label:
+                      picsProgress?.isWebApiAvailable ||
+                      webApiStatus?.isFullyOperational ||
+                      webApiStatus?.hasApiKey
+                        ? t('management.depotMapping.modes.full')
+                        : t('management.depotMapping.modes.fullWebApiRequired'),
+                    disabled: !(
+                      picsProgress?.isWebApiAvailable ||
+                      webApiStatus?.isFullyOperational ||
+                      webApiStatus?.hasApiKey
+                    )
                   },
                   { value: 'github', label: t('management.depotMapping.modes.github') }
                 ]}
@@ -903,21 +993,27 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
 
                     // If switching FROM GitHub to another mode, reset interval to 1 hour
                     if (wasGithubMode && value !== 'github') {
-                      await fetch('/api/depots/rebuild/config/interval', ApiService.getFetchOptions({
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(1)
-                      }));
+                      await fetch(
+                        '/api/depots/rebuild/config/interval',
+                        ApiService.getFetchOptions({
+                          method: 'PUT',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify(1)
+                        })
+                      );
                     }
 
                     // If GitHub is selected, force 30-minute interval
                     if (value === 'github') {
                       // Set interval to 0.5 hours (30 minutes)
-                      await fetch('/api/depots/rebuild/config/interval', ApiService.getFetchOptions({
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(0.5)
-                      }));
+                      await fetch(
+                        '/api/depots/rebuild/config/interval',
+                        ApiService.getFetchOptions({
+                          method: 'PUT',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify(0.5)
+                        })
+                      );
 
                       // IMPORTANT: Also update the "Apply Now Source" to match
                       // When user selects GitHub schedule, they likely want GitHub for manual apply too
@@ -928,11 +1024,14 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                     // Set scan mode
                     const incremental =
                       value === 'incremental' ? true : value === 'github' ? 'github' : false;
-                    await fetch('/api/depots/rebuild/config/mode', ApiService.getFetchOptions({
-                      method: 'PUT',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify(incremental)
-                    }));
+                    await fetch(
+                      '/api/depots/rebuild/config/mode',
+                      ApiService.getFetchOptions({
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(incremental)
+                      })
+                    );
 
                     // Refresh the progress data after updating the scan mode
                     refreshProgress();
@@ -941,10 +1040,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                   }
                 }}
                 disabled={
-                  !isAdmin ||
-                  mockMode ||
-                  !depotConfig ||
-                  depotConfig.crawlIntervalHours === 0
+                  !isAdmin || mockMode || !depotConfig || depotConfig.crawlIntervalHours === 0
                 }
                 className="w-full"
               />
@@ -961,17 +1057,31 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
             options={[
               {
                 value: 'incremental',
-                label: (picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational || webApiStatus?.hasApiKey)
-                  ? t('management.depotMapping.sources.steamIncremental')
-                  : t('management.depotMapping.sources.steamIncrementalWebApiRequired'),
-                disabled: !(picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational || webApiStatus?.hasApiKey)
+                label:
+                  picsProgress?.isWebApiAvailable ||
+                  webApiStatus?.isFullyOperational ||
+                  webApiStatus?.hasApiKey
+                    ? t('management.depotMapping.sources.steamIncremental')
+                    : t('management.depotMapping.sources.steamIncrementalWebApiRequired'),
+                disabled: !(
+                  picsProgress?.isWebApiAvailable ||
+                  webApiStatus?.isFullyOperational ||
+                  webApiStatus?.hasApiKey
+                )
               },
               {
                 value: 'full',
-                label: (picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational || webApiStatus?.hasApiKey)
-                  ? t('management.depotMapping.sources.steamFull')
-                  : t('management.depotMapping.sources.steamFullWebApiRequired'),
-                disabled: !(picsProgress?.isWebApiAvailable || webApiStatus?.isFullyOperational || webApiStatus?.hasApiKey)
+                label:
+                  picsProgress?.isWebApiAvailable ||
+                  webApiStatus?.isFullyOperational ||
+                  webApiStatus?.hasApiKey
+                    ? t('management.depotMapping.sources.steamFull')
+                    : t('management.depotMapping.sources.steamFullWebApiRequired'),
+                disabled: !(
+                  picsProgress?.isWebApiAvailable ||
+                  webApiStatus?.isFullyOperational ||
+                  webApiStatus?.hasApiKey
+                )
               },
               {
                 value: 'github',
@@ -1011,19 +1121,27 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
             loading={actionLoading || depotConfig?.isProcessing}
             fullWidth
           >
-            {actionLoading && operationType === 'downloading' && t('management.depotMapping.buttons.downloadingFromGitHub')}
-            {actionLoading && operationType === 'scanning' && t('management.depotMapping.buttons.startingScan')}
+            {actionLoading &&
+              operationType === 'downloading' &&
+              t('management.depotMapping.buttons.downloadingFromGitHub')}
+            {actionLoading &&
+              operationType === 'scanning' &&
+              t('management.depotMapping.buttons.startingScan')}
             {!actionLoading &&
               depotConfig?.isProcessing &&
-              t('management.depotMapping.buttons.scanning', { percent: Math.round(depotConfig.progressPercent) })}
+              t('management.depotMapping.buttons.scanning', {
+                percent: Math.round(depotConfig.progressPercent)
+              })}
             {!actionLoading &&
               !depotConfig?.isProcessing &&
               githubDownloadComplete &&
               t('management.depotMapping.buttons.applyingMappings')}
-            {!actionLoading && !depotConfig?.isProcessing && !githubDownloadComplete && t('management.depotMapping.buttons.applyNow')}
+            {!actionLoading &&
+              !depotConfig?.isProcessing &&
+              !githubDownloadComplete &&
+              t('management.depotMapping.buttons.applyNow')}
           </Button>
         </div>
-
       </Card>
 
       {/* Data Update Required Modal */}
@@ -1051,7 +1169,10 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
               setTimeout(() => onDataRefresh?.(), 2000);
               // Note: NotificationsContext will create a notification via SignalR (DepotMappingStarted event)
             } catch (err: unknown) {
-              onError?.((err instanceof Error ? err.message : String(err)) || t('management.depotMapping.errors.failedToStartFullScan'));
+              onError?.(
+                (err instanceof Error ? err.message : String(err)) ||
+                  t('management.depotMapping.errors.failedToStartFullScan')
+              );
               setOperationType(null);
             } finally {
               setActionLoading(false);

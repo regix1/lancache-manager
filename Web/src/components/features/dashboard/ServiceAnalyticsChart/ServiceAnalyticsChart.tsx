@@ -12,12 +12,30 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
   ({ serviceStats, glassmorphism = false }) => {
     const { t } = useTranslation();
     const [activeTab, setActiveTab] = useState<TabId>('service');
-    
-    const TABS: TabConfig[] = useMemo(() => [
-      { id: 'service', name: t('dashboard.serviceAnalytics.tabs.serviceDistribution'), shortName: t('dashboard.serviceAnalytics.tabs.service'), icon: PieChart },
-      { id: 'hit-ratio', name: t('dashboard.serviceAnalytics.tabs.hitRatioFull'), shortName: t('dashboard.serviceAnalytics.tabs.hitRatio'), icon: Database },
-      { id: 'bandwidth', name: t('dashboard.serviceAnalytics.tabs.bandwidthFull'), shortName: t('dashboard.serviceAnalytics.tabs.bandwidth'), icon: Zap },
-    ], [t]);
+
+    const TABS: TabConfig[] = useMemo(
+      () => [
+        {
+          id: 'service',
+          name: t('dashboard.serviceAnalytics.tabs.serviceDistribution'),
+          shortName: t('dashboard.serviceAnalytics.tabs.service'),
+          icon: PieChart
+        },
+        {
+          id: 'hit-ratio',
+          name: t('dashboard.serviceAnalytics.tabs.hitRatioFull'),
+          shortName: t('dashboard.serviceAnalytics.tabs.hitRatio'),
+          icon: Database
+        },
+        {
+          id: 'bandwidth',
+          name: t('dashboard.serviceAnalytics.tabs.bandwidthFull'),
+          shortName: t('dashboard.serviceAnalytics.tabs.bandwidth'),
+          icon: Zap
+        }
+      ],
+      [t]
+    );
 
     // Get chart data from hook
     const chartData = useChartData(serviceStats, activeTab);
@@ -32,7 +50,7 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
         label,
         value: originalData[index],
         color: dataset.backgroundColor[index],
-        percentage: chartData.total > 0 ? (originalData[index] / chartData.total) * 100 : 0,
+        percentage: chartData.total > 0 ? (originalData[index] / chartData.total) * 100 : 0
       }));
     }, [chartData]);
 
@@ -103,15 +121,21 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
             <div className="stats-footer">
               <div className="stat-box primary">
                 <div className="stat-box-value">{formatBytes(footerStats.totalBytes)}</div>
-                <div className="stat-box-label">{t('dashboard.serviceAnalytics.footer.totalData')}</div>
+                <div className="stat-box-label">
+                  {t('dashboard.serviceAnalytics.footer.totalData')}
+                </div>
               </div>
               <div className="stat-box">
                 <div className="stat-box-value">{footerStats.serviceCount}</div>
-                <div className="stat-box-label">{t('dashboard.serviceAnalytics.footer.services')}</div>
+                <div className="stat-box-label">
+                  {t('dashboard.serviceAnalytics.footer.services')}
+                </div>
               </div>
               <div className="stat-box">
                 <div className="stat-box-value">{formatPercent(footerStats.hitRatio)}</div>
-                <div className="stat-box-label">{t('dashboard.serviceAnalytics.footer.hitRate')}</div>
+                <div className="stat-box-label">
+                  {t('dashboard.serviceAnalytics.footer.hitRate')}
+                </div>
               </div>
             </div>
           </>

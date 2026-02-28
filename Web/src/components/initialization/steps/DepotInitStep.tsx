@@ -50,7 +50,9 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
   const { t } = useTranslation();
   const signalR = useSignalR();
   const [initializing, setInitializing] = useState(false);
-  const [selectedMethod, setSelectedMethod] = useState<'cloud' | 'generate' | 'continue' | null>(null);
+  const [selectedMethod, setSelectedMethod] = useState<'cloud' | 'generate' | 'continue' | null>(
+    null
+  );
   const [downloadStatus, setDownloadStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
@@ -101,6 +103,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
       signalR.off('DepotMappingProgress', handleDepotMappingProgress);
       signalR.off('DepotMappingComplete', handleDepotMappingComplete);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signalR, selectedMethod, onComplete]);
 
   useEffect(() => {
@@ -116,12 +119,14 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
       }
     };
     checkActiveOperation();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (hideOptions && !initializing && !selectedMethod && !error) {
       handleDownload();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hideOptions]);
 
   const shouldShowContinueOption = () => {
@@ -140,7 +145,10 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
     } catch (err: unknown) {
       // Don't show error for user-initiated cancellation
       if (!isAbortError(err)) {
-        setError((err instanceof Error ? err.message : String(err)) || t('initialization.depotInit.failedToDownload'));
+        setError(
+          (err instanceof Error ? err.message : String(err)) ||
+            t('initialization.depotInit.failedToDownload')
+        );
       }
       setInitializing(false);
       setSelectedMethod(null);
@@ -163,7 +171,10 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
       }
       onGenerateOwn();
     } catch (err: unknown) {
-      setError((err instanceof Error ? err.message : String(err)) || t('initialization.depotInit.failedToGenerate'));
+      setError(
+        (err instanceof Error ? err.message : String(err)) ||
+          t('initialization.depotInit.failedToGenerate')
+      );
       setInitializing(false);
       setSelectedMethod(null);
     }
@@ -191,7 +202,10 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
       }
       onContinue();
     } catch (err: unknown) {
-      setError((err instanceof Error ? err.message : String(err)) || t('initialization.depotInit.failedIncremental'));
+      setError(
+        (err instanceof Error ? err.message : String(err)) ||
+          t('initialization.depotInit.failedIncremental')
+      );
       setInitializing(false);
       setSelectedMethod(null);
       setDownloadStatus(null);
@@ -222,7 +236,11 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
             )}
           </div>
           <h3 className="text-xl font-semibold text-themed-primary mb-1">
-            {progress === 100 ? t('initialization.depotInit.downloadComplete') : initializing ? t('initialization.depotInit.downloadingMappings') : t('initialization.depotInit.preparingDownload')}
+            {progress === 100
+              ? t('initialization.depotInit.downloadComplete')
+              : initializing
+                ? t('initialization.depotInit.downloadingMappings')
+                : t('initialization.depotInit.preparingDownload')}
           </h3>
           <p className="text-sm text-themed-secondary max-w-md">
             {progress === 100
@@ -235,7 +253,9 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
         {initializing && progress < 100 && (
           <div className="space-y-3">
             <div className="p-3 rounded-lg text-center bg-themed-tertiary">
-              <p className="text-sm font-medium text-themed-primary">{downloadStatus || t('initialization.depotInit.downloading')}</p>
+              <p className="text-sm font-medium text-themed-primary">
+                {downloadStatus || t('initialization.depotInit.downloading')}
+              </p>
             </div>
             {progress > 0 && (
               <div>
@@ -245,7 +265,9 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
                     style={{ width: `${progress}%` }}
                   />
                 </div>
-                <p className="text-sm text-themed-secondary text-center mt-2">{progress.toFixed(1)}%</p>
+                <p className="text-sm text-themed-secondary text-center mt-2">
+                  {progress.toFixed(1)}%
+                </p>
               </div>
             )}
           </div>
@@ -278,7 +300,9 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
         <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-themed-info">
           <Database className="w-7 h-7 icon-info" />
         </div>
-        <h3 className="text-lg font-semibold text-themed-primary mb-1">{t('initialization.depotInit.title')}</h3>
+        <h3 className="text-lg font-semibold text-themed-primary mb-1">
+          {t('initialization.depotInit.title')}
+        </h3>
         <p className="text-sm text-themed-secondary max-w-md">
           {t('initialization.depotInit.subtitle')}
         </p>
@@ -293,12 +317,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
               {t('initialization.depotInit.githubUnavailable')}
             </p>
             {onBackToSteamAuth && (
-              <Button
-                size="xs"
-                variant="outline"
-                onClick={onBackToSteamAuth}
-                className="mt-2"
-              >
+              <Button size="xs" variant="outline" onClick={onBackToSteamAuth} className="mt-2">
                 <ArrowLeft className="w-3 h-3 mr-1" />
                 {t('initialization.depotInit.changeAuthMethod')}
               </Button>
@@ -309,14 +328,18 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
 
       {/* Status Display */}
       {downloadStatus && (
-        <div className={`p-3 rounded-lg ${progress === 100 ? 'bg-themed-success' : 'bg-themed-info'}`}>
+        <div
+          className={`p-3 rounded-lg ${progress === 100 ? 'bg-themed-success' : 'bg-themed-info'}`}
+        >
           <div className="flex items-center gap-2 mb-2">
             {progress === 100 ? (
               <CheckCircle className="w-4 h-4 icon-success" />
             ) : (
               <Loader2 className="w-4 h-4 animate-spin icon-info" />
             )}
-            <p className={`text-sm font-medium ${progress === 100 ? 'text-themed-success' : 'text-themed-info'}`}>
+            <p
+              className={`text-sm font-medium ${progress === 100 ? 'text-themed-success' : 'text-themed-info'}`}
+            >
               {downloadStatus}
             </p>
           </div>
@@ -342,11 +365,14 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
       {picsData && (
         <div className="p-3 rounded-lg text-sm bg-themed-tertiary">
           <p className="text-themed-secondary">
-            <strong className="text-themed-primary">{t('initialization.depotInit.currentStatus')}</strong>{' '}
-            {picsData.jsonFile?.exists && t('initialization.depotInit.jsonMappings', {
-              count: picsData.jsonFile?.totalMappings ?? 0,
-              formattedCount: (picsData.jsonFile?.totalMappings ?? 0).toLocaleString()
-            }) + ' '}
+            <strong className="text-themed-primary">
+              {t('initialization.depotInit.currentStatus')}
+            </strong>{' '}
+            {picsData.jsonFile?.exists &&
+              t('initialization.depotInit.jsonMappings', {
+                count: picsData.jsonFile?.totalMappings ?? 0,
+                formattedCount: (picsData.jsonFile?.totalMappings ?? 0).toLocaleString()
+              }) + ' '}
             {t('initialization.depotInit.dbMappings', {
               count: picsData.database?.totalMappings ?? 0,
               formattedCount: (picsData.database?.totalMappings ?? 0).toLocaleString()
@@ -357,7 +383,9 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
       )}
 
       {/* Options Grid */}
-      <div className={`grid grid-cols-1 gap-3 ${shouldShowContinueOption() ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
+      <div
+        className={`grid grid-cols-1 gap-3 ${shouldShowContinueOption() ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}
+      >
         {/* Cloud Download */}
         <div
           className={`p-4 rounded-lg border-2 flex flex-col ${
@@ -368,7 +396,9 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
         >
           <div className="flex items-center gap-2 mb-2">
             <Cloud className="w-5 h-5 icon-info" />
-            <h4 className="font-semibold text-themed-primary">{t('initialization.depotInit.precreated')}</h4>
+            <h4 className="font-semibold text-themed-primary">
+              {t('initialization.depotInit.precreated')}
+            </h4>
           </div>
           <p className="text-xs text-themed-secondary mb-3 flex-grow">
             {t('initialization.depotInit.precreatedDesc')}
@@ -381,8 +411,14 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
             disabled={initializing || usingSteamAuth}
             fullWidth
           >
-            {initializing && selectedMethod === 'cloud' && <Loader2 className="w-3 h-3 animate-spin mr-1" />}
-            {usingSteamAuth ? t('initialization.depotInit.unavailable') : initializing && selectedMethod === 'cloud' ? t('initialization.depotInit.downloading') : t('initialization.depotInit.download')}
+            {initializing && selectedMethod === 'cloud' && (
+              <Loader2 className="w-3 h-3 animate-spin mr-1" />
+            )}
+            {usingSteamAuth
+              ? t('initialization.depotInit.unavailable')
+              : initializing && selectedMethod === 'cloud'
+                ? t('initialization.depotInit.downloading')
+                : t('initialization.depotInit.download')}
           </Button>
         </div>
 
@@ -396,7 +432,9 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
         >
           <div className="flex items-center gap-2 mb-2">
             <Database className="w-5 h-5 icon-success" />
-            <h4 className="font-semibold text-themed-primary">{t('initialization.depotInit.generateFresh')}</h4>
+            <h4 className="font-semibold text-themed-primary">
+              {t('initialization.depotInit.generateFresh')}
+            </h4>
           </div>
           <p className="text-xs text-themed-secondary mb-3 flex-grow">
             {t('initialization.depotInit.generateDesc')}
@@ -409,8 +447,12 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
             disabled={initializing}
             fullWidth
           >
-            {initializing && selectedMethod === 'generate' && <Loader2 className="w-3 h-3 animate-spin mr-1" />}
-            {initializing && selectedMethod === 'generate' ? t('initialization.depotInit.processing') : t('initialization.depotInit.generate')}
+            {initializing && selectedMethod === 'generate' && (
+              <Loader2 className="w-3 h-3 animate-spin mr-1" />
+            )}
+            {initializing && selectedMethod === 'generate'
+              ? t('initialization.depotInit.processing')
+              : t('initialization.depotInit.generate')}
           </Button>
         </div>
 
@@ -425,7 +467,9 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
           >
             <div className="flex items-center gap-2 mb-2">
               <Database className="w-5 h-5 icon-warning" />
-              <h4 className="font-semibold text-themed-primary">{t('initialization.depotInit.continue')}</h4>
+              <h4 className="font-semibold text-themed-primary">
+                {t('initialization.depotInit.continue')}
+              </h4>
             </div>
             <p className="text-xs text-themed-secondary mb-3 flex-grow">
               {t('initialization.depotInit.continueDesc')}
@@ -438,8 +482,12 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
               disabled={initializing}
               fullWidth
             >
-              {initializing && selectedMethod === 'continue' && <Loader2 className="w-3 h-3 animate-spin mr-1" />}
-              {initializing && selectedMethod === 'continue' ? t('initialization.depotInit.updating') : t('initialization.depotInit.update')}
+              {initializing && selectedMethod === 'continue' && (
+                <Loader2 className="w-3 h-3 animate-spin mr-1" />
+              )}
+              {initializing && selectedMethod === 'continue'
+                ? t('initialization.depotInit.updating')
+                : t('initialization.depotInit.update')}
             </Button>
           </div>
         )}

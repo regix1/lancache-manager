@@ -53,6 +53,7 @@ const MemoryDiagnostics: React.FC = () => {
 
   useEffect(() => {
     fetchMemoryStats();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (loading) {
@@ -100,13 +101,9 @@ const MemoryDiagnostics: React.FC = () => {
               <div className="flex justify-between items-center">
                 <span className="text-themed-muted">{t('memory.workingSet')}</span>
                 <span className="font-bold">
-                  <span className="text-themed-primary">
-                    {stats.workingSetMB.toFixed(2)} MB
-                  </span>
+                  <span className="text-themed-primary">{stats.workingSetMB.toFixed(2)} MB</span>
                   <span className="text-themed-muted"> (</span>
-                  <span className="text-themed-accent">
-                    {stats.workingSetGB.toFixed(2)} GB
-                  </span>
+                  <span className="text-themed-accent">{stats.workingSetGB.toFixed(2)} GB</span>
                   <span className="text-themed-muted">)</span>
                 </span>
               </div>
@@ -118,13 +115,9 @@ const MemoryDiagnostics: React.FC = () => {
               <div className="flex justify-between items-center">
                 <span className="text-themed-muted">{t('memory.managed')}</span>
                 <span className="font-bold">
-                  <span className="text-themed-primary">
-                    {stats.managedMB.toFixed(2)} MB
-                  </span>
+                  <span className="text-themed-primary">{stats.managedMB.toFixed(2)} MB</span>
                   <span className="text-themed-muted"> (</span>
-                  <span className="text-themed-accent">
-                    {stats.managedGB.toFixed(2)} GB
-                  </span>
+                  <span className="text-themed-accent">{stats.managedGB.toFixed(2)} GB</span>
                   <span className="text-themed-muted">)</span>
                 </span>
               </div>
@@ -136,13 +129,9 @@ const MemoryDiagnostics: React.FC = () => {
               <div className="flex justify-between items-center">
                 <span className="text-themed-muted">{t('memory.unmanaged')}</span>
                 <span className="font-bold">
-                  <span className="text-themed-primary">
-                    {stats.unmanagedMB.toFixed(2)} MB
-                  </span>
+                  <span className="text-themed-primary">{stats.unmanagedMB.toFixed(2)} MB</span>
                   <span className="text-themed-muted"> (</span>
-                  <span className="text-themed-accent">
-                    {stats.unmanagedGB.toFixed(2)} GB
-                  </span>
+                  <span className="text-themed-accent">{stats.unmanagedGB.toFixed(2)} GB</span>
                   <span className="text-themed-muted">)</span>
                 </span>
               </div>
@@ -167,9 +156,7 @@ const MemoryDiagnostics: React.FC = () => {
                     {stats.totalAllocatedMB.toFixed(2)} MB
                   </span>
                   <span className="text-themed-muted"> (</span>
-                  <span className="text-themed-accent">
-                    {stats.totalAllocatedGB.toFixed(2)} GB
-                  </span>
+                  <span className="text-themed-accent">{stats.totalAllocatedGB.toFixed(2)} GB</span>
                   <span className="text-themed-muted">)</span>
                 </span>
               </div>
@@ -181,13 +168,9 @@ const MemoryDiagnostics: React.FC = () => {
               <div className="flex justify-between items-center">
                 <span className="text-themed-muted">{t('memory.heapSize')}</span>
                 <span className="font-bold">
-                  <span className="text-themed-primary">
-                    {stats.heapSizeMB.toFixed(2)} MB
-                  </span>
+                  <span className="text-themed-primary">{stats.heapSizeMB.toFixed(2)} MB</span>
                   <span className="text-themed-muted"> (</span>
-                  <span className="text-themed-accent">
-                    {stats.heapSizeGB.toFixed(2)} GB
-                  </span>
+                  <span className="text-themed-accent">{stats.heapSizeGB.toFixed(2)} GB</span>
                   <span className="text-themed-muted">)</span>
                 </span>
               </div>
@@ -199,13 +182,9 @@ const MemoryDiagnostics: React.FC = () => {
               <div className="flex justify-between items-center">
                 <span className="text-themed-muted">{t('memory.fragmented')}</span>
                 <span className="font-bold">
-                  <span className="text-themed-primary">
-                    {stats.fragmentedMB.toFixed(2)} MB
-                  </span>
+                  <span className="text-themed-primary">{stats.fragmentedMB.toFixed(2)} MB</span>
                   <span className="text-themed-muted"> (</span>
-                  <span className="text-themed-accent">
-                    {stats.fragmentedGB.toFixed(2)} GB
-                  </span>
+                  <span className="text-themed-accent">{stats.fragmentedGB.toFixed(2)} GB</span>
                   <span className="text-themed-muted">)</span>
                 </span>
               </div>
@@ -231,9 +210,7 @@ const MemoryDiagnostics: React.FC = () => {
                 <div className="py-2 border-b border-themed">
                   <div className="flex justify-between items-center">
                     <span className="text-themed-muted">{t('memory.activeThreads')}</span>
-                    <span className="font-bold text-themed-primary">
-                      {stats.threadCount}
-                    </span>
+                    <span className="font-bold text-themed-primary">{stats.threadCount}</span>
                   </div>
                   <div className="text-xs mt-1 text-themed-muted opacity-80">
                     {t('memory.activeThreadsDesc')}
@@ -242,9 +219,7 @@ const MemoryDiagnostics: React.FC = () => {
                 <div className="py-2">
                   <div className="flex justify-between items-center">
                     <span className="text-themed-muted">{t('memory.openHandles')}</span>
-                    <span className="font-bold text-themed-primary">
-                      {stats.handleCount}
-                    </span>
+                    <span className="font-bold text-themed-primary">{stats.handleCount}</span>
                   </div>
                   <div className="text-xs mt-1 text-themed-muted opacity-80">
                     {t('memory.openHandlesDesc')}

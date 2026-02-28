@@ -270,6 +270,7 @@ function ServicePrefillPanel({
           break;
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [addLog, t]
   );
 
@@ -331,6 +332,7 @@ function ServicePrefillPanel({
     }, 1000);
 
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     signalR.session,
     signalR.setSession,
@@ -352,6 +354,7 @@ function ServicePrefillPanel({
       signalR.createSession(clearLogs);
       onPendingServiceHandled();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     pendingService,
     signalR.isInitializing,
@@ -410,7 +413,7 @@ function ServicePrefillPanel({
 
       return response.json();
     },
-    [selectedOS, maxConcurrency, signalR.isCancelling, serviceBasePath]
+    [selectedOS, maxConcurrency, signalR.isCancelling, serviceBasePath, t]
   );
 
   const loadGames = useCallback(
@@ -488,7 +491,7 @@ function ServicePrefillPanel({
         setIsLoadingGames(false);
       }
     },
-    [signalR.session, addLog, t, serviceBasePath]
+    [signalR.session, addLog, t, serviceBasePath, gamesCacheWindowMs]
   );
 
   const executeCommand = useCallback(
@@ -603,6 +606,7 @@ function ServicePrefillPanel({
         setIsExecuting(false);
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       signalR.session,
       signalR.hubConnection,
@@ -647,11 +651,11 @@ function ServicePrefillPanel({
 
     try {
       await signalR.hubConnection.current.invoke('CancelPrefill', signalR.session.id);
-    } catch (err) {
+    } catch (_err) {
       signalR.isCancelling.current = false;
       addLog('error', t('prefill.log.failedCancelPrefill'));
     }
-  }, [signalR.session, signalR.hubConnection, signalR.isCancelling, addLog]);
+  }, [signalR.session, signalR.hubConnection, signalR.isCancelling, addLog, t]);
 
   const handleOpenAuthModal = useCallback(() => {
     authActions.resetAuthForm();
@@ -685,7 +689,7 @@ function ServicePrefillPanel({
         addLog('error', t('prefill.log.failedSaveSelection'));
       }
     },
-    [signalR.session, addLog, serviceBasePath]
+    [signalR.session, addLog, serviceBasePath, t]
   );
 
   // Confirmation dialog logic
@@ -723,14 +727,14 @@ function ServicePrefillPanel({
         })),
         message: status.message
       });
-    } catch (err) {
+    } catch (_err) {
       setEstimatedSize({
         bytes: 0,
         loading: false,
         error: t('prefill.errors.unableEstimateSize')
       });
     }
-  }, [signalR.session, signalR.hubConnection, selectedAppIds, selectedOS]);
+  }, [signalR.session, signalR.hubConnection, selectedAppIds, selectedOS, t]);
 
   const getConfirmationMessage = useCallback(
     (command: CommandType): { title: string; message: string } => {

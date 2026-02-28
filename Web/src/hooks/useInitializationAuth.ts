@@ -28,84 +28,87 @@ export const useInitializationAuth = ({
 }: UseInitializationAuthProps) => {
   const { t } = useTranslation();
 
-  const authenticate = useCallback(async (mode: AuthMode) => {
-    setAuthError(null);
+  const authenticate = useCallback(
+    async (mode: AuthMode) => {
+      setAuthError(null);
 
-    switch (mode) {
-      case 'apiKey': {
-        if (!apiKey.trim()) {
-          setAuthError(t('initialization.apiKey.errors.required', 'API key is required'));
-          return;
-        }
-
-        setAuthenticating(true);
-
-        try {
-          const result = await authService.login(apiKey);
-          if (result.success) {
-            // IMPORTANT: Set step BEFORE calling onAuthChanged to prevent race condition
-            // onAuthChanged triggers refreshAuth which may re-render parent and remount this component
-            setCurrentStep('permissions-check');
-            await checkPicsDataStatus();
-            await onAuthChanged?.();
-          } else {
-            setAuthError(result.message || null);
+      switch (mode) {
+        case 'apiKey': {
+          if (!apiKey.trim()) {
+            setAuthError(t('initialization.apiKey.errors.required', 'API key is required'));
+            return;
           }
-        } catch (error: unknown) {
-          setAuthError(
-            (error instanceof Error ? error.message : String(error)) ||
-            t('modals.auth.errors.authenticationFailed')
+
+          setAuthenticating(true);
+
+          try {
+            const result = await authService.login(apiKey);
+            if (result.success) {
+              // IMPORTANT: Set step BEFORE calling onAuthChanged to prevent race condition
+              // onAuthChanged triggers refreshAuth which may re-render parent and remount this component
+              setCurrentStep('permissions-check');
+              await checkPicsDataStatus();
+              await onAuthChanged?.();
+            } else {
+              setAuthError(result.message || null);
+            }
+          } catch (error: unknown) {
+            setAuthError(
+              (error instanceof Error ? error.message : String(error)) ||
+                t('modals.auth.errors.authenticationFailed')
+            );
+          } finally {
+            setAuthenticating(false);
+          }
+          break;
+        }
+
+        case 'guest': {
+          const hasData = await checkDataAvailability();
+          if (!hasData) {
+            setAuthError(t('modals.auth.errors.guestModeNoData'));
+            return;
+          }
+
+          await authService.startGuestSession();
+
+          const setupResponse = await fetch(
+            '/api/system/setup',
+            ApiService.getFetchOptions({ cache: 'no-store' })
           );
-        } finally {
-          setAuthenticating(false);
+          const setupData = await setupResponse.json();
+
+          if (setupData.isSetupCompleted) {
+            onInitializationComplete();
+          } else {
+            // Set step BEFORE onAuthChanged to prevent race condition
+            setCurrentStep('permissions-check');
+            await onAuthChanged?.();
+          }
+          break;
         }
-        break;
-      }
 
-      case 'guest': {
-        const hasData = await checkDataAvailability();
-        if (!hasData) {
-          setAuthError(t('modals.auth.errors.guestModeNoData'));
-          return;
-        }
-
-        await authService.startGuestSession();
-
-        const setupResponse = await fetch(
-          '/api/system/setup',
-          ApiService.getFetchOptions({ cache: 'no-store' })
-        );
-        const setupData = await setupResponse.json();
-
-        if (setupData.isSetupCompleted) {
-          onInitializationComplete();
-        } else {
+        case 'admin': {
           // Set step BEFORE onAuthChanged to prevent race condition
           setCurrentStep('permissions-check');
+          await checkPicsDataStatus();
           await onAuthChanged?.();
+          break;
         }
-        break;
       }
-
-      case 'admin': {
-        // Set step BEFORE onAuthChanged to prevent race condition
-        setCurrentStep('permissions-check');
-        await checkPicsDataStatus();
-        await onAuthChanged?.();
-        break;
-      }
-    }
-  }, [
-    apiKey,
-    setAuthError,
-    setAuthenticating,
-    onAuthChanged,
-    checkPicsDataStatus,
-    checkDataAvailability,
-    setCurrentStep,
-    onInitializationComplete,
-    t
-  ]);
+    },
+    [
+      apiKey,
+      setAuthError,
+      setAuthenticating,
+      onAuthChanged,
+      checkPicsDataStatus,
+      checkDataAvailability,
+      setCurrentStep,
+      onInitializationComplete,
+      t
+    ]
+  );
 
   return {
     authenticate

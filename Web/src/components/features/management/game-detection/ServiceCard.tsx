@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { HardDrive, FolderOpen } from 'lucide-react';
 import { formatBytes } from '@utils/formatters';
 import type { ServiceCacheInfo } from '../../../../types';
-import ExpandableItemCard, { ExpandableItemStat } from './ExpandableItemCard';
+import ExpandableItemCard, { type ExpandableItemStat } from './ExpandableItemCard';
 import ExpandableList from './ExpandableList';
 
 interface ServiceCardProps {

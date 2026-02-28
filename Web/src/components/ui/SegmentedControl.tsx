@@ -60,9 +60,7 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
             disabled={isDisabled}
             className={`segmented-control-button ${sizes.button} transition-all flex items-center justify-center gap-[0.4rem] font-semibold whitespace-nowrap text-xs ${
               fullWidth ? 'flex-1' : ''
-            } ${
-              isDisabled && !isActive ? 'opacity-50 cursor-default' : ''
-            } ${
+            } ${isDisabled && !isActive ? 'opacity-50 cursor-default' : ''} ${
               isActive
                 ? 'bg-[var(--theme-primary)] text-themed-button shadow-[0_2px_4px_color-mix(in_srgb,var(--theme-primary)_25%,transparent)]'
                 : 'bg-transparent text-themed-muted'

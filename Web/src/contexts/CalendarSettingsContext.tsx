@@ -27,7 +27,7 @@ const DEFAULT_SETTINGS: CalendarSettings = {
   showWeekNumbers: false,
   showAdjacentMonths: true,
   hideEndedEvents: false,
-  compactMode: false,
+  compactMode: false
 };
 
 const STORAGE_KEY = 'lancache_calendar_settings';
@@ -68,7 +68,7 @@ export const CalendarSettingsProvider: React.FC<CalendarSettingsProviderProps> =
   }, [settings]);
 
   const updateSettings = (updates: Partial<CalendarSettings>) => {
-    setSettings(prev => ({ ...prev, ...updates }));
+    setSettings((prev) => ({ ...prev, ...updates }));
   };
 
   const resetSettings = () => {
@@ -80,7 +80,7 @@ export const CalendarSettingsProvider: React.FC<CalendarSettingsProviderProps> =
       value={{
         settings,
         updateSettings,
-        resetSettings,
+        resetSettings
       }}
     >
       {children}

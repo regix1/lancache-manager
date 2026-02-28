@@ -1,6 +1,13 @@
-import React, { createContext, useContext, useEffect, useState, useCallback, useRef, type ReactNode } from 'react';
-import authService, { type AuthMode } from '@services/auth.service';
-import type { SessionType } from '@services/auth.service';
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useState,
+  useCallback,
+  useRef,
+  type ReactNode
+} from 'react';
+import authService, { type AuthMode, type SessionType } from '@services/auth.service';
 import { useSignalR } from './SignalRContext';
 
 interface AuthContextType {
@@ -58,8 +65,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const sessionIdRef = useRef<string | null>(sessionId);
   const sessionTypeRef = useRef<SessionType | null>(sessionType);
   const isFetchingAuthRef = useRef(false);
-  useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
-  useEffect(() => { sessionTypeRef.current = sessionType; }, [sessionType]);
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
+  useEffect(() => {
+    sessionTypeRef.current = sessionType;
+  }, [sessionType]);
   const notifyAuthSessionUpdated = useCallback(() => {
     window.dispatchEvent(new Event('auth-session-updated'));
   }, []);
@@ -104,13 +115,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     await fetchAuth();
   }, [fetchAuth]);
 
-  const login = useCallback(async (apiKey: string) => {
-    const result = await authService.login(apiKey);
-    if (result.success) {
-      await fetchAuth();
-    }
-    return result;
-  }, [fetchAuth]);
+  const login = useCallback(
+    async (apiKey: string) => {
+      const result = await authService.login(apiKey);
+      if (result.success) {
+        await fetchAuth();
+      }
+      return result;
+    },
+    [fetchAuth]
+  );
 
   const startGuestSession = useCallback(async () => {
     const result = await authService.startGuestSession();
@@ -189,7 +203,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       }
     };
 
-    const handlePrefillPermissionChanged = (data: { sessionId?: string; enabled?: boolean; prefillExpiresAt?: string; service?: string }) => {
+    const handlePrefillPermissionChanged = (data: {
+      sessionId?: string;
+      enabled?: boolean;
+      prefillExpiresAt?: string;
+      service?: string;
+    }) => {
       if (data.sessionId && data.sessionId === sessionIdRef.current) {
         const isEnabled = data.enabled ?? false;
         const expiresAt = data.prefillExpiresAt ?? null;
@@ -224,6 +243,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         console.error('[Auth] Failed to join AuthenticatedUsersGroup:', err);
       });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signalR.isConnected, signalR.invoke, hasSession]);
 
   // Derive combined prefillEnabled as OR of both services (for backward compat — nav tab visibility)
@@ -232,9 +252,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   // Calculate time remaining — use the earliest expiring active service
   const calcTimeRemaining = (expiresAt: string | null): number | null => {
     if (!expiresAt) return null;
-    const normalized = expiresAt.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(expiresAt)
-      ? expiresAt
-      : expiresAt + 'Z';
+    const normalized =
+      expiresAt.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(expiresAt) ? expiresAt : expiresAt + 'Z';
     return Math.max(0, Math.floor((new Date(normalized).getTime() - Date.now()) / 1000 / 60));
   };
 
@@ -266,7 +285,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         prefillTimeRemaining,
         steamPrefillEnabled,
         epicPrefillEnabled,
-        isBanned: false,
+        isBanned: false
       }}
     >
       {children}

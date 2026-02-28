@@ -38,9 +38,12 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
       }
     >
       <div className="space-y-4">
-        <p className="text-themed-secondary" dangerouslySetInnerHTML={{
-          __html: t('modals.theme.delete.message', { name: themeName })
-        }} />
+        <p
+          className="text-themed-secondary"
+          dangerouslySetInnerHTML={{
+            __html: t('modals.theme.delete.message', { name: themeName })
+          }}
+        />
 
         <Alert color="yellow">
           <p className="text-sm">{t('modals.theme.delete.warning')}</p>

@@ -64,16 +64,12 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
     { label: t('management.themes.colorLabels.accent'), color: theme.colors.accentColor },
     { label: t('management.themes.colorLabels.background'), color: theme.colors.bgPrimary },
     { label: t('management.themes.colorLabels.text'), color: theme.colors.textPrimary }
-  ].filter((item) => Boolean(item.color)) as Array<{ label: string; color: string }>;
+  ].filter((item) => Boolean(item.color)) as { label: string; color: string }[];
 
   return (
     <div
       className={`rounded-lg p-4 transition-all hover:shadow-md themed-card relative group isolate bg-themed-secondary border ${
-        isActive
-          ? 'border-primary'
-          : isPreviewing
-            ? 'border-warning'
-            : 'border-themed-secondary'
+        isActive ? 'border-primary' : isPreviewing ? 'border-warning' : 'border-themed-secondary'
       }`}
     >
       {/* Status Badge - Top Right */}
@@ -99,9 +95,7 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
             ) : (
               <Sun className="w-3.5 h-3.5 icon-yellow flex-shrink-0" />
             )}
-            {isSystem && (
-              <Lock className="w-3 h-3 text-themed-muted flex-shrink-0" />
-            )}
+            {isSystem && <Lock className="w-3 h-3 text-themed-muted flex-shrink-0" />}
           </div>
 
           {/* Badges Row */}
@@ -120,13 +114,19 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
           </div>
 
           {theme.meta.basedOn && (
-            <p className="text-xs text-themed-muted mb-1">{t('management.themes.basedOn')} {theme.meta.basedOn}</p>
+            <p className="text-xs text-themed-muted mb-1">
+              {t('management.themes.basedOn')} {theme.meta.basedOn}
+            </p>
           )}
           {theme.meta.description && (
             <p className="text-xs text-themed-muted line-clamp-2 mb-1">{theme.meta.description}</p>
           )}
           <div className="flex items-center gap-2 text-xs text-themed-muted">
-            {theme.meta.author && <span>{t('management.themes.by')} {theme.meta.author}</span>}
+            {theme.meta.author && (
+              <span>
+                {t('management.themes.by')} {theme.meta.author}
+              </span>
+            )}
             {theme.meta.version && (
               <span className="px-1.5 py-0.5 rounded bg-themed-tertiary">
                 v{theme.meta.version}
@@ -171,7 +171,9 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
                 isPreviewing ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />
               }
             >
-              {isPreviewing ? t('management.themes.actions.stopPreview') : t('management.themes.actions.preview')}
+              {isPreviewing
+                ? t('management.themes.actions.stopPreview')
+                : t('management.themes.actions.preview')}
             </ActionMenuItem>
           )}
           {!isSystem && isAdmin && (
@@ -214,12 +216,7 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
       {/* Color Preview Strip */}
       <div className="flex gap-1">
         {colorPreview.map((item, idx) => (
-          <Tooltip
-            key={idx}
-            content={item.label}
-            position="bottom"
-            className="flex-1"
-          >
+          <Tooltip key={idx} content={item.label} position="bottom" className="flex-1">
             <div
               className="h-5 rounded transition-transform hover:scale-y-125"
               style={{

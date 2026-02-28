@@ -130,4 +130,3 @@ class SafeStorage {
 
 // Export a singleton instance
 export const storage = new SafeStorage();
-

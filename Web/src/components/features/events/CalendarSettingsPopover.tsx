@@ -1,8 +1,23 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
-import { Settings, RotateCcw, Eye, Calendar, Hash, EyeOff, Layers, LayoutGrid, CalendarRange } from 'lucide-react';
-import { useCalendarSettings, type WeekStartDay, type EventOpacity, type EventDisplayStyle } from '@contexts/CalendarSettingsContext';
+import {
+  Settings,
+  RotateCcw,
+  Eye,
+  Calendar,
+  Hash,
+  EyeOff,
+  Layers,
+  LayoutGrid,
+  CalendarRange
+} from 'lucide-react';
+import {
+  useCalendarSettings,
+  type WeekStartDay,
+  type EventOpacity,
+  type EventDisplayStyle
+} from '@contexts/CalendarSettingsContext';
 
 interface CalendarSettingsPopoverProps {
   position?: 'left' | 'right';
@@ -15,7 +30,7 @@ const ToggleButton: React.FC<{
   onChange: (value: string) => void;
 }> = ({ options, value, onChange }) => (
   <div className="flex rounded-md p-0.5 bg-[var(--theme-bg-tertiary)]">
-    {options.map(option => {
+    {options.map((option) => {
       const isActive = value === option.value;
       return (
         <button
@@ -149,15 +164,13 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
       const triggerRect = triggerRef.current.getBoundingClientRect();
       const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
       const viewportHeight = window.innerHeight;
-      
+
       // Use actual popover dimensions if rendered, otherwise use defaults
       const popoverWidth = popoverRef.current?.offsetWidth || POPOVER_WIDTH;
       const popoverHeight = popoverRef.current?.offsetHeight || POPOVER_MAX_HEIGHT;
 
       // Calculate horizontal position - align right edge with trigger right edge
-      let x = position === 'left'
-        ? triggerRect.left
-        : triggerRect.right - popoverWidth;
+      let x = position === 'left' ? triggerRect.left : triggerRect.right - popoverWidth;
 
       // Clamp X within viewport
       const maxX = viewportWidth - popoverWidth - VIEWPORT_PADDING;
@@ -168,12 +181,13 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
       const spaceAbove = triggerRect.top - VIEWPORT_PADDING;
       const openUpward = spaceBelow < popoverHeight && spaceAbove > spaceBelow;
 
-      let y = openUpward
-        ? triggerRect.top - popoverHeight - 8
-        : triggerRect.bottom + 8;
+      let y = openUpward ? triggerRect.top - popoverHeight - 8 : triggerRect.bottom + 8;
 
       // Clamp Y within viewport
-      y = Math.max(VIEWPORT_PADDING, Math.min(y, viewportHeight - popoverHeight - VIEWPORT_PADDING));
+      y = Math.max(
+        VIEWPORT_PADDING,
+        Math.min(y, viewportHeight - popoverHeight - VIEWPORT_PADDING)
+      );
 
       return { x, y, openUpward };
     };
@@ -194,10 +208,8 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
     const viewportHeight = window.innerHeight;
 
     // Recalculate X with actual width
-    let newX = position === 'left'
-      ? triggerRect.left
-      : triggerRect.right - popoverRect.width;
-    
+    let newX = position === 'left' ? triggerRect.left : triggerRect.right - popoverRect.width;
+
     const maxX = viewportWidth - popoverRect.width - VIEWPORT_PADDING;
     newX = Math.min(Math.max(newX, VIEWPORT_PADDING), Math.max(VIEWPORT_PADDING, maxX));
 
@@ -206,11 +218,12 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
     const spaceAbove = triggerRect.top - VIEWPORT_PADDING;
     const openUpward = spaceBelow < popoverRect.height && spaceAbove > spaceBelow;
 
-    let newY = openUpward
-      ? triggerRect.top - popoverRect.height - 8
-      : triggerRect.bottom + 8;
+    let newY = openUpward ? triggerRect.top - popoverRect.height - 8 : triggerRect.bottom + 8;
 
-    newY = Math.max(VIEWPORT_PADDING, Math.min(newY, viewportHeight - popoverRect.height - VIEWPORT_PADDING));
+    newY = Math.max(
+      VIEWPORT_PADDING,
+      Math.min(newY, viewportHeight - popoverRect.height - VIEWPORT_PADDING)
+    );
 
     // Only update if position changed significantly
     if (Math.abs(newX - popoverPos.x) > 0.5 || Math.abs(newY - popoverPos.y) > 0.5) {
@@ -235,236 +248,241 @@ const CalendarSettingsPopover: React.FC<CalendarSettingsPopoverProps> = ({
         <Settings className="w-4 h-4" />
       </button>
 
-      {isOpen && popoverPos && createPortal(
-        <div
-          ref={popoverRef}
-          className="fixed rounded-xl border shadow-2xl overflow-hidden z-[90] flex flex-col"
-          style={{
-            left: popoverPos.x,
-            top: popoverPos.y,
-            width: 'min(280px, calc(100vw - 24px))',
-            maxHeight: 'min(520px, calc(100vh - 24px))',
-            backgroundColor: 'var(--theme-card-bg)',
-            borderColor: 'var(--theme-card-border)',
-            boxShadow: '0 20px 50px -12px rgba(0, 0, 0, 0.5)',
-            animation: `${popoverPos.openUpward ? 'dropdownSlideUp' : 'dropdownSlideDown'} 0.15s cubic-bezier(0.16, 1, 0.3, 1)`
-          }}
-        >
-          {/* Header */}
-          <div className="px-4 py-3 flex items-center justify-between bg-[var(--theme-bg-tertiary)] border-b border-[var(--theme-border-secondary)]">
-            <div className="flex items-center gap-2">
-              <Settings className="w-4 h-4 text-[var(--theme-primary)]" />
-              <span className="text-sm font-semibold text-[var(--theme-text-primary)]">
-                {t('events.calendar.settings.title')}
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                resetSettings();
-              }}
-              className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium cursor-pointer hover:bg-[var(--theme-bg-hover)] hover:text-[var(--theme-text-primary)] text-[var(--theme-text-muted)]"
-              title={t('events.calendar.settings.resetToDefaults')}
-            >
-              <RotateCcw className="w-3 h-3" />
-              {t('events.calendar.settings.reset')}
-            </button>
-          </div>
-
-          {/* Settings */}
-          <div className="px-4 py-2 space-y-1 overflow-y-auto flex-1 min-h-0">
-            {/* Event Opacity */}
-            <div className="flex items-start justify-between gap-3 py-2.5">
-              <div className="flex items-start gap-2.5 min-w-0">
-                <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-[var(--theme-bg-tertiary)]">
-                  <Layers className="w-4 h-4 text-[var(--theme-icon-purple)]" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-sm font-medium text-[var(--theme-text-primary)]">
-                    {t('events.calendar.settings.eventStyle.title')}
-                  </div>
-                  <div className="text-xs mt-0.5 text-[var(--theme-text-muted)]">
-                    {t('events.calendar.settings.eventStyle.description')}
-                  </div>
-                </div>
+      {isOpen &&
+        popoverPos &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            className="fixed rounded-xl border shadow-2xl overflow-hidden z-[90] flex flex-col"
+            style={{
+              left: popoverPos.x,
+              top: popoverPos.y,
+              width: 'min(280px, calc(100vw - 24px))',
+              maxHeight: 'min(520px, calc(100vh - 24px))',
+              backgroundColor: 'var(--theme-card-bg)',
+              borderColor: 'var(--theme-card-border)',
+              boxShadow: '0 20px 50px -12px rgba(0, 0, 0, 0.5)',
+              animation: `${popoverPos.openUpward ? 'dropdownSlideUp' : 'dropdownSlideDown'} 0.15s cubic-bezier(0.16, 1, 0.3, 1)`
+            }}
+          >
+            {/* Header */}
+            <div className="px-4 py-3 flex items-center justify-between bg-[var(--theme-bg-tertiary)] border-b border-[var(--theme-border-secondary)]">
+              <div className="flex items-center gap-2">
+                <Settings className="w-4 h-4 text-[var(--theme-primary)]" />
+                <span className="text-sm font-semibold text-[var(--theme-text-primary)]">
+                  {t('events.calendar.settings.title')}
+                </span>
               </div>
-              <div className="flex-shrink-0">
-                <ToggleButton
-                  options={[
-                    { value: 'transparent', label: t('events.calendar.settings.eventStyle.soft') },
-                    { value: 'solid', label: t('events.calendar.settings.eventStyle.solid') }
-                  ]}
-                  value={settings.eventOpacity}
-                  onChange={(v) => updateSettings({ eventOpacity: v as EventOpacity })}
-                />
-              </div>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  resetSettings();
+                }}
+                className="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium cursor-pointer hover:bg-[var(--theme-bg-hover)] hover:text-[var(--theme-text-primary)] text-[var(--theme-text-muted)]"
+                title={t('events.calendar.settings.resetToDefaults')}
+              >
+                <RotateCcw className="w-3 h-3" />
+                {t('events.calendar.settings.reset')}
+              </button>
             </div>
 
-            <div className="border-t border-[var(--theme-border-secondary)] my-1" />
-
-            {/* Event Layout */}
-            <div className="flex items-start justify-between gap-3 py-2.5">
-              <div className="flex items-start gap-2.5 min-w-0">
-                <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-[var(--theme-bg-tertiary)]">
-                  <LayoutGrid className="w-4 h-4 text-[var(--theme-icon-blue)]" />
+            {/* Settings */}
+            <div className="px-4 py-2 space-y-1 overflow-y-auto flex-1 min-h-0">
+              {/* Event Opacity */}
+              <div className="flex items-start justify-between gap-3 py-2.5">
+                <div className="flex items-start gap-2.5 min-w-0">
+                  <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-[var(--theme-bg-tertiary)]">
+                    <Layers className="w-4 h-4 text-[var(--theme-icon-purple)]" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-[var(--theme-text-primary)]">
+                      {t('events.calendar.settings.eventStyle.title')}
+                    </div>
+                    <div className="text-xs mt-0.5 text-[var(--theme-text-muted)]">
+                      {t('events.calendar.settings.eventStyle.description')}
+                    </div>
+                  </div>
                 </div>
-                <div className="min-w-0">
-                  <div className="text-sm font-medium text-[var(--theme-text-primary)]">
-                    {t('events.calendar.settings.eventLayout.title')}
-                  </div>
-                  <div className="text-xs mt-0.5 text-[var(--theme-text-muted)]">
-                    {t('events.calendar.settings.eventLayout.description')}
-                  </div>
+                <div className="flex-shrink-0">
+                  <ToggleButton
+                    options={[
+                      {
+                        value: 'transparent',
+                        label: t('events.calendar.settings.eventStyle.soft')
+                      },
+                      { value: 'solid', label: t('events.calendar.settings.eventStyle.solid') }
+                    ]}
+                    value={settings.eventOpacity}
+                    onChange={(v) => updateSettings({ eventOpacity: v as EventOpacity })}
+                  />
                 </div>
               </div>
-              <div className="flex-shrink-0">
-                <ToggleButton
-                  options={[
-                    { value: 'spanning', label: t('events.calendar.settings.eventLayout.bars') },
-                    { value: 'daily', label: t('events.calendar.settings.eventLayout.daily') }
-                  ]}
-                  value={settings.eventDisplayStyle}
-                  onChange={(v) => updateSettings({ eventDisplayStyle: v as EventDisplayStyle })}
-                />
+
+              <div className="border-t border-[var(--theme-border-secondary)] my-1" />
+
+              {/* Event Layout */}
+              <div className="flex items-start justify-between gap-3 py-2.5">
+                <div className="flex items-start gap-2.5 min-w-0">
+                  <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-[var(--theme-bg-tertiary)]">
+                    <LayoutGrid className="w-4 h-4 text-[var(--theme-icon-blue)]" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-[var(--theme-text-primary)]">
+                      {t('events.calendar.settings.eventLayout.title')}
+                    </div>
+                    <div className="text-xs mt-0.5 text-[var(--theme-text-muted)]">
+                      {t('events.calendar.settings.eventLayout.description')}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex-shrink-0">
+                  <ToggleButton
+                    options={[
+                      { value: 'spanning', label: t('events.calendar.settings.eventLayout.bars') },
+                      { value: 'daily', label: t('events.calendar.settings.eventLayout.daily') }
+                    ]}
+                    value={settings.eventDisplayStyle}
+                    onChange={(v) => updateSettings({ eventDisplayStyle: v as EventDisplayStyle })}
+                  />
+                </div>
+              </div>
+
+              <div className="border-t border-[var(--theme-border-secondary)] my-1" />
+
+              {/* Week Start Day */}
+              <div className="flex items-start justify-between gap-3 py-2.5">
+                <div className="flex items-start gap-2.5 min-w-0">
+                  <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-[var(--theme-bg-tertiary)]">
+                    <Calendar className="w-4 h-4 text-[var(--theme-icon-cyan)]" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-[var(--theme-text-primary)]">
+                      {t('events.calendar.settings.weekStart.title')}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex-shrink-0">
+                  <ToggleButton
+                    options={[
+                      { value: 'sunday', label: t('events.calendar.settings.weekStart.sunday') },
+                      { value: 'monday', label: t('events.calendar.settings.weekStart.monday') }
+                    ]}
+                    value={settings.weekStartDay}
+                    onChange={(v) => updateSettings({ weekStartDay: v as WeekStartDay })}
+                  />
+                </div>
+              </div>
+
+              <div className="border-t border-[var(--theme-border-secondary)] my-1" />
+
+              {/* Show Week Numbers */}
+              <div className="flex items-start justify-between gap-3 py-2.5">
+                <div className="flex items-start gap-2.5 min-w-0">
+                  <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-[var(--theme-bg-tertiary)]">
+                    <Hash className="w-4 h-4 text-[var(--theme-icon-orange)]" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-[var(--theme-text-primary)]">
+                      {t('events.calendar.settings.weekNumbers.title')}
+                    </div>
+                    <div className="text-xs mt-0.5 text-[var(--theme-text-muted)]">
+                      {t('events.calendar.settings.weekNumbers.description')}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex-shrink-0">
+                  <CheckboxToggle
+                    checked={settings.showWeekNumbers}
+                    onChange={(v) => updateSettings({ showWeekNumbers: v })}
+                  />
+                </div>
+              </div>
+
+              <div className="border-t border-[var(--theme-border-secondary)] my-1" />
+
+              {/* Show Adjacent Months */}
+              <div className="flex items-start justify-between gap-3 py-2.5">
+                <div className="flex items-start gap-2.5 min-w-0">
+                  <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-[var(--theme-bg-tertiary)]">
+                    <CalendarRange className="w-4 h-4 text-[var(--theme-icon-purple)]" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-[var(--theme-text-primary)]">
+                      {t('events.calendar.settings.adjacentMonths.title')}
+                    </div>
+                    <div className="text-xs mt-0.5 text-[var(--theme-text-muted)]">
+                      {t('events.calendar.settings.adjacentMonths.description')}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex-shrink-0">
+                  <CheckboxToggle
+                    checked={settings.showAdjacentMonths}
+                    onChange={(v) => updateSettings({ showAdjacentMonths: v })}
+                  />
+                </div>
+              </div>
+
+              <div className="border-t border-[var(--theme-border-secondary)] my-1" />
+
+              {/* Hide Ended Events */}
+              <div className="flex items-start justify-between gap-3 py-2.5">
+                <div className="flex items-start gap-2.5 min-w-0">
+                  <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-[var(--theme-bg-tertiary)]">
+                    <EyeOff className="w-4 h-4 text-[var(--theme-icon-red)]" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-[var(--theme-text-primary)]">
+                      {t('events.calendar.settings.hideEnded.title')}
+                    </div>
+                    <div className="text-xs mt-0.5 text-[var(--theme-text-muted)]">
+                      {t('events.calendar.settings.hideEnded.description')}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex-shrink-0">
+                  <CheckboxToggle
+                    checked={settings.hideEndedEvents}
+                    onChange={(v) => updateSettings({ hideEndedEvents: v })}
+                  />
+                </div>
+              </div>
+
+              <div className="border-t border-[var(--theme-border-secondary)] my-1" />
+
+              {/* Compact Mode */}
+              <div className="flex items-start justify-between gap-3 py-2.5">
+                <div className="flex items-start gap-2.5 min-w-0">
+                  <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-[var(--theme-bg-tertiary)]">
+                    <Eye className="w-4 h-4 text-[var(--theme-icon-green)]" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-[var(--theme-text-primary)]">
+                      {t('events.calendar.settings.compactView.title')}
+                    </div>
+                    <div className="text-xs mt-0.5 text-[var(--theme-text-muted)]">
+                      {t('events.calendar.settings.compactView.description')}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex-shrink-0">
+                  <CheckboxToggle
+                    checked={settings.compactMode}
+                    onChange={(v) => updateSettings({ compactMode: v })}
+                  />
+                </div>
               </div>
             </div>
 
-            <div className="border-t border-[var(--theme-border-secondary)] my-1" />
-
-            {/* Week Start Day */}
-            <div className="flex items-start justify-between gap-3 py-2.5">
-              <div className="flex items-start gap-2.5 min-w-0">
-                <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-[var(--theme-bg-tertiary)]">
-                  <Calendar className="w-4 h-4 text-[var(--theme-icon-cyan)]" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-sm font-medium text-[var(--theme-text-primary)]">
-                    {t('events.calendar.settings.weekStart.title')}
-                  </div>
-                </div>
-              </div>
-              <div className="flex-shrink-0">
-                <ToggleButton
-                  options={[
-                    { value: 'sunday', label: t('events.calendar.settings.weekStart.sunday') },
-                    { value: 'monday', label: t('events.calendar.settings.weekStart.monday') }
-                  ]}
-                  value={settings.weekStartDay}
-                  onChange={(v) => updateSettings({ weekStartDay: v as WeekStartDay })}
-                />
-              </div>
+            {/* Footer hint */}
+            <div className="px-4 py-2.5 text-[11px] bg-[var(--theme-bg-secondary)] text-[var(--theme-text-muted)] border-t border-[var(--theme-border-secondary)]">
+              {t('events.calendar.settings.autoSave')}
             </div>
-
-            <div className="border-t border-[var(--theme-border-secondary)] my-1" />
-
-            {/* Show Week Numbers */}
-            <div className="flex items-start justify-between gap-3 py-2.5">
-              <div className="flex items-start gap-2.5 min-w-0">
-                <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-[var(--theme-bg-tertiary)]">
-                  <Hash className="w-4 h-4 text-[var(--theme-icon-orange)]" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-sm font-medium text-[var(--theme-text-primary)]">
-                    {t('events.calendar.settings.weekNumbers.title')}
-                  </div>
-                  <div className="text-xs mt-0.5 text-[var(--theme-text-muted)]">
-                    {t('events.calendar.settings.weekNumbers.description')}
-                  </div>
-                </div>
-              </div>
-              <div className="flex-shrink-0">
-                <CheckboxToggle
-                  checked={settings.showWeekNumbers}
-                  onChange={(v) => updateSettings({ showWeekNumbers: v })}
-                />
-              </div>
-            </div>
-
-            <div className="border-t border-[var(--theme-border-secondary)] my-1" />
-
-            {/* Show Adjacent Months */}
-            <div className="flex items-start justify-between gap-3 py-2.5">
-              <div className="flex items-start gap-2.5 min-w-0">
-                <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-[var(--theme-bg-tertiary)]">
-                  <CalendarRange className="w-4 h-4 text-[var(--theme-icon-purple)]" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-sm font-medium text-[var(--theme-text-primary)]">
-                    {t('events.calendar.settings.adjacentMonths.title')}
-                  </div>
-                  <div className="text-xs mt-0.5 text-[var(--theme-text-muted)]">
-                    {t('events.calendar.settings.adjacentMonths.description')}
-                  </div>
-                </div>
-              </div>
-              <div className="flex-shrink-0">
-                <CheckboxToggle
-                  checked={settings.showAdjacentMonths}
-                  onChange={(v) => updateSettings({ showAdjacentMonths: v })}
-                />
-              </div>
-            </div>
-
-            <div className="border-t border-[var(--theme-border-secondary)] my-1" />
-
-            {/* Hide Ended Events */}
-            <div className="flex items-start justify-between gap-3 py-2.5">
-              <div className="flex items-start gap-2.5 min-w-0">
-                <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-[var(--theme-bg-tertiary)]">
-                  <EyeOff className="w-4 h-4 text-[var(--theme-icon-red)]" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-sm font-medium text-[var(--theme-text-primary)]">
-                    {t('events.calendar.settings.hideEnded.title')}
-                  </div>
-                  <div className="text-xs mt-0.5 text-[var(--theme-text-muted)]">
-                    {t('events.calendar.settings.hideEnded.description')}
-                  </div>
-                </div>
-              </div>
-              <div className="flex-shrink-0">
-                <CheckboxToggle
-                  checked={settings.hideEndedEvents}
-                  onChange={(v) => updateSettings({ hideEndedEvents: v })}
-                />
-              </div>
-            </div>
-
-            <div className="border-t border-[var(--theme-border-secondary)] my-1" />
-
-            {/* Compact Mode */}
-            <div className="flex items-start justify-between gap-3 py-2.5">
-              <div className="flex items-start gap-2.5 min-w-0">
-                <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-[var(--theme-bg-tertiary)]">
-                  <Eye className="w-4 h-4 text-[var(--theme-icon-green)]" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-sm font-medium text-[var(--theme-text-primary)]">
-                    {t('events.calendar.settings.compactView.title')}
-                  </div>
-                  <div className="text-xs mt-0.5 text-[var(--theme-text-muted)]">
-                    {t('events.calendar.settings.compactView.description')}
-                  </div>
-                </div>
-              </div>
-              <div className="flex-shrink-0">
-                <CheckboxToggle
-                  checked={settings.compactMode}
-                  onChange={(v) => updateSettings({ compactMode: v })}
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Footer hint */}
-          <div className="px-4 py-2.5 text-[11px] bg-[var(--theme-bg-secondary)] text-[var(--theme-text-muted)] border-t border-[var(--theme-border-secondary)]">
-            {t('events.calendar.settings.autoSave')}
-          </div>
-        </div>,
-        document.body
-      )}
+          </div>,
+          document.body
+        )}
     </>
   );
 };

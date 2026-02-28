@@ -67,7 +67,16 @@ const DEFAULT_ITEMS_PER_PAGE = {
 type ViewMode = 'compact' | 'normal' | 'retro';
 
 // Sort order type
-type SortOrder = 'latest' | 'oldest' | 'largest' | 'smallest' | 'service' | 'efficiency' | 'efficiency-low' | 'sessions' | 'alphabetical';
+type SortOrder =
+  | 'latest'
+  | 'oldest'
+  | 'largest'
+  | 'smallest'
+  | 'service'
+  | 'efficiency'
+  | 'efficiency-low'
+  | 'sessions'
+  | 'alphabetical';
 
 // Preset type
 type PresetType = 'pretty' | 'minimal' | 'showAll' | 'default' | 'custom';
@@ -232,7 +241,7 @@ const DownloadsTab: React.FC = () => {
 
   // Datasource display state
   const [config, setConfig] = useState<Config | null>(null);
-  
+
   // Get showDatasourceLabels from centralized SessionPreferencesContext
   const { currentPreferences } = useSessionPreferences();
   const showDatasourceLabels = currentPreferences?.showDatasourceLabels ?? true;
@@ -369,10 +378,10 @@ const DownloadsTab: React.FC = () => {
 
       // Only update if the items per page would actually change
       if (settings.itemsPerPage !== newItemsPerPage) {
-        setSettings(prev => ({ ...prev, itemsPerPage: newItemsPerPage }));
+        setSettings((prev) => ({ ...prev, itemsPerPage: newItemsPerPage }));
       }
     }
-  }, [settings.viewMode]);
+  }, [settings.viewMode, settings.itemsPerPage]);
 
   // Note: Downloads are now always fetched from the context - no need to manage mock data count here
 
@@ -425,13 +434,13 @@ const DownloadsTab: React.FC = () => {
     }
 
     return baseOptions;
-  }, [filteredAvailableServices, availableServices, latestDownloads, t]);
+  }, [filteredAvailableServices, availableServices, t]);
 
   const { clientGroups } = useClientGroups();
 
   const clientOptions = useMemo(() => {
     // Build a map of group IDs to the IPs in downloads that belong to that group
-    const groupedIps = new Map<number, { group: typeof clientGroups[0]; ips: string[] }>();
+    const groupedIps = new Map<number, { group: (typeof clientGroups)[0]; ips: string[] }>();
     const ungroupedIps: string[] = [];
 
     availableClients.forEach((clientIp) => {
@@ -472,7 +481,7 @@ const DownloadsTab: React.FC = () => {
     });
 
     return options;
-  }, [availableClients, getGroupForIp, clientGroups]);
+  }, [availableClients, getGroupForIp, t]);
 
   const itemsPerPageOptions = useMemo(
     () => [
@@ -550,7 +559,7 @@ const DownloadsTab: React.FC = () => {
       // Check if it's a group selection (e.g., "group-123")
       if (settings.selectedClient.startsWith('group-')) {
         const groupId = parseInt(settings.selectedClient.replace('group-', ''), 10);
-        const group = clientGroups.find(g => g.id === groupId);
+        const group = clientGroups.find((g) => g.id === groupId);
         if (group) {
           // Filter by any IP in the group
           filtered = filtered.filter((d) => group.memberIps.includes(d.clientIp));
@@ -564,12 +573,13 @@ const DownloadsTab: React.FC = () => {
     // Apply search filter
     if (settings.searchQuery.trim()) {
       const query = settings.searchQuery.toLowerCase().trim();
-      filtered = filtered.filter((d) =>
-        (d.gameName && d.gameName.toLowerCase().includes(query)) ||
-        d.service.toLowerCase().includes(query) ||
-        d.clientIp.toLowerCase().includes(query) ||
-        (d.depotId && String(d.depotId).includes(query)) ||
-        (d.gameAppId && String(d.gameAppId).includes(query))
+      filtered = filtered.filter(
+        (d) =>
+          (d.gameName && d.gameName.toLowerCase().includes(query)) ||
+          d.service.toLowerCase().includes(query) ||
+          d.clientIp.toLowerCase().includes(query) ||
+          (d.depotId && String(d.depotId).includes(query)) ||
+          (d.gameAppId && String(d.gameAppId).includes(query))
       );
     }
 
@@ -612,7 +622,8 @@ const DownloadsTab: React.FC = () => {
 
       // Check if we have a valid game (either by appId or by name)
       const hasValidGameAppId = !!download.gameAppId;
-      const hasValidGameName = download.gameName &&
+      const hasValidGameName =
+        download.gameName &&
         download.gameName !== 'Unknown Steam Game' &&
         !download.gameName.match(/^Steam App \d+$/);
 
@@ -802,7 +813,7 @@ const DownloadsTab: React.FC = () => {
     // Define the sort function
     const sortFn = (a: Download | DownloadGroup, b: Download | DownloadGroup) => {
       switch (settings.sortOrder) {
-        case 'oldest':
+        case 'oldest': {
           const aTime =
             'downloads' in a
               ? Math.min(...a.downloads.map((d) => new Date(d.startTimeUtc).getTime()))
@@ -812,15 +823,18 @@ const DownloadsTab: React.FC = () => {
               ? Math.min(...b.downloads.map((d) => new Date(d.startTimeUtc).getTime()))
               : new Date(b.startTimeUtc).getTime();
           return aTime - bTime;
-        case 'largest':
+        }
+        case 'largest': {
           const aBytes = 'downloads' in a ? a.totalBytes : a.totalBytes || 0;
           const bBytes = 'downloads' in b ? b.totalBytes : b.totalBytes || 0;
           return bBytes - aBytes;
-        case 'smallest':
+        }
+        case 'smallest': {
           const aBytesSmall = 'downloads' in a ? a.totalBytes : a.totalBytes || 0;
           const bBytesSmall = 'downloads' in b ? b.totalBytes : b.totalBytes || 0;
           return aBytesSmall - bBytesSmall;
-        case 'service':
+        }
+        case 'service': {
           const serviceCompare = a.service.localeCompare(b.service);
           if (serviceCompare !== 0) return serviceCompare;
           const aLatest =
@@ -832,40 +846,61 @@ const DownloadsTab: React.FC = () => {
               ? Math.max(...b.downloads.map((d) => new Date(d.startTimeUtc).getTime()))
               : new Date(b.startTimeUtc).getTime();
           return bLatest - aLatest;
-        case 'efficiency':
+        }
+        case 'efficiency': {
           // Sort by cache hit percentage (highest first)
           const aEfficiency =
             'downloads' in a
-              ? a.totalBytes > 0 ? (a.cacheHitBytes / a.totalBytes) * 100 : 0
-              : (a.totalBytes || 0) > 0 ? ((a.cacheHitBytes || 0) / (a.totalBytes || 1)) * 100 : 0;
+              ? a.totalBytes > 0
+                ? (a.cacheHitBytes / a.totalBytes) * 100
+                : 0
+              : (a.totalBytes || 0) > 0
+                ? ((a.cacheHitBytes || 0) / (a.totalBytes || 1)) * 100
+                : 0;
           const bEfficiency =
             'downloads' in b
-              ? b.totalBytes > 0 ? (b.cacheHitBytes / b.totalBytes) * 100 : 0
-              : (b.totalBytes || 0) > 0 ? ((b.cacheHitBytes || 0) / (b.totalBytes || 1)) * 100 : 0;
+              ? b.totalBytes > 0
+                ? (b.cacheHitBytes / b.totalBytes) * 100
+                : 0
+              : (b.totalBytes || 0) > 0
+                ? ((b.cacheHitBytes || 0) / (b.totalBytes || 1)) * 100
+                : 0;
           return bEfficiency - aEfficiency;
-        case 'efficiency-low':
+        }
+        case 'efficiency-low': {
           // Sort by cache hit percentage (lowest first)
           const aEffLow =
             'downloads' in a
-              ? a.totalBytes > 0 ? (a.cacheHitBytes / a.totalBytes) * 100 : 0
-              : (a.totalBytes || 0) > 0 ? ((a.cacheHitBytes || 0) / (a.totalBytes || 1)) * 100 : 0;
+              ? a.totalBytes > 0
+                ? (a.cacheHitBytes / a.totalBytes) * 100
+                : 0
+              : (a.totalBytes || 0) > 0
+                ? ((a.cacheHitBytes || 0) / (a.totalBytes || 1)) * 100
+                : 0;
           const bEffLow =
             'downloads' in b
-              ? b.totalBytes > 0 ? (b.cacheHitBytes / b.totalBytes) * 100 : 0
-              : (b.totalBytes || 0) > 0 ? ((b.cacheHitBytes || 0) / (b.totalBytes || 1)) * 100 : 0;
+              ? b.totalBytes > 0
+                ? (b.cacheHitBytes / b.totalBytes) * 100
+                : 0
+              : (b.totalBytes || 0) > 0
+                ? ((b.cacheHitBytes || 0) / (b.totalBytes || 1)) * 100
+                : 0;
           return aEffLow - bEffLow;
-        case 'sessions':
+        }
+        case 'sessions': {
           // Sort by number of download sessions (most first)
           const aSessions = 'downloads' in a ? a.count : 1;
           const bSessions = 'downloads' in b ? b.count : 1;
           return bSessions - aSessions;
-        case 'alphabetical':
+        }
+        case 'alphabetical': {
           // Sort by name alphabetically
-          const aName = 'downloads' in a ? a.name : (a.gameName || a.service);
-          const bName = 'downloads' in b ? b.name : (b.gameName || b.service);
+          const aName = 'downloads' in a ? a.name : a.gameName || a.service;
+          const bName = 'downloads' in b ? b.name : b.gameName || b.service;
           return aName.localeCompare(bName);
+        }
         case 'latest':
-        default:
+        default: {
           const aLatestDefault =
             'downloads' in a
               ? Math.max(...a.downloads.map((d) => new Date(d.startTimeUtc).getTime()))
@@ -875,6 +910,7 @@ const DownloadsTab: React.FC = () => {
               ? Math.max(...b.downloads.map((d) => new Date(d.startTimeUtc).getTime()))
               : new Date(b.startTimeUtc).getTime();
           return bLatestDefault - aLatestDefault;
+        }
       }
     };
 
@@ -883,7 +919,13 @@ const DownloadsTab: React.FC = () => {
       const mixedItems = [...items] as (Download | DownloadGroup)[];
 
       // When sorting by service, alphabetical, efficiency, or sessions - sort all items together without frequency grouping
-      const skipFrequencyGrouping = ['service', 'alphabetical', 'efficiency', 'efficiency-low', 'sessions'].includes(settings.sortOrder);
+      const skipFrequencyGrouping = [
+        'service',
+        'alphabetical',
+        'efficiency',
+        'efficiency-low',
+        'sessions'
+      ].includes(settings.sortOrder);
       if (skipFrequencyGrouping) {
         mixedItems.sort(sortFn);
         items = mixedItems;
@@ -946,7 +988,8 @@ const DownloadsTab: React.FC = () => {
     settings.hideLocalhost,
     settings.hideUnknownGames,
     settings.viewMode,
-    settings.itemsPerPage
+    settings.itemsPerPage,
+    currentPage
   ]);
 
   // Click outside handler to close settings dropdown
@@ -985,10 +1028,13 @@ const DownloadsTab: React.FC = () => {
   };
 
   // Callback for retro view to report its pagination info
-  const handleRetroTotalPagesChange = React.useCallback((totalPages: number, totalItems: number) => {
-    setRetroTotalPages(totalPages);
-    setRetroTotalItems(totalItems);
-  }, []);
+  const handleRetroTotalPagesChange = React.useCallback(
+    (totalPages: number, totalItems: number) => {
+      setRetroTotalPages(totalPages);
+      setRetroTotalItems(totalItems);
+    },
+    []
+  );
 
   const handleExport = (format: 'json' | 'csv') => {
     setExportLoading(true);
@@ -1111,545 +1157,605 @@ const DownloadsTab: React.FC = () => {
       {/* Recent Downloads View */}
       {activeTab === 'recent' && (
         <>
-      {/* Controls */}
-      <Card padding="sm" className="transition-all duration-300">
-        <div className="flex flex-col gap-3">
-          {/* Search Input + Settings gear on mobile */}
-          <div className="downloads-search-row">
-          <div className="search-input-wrapper relative sm:max-w-xs">
-            <Search
-              size={16}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--theme-text-muted)]"
-            />
-            <input
-              type="text"
-              value={settings.searchQuery}
-              onChange={(e) => setSettings({ ...settings, searchQuery: e.target.value })}
-              placeholder={t('downloads.tab.searchPlaceholder')}
-              className="w-full pl-9 pr-8 py-2 text-sm rounded-lg border border-[var(--theme-border-primary)] bg-[var(--theme-bg-primary)] text-[var(--theme-text-primary)] placeholder:text-[var(--theme-text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--theme-primary)]/50 focus:border-[var(--theme-primary)] transition-all"
-            />
-            {settings.searchQuery && (
-              <Button
-                variant="subtle"
-                size="xs"
-                onClick={() => setSettings({ ...settings, searchQuery: '' })}
-                className="absolute right-2 top-1/2 -translate-y-1/2 !p-1"
-              >
-                <X size={14} />
-              </Button>
-            )}
-          </div>
-          <Tooltip content={t('downloads.tab.tooltips.settings')} position="bottom">
-            <Button
-              variant="subtle"
-              size="sm"
-              onClick={() => setSettingsOpened(!settingsOpened)}
-              data-settings-button="true"
-              className="sm:hidden flex-shrink-0"
-            >
-              <Settings size={18} />
-            </Button>
-          </Tooltip>
-          </div>
-
-          {/* Dropdowns and View Controls */}
-          <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center justify-between w-full">
-            {/* Mobile: First row with service and client filters */}
-            <div className="flex sm:hidden gap-2 w-full">
-              <EnhancedDropdown
-                options={serviceOptions}
-                value={settings.selectedService}
-                onChange={(value) => setSettings({ ...settings, selectedService: value })}
-                className="flex-1 min-w-0"
-              />
-              <EnhancedDropdown
-                options={clientOptions}
-                value={settings.selectedClient}
-                onChange={(value) => setSettings({ ...settings, selectedClient: value })}
-                className="flex-1 min-w-0"
-              />
-            </div>
-
-            {/* Mobile: Second row with items per page, sort, and view mode */}
-            <div className="flex sm:hidden gap-2 w-full items-center">
-              <EnhancedDropdown
-                options={itemsPerPageOptions}
-                value={
-                  settings.itemsPerPage === 'unlimited'
-                    ? 'unlimited'
-                    : settings.itemsPerPage.toString()
-                }
-                onChange={(value) =>
-                  setSettings({
-                    ...settings,
-                    itemsPerPage: value === 'unlimited' ? 'unlimited' : parseInt(value)
-                  })
-                }
-                prefix={t('downloads.tab.filters.showPrefix')}
-                className="flex-1 min-w-0"
-              />
-              <EnhancedDropdown
-                options={[
-                  { value: 'latest', label: t('downloads.tab.sort.latest') },
-                  { value: 'oldest', label: t('downloads.tab.sort.oldest') },
-                  { value: 'largest', label: t('downloads.tab.sort.largest') },
-                  { value: 'smallest', label: t('downloads.tab.sort.smallest') },
-                  { value: 'efficiency', label: t('downloads.tab.sort.bestCache') },
-                  { value: 'efficiency-low', label: t('downloads.tab.sort.worstCache') },
-                  { value: 'sessions', label: t('downloads.tab.sort.sessions') },
-                  { value: 'alphabetical', label: t('downloads.tab.sort.alphabetical') },
-                  { value: 'service', label: t('downloads.tab.sort.service') }
-                ]}
-                value={settings.sortOrder}
-                onChange={(value) => setSettings({ ...settings, sortOrder: value as SortOrder })}
-                prefix={t('downloads.tab.sort.prefix')}
-                className="flex-1 min-w-0"
-              />
-              {/* View mode toggle inline with dropdowns */}
-              <SegmentedControl
-                options={[
-                  { value: 'compact', icon: <List />, tooltip: t('downloads.tab.view.compact') },
-                  { value: 'normal', icon: <Grid3x3 />, tooltip: t('downloads.tab.view.normal') },
-                  { value: 'retro', icon: <Table />, tooltip: t('downloads.tab.view.retro') }
-                ]}
-                value={settings.viewMode}
-                onChange={(value) => setSettings({ ...settings, viewMode: value as ViewMode })}
-                size="sm"
-                className="flex-shrink-0"
-              />
-            </div>
-
-            {/* Desktop: All controls in one row */}
-            <div className="hidden sm:flex gap-2 items-center">
-              <EnhancedDropdown
-                options={serviceOptions}
-                value={settings.selectedService}
-                onChange={(value) => setSettings({ ...settings, selectedService: value })}
-                className="w-28 md:w-32 lg:w-36"
-              />
-
-              <EnhancedDropdown
-                options={clientOptions}
-                value={settings.selectedClient}
-                onChange={(value) => setSettings({ ...settings, selectedClient: value })}
-                className="w-28 md:w-32 lg:w-36"
-              />
-
-              <EnhancedDropdown
-                options={itemsPerPageOptions}
-                value={
-                  settings.itemsPerPage === 'unlimited'
-                    ? 'unlimited'
-                    : settings.itemsPerPage.toString()
-                }
-                onChange={(value) =>
-                  setSettings({
-                    ...settings,
-                    itemsPerPage: value === 'unlimited' ? 'unlimited' : parseInt(value)
-                  })
-                }
-                prefix={t('downloads.tab.filters.showPrefix')}
-                className="w-28"
-              />
-
-              <EnhancedDropdown
-                options={[
-                  { value: 'latest', label: t('downloads.tab.sort.latest') },
-                  { value: 'oldest', label: t('downloads.tab.sort.oldest') },
-                  { value: 'largest', label: t('downloads.tab.sort.largest') },
-                  { value: 'smallest', label: t('downloads.tab.sort.smallest') },
-                  { value: 'efficiency', label: t('downloads.tab.sort.bestCache') },
-                  { value: 'efficiency-low', label: t('downloads.tab.sort.worstCache') },
-                  { value: 'sessions', label: t('downloads.tab.sort.sessions') },
-                  { value: 'alphabetical', label: t('downloads.tab.sort.alphabetical') },
-                  { value: 'service', label: t('downloads.tab.sort.service') }
-                ]}
-                value={settings.sortOrder}
-                onChange={(value) => setSettings({ ...settings, sortOrder: value as SortOrder })}
-                prefix={t('downloads.tab.sort.prefix')}
-                className="w-28 md:w-32 lg:w-36"
-              />
-            </div>
-
-            {/* Desktop view controls */}
-            <div className="hidden sm:flex gap-2 justify-end w-auto flex-shrink-0">
-              {/* View Mode Toggle */}
-              <SegmentedControl
-                options={[
-                  { value: 'compact', label: t('downloads.tab.view.compact'), icon: <List /> },
-                  { value: 'normal', label: t('downloads.tab.view.normal'), icon: <Grid3x3 /> },
-                  { value: 'retro', label: t('downloads.tab.view.retro'), icon: <Table /> }
-                ]}
-                value={settings.viewMode}
-                onChange={(value) => setSettings({ ...settings, viewMode: value as ViewMode })}
-                size="md"
-                showLabels="responsive"
-              />
-
-              {/* Export Button */}
-              <ActionMenu
-                isOpen={showExportOptions}
-                onClose={() => setShowExportOptions(false)}
-                width="w-48"
-                trigger={
-                  <Tooltip content={t('downloads.tab.tooltips.export')} position="bottom">
+          {/* Controls */}
+          <Card padding="sm" className="transition-all duration-300">
+            <div className="flex flex-col gap-3">
+              {/* Search Input + Settings gear on mobile */}
+              <div className="downloads-search-row">
+                <div className="search-input-wrapper relative sm:max-w-xs">
+                  <Search
+                    size={16}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--theme-text-muted)]"
+                  />
+                  <input
+                    type="text"
+                    value={settings.searchQuery}
+                    onChange={(e) => setSettings({ ...settings, searchQuery: e.target.value })}
+                    placeholder={t('downloads.tab.searchPlaceholder')}
+                    className="w-full pl-9 pr-8 py-2 text-sm rounded-lg border border-[var(--theme-border-primary)] bg-[var(--theme-bg-primary)] text-[var(--theme-text-primary)] placeholder:text-[var(--theme-text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--theme-primary)]/50 focus:border-[var(--theme-primary)] transition-all"
+                  />
+                  {settings.searchQuery && (
                     <Button
                       variant="subtle"
-                      size="sm"
-                      onClick={() => setShowExportOptions(!showExportOptions)}
-                      disabled={exportLoading || itemsToDisplay.length === 0}
-                      loading={exportLoading}
+                      size="xs"
+                      onClick={() => setSettings({ ...settings, searchQuery: '' })}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 !p-1"
                     >
-                      <DownloadIcon size={18} />
+                      <X size={14} />
                     </Button>
-                  </Tooltip>
-                }
-              >
-                <ActionMenuItem
-                  onClick={() => {
-                    handleExport('json');
-                    setShowExportOptions(false);
-                  }}
-                >
-                  {t('downloads.tab.export.json')}
-                </ActionMenuItem>
-                <ActionMenuItem
-                  onClick={() => {
-                    handleExport('csv');
-                    setShowExportOptions(false);
-                  }}
-                >
-                  {t('downloads.tab.export.csv')}
-                </ActionMenuItem>
-              </ActionMenu>
-
-              {settings.viewMode === 'retro' && (
-                <Tooltip content={t('downloads.tab.tooltips.fitColumns')} position="bottom">
+                  )}
+                </div>
+                <Tooltip content={t('downloads.tab.tooltips.settings')} position="bottom">
                   <Button
                     variant="subtle"
                     size="sm"
-                    onClick={() => retroViewRef.current?.resetWidths()}
+                    onClick={() => setSettingsOpened(!settingsOpened)}
+                    data-settings-button="true"
+                    className="sm:hidden flex-shrink-0"
                   >
-                    <Maximize2 size={18} />
+                    <Settings size={18} />
                   </Button>
                 </Tooltip>
-              )}
+              </div>
 
-              <Tooltip content={t('downloads.tab.tooltips.settings')} position="bottom">
-                <Button
-                  variant="subtle"
-                  size="sm"
-                  onClick={() => setSettingsOpened(!settingsOpened)}
-                  data-settings-button="true"
-                >
-                  <Settings size={18} />
-                </Button>
-              </Tooltip>
-            </div>
-          </div>
-        </div>
-
-        <div ref={settingsRef}>
-          {settingsOpened && (
-            <>
-              <div
-                className="border-t border-[var(--theme-border-secondary)] my-3 animate-fade-in"
-              />
-              <div className="space-y-4 animate-slide-in-top">
-                {/* Quick Presets - Mobile-friendly segmented control */}
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-wide mb-2 text-[var(--theme-text-muted)]">
-                    {t('downloads.tab.presets.title')}
-                  </div>
-                  {(() => {
-                    const activePreset = detectActivePreset(settings);
-                    return (
-                      <SegmentedControl
-                        options={[
-                          { value: 'pretty', label: t('downloads.tab.presets.pretty') },
-                          { value: 'minimal', label: t('downloads.tab.presets.minimal') },
-                          { value: 'showAll', label: t('downloads.tab.presets.showAll') },
-                          { value: 'default', label: t('downloads.tab.presets.default') },
-                          { value: 'custom', label: t('downloads.tab.presets.custom'), disabled: true }
-                        ]}
-                        value={activePreset}
-                        onChange={(value) => {
-                          if (value !== 'custom') {
-                            setSettings({ ...settings, ...PRESETS[value as keyof typeof PRESETS] });
-                          }
-                        }}
-                        size="sm"
-                        showLabels={true}
-                        fullWidth
-                        className="sm:w-auto"
-                      />
-                    );
-                  })()}
+              {/* Dropdowns and View Controls */}
+              <div className="flex flex-col sm:flex-row gap-2 items-start sm:items-center justify-between w-full">
+                {/* Mobile: First row with service and client filters */}
+                <div className="flex sm:hidden gap-2 w-full">
+                  <EnhancedDropdown
+                    options={serviceOptions}
+                    value={settings.selectedService}
+                    onChange={(value) => setSettings({ ...settings, selectedService: value })}
+                    className="flex-1 min-w-0"
+                  />
+                  <EnhancedDropdown
+                    options={clientOptions}
+                    value={settings.selectedClient}
+                    onChange={(value) => setSettings({ ...settings, selectedClient: value })}
+                    className="flex-1 min-w-0"
+                  />
                 </div>
 
-                {/* Settings Grid - Responsive with collapsible sections on mobile */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-x-6 sm:gap-y-1">
-                  {/* Filters Column */}
-                  <div className="space-y-1">
-                    <div className="text-xs font-semibold uppercase tracking-wide mb-2 text-[var(--theme-text-muted)]">
-                      {t('downloads.tab.sections.filters')}
-                    </div>
-                    <Checkbox
-                      checked={settings.showZeroBytes}
-                      onChange={(e) => setSettings({ ...settings, showZeroBytes: e.target.checked })}
-                      label={t('downloads.tab.filters.showMetadata')}
-                    />
-                    <Checkbox
-                      checked={settings.showSmallFiles}
-                      onChange={(e) => setSettings({ ...settings, showSmallFiles: e.target.checked })}
-                      label={t('downloads.tab.filters.showSmallFiles')}
-                    />
-                    <Checkbox
-                      checked={settings.hideLocalhost}
-                      onChange={(e) => setSettings({ ...settings, hideLocalhost: e.target.checked })}
-                      label={t('downloads.tab.filters.hideLocalhost')}
-                    />
-                    <Checkbox
-                      checked={settings.hideUnknownGames}
-                      onChange={(e) => setSettings({ ...settings, hideUnknownGames: e.target.checked })}
-                      label={t('downloads.tab.filters.hideUnknownGames')}
-                    />
-                  </div>
+                {/* Mobile: Second row with items per page, sort, and view mode */}
+                <div className="flex sm:hidden gap-2 w-full items-center">
+                  <EnhancedDropdown
+                    options={itemsPerPageOptions}
+                    value={
+                      settings.itemsPerPage === 'unlimited'
+                        ? 'unlimited'
+                        : settings.itemsPerPage.toString()
+                    }
+                    onChange={(value) =>
+                      setSettings({
+                        ...settings,
+                        itemsPerPage: value === 'unlimited' ? 'unlimited' : parseInt(value)
+                      })
+                    }
+                    prefix={t('downloads.tab.filters.showPrefix')}
+                    className="flex-1 min-w-0"
+                  />
+                  <EnhancedDropdown
+                    options={[
+                      { value: 'latest', label: t('downloads.tab.sort.latest') },
+                      { value: 'oldest', label: t('downloads.tab.sort.oldest') },
+                      { value: 'largest', label: t('downloads.tab.sort.largest') },
+                      { value: 'smallest', label: t('downloads.tab.sort.smallest') },
+                      { value: 'efficiency', label: t('downloads.tab.sort.bestCache') },
+                      { value: 'efficiency-low', label: t('downloads.tab.sort.worstCache') },
+                      { value: 'sessions', label: t('downloads.tab.sort.sessions') },
+                      { value: 'alphabetical', label: t('downloads.tab.sort.alphabetical') },
+                      { value: 'service', label: t('downloads.tab.sort.service') }
+                    ]}
+                    value={settings.sortOrder}
+                    onChange={(value) =>
+                      setSettings({ ...settings, sortOrder: value as SortOrder })
+                    }
+                    prefix={t('downloads.tab.sort.prefix')}
+                    className="flex-1 min-w-0"
+                  />
+                  {/* View mode toggle inline with dropdowns */}
+                  <SegmentedControl
+                    options={[
+                      {
+                        value: 'compact',
+                        icon: <List />,
+                        tooltip: t('downloads.tab.view.compact')
+                      },
+                      {
+                        value: 'normal',
+                        icon: <Grid3x3 />,
+                        tooltip: t('downloads.tab.view.normal')
+                      },
+                      { value: 'retro', icon: <Table />, tooltip: t('downloads.tab.view.retro') }
+                    ]}
+                    value={settings.viewMode}
+                    onChange={(value) => setSettings({ ...settings, viewMode: value as ViewMode })}
+                    size="sm"
+                    className="flex-shrink-0"
+                  />
+                </div>
 
-                  {/* Display Column */}
-                  <div className="space-y-1">
-                    <div className="text-xs font-semibold uppercase tracking-wide mb-2 text-[var(--theme-text-muted)]">
-                      {t('downloads.tab.sections.display')}
-                    </div>
-                    <Checkbox
-                      checked={settings.aestheticMode}
-                      onChange={(e) => setSettings({ ...settings, aestheticMode: e.target.checked })}
-                      label={t('downloads.tab.display.minimalMode')}
-                    />
-                    <Checkbox
-                      checked={settings.fullHeightBanners}
-                      onChange={(e) => setSettings({ ...settings, fullHeightBanners: e.target.checked })}
-                      label={t('downloads.tab.display.fullHeightBanners')}
-                    />
-                  </div>
+                {/* Desktop: All controls in one row */}
+                <div className="hidden sm:flex gap-2 items-center">
+                  <EnhancedDropdown
+                    options={serviceOptions}
+                    value={settings.selectedService}
+                    onChange={(value) => setSettings({ ...settings, selectedService: value })}
+                    className="w-28 md:w-32 lg:w-36"
+                  />
 
-                  {/* Behavior Column */}
-                  <div className="space-y-1">
-                    <div className="text-xs font-semibold uppercase tracking-wide mb-2 text-[var(--theme-text-muted)]">
-                      {t('downloads.tab.sections.behavior')}
-                    </div>
-                    <Checkbox
-                      checked={settings.groupUnknownGames}
-                      onChange={(e) => setSettings({ ...settings, groupUnknownGames: e.target.checked })}
-                      label={t('downloads.tab.behavior.groupUnknown')}
-                    />
-                    <Checkbox
-                      checked={settings.groupByFrequency}
-                      onChange={(e) => setSettings({ ...settings, groupByFrequency: e.target.checked })}
-                      label={t('downloads.tab.behavior.groupByFrequency')}
-                    />
-                    <Checkbox
-                      checked={settings.enableScrollIntoView}
-                      onChange={(e) => setSettings({ ...settings, enableScrollIntoView: e.target.checked })}
-                      label={t('downloads.tab.behavior.scrollOnExpand')}
-                    />
-                  </div>
+                  <EnhancedDropdown
+                    options={clientOptions}
+                    value={settings.selectedClient}
+                    onChange={(value) => setSettings({ ...settings, selectedClient: value })}
+                    className="w-28 md:w-32 lg:w-36"
+                  />
+
+                  <EnhancedDropdown
+                    options={itemsPerPageOptions}
+                    value={
+                      settings.itemsPerPage === 'unlimited'
+                        ? 'unlimited'
+                        : settings.itemsPerPage.toString()
+                    }
+                    onChange={(value) =>
+                      setSettings({
+                        ...settings,
+                        itemsPerPage: value === 'unlimited' ? 'unlimited' : parseInt(value)
+                      })
+                    }
+                    prefix={t('downloads.tab.filters.showPrefix')}
+                    className="w-28"
+                  />
+
+                  <EnhancedDropdown
+                    options={[
+                      { value: 'latest', label: t('downloads.tab.sort.latest') },
+                      { value: 'oldest', label: t('downloads.tab.sort.oldest') },
+                      { value: 'largest', label: t('downloads.tab.sort.largest') },
+                      { value: 'smallest', label: t('downloads.tab.sort.smallest') },
+                      { value: 'efficiency', label: t('downloads.tab.sort.bestCache') },
+                      { value: 'efficiency-low', label: t('downloads.tab.sort.worstCache') },
+                      { value: 'sessions', label: t('downloads.tab.sort.sessions') },
+                      { value: 'alphabetical', label: t('downloads.tab.sort.alphabetical') },
+                      { value: 'service', label: t('downloads.tab.sort.service') }
+                    ]}
+                    value={settings.sortOrder}
+                    onChange={(value) =>
+                      setSettings({ ...settings, sortOrder: value as SortOrder })
+                    }
+                    prefix={t('downloads.tab.sort.prefix')}
+                    className="w-28 md:w-32 lg:w-36"
+                  />
+                </div>
+
+                {/* Desktop view controls */}
+                <div className="hidden sm:flex gap-2 justify-end w-auto flex-shrink-0">
+                  {/* View Mode Toggle */}
+                  <SegmentedControl
+                    options={[
+                      { value: 'compact', label: t('downloads.tab.view.compact'), icon: <List /> },
+                      { value: 'normal', label: t('downloads.tab.view.normal'), icon: <Grid3x3 /> },
+                      { value: 'retro', label: t('downloads.tab.view.retro'), icon: <Table /> }
+                    ]}
+                    value={settings.viewMode}
+                    onChange={(value) => setSettings({ ...settings, viewMode: value as ViewMode })}
+                    size="md"
+                    showLabels="responsive"
+                  />
+
+                  {/* Export Button */}
+                  <ActionMenu
+                    isOpen={showExportOptions}
+                    onClose={() => setShowExportOptions(false)}
+                    width="w-48"
+                    trigger={
+                      <Tooltip content={t('downloads.tab.tooltips.export')} position="bottom">
+                        <Button
+                          variant="subtle"
+                          size="sm"
+                          onClick={() => setShowExportOptions(!showExportOptions)}
+                          disabled={exportLoading || itemsToDisplay.length === 0}
+                          loading={exportLoading}
+                        >
+                          <DownloadIcon size={18} />
+                        </Button>
+                      </Tooltip>
+                    }
+                  >
+                    <ActionMenuItem
+                      onClick={() => {
+                        handleExport('json');
+                        setShowExportOptions(false);
+                      }}
+                    >
+                      {t('downloads.tab.export.json')}
+                    </ActionMenuItem>
+                    <ActionMenuItem
+                      onClick={() => {
+                        handleExport('csv');
+                        setShowExportOptions(false);
+                      }}
+                    >
+                      {t('downloads.tab.export.csv')}
+                    </ActionMenuItem>
+                  </ActionMenu>
+
+                  {settings.viewMode === 'retro' && (
+                    <Tooltip content={t('downloads.tab.tooltips.fitColumns')} position="bottom">
+                      <Button
+                        variant="subtle"
+                        size="sm"
+                        onClick={() => retroViewRef.current?.resetWidths()}
+                      >
+                        <Maximize2 size={18} />
+                      </Button>
+                    </Tooltip>
+                  )}
+
+                  <Tooltip content={t('downloads.tab.tooltips.settings')} position="bottom">
+                    <Button
+                      variant="subtle"
+                      size="sm"
+                      onClick={() => setSettingsOpened(!settingsOpened)}
+                      data-settings-button="true"
+                    >
+                      <Settings size={18} />
+                    </Button>
+                  </Tooltip>
                 </div>
               </div>
-            </>
-          )}
-        </div>
-      </Card>
+            </div>
 
-      {/* Stats */}
-      <Alert color="blue" icon={<Database className="w-5 h-5" />}>
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 text-sm">
-            {/* Mobile: compact download count */}
-            <span className="downloads-stats-compact whitespace-nowrap font-medium">
-              {filteredDownloads.length !== latestDownloads.length
-                ? t('downloads.tab.pagination.downloadCountTotal', {
-                    count: filteredDownloads.length,
-                    total: latestDownloads.length
-                  })
-                : t('downloads.tab.pagination.downloadCount', { count: filteredDownloads.length })}
-            </span>
-            {/* Desktop: verbose pagination text */}
-            <span className="downloads-stats-verbose">
-              <span className="whitespace-nowrap">
-                {settings.itemsPerPage !== 'unlimited' && (
-                  <span className="font-medium">
-                    {t('downloads.tab.pagination.pageOf', {
-                      page: currentPage,
-                      total: settings.viewMode === 'retro' ? retroTotalPages : totalPages
-                    })}
-                  </span>
-                )}
-              </span>
-              <span className="flex flex-wrap items-center gap-1">
-                {settings.itemsPerPage !== 'unlimited' && <span className="hidden sm:inline">-</span>}
-                <span>
-                  {settings.viewMode === 'retro'
-                    ? t('downloads.tab.pagination.showingDepotGroups', {
-                        count: Math.min(
-                          settings.itemsPerPage === 'unlimited' ? retroTotalItems : (settings.itemsPerPage as number),
-                          retroTotalItems - (currentPage - 1) * (settings.itemsPerPage === 'unlimited' ? retroTotalItems : (settings.itemsPerPage as number))
-                        ),
-                        total: retroTotalItems
-                      })
-                    : t('downloads.tab.pagination.showingGroups', {
-                        count: itemsToDisplay.length,
-                        total: allItemsSorted.length
-                      })
-                  }
-                </span>
-                <span className="whitespace-nowrap">
+            <div ref={settingsRef}>
+              {settingsOpened && (
+                <>
+                  <div className="border-t border-[var(--theme-border-secondary)] my-3 animate-fade-in" />
+                  <div className="space-y-4 animate-slide-in-top">
+                    {/* Quick Presets - Mobile-friendly segmented control */}
+                    <div>
+                      <div className="text-xs font-semibold uppercase tracking-wide mb-2 text-[var(--theme-text-muted)]">
+                        {t('downloads.tab.presets.title')}
+                      </div>
+                      {(() => {
+                        const activePreset = detectActivePreset(settings);
+                        return (
+                          <SegmentedControl
+                            options={[
+                              { value: 'pretty', label: t('downloads.tab.presets.pretty') },
+                              { value: 'minimal', label: t('downloads.tab.presets.minimal') },
+                              { value: 'showAll', label: t('downloads.tab.presets.showAll') },
+                              { value: 'default', label: t('downloads.tab.presets.default') },
+                              {
+                                value: 'custom',
+                                label: t('downloads.tab.presets.custom'),
+                                disabled: true
+                              }
+                            ]}
+                            value={activePreset}
+                            onChange={(value) => {
+                              if (value !== 'custom') {
+                                setSettings({
+                                  ...settings,
+                                  ...PRESETS[value as keyof typeof PRESETS]
+                                });
+                              }
+                            }}
+                            size="sm"
+                            showLabels={true}
+                            fullWidth
+                            className="sm:w-auto"
+                          />
+                        );
+                      })()}
+                    </div>
+
+                    {/* Settings Grid - Responsive with collapsible sections on mobile */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-x-6 sm:gap-y-1">
+                      {/* Filters Column */}
+                      <div className="space-y-1">
+                        <div className="text-xs font-semibold uppercase tracking-wide mb-2 text-[var(--theme-text-muted)]">
+                          {t('downloads.tab.sections.filters')}
+                        </div>
+                        <Checkbox
+                          checked={settings.showZeroBytes}
+                          onChange={(e) =>
+                            setSettings({ ...settings, showZeroBytes: e.target.checked })
+                          }
+                          label={t('downloads.tab.filters.showMetadata')}
+                        />
+                        <Checkbox
+                          checked={settings.showSmallFiles}
+                          onChange={(e) =>
+                            setSettings({ ...settings, showSmallFiles: e.target.checked })
+                          }
+                          label={t('downloads.tab.filters.showSmallFiles')}
+                        />
+                        <Checkbox
+                          checked={settings.hideLocalhost}
+                          onChange={(e) =>
+                            setSettings({ ...settings, hideLocalhost: e.target.checked })
+                          }
+                          label={t('downloads.tab.filters.hideLocalhost')}
+                        />
+                        <Checkbox
+                          checked={settings.hideUnknownGames}
+                          onChange={(e) =>
+                            setSettings({ ...settings, hideUnknownGames: e.target.checked })
+                          }
+                          label={t('downloads.tab.filters.hideUnknownGames')}
+                        />
+                      </div>
+
+                      {/* Display Column */}
+                      <div className="space-y-1">
+                        <div className="text-xs font-semibold uppercase tracking-wide mb-2 text-[var(--theme-text-muted)]">
+                          {t('downloads.tab.sections.display')}
+                        </div>
+                        <Checkbox
+                          checked={settings.aestheticMode}
+                          onChange={(e) =>
+                            setSettings({ ...settings, aestheticMode: e.target.checked })
+                          }
+                          label={t('downloads.tab.display.minimalMode')}
+                        />
+                        <Checkbox
+                          checked={settings.fullHeightBanners}
+                          onChange={(e) =>
+                            setSettings({ ...settings, fullHeightBanners: e.target.checked })
+                          }
+                          label={t('downloads.tab.display.fullHeightBanners')}
+                        />
+                      </div>
+
+                      {/* Behavior Column */}
+                      <div className="space-y-1">
+                        <div className="text-xs font-semibold uppercase tracking-wide mb-2 text-[var(--theme-text-muted)]">
+                          {t('downloads.tab.sections.behavior')}
+                        </div>
+                        <Checkbox
+                          checked={settings.groupUnknownGames}
+                          onChange={(e) =>
+                            setSettings({ ...settings, groupUnknownGames: e.target.checked })
+                          }
+                          label={t('downloads.tab.behavior.groupUnknown')}
+                        />
+                        <Checkbox
+                          checked={settings.groupByFrequency}
+                          onChange={(e) =>
+                            setSettings({ ...settings, groupByFrequency: e.target.checked })
+                          }
+                          label={t('downloads.tab.behavior.groupByFrequency')}
+                        />
+                        <Checkbox
+                          checked={settings.enableScrollIntoView}
+                          onChange={(e) =>
+                            setSettings({ ...settings, enableScrollIntoView: e.target.checked })
+                          }
+                          label={t('downloads.tab.behavior.scrollOnExpand')}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </Card>
+
+          {/* Stats */}
+          <Alert color="blue" icon={<Database className="w-5 h-5" />}>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 text-sm">
+                {/* Mobile: compact download count */}
+                <span className="downloads-stats-compact whitespace-nowrap font-medium">
                   {filteredDownloads.length !== latestDownloads.length
                     ? t('downloads.tab.pagination.downloadCountTotal', {
                         count: filteredDownloads.length,
                         total: latestDownloads.length
                       })
-                    : t('downloads.tab.pagination.downloadCount', { count: filteredDownloads.length })}
+                    : t('downloads.tab.pagination.downloadCount', {
+                        count: filteredDownloads.length
+                      })}
                 </span>
-              </span>
-            </span>
-            {(settings.selectedService !== 'all' || settings.selectedClient !== 'all' || settings.searchQuery) && (
-              <span className="flex flex-wrap gap-1 text-xs sm:text-sm">
-                {settings.searchQuery && (
+                {/* Desktop: verbose pagination text */}
+                <span className="downloads-stats-verbose">
                   <span className="whitespace-nowrap">
-                    {t('downloads.tab.filters.active.search', { query: settings.searchQuery })}
+                    {settings.itemsPerPage !== 'unlimited' && (
+                      <span className="font-medium">
+                        {t('downloads.tab.pagination.pageOf', {
+                          page: currentPage,
+                          total: settings.viewMode === 'retro' ? retroTotalPages : totalPages
+                        })}
+                      </span>
+                    )}
+                  </span>
+                  <span className="flex flex-wrap items-center gap-1">
+                    {settings.itemsPerPage !== 'unlimited' && (
+                      <span className="hidden sm:inline">-</span>
+                    )}
+                    <span>
+                      {settings.viewMode === 'retro'
+                        ? t('downloads.tab.pagination.showingDepotGroups', {
+                            count: Math.min(
+                              settings.itemsPerPage === 'unlimited'
+                                ? retroTotalItems
+                                : (settings.itemsPerPage as number),
+                              retroTotalItems -
+                                (currentPage - 1) *
+                                  (settings.itemsPerPage === 'unlimited'
+                                    ? retroTotalItems
+                                    : (settings.itemsPerPage as number))
+                            ),
+                            total: retroTotalItems
+                          })
+                        : t('downloads.tab.pagination.showingGroups', {
+                            count: itemsToDisplay.length,
+                            total: allItemsSorted.length
+                          })}
+                    </span>
+                    <span className="whitespace-nowrap">
+                      {filteredDownloads.length !== latestDownloads.length
+                        ? t('downloads.tab.pagination.downloadCountTotal', {
+                            count: filteredDownloads.length,
+                            total: latestDownloads.length
+                          })
+                        : t('downloads.tab.pagination.downloadCount', {
+                            count: filteredDownloads.length
+                          })}
+                    </span>
+                  </span>
+                </span>
+                {(settings.selectedService !== 'all' ||
+                  settings.selectedClient !== 'all' ||
+                  settings.searchQuery) && (
+                  <span className="flex flex-wrap gap-1 text-xs sm:text-sm">
+                    {settings.searchQuery && (
+                      <span className="whitespace-nowrap">
+                        {t('downloads.tab.filters.active.search', { query: settings.searchQuery })}
+                      </span>
+                    )}
+                    {settings.selectedService !== 'all' && (
+                      <span className="whitespace-nowrap">
+                        {t('downloads.tab.filters.active.service', {
+                          service: settings.selectedService
+                        })}
+                      </span>
+                    )}
+                    {settings.selectedClient !== 'all' && (
+                      <span className="whitespace-nowrap">
+                        {t('downloads.tab.filters.active.client', {
+                          client: settings.selectedClient
+                        })}
+                      </span>
+                    )}
                   </span>
                 )}
-                {settings.selectedService !== 'all' && (
-                  <span className="whitespace-nowrap">
-                    {t('downloads.tab.filters.active.service', { service: settings.selectedService })}
-                  </span>
-                )}
-                {settings.selectedClient !== 'all' && (
-                  <span className="whitespace-nowrap">
-                    {t('downloads.tab.filters.active.client', { client: settings.selectedClient })}
-                  </span>
-                )}
-              </span>
-            )}
-          </div>
-          {(settings.selectedService !== 'all' || settings.selectedClient !== 'all' || settings.searchQuery) && (
-            <Button
-              variant="filled"
-              size="xs"
-              onClick={() =>
-                setSettings({ ...settings, selectedService: 'all', selectedClient: 'all', searchQuery: '' })
-              }
-              className="self-start sm:self-auto"
-            >
-              {t('downloads.tab.filters.clear')}
-            </Button>
-          )}
-        </div>
-      </Alert>
+              </div>
+              {(settings.selectedService !== 'all' ||
+                settings.selectedClient !== 'all' ||
+                settings.searchQuery) && (
+                <Button
+                  variant="filled"
+                  size="xs"
+                  onClick={() =>
+                    setSettings({
+                      ...settings,
+                      selectedService: 'all',
+                      selectedClient: 'all',
+                      searchQuery: ''
+                    })
+                  }
+                  className="self-start sm:self-auto"
+                >
+                  {t('downloads.tab.filters.clear')}
+                </Button>
+              )}
+            </div>
+          </Alert>
 
-      {/* Help message for empty time ranges */}
-      {filteredDownloads.length === 0 && timeRange !== 'live' && (
-        <Alert color="yellow">
-          <div className="flex flex-col gap-2">
-            <div className="font-medium">{t('downloads.tab.emptyRange.title')}</div>
-            <div className="text-sm opacity-90">
-              {t('downloads.tab.emptyRange.description')}
+          {/* Help message for empty time ranges */}
+          {filteredDownloads.length === 0 && timeRange !== 'live' && (
+            <Alert color="yellow">
+              <div className="flex flex-col gap-2">
+                <div className="font-medium">{t('downloads.tab.emptyRange.title')}</div>
+                <div className="text-sm opacity-90">
+                  {t('downloads.tab.emptyRange.description')}
+                </div>
+              </div>
+            </Alert>
+          )}
+
+          {/* Downloads list */}
+          <div className="relative overflow-x-hidden" ref={contentRef}>
+            {/* Content based on view mode with fade transition */}
+            <div className="relative">
+              <div
+                className={`transition-opacity duration-300 ${
+                  settings.viewMode === 'compact'
+                    ? 'opacity-100'
+                    : 'opacity-0 absolute inset-0 pointer-events-none'
+                }`}
+              >
+                {settings.viewMode === 'compact' && (
+                  <CompactView
+                    items={itemsToDisplay as (Download | DownloadGroup)[]}
+                    expandedItem={expandedItem}
+                    onItemClick={handleItemClick}
+                    aestheticMode={settings.aestheticMode}
+                    groupByFrequency={settings.groupByFrequency}
+                    enableScrollIntoView={settings.enableScrollIntoView}
+                    showDatasourceLabels={showDatasourceLabels}
+                    hasMultipleDatasources={hasMultipleDatasources}
+                  />
+                )}
+              </div>
+
+              <div
+                className={`transition-opacity duration-300 ${
+                  settings.viewMode === 'normal'
+                    ? 'opacity-100'
+                    : 'opacity-0 absolute inset-0 pointer-events-none'
+                }`}
+              >
+                {settings.viewMode === 'normal' && (
+                  <NormalView
+                    items={itemsToDisplay as (Download | DownloadGroup)[]}
+                    expandedItem={expandedItem}
+                    onItemClick={handleItemClick}
+                    aestheticMode={settings.aestheticMode}
+                    fullHeightBanners={settings.fullHeightBanners}
+                    groupByFrequency={settings.groupByFrequency}
+                    enableScrollIntoView={settings.enableScrollIntoView}
+                    showDatasourceLabels={showDatasourceLabels}
+                    hasMultipleDatasources={hasMultipleDatasources}
+                  />
+                )}
+              </div>
+
+              <div
+                className={`transition-opacity duration-300 ${
+                  settings.viewMode === 'retro'
+                    ? 'opacity-100'
+                    : 'opacity-0 absolute inset-0 pointer-events-none'
+                }`}
+              >
+                {settings.viewMode === 'retro' && (
+                  <RetroView
+                    ref={retroViewRef}
+                    items={allItemsSorted as (Download | DownloadGroup)[]}
+                    aestheticMode={settings.aestheticMode}
+                    itemsPerPage={settings.itemsPerPage}
+                    currentPage={currentPage}
+                    onTotalPagesChange={handleRetroTotalPagesChange}
+                    sortOrder={settings.sortOrder}
+                    showDatasourceLabels={showDatasourceLabels}
+                    hasMultipleDatasources={hasMultipleDatasources}
+                  />
+                )}
+              </div>
             </div>
           </div>
-        </Alert>
-      )}
 
-      {/* Downloads list */}
-      <div className="relative overflow-x-hidden" ref={contentRef}>
-        {/* Content based on view mode with fade transition */}
-        <div className="relative">
-          <div
-            className={`transition-opacity duration-300 ${
-              settings.viewMode === 'compact'
-                ? 'opacity-100'
-                : 'opacity-0 absolute inset-0 pointer-events-none'
-            }`}
-          >
-            {settings.viewMode === 'compact' && (
-              <CompactView
-                items={itemsToDisplay as (Download | DownloadGroup)[]}
-                expandedItem={expandedItem}
-                onItemClick={handleItemClick}
-                aestheticMode={settings.aestheticMode}
-                groupByFrequency={settings.groupByFrequency}
-                enableScrollIntoView={settings.enableScrollIntoView}
-                showDatasourceLabels={showDatasourceLabels}
-                hasMultipleDatasources={hasMultipleDatasources}
-              />
-            )}
-          </div>
+          {/* Pagination Controls */}
+          {settings.itemsPerPage !== 'unlimited' && (
+            <Pagination
+              currentPage={currentPage}
+              totalPages={settings.viewMode === 'retro' ? retroTotalPages : totalPages}
+              totalItems={settings.viewMode === 'retro' ? retroTotalItems : allItemsSorted.length}
+              itemsPerPage={typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 20}
+              onPageChange={handlePageChange}
+              itemLabel={settings.viewMode === 'retro' ? 'depot groups' : 'items'}
+              showCard={false}
+            />
+          )}
 
-          <div
-            className={`transition-opacity duration-300 ${
-              settings.viewMode === 'normal'
-                ? 'opacity-100'
-                : 'opacity-0 absolute inset-0 pointer-events-none'
-            }`}
-          >
-            {settings.viewMode === 'normal' && (
-              <NormalView
-                items={itemsToDisplay as (Download | DownloadGroup)[]}
-                expandedItem={expandedItem}
-                onItemClick={handleItemClick}
-                aestheticMode={settings.aestheticMode}
-                fullHeightBanners={settings.fullHeightBanners}
-                groupByFrequency={settings.groupByFrequency}
-                enableScrollIntoView={settings.enableScrollIntoView}
-                showDatasourceLabels={showDatasourceLabels}
-                hasMultipleDatasources={hasMultipleDatasources}
-              />
-            )}
-          </div>
-
-          <div
-            className={`transition-opacity duration-300 ${
-              settings.viewMode === 'retro'
-                ? 'opacity-100'
-                : 'opacity-0 absolute inset-0 pointer-events-none'
-            }`}
-          >
-            {settings.viewMode === 'retro' && (
-              <RetroView
-                ref={retroViewRef}
-                items={allItemsSorted as (Download | DownloadGroup)[]}
-                aestheticMode={settings.aestheticMode}
-                itemsPerPage={settings.itemsPerPage}
-                currentPage={currentPage}
-                onTotalPagesChange={handleRetroTotalPagesChange}
-                sortOrder={settings.sortOrder}
-                showDatasourceLabels={showDatasourceLabels}
-                hasMultipleDatasources={hasMultipleDatasources}
-              />
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Pagination Controls */}
-      {settings.itemsPerPage !== 'unlimited' && (
-        <Pagination
-          currentPage={currentPage}
-          totalPages={settings.viewMode === 'retro' ? retroTotalPages : totalPages}
-          totalItems={settings.viewMode === 'retro' ? retroTotalItems : allItemsSorted.length}
-          itemsPerPage={typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 20}
-          onPageChange={handlePageChange}
-          itemLabel={settings.viewMode === 'retro' ? 'depot groups' : 'items'}
-          showCard={false}
-        />
-      )}
-
-      {/* Performance warning */}
-      {settings.itemsPerPage === 'unlimited' && itemsToDisplay.length > 500 && (
-        <Alert color="yellow">
-          Loading {itemsToDisplay.length} items. Consider using pagination for better performance.
-        </Alert>
-      )}
+          {/* Performance warning */}
+          {settings.itemsPerPage === 'unlimited' && itemsToDisplay.length > 500 && (
+            <Alert color="yellow">
+              Loading {itemsToDisplay.length} items. Consider using pagination for better
+              performance.
+            </Alert>
+          )}
         </>
       )}
     </div>

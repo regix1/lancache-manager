@@ -74,7 +74,9 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
         </Button>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <h4 className={titleClassName || "text-themed-primary font-semibold break-words"}>{title}</h4>
+            <h4 className={titleClassName || 'text-themed-primary font-semibold break-words'}>
+              {title}
+            </h4>
             {subtitle && subtitle}
           </div>
           <div className="flex items-center gap-3 text-xs text-themed-muted flex-wrap">
@@ -83,9 +85,7 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
               return (
                 <span key={idx} className="flex items-center gap-1">
                   <Icon className="w-3 h-3" />
-                  <strong className="text-themed-primary">
-                    {stat.value}
-                  </strong>{' '}
+                  <strong className="text-themed-primary">{stat.value}</strong>{' '}
                   {stat.labelCount !== undefined
                     ? t(stat.label, { count: stat.labelCount })
                     : t(stat.label)}
@@ -109,7 +109,13 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
         <Tooltip content={removeTooltip}>
           <Button
             onClick={onRemove}
-            disabled={isAnyRemovalRunning || !isAdmin || cacheReadOnly || !dockerSocketAvailable || checkingPermissions}
+            disabled={
+              isAnyRemovalRunning ||
+              !isAdmin ||
+              cacheReadOnly ||
+              !dockerSocketAvailable ||
+              checkingPermissions
+            }
             variant="filled"
             color="red"
             size="sm"
@@ -139,9 +145,7 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
 
       {/* Expandable Details Section */}
       {isExpanded && !isExpanding && (
-        <div className="border-t px-3 py-3 space-y-3 border-themed-secondary">
-          {children}
-        </div>
+        <div className="border-t px-3 py-3 space-y-3 border-themed-secondary">{children}</div>
       )}
     </div>
   );

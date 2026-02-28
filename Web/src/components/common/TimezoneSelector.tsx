@@ -41,7 +41,7 @@ const TimezoneSelector: React.FC<TimezoneSelectorProps> = ({ iconOnly = false })
 
   useEffect(() => {
     const interval = setInterval(() => {
-      setTick(t => t + 1);
+      setTick((t) => t + 1);
     }, 1000);
     return () => clearInterval(interval);
   }, []);
@@ -50,7 +50,11 @@ const TimezoneSelector: React.FC<TimezoneSelectorProps> = ({ iconOnly = false })
     if (userAllowedFormats && userAllowedFormats.length > 0) {
       return userAllowedFormats;
     }
-    if (isGuest && guestDefaults.allowedTimeFormats && guestDefaults.allowedTimeFormats.length > 0) {
+    if (
+      isGuest &&
+      guestDefaults.allowedTimeFormats &&
+      guestDefaults.allowedTimeFormats.length > 0
+    ) {
       return guestDefaults.allowedTimeFormats;
     }
     return [];
@@ -71,6 +75,7 @@ const TimezoneSelector: React.FC<TimezoneSelectorProps> = ({ iconOnly = false })
       hasAutoSwitched.current = true;
       handleTimeSettingChange(targetFormat);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isGuest, loadingDefaults, guestDefaults.allowedTimeFormats, userAllowedFormats]);
 
   const getCurrentValueInternal = (): TimeSettingValue => {
@@ -88,7 +93,8 @@ const TimezoneSelector: React.FC<TimezoneSelectorProps> = ({ iconOnly = false })
     if (use24HourFormat) {
       return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
     } else {
-      const period = hours >= 12 ? t('common.timezoneSelector.pm') : t('common.timezoneSelector.am');
+      const period =
+        hours >= 12 ? t('common.timezoneSelector.pm') : t('common.timezoneSelector.am');
       const displayHour = hours % 12 || 12;
       return `${displayHour}:${minutes.toString().padStart(2, '0')} ${period}`;
     }
@@ -154,11 +160,15 @@ const TimezoneSelector: React.FC<TimezoneSelectorProps> = ({ iconOnly = false })
 
   return (
     <EnhancedDropdown
-      options={options.map(opt => {
-        const isAllowed = effectiveAllowedFormats.length === 0 || effectiveAllowedFormats.includes(opt.value);
+      options={options.map((opt) => {
+        const isAllowed =
+          effectiveAllowedFormats.length === 0 || effectiveAllowedFormats.includes(opt.value);
         return {
           ...opt,
-          label: opt.value === adminDefault ? `${opt.label} (${t('common.timezoneSelector.defaultLabel')})` : opt.label,
+          label:
+            opt.value === adminDefault
+              ? `${opt.label} (${t('common.timezoneSelector.defaultLabel')})`
+              : opt.label,
           disabled: !isAllowed
         };
       })}

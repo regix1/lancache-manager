@@ -1,4 +1,12 @@
-import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo
+} from 'react';
 import { unstable_batchedUpdates } from 'react-dom';
 import ApiService from '@services/api.service';
 import { isAbortError } from '@utils/error';
@@ -49,14 +57,17 @@ export const useDownloads = () => {
     loading: context.loading,
     error: context.error,
     refreshDownloads: async () => context.refreshData(true),
-    updateDownloads: (updater: {
-      latestDownloads?: (prev: Download[]) => Download[];
-    }) => context.updateData(updater)
+    updateDownloads: (updater: { latestDownloads?: (prev: Download[]) => Download[] }) =>
+      context.updateData(updater)
   };
 };
 
-export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({ children, mockMode = false }) => {
-  const { getTimeRangeParams, timeRange, customStartDate, customEndDate, selectedEventIds } = useTimeFilter();
+export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
+  children,
+  mockMode = false
+}) => {
+  const { getTimeRangeParams, timeRange, customStartDate, customEndDate, selectedEventIds } =
+    useTimeFilter();
   const { getRefreshInterval } = useRefreshRate();
   const signalR = useSignalR();
   const { hasSession, authMode, isLoading: authLoading } = useAuth();
@@ -133,151 +144,180 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({ ch
       }
       setConnectionStatus('error');
       return false;
-    } catch (err) {
+    } catch (_err) {
       setConnectionStatus('disconnected');
       return false;
     }
   };
 
   // Single unified fetch function that fetches all data in parallel
-  const fetchAllData = useCallback(async (options: { showLoading?: boolean; isInitial?: boolean; forceRefresh?: boolean; trigger?: string } = {}) => {
-    if (mockModeRef.current) return;
-    if (authLoadingRef.current || !hasAccessRef.current) {
-      // If auth resolved but no access, ensure loading is cleared
-      if (!authLoadingRef.current && !hasAccessRef.current) {
-        setLoading(false);
-      }
-      return;
-    }
-
-    const { showLoading = false, isInitial = false, forceRefresh = false, trigger: _trigger } = options;
-
-    // Debounce rapid calls (min 250ms between fetches) - skip for initial load or force refresh
-    const now = Date.now();
-    if (!isInitial && !forceRefresh && now - lastFetchTime.current < 250) {
-      return;
-    }
-    lastFetchTime.current = now;
-
-    // Abort any in-flight request BEFORE checking concurrent flag
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-
-    // Prevent concurrent fetches (except for initial load or force refresh)
-    if (fetchInProgress.current && !isInitial && !forceRefresh) {
-      return;
-    }
-    fetchInProgress.current = true;
-
-    // Generate unique request ID - only this request can modify state
-    const thisRequestId = ++currentRequestIdRef.current;
-
-    // Read current values from refs - these are always up-to-date
-    // IMPORTANT: Capture these at fetch start to detect stale data when fetch completes
-    const currentTimeRange = currentTimeRangeRef.current;
-    const currentEventIds = [...selectedEventIdsRef.current]; // Copy to detect changes
-    const { startTime, endTime } = getTimeRangeParamsRef.current();
-    const eventIds = currentEventIds.length > 0 ? currentEventIds : undefined;
-    const cacheBust = forceRefresh ? Date.now() : undefined;
-
-    abortControllerRef.current = new AbortController();
-    const signal = abortControllerRef.current.signal;
-
-    try {
-      if (showLoading) {
-        setLoading(true);
-      }
-
-      const isConnected = await checkConnectionStatus();
-      if (!isConnected) {
-        if (!hasData.current) {
-          setError('Cannot connect to API server');
+  const fetchAllData = useCallback(
+    async (
+      options: {
+        showLoading?: boolean;
+        isInitial?: boolean;
+        forceRefresh?: boolean;
+        trigger?: string;
+      } = {}
+    ) => {
+      if (mockModeRef.current) return;
+      if (authLoadingRef.current || !hasAccessRef.current) {
+        // If auth resolved but no access, ensure loading is cleared
+        if (!authLoadingRef.current && !hasAccessRef.current) {
+          setLoading(false);
         }
-        setLoading(false);
         return;
       }
 
-      const timeout = 10000;
-      const timeoutId = setTimeout(() => abortControllerRef.current?.abort(), timeout);
+      const {
+        showLoading = false,
+        isInitial = false,
+        forceRefresh = false,
+        trigger: _trigger
+      } = options;
 
-      // Fetch all data in parallel using Promise.allSettled
-      // getCacheInfo is admin-only — skip for guest users to avoid 403
-      const [cache, clients, services, dashboard, downloads] = await Promise.allSettled([
-        isAdminRef.current ? ApiService.getCacheInfo(signal) : Promise.resolve(undefined as unknown as CacheInfo),
-        ApiService.getClientStats(signal, startTime, endTime, eventIds, undefined, cacheBust),
-        ApiService.getServiceStats(signal, startTime, endTime, eventIds, cacheBust),
-        ApiService.getDashboardStats(signal, startTime, endTime, eventIds, cacheBust),
-        ApiService.getLatestDownloads(signal, 'unlimited', startTime, endTime, eventIds, cacheBust)
-      ]);
+      // Debounce rapid calls (min 250ms between fetches) - skip for initial load or force refresh
+      const now = Date.now();
+      if (!isInitial && !forceRefresh && now - lastFetchTime.current < 250) {
+        return;
+      }
+      lastFetchTime.current = now;
 
-      clearTimeout(timeoutId);
-
-      // CRITICAL: Check if we're still the current request before modifying ANY state
-      if (currentRequestIdRef.current !== thisRequestId) {
-        return; // A newer request has started, don't touch state
+      // Abort any in-flight request BEFORE checking concurrent flag
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
       }
 
-      // Only apply results if filters haven't changed during fetch (prevents stale data)
-      const timeRangeStillValid = currentTimeRangeRef.current === currentTimeRange;
-      const eventIdsStillValid = JSON.stringify(selectedEventIdsRef.current) === JSON.stringify(currentEventIds);
-      const filtersStillValid = timeRangeStillValid && eventIdsStillValid;
+      // Prevent concurrent fetches (except for initial load or force refresh)
+      if (fetchInProgress.current && !isInitial && !forceRefresh) {
+        return;
+      }
+      fetchInProgress.current = true;
 
-      // Batch all state updates to prevent multiple re-renders
-      unstable_batchedUpdates(() => {
-        // Cache info is not time-range dependent, always apply
-        if (cache.status === 'fulfilled' && cache.value !== undefined) {
-          setCacheInfo(cache.value);
+      // Generate unique request ID - only this request can modify state
+      const thisRequestId = ++currentRequestIdRef.current;
+
+      // Read current values from refs - these are always up-to-date
+      // IMPORTANT: Capture these at fetch start to detect stale data when fetch completes
+      const currentTimeRange = currentTimeRangeRef.current;
+      const currentEventIds = [...selectedEventIdsRef.current]; // Copy to detect changes
+      const { startTime, endTime } = getTimeRangeParamsRef.current();
+      const eventIds = currentEventIds.length > 0 ? currentEventIds : undefined;
+      const cacheBust = forceRefresh ? Date.now() : undefined;
+
+      abortControllerRef.current = new AbortController();
+      const signal = abortControllerRef.current.signal;
+
+      try {
+        if (showLoading) {
+          setLoading(true);
         }
 
-        // All other data depends on time range AND event filter
-        if (filtersStillValid) {
-          if (clients.status === 'fulfilled' && clients.value !== undefined) {
-            setClientStats(clients.value);
+        const isConnected = await checkConnectionStatus();
+        if (!isConnected) {
+          if (!hasData.current) {
+            setError('Cannot connect to API server');
           }
-          if (services.status === 'fulfilled' && services.value !== undefined) {
-            setServiceStats(services.value);
-          }
-          if (dashboard.status === 'fulfilled' && dashboard.value !== undefined) {
-            setDashboardStats(dashboard.value);
-            hasData.current = true;
-          }
-          if (downloads.status === 'fulfilled' && downloads.value !== undefined) {
-            setLatestDownloads(downloads.value);
-          }
-          setError(null);
+          setLoading(false);
+          return;
         }
-        // Always clear loading when fetch completes — showLoading only controls
-        // whether loading is SET to true, not whether it's cleared. This prevents
-        // a race where one call sets loading=true but a superseding call with
-        // showLoading=false never clears it (e.g. auth transition triggers both
-        // the initial load effect and the time range change effect simultaneously).
+
+        const timeout = 10000;
+        const timeoutId = setTimeout(() => abortControllerRef.current?.abort(), timeout);
+
+        // Fetch all data in parallel using Promise.allSettled
+        // getCacheInfo is admin-only — skip for guest users to avoid 403
+        const [cache, clients, services, dashboard, downloads] = await Promise.allSettled([
+          isAdminRef.current
+            ? ApiService.getCacheInfo(signal)
+            : Promise.resolve(undefined as unknown as CacheInfo),
+          ApiService.getClientStats(signal, startTime, endTime, eventIds, undefined, cacheBust),
+          ApiService.getServiceStats(signal, startTime, endTime, eventIds, cacheBust),
+          ApiService.getDashboardStats(signal, startTime, endTime, eventIds, cacheBust),
+          ApiService.getLatestDownloads(
+            signal,
+            'unlimited',
+            startTime,
+            endTime,
+            eventIds,
+            cacheBust
+          )
+        ]);
+
+        clearTimeout(timeoutId);
+
+        // CRITICAL: Check if we're still the current request before modifying ANY state
+        if (currentRequestIdRef.current !== thisRequestId) {
+          return; // A newer request has started, don't touch state
+        }
+
+        // Only apply results if filters haven't changed during fetch (prevents stale data)
+        const timeRangeStillValid = currentTimeRangeRef.current === currentTimeRange;
+        const eventIdsStillValid =
+          JSON.stringify(selectedEventIdsRef.current) === JSON.stringify(currentEventIds);
+        const filtersStillValid = timeRangeStillValid && eventIdsStillValid;
+
+        // Batch all state updates to prevent multiple re-renders
+        unstable_batchedUpdates(() => {
+          // Cache info is not time-range dependent, always apply
+          if (cache.status === 'fulfilled' && cache.value !== undefined) {
+            setCacheInfo(cache.value);
+          }
+
+          // All other data depends on time range AND event filter
+          if (filtersStillValid) {
+            if (clients.status === 'fulfilled' && clients.value !== undefined) {
+              setClientStats(clients.value);
+            }
+            if (services.status === 'fulfilled' && services.value !== undefined) {
+              setServiceStats(services.value);
+            }
+            if (dashboard.status === 'fulfilled' && dashboard.value !== undefined) {
+              setDashboardStats(dashboard.value);
+              hasData.current = true;
+            }
+            if (downloads.status === 'fulfilled' && downloads.value !== undefined) {
+              setLatestDownloads(downloads.value);
+            }
+            setError(null);
+          }
+          // Always clear loading when fetch completes — showLoading only controls
+          // whether loading is SET to true, not whether it's cleared. This prevents
+          // a race where one call sets loading=true but a superseding call with
+          // showLoading=false never clears it (e.g. auth transition triggers both
+          // the initial load effect and the time range change effect simultaneously).
+          setLoading(false);
+        });
+      } catch (err: unknown) {
+        // Check if we're still the current request before setting error state
+        if (currentRequestIdRef.current !== thisRequestId) {
+          return; // A newer request has started, don't touch state
+        }
+        if (!hasData.current && !isAbortError(err)) {
+          setError('Failed to fetch dashboard data from API');
+        }
         setLoading(false);
-      });
-    } catch (err: unknown) {
-      // Check if we're still the current request before setting error state
-      if (currentRequestIdRef.current !== thisRequestId) {
-        return; // A newer request has started, don't touch state
-      }
-      if (!hasData.current && !isAbortError(err)) {
-        setError('Failed to fetch dashboard data from API');
-      }
-      setLoading(false);
-    } finally {
-      // Only update fetchInProgress if we're still the current request
-      if (currentRequestIdRef.current === thisRequestId) {
-        if (isInitial) {
-          isInitialLoad.current = false;
+      } finally {
+        // Only update fetchInProgress if we're still the current request
+        if (currentRequestIdRef.current === thisRequestId) {
+          if (isInitial) {
+            isInitialLoad.current = false;
+          }
+          fetchInProgress.current = false;
         }
-        fetchInProgress.current = false;
       }
-    }
-  }, []);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
 
   // Public refresh function for manual refreshes
-  const refreshData = useCallback(async (forceRefresh: boolean = false) => {
-    await fetchAllData({ showLoading: true, forceRefresh });
-  }, [fetchAllData]);
+  const refreshData = useCallback(
+    async (forceRefresh = false) => {
+      await fetchAllData({ showLoading: true, forceRefresh });
+    },
+    [fetchAllData]
+  );
 
   // Subscribe to SignalR events for real-time updates - SINGLE subscription
   useEffect(() => {
@@ -314,7 +354,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({ ch
 
     // Create stable handler references for proper cleanup
     const eventHandlers: Record<string, () => void> = {};
-    SIGNALR_REFRESH_EVENTS.forEach(event => {
+    SIGNALR_REFRESH_EVENTS.forEach((event) => {
       eventHandlers[event] = () => handleRefreshEvent(event);
       signalR.on(event, eventHandlers[event]);
     });
@@ -322,7 +362,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({ ch
 
     return () => {
       // Use the same handler references for cleanup
-      SIGNALR_REFRESH_EVENTS.forEach(event => {
+      SIGNALR_REFRESH_EVENTS.forEach((event) => {
         signalR.off(event, eventHandlers[event]);
       });
       signalR.off('DatabaseResetProgress', handleDatabaseResetProgress);
@@ -383,7 +423,11 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({ ch
     if (!mockMode && hasAccess && !isInitialLoad.current) {
       // Use forceRefresh to bypass debounce - time range changes should always trigger immediate fetch
       // Only show loading if we don't have existing data to prevent UI flashing
-      fetchAllData({ showLoading: !hasData.current, forceRefresh: true, trigger: `timeRangeChange:${timeRange}` });
+      fetchAllData({
+        showLoading: !hasData.current,
+        forceRefresh: true,
+        trigger: `timeRangeChange:${timeRange}`
+      });
     }
   }, [timeRange, mockMode, hasAccess, fetchAllData]);
 
@@ -394,7 +438,11 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({ ch
       prevEventIdsRef.current = currentEventIdsKey;
       // Keep previous data visible during fetch - don't clear immediately
       // Only show loading if we don't have existing data to prevent UI flashing
-      fetchAllData({ showLoading: !hasData.current, forceRefresh: true, trigger: 'eventFilterChange' });
+      fetchAllData({
+        showLoading: !hasData.current,
+        forceRefresh: true,
+        trigger: 'eventFilterChange'
+      });
     }
   }, [selectedEventIds, mockMode, hasAccess, fetchAllData]);
 
@@ -409,65 +457,76 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({ ch
         if (datesChanged) {
           setLastCustomDates({ start: customStartDate, end: customEndDate });
           // Only show loading if we don't have existing data to prevent UI flashing
-          fetchAllData({ showLoading: !hasData.current, forceRefresh: true, trigger: 'customDateChange' });
+          fetchAllData({
+            showLoading: !hasData.current,
+            forceRefresh: true,
+            trigger: 'customDateChange'
+          });
         }
       }
     } else if (timeRange !== 'custom') {
       setLastCustomDates({ start: null, end: null });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customStartDate, customEndDate, timeRange, mockMode, hasAccess, fetchAllData]);
 
-  const updateData = useCallback((updater: {
-    cacheInfo?: (prev: CacheInfo | null) => CacheInfo | null;
-    clientStats?: (prev: ClientStat[]) => ClientStat[];
-    serviceStats?: (prev: ServiceStat[]) => ServiceStat[];
-    dashboardStats?: (prev: DashboardStats | null) => DashboardStats | null;
-    latestDownloads?: (prev: Download[]) => Download[];
-  }) => {
-    // Batch all state updates to prevent multiple re-renders
-    unstable_batchedUpdates(() => {
-      if (updater.cacheInfo) {
-        setCacheInfo(updater.cacheInfo);
-      }
-      if (updater.clientStats) {
-        setClientStats(updater.clientStats);
-      }
-      if (updater.serviceStats) {
-        setServiceStats(updater.serviceStats);
-      }
-      if (updater.dashboardStats) {
-        setDashboardStats(updater.dashboardStats);
-      }
-      if (updater.latestDownloads) {
-        setLatestDownloads(updater.latestDownloads);
-      }
-    });
-  }, []);
+  const updateData = useCallback(
+    (updater: {
+      cacheInfo?: (prev: CacheInfo | null) => CacheInfo | null;
+      clientStats?: (prev: ClientStat[]) => ClientStat[];
+      serviceStats?: (prev: ServiceStat[]) => ServiceStat[];
+      dashboardStats?: (prev: DashboardStats | null) => DashboardStats | null;
+      latestDownloads?: (prev: Download[]) => Download[];
+    }) => {
+      // Batch all state updates to prevent multiple re-renders
+      unstable_batchedUpdates(() => {
+        if (updater.cacheInfo) {
+          setCacheInfo(updater.cacheInfo);
+        }
+        if (updater.clientStats) {
+          setClientStats(updater.clientStats);
+        }
+        if (updater.serviceStats) {
+          setServiceStats(updater.serviceStats);
+        }
+        if (updater.dashboardStats) {
+          setDashboardStats(updater.dashboardStats);
+        }
+        if (updater.latestDownloads) {
+          setLatestDownloads(updater.latestDownloads);
+        }
+      });
+    },
+    []
+  );
 
   // Memoize context value to prevent unnecessary re-renders of consumers
-  const value = useMemo(() => ({
-    cacheInfo,
-    clientStats,
-    serviceStats,
-    dashboardStats,
-    latestDownloads,
-    loading,
-    error,
-    connectionStatus,
-    refreshData,
-    updateData
-  }), [
-    cacheInfo,
-    clientStats,
-    serviceStats,
-    dashboardStats,
-    latestDownloads,
-    loading,
-    error,
-    connectionStatus,
-    refreshData,
-    updateData
-  ]);
+  const value = useMemo(
+    () => ({
+      cacheInfo,
+      clientStats,
+      serviceStats,
+      dashboardStats,
+      latestDownloads,
+      loading,
+      error,
+      connectionStatus,
+      refreshData,
+      updateData
+    }),
+    [
+      cacheInfo,
+      clientStats,
+      serviceStats,
+      dashboardStats,
+      latestDownloads,
+      loading,
+      error,
+      connectionStatus,
+      refreshData,
+      updateData
+    ]
+  );
 
   return <DashboardDataContext.Provider value={value}>{children}</DashboardDataContext.Provider>;
 };

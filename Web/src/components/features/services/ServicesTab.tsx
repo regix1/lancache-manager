@@ -24,17 +24,11 @@ const ServiceRow: React.FC<ServiceRowProps> = ({ service }) => {
 
   return (
     <tr className="border-t border-themed-secondary">
-      <td
-        className={`py-3 font-medium text-sm ${getServiceColorClass(service.service)}`}
-      >
+      <td className={`py-3 font-medium text-sm ${getServiceColorClass(service.service)}`}>
         {service.service}
       </td>
-      <td className="py-3 text-themed-secondary hidden sm:table-cell">
-        {service.totalDownloads}
-      </td>
-      <td className="py-3 text-themed-secondary text-sm">
-        {formatBytes(service.totalBytes)}
-      </td>
+      <td className="py-3 text-themed-secondary hidden sm:table-cell">{service.totalDownloads}</td>
+      <td className="py-3 text-themed-secondary text-sm">{formatBytes(service.totalBytes)}</td>
       <td className="py-3 cache-hit hidden md:table-cell text-sm">
         {formatBytes(service.totalCacheHitBytes)}
       </td>
@@ -88,9 +82,7 @@ const ServicesTab: React.FC = () => {
             </thead>
             <tbody className="text-sm">
               {serviceStats.length > 0 ? (
-                serviceStats.map((service, idx) => (
-                  <ServiceRow key={idx} service={service} />
-                ))
+                serviceStats.map((service, idx) => <ServiceRow key={idx} service={service} />)
               ) : (
                 <tr>
                   <td colSpan={7} className="py-8 text-center text-themed-muted">
