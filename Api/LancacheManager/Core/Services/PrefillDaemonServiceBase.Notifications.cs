@@ -2,12 +2,11 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using LancacheManager.Core.Services.SteamPrefill;
-using LancacheManager.Hubs;
 using LancacheManager.Models;
 
 namespace LancacheManager.Core.Services;
 
-public partial class SteamPrefillDaemonService
+public abstract partial class PrefillDaemonServiceBase
 {
 #region Socket Event Handlers
 
@@ -26,6 +25,7 @@ public partial class SteamPrefillDaemonService
                 "2fa" => DaemonAuthState.TwoFactorRequired,
                 "steamguard" => DaemonAuthState.SteamGuardRequired,
                 "device-confirmation" => DaemonAuthState.DeviceConfirmationRequired,
+                "authorization-url" => DaemonAuthState.AuthorizationUrlRequired,
                 _ => session.AuthState
             };
 
@@ -60,10 +60,10 @@ public partial class SteamPrefillDaemonService
             {
                 await NotifyAuthStateChangeAsync(session);
 
-                // Notify SteamKit2Service when a daemon becomes authenticated
+                // Notify derived class when a daemon becomes authenticated
                 if (newAuthState == DaemonAuthState.Authenticated)
                 {
-                    FireEventAsync(OnDaemonAuthenticated, nameof(OnDaemonAuthenticated));
+                    FireCallbackAsync(OnSessionAuthenticatedAsync, nameof(OnSessionAuthenticatedAsync));
                 }
                 // Notify when auth state changes FROM authenticated to non-authenticated
                 else if (previousAuthState == DaemonAuthState.Authenticated && newAuthState != DaemonAuthState.Authenticated)
@@ -71,7 +71,7 @@ public partial class SteamPrefillDaemonService
                     // Check if any other daemons are still authenticated
                     if (!IsAnyDaemonAuthenticated())
                     {
-                        FireEventAsync(OnAllDaemonsLoggedOut, nameof(OnAllDaemonsLoggedOut));
+                        FireCallbackAsync(OnAllSessionsLoggedOutAsync, nameof(OnAllSessionsLoggedOutAsync));
                     }
                 }
             }
@@ -131,14 +131,14 @@ public partial class SteamPrefillDaemonService
 
     #endregion
 
-    private async Task NotifyAuthStateChangeAsync(DaemonSession session)
+    protected async Task NotifyAuthStateChangeAsync(DaemonSession session)
     {
         foreach (var connectionId in session.SubscribedConnections.ToList())
         {
             try
             {
-                await _notifications.SendToPrefillClientRawAsync(connectionId,
-                    SignalREvents.AuthStateChanged, new { sessionId = session.Id, authState = session.AuthState.ToString() });
+                await SendToServiceClientRawAsync(connectionId,
+                    EventAuthStateChanged, new { sessionId = session.Id, authState = session.AuthState.ToString() });
             }
             catch (Exception ex)
             {
@@ -154,8 +154,8 @@ public partial class SteamPrefillDaemonService
         {
             try
             {
-                await _notifications.SendToPrefillClientRawAsync(connectionId,
-                    SignalREvents.CredentialChallenge, new { sessionId = session.Id, challenge });
+                await SendToServiceClientRawAsync(connectionId,
+                    EventCredentialChallenge, new { sessionId = session.Id, challenge });
             }
             catch (Exception ex)
             {
@@ -171,8 +171,8 @@ public partial class SteamPrefillDaemonService
         {
             try
             {
-                await _notifications.SendToPrefillClientRawAsync(connectionId,
-                    SignalREvents.StatusChanged, new { sessionId = session.Id, status });
+                await SendToServiceClientRawAsync(connectionId,
+                    EventStatusChanged, new { sessionId = session.Id, status });
             }
             catch (Exception ex)
             {
@@ -216,8 +216,8 @@ public partial class SteamPrefillDaemonService
         {
             try
             {
-                await _notifications.SendToPrefillClientRawAsync(connectionId,
-                    SignalREvents.PrefillStateChanged, new { sessionId = session.Id, state, durationSeconds });
+                await SendToServiceClientRawAsync(connectionId,
+                    EventPrefillStateChanged, new { sessionId = session.Id, state, durationSeconds });
             }
             catch (Exception ex)
             {
@@ -234,11 +234,11 @@ public partial class SteamPrefillDaemonService
                              session.CurrentAppName != progress.CurrentAppName;
 
         // Track history: detect game transitions
-        if (appInfoChanged && progress.CurrentAppId > 0)
+        if (appInfoChanged && !string.IsNullOrEmpty(progress.CurrentAppId))
         {
             // If there was an app being prefilled, complete its history entry
             // Use the STORED bytes (from before the transition), not progress bytes (which are for the new app)
-            if (session.CurrentAppId > 0)
+            if (!string.IsNullOrEmpty(session.CurrentAppId))
             {
                 try
                 {
@@ -292,7 +292,7 @@ public partial class SteamPrefillDaemonService
 
         // Update bytes from progress BEFORE handling completion events
         // This ensures even instant completions (cached games) have the correct bytes
-        if (progress.CurrentAppId > 0)
+        if (!string.IsNullOrEmpty(progress.CurrentAppId))
         {
             if (progress.BytesDownloaded > 0)
             {
@@ -308,7 +308,7 @@ public partial class SteamPrefillDaemonService
         // IMPORTANT: Use progress.CurrentAppId here, NOT session.CurrentAppId
         // For cached games, daemon sends app_completed without a prior "downloading" event,
         // so session.CurrentAppId may still point to the previous app
-        if (progress.State == "app_completed" && progress.CurrentAppId > 0)
+        if (progress.State == "app_completed" && !string.IsNullOrEmpty(progress.CurrentAppId))
         {
             try
             {
@@ -357,11 +357,14 @@ public partial class SteamPrefillDaemonService
                 {
                     try
                     {
-                        await _cacheService.RecordCachedDepotsAsync(
-                            progress.CurrentAppId,
-                            progress.CurrentAppName,
-                            progress.Depots.Select(d => (d.DepotId, d.ManifestId, d.TotalBytes)),
-                            session.SteamUsername);
+                        if (uint.TryParse(progress.CurrentAppId, out var numericAppId))
+                        {
+                            await _cacheService.RecordCachedDepotsAsync(
+                                numericAppId,
+                                progress.CurrentAppName,
+                                progress.Depots.Select(d => (d.DepotId, d.ManifestId, d.TotalBytes)),
+                                session.SteamUsername);
+                        }
                     }
                     catch (Exception cacheEx)
                     {
@@ -390,8 +393,8 @@ public partial class SteamPrefillDaemonService
                 {
                     try
                     {
-                        await _notifications.SendToPrefillClientRawAsync(connectionId,
-                            SignalREvents.PrefillProgress, new { sessionId = session.Id, progress = frontendProgress });
+                        await SendToServiceClientRawAsync(connectionId,
+                            EventPrefillProgress, new { sessionId = session.Id, progress = frontendProgress });
                     }
                     catch (Exception notifyEx)
                     {
@@ -404,12 +407,12 @@ public partial class SteamPrefillDaemonService
             {
                 _logger.LogWarning(ex, "Failed to complete/skip prefill history entry for app {AppId}", progress.CurrentAppId);
             }
-            // Update tracking for completed app
-            session.PreviousAppId = session.CurrentAppId;
-            session.PreviousAppName = session.CurrentAppName;
-            session.CurrentAppId = progress.CurrentAppId;
-            session.CurrentAppName = progress.CurrentAppName;
-            // Reset bytes for next app
+            // Update tracking: app is done, clear CurrentAppId so the "completed" handler
+            // doesn't try to complete the same app again
+            session.PreviousAppId = progress.CurrentAppId;
+            session.PreviousAppName = progress.CurrentAppName;
+            session.CurrentAppId = null;
+            session.CurrentAppName = null;
             session.CurrentBytesDownloaded = 0;
             session.CurrentTotalBytes = 0;
 
@@ -419,7 +422,7 @@ public partial class SteamPrefillDaemonService
         // Handle overall prefill completion/failure/cancelled states
         if (progress.State == "completed" || progress.State == "failed" || progress.State == "error" || progress.State == "cancelled")
         {
-            if (session.CurrentAppId > 0)
+            if (!string.IsNullOrEmpty(session.CurrentAppId))
             {
                 try
                 {
@@ -469,7 +472,7 @@ public partial class SteamPrefillDaemonService
         session.PreviousAppName = session.CurrentAppName;
         session.CurrentAppId = progress.CurrentAppId;
         session.CurrentAppName = progress.CurrentAppName;
-        
+
         // Calculate total bytes transferred ourselves since daemon doesn't track it
         // Use progress.TotalBytesTransferred if available, otherwise calculate from bytesDownloaded
         if (progress.TotalBytesTransferred > 0)
@@ -490,15 +493,15 @@ public partial class SteamPrefillDaemonService
         // Broadcast session update to all clients on every progress (for admin pages - both hubs)
         // This ensures totalBytesTransferred updates in real-time
         var progressDto = DaemonSessionDto.FromSession(session);
-        await _notifications.NotifyAllBothHubsAsync(SignalREvents.DaemonSessionUpdated, progressDto);
+        await _notifications.NotifyAllBothHubsAsync(EventSessionUpdated, progressDto);
 
         // Send detailed progress to subscribed connections (the user doing the prefill)
         foreach (var connectionId in session.SubscribedConnections.ToList())
         {
             try
             {
-                await _notifications.SendToPrefillClientRawAsync(connectionId,
-                    SignalREvents.PrefillProgress, new { sessionId = session.Id, progress });
+                await SendToServiceClientRawAsync(connectionId,
+                    EventPrefillProgress, new { sessionId = session.Id, progress });
             }
             catch (Exception ex)
             {
@@ -508,10 +511,10 @@ public partial class SteamPrefillDaemonService
         }
     }
 
-    private async Task BroadcastPrefillHistoryUpdatedAsync(string sessionId, uint appId, string status)
+    private async Task BroadcastPrefillHistoryUpdatedAsync(string sessionId, string appId, string status)
     {
         var historyEvent = new { sessionId, appId, status };
-        await _notifications.NotifyAllBothHubsAsync(SignalREvents.PrefillHistoryUpdated, historyEvent);
+        await _notifications.NotifyAllBothHubsAsync(EventPrefillHistoryUpdated, historyEvent);
     }
 
     private async Task NotifySessionEndedAsync(DaemonSession session, string reason)
@@ -520,8 +523,8 @@ public partial class SteamPrefillDaemonService
         {
             try
             {
-                await _notifications.SendToPrefillClientRawAsync(connectionId,
-                    SignalREvents.SessionEnded, new { sessionId = session.Id, reason });
+                await SendToServiceClientRawAsync(connectionId,
+                    EventSessionEnded, new { sessionId = session.Id, reason });
             }
             catch
             {

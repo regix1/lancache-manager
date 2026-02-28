@@ -93,6 +93,12 @@ public class StateService : IStateService
         // Max thread count limit for guest users (null = no limit)
         public int? DefaultGuestMaxThreadCount { get; set; } = null;
 
+        // Epic prefill settings
+        public bool EpicGuestPrefillEnabledByDefault { get; set; } = false;
+        public int EpicGuestPrefillDurationHours { get; set; } = 2;
+        public int? EpicDefaultGuestMaxThreadCount { get; set; } = null;
+        public string EpicDefaultPrefillMaxConcurrency { get; set; } = "default";
+
         // PICS viability check caching
         public bool RequiresFullScan { get; set; } = false;
         public DateTime? LastViabilityCheck { get; set; }
@@ -768,6 +774,11 @@ public class StateService : IStateService
             DefaultPrefillOperatingSystems = persisted.DefaultPrefillOperatingSystems ?? new List<string> { "windows", "linux", "macos" },
             DefaultPrefillMaxConcurrency = persisted.DefaultPrefillMaxConcurrency ?? "default",
             DefaultGuestMaxThreadCount = persisted.DefaultGuestMaxThreadCount,
+            // Epic prefill settings
+            EpicGuestPrefillEnabledByDefault = persisted.EpicGuestPrefillEnabledByDefault,
+            EpicGuestPrefillDurationHours = persisted.EpicGuestPrefillDurationHours,
+            EpicDefaultGuestMaxThreadCount = persisted.EpicDefaultGuestMaxThreadCount,
+            EpicDefaultPrefillMaxConcurrency = persisted.EpicDefaultPrefillMaxConcurrency ?? "default",
             // PICS viability check caching
             RequiresFullScan = persisted.RequiresFullScan,
             LastViabilityCheck = persisted.LastViabilityCheck,
@@ -830,6 +841,11 @@ public class StateService : IStateService
             DefaultPrefillOperatingSystems = state.DefaultPrefillOperatingSystems ?? new List<string> { "windows", "linux", "macos" },
             DefaultPrefillMaxConcurrency = state.DefaultPrefillMaxConcurrency ?? "default",
             DefaultGuestMaxThreadCount = state.DefaultGuestMaxThreadCount,
+            // Epic prefill settings
+            EpicGuestPrefillEnabledByDefault = state.EpicGuestPrefillEnabledByDefault,
+            EpicGuestPrefillDurationHours = state.EpicGuestPrefillDurationHours,
+            EpicDefaultGuestMaxThreadCount = state.EpicDefaultGuestMaxThreadCount,
+            EpicDefaultPrefillMaxConcurrency = state.EpicDefaultPrefillMaxConcurrency ?? "default",
             // PICS viability check caching
             RequiresFullScan = state.RequiresFullScan,
             LastViabilityCheck = state.LastViabilityCheck,
@@ -1268,5 +1284,78 @@ public class StateService : IStateService
             value = Math.Min(value.Value, 256);
         }
         UpdateState(state => state.DefaultGuestMaxThreadCount = value);
+    }
+
+    // Epic Guest Prefill Permission Methods
+    public bool GetEpicGuestPrefillEnabledByDefault()
+    {
+        return GetState().EpicGuestPrefillEnabledByDefault;
+    }
+
+    public void SetEpicGuestPrefillEnabledByDefault(bool enabled)
+    {
+        UpdateState(state => state.EpicGuestPrefillEnabledByDefault = enabled);
+    }
+
+    public int GetEpicGuestPrefillDurationHours()
+    {
+        return GetState().EpicGuestPrefillDurationHours;
+    }
+
+    public void SetEpicGuestPrefillDurationHours(int hours)
+    {
+        // Validate hours (1 or 2)
+        if (hours != 1 && hours != 2)
+        {
+            hours = 2; // Default to 2 hours
+        }
+        UpdateState(state => state.EpicGuestPrefillDurationHours = hours);
+    }
+
+    public int? GetEpicDefaultGuestMaxThreadCount()
+    {
+        return GetState().EpicDefaultGuestMaxThreadCount;
+    }
+
+    public void SetEpicDefaultGuestMaxThreadCount(int? value)
+    {
+        if (value.HasValue)
+        {
+            if (value.Value < 1) value = 1;
+            value = Math.Min(value.Value, 256);
+        }
+        UpdateState(state => state.EpicDefaultGuestMaxThreadCount = value);
+    }
+
+    public string GetEpicDefaultPrefillMaxConcurrency()
+    {
+        var value = GetState().EpicDefaultPrefillMaxConcurrency ?? "auto";
+        // Backwards compat: migrate saved "default" to "auto"
+        return value.Equals("default", StringComparison.OrdinalIgnoreCase) ? "auto" : value;
+    }
+
+    public void SetEpicDefaultPrefillMaxConcurrency(string maxConcurrency)
+    {
+        var normalized = maxConcurrency?.Trim().ToLowerInvariant() ?? "auto";
+
+        // Migrate legacy "default" to "auto"
+        if (normalized == "default") normalized = "auto";
+
+        if (normalized == "auto" || normalized == "max")
+        {
+            UpdateState(state => state.EpicDefaultPrefillMaxConcurrency = normalized);
+            return;
+        }
+
+        if (int.TryParse(normalized, out var numericValue) && numericValue > 0)
+        {
+            // Cap at UI max (these are HTTP connections, not CPU threads)
+            var capped = Math.Min(numericValue, 256);
+            UpdateState(state => state.EpicDefaultPrefillMaxConcurrency = capped.ToString());
+            return;
+        }
+
+        // Invalid value — fall back to auto
+        UpdateState(state => state.EpicDefaultPrefillMaxConcurrency = "auto");
     }
 }

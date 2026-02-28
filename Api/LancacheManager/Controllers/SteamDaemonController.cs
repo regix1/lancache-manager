@@ -7,23 +7,23 @@ using Microsoft.AspNetCore.Mvc;
 namespace LancacheManager.Controllers;
 
 /// <summary>
-/// REST API endpoints for Steam Prefill daemon sessions.
+/// REST API endpoints for Steam daemon sessions.
 /// Uses secure encrypted credential exchange for authentication.
 ///
 /// Authorization:
 /// </summary>
 [ApiController]
-[Route("api/prefill-daemon")]
-public class PrefillDaemonController : ControllerBase
+[Route("api/steam-daemon")]
+public class SteamDaemonController : ControllerBase
 {
-    private readonly SteamPrefillDaemonService _daemonService;
-    private readonly ILogger<PrefillDaemonController> _logger;
+    private readonly SteamDaemonService _daemonService;
+    private readonly ILogger<SteamDaemonController> _logger;
     private readonly StateService _stateService;
     private readonly UserPreferencesService _userPreferencesService;
 
-    public PrefillDaemonController(
-        SteamPrefillDaemonService daemonService,
-        ILogger<PrefillDaemonController> logger,
+    public SteamDaemonController(
+        SteamDaemonService daemonService,
+        ILogger<SteamDaemonController> logger,
         StateService stateService,
         UserPreferencesService userPreferencesService)
     {

@@ -5,7 +5,7 @@ import { AlertCircle, Loader2 } from 'lucide-react';
 import { CommandType, formatBytes } from './types';
 
 interface EstimatedSizeApp {
-  appId: number;
+  appId: string;
   name: string;
   downloadSize: number;
   isUnsupportedOs?: boolean;

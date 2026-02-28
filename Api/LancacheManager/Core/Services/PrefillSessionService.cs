@@ -375,7 +375,7 @@ public class PrefillSessionService
     /// </summary>
     public async Task<PrefillHistoryEntry?> StartPrefillEntryAsync(
         string sessionId,
-        uint appId,
+        string appId,
         string? appName)
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
@@ -434,7 +434,7 @@ public class PrefillSessionService
     /// </summary>
     public async Task<PrefillHistoryEntry?> CompletePrefillEntryAsync(
         string sessionId,
-        uint appId,
+        string appId,
         string status,
         long bytesDownloaded,
         long totalBytes,

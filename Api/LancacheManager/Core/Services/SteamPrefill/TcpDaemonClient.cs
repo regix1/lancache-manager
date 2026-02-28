@@ -45,6 +45,11 @@ public sealed class TcpDaemonClient : IDaemonClient
     public bool IsConnected => _socket?.Connected == true;
     public bool IsAuthenticated => _isAuthenticated;
 
+    /// <summary>
+    /// HKDF info string for credential encryption. Must match the daemon's implementation.
+    /// </summary>
+    public string HkdfInfo { get; set; } = "SteamPrefill-Credential-Encryption";
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -517,7 +522,8 @@ public sealed class TcpDaemonClient : IDaemonClient
         var encrypted = SecureCredentialExchange.EncryptCredentialRaw(
             challenge.ChallengeId,
             challenge.ServerPublicKey,
-            credential);
+            credential,
+            HkdfInfo);
 
         await SendCommandAsync("provide-credential", new Dictionary<string, string>
         {
@@ -602,11 +608,11 @@ public sealed class TcpDaemonClient : IDaemonClient
         return new List<OwnedGame>();
     }
 
-    public async Task SetSelectedAppsAsync(List<uint> appIds, CancellationToken cancellationToken = default)
+    public async Task SetSelectedAppsAsync(List<string> appIds, CancellationToken cancellationToken = default)
     {
         var response = await SendCommandAsync("set-selected-apps", new Dictionary<string, string>
         {
-            ["appIds"] = JsonSerializer.Serialize(appIds)
+            ["appIds"] = DaemonSerializer.SerializeAppIds(appIds)
         }, cancellationToken: cancellationToken);
 
         if (!response.Success)

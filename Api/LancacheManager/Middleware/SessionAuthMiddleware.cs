@@ -55,7 +55,8 @@ public class SessionAuthMiddleware
     // Prefill endpoints allowed for guests WITH active prefill access (GET + POST)
     private static readonly string[] GuestPrefillPrefixes = new[]
     {
-        "/api/prefill-daemon",
+        "/api/steam-daemon",
+        "/api/epic-daemon",
         "/api/prefill-admin/cache"
     };
 

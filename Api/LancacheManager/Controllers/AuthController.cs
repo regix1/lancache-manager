@@ -273,7 +273,10 @@ public class AuthController : ControllerBase
         {
             enabledByDefault = _sessionService.IsGuestPrefillEnabled(),
             durationHours = _sessionService.GetGuestPrefillDurationHours(),
-            maxThreadCount = _stateService.GetDefaultGuestMaxThreadCount()
+            maxThreadCount = _stateService.GetDefaultGuestMaxThreadCount(),
+            epicEnabledByDefault = _stateService.GetEpicGuestPrefillEnabledByDefault(),
+            epicDurationHours = _stateService.GetEpicGuestPrefillDurationHours(),
+            epicMaxThreadCount = _stateService.GetEpicDefaultGuestMaxThreadCount()
         });
     }
 
@@ -304,6 +307,49 @@ public class AuthController : ControllerBase
             enabledByDefault = _sessionService.IsGuestPrefillEnabled(),
             durationHours = _sessionService.GetGuestPrefillDurationHours(),
             maxThreadCount = _stateService.GetDefaultGuestMaxThreadCount()
+        });
+    }
+
+    // --- Epic Guest Prefill Endpoints ---
+
+    [HttpGet("guest/epic-prefill/config")]
+    public IActionResult GetEpicGuestPrefillConfig()
+    {
+        return Ok(new
+        {
+            enabledByDefault = _stateService.GetEpicGuestPrefillEnabledByDefault(),
+            durationHours = _stateService.GetEpicGuestPrefillDurationHours(),
+            maxThreadCount = _stateService.GetEpicDefaultGuestMaxThreadCount()
+        });
+    }
+
+    [HttpPost("guest/epic-prefill/config")]
+    public async Task<IActionResult> SetEpicGuestPrefillConfig([FromBody] EpicGuestPrefillConfigRequest request)
+    {
+        if (request.DurationHours != 1 && request.DurationHours != 2)
+        {
+            return BadRequest(new { error = "Duration must be 1 or 2 hours" });
+        }
+
+        _stateService.SetEpicGuestPrefillEnabledByDefault(request.EnabledByDefault);
+        _stateService.SetEpicGuestPrefillDurationHours(request.DurationHours);
+        _stateService.SetEpicDefaultGuestMaxThreadCount(request.MaxThreadCount);
+
+        _logger.LogInformation("Default Epic guest prefill config updated: enabled={Enabled}, duration={Hours}h, maxThreads={MaxThreads} (existing sessions unchanged)",
+            request.EnabledByDefault, request.DurationHours, request.MaxThreadCount);
+
+        await _signalR.NotifyAllAsync(SignalREvents.EpicGuestPrefillConfigChanged, new
+        {
+            enabledByDefault = _stateService.GetEpicGuestPrefillEnabledByDefault(),
+            durationHours = _stateService.GetEpicGuestPrefillDurationHours(),
+            epicMaxThreadCount = _stateService.GetEpicDefaultGuestMaxThreadCount()
+        });
+
+        return Ok(new {
+            success = true,
+            enabledByDefault = _stateService.GetEpicGuestPrefillEnabledByDefault(),
+            durationHours = _stateService.GetEpicGuestPrefillDurationHours(),
+            maxThreadCount = _stateService.GetEpicDefaultGuestMaxThreadCount()
         });
     }
 
@@ -356,4 +402,11 @@ public class GuestPrefillConfigRequest
 public class GuestPrefillToggleRequest
 {
     public bool Enabled { get; set; }
+}
+
+public class EpicGuestPrefillConfigRequest
+{
+    public bool EnabledByDefault { get; set; }
+    public int DurationHours { get; set; } = 2;
+    public int? MaxThreadCount { get; set; }
 }

@@ -24,7 +24,7 @@ public class DaemonSessionDto
     public string? SteamUsername { get; set; }
 
     // Current prefill progress info for admin visibility
-    public uint CurrentAppId { get; set; }
+    public string? CurrentAppId { get; set; }
     public string? CurrentAppName { get; set; }
 
     /// <summary>

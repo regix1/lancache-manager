@@ -6,20 +6,20 @@ namespace LancacheManager.Core.Services.SteamKit2;
 public partial class SteamKit2Service
 {
     /// <summary>
-    /// Check if the Steam Prefill Daemon is currently active/authenticated.
+    /// Check if the Steam Daemon is currently active/authenticated.
     /// Used to determine whether to use anonymous mode to avoid session conflicts.
     /// </summary>
-    private bool IsPrefillDaemonActive()
+    private bool IsSteamDaemonActive()
     {
         try
         {
             using var scope = _scopeFactory.CreateScope();
-            var daemonService = scope.ServiceProvider.GetService<SteamPrefillDaemonService>();
+            var daemonService = scope.ServiceProvider.GetService<SteamDaemonService>();
             return daemonService?.IsAnyDaemonAuthenticated() == true;
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Could not check prefill daemon status");
+            _logger.LogDebug(ex, "Could not check Steam daemon status");
             return false;
         }
     }
@@ -40,16 +40,16 @@ public partial class SteamKit2Service
         // Wait for connected (increased timeout to handle Steam server delays)
         await WaitForTaskWithTimeout(_connectedTcs.Task, TimeSpan.FromSeconds(60), ct, "Connecting to Steam");
 
-        // Check if prefill daemon is active - if so, use anonymous mode to avoid session conflicts
-        var isPrefillDaemonActive = IsPrefillDaemonActive();
+        // Check if Steam daemon is active - if so, use anonymous mode to avoid session conflicts
+        var isSteamDaemonActive = IsSteamDaemonActive();
 
         // Check if we have a saved refresh token for authenticated login
         var refreshToken = _stateService.GetSteamRefreshToken();
         var authMode = _stateService.GetSteamAuthMode();
 
-        if (isPrefillDaemonActive)
+        if (isSteamDaemonActive)
         {
-            _logger.LogInformation("Prefill daemon is active - using anonymous mode for depot mapping to avoid session conflicts");
+            _logger.LogInformation("Steam daemon is active - using anonymous mode for depot mapping to avoid session conflicts");
             _steamUser!.LogOnAnonymous();
         }
         else if (!string.IsNullOrEmpty(refreshToken) && authMode == "authenticated")
@@ -105,13 +105,13 @@ public partial class SteamKit2Service
         {
             _logger.LogInformation("Reconnected during active rebuild - attempting to re-login");
 
-            // Always check if prefill daemon is active during reconnection.
+            // Always check if Steam daemon is active during reconnection.
             // Steam often fires OnDisconnected WITHOUT a preceding OnLoggedOff callback,
             // so we can't rely on tracking session replacement flags. Checking the daemon
             // status directly is reliable and avoids the authenticated reconnection loop.
-            if (IsPrefillDaemonActive())
+            if (IsSteamDaemonActive())
             {
-                _logger.LogInformation("Prefill daemon is active - using anonymous mode for reconnection to avoid session conflicts");
+                _logger.LogInformation("Steam daemon is active - using anonymous mode for reconnection to avoid session conflicts");
                 _steamUser!.LogOnAnonymous();
                 _logger.LogInformation("SteamKit2 reconnect anonymous login (no LoginID)");
             }

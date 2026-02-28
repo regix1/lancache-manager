@@ -22,7 +22,7 @@ public static class SignalRNotifications
     /// </summary>
     public record GameRemovalStarted(
         string OperationId,
-        int GameAppId,
+        string GameAppId,
         string GameName,
         string Message,
         DateTime Timestamp
@@ -33,7 +33,7 @@ public static class SignalRNotifications
     /// </summary>
     public record GameRemovalProgress(
         string OperationId,
-        int GameAppId,
+        string GameAppId,
         string GameName,
         string Status,
         string Message,
@@ -48,7 +48,7 @@ public static class SignalRNotifications
     public record GameRemovalComplete(
         bool Success,
         string OperationId,
-        int GameAppId,
+        string GameAppId,
         string? GameName = null,
         string? Message = null,
         int FilesDeleted = 0,

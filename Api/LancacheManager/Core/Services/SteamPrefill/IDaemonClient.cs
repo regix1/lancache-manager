@@ -70,7 +70,7 @@ public interface IDaemonClient : IDisposable
     /// <summary>
     /// Set selected apps for prefill.
     /// </summary>
-    Task SetSelectedAppsAsync(List<uint> appIds, CancellationToken cancellationToken = default);
+    Task SetSelectedAppsAsync(List<string> appIds, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Start prefill operation.

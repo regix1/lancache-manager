@@ -8,7 +8,7 @@ import { formatBytes, formatTimeRemaining } from './types';
 interface PrefillProgressState {
   state: string;
   message?: string;
-  currentAppId: number;
+  currentAppId: string;
   currentAppName?: string;
   percentComplete: number;
   bytesDownloaded: number;

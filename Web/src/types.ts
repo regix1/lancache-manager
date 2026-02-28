@@ -45,7 +45,7 @@ export interface Download {
   cacheHitPercent: number;
   isActive: boolean;
   gameName?: string;
-  gameAppId?: number;
+  gameAppId?: string;
   gameImageUrl?: string;
   depotId?: number;
   lastUrl?: string;
@@ -288,7 +288,7 @@ export interface CorruptedChunkDetail {
 }
 
 export interface GameCacheInfo {
-  game_app_id: number;
+  game_app_id: string;
   game_name: string;
   cache_files_found: number;
   total_size_bytes: number;
@@ -377,7 +377,7 @@ export interface UpdateClientGroupRequest {
 export interface GameSpeedInfo {
   depotId: number;
   gameName?: string;
-  gameAppId?: number;
+  gameAppId?: string;
   service: string;
   clientIp?: string;
   bytesPerSecond: number;

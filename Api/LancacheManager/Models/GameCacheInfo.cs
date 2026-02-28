@@ -3,7 +3,7 @@ namespace LancacheManager.Models;
 public class GameCacheInfo
 {
     [System.Text.Json.Serialization.JsonPropertyName("game_app_id")]
-    public uint GameAppId { get; set; }
+    public string GameAppId { get; set; } = string.Empty;
 
     [System.Text.Json.Serialization.JsonPropertyName("game_name")]
     public string GameName { get; set; } = string.Empty;

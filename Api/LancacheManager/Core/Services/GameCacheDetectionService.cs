@@ -342,7 +342,7 @@ public class GameCacheDetectionService : IDisposable
             // Aggregate results from all datasources
             var aggregatedGames = new List<GameCacheInfo>();
             var aggregatedServices = new List<ServiceCacheInfo>();
-            var gameAppIdSet = new HashSet<uint>(); // Track unique game app IDs across datasources
+            var gameAppIdSet = new HashSet<string>(); // Track unique game app IDs across datasources
             var serviceNameSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase); // Track unique services
 
             // Scan each datasource
@@ -1230,7 +1230,7 @@ public class GameCacheDetectionService : IDisposable
         {
             var cachedGame = new CachedGameDetection
             {
-                GameAppId = game.GameAppId,
+                GameAppId = uint.TryParse(game.GameAppId, out var parsedId) ? parsedId : 0,
                 GameName = game.GameName,
                 CacheFilesFound = game.CacheFilesFound,
                 TotalSizeBytes = game.TotalSizeBytes,
@@ -1244,7 +1244,7 @@ public class GameCacheDetectionService : IDisposable
 
             // Use upsert pattern - update if exists, insert if new
             var existing = await dbContext.CachedGameDetections
-                .FirstOrDefaultAsync(g => g.GameAppId == game.GameAppId);
+                .FirstOrDefaultAsync(g => g.GameAppId == cachedGame.GameAppId);
 
             if (existing != null)
             {
@@ -1312,7 +1312,7 @@ public class GameCacheDetectionService : IDisposable
         var datasourcesJson = string.IsNullOrWhiteSpace(cached.DatasourcesJson) ? "[]" : cached.DatasourcesJson;
         return new GameCacheInfo
         {
-            GameAppId = cached.GameAppId,
+            GameAppId = cached.GameAppId.ToString(),
             GameName = cached.GameName,
             CacheFilesFound = cached.CacheFilesFound,
             TotalSizeBytes = cached.TotalSizeBytes,

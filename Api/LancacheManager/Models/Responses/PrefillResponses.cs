@@ -5,8 +5,8 @@ namespace LancacheManager.Models;
 /// </summary>
 public class PrefillCacheStatusResponse
 {
-    public List<uint> UpToDateAppIds { get; set; } = new();
-    public List<uint> OutdatedAppIds { get; set; } = new();
+    public List<string> UpToDateAppIds { get; set; } = new();
+    public List<string> OutdatedAppIds { get; set; } = new();
     public string? Message { get; set; }
 }
 
@@ -68,7 +68,7 @@ public class PrefillHistoryEntryDto
 {
     public int Id { get; set; }
     public string SessionId { get; set; } = string.Empty;
-    public uint AppId { get; set; }
+    public string AppId { get; set; } = string.Empty;
     public string? AppName { get; set; }
     public DateTime StartedAtUtc { get; set; }
     public DateTime? CompletedAtUtc { get; set; }
@@ -83,7 +83,7 @@ public class PrefillHistoryEntryDto
 /// </summary>
 public class CachedAppDto
 {
-    public uint AppId { get; set; }
+    public string AppId { get; set; } = string.Empty;
     public string? AppName { get; set; }
     public int DepotCount { get; set; }
     public long TotalBytes { get; set; }
@@ -96,8 +96,8 @@ public class CachedAppDto
 /// </summary>
 public class CacheCheckResponse
 {
-    public List<uint> CachedAppIds { get; set; } = new();
-    public List<uint> UncachedAppIds { get; set; } = new();
+    public List<string> CachedAppIds { get; set; } = new();
+    public List<string> UncachedAppIds { get; set; } = new();
     public List<CachedAppDto> CacheInfo { get; set; } = new();
 }
 

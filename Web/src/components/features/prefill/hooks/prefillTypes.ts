@@ -1,7 +1,7 @@
 export interface PrefillProgress {
   state: string;
   message?: string;
-  currentAppId: number;
+  currentAppId: string;
   currentAppName?: string;
   percentComplete: number;
   bytesDownloaded: number;
@@ -17,7 +17,7 @@ export interface BackgroundCompletion {
 }
 
 export interface CachedAnimationItem {
-  appId: number;
+  appId: string;
   appName?: string;
   totalBytes: number;
 }

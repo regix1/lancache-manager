@@ -161,11 +161,11 @@ public partial class SteamKit2Service
                 }
             }
 
-            // Terminate prefill sessions
+            // Terminate Steam daemon sessions
             try
             {
                 using var scope = _scopeFactory.CreateScope();
-                var daemonService = scope.ServiceProvider.GetService<SteamPrefillDaemonService>();
+                var daemonService = scope.ServiceProvider.GetService<SteamDaemonService>();
 
                 if (daemonService != null)
                 {
@@ -175,7 +175,7 @@ public partial class SteamKit2Service
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Error terminating prefill sessions during logout");
+                _logger.LogWarning(ex, "Error terminating Steam daemon sessions during logout");
             }
 
             // Clear stored credentials and reset to anonymous mode

@@ -28,13 +28,13 @@ public class DaemonSession
     /// <summary>
     /// Current prefill progress info for admin visibility
     /// </summary>
-    public uint CurrentAppId { get; set; }
+    public string? CurrentAppId { get; set; }
     public string? CurrentAppName { get; set; }
 
     /// <summary>
     /// Previous app ID for tracking history transitions
     /// </summary>
-    public uint PreviousAppId { get; set; }
+    public string? PreviousAppId { get; set; }
     public string? PreviousAppName { get; set; }
 
     /// <summary>

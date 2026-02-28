@@ -25,7 +25,7 @@ interface UsePrefillEventHandlersOptions {
   isCompletionDismissed: (completedAt: string) => boolean;
   sessionRef: React.RefObject<PrefillSessionDto | null>;
   isCancelling: React.RefObject<boolean>;
-  currentAnimationAppIdRef: React.RefObject<number>;
+  currentAnimationAppIdRef: React.RefObject<string>;
   expectedAppCountRef: React.RefObject<number>;
   downloadedGamesCountRef: React.RefObject<number>;
   cachedGamesCountRef: React.RefObject<number>;
@@ -34,6 +34,29 @@ interface UsePrefillEventHandlersOptions {
   resetAnimationState: () => void;
   cachedAnimationQueueRef: React.RefObject<CachedAnimationItem[]>;
   isProcessingAnimationRef: React.RefObject<boolean>;
+  serviceId: string;
+}
+
+/** Maps generic event names to service-specific event names for Epic */
+const EPIC_EVENT_MAP: Record<string, string> = {
+  'AuthStateChanged': 'EpicAuthStateChanged',
+  'SessionSubscribed': 'SessionSubscribed',
+  'SessionEnded': 'EpicSessionEnded',
+  'DaemonSessionTerminated': 'EpicDaemonSessionTerminated',
+  'PrefillProgress': 'EpicPrefillProgress',
+  'StatusChanged': 'EpicStatusChanged',
+  'PrefillStateChanged': 'EpicPrefillStateChanged',
+  'DaemonSessionCreated': 'EpicDaemonSessionCreated',
+  'DaemonSessionUpdated': 'EpicDaemonSessionUpdated',
+  'PrefillHistoryUpdated': 'EpicPrefillHistoryUpdated',
+  'CredentialChallenge': 'EpicCredentialChallenge',
+};
+
+function getEventName(base: string, serviceId: string): string {
+  if (serviceId === 'epic') {
+    return EPIC_EVENT_MAP[base] ?? base;
+  }
+  return base;
 }
 
 /**
@@ -67,13 +90,14 @@ export function registerPrefillEventHandlers(
     enqueueAnimation,
     resetAnimationState,
     cachedAnimationQueueRef,
-    isProcessingAnimationRef
+    isProcessingAnimationRef,
+    serviceId
   } = options;
 
   const t = i18n.t.bind(i18n);
 
   // Handle daemon output - parse and add to log
-    connection.on('TerminalOutput', (_sessionId: string, output: string) => {
+    connection.on(getEventName('TerminalOutput', serviceId), (_sessionId: string, output: string) => {
       const trimmed = output.trim();
       if (!trimmed) return;
 
@@ -103,19 +127,19 @@ export function registerPrefillEventHandlers(
     });
 
     // Handle auth state changes from backend
-    connection.on('AuthStateChanged', ({ authState }: { sessionId: string; authState: SteamAuthState }) => {
+    connection.on(getEventName('AuthStateChanged', serviceId), ({ authState }: { sessionId: string; authState: SteamAuthState }) => {
       onAuthStateChanged(authState);
     });
 
     // Handle session subscribed confirmation
-    connection.on('SessionSubscribed', (sessionDto: PrefillSessionDto) => {
+    connection.on(getEventName('SessionSubscribed', serviceId), (sessionDto: PrefillSessionDto) => {
       setSession(sessionDto);
       setTimeRemaining(sessionDto.timeRemainingSeconds);
       setIsLoggedIn(sessionDto.authState === 'Authenticated');
     });
 
     // Handle session ended (sent to session owner)
-    connection.on('SessionEnded', ({ reason }: { sessionId: string; reason: string }) => {
+    connection.on(getEventName('SessionEnded', serviceId), ({ reason }: { sessionId: string; reason: string }) => {
       addLog('warning', t('prefill.log.sessionEnded', { reason: reason }));
       setSession(null);
       setIsLoggedIn(false);
@@ -129,7 +153,7 @@ export function registerPrefillEventHandlers(
     // Handle daemon session terminated (broadcast to all clients)
     // This is used by admin pages; for the prefill panel, SessionEnded handles our session
     connection.on(
-      'DaemonSessionTerminated',
+      getEventName('DaemonSessionTerminated', serviceId),
       ({ sessionId: terminatedSessionId, reason }: { sessionId: string; reason: string }) => {
         // Check if this termination is for our current session
         const currentSession = sessionRef.current;
@@ -148,7 +172,7 @@ export function registerPrefillEventHandlers(
 
     // Handle prefill progress updates
     connection.on(
-      'PrefillProgress',
+      getEventName('PrefillProgress', serviceId),
       ({ progress }: { sessionId: string; progress: PrefillProgress & { totalApps: number } }) => {
         const isFinalState =
           progress.state === 'completed' ||
@@ -166,13 +190,13 @@ export function registerPrefillEventHandlers(
 
         if (progress.state === 'downloading') {
           if (
-            currentAnimationAppIdRef.current === 0 ||
+            !currentAnimationAppIdRef.current ||
             currentAnimationAppIdRef.current === progress.currentAppId
           ) {
             setPrefillProgress(progress);
           }
         } else if (progress.state === 'app_completed') {
-          currentAnimationAppIdRef.current = 0;
+          currentAnimationAppIdRef.current = '';
 
           // Log game completion with download size
           const gameName = progress.currentAppName || `App ${progress.currentAppId}`;
@@ -236,7 +260,7 @@ export function registerPrefillEventHandlers(
 
     // Handle status changes
     connection.on(
-      'StatusChanged',
+      getEventName('StatusChanged', serviceId),
       ({ status }: { sessionId: string; status: { status: string; message: string } }) => {
         if (status.message) {
           addLog('info', t('prefill.log.statusMessage', { message: status.message }));
@@ -246,7 +270,7 @@ export function registerPrefillEventHandlers(
 
     // Handle prefill state changes
     connection.on(
-      'PrefillStateChanged',
+      getEventName('PrefillStateChanged', serviceId),
       ({ sessionId: stateSessionId, state, durationSeconds }: { sessionId: string; state: string; durationSeconds?: number }) => {
         if (state === 'started') {
           setIsPrefillActive(true);
@@ -340,7 +364,7 @@ export function registerPrefillEventHandlers(
     );
 
     // Handle daemon session updates
-    connection.on('DaemonSessionCreated', (sessionDto: PrefillSessionDto) => {
+    connection.on(getEventName('DaemonSessionCreated', serviceId), (sessionDto: PrefillSessionDto) => {
       setSession((currentSession) => {
         if (currentSession && sessionDto.id === currentSession.id) {
           setTimeRemaining(sessionDto.timeRemainingSeconds);
@@ -350,7 +374,7 @@ export function registerPrefillEventHandlers(
       });
     });
 
-    connection.on('DaemonSessionUpdated', (sessionDto: PrefillSessionDto) => {
+    connection.on(getEventName('DaemonSessionUpdated', serviceId), (sessionDto: PrefillSessionDto) => {
       setSession((currentSession) => {
         if (currentSession && sessionDto.id === currentSession.id) {
           setTimeRemaining(sessionDto.timeRemainingSeconds);
@@ -360,13 +384,13 @@ export function registerPrefillEventHandlers(
       });
     });
 
-    connection.on('PrefillHistoryUpdated', () => {
+    connection.on(getEventName('PrefillHistoryUpdated', serviceId), () => {
       // Admin pages use this - PrefillPanel doesn't need it
     });
 
     // Register no-op handler for CredentialChallenge to prevent SignalR warning
     // Actual handling is done in usePrefillSteamAuth when auth UI is active
-    connection.on('CredentialChallenge', () => {
+    connection.on(getEventName('CredentialChallenge', serviceId), () => {
       // Handled by usePrefillSteamAuth
     });
 

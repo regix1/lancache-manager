@@ -18,6 +18,12 @@ export interface SteamLoginFlowState {
   password: string;
   twoFactorCode: string;
   emailCode: string;
+  /** Epic OAuth: whether we're waiting for the user to provide an authorization code */
+  needsAuthorizationCode: boolean;
+  /** Epic OAuth: the URL the user must visit to authorize */
+  authorizationUrl: string;
+  /** Epic OAuth: the authorization code entered by the user */
+  authorizationCode: string;
 }
 
 export interface SteamAuthActions {
@@ -28,6 +34,7 @@ export interface SteamAuthActions {
   setUseManualCode: (value: boolean) => void;
   setNeedsTwoFactor: (value: boolean) => void;
   setWaitingForMobileConfirmation: (value: boolean) => void;
+  setAuthorizationCode: (value: string) => void;
   handleAuthenticate: () => Promise<boolean>;
   resetAuthForm: () => void;
   cancelPendingRequest: () => void;
@@ -247,7 +254,10 @@ export function useSteamAuthentication(options: SteamAuthOptions = {}) {
     username,
     password,
     twoFactorCode,
-    emailCode
+    emailCode,
+    needsAuthorizationCode: false,
+    authorizationUrl: '',
+    authorizationCode: ''
   };
 
   const actions: SteamAuthActions = {
@@ -258,6 +268,7 @@ export function useSteamAuthentication(options: SteamAuthOptions = {}) {
     setUseManualCode,
     setNeedsTwoFactor,
     setWaitingForMobileConfirmation,
+    setAuthorizationCode: () => {},
     handleAuthenticate,
     resetAuthForm,
     cancelPendingRequest

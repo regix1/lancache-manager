@@ -140,7 +140,22 @@ export const SIGNALR_EVENTS = [
   'PrefillStateChanged',
   'PrefillProgress',
   'PrefillHistoryUpdated',
-  'SessionEnded'
+  'SessionEnded',
+
+  // Epic Prefill Daemon Events
+  'EpicDaemonSessionCreated',
+  'EpicDaemonSessionUpdated',
+  'EpicDaemonSessionTerminated',
+  'EpicAuthStateChanged',
+  'EpicCredentialChallenge',
+  'EpicStatusChanged',
+  'EpicPrefillStateChanged',
+  'EpicPrefillProgress',
+  'EpicPrefillHistoryUpdated',
+  'EpicSessionEnded',
+
+  // Epic Guest Prefill Config
+  'EpicGuestPrefillConfigChanged'
 ] as const;
 
 /**
@@ -233,14 +248,14 @@ export interface LogRemovalCompleteEvent {
 export interface GameRemovalStartedEvent {
   operationId: string;
   message: string;
-  gameAppId?: number;
+  gameAppId?: string;
   gameName?: string;
 }
 export interface GameRemovalProgressEvent {
   operationId: string;
   percentComplete: number;
   status: string;
-  gameAppId: number;
+  gameAppId: string;
   gameName: string;
   message?: string;
   filesDeleted?: number;
@@ -252,7 +267,7 @@ export interface GameRemovalCompleteEvent {
   success: boolean;
   message: string;
   cancelled?: boolean;
-  gameAppId: number;
+  gameAppId: string;
   filesDeleted?: number;
   bytesFreed?: number;
   logEntriesRemoved?: number;
@@ -531,7 +546,7 @@ export interface DaemonSessionCreatedEvent {
   browser?: string;
   lastSeenAt: string;
   steamUsername?: string;
-  currentAppId?: number;
+  currentAppId?: string;
   currentAppName?: string;
 }
 
@@ -551,7 +566,7 @@ export interface DaemonSessionUpdatedEvent {
   browser?: string;
   lastSeenAt: string;
   steamUsername?: string;
-  currentAppId?: number;
+  currentAppId?: string;
   currentAppName?: string;
 }
 
@@ -571,7 +586,7 @@ export interface GuestDurationUpdatedEvent {
 
 export interface PrefillHistoryUpdatedEvent {
   sessionId: string;
-  appId: number;
+  appId: string;
   status: string;
 }
 

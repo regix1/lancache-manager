@@ -22,6 +22,7 @@ import { SteamWebApiStatusProvider, useSteamWebApiStatus } from '@contexts/Steam
 import { TimezoneProvider } from '@contexts/TimezoneContext';
 import { SessionPreferencesProvider } from '@contexts/SessionPreferencesContext';
 import { DockerSocketProvider, useDockerSocket } from '@contexts/DockerSocketContext';
+import { GameServiceProvider } from '@contexts/GameServiceContext';
 import Header from '@components/layout/Header';
 import Navigation from '@components/layout/Navigation';
 import Footer from '@components/layout/Footer';
@@ -643,7 +644,8 @@ const App: React.FC = () => {
   return (
     <ErrorBoundary>
       <MockModeProvider>
-        <TimeFilterProvider>
+        <GameServiceProvider>
+          <TimeFilterProvider>
           <SignalRProvider>
             <AuthProvider>
               <DockerSocketProvider>
@@ -685,7 +687,8 @@ const App: React.FC = () => {
               </DockerSocketProvider>
             </AuthProvider>
           </SignalRProvider>
-        </TimeFilterProvider>
+          </TimeFilterProvider>
+        </GameServiceProvider>
       </MockModeProvider>
     </ErrorBoundary>
   );

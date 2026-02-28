@@ -20,9 +20,10 @@ public class PrefillHistoryEntry
     public string SessionId { get; set; } = string.Empty;
 
     /// <summary>
-    /// Steam App ID of the game
+    /// App ID of the game (numeric for Steam, string for Epic)
     /// </summary>
-    public uint AppId { get; set; }
+    [MaxLength(100)]
+    public string AppId { get; set; } = string.Empty;
 
     /// <summary>
     /// Name of the game

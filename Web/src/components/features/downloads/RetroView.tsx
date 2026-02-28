@@ -155,7 +155,7 @@ const getServiceIcon = (service: string, size: number = 24) => {
       return <RiotIcon size={size} className="opacity-80 text-[var(--theme-riot)]" />;
     case 'epic':
     case 'epicgames':
-      return <EpicIcon size={size} className="opacity-80" />;
+      return <EpicIcon size={size} className="opacity-80 text-[var(--theme-epic)]" />;
     case 'origin':
     case 'ea':
       return <EAIcon size={size} className="opacity-80 text-[var(--theme-origin)]" />;
@@ -181,7 +181,7 @@ interface DepotGroupedData {
   id: string;
   service: string;
   gameName: string;
-  gameAppId: number | null;
+  gameAppId: string | null;
   depotId: number | null;
   clientIp: string;
   startTimeUtc: string;

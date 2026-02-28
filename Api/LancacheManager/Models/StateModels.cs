@@ -53,6 +53,12 @@ public class AppState
     // Max thread count limit for guest users (null = no limit)
     public int? DefaultGuestMaxThreadCount { get; set; } = null;
 
+    // Epic prefill settings
+    public bool EpicGuestPrefillEnabledByDefault { get; set; } = false;
+    public int EpicGuestPrefillDurationHours { get; set; } = 2;
+    public int? EpicDefaultGuestMaxThreadCount { get; set; } = null;
+    public string EpicDefaultPrefillMaxConcurrency { get; set; } = "default";
+
     // PICS viability check caching (prevents repeated Steam API calls)
     public bool RequiresFullScan { get; set; } = false; // True if Steam requires full scan due to large change gap
     public DateTime? LastViabilityCheck { get; set; } // When we last checked with Steam

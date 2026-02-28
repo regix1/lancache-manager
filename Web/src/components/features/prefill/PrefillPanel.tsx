@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Card, CardContent } from '../../ui/Card';
 import { Button } from '../../ui/Button';
 import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
+import { EpicAuthModal } from '@components/modals/auth/EpicAuthModal';
 import { usePrefillSteamAuth } from '@hooks/usePrefillSteamAuth';
 import { ActivityLog } from './ActivityLog';
 import { GameSelectionModal, type OwnedGame } from './GameSelectionModal';
@@ -12,12 +13,16 @@ import { usePrefillContext } from '@contexts/PrefillContext';
 import { useAuth } from '@contexts/AuthContext';
 import { useSignalR } from '@contexts/SignalRContext';
 import { SteamIcon } from '@components/ui/SteamIcon';
+import { EpicIcon } from '@components/ui/EpicIcon';
 import { API_BASE } from '@utils/constants';
 
 import { ScrollText, X, Timer, LogIn, CheckCircle2, AlertCircle } from 'lucide-react';
 
+import { useGameService } from '@contexts/GameServiceContext';
+import type { GameServiceId } from '@/types/gameService';
+
 // Import extracted components
-import { PrefillStartScreen } from './PrefillStartScreen';
+import { PrefillHomePage } from './PrefillHomePage';
 import { PrefillLoadingState } from './PrefillLoadingState';
 import { PrefillProgressCard } from './PrefillProgressCard';
 import { PrefillCommandButtons } from './PrefillCommandButtons';
@@ -32,13 +37,52 @@ import {
 } from './types';
 
 export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
+  const { selectedService, setSelectedService } = useGameService();
+  const [pendingService, setPendingService] = useState<GameServiceId | null>(null);
+
+  const hubPath = selectedService === 'epic' ? '/epic-prefill-daemon' : '/steam-daemon';
+
+  const handleServiceStart = useCallback((serviceId: GameServiceId) => {
+    if (serviceId !== selectedService) {
+      setSelectedService(serviceId);
+    }
+    setPendingService(serviceId);
+  }, [selectedService, setSelectedService]);
+
+  const handlePendingHandled = useCallback(() => {
+    setPendingService(null);
+  }, []);
+
+  return (
+    <ServicePrefillPanel
+      key={selectedService}
+      onSessionEnd={onSessionEnd}
+      hubPath={hubPath}
+      serviceId={selectedService}
+      pendingService={pendingService}
+      onPendingServiceHandled={handlePendingHandled}
+      onServiceStart={handleServiceStart}
+    />
+  );
+}
+
+interface ServicePrefillPanelProps extends PrefillPanelProps {
+  hubPath: string;
+  serviceId: string;
+  pendingService: GameServiceId | null;
+  onPendingServiceHandled: () => void;
+  onServiceStart: (serviceId: GameServiceId) => void;
+}
+
+function ServicePrefillPanel({ onSessionEnd, hubPath, serviceId, pendingService, onPendingServiceHandled, onServiceStart }: ServicePrefillPanelProps) {
   const { t } = useTranslation();
+  const serviceBasePath = serviceId === 'epic' ? 'epic-daemon' : 'steam-daemon';
   const hasExpiredRef = useRef(false);
   const gamesCacheRef = useRef<{
     sessionId: string | null;
     fetchedAt: number;
     ownedGames: OwnedGame[];
-    cachedAppIds: number[];
+    cachedAppIds: string[];
     hasData: boolean;
   } | null>(null);
   const gamesCacheWindowMs = 5 * 60 * 1000;
@@ -68,10 +112,10 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
 
   // Game selection state
   const [ownedGames, setOwnedGames] = useState<OwnedGame[]>([]);
-  const [selectedAppIds, setSelectedAppIds] = useState<number[]>([]);
+  const [selectedAppIds, setSelectedAppIds] = useState<string[]>([]);
   const [showGameSelection, setShowGameSelection] = useState(false);
   const [isLoadingGames, setIsLoadingGames] = useState(false);
-  const [cachedAppIds, setCachedAppIds] = useState<number[]>([]);
+  const [cachedAppIds, setCachedAppIds] = useState<string[]>([]);
   const [isUsingGamesCache, setIsUsingGamesCache] = useState(false);
 
   // Prefill settings state
@@ -169,7 +213,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     loading: boolean;
     error?: string;
     apps?: Array<{
-      appId: number;
+      appId: string;
       name: string;
       downloadSize: number;
       isUnsupportedOs?: boolean;
@@ -203,6 +247,10 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           setShowAuthModal(true);
           addLog('auth', t('prefill.log.emailCodeRequired'));
           break;
+        case 'AuthorizationUrlRequired':
+          setShowAuthModal(true);
+          addLog('auth', 'Epic Games authorization required');
+          break;
         case 'NotAuthenticated':
           signalR.setIsLoggedIn(false);
           break;
@@ -220,10 +268,12 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     clearBackgroundCompletion,
     isCompletionDismissed,
     onAuthStateChanged: handleAuthStateChanged,
-    clearAllPrefillStorage
+    clearAllPrefillStorage,
+    hubPath,
+    serviceId
   });
 
-  // Steam auth hook for container-based authentication
+  // Auth hook for container-based authentication (supports both Steam and Epic)
   const {
     state: authState,
     actions: authActions,
@@ -236,7 +286,8 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     onError: () => {
       /* Keep modal open on error */
     },
-    onDeviceConfirmationTimeout: () => setShowAuthModal(false)
+    onDeviceConfirmationTimeout: () => setShowAuthModal(false),
+    serviceId
   });
 
   // Timer for session countdown
@@ -268,6 +319,14 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     return () => clearInterval(interval);
   }, [signalR.session, signalR.setSession, signalR.setIsLoggedIn, signalR.setTimeRemaining, signalR.setError, t]);
 
+  // Auto-create session when service was started from home page
+  useEffect(() => {
+    if (pendingService && !signalR.isInitializing && !signalR.isCreating && !signalR.isConnecting && !signalR.session) {
+      signalR.createSession(clearLogs);
+      onPendingServiceHandled();
+    }
+  }, [pendingService, signalR.isInitializing, signalR.isCreating, signalR.isConnecting, signalR.session, signalR.createSession, clearLogs, onPendingServiceHandled]);
+
   // Helper to call prefill REST API
   const callPrefillApi = useCallback(
     async (
@@ -295,7 +354,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         }
       }
 
-      const response = await fetch(`${API_BASE}/prefill-daemon/sessions/${sessionId}/prefill`, {
+      const response = await fetch(`${API_BASE}/${serviceBasePath}/sessions/${sessionId}/prefill`, {
         method: 'POST',
         credentials: 'include',
         headers: {
@@ -311,7 +370,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
 
       return response.json();
     },
-    [selectedOS, maxConcurrency, maxThreadLimit, signalR.isCancelling]
+    [selectedOS, maxConcurrency, maxThreadLimit, signalR.isCancelling, serviceBasePath]
   );
 
   const loadGames = useCallback(
@@ -338,7 +397,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
 
         // Fetch owned games via direct API call
         const gamesResponse = await fetch(
-          `${API_BASE}/prefill-daemon/sessions/${signalR.session.id}/games`,
+          `${API_BASE}/${serviceBasePath}/sessions/${signalR.session.id}/games`,
           { credentials: 'include' }
         );
         if (!gamesResponse.ok) {
@@ -348,13 +407,13 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         setOwnedGames(games || []);
         addLog('info', t('prefill.log.foundGames', { count: games?.length || 0 }));
 
-        // Get cached apps via ApiService and verify against Steam manifests
+        // Get cached apps via ApiService and verify against daemon manifests/build versions
         const cachedApps = await ApiService.getPrefillCachedApps();
         let cachedIds = cachedApps.map(a => a.appId);
 
         if (cachedIds.length > 0) {
           try {
-            const cacheStatus = await ApiService.getPrefillCacheStatus(signalR.session.id, cachedIds);
+            const cacheStatus = await ApiService.getPrefillCacheStatus(signalR.session.id, cachedIds, serviceBasePath);
             cachedIds = cacheStatus?.upToDateAppIds?.length ? cacheStatus.upToDateAppIds : [];
           } catch (cacheStatusError) {
             console.warn('Failed to check cache status, clearing cached list:', cacheStatusError);
@@ -380,7 +439,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         setIsLoadingGames(false);
       }
     },
-    [signalR.session, addLog, t]
+    [signalR.session, addLog, t, serviceBasePath]
   );
 
   const executeCommand = useCallback(
@@ -536,7 +595,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   }, [authActions]);
 
   const handleSaveGameSelection = useCallback(
-    async (appIds: number[]) => {
+    async (appIds: string[]) => {
       if (!signalR.session) return;
 
       setSelectedAppIds(appIds);
@@ -544,7 +603,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
 
       try {
         const response = await fetch(
-          `${API_BASE}/prefill-daemon/sessions/${signalR.session.id}/selected-apps`,
+          `${API_BASE}/${serviceBasePath}/sessions/${signalR.session.id}/selected-apps`,
           {
             method: 'POST',
             credentials: 'include',
@@ -563,7 +622,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         addLog('error', t('prefill.log.failedSaveSelection'));
       }
     },
-    [signalR.session, addLog]
+    [signalR.session, addLog, serviceBasePath]
   );
 
   // Confirmation dialog logic
@@ -581,7 +640,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
         totalDownloadSize: number;
         message?: string;
         apps?: Array<{
-          appId: number;
+          appId: string;
           name: string;
           downloadSize: number;
           isUnsupportedOs?: boolean;
@@ -711,10 +770,56 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
     signalR.createSession(clearLogs);
   }, [signalR, clearLogs]);
 
-  // No session state - show start screen
-  if (!signalR.session && !isLoadingSession) {
+  // No session, not loading, not pending - show home page
+  if (!signalR.session && !isLoadingSession && !pendingService) {
     return (
       <>
+        {serviceId === 'epic' ? (
+          <EpicAuthModal
+            opened={showAuthModal}
+            onClose={() => setShowAuthModal(false)}
+            state={authState}
+            actions={authActions}
+            onCancelLogin={handleCancelLogin}
+          />
+        ) : (
+          <SteamAuthModal
+            opened={showAuthModal}
+            onClose={() => setShowAuthModal(false)}
+            state={authState}
+            actions={authActions}
+            isPrefillMode={true}
+            onCancelLogin={handleCancelLogin}
+          />
+        )}
+        <PrefillHomePage
+          onServiceStart={onServiceStart}
+          error={signalR.error}
+          errorService={serviceId as GameServiceId}
+        />
+      </>
+    );
+  }
+
+  // Loading/Creating/Pending state
+  if (!signalR.session) {
+    const status = signalR.isCreating ? 'creating' : 'checking';
+    return <PrefillLoadingState status={status} />;
+  }
+
+  // Active session - full interface
+  return (
+    <div className="space-y-4 animate-fade-in">
+      {/* Auth Modal */}
+      {serviceId === 'epic' ? (
+        <EpicAuthModal
+          opened={showAuthModal}
+          onClose={() => setShowAuthModal(false)}
+          state={authState}
+          actions={authActions}
+          onCancelLogin={handleCancelLogin}
+        />
+      ) : (
         <SteamAuthModal
           opened={showAuthModal}
           onClose={() => setShowAuthModal(false)}
@@ -723,33 +828,7 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
           isPrefillMode={true}
           onCancelLogin={handleCancelLogin}
         />
-        <PrefillStartScreen
-          error={signalR.error}
-          isConnecting={signalR.isConnecting}
-          onCreateSession={() => signalR.createSession(clearLogs)}
-        />
-      </>
-    );
-  }
-
-  // Loading/Creating state
-  if (isLoadingSession) {
-    const status = signalR.isCreating ? 'creating' : 'checking';
-    return <PrefillLoadingState status={status} />;
-  }
-
-  // Active session - full interface
-  return (
-    <div className="space-y-4 animate-fade-in">
-      {/* Steam Auth Modal */}
-      <SteamAuthModal
-        opened={showAuthModal}
-        onClose={() => setShowAuthModal(false)}
-        state={authState}
-        actions={authActions}
-        isPrefillMode={true}
-        onCancelLogin={handleCancelLogin}
-      />
+      )}
 
       {/* Game Selection Modal */}
       <GameSelectionModal
@@ -801,8 +880,14 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
       {/* Header Bar */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 rounded-lg bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-primary)]">
         <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 bg-[var(--theme-steam)]">
-            <SteamIcon size={24} className="text-white" />
+          <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${
+            serviceId === 'epic' ? 'bg-[var(--theme-epic)]' : 'bg-[var(--theme-steam)]'
+          }`}>
+            {serviceId === 'epic' ? (
+              <EpicIcon size={24} className="text-white" />
+            ) : (
+              <SteamIcon size={24} className="text-white" />
+            )}
           </div>
           <div>
             <h1 className="text-xl font-bold text-themed-primary">{t('prefill.title')}</h1>
@@ -897,8 +982,14 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
                   onClick={handleOpenAuthModal}
                   className="flex-shrink-0 w-full sm:w-auto"
                 >
-                  <SteamIcon size={18} />
-                  {t('prefill.auth.loginToSteam')}
+                  {serviceId === 'epic' ? (
+                    <EpicIcon size={18} className="text-[var(--theme-button-text)]" />
+                  ) : (
+                    <SteamIcon size={18} />
+                  )}
+                  {serviceId === 'epic'
+                    ? t('prefill.auth.loginToEpic', 'Login to Epic')
+                    : t('prefill.auth.loginToSteam')}
                 </Button>
               )}
             </div>

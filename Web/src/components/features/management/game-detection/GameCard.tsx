@@ -16,7 +16,7 @@ interface GameCardProps {
   cacheReadOnly: boolean;
   dockerSocketAvailable: boolean;
   checkingPermissions: boolean;
-  onToggleDetails: (gameId: number) => void;
+  onToggleDetails: (gameId: string) => void;
   onRemove: (game: GameCacheInfo) => void;
 }
 
@@ -78,7 +78,7 @@ const GameCard: React.FC<GameCardProps> = ({
       cacheReadOnly={cacheReadOnly}
       dockerSocketAvailable={dockerSocketAvailable}
       checkingPermissions={checkingPermissions}
-      onToggleDetails={(id) => onToggleDetails(id as number)}
+      onToggleDetails={(id) => onToggleDetails(String(id))}
       onRemove={() => onRemove(game)}
       removeTooltip={t('management.gameDetection.removeGameCache')}
     >

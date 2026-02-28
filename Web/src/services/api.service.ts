@@ -905,14 +905,14 @@ class ApiService {
 
   // Remove all cache files for a specific game (fire-and-forget, requires auth)
   static async removeGameFromCache(
-    gameAppId: number
-  ): Promise<{ message: string; gameAppId: number; status: string }> {
+    gameAppId: string
+  ): Promise<{ message: string; gameAppId: string; status: string }> {
     try {
       const res = await fetch(`${API_BASE}/games/${gameAppId}`, this.getFetchOptions({
         method: 'DELETE'
         // Returns immediately with 202 Accepted - removal happens in background
       }));
-      return await this.handleResponse<{ message: string; gameAppId: number; status: string }>(res);
+      return await this.handleResponse<{ message: string; gameAppId: string; status: string }>(res);
     } catch (error) {
       console.error('removeGameFromCache error:', error);
       throw error;
@@ -1379,15 +1379,16 @@ class ApiService {
     }
   }
 
-  // Check cache status for apps via daemon (verifies Steam manifests)
+  // Check cache status for apps via daemon (verifies manifests/build versions)
   static async getPrefillCacheStatus(
     sessionId: string,
-    appIds: number[],
+    appIds: string[],
+    serviceBasePath: string = 'steam-daemon',
     signal?: AbortSignal
   ): Promise<PrefillCacheStatusDto> {
     try {
       const res = await fetch(
-        `${API_BASE}/prefill-daemon/sessions/${sessionId}/cache-status`,
+        `${API_BASE}/${serviceBasePath}/sessions/${sessionId}/cache-status`,
         this.getFetchOptions({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1479,7 +1480,7 @@ export interface DaemonSessionDto {
   lastSeenAt: string;
   steamUsername?: string;
   // Current prefill progress info for admin visibility
-  currentAppId?: number;
+  currentAppId?: string;
   currentAppName?: string;
   // Total bytes transferred during this session
   totalBytesTransferred?: number;
@@ -1510,7 +1511,7 @@ export interface BannedSteamUserDto {
 export interface PrefillHistoryEntryDto {
   id: number;
   sessionId: string;
-  appId: number;
+  appId: string;
   appName?: string;
   startedAtUtc: string;
   completedAtUtc?: string;
@@ -1521,7 +1522,7 @@ export interface PrefillHistoryEntryDto {
 }
 
 interface CachedAppDto {
-  appId: number;
+  appId: string;
   appName?: string;
   depotCount: number;
   totalBytes: number;
@@ -1530,8 +1531,8 @@ interface CachedAppDto {
 }
 
 interface PrefillCacheStatusDto {
-  upToDateAppIds: number[];
-  outdatedAppIds: number[];
+  upToDateAppIds: string[];
+  outdatedAppIds: string[];
   message?: string;
 }
 

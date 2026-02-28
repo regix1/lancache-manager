@@ -9,6 +9,7 @@ interface CredentialChallenge {
   credentialType: string;
   serverPublicKey: string;
   email?: string;
+  authUrl?: string;
   createdAt: string;
   expiresAt: string;
 }
@@ -19,6 +20,7 @@ export interface UsePrefillSteamAuthOptions {
   onSuccess?: () => void;
   onError?: (message: string) => void;
   onDeviceConfirmationTimeout?: () => void;
+  serviceId?: string;
 }
 
 // Timeout for device confirmation (60 seconds - users need time to notice and approve)
@@ -28,8 +30,20 @@ const DEVICE_CONFIRMATION_TIMEOUT_MS = 60000;
  * Hook for Steam authentication within a prefill Docker container.
  * Uses SignalR hub methods to handle encrypted credential exchange.
  */
+/** Maps generic event names to service-specific event names */
+function getEventName(base: string, serviceId: string): string {
+  if (serviceId === 'epic') {
+    const epicMap: Record<string, string> = {
+      'AuthStateChanged': 'EpicAuthStateChanged',
+      'CredentialChallenge': 'EpicCredentialChallenge',
+    };
+    return epicMap[base] ?? base;
+  }
+  return base;
+}
+
 export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
-  const { sessionId, hubConnection, onSuccess, onError, onDeviceConfirmationTimeout } = options;
+  const { sessionId, hubConnection, onSuccess, onError, onDeviceConfirmationTimeout, serviceId = 'steam' } = options;
   const { addNotification } = useNotifications();
 
   const [loading, setLoading] = useState(false);
@@ -43,6 +57,9 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
   // Track if we're in device confirmation mode to handle success correctly
   const isWaitingForDeviceConfirmationRef = useRef(false);
 
+  // Track if we're waiting for the daemon to process an authorization code (Epic OAuth)
+  const isWaitingForAuthCodeProcessingRef = useRef(false);
+
   // Track if we've started authentication (to avoid showing error on initial NotAuthenticated state)
   const hasStartedAuthRef = useRef(false);
 
@@ -51,6 +68,11 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
   const [password, setPassword] = useState('');
   const [twoFactorCode, setTwoFactorCode] = useState('');
   const [emailCode, setEmailCode] = useState('');
+
+  // Epic OAuth state
+  const [needsAuthorizationCode, setNeedsAuthorizationCode] = useState(false);
+  const [authorizationUrl, setAuthorizationUrl] = useState('');
+  const [authorizationCode, setAuthorizationCode] = useState('');
 
   // Listen for AuthStateChanged - this is the reliable way to know when login succeeds
   useEffect(() => {
@@ -66,6 +88,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
           deviceConfirmationTimeoutRef.current = null;
         }
         isWaitingForDeviceConfirmationRef.current = false;
+        isWaitingForAuthCodeProcessingRef.current = false;
         setWaitingForMobileConfirmation(false);
         setLoading(false);
 
@@ -79,11 +102,12 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
           clearTimeout(deviceConfirmationTimeoutRef.current);
           deviceConfirmationTimeoutRef.current = null;
         }
-        
+
         // Only show error if we were actively trying to authenticate
         const wasAuthenticating = hasStartedAuthRef.current;
-        
+
         isWaitingForDeviceConfirmationRef.current = false;
+        isWaitingForAuthCodeProcessingRef.current = false;
         setWaitingForMobileConfirmation(false);
         setNeedsTwoFactor(false);
         setNeedsEmailCode(false);
@@ -103,12 +127,13 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       }
     };
 
-    hubConnection.on('AuthStateChanged', handleAuthStateChanged);
+    const eventName = getEventName('AuthStateChanged', serviceId);
+    hubConnection.on(eventName, handleAuthStateChanged);
 
     return () => {
-      hubConnection.off('AuthStateChanged', handleAuthStateChanged);
+      hubConnection.off(eventName, handleAuthStateChanged);
     };
-  }, [hubConnection, sessionId, onSuccess, addNotification, onError]);
+  }, [hubConnection, sessionId, onSuccess, addNotification, onError, serviceId]);
 
   // Listen for credential challenges from the daemon
   useEffect(() => {
@@ -124,18 +149,42 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         case 'password':
           setNeedsTwoFactor(false);
           setNeedsEmailCode(false);
+          setNeedsAuthorizationCode(false);
           setWaitingForMobileConfirmation(false);
           isWaitingForDeviceConfirmationRef.current = false;
           break;
         case '2fa':
           setNeedsTwoFactor(true);
           setNeedsEmailCode(false);
+          setNeedsAuthorizationCode(false);
           setWaitingForMobileConfirmation(false);
           isWaitingForDeviceConfirmationRef.current = false;
           break;
         case 'steamguard':
           setNeedsEmailCode(true);
           setNeedsTwoFactor(false);
+          setNeedsAuthorizationCode(false);
+          setWaitingForMobileConfirmation(false);
+          isWaitingForDeviceConfirmationRef.current = false;
+          break;
+        case 'authorization-url':
+          // If we were waiting for the daemon to process a previously submitted code,
+          // a new authorization-url challenge means the code was rejected/expired
+          if (isWaitingForAuthCodeProcessingRef.current) {
+            isWaitingForAuthCodeProcessingRef.current = false;
+            addNotification({
+              type: 'generic',
+              status: 'failed',
+              message: 'Authorization code was invalid or expired. Please try again with a new code.',
+              details: { notificationType: 'error' }
+            });
+            // Clear the old code so user can paste a new one
+            setAuthorizationCode('');
+          }
+          setNeedsAuthorizationCode(true);
+          setAuthorizationUrl(challenge.authUrl ?? '');
+          setNeedsTwoFactor(false);
+          setNeedsEmailCode(false);
           setWaitingForMobileConfirmation(false);
           isWaitingForDeviceConfirmationRef.current = false;
           break;
@@ -143,6 +192,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
           setWaitingForMobileConfirmation(true);
           setNeedsTwoFactor(false);
           setNeedsEmailCode(false);
+          setNeedsAuthorizationCode(false);
           isWaitingForDeviceConfirmationRef.current = true;
 
           // Send acknowledgement for device confirmation
@@ -160,12 +210,13 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       setLoading(false);
     };
 
-    hubConnection.on('CredentialChallenge', handleCredentialChallenge);
+    const eventName = getEventName('CredentialChallenge', serviceId);
+    hubConnection.on(eventName, handleCredentialChallenge);
 
     return () => {
-      hubConnection.off('CredentialChallenge', handleCredentialChallenge);
+      hubConnection.off(eventName, handleCredentialChallenge);
     };
-  }, [hubConnection, sessionId]);
+  }, [hubConnection, sessionId, serviceId, addNotification]);
 
   // Timeout for device confirmation - cancel daemon login and reset state
   useEffect(() => {
@@ -213,7 +264,9 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
   const cancelPendingRequest = useCallback(() => {
     setLoading(false);
     setWaitingForMobileConfirmation(false);
+    setNeedsAuthorizationCode(false);
     isWaitingForDeviceConfirmationRef.current = false;
+    isWaitingForAuthCodeProcessingRef.current = false;
     setPendingChallenge(null);
     if (deviceConfirmationTimeoutRef.current) {
       clearTimeout(deviceConfirmationTimeoutRef.current);
@@ -226,13 +279,17 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     setPassword('');
     setTwoFactorCode('');
     setEmailCode('');
+    setAuthorizationCode('');
+    setAuthorizationUrl('');
     setNeedsTwoFactor(false);
     setNeedsEmailCode(false);
+    setNeedsAuthorizationCode(false);
     setWaitingForMobileConfirmation(false);
     setUseManualCode(false);
     setLoading(false);
     setPendingChallenge(null);
     isWaitingForDeviceConfirmationRef.current = false;
+    isWaitingForAuthCodeProcessingRef.current = false;
     if (deviceConfirmationTimeoutRef.current) {
       clearTimeout(deviceConfirmationTimeoutRef.current);
       deviceConfirmationTimeoutRef.current = null;
@@ -349,7 +406,109 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       }
     }
 
-    // Initial login - start the login process
+    // Handle Epic authorization code submission
+    if (needsAuthorizationCode && pendingChallenge) {
+      if (!authorizationCode.trim()) {
+        addNotification({
+          type: 'generic',
+          status: 'failed',
+          message: 'Please enter the authorization code from Epic Games',
+          details: { notificationType: 'error' }
+        });
+        return false;
+      }
+
+      setLoading(true);
+
+      try {
+        await hubConnection.invoke('ProvideCredential', sessionId, pendingChallenge, authorizationCode);
+        addNotification({
+          type: 'generic',
+          status: 'completed',
+          message: 'Authorization code sent, authenticating...',
+          details: { notificationType: 'success' }
+        });
+
+        // Don't call WaitForChallenge here - rely on events instead.
+        // The daemon will either:
+        //   1. Send AuthStateChanged -> "Authenticated" (handled by useEffect above)
+        //   2. Send a new CredentialChallenge -> authorization-url if code was rejected
+        //      (handled by handleCredentialChallenge event handler which shows error)
+        // This mirrors the device-confirmation pattern which already works correctly.
+        isWaitingForAuthCodeProcessingRef.current = true;
+
+        // Return false so the modal stays open while we wait for the event
+        return false;
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Failed to send authorization code';
+        addNotification({
+          type: 'generic',
+          status: 'failed',
+          message: errorMessage,
+          details: { notificationType: 'error' }
+        });
+        onError?.(errorMessage);
+        setLoading(false);
+        isWaitingForAuthCodeProcessingRef.current = false;
+        return false;
+      }
+    }
+
+    // Epic OAuth: start login to get authorization URL challenge
+    if (serviceId === 'epic' && !needsAuthorizationCode) {
+      setLoading(true);
+      hasStartedAuthRef.current = true;
+
+      try {
+        const challenge = await hubConnection.invoke<CredentialChallenge | null>('StartLogin', sessionId);
+
+        if (challenge && challenge.credentialType === 'authorization-url') {
+          setPendingChallenge(challenge);
+          setNeedsAuthorizationCode(true);
+          setAuthorizationUrl(challenge.authUrl ?? '');
+          setLoading(false);
+          return false; // Modal stays open, waiting for code
+        }
+
+        if (!challenge) {
+          // No challenge - might already be logged in, or challenge comes via event
+          // Wait briefly for a challenge event
+          const eventChallenge = await hubConnection.invoke<CredentialChallenge | null>('WaitForChallenge', sessionId, 10);
+          if (eventChallenge && eventChallenge.credentialType === 'authorization-url') {
+            setPendingChallenge(eventChallenge);
+            setNeedsAuthorizationCode(true);
+            setAuthorizationUrl(eventChallenge.authUrl ?? '');
+            setLoading(false);
+            return false;
+          }
+
+          // No challenge at all - might already be authenticated
+          resetAuthForm();
+          onSuccess?.();
+          setLoading(false);
+          return true;
+        }
+
+        // Handle other challenge types
+        setPendingChallenge(challenge);
+        handleChallengeType(challenge);
+        setLoading(false);
+        return false;
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Failed to start Epic login';
+        addNotification({
+          type: 'generic',
+          status: 'failed',
+          message: errorMessage,
+          details: { notificationType: 'error' }
+        });
+        onError?.(errorMessage);
+        setLoading(false);
+        return false;
+      }
+    }
+
+    // Steam: Initial login - start the login process
     if (!username.trim() || !password.trim()) {
       addNotification({
         type: 'generic',
@@ -457,13 +616,16 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     password,
     twoFactorCode,
     emailCode,
+    authorizationCode,
     needsTwoFactor,
     needsEmailCode,
+    needsAuthorizationCode,
     pendingChallenge,
     addNotification,
     resetAuthForm,
     onSuccess,
-    onError
+    onError,
+    serviceId
   ]);
 
   // Helper to set state based on challenge type
@@ -472,12 +634,22 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       case '2fa':
         setNeedsTwoFactor(true);
         setNeedsEmailCode(false);
+        setNeedsAuthorizationCode(false);
         setWaitingForMobileConfirmation(false);
         isWaitingForDeviceConfirmationRef.current = false;
         break;
       case 'steamguard':
         setNeedsEmailCode(true);
         setNeedsTwoFactor(false);
+        setNeedsAuthorizationCode(false);
+        setWaitingForMobileConfirmation(false);
+        isWaitingForDeviceConfirmationRef.current = false;
+        break;
+      case 'authorization-url':
+        setNeedsAuthorizationCode(true);
+        setAuthorizationUrl(challenge.authUrl ?? '');
+        setNeedsTwoFactor(false);
+        setNeedsEmailCode(false);
         setWaitingForMobileConfirmation(false);
         isWaitingForDeviceConfirmationRef.current = false;
         break;
@@ -485,6 +657,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         setWaitingForMobileConfirmation(true);
         setNeedsTwoFactor(false);
         setNeedsEmailCode(false);
+        setNeedsAuthorizationCode(false);
         isWaitingForDeviceConfirmationRef.current = true;
         break;
     }
@@ -522,7 +695,10 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     username,
     password,
     twoFactorCode,
-    emailCode
+    emailCode,
+    needsAuthorizationCode,
+    authorizationUrl,
+    authorizationCode
   };
 
   const actions: SteamAuthActions = {
@@ -533,6 +709,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
     setUseManualCode,
     setNeedsTwoFactor,
     setWaitingForMobileConfirmation,
+    setAuthorizationCode,
     handleAuthenticate,
     resetAuthForm,
     cancelPendingRequest

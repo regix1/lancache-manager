@@ -109,6 +109,21 @@ public static class SignalREvents
     public const string PrefillHistoryUpdated = "PrefillHistoryUpdated";
     public const string SessionEnded = "SessionEnded";
 
+    // Epic Prefill Daemon Events
+    public const string EpicDaemonSessionCreated = "EpicDaemonSessionCreated";
+    public const string EpicDaemonSessionUpdated = "EpicDaemonSessionUpdated";
+    public const string EpicDaemonSessionTerminated = "EpicDaemonSessionTerminated";
+    public const string EpicAuthStateChanged = "EpicAuthStateChanged";
+    public const string EpicCredentialChallenge = "EpicCredentialChallenge";
+    public const string EpicStatusChanged = "EpicStatusChanged";
+    public const string EpicPrefillStateChanged = "EpicPrefillStateChanged";
+    public const string EpicPrefillProgress = "EpicPrefillProgress";
+    public const string EpicPrefillHistoryUpdated = "EpicPrefillHistoryUpdated";
+    public const string EpicSessionEnded = "EpicSessionEnded";
+
+    // Epic Guest Prefill Config
+    public const string EpicGuestPrefillConfigChanged = "EpicGuestPrefillConfigChanged";
+
     // Directory Permissions
     public const string DirectoryPermissionsChanged = "DirectoryPermissionsChanged";
 

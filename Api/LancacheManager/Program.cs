@@ -382,9 +382,13 @@ builder.Services.AddSingleton<PrefillSessionService>();
 // Register PrefillCacheService for tracking cached depots across sessions
 builder.Services.AddSingleton<PrefillCacheService>();
 
-// Register SteamPrefillDaemonService for secure daemon-based prefill management
-builder.Services.AddSingleton<SteamPrefillDaemonService>();
-builder.Services.AddHostedService(provider => provider.GetRequiredService<SteamPrefillDaemonService>());
+// Register SteamDaemonService for secure daemon-based prefill management
+builder.Services.AddSingleton<SteamDaemonService>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<SteamDaemonService>());
+
+// Register EpicPrefillDaemonService for Epic Games daemon-based prefill management
+builder.Services.AddSingleton<EpicPrefillDaemonService>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<EpicPrefillDaemonService>());
 
 // Register OperationStateService
 builder.Services.AddSingleton<OperationStateService>();
@@ -571,7 +575,8 @@ app.UseSwaggerUI(c =>
 // Map endpoints
 app.MapControllers();
 app.MapHub<DownloadHub>("/hubs/downloads");
-app.MapHub<PrefillDaemonHub>("/hubs/prefill-daemon");
+app.MapHub<SteamDaemonHub>("/hubs/steam-daemon");
+app.MapHub<EpicPrefillDaemonHub>("/hubs/epic-prefill-daemon");
 
 // Map Prometheus metrics endpoint for Grafana
 app.MapPrometheusScrapingEndpoint();

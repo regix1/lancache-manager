@@ -197,7 +197,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
               className="opacity-75 text-[var(--theme-riot)]"
             />
           ) : isEpic ? (
-            <EpicIcon size={placeholderIconSize} className="opacity-75" />
+            <EpicIcon size={placeholderIconSize} className="opacity-75 text-[var(--theme-epic)]" />
           ) : isEA ? (
             <EAIcon
               size={placeholderIconSize}

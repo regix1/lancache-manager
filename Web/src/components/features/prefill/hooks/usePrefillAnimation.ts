@@ -4,7 +4,7 @@ import type { CachedAnimationItem, PrefillProgress } from './prefillTypes';
 
 interface UsePrefillAnimationReturn {
   cachedAnimationCountRef: React.RefObject<number>;
-  currentAnimationAppIdRef: React.RefObject<number>;
+  currentAnimationAppIdRef: React.RefObject<string>;
   cachedAnimationQueueRef: React.RefObject<CachedAnimationItem[]>;
   isProcessingAnimationRef: React.RefObject<boolean>;
   resetAnimationState: () => void;
@@ -18,7 +18,7 @@ interface UsePrefillAnimationReturn {
  */
 export function usePrefillAnimation(): UsePrefillAnimationReturn {
   const cachedAnimationCountRef = useRef(0);
-  const currentAnimationAppIdRef = useRef(0);
+  const currentAnimationAppIdRef = useRef('');
   const cachedAnimationQueueRef = useRef<CachedAnimationItem[]>([]);
   const isProcessingAnimationRef = useRef(false);
   const processAnimationQueueRef = useRef<((setPrefillProgress: React.Dispatch<React.SetStateAction<PrefillProgress | null>>) => void) | null>(null);
@@ -26,7 +26,7 @@ export function usePrefillAnimation(): UsePrefillAnimationReturn {
   const resetAnimationState = useCallback(() => {
     cachedAnimationQueueRef.current = [];
     isProcessingAnimationRef.current = false;
-    currentAnimationAppIdRef.current = 0;
+    currentAnimationAppIdRef.current = '';
     cachedAnimationCountRef.current = 0;
   }, []);
 
@@ -66,7 +66,7 @@ export function usePrefillAnimation(): UsePrefillAnimationReturn {
         setTimeout(() => {
           cachedAnimationCountRef.current--;
           isProcessingAnimationRef.current = false;
-          currentAnimationAppIdRef.current = 0;
+          currentAnimationAppIdRef.current = '';
           // If queue is empty, clear progress (prefill may have already completed)
           if (cachedAnimationQueueRef.current.length === 0) {
             setPrefillProgress(null);

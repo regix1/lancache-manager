@@ -6,7 +6,7 @@ import { CustomScrollbar } from '../../ui/CustomScrollbar';
 import { Search, Check, Gamepad2, Loader2, Import, Database, EyeOff, Eye } from 'lucide-react';
 
 export interface OwnedGame {
-  appId: number;
+  appId: string;
   name: string;
 }
 
@@ -14,10 +14,10 @@ interface GameSelectionModalProps {
   opened: boolean;
   onClose: () => void;
   games: OwnedGame[];
-  selectedAppIds: number[];
-  onSave: (selectedIds: number[]) => Promise<void>;
+  selectedAppIds: string[];
+  onSave: (selectedIds: string[]) => Promise<void>;
   isLoading?: boolean;
-  cachedAppIds?: number[];
+  cachedAppIds?: string[];
   isUsingCache?: boolean;
   onRescan?: () => Promise<void>;
 }
@@ -35,7 +35,7 @@ export function GameSelectionModal({
 }: GameSelectionModalProps) {
   const { t } = useTranslation();
   const [search, setSearch] = useState('');
-  const [localSelected, setLocalSelected] = useState<Set<number>>(new Set());
+  const [localSelected, setLocalSelected] = useState<Set<string>>(new Set());
   const [isSaving, setIsSaving] = useState(false);
   const [hideCached, setHideCached] = useState(false);
 
@@ -48,7 +48,7 @@ export function GameSelectionModal({
   const [importResult, setImportResult] = useState<{
     added: number;
     alreadySelected: number;
-    notInLibrary: number[];
+    notInLibrary: string[];
   } | null>(null);
 
   // Reset local selection when modal opens - start fresh each time
@@ -63,29 +63,29 @@ export function GameSelectionModal({
   }, [opened, selectedAppIds]);
 
   // Parse import text - supports comma-separated, JSON array, or newline-separated
-  const parseImportText = useCallback((text: string): number[] => {
+  const parseImportText = useCallback((text: string): string[] => {
     const trimmed = text.trim();
     if (!trimmed) return [];
-    
+
     // Try JSON array first
     if (trimmed.startsWith('[')) {
       try {
         const parsed = JSON.parse(trimmed);
         if (Array.isArray(parsed)) {
           return parsed
-            .map(id => typeof id === 'number' ? id : parseInt(String(id), 10))
-            .filter(id => !isNaN(id) && id > 0);
+            .map((id: string | number) => String(id))
+            .filter((id: string) => id.length > 0);
         }
       } catch {
         // Fall through to other parsing methods
       }
     }
-    
+
     // Split by comma, newline, or space
     return trimmed
       .split(/[,\n\s]+/)
-      .map(s => parseInt(s.trim(), 10))
-      .filter(id => !isNaN(id) && id > 0);
+      .map((s: string) => s.trim())
+      .filter((id: string) => id.length > 0);
   }, []);
 
   // Handle import
@@ -99,7 +99,7 @@ export function GameSelectionModal({
     const ownedAppIds = new Set(games.map(g => g.appId));
     let added = 0;
     let alreadySelected = 0;
-    const notInLibrary: number[] = [];
+    const notInLibrary: string[] = [];
 
     setLocalSelected(prev => {
       const next = new Set(prev);
@@ -160,7 +160,7 @@ export function GameSelectionModal({
     });
   }, [filteredGames, localSelected]);
 
-  const toggleGame = useCallback((appId: number) => {
+  const toggleGame = useCallback((appId: string) => {
     setLocalSelected(prev => {
       const next = new Set(prev);
       if (next.has(appId)) {

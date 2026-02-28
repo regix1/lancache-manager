@@ -68,6 +68,11 @@ public sealed class SocketDaemonClient : IDaemonClient
     /// </summary>
     public bool IsAuthenticated => _isAuthenticated;
 
+    /// <summary>
+    /// HKDF info string for credential encryption. Must match the daemon's implementation.
+    /// </summary>
+    public string HkdfInfo { get; set; } = "SteamPrefill-Credential-Encryption";
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -593,7 +598,8 @@ public sealed class SocketDaemonClient : IDaemonClient
         var encrypted = SecureCredentialExchange.EncryptCredentialRaw(
             challenge.ChallengeId,
             challenge.ServerPublicKey,
-            credential);
+            credential,
+            HkdfInfo);
 
         await SendCommandAsync("provide-credential", new Dictionary<string, string>
         {
@@ -695,11 +701,11 @@ public sealed class SocketDaemonClient : IDaemonClient
     /// <summary>
     /// Set selected apps for prefill.
     /// </summary>
-    public async Task SetSelectedAppsAsync(List<uint> appIds, CancellationToken cancellationToken = default)
+    public async Task SetSelectedAppsAsync(List<string> appIds, CancellationToken cancellationToken = default)
     {
         var response = await SendCommandAsync("set-selected-apps", new Dictionary<string, string>
         {
-            ["appIds"] = JsonSerializer.Serialize(appIds)
+            ["appIds"] = DaemonSerializer.SerializeAppIds(appIds)
         }, cancellationToken: cancellationToken);
 
         if (!response.Success)
@@ -896,7 +902,8 @@ public class SocketPrefillProgress
     public string? Message { get; set; }
 
     [JsonPropertyName("currentAppId")]
-    public uint CurrentAppId { get; set; }
+    [JsonConverter(typeof(FlexibleStringConverter))]
+    public string? CurrentAppId { get; set; }
 
     [JsonPropertyName("currentAppName")]
     public string? CurrentAppName { get; set; }

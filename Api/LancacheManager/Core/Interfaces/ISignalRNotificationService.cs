@@ -37,10 +37,10 @@ public interface ISignalRNotificationService
     /// <param name="data">Optional payload data</param>
     void NotifyAllFireAndForget(string eventName, object? data = null);
 
-    // ===== Prefill Hub Methods =====
+    // ===== Steam Prefill Hub Methods =====
 
     /// <summary>
-    /// Send a notification to a specific client by connection ID on the PrefillDaemonHub.
+    /// Send a notification to a specific client by connection ID on the SteamDaemonHub.
     /// Used for prefill session-specific notifications like auth challenges, progress, etc.
     /// Errors are caught and logged; does not throw.
     /// </summary>
@@ -50,7 +50,7 @@ public interface ISignalRNotificationService
     Task NotifyPrefillClientAsync(string connectionId, string eventName, object? data = null);
 
     /// <summary>
-    /// Send a notification to a specific client by connection ID on the PrefillDaemonHub.
+    /// Send a notification to a specific client by connection ID on the SteamDaemonHub.
     /// Unlike NotifyPrefillClientAsync, this throws exceptions on failure so the caller can handle them
     /// (e.g., to remove dead connections from a subscription list).
     /// </summary>
@@ -60,8 +60,22 @@ public interface ISignalRNotificationService
     /// <exception cref="Exception">Throws if the notification fails</exception>
     Task SendToPrefillClientRawAsync(string connectionId, string eventName, object? data = null);
 
+    // ===== Epic Prefill Hub Methods =====
+
     /// <summary>
-    /// Send a notification to all clients on BOTH hubs (DownloadHub and PrefillDaemonHub).
+    /// Send a notification to a specific client on the EpicPrefillDaemonHub.
+    /// Errors are caught and logged; does not throw.
+    /// </summary>
+    Task NotifyEpicPrefillClientAsync(string connectionId, string eventName, object? data = null);
+
+    /// <summary>
+    /// Send a notification to a specific client on the EpicPrefillDaemonHub.
+    /// Throws exceptions on failure so caller can handle them.
+    /// </summary>
+    Task SendToEpicPrefillClientRawAsync(string connectionId, string eventName, object? data = null);
+
+    /// <summary>
+    /// Send a notification to all clients on ALL hubs (DownloadHub, SteamDaemonHub, and EpicPrefillDaemonHub).
     /// Used for events that need to be broadcast to all connected clients regardless of which hub they're on.
     /// </summary>
     /// <param name="eventName">Use SignalREvents constants</param>

@@ -275,7 +275,7 @@ const RECOVERY_CONFIGS = {
 // ============================================================================
 
 interface CacheRemovalOperation {
-  gameAppId?: number;
+  gameAppId?: string;
   gameName?: string;
   serviceName?: string;
   service?: string;

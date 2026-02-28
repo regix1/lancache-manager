@@ -10,7 +10,7 @@ public class PrefillProgress
 {
     public string State { get; set; } = "idle";
     public string? Message { get; set; }
-    public uint CurrentAppId { get; set; }
+    public string? CurrentAppId { get; set; }
     public string? CurrentAppName { get; set; }
     public long TotalBytes { get; set; }
     public long BytesDownloaded { get; set; }
@@ -93,7 +93,8 @@ internal class DaemonPrefillProgressDto
     public string? Message { get; set; }
 
     [JsonPropertyName("currentAppId")]
-    public uint CurrentAppId { get; set; }
+    [JsonConverter(typeof(FlexibleStringConverter))]
+    public string? CurrentAppId { get; set; }
 
     [JsonPropertyName("currentAppName")]
     public string? CurrentAppName { get; set; }

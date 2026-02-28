@@ -69,7 +69,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   const [updatingDefaultPref, setUpdatingDefaultPref] = useState<string | null>(null);
   const [updatingAllowedFormats, setUpdatingAllowedFormats] = useState(false);
 
-  // Prefill permission state
+  // Steam Prefill permission state
   const [prefillConfig, setPrefillConfig] = useState({
     enabledByDefault: false,
     durationHours: 2,
@@ -77,6 +77,15 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   });
   const [loadingPrefillConfig, setLoadingPrefillConfig] = useState(false);
   const [updatingPrefillConfig, setUpdatingPrefillConfig] = useState(false);
+
+  // Epic Prefill permission state
+  const [epicPrefillConfig, setEpicPrefillConfig] = useState({
+    enabledByDefault: false,
+    durationHours: 2,
+    maxThreadCount: null as number | null
+  });
+  const [loadingEpicPrefillConfig, setLoadingEpicPrefillConfig] = useState(false);
+  const [updatingEpicPrefillConfig, setUpdatingEpicPrefillConfig] = useState(false);
 
 
   // Helper to update default time format based on a format value
@@ -256,6 +265,17 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     []
   );
 
+  const handleEpicPrefillConfigChanged = useCallback(
+    (data: { enabledByDefault: boolean; durationHours: number; maxThreadCount?: number | null }) => {
+      setEpicPrefillConfig({
+        enabledByDefault: data.enabledByDefault,
+        durationHours: data.durationHours,
+        maxThreadCount: data.maxThreadCount ?? null
+      });
+    },
+    []
+  );
+
   const handleAllowedFormatsChange = async (formats: string[]) => {
     if (authMode !== 'authenticated') return;
     try {
@@ -347,20 +367,80 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     }
   };
 
+  // Epic Prefill config functions
+  const loadEpicPrefillConfig = async () => {
+    try {
+      setLoadingEpicPrefillConfig(true);
+      const configResponse = await fetch('/api/auth/guest/prefill/config', ApiService.getFetchOptions());
+      if (configResponse.ok) {
+        const data = await configResponse.json();
+        setEpicPrefillConfig({
+          enabledByDefault: data.epicGuestPrefillEnabledByDefault ?? false,
+          durationHours: data.epicGuestPrefillDurationHours ?? 2,
+          maxThreadCount: data.epicDefaultGuestMaxThreadCount ?? null
+        });
+      }
+    } catch (err) {
+      console.error('Failed to load Epic prefill config:', err);
+    } finally {
+      setLoadingEpicPrefillConfig(false);
+    }
+  };
+
+  const updateEpicPrefillConfig = async (enabledByDefault: boolean, durationHours: number, maxThreadCount?: number | null) => {
+    if (authMode !== 'authenticated') return;
+    try {
+      setUpdatingEpicPrefillConfig(true);
+      const body: Record<string, unknown> = { enabledByDefault, durationHours };
+      if (maxThreadCount !== undefined) {
+        body.maxThreadCount = maxThreadCount;
+      } else {
+        body.maxThreadCount = epicPrefillConfig.maxThreadCount;
+      }
+      const response = await fetch('/api/auth/guest/epic-prefill/config', ApiService.getFetchOptions({
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(body)
+      }));
+
+      if (response.ok) {
+        const data = await response.json();
+        setEpicPrefillConfig({
+          enabledByDefault: data.enabledByDefault,
+          durationHours: data.durationHours,
+          maxThreadCount: data.maxThreadCount ?? null
+        });
+        showToast('success', t('user.guest.prefill.updated'));
+      } else {
+        const errorData = await response.json();
+        showToast('error', errorData.error || t('user.guest.prefill.errors.update'));
+      }
+    } catch (err: unknown) {
+      showToast('error', getErrorMessage(err) || t('user.guest.prefill.errors.update'));
+    } finally {
+      setUpdatingEpicPrefillConfig(false);
+    }
+  };
+
   useEffect(() => {
     loadDefaultGuestPreferences();
     loadPrefillConfig();
+    loadEpicPrefillConfig();
 
     on('DefaultGuestPreferencesChanged', handleDefaultGuestPreferencesChanged);
     on('AllowedTimeFormatsChanged', handleAllowedTimeFormatsChanged);
     on('GuestPrefillConfigChanged', handlePrefillConfigChanged);
+    on('EpicGuestPrefillConfigChanged', handleEpicPrefillConfigChanged);
 
     return () => {
       off('DefaultGuestPreferencesChanged', handleDefaultGuestPreferencesChanged);
       off('AllowedTimeFormatsChanged', handleAllowedTimeFormatsChanged);
       off('GuestPrefillConfigChanged', handlePrefillConfigChanged);
+      off('EpicGuestPrefillConfigChanged', handleEpicPrefillConfigChanged);
     };
-  }, [on, off, handleDefaultGuestPreferencesChanged, handleAllowedTimeFormatsChanged, handlePrefillConfigChanged]);
+  }, [on, off, handleDefaultGuestPreferencesChanged, handleAllowedTimeFormatsChanged, handlePrefillConfigChanged, handleEpicPrefillConfigChanged]);
 
   return (
     <Card padding="none">
@@ -396,6 +476,11 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
                 <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
               )}
             </div>
+          </div>
+
+          {/* Steam Prefill */}
+          <div className="text-xs font-semibold uppercase tracking-wider text-themed-muted pt-2">
+            Steam Prefill
           </div>
 
           <div
@@ -464,6 +549,82 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
                 className="w-48"
               />
               {updatingPrefillConfig && (
+                <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
+              )}
+            </div>
+          </div>
+
+          {/* Epic Games Prefill */}
+          <div className="text-xs font-semibold uppercase tracking-wider text-themed-muted pt-2">
+            Epic Games Prefill
+          </div>
+
+          <div
+            className="toggle-row cursor-pointer"
+            onClick={() =>
+              !loadingEpicPrefillConfig &&
+              !updatingEpicPrefillConfig &&
+              updateEpicPrefillConfig(!epicPrefillConfig.enabledByDefault, epicPrefillConfig.durationHours)
+            }
+          >
+            <div>
+              <div className="toggle-row-label flex items-center gap-1.5">
+                <Download className="w-3.5 h-3.5 text-themed-accent" />
+                {t('user.guest.prefill.enableByDefault.label')}
+              </div>
+              <div className="toggle-row-description">
+                {t('user.guest.prefill.enableByDefault.description')}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {updatingEpicPrefillConfig && (
+                <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
+              )}
+              <div className={`modern-toggle ${epicPrefillConfig.enabledByDefault ? 'checked' : ''}`}>
+                <span className="toggle-thumb" />
+              </div>
+            </div>
+          </div>
+
+          {epicPrefillConfig.enabledByDefault && (
+            <div className="flex items-start gap-2 p-3 rounded-md text-sm bg-themed-warning border border-themed-warning text-themed-warning">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <span>{t('user.guest.prefill.warning')}</span>
+            </div>
+          )}
+
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+            <div className="toggle-row-label whitespace-nowrap">{t('user.guest.prefill.duration.label')}</div>
+            <div className="flex items-center gap-2">
+              <EnhancedDropdown
+                options={prefillDurationOptions}
+                value={epicPrefillConfig.durationHours.toString()}
+                onChange={(value) =>
+                  updateEpicPrefillConfig(epicPrefillConfig.enabledByDefault, Number(value))
+                }
+                disabled={updatingEpicPrefillConfig || loadingEpicPrefillConfig}
+                className="w-48"
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+            <div className="toggle-row-label whitespace-nowrap flex items-center gap-1.5">
+              <Network className="w-3.5 h-3.5 text-themed-accent" />
+              {t('user.guest.prefill.maxThreads.label')}
+            </div>
+            <div className="flex items-center gap-2">
+              <EnhancedDropdown
+                options={maxThreadOptions}
+                value={epicPrefillConfig.maxThreadCount != null ? String(epicPrefillConfig.maxThreadCount) : ''}
+                onChange={(value) => {
+                  const newValue = value === '' ? null : Number(value);
+                  updateEpicPrefillConfig(epicPrefillConfig.enabledByDefault, epicPrefillConfig.durationHours, newValue);
+                }}
+                disabled={updatingEpicPrefillConfig || loadingEpicPrefillConfig}
+                className="w-48"
+              />
+              {updatingEpicPrefillConfig && (
                 <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
               )}
             </div>

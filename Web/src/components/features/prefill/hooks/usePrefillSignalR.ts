@@ -25,6 +25,10 @@ interface UsePrefillSignalROptions {
   isCompletionDismissed: (completedAt: string) => boolean;
   onAuthStateChanged: (state: SteamAuthState) => void;
   clearAllPrefillStorage: () => void;
+  /** Hub path override (default: "/steam-daemon") */
+  hubPath?: string;
+  /** Service identifier for service-specific event routing */
+  serviceId?: string;
 }
 
 interface UsePrefillSignalRReturn {
@@ -67,6 +71,8 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
   const {
     onSessionEnd,
     addLog,
+    hubPath = '/steam-daemon',
+    serviceId = 'steam',
     setBackgroundCompletion,
     clearBackgroundCompletion,
     isCompletionDismissed,
@@ -141,7 +147,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
           return {
             state: 'reconnecting',
             message: undefined,
-            currentAppId: 0,
+            currentAppId: '',
             currentAppName: undefined,
             percentComplete: 0,
             bytesDownloaded: 0,
@@ -193,7 +199,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
 
       try {
         const connection = new HubConnectionBuilder()
-          .withUrl(`${SIGNALR_BASE}/prefill-daemon`)
+          .withUrl(`${SIGNALR_BASE}${hubPath}`)
           .withAutomaticReconnect()
           .configureLogging(LogLevel.Information)
           .build();
@@ -222,7 +228,8 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
           enqueueAnimation,
           resetAnimationState,
           cachedAnimationQueueRef,
-          isProcessingAnimationRef
+          isProcessingAnimationRef,
+          serviceId
         });
 
         await connection.start();
@@ -265,6 +272,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
     resetAnimationState,
     cachedAnimationQueueRef,
     isProcessingAnimationRef,
+    serviceId,
     t
   ]);
 
@@ -311,7 +319,9 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
         if (activeSession.authState === 'Authenticated') {
           addLog('info', t('prefill.log.alreadyLoggedIn'));
         } else {
-          addLog('info', t('prefill.log.loginToSteamPrompt'));
+          addLog('info', serviceId === 'epic'
+            ? t('prefill.log.loginToEpicPrompt', 'Please log in to Epic Games to start prefilling')
+            : t('prefill.log.loginToSteamPrompt'));
         }
 
         // Check for missed completions
@@ -403,6 +413,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
     setBackgroundCompletion,
     isCompletionDismissed,
     clearAllPrefillStorage,
+    serviceId,
     t
   ]);
 
@@ -444,7 +455,9 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
             t('prefill.log.sessionCreated'),
             t('prefill.log.containerDetail', { name: sessionDto.containerName })
           );
-          addLog('info', t('prefill.log.loginToSteamBeforePrefill'));
+          addLog('info', serviceId === 'epic'
+            ? t('prefill.log.loginToEpicBeforePrefill', 'Please log in to Epic Games before starting prefill')
+            : t('prefill.log.loginToSteamBeforePrefill'));
         }
         addLog(
           'info',
@@ -464,7 +477,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
         setIsCreating(false);
       }
     },
-    [connectToHub, addLog, t]
+    [connectToHub, addLog, serviceId, t]
   );
 
   // Initialize on mount

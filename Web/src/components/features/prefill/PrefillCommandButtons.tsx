@@ -19,7 +19,7 @@ interface PrefillCommandButtonsProps {
   isPrefillActive: boolean;
   isSessionActive: boolean;
   isUserAuthenticated: boolean;
-  selectedAppIds: number[];
+  selectedAppIds: string[];
   selectedOS: string[];
   maxConcurrency: string;
   maxThreadLimit?: number | null;

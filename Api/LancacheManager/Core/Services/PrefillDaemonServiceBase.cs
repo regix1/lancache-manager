@@ -6,7 +6,6 @@ using System.Text.Json;
 using Docker.DotNet;
 using Docker.DotNet.Models;
 using LancacheManager.Core.Services.SteamPrefill;
-using LancacheManager.Hubs;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
@@ -15,28 +14,27 @@ using LancacheManager.Models;
 namespace LancacheManager.Core.Services;
 
 /// <summary>
-/// Manages Steam Prefill daemon Docker containers.
+/// Abstract base class for managing Prefill daemon Docker containers.
 /// Each user session gets its own container with dedicated command/response directories.
 /// Uses encrypted credential exchange (ECDH + AES-GCM) for secure authentication.
+/// Derived classes provide service-specific configuration (image names, event names, etc.)
 /// </summary>
-public partial class SteamPrefillDaemonService : IHostedService, IDisposable
+public abstract partial class PrefillDaemonServiceBase : IHostedService, IDisposable
 {
-    private readonly ILogger<SteamPrefillDaemonService> _logger;
-    private readonly ISignalRNotificationService _notifications;
-    private readonly IConfiguration _configuration;
-    private readonly IPathResolver _pathResolver;
-    private readonly PrefillSessionService _sessionService;
-    private readonly PrefillCacheService _cacheService;
-    private readonly ISteamAuthStorageService _steamAuthStorage;
-    private readonly ConcurrentDictionary<string, DaemonSession> _sessions = new();
-    private DockerClient? _dockerClient;
+    protected readonly ILogger _logger;
+    protected readonly ISignalRNotificationService _notifications;
+    protected readonly IConfiguration _configuration;
+    protected readonly IPathResolver _pathResolver;
+    protected readonly PrefillSessionService _sessionService;
+    protected readonly PrefillCacheService _cacheService;
+    protected readonly ConcurrentDictionary<string, DaemonSession> _sessions = new();
+    protected DockerClient? _dockerClient;
     private Timer? _cleanupTimer;
     private bool _disposed;
-    private readonly bool _isRunningInContainer;
+    protected readonly bool _isRunningInContainer;
 
     // Configuration defaults
     private const int DefaultSessionTimeoutMinutes = 120;
-    private const string DefaultDockerImage = "ghcr.io/regix1/steam-prefill-daemon:latest";
     private const int DefaultTcpPort = 45555;
 
     /// <summary>
@@ -44,46 +42,102 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
     /// </summary>
     public bool IsDockerAvailable => _dockerClient != null;
 
-    /// <summary>
-    /// Event raised when any prefill daemon session becomes authenticated.
-    /// SteamKit2Service subscribes to this to yield its session.
-    /// </summary>
-    public event Func<Task>? OnDaemonAuthenticated;
+    // === Abstract members for service-specific behavior ===
+
+    /// <summary>Service display name (e.g., "Steam", "Epic")</summary>
+    protected abstract string ServiceName { get; }
+
+    /// <summary>Container name prefix (e.g., "steam-daemon-", "epic-daemon-")</summary>
+    protected abstract string ContainerPrefix { get; }
+
+    /// <summary>Default Docker image for this service</summary>
+    protected abstract string DefaultDockerImage { get; }
+
+    /// <summary>Gets the Docker image name from config with fallback to DefaultDockerImage</summary>
+    protected abstract string GetImageName();
+
+    // SignalR event name properties - one for each event
+    protected abstract string EventSessionCreated { get; }
+    protected abstract string EventSessionUpdated { get; }
+    protected abstract string EventSessionTerminated { get; }
+    protected abstract string EventAuthStateChanged { get; }
+    protected abstract string EventCredentialChallenge { get; }
+    protected abstract string EventStatusChanged { get; }
+    protected abstract string EventPrefillStateChanged { get; }
+    protected abstract string EventPrefillProgress { get; }
+    protected abstract string EventPrefillHistoryUpdated { get; }
+    protected abstract string EventSessionEnded { get; }
 
     /// <summary>
-    /// Event raised when all prefill daemon sessions are no longer authenticated.
-    /// SteamKit2Service subscribes to this to resume its session.
+    /// Called when a session becomes authenticated. Override in derived class
+    /// to notify external services (e.g., SteamKit2Service).
     /// </summary>
-    public event Func<Task>? OnAllDaemonsLoggedOut;
+    protected virtual Task OnSessionAuthenticatedAsync() => Task.CompletedTask;
 
     /// <summary>
-    /// Fires an event asynchronously in a fire-and-forget manner with error handling.
+    /// Called when all sessions are no longer authenticated. Override in derived class
+    /// to notify external services (e.g., SteamKit2Service).
     /// </summary>
-    private void FireEventAsync(Func<Task>? eventHandler, string eventName)
+    protected virtual Task OnAllSessionsLoggedOutAsync() => Task.CompletedTask;
+
+    /// <summary>
+    /// If true, use Epic hub context for per-connection notifications.
+    /// If false, use Steam hub context.
+    /// </summary>
+    protected virtual bool UseEpicHub => false;
+
+    /// <summary>
+    /// HKDF info string for credential encryption. Must match the daemon's SecureCredentialExchange implementation.
+    /// Override in derived class if the daemon uses a different info string.
+    /// </summary>
+    protected virtual string CredentialEncryptionHkdfInfo => "SteamPrefill-Credential-Encryption";
+
+    /// <summary>
+    /// URL to test internet connectivity from inside the daemon container.
+    /// </summary>
+    protected abstract string DiagnosticsConnectivityUrl { get; }
+
+    /// <summary>
+    /// DNS domains to test for lancache resolution (should resolve to lancache private IPs).
+    /// </summary>
+    protected abstract string[] DiagnosticsDnsDomains { get; }
+
+    /// <summary>
+    /// Sends a notification to a specific client on the appropriate hub (Steam or Epic).
+    /// </summary>
+    protected async Task SendToServiceClientRawAsync(string connectionId, string eventName, object? data = null)
     {
-        if (eventHandler == null) return;
+        if (UseEpicHub)
+            await _notifications.SendToEpicPrefillClientRawAsync(connectionId, eventName, data);
+        else
+            await _notifications.SendToPrefillClientRawAsync(connectionId, eventName, data);
+    }
 
+    /// <summary>
+    /// Fires an async callback in a fire-and-forget manner with error handling.
+    /// </summary>
+    protected void FireCallbackAsync(Func<Task> callback, string callbackName)
+    {
         _ = Task.Run(async () =>
         {
             try
             {
-                await eventHandler.Invoke();
+                await callback.Invoke();
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Error notifying {EventName}", eventName);
+                _logger.LogWarning(ex, "Error notifying {CallbackName}", callbackName);
             }
         });
     }
 
-    public SteamPrefillDaemonService(
-        ILogger<SteamPrefillDaemonService> logger,
+    protected PrefillDaemonServiceBase(
+        ILogger logger,
         ISignalRNotificationService notifications,
         IConfiguration configuration,
         IPathResolver pathResolver,
         PrefillSessionService sessionService,
-        PrefillCacheService cacheService,
-        ISteamAuthStorageService steamAuthStorage)
+        PrefillCacheService cacheService)
     {
         _logger = logger;
         _notifications = notifications;
@@ -91,13 +145,12 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
         _pathResolver = pathResolver;
         _sessionService = sessionService;
         _cacheService = cacheService;
-        _steamAuthStorage = steamAuthStorage;
         _isRunningInContainer = Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true";
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation("SteamPrefillDaemonService starting...");
+        _logger.LogInformation("{ServiceName}PrefillDaemonService starting...", ServiceName);
 
         // Initialize Docker client
         try
@@ -130,7 +183,7 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
             catch (Exception ex)
             {
                 // Log clean message without stack trace - Docker not running is expected in many setups
-                _logger.LogWarning("Docker is not available - Steam Prefill feature will be disabled. Start Docker Desktop to enable it.");
+                _logger.LogWarning("{ServiceName} Prefill feature will be disabled - Docker is not available. Start Docker Desktop to enable it.", ServiceName);
                 _logger.LogTrace(ex, "Docker connection error details");
                 _dockerClient = null;
             }
@@ -147,7 +200,7 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
         catch (Exception ex)
         {
             // Log clean message without stack trace
-            _logger.LogWarning("Failed to initialize Docker client - Steam Prefill feature will be disabled.");
+            _logger.LogWarning("Failed to initialize Docker client - {ServiceName} Prefill feature will be disabled.", ServiceName);
             _logger.LogTrace(ex, "Docker initialization error details");
             _dockerClient = null;
         }
@@ -155,12 +208,12 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
         // Start cleanup timer (every minute)
         _cleanupTimer = new Timer(CleanupExpiredSessions, null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
 
-        _logger.LogInformation("SteamPrefillDaemonService started. Docker available: {DockerAvailable}", _dockerClient != null);
+        _logger.LogInformation("{ServiceName}PrefillDaemonService started. Docker available: {DockerAvailable}", ServiceName, _dockerClient != null);
     }
 
     /// <summary>
     /// Cleans up orphaned prefill daemon containers from previous app runs.
-    /// Looks for containers matching the prefill-daemon-* naming pattern.
+    /// Looks for containers matching THIS service's container prefix pattern.
     /// </summary>
     private async Task CleanupOrphanedContainersAsync(CancellationToken cancellationToken)
     {
@@ -171,7 +224,7 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
             // Mark any "Active" sessions in DB as orphaned
             var orphanedSessions = await _sessionService.MarkOrphanedSessionsAsync();
 
-            // Find all running prefill daemon containers
+            // Find all running containers matching this service's prefix
             var containers = await _dockerClient.Containers.ListContainersAsync(
                 new ContainersListParameters
                 {
@@ -180,7 +233,7 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
                     {
                         ["name"] = new Dictionary<string, bool>
                         {
-                            ["prefill-daemon-"] = true
+                            [ContainerPrefix] = true
                         }
                     }
                 },
@@ -188,11 +241,11 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
 
             if (containers.Count == 0)
             {
-                _logger.LogInformation("No orphaned prefill daemon containers found");
+                _logger.LogInformation("No orphaned {ServiceName} prefill daemon containers found", ServiceName);
                 return;
             }
 
-            _logger.LogWarning("Found {Count} orphaned prefill daemon containers to cleanup", containers.Count);
+            _logger.LogWarning("Found {Count} orphaned {ServiceName} prefill daemon containers to cleanup", containers.Count, ServiceName);
 
             foreach (var container in containers)
             {
@@ -243,7 +296,7 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
 
     public async Task StopAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation("SteamPrefillDaemonService stopping...");
+        _logger.LogInformation("{ServiceName}PrefillDaemonService stopping...", ServiceName);
 
         _cleanupTimer?.Change(Timeout.Infinite, 0);
 
@@ -254,7 +307,7 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
             await TerminateSessionAsync(session.Id, "Service shutdown");
         }
 
-        _logger.LogInformation("SteamPrefillDaemonService stopped");
+        _logger.LogInformation("{ServiceName}PrefillDaemonService stopped", ServiceName);
     }
 
     /// <summary>
@@ -313,7 +366,7 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
         _logger.LogDebug("Host paths: commands={HostCommandsDir}, responses={HostResponsesDir}", hostCommandsDir, hostResponsesDir);
 
         // Create and start container
-        var containerName = $"prefill-daemon-{sessionId}";
+        var containerName = $"{ContainerPrefix}{sessionId}";
         var imageName = GetImageName();
 
         // Get network configuration for prefill container
@@ -364,10 +417,10 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
         }
 
         // Configure DNS for non-host network modes
-        var isHostMode = useHostNetworking || 
-                         (!string.IsNullOrEmpty(explicitNetworkMode) && 
+        var isHostMode = useHostNetworking ||
+                         (!string.IsNullOrEmpty(explicitNetworkMode) &&
                           explicitNetworkMode.Equals("host", StringComparison.OrdinalIgnoreCase));
-        
+
         if (!isHostMode && !string.IsNullOrEmpty(lancacheDnsIp))
         {
             hostConfig.DNS = new List<string> { lancacheDnsIp };
@@ -376,7 +429,7 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
         else if (!isHostMode && string.IsNullOrEmpty(lancacheDnsIp))
         {
             _logger.LogWarning("Could not auto-detect lancache-dns configuration. Prefill may fail if the host's DNS " +
-                "doesn't resolve Steam CDN to lancache. Set Prefill__LancacheDnsIp or Prefill__NetworkMode=host.");
+                "doesn't resolve CDN to lancache. Set Prefill__LancacheDnsIp or Prefill__NetworkMode=host.");
         }
 
         // Socket path for Unix Domain Socket communication
@@ -498,7 +551,7 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
 
         // Run container network diagnostics (internet connectivity and DNS resolution)
         // This helps troubleshoot prefill issues - the container needs both:
-        // 1. Internet access to reach Steam
+        // 1. Internet access to reach the service
         // 2. DNS resolving lancache domains to your cache server
         var networkDiagnostics = await TestContainerConnectivityAsync(containerId, containerName, isHostMode, cancellationToken);
 
@@ -523,25 +576,27 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
             SocketPath = useTcpMode ? null : socketPath
         };
 
-        // Create daemon client
+        // Create daemon client with service-specific HKDF info for credential encryption
         IDaemonClient daemonClient = useTcpMode && tcpHostPort.HasValue
             ? new TcpDaemonClient(GetTcpHost(), tcpHostPort.Value, socketSecret, _logger as ILogger<TcpDaemonClient>)
-            : new SocketDaemonClient(socketPath, socketSecret, _logger as ILogger<SocketDaemonClient>);
+                { HkdfInfo = CredentialEncryptionHkdfInfo }
+            : new SocketDaemonClient(socketPath, socketSecret, _logger as ILogger<SocketDaemonClient>)
+                { HkdfInfo = CredentialEncryptionHkdfInfo };
 
         // Wire up socket events to session handlers
-        daemonClient.OnCredentialChallenge += async challenge =>
+        daemonClient.OnCredentialChallenge += async (CredentialChallenge challenge) =>
         {
             await HandleSocketCredentialChallengeAsync(session, challenge);
         };
-        daemonClient.OnStatusUpdate += async status =>
+        daemonClient.OnStatusUpdate += async (DaemonStatus status) =>
         {
             await HandleStatusChangeFromSocketAsync(session, status);
         };
-        daemonClient.OnProgressUpdate += async progress =>
+        daemonClient.OnProgressUpdate += async (SocketPrefillProgress progress) =>
         {
             await HandleProgressChangeFromSocketAsync(session, progress);
         };
-        daemonClient.OnError += async error =>
+        daemonClient.OnError += async (string error) =>
         {
             _logger.LogWarning("Socket error for session {SessionId}: {Error}", sessionId, error);
             await Task.CompletedTask;
@@ -572,7 +627,7 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
 
         // Broadcast session creation to all clients for real-time updates (both hubs)
         var sessionDto = DaemonSessionDto.FromSession(session);
-        await _notifications.NotifyAllBothHubsAsync(SignalREvents.DaemonSessionCreated, sessionDto);
+        await _notifications.NotifyAllBothHubsAsync(EventSessionCreated, sessionDto);
 
         return session;
     }
@@ -665,8 +720,8 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
             session.AuthState = DaemonAuthState.Authenticated;
             await NotifyAuthStateChangeAsync(session);
 
-            // Notify SteamKit2Service to yield its session
-            FireEventAsync(OnDaemonAuthenticated, nameof(OnDaemonAuthenticated));
+            // Notify derived class that a session is now authenticated
+            FireCallbackAsync(OnSessionAuthenticatedAsync, nameof(OnSessionAuthenticatedAsync));
 
             _logger.LogInformation("Session {SessionId} already authenticated - no challenge needed", sessionId);
             return null;
@@ -683,9 +738,10 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
     }
 
     /// <summary>
-    /// Provides an encrypted credential in response to a challenge
+    /// Provides an encrypted credential in response to a challenge.
+    /// Override in derived class to add service-specific credential handling (e.g., ban checking).
     /// </summary>
-    public async Task ProvideCredentialAsync(
+    public virtual async Task ProvideCredentialAsync(
         string sessionId,
         CredentialChallenge challenge,
         string credential,
@@ -696,36 +752,20 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
             throw new KeyNotFoundException($"Session not found: {sessionId}");
         }
 
-        // If this is the username credential, capture it and check for bans
+        // If this is the username credential, capture it
         if (challenge.CredentialType.Equals("username", StringComparison.OrdinalIgnoreCase))
         {
             session.SteamUsername = credential;
 
-            // Check if this user is banned
-            if (await _sessionService.IsUsernameBannedAsync(credential))
-            {
-                _logger.LogWarning("Blocked banned Steam user {Username} from logging in. Session: {SessionId}",
-                    credential, sessionId);
-
-                // Clean up the pending challenge so the next login attempt starts fresh
-                session.Client.ClearPendingChallenges();
-
-                // Reset auth state to allow for a clean error display
-                session.AuthState = DaemonAuthState.NotAuthenticated;
-                await NotifyAuthStateChangeAsync(session);
-
-                throw new UnauthorizedAccessException("This Steam account has been banned from using prefill.");
-            }
-
             // Update the database record with the username
             await _sessionService.SetSessionUsernameAsync(sessionId, credential);
 
-            _logger.LogInformation("Captured Steam username for session {SessionId}: {Username}",
+            _logger.LogInformation("Captured username for session {SessionId}: {Username}",
                 sessionId, credential);
 
             // Broadcast session update to all clients for real-time updates (both hubs)
             var updatedDto = DaemonSessionDto.FromSession(session);
-            await _notifications.NotifyAllBothHubsAsync(SignalREvents.DaemonSessionUpdated, updatedDto);
+            await _notifications.NotifyAllBothHubsAsync(EventSessionUpdated, updatedDto);
         }
 
         _logger.LogInformation("Providing encrypted {CredentialType} for session {SessionId}",
@@ -806,7 +846,7 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
             await _sessionService.CancelPrefillEntriesAsync(sessionId);
 
             // Broadcast history update if there was a current app
-            if (session.CurrentAppId > 0)
+            if (!string.IsNullOrEmpty(session.CurrentAppId))
             {
                 await BroadcastPrefillHistoryUpdatedAsync(sessionId, session.CurrentAppId, "Cancelled");
             }
@@ -838,11 +878,11 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
     }
 
     /// <summary>
-    /// Checks cache status by comparing cached depots against Steam manifests.
+    /// Checks cache status by comparing cached depots against manifests.
     /// </summary>
-    public async Task<CacheStatusResult> GetCacheStatusAsync(
+    public virtual async Task<CacheStatusResult> GetCacheStatusAsync(
         string sessionId,
-        List<uint> appIds,
+        List<string> appIds,
         CancellationToken cancellationToken = default)
     {
         if (!_sessions.TryGetValue(sessionId, out var session))
@@ -855,7 +895,8 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
             return new CacheStatusResult { Apps = new List<AppCacheStatus>(), Message = "No app IDs provided" };
         }
 
-        var cachedData = await _cacheService.GetCachedDepotsForAppsAsync(appIds);
+        var numericAppIds = appIds.Where(id => uint.TryParse(id, out _)).Select(uint.Parse);
+        var cachedData = await _cacheService.GetCachedDepotsForAppsAsync(numericAppIds);
         if (cachedData.Count == 0)
         {
             return new CacheStatusResult { Apps = new List<AppCacheStatus>(), Message = "No cached depots found" };
@@ -874,7 +915,7 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
     /// <summary>
     /// Sets selected apps for prefill
     /// </summary>
-    public async Task SetSelectedAppsAsync(string sessionId, List<uint> appIds, CancellationToken cancellationToken = default)
+    public async Task SetSelectedAppsAsync(string sessionId, List<string> appIds, CancellationToken cancellationToken = default)
     {
         if (!_sessions.TryGetValue(sessionId, out var session))
         {
@@ -908,11 +949,17 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
         }
 
         session.IsPrefilling = true;
-        session.PreviousAppId = 0;
+        session.PreviousAppId = null;
         session.PreviousAppName = null;
+        session.CurrentAppId = null;
+        session.CurrentAppName = null;
+        session.CurrentBytesDownloaded = 0;
+        session.CurrentTotalBytes = 0;
+        session.CompletedBytesTransferred = 0;
+        session.TotalBytesTransferred = 0;
         await NotifyPrefillStateChangeAsync(session, "started");
         var startDto = DaemonSessionDto.FromSession(session);
-        await _notifications.NotifyAllBothHubsAsync(SignalREvents.DaemonSessionUpdated, startDto);
+        await _notifications.NotifyAllBothHubsAsync(EventSessionUpdated, startDto);
 
         try
         {
@@ -950,56 +997,20 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
                 await NotifyPrefillStateChangeAsync(session, "failed");
             }
 
-            // Complete the last in-progress entry if any (the final game)
-            if (session.CurrentAppId > 0)
-            {
-                try
-                {
-                    // Determine status: Skipped if no bytes on success, Failed if error, Completed otherwise
-                    string status;
-                    if (result.Success && session.CurrentBytesDownloaded == 0)
-                    {
-                        status = "Skipped";
-                    }
-                    else if (!result.Success)
-                    {
-                        status = "Failed";
-                    }
-                    else
-                    {
-                        status = "Completed";
-                    }
-
-                    await _sessionService.CompletePrefillEntryAsync(
-                        session.Id,
-                        session.CurrentAppId,
-                        status,
-                        session.CurrentBytesDownloaded,
-                        session.CurrentTotalBytes,
-                        result.Success ? null : "Prefill ended");
-
-                    _logger.LogInformation("Final app {Status}: {AppId} ({AppName})",
-                        status, session.CurrentAppId, session.CurrentAppName);
-
-                    await BroadcastPrefillHistoryUpdatedAsync(session.Id, session.CurrentAppId, status);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to complete final prefill history entry");
-                }
-            }
-
+            // Don't complete apps here - the daemon returns immediately with "Prefill started".
+            // All app completions are handled by the socket progress event handlers
+            // (app_completed and completed events in NotifyPrefillProgressAsync).
             return result;
         }
         finally
         {
             session.IsPrefilling = false;
-            session.CurrentAppId = 0;
+            session.CurrentAppId = null;
             session.CurrentAppName = null;
-            session.PreviousAppId = 0;
+            session.PreviousAppId = null;
             session.PreviousAppName = null;
             var endDto = DaemonSessionDto.FromSession(session);
-            await _notifications.NotifyAllBothHubsAsync(SignalREvents.DaemonSessionUpdated, endDto);
+            await _notifications.NotifyAllBothHubsAsync(EventSessionUpdated, endDto);
         }
     }
 
@@ -1076,7 +1087,7 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
         _logger.LogInformation("Terminating session {SessionId}: {Reason} (force={Force})", sessionId, reason, force);
 
         // Complete any in-progress history entry with current bytes before cancelling
-        if (session.CurrentAppId > 0)
+        if (!string.IsNullOrEmpty(session.CurrentAppId))
         {
             try
             {
@@ -1108,7 +1119,7 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
 
         // Broadcast session termination to all clients for real-time updates (both hubs)
         var terminatedEvent = new { sessionId = session.Id, reason = reason };
-        await _notifications.NotifyAllBothHubsAsync(SignalREvents.DaemonSessionTerminated, terminatedEvent);
+        await _notifications.NotifyAllBothHubsAsync(EventSessionTerminated, terminatedEvent);
 
         // Cancel any ongoing operations immediately
         session.CancellationTokenSource.Cancel();
@@ -1165,7 +1176,7 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
         // Check if all daemons are now logged out after session removal
         if (!IsAnyDaemonAuthenticated())
         {
-            FireEventAsync(OnAllDaemonsLoggedOut, nameof(OnAllDaemonsLoggedOut));
+            FireCallbackAsync(OnAllSessionsLoggedOutAsync, nameof(OnAllSessionsLoggedOutAsync));
         }
 
         // Cleanup
@@ -1213,7 +1224,7 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
     }
 
     /// <summary>
-    /// Checks if any prefill daemon session is currently authenticated with Steam.
+    /// Checks if any prefill daemon session is currently authenticated.
     /// Used by depot mapping service to detect when prefill is using the shared credentials.
     /// </summary>
     public bool IsAnyDaemonAuthenticated()
@@ -1225,11 +1236,11 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
 
     /// <summary>
     /// Terminates all active prefill sessions.
-    /// Called when Steam PICS authentication is logged out.
+    /// Called when authentication is logged out.
     /// </summary>
     /// <param name="reason">Reason for termination (for logging)</param>
     public async Task TerminateAuthenticatedSessionsAsync(
-        string reason = "Steam authentication logged out")
+        string reason = "Authentication logged out")
     {
         var sessions = _sessions.Values.ToList();
         var terminatedCount = 0;
@@ -1344,9 +1355,8 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
             catch (DockerImageNotFoundException)
             {
                 _logger.LogError(ex, "Failed to pull image {ImageName} and no cached version available. " +
-                    "The Steam Prefill feature requires this image. " +
-                    "Ensure the image exists at the registry or build it from: https://github.com/regix1/steam-prefill-daemon",
-                    imageName);
+                    "The {ServiceName} Prefill feature requires this image.",
+                    imageName, ServiceName);
                 throw;
             }
         }
@@ -1534,11 +1544,6 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
         return null;
     }
 
-    private string GetImageName()
-    {
-        return _configuration["Prefill:DockerImage"] ?? DefaultDockerImage;
-    }
-
     private int GetSessionTimeoutMinutes()
     {
         return _configuration.GetValue<int>("Prefill:SessionTimeoutMinutes", DefaultSessionTimeoutMinutes);
@@ -1657,7 +1662,7 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
                 }
                 else
                 {
-                    _logger.LogDebug("No lancache-dns container found. Container names searched: {Names}", 
+                    _logger.LogDebug("No lancache-dns container found. Container names searched: {Names}",
                         string.Join(", ", containers.SelectMany(c => c.Names)));
                 }
             }
@@ -1695,7 +1700,7 @@ public partial class SteamPrefillDaemonService : IHostedService, IDisposable
         foreach (var session in _sessions.Values)
         {
             session.Client.Dispose();
-                session.CancellationTokenSource.Dispose();
+            session.CancellationTokenSource.Dispose();
         }
 
         _disposed = true;

@@ -11,7 +11,7 @@ using LancacheManager.Models;
 
 namespace LancacheManager.Core.Services;
 
-public partial class SteamPrefillDaemonService
+public abstract partial class PrefillDaemonServiceBase
 {
     private async Task<NetworkDiagnostics> TestContainerConnectivityAsync(string containerId, string containerName, bool isHostMode, CancellationToken cancellationToken = default)
     {
@@ -26,7 +26,7 @@ public partial class SteamPrefillDaemonService
         _logger.LogInformation("  PREFILL CONTAINER NETWORK DIAGNOSTICS - {ContainerName}", containerName);
         _logger.LogInformation("═══════════════════════════════════════════════════════════════════════");
 
-        // Test 1: Internet connectivity (try to reach Steam API)
+        // Test 1: Internet connectivity
         var (internetSuccess, internetError) = await TestInternetConnectivityInContainerAsync(containerId, cancellationToken);
         diagnostics.InternetConnectivity = internetSuccess;
         diagnostics.InternetConnectivityError = internetError;
@@ -37,11 +37,12 @@ public partial class SteamPrefillDaemonService
         diagnostics.InternetConnectivityIpv6 = ipv6Success;
         diagnostics.InternetConnectivityIpv6Error = ipv6Error;
 
-        // Test 2: DNS resolution for lancache domains
-        var dnsResult1 = await TestDnsResolutionInContainerAsync(containerId, "lancache.steamcontent.com", cancellationToken);
-        var dnsResult2 = await TestDnsResolutionInContainerAsync(containerId, "steam.cache.lancache.net", cancellationToken);
-        diagnostics.DnsResults.Add(dnsResult1);
-        diagnostics.DnsResults.Add(dnsResult2);
+        // Test 2: DNS resolution for service-specific lancache domains
+        foreach (var domain in DiagnosticsDnsDomains)
+        {
+            var dnsResult = await TestDnsResolutionInContainerAsync(containerId, domain, cancellationToken);
+            diagnostics.DnsResults.Add(dnsResult);
+        }
 
         _logger.LogInformation("═══════════════════════════════════════════════════════════════════════");
         _logger.LogInformation("  END NETWORK DIAGNOSTICS");
@@ -63,10 +64,11 @@ public partial class SteamPrefillDaemonService
 
             // Use wget with timeout to test connectivity (most minimal images have wget or curl)
             // Try wget first (Alpine-based images), then curl as fallback
+            var connectivityUrl = DiagnosticsConnectivityUrl;
             var testCommands = new[]
             {
-                new[] { "wget", "-q", "-O", "-", "--timeout=10", "https://api.steampowered.com/" },
-                new[] { "curl", "-s", "-m", "10", "https://api.steampowered.com/" }
+                new[] { "wget", "-q", "-O", "-", "--timeout=10", connectivityUrl },
+                new[] { "curl", "-s", "-m", "10", connectivityUrl }
             };
 
             string? lastError = null;
@@ -78,7 +80,7 @@ public partial class SteamPrefillDaemonService
                     var (exitCode, _) = await ExecuteContainerCommandAsync(containerId, cmd, cancellationToken);
                     if (exitCode == 0)
                     {
-                        _logger.LogInformation("  ✓ Internet connectivity: OK (reached api.steampowered.com)");
+                        _logger.LogInformation("  ✓ Internet connectivity: OK (reached {Url})", connectivityUrl);
                         return (true, null);
                     }
                     lastError = $"Command {cmd[0]} failed with exit code {exitCode}";
@@ -91,7 +93,7 @@ public partial class SteamPrefillDaemonService
 
             _logger.LogWarning("  ✗ Internet connectivity: FAILED");
             _logger.LogWarning("    The prefill container cannot reach the internet.");
-            _logger.LogWarning("    Steam login and prefill will not work.");
+            _logger.LogWarning("    Login and prefill will not work.");
             _logger.LogWarning("    Error: {Error}", lastError);
             _logger.LogWarning("    ");
             _logger.LogWarning("    Possible fixes:");
@@ -120,10 +122,11 @@ public partial class SteamPrefillDaemonService
         var flag = family == AddressFamily.InterNetwork ? "-4" : "-6";
         var familyName = family == AddressFamily.InterNetwork ? "IPv4" : "IPv6";
 
+        var connectivityUrl = DiagnosticsConnectivityUrl;
         var testCommands = new[]
         {
-            new[] { "wget", "-q", "-O", "-", "--timeout=10", flag, "https://api.steampowered.com/" },
-            new[] { "curl", "-s", "-m", "10", flag, "https://api.steampowered.com/" }
+            new[] { "wget", "-q", "-O", "-", "--timeout=10", flag, connectivityUrl },
+            new[] { "curl", "-s", "-m", "10", flag, connectivityUrl }
         };
 
         string? lastError = null;
@@ -136,7 +139,7 @@ public partial class SteamPrefillDaemonService
                 var (exitCode, output) = await ExecuteContainerCommandAsync(containerId, cmd, cancellationToken);
                 if (exitCode == 0)
                 {
-                    _logger.LogInformation("  ✓ {Family} connectivity: OK (reached api.steampowered.com)", familyName);
+                    _logger.LogInformation("  ✓ {Family} connectivity: OK (reached {Url})", familyName, connectivityUrl);
                     return (true, null);
                 }
 
@@ -179,7 +182,7 @@ public partial class SteamPrefillDaemonService
     private async Task<DnsTestResult> TestDnsResolutionInContainerAsync(string containerId, string domain, CancellationToken cancellationToken)
     {
         var result = new DnsTestResult { Domain = domain };
-        
+
         try
         {
             _logger.LogInformation("───────────────────────────────────────────────────────────────────────");
@@ -224,9 +227,9 @@ public partial class SteamPrefillDaemonService
                 result.Success = true;
                 result.ResolvedIps = resolvedIps;
                 result.IsPrivateIp = resolvedIps.Any(IsPrivateIp);
-                
+
                 _logger.LogInformation("  {Domain} resolved to {IpAddresses}", domain, string.Join(", ", resolvedIps));
-                
+
                 // Check if it's a lancache IP (typically private IPs like 192.168.x.x, 10.x.x.x, etc.)
                 if (result.IsPrivateIp)
                 {
@@ -241,7 +244,7 @@ public partial class SteamPrefillDaemonService
             {
                 result.Success = false;
                 result.Error = lastError ?? "Could not resolve domain";
-                
+
                 _logger.LogWarning("  ✗ Could not resolve {Domain}", domain);
                 _logger.LogWarning("    Error: {Error}", lastError);
                 _logger.LogWarning("    ");
@@ -263,8 +266,8 @@ public partial class SteamPrefillDaemonService
     /// Executes a command inside a container and returns the exit code and output.
     /// </summary>
     private async Task<(long exitCode, string output)> ExecuteContainerCommandAsync(
-        string containerId, 
-        string[] command, 
+        string containerId,
+        string[] command,
         CancellationToken cancellationToken)
     {
         if (_dockerClient == null)
@@ -301,7 +304,7 @@ public partial class SteamPrefillDaemonService
 
         // Get exit code
         var execInspect = await _dockerClient.Exec.InspectContainerExecAsync(execCreateResponse.ID, cancellationToken);
-        
+
         return (execInspect.ExitCode, output);
     }
 
@@ -313,7 +316,7 @@ public partial class SteamPrefillDaemonService
         var ipv4Pattern = @"\b(?:\d{1,3}\.){3}\d{1,3}\b";
         var ipv6Pattern = @"\b(?:[0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}\b";
         var ips = new List<string>();
-        
+
         if (command == "nslookup")
         {
             // nslookup output format:
@@ -326,7 +329,7 @@ public partial class SteamPrefillDaemonService
             // Look for IP after "Name:" line
             var lines = output.Split('\n');
             bool foundNameLine = false;
-            
+
             foreach (var line in lines)
             {
                 if (line.Contains("Name:"))
@@ -334,16 +337,16 @@ public partial class SteamPrefillDaemonService
                     foundNameLine = true;
                     continue;
                 }
-                
+
                 if (foundNameLine && line.Contains("Address"))
                 {
                     ips.AddRange(ExtractIpsFromLine(line, ipv4Pattern, ipv6Pattern));
                 }
             }
-            
+
             return FilterIps(ips);
         }
-        
+
         // For getent and ping, just find the first non-loopback IP
         ips.AddRange(ExtractIpsFromText(output, ipv4Pattern, ipv6Pattern));
         return FilterIps(ips);
@@ -438,5 +441,4 @@ public partial class SteamPrefillDaemonService
                lower.Contains("unrecognized option") ||
                lower.Contains("invalid option");
     }
-
-    }
+}

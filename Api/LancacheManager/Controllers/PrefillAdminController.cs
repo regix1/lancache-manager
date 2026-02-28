@@ -16,14 +16,14 @@ namespace LancacheManager.Controllers;
 public class PrefillAdminController : ControllerBase
 {
     private readonly PrefillSessionService _sessionService;
-    private readonly SteamPrefillDaemonService _daemonService;
+    private readonly SteamDaemonService _daemonService;
     private readonly PrefillCacheService _cacheService;
     private readonly ILogger<PrefillAdminController> _logger;
     private readonly ISignalRNotificationService _notifications;
 
     public PrefillAdminController(
         PrefillSessionService sessionService,
-        SteamPrefillDaemonService daemonService,
+        SteamDaemonService daemonService,
         PrefillCacheService cacheService,
         ILogger<PrefillAdminController> logger,
         ISignalRNotificationService notifications)
@@ -343,7 +343,7 @@ public class PrefillAdminController : ControllerBase
 
         return Ok(apps.Select(a => new CachedAppDto
         {
-            AppId = a.AppId,
+            AppId = a.AppId.ToString(),
             AppName = a.AppName,
             DepotCount = a.DepotCount,
             TotalBytes = a.TotalBytes,
@@ -368,13 +368,13 @@ public class PrefillAdminController : ControllerBase
 
         var result = new CacheCheckResponse
         {
-            CachedAppIds = appIds.Where(id => cachedAppIds.Contains(id)).ToList(),
-            UncachedAppIds = appIds.Where(id => !cachedAppIds.Contains(id)).ToList(),
+            CachedAppIds = appIds.Where(id => cachedAppIds.Contains(id)).Select(id => id.ToString()).ToList(),
+            UncachedAppIds = appIds.Where(id => !cachedAppIds.Contains(id)).Select(id => id.ToString()).ToList(),
             CacheInfo = cachedApps
                 .Where(a => appIds.Contains(a.AppId))
                 .Select(a => new CachedAppDto
                 {
-                    AppId = a.AppId,
+                    AppId = a.AppId.ToString(),
                     AppName = a.AppName,
                     DepotCount = a.DepotCount,
                     TotalBytes = a.TotalBytes,

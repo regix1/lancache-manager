@@ -508,13 +508,16 @@ public class SystemController : ControllerBase
         var maxThreadLimit = ResolveEffectiveThreadLimit();
         var maxConcurrency = ClampConcurrencyToLimit(
             _stateService.GetDefaultPrefillMaxConcurrency(), maxThreadLimit);
+        var epicMaxConcurrency = ClampConcurrencyToLimit(
+            _stateService.GetEpicDefaultPrefillMaxConcurrency(), maxThreadLimit);
 
         return Ok(new
         {
             operatingSystems = _stateService.GetDefaultPrefillOperatingSystems(),
             maxConcurrency,
             serverThreadCount = 256,
-            maxThreadLimit
+            maxThreadLimit,
+            epicDefaultPrefillMaxConcurrency = epicMaxConcurrency
         });
     }
 
@@ -532,6 +535,10 @@ public class SystemController : ControllerBase
         {
             _stateService.SetDefaultPrefillMaxConcurrency(request.MaxConcurrency);
         }
+        if (request.EpicDefaultPrefillMaxConcurrency != null)
+        {
+            _stateService.SetEpicDefaultPrefillMaxConcurrency(request.EpicDefaultPrefillMaxConcurrency);
+        }
 
         var maxThreadLimit = ResolveEffectiveThreadLimit();
 
@@ -540,7 +547,8 @@ public class SystemController : ControllerBase
             operatingSystems = _stateService.GetDefaultPrefillOperatingSystems(),
             maxConcurrency = _stateService.GetDefaultPrefillMaxConcurrency(),
             serverThreadCount = 256,
-            maxThreadLimit
+            maxThreadLimit,
+            epicDefaultPrefillMaxConcurrency = _stateService.GetEpicDefaultPrefillMaxConcurrency()
         });
 
         return Ok(new
@@ -548,7 +556,8 @@ public class SystemController : ControllerBase
             operatingSystems = _stateService.GetDefaultPrefillOperatingSystems(),
             maxConcurrency = _stateService.GetDefaultPrefillMaxConcurrency(),
             serverThreadCount = 256,
-            maxThreadLimit
+            maxThreadLimit,
+            epicDefaultPrefillMaxConcurrency = _stateService.GetEpicDefaultPrefillMaxConcurrency()
         });
     }
 

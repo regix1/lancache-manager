@@ -73,8 +73,8 @@ public partial class SteamKit2Service : IHostedService, IDisposable
     // Cache for depot names (from PICS depot "name" field)
     private readonly ConcurrentDictionary<uint, string> _depotNames = new();
 
-    // Reference to the prefill daemon service for event subscription
-    private SteamPrefillDaemonService? _prefillDaemonService;
+    // Reference to the Steam daemon service for event subscription
+    private SteamDaemonService? _steamDaemonService;
 
     // Tune batch sizes to stay friendly
     private const int AppBatchSize = 200; // was 400 - Above 200, token/product calls time out more frequently
@@ -339,62 +339,62 @@ public partial class SteamKit2Service : IHostedService, IDisposable
 
     /// <summary>
     /// Subscribes to OnDaemonAuthenticated and OnAllDaemonsLoggedOut events
-    /// from SteamPrefillDaemonService so we know when daemon auth state changes.
+    /// from SteamDaemonService so we know when daemon auth state changes.
     /// </summary>
     private void SubscribeToDaemonEvents()
     {
         try
         {
             using var scope = _scopeFactory.CreateScope();
-            _prefillDaemonService = scope.ServiceProvider.GetService<SteamPrefillDaemonService>();
-            if (_prefillDaemonService != null)
+            _steamDaemonService = scope.ServiceProvider.GetService<SteamDaemonService>();
+            if (_steamDaemonService != null)
             {
-                _prefillDaemonService.OnDaemonAuthenticated += HandleDaemonAuthenticated;
-                _prefillDaemonService.OnAllDaemonsLoggedOut += HandleAllDaemonsLoggedOut;
-                _logger.LogInformation("Subscribed to prefill daemon auth state change events");
+                _steamDaemonService.OnDaemonAuthenticated += HandleDaemonAuthenticated;
+                _steamDaemonService.OnAllDaemonsLoggedOut += HandleAllDaemonsLoggedOut;
+                _logger.LogInformation("Subscribed to Steam daemon auth state change events");
             }
             else
             {
-                _logger.LogWarning("SteamPrefillDaemonService not available - daemon event subscriptions skipped");
+                _logger.LogWarning("SteamDaemonService not available - daemon event subscriptions skipped");
             }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to subscribe to prefill daemon events");
+            _logger.LogWarning(ex, "Failed to subscribe to Steam daemon events");
         }
     }
 
     /// <summary>
-    /// Unsubscribes from prefill daemon events to prevent memory leaks.
+    /// Unsubscribes from Steam daemon events to prevent memory leaks.
     /// </summary>
     private void UnsubscribeFromDaemonEvents()
     {
-        if (_prefillDaemonService != null)
+        if (_steamDaemonService != null)
         {
-            _prefillDaemonService.OnDaemonAuthenticated -= HandleDaemonAuthenticated;
-            _prefillDaemonService.OnAllDaemonsLoggedOut -= HandleAllDaemonsLoggedOut;
-            _prefillDaemonService = null;
-            _logger.LogDebug("Unsubscribed from prefill daemon auth state change events");
+            _steamDaemonService.OnDaemonAuthenticated -= HandleDaemonAuthenticated;
+            _steamDaemonService.OnAllDaemonsLoggedOut -= HandleAllDaemonsLoggedOut;
+            _steamDaemonService = null;
+            _logger.LogDebug("Unsubscribed from Steam daemon auth state change events");
         }
     }
 
     /// <summary>
-    /// Handler for when a prefill daemon becomes authenticated.
+    /// Handler for when a Steam daemon becomes authenticated.
     /// Logs the state change so Connection.cs logic can react accordingly.
     /// </summary>
     private Task HandleDaemonAuthenticated()
     {
-        _logger.LogInformation("Prefill daemon authenticated - daemon is now active");
+        _logger.LogInformation("Steam daemon authenticated - daemon is now active");
         return Task.CompletedTask;
     }
 
     /// <summary>
-    /// Handler for when all prefill daemons have logged out.
+    /// Handler for when all Steam daemons have logged out.
     /// Logs the state change so Connection.cs logic can react accordingly.
     /// </summary>
     private Task HandleAllDaemonsLoggedOut()
     {
-        _logger.LogInformation("All prefill daemons logged out - no daemons are active");
+        _logger.LogInformation("All Steam daemons logged out - no daemons are active");
         return Task.CompletedTask;
     }
 

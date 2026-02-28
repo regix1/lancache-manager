@@ -109,4 +109,24 @@ public interface IStateService
     void SetGuestPrefillEnabledByDefault(bool enabled);
     int GetGuestPrefillDurationHours();
     void SetGuestPrefillDurationHours(int hours);
+
+    // Default Guest Max Thread Count
+    int? GetDefaultGuestMaxThreadCount();
+    void SetDefaultGuestMaxThreadCount(int? value);
+
+    // Default Prefill Settings
+    List<string> GetDefaultPrefillOperatingSystems();
+    void SetDefaultPrefillOperatingSystems(List<string> osList);
+    string GetDefaultPrefillMaxConcurrency();
+    void SetDefaultPrefillMaxConcurrency(string value);
+
+    // Epic Guest Prefill Permission Methods
+    bool GetEpicGuestPrefillEnabledByDefault();
+    void SetEpicGuestPrefillEnabledByDefault(bool enabled);
+    int GetEpicGuestPrefillDurationHours();
+    void SetEpicGuestPrefillDurationHours(int hours);
+    int? GetEpicDefaultGuestMaxThreadCount();
+    void SetEpicDefaultGuestMaxThreadCount(int? value);
+    string GetEpicDefaultPrefillMaxConcurrency();
+    void SetEpicDefaultPrefillMaxConcurrency(string value);
 }

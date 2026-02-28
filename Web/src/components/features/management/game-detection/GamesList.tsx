@@ -35,8 +35,8 @@ const GamesList: React.FC<GamesListProps> = ({
   const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const [expandedGameId, setExpandedGameId] = useState<number | null>(null);
-  const [expandingGameId, setExpandingGameId] = useState<number | null>(null);
+  const [expandedGameId, setExpandedGameId] = useState<string | null>(null);
+  const [expandingGameId, setExpandingGameId] = useState<string | null>(null);
 
   // Reset page when search query changes
   useEffect(() => {
@@ -68,7 +68,7 @@ const GamesList: React.FC<GamesListProps> = ({
 
   const totalPages = Math.ceil(filteredAndSortedGames.length / ITEMS_PER_PAGE);
 
-  const toggleGameDetails = (gameId: number) => {
+  const toggleGameDetails = (gameId: string) => {
     // If already expanded, collapse immediately
     if (expandedGameId === gameId) {
       setExpandedGameId(null);

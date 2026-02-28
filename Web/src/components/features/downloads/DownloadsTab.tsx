@@ -611,7 +611,7 @@ const DownloadsTab: React.FC = () => {
           download.gameName.match(/^Steam App \d+$/));
 
       // Check if we have a valid game (either by appId or by name)
-      const hasValidGameAppId = download.gameAppId && download.gameAppId > 0;
+      const hasValidGameAppId = !!download.gameAppId;
       const hasValidGameName = download.gameName &&
         download.gameName !== 'Unknown Steam Game' &&
         !download.gameName.match(/^Steam App \d+$/);

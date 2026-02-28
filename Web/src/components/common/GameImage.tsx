@@ -3,7 +3,7 @@ import React, { useState, useCallback, useEffect } from 'react';
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 interface GameImageProps {
-  gameAppId: string | number;
+  gameAppId: string;
   alt: string;
   className?: string;
   loading?: 'lazy' | 'eager';

@@ -16,5 +16,6 @@ public enum DaemonAuthState
     TwoFactorRequired,
     SteamGuardRequired,
     DeviceConfirmationRequired,
+    AuthorizationUrlRequired,
     Authenticated
 }

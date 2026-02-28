@@ -1,8 +1,60 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace LancacheManager.Core.Services.SteamPrefill;
+
+/// <summary>
+/// JSON converter that reads both JSON numbers and JSON strings as string.
+/// Needed because Steam returns numeric appIds (730) while Epic returns string appIds ("abc123").
+/// </summary>
+public class FlexibleStringConverter : JsonConverter<string>
+{
+    public override string? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        return reader.TokenType switch
+        {
+            JsonTokenType.String => reader.GetString(),
+            JsonTokenType.Number => reader.GetInt64().ToString(),
+            JsonTokenType.Null => null,
+            _ => throw new JsonException($"Unexpected token type: {reader.TokenType}")
+        };
+    }
+
+    public override void Write(Utf8JsonWriter writer, string value, JsonSerializerOptions options)
+    {
+        // Write numeric strings as JSON numbers for backward compatibility with daemons
+        if (long.TryParse(value, out var numericValue))
+            writer.WriteNumberValue(numericValue);
+        else
+            writer.WriteStringValue(value);
+    }
+}
+
+/// <summary>
+/// Serializes a list of string appIds preserving numeric types for daemon compatibility.
+/// Steam appIds (numeric) are written as JSON numbers, Epic appIds (hex strings) as JSON strings.
+/// </summary>
+public static class DaemonSerializer
+{
+    public static string SerializeAppIds(List<string> appIds)
+    {
+        using var stream = new MemoryStream();
+        using var writer = new Utf8JsonWriter(stream);
+        writer.WriteStartArray();
+        foreach (var id in appIds)
+        {
+            if (long.TryParse(id, out var numericId))
+                writer.WriteNumberValue(numericId);
+            else
+                writer.WriteStringValue(id);
+        }
+        writer.WriteEndArray();
+        writer.Flush();
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+}
 
 #region DTOs
 
@@ -77,6 +129,9 @@ public class CredentialChallenge
     [JsonPropertyName("email")]
     public string? Email { get; set; }
 
+    [JsonPropertyName("authUrl")]
+    public string? AuthUrl { get; set; }
+
     [JsonPropertyName("createdAt")]
     public DateTime CreatedAt { get; set; }
 
@@ -105,7 +160,8 @@ public class EncryptedCredentialResponse
 public class OwnedGame
 {
     [JsonPropertyName("appId")]
-    public uint AppId { get; set; }
+    [JsonConverter(typeof(FlexibleStringConverter))]
+    public string AppId { get; set; } = string.Empty;
 
     [JsonPropertyName("name")]
     public string Name { get; set; } = string.Empty;
@@ -147,7 +203,8 @@ public class ClearCacheResult
 public class AppStatus
 {
     [JsonPropertyName("appId")]
-    public uint AppId { get; set; }
+    [JsonConverter(typeof(FlexibleStringConverter))]
+    public string AppId { get; set; } = string.Empty;
 
     [JsonPropertyName("name")]
     public string Name { get; set; } = string.Empty;
@@ -189,7 +246,8 @@ public class CacheStatusResult
 public class AppCacheStatus
 {
     [JsonPropertyName("appId")]
-    public uint AppId { get; set; }
+    [JsonConverter(typeof(FlexibleStringConverter))]
+    public string AppId { get; set; } = string.Empty;
 
     [JsonPropertyName("name")]
     public string Name { get; set; } = string.Empty;
@@ -250,7 +308,8 @@ public static class SecureCredentialExchange
     public static EncryptedCredentialResponse EncryptCredentialRaw(
         string challengeId,
         string serverPublicKeyBase64,
-        string credential)
+        string credential,
+        string hkdfInfo = "SteamPrefill-Credential-Encryption")
     {
         // Parse server public key (65-byte uncompressed EC point)
         var serverPublicKeyBytes = Convert.FromBase64String(serverPublicKeyBase64);
@@ -291,7 +350,7 @@ public static class SecureCredentialExchange
             sharedSecret,
             32, // 256-bit key
             Encoding.UTF8.GetBytes(challengeId),  // Salt = challengeId
-            Encoding.UTF8.GetBytes("SteamPrefill-Credential-Encryption")); // Info
+            Encoding.UTF8.GetBytes(hkdfInfo)); // Info
 
         // Encrypt with AES-GCM
         var nonce = new byte[12];

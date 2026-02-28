@@ -15,12 +15,13 @@ import type { DropdownOption } from '@components/ui/EnhancedDropdown';
 import type { MultiSelectOption } from '@components/ui/MultiSelectDropdown';
 import type { NetworkDiagnostics } from '@services/api.service';
 
-// Auth states from backend - matches SteamAuthState enum
+// Auth states from backend - matches DaemonAuthState enum
 export type SteamAuthState =
   | 'NotAuthenticated'
   | 'CredentialsRequired'
   | 'TwoFactorRequired'
   | 'EmailCodeRequired'
+  | 'AuthorizationUrlRequired'
   | 'Authenticated';
 
 export interface PrefillSessionDto {

@@ -150,12 +150,12 @@ public class ProvideCredentialRequest
 
 public class SetSelectedAppsRequest
 {
-    public List<uint>? AppIds { get; set; }
+    public List<string>? AppIds { get; set; }
 }
 
 public class PrefillCacheStatusRequest
 {
-    public List<uint>? AppIds { get; set; }
+    public List<string>? AppIds { get; set; }
 }
 
 public class StartPrefillRequest
@@ -220,6 +220,7 @@ public class SetPrefillDefaultsRequest
 {
     public List<string>? OperatingSystems { get; set; }
     public string? MaxConcurrency { get; set; }
+    public string? EpicDefaultPrefillMaxConcurrency { get; set; }
 }
 
 #endregion

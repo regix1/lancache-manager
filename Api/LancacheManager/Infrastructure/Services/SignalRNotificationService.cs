@@ -7,21 +7,25 @@ namespace LancacheManager.Infrastructure.Services;
 /// <summary>
 /// Centralized service for sending SignalR notifications to clients.
 /// Provides error handling and logging for all SignalR communications.
-/// Supports both DownloadHub (primary) and PrefillDaemonHub for prefill-specific notifications.
+/// Supports DownloadHub (primary), SteamDaemonHub for Steam prefill-specific notifications,
+/// and EpicPrefillDaemonHub for Epic prefill-specific notifications.
 /// </summary>
 public class SignalRNotificationService : ISignalRNotificationService
 {
     private readonly IHubContext<DownloadHub> _downloadHubContext;
-    private readonly IHubContext<PrefillDaemonHub> _prefillHubContext;
+    private readonly IHubContext<SteamDaemonHub> _steamHubContext;
+    private readonly IHubContext<EpicPrefillDaemonHub> _epicHubContext;
     private readonly ILogger<SignalRNotificationService> _logger;
 
     public SignalRNotificationService(
         IHubContext<DownloadHub> downloadHubContext,
-        IHubContext<PrefillDaemonHub> prefillHubContext,
+        IHubContext<SteamDaemonHub> steamHubContext,
+        IHubContext<EpicPrefillDaemonHub> epicHubContext,
         ILogger<SignalRNotificationService> logger)
     {
         _downloadHubContext = downloadHubContext;
-        _prefillHubContext = prefillHubContext;
+        _steamHubContext = steamHubContext;
+        _epicHubContext = epicHubContext;
         _logger = logger;
     }
 
@@ -80,41 +84,63 @@ public class SignalRNotificationService : ISignalRNotificationService
         });
     }
 
-    // ===== Prefill Hub Methods =====
+    // ===== Steam Prefill Hub Methods =====
 
     public async Task NotifyPrefillClientAsync(string connectionId, string eventName, object? data = null)
     {
         try
         {
-            await _prefillHubContext.Clients.Client(connectionId).SendAsync(eventName, data);
-            _logger.LogDebug("SignalR prefill notification sent to client {ConnectionId}: {EventName}", connectionId, eventName);
+            await _steamHubContext.Clients.Client(connectionId).SendAsync(eventName, data);
+            _logger.LogDebug("SignalR Steam prefill notification sent to client {ConnectionId}: {EventName}", connectionId, eventName);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to send SignalR prefill notification to client {ConnectionId}: {EventName}", connectionId, eventName);
+            _logger.LogError(ex, "Failed to send SignalR Steam prefill notification to client {ConnectionId}: {EventName}", connectionId, eventName);
         }
     }
 
     public async Task SendToPrefillClientRawAsync(string connectionId, string eventName, object? data = null)
     {
         // This method throws on failure - caller is responsible for handling exceptions
-        await _prefillHubContext.Clients.Client(connectionId).SendAsync(eventName, data);
+        await _steamHubContext.Clients.Client(connectionId).SendAsync(eventName, data);
+    }
+
+    // ===== Epic Prefill Hub Methods =====
+
+    public async Task NotifyEpicPrefillClientAsync(string connectionId, string eventName, object? data = null)
+    {
+        try
+        {
+            await _epicHubContext.Clients.Client(connectionId).SendAsync(eventName, data);
+            _logger.LogDebug("SignalR Epic prefill notification sent to client {ConnectionId}: {EventName}", connectionId, eventName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send SignalR Epic prefill notification to client {ConnectionId}: {EventName}", connectionId, eventName);
+        }
+    }
+
+    public async Task SendToEpicPrefillClientRawAsync(string connectionId, string eventName, object? data = null)
+    {
+        // This method throws on failure - caller is responsible for handling exceptions
+        await _epicHubContext.Clients.Client(connectionId).SendAsync(eventName, data);
     }
 
     public async Task NotifyAllBothHubsAsync(string eventName, object? data = null)
     {
         try
         {
-            // Send to both hubs in parallel
+            // Send to all hubs in parallel
             await Task.WhenAll(
                 _downloadHubContext.Clients.All.SendAsync(eventName, data),
-                _prefillHubContext.Clients.All.SendAsync(eventName, data)
+                _steamHubContext.Clients.All.SendAsync(eventName, data),
+                _epicHubContext.Clients.All.SendAsync(eventName, data)
             );
-            _logger.LogDebug("SignalR notification sent to all (both hubs): {EventName}", eventName);
+            _logger.LogDebug("SignalR notification sent to all (all hubs): {EventName}", eventName);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to send SignalR notification to all (both hubs): {EventName}", eventName);
+            _logger.LogError(ex, "Failed to send SignalR notification to all (all hubs): {EventName}", eventName);
         }
     }
 }

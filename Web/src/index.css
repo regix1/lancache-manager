@@ -12,6 +12,7 @@
 @import './styles/components/forms.css';
 @import './styles/components/dropdowns.css';
 @import './styles/components/modals.css';
+@import './styles/components/service-selector.css';
 
 /* Utilities */
 @import './styles/utilities/colors.css';
@@ -27,6 +28,7 @@
 @import './styles/features/events.css';
 @import './styles/features/downloads.css';
 @import './styles/features/prefill.css';
+@import './styles/features/prefill-home.css';
 
 @tailwind base;
 @tailwind components;
