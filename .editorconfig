@@ -1,0 +1,216 @@
+# Top-level EditorConfig
+root = true
+
+# Universal defaults
+[*]
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+indent_style = space
+
+# Frontend files — 2-space indent (matches Prettier)
+[*.{ts,tsx,js,jsx,css,json,md,yml,yaml,html}]
+indent_size = 2
+
+# C# files — 4-space indent
+[*.cs]
+indent_size = 4
+
+# -------------------------------------------------------------------
+# C# Code Style
+# -------------------------------------------------------------------
+
+# File-scoped namespaces
+dotnet_style_namespace_match_folder = true:warning
+csharp_style_namespace_declarations = file_scoped:warning
+
+# Use var everywhere (matches existing convention)
+csharp_style_var_for_built_in_types = true:suggestion
+csharp_style_var_when_type_is_apparent = true:suggestion
+csharp_style_var_elsewhere = true:suggestion
+
+# No this. qualification
+dotnet_style_qualification_for_field = false:warning
+dotnet_style_qualification_for_property = false:warning
+dotnet_style_qualification_for_method = false:warning
+dotnet_style_qualification_for_event = false:warning
+
+# Prefer language keywords over framework type names
+dotnet_style_predefined_type_for_locals_parameters_members = true:warning
+dotnet_style_predefined_type_for_member_access = true:warning
+
+# Expression-level preferences
+dotnet_style_object_initializer = true:suggestion
+dotnet_style_collection_initializer = true:suggestion
+dotnet_style_explicit_tuple_names = true:warning
+dotnet_style_prefer_inferred_tuple_names = true:suggestion
+dotnet_style_prefer_inferred_anonymous_type_member_names = true:suggestion
+csharp_style_pattern_matching_over_is_with_cast_check = true:suggestion
+csharp_style_pattern_matching_over_as_with_null_check = true:suggestion
+csharp_style_prefer_switch_expression = true:suggestion
+csharp_style_prefer_pattern_matching = true:suggestion
+
+# Null-checking preferences
+csharp_style_throw_expression = true:suggestion
+csharp_style_conditional_delegate_call = true:suggestion
+dotnet_style_coalesce_expression = true:suggestion
+dotnet_style_null_propagation = true:suggestion
+csharp_style_prefer_null_check_over_type_check = true:suggestion
+
+# Expression-bodied members
+csharp_style_expression_bodied_methods = when_on_single_line:suggestion
+csharp_style_expression_bodied_constructors = false:suggestion
+csharp_style_expression_bodied_operators = when_on_single_line:suggestion
+csharp_style_expression_bodied_properties = true:suggestion
+csharp_style_expression_bodied_indexers = true:suggestion
+csharp_style_expression_bodied_accessors = true:suggestion
+csharp_style_expression_bodied_lambdas = true:suggestion
+csharp_style_expression_bodied_local_functions = when_on_single_line:suggestion
+
+# Modifier preferences
+csharp_preferred_modifier_order = public,private,protected,internal,static,extern,new,virtual,abstract,sealed,override,readonly,unsafe,volatile,async:warning
+dotnet_style_require_accessibility_modifiers = for_non_interface_members:warning
+dotnet_style_readonly_field = true:suggestion
+
+# Allman brace style (opening brace on new line)
+csharp_new_line_before_open_brace = all
+csharp_new_line_before_else = true
+csharp_new_line_before_catch = true
+csharp_new_line_before_finally = true
+csharp_new_line_before_members_in_object_initializers = true
+csharp_new_line_before_members_in_anonymous_types = true
+csharp_new_line_between_query_expression_clauses = true
+
+# Indentation
+csharp_indent_case_contents = true
+csharp_indent_switch_labels = true
+csharp_indent_block_contents = true
+csharp_indent_braces = false
+
+# Spacing
+csharp_space_after_cast = false
+csharp_space_after_keywords_in_control_flow_statements = true
+csharp_space_between_method_declaration_parameter_list_parentheses = false
+csharp_space_between_method_call_parameter_list_parentheses = false
+csharp_space_before_colon_in_inheritance_clause = true
+csharp_space_after_colon_in_inheritance_clause = true
+csharp_space_around_binary_operators = before_and_after
+
+# Using directive placement
+csharp_using_directive_placement = outside_namespace:warning
+
+# -------------------------------------------------------------------
+# Naming Conventions
+# -------------------------------------------------------------------
+
+# Private fields: _camelCase
+dotnet_naming_rule.private_fields_should_be_camel_case.severity = warning
+dotnet_naming_rule.private_fields_should_be_camel_case.symbols = private_fields
+dotnet_naming_rule.private_fields_should_be_camel_case.style = camel_case_underscore
+
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private, protected, private_protected
+dotnet_naming_symbols.private_fields.required_modifiers =
+
+dotnet_naming_style.camel_case_underscore.required_prefix = _
+dotnet_naming_style.camel_case_underscore.capitalization = camel_case
+
+# Interfaces: IPrefix
+dotnet_naming_rule.interfaces_should_start_with_i.severity = warning
+dotnet_naming_rule.interfaces_should_start_with_i.symbols = interfaces
+dotnet_naming_rule.interfaces_should_start_with_i.style = interface_style
+
+dotnet_naming_symbols.interfaces.applicable_kinds = interface
+dotnet_naming_symbols.interfaces.applicable_accessibilities = *
+
+dotnet_naming_style.interface_style.required_prefix = I
+dotnet_naming_style.interface_style.capitalization = pascal_case
+
+# Async methods: end with Async
+dotnet_naming_rule.async_methods_should_end_with_async.severity = suggestion
+dotnet_naming_rule.async_methods_should_end_with_async.symbols = async_methods
+dotnet_naming_rule.async_methods_should_end_with_async.style = async_suffix
+
+dotnet_naming_symbols.async_methods.applicable_kinds = method
+dotnet_naming_symbols.async_methods.required_modifiers = async
+
+dotnet_naming_style.async_suffix.required_suffix = Async
+dotnet_naming_style.async_suffix.capitalization = pascal_case
+
+# Public members: PascalCase
+dotnet_naming_rule.public_members_should_be_pascal_case.severity = warning
+dotnet_naming_rule.public_members_should_be_pascal_case.symbols = public_members
+dotnet_naming_rule.public_members_should_be_pascal_case.style = pascal_case_style
+
+dotnet_naming_symbols.public_members.applicable_kinds = property, method, event, delegate, class, struct, enum
+dotnet_naming_symbols.public_members.applicable_accessibilities = public, internal
+
+dotnet_naming_style.pascal_case_style.capitalization = pascal_case
+
+# Constants: PascalCase
+dotnet_naming_rule.constants_should_be_pascal_case.severity = warning
+dotnet_naming_rule.constants_should_be_pascal_case.symbols = constants
+dotnet_naming_rule.constants_should_be_pascal_case.style = pascal_case_style
+
+dotnet_naming_symbols.constants.applicable_kinds = field
+dotnet_naming_symbols.constants.required_modifiers = const
+
+# -------------------------------------------------------------------
+# Analyzer Severity Overrides
+# -------------------------------------------------------------------
+
+# Suppress noisy rules
+dotnet_diagnostic.CA1062.severity = none        # Validate public args — nullable refs handle this
+dotnet_diagnostic.CA1303.severity = none        # Localized string literals — not a localized app
+dotnet_diagnostic.CA2007.severity = none        # ConfigureAwait — ASP.NET Core doesn't need it
+dotnet_diagnostic.IDE0290.severity = none       # Primary constructors — not adopting yet
+
+# IDE code style — suppress noisy rules
+dotnet_diagnostic.IDE0040.severity = suggestion # Accessibility modifiers required
+dotnet_diagnostic.IDE0130.severity = none       # Namespace doesn't match folder — intentional flat namespaces
+dotnet_diagnostic.IDE0161.severity = none       # File-scoped namespace — migrations are auto-generated
+
+# Demote high-volume CA rules to suggestion
+dotnet_diagnostic.CA1001.severity = suggestion  # Types owning disposable fields
+dotnet_diagnostic.CA1051.severity = suggestion  # Don't expose public fields
+dotnet_diagnostic.CA1068.severity = suggestion  # CancellationToken should be last parameter
+dotnet_diagnostic.CA1304.severity = suggestion  # Specify CultureInfo
+dotnet_diagnostic.CA1305.severity = suggestion  # Specify IFormatProvider
+dotnet_diagnostic.CA1307.severity = suggestion  # Specify StringComparison
+dotnet_diagnostic.CA1310.severity = suggestion  # Specify StringComparison for correctness
+dotnet_diagnostic.CA1311.severity = suggestion  # Specify culture for string ops
+dotnet_diagnostic.CA1707.severity = suggestion  # Identifiers should not contain underscores
+dotnet_diagnostic.CA1711.severity = suggestion  # Identifiers should not have incorrect suffix
+dotnet_diagnostic.CA1716.severity = suggestion  # Don't use reserved language keywords
+dotnet_diagnostic.CA1725.severity = suggestion  # Parameter names should match base
+dotnet_diagnostic.CA1805.severity = suggestion  # Don't initialize to default
+dotnet_diagnostic.CA1816.severity = suggestion  # Call GC.SuppressFinalize
+dotnet_diagnostic.CA1822.severity = suggestion  # Member can be static
+dotnet_diagnostic.CA1825.severity = suggestion  # Avoid zero-length array allocations
+dotnet_diagnostic.CA1836.severity = suggestion  # Prefer IsEmpty over Count
+dotnet_diagnostic.CA1847.severity = suggestion  # Use char overload for Contains
+dotnet_diagnostic.CA1848.severity = suggestion  # LoggerMessage delegates
+dotnet_diagnostic.CA1852.severity = suggestion  # Type can be sealed
+dotnet_diagnostic.CA1854.severity = suggestion  # Prefer TryGetValue
+dotnet_diagnostic.CA1860.severity = suggestion  # Prefer Count over Any()
+dotnet_diagnostic.CA1861.severity = suggestion  # Const array arguments
+dotnet_diagnostic.CA1862.severity = suggestion  # Use char overload for string comparison
+dotnet_diagnostic.CA1866.severity = suggestion  # Use char overload for StartsWith/EndsWith
+dotnet_diagnostic.CA1869.severity = suggestion  # Cache LoggerMessage.Define
+dotnet_diagnostic.CA1873.severity = suggestion  # Avoid expensive log arg evaluation
+dotnet_diagnostic.CA2016.severity = suggestion  # Forward CancellationToken
+dotnet_diagnostic.CA2201.severity = suggestion  # Don't throw base Exception type
+dotnet_diagnostic.CA2254.severity = suggestion  # Log template should not vary
+
+# Shell scripts
+[*.sh]
+end_of_line = lf
+indent_size = 2
+
+# Solution files
+[*.sln]
+indent_style = tab
+
+# XML project files
+[*.{csproj,props,targets}]
+indent_size = 2

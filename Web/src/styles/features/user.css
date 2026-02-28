@@ -67,13 +67,31 @@
 }
 
 @keyframes pulse-dot {
-  0%, 100% { box-shadow: 0 0 0 2px var(--theme-bg-secondary), 0 0 0 4px color-mix(in srgb, var(--theme-success) 30%, transparent); }
-  50% { box-shadow: 0 0 0 2px var(--theme-bg-secondary), 0 0 0 6px color-mix(in srgb, var(--theme-success) 10%, transparent); }
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 2px var(--theme-bg-secondary),
+      0 0 0 4px color-mix(in srgb, var(--theme-success) 30%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 0 0 2px var(--theme-bg-secondary),
+      0 0 0 6px color-mix(in srgb, var(--theme-success) 10%, transparent);
+  }
 }
 
 @keyframes pulse-dot-away {
-  0%, 100% { box-shadow: 0 0 0 2px var(--theme-bg-secondary), 0 0 0 4px color-mix(in srgb, var(--theme-warning) 30%, transparent); }
-  50% { box-shadow: 0 0 0 2px var(--theme-bg-secondary), 0 0 0 6px color-mix(in srgb, var(--theme-warning) 10%, transparent); }
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 2px var(--theme-bg-secondary),
+      0 0 0 4px color-mix(in srgb, var(--theme-warning) 30%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 0 0 2px var(--theme-bg-secondary),
+      0 0 0 6px color-mix(in srgb, var(--theme-warning) 10%, transparent);
+  }
 }
 
 /* ===== CONFIG SECTION ===== */
@@ -88,7 +106,6 @@
 .config-section-title {
   @apply text-xs font-semibold uppercase tracking-wider mb-3;
   color: var(--theme-text-muted);
-  letter-spacing: 0.05em;
 }
 
 /* ===== TOGGLE ROW ===== */
@@ -197,7 +214,6 @@
 .session-table-header th {
   @apply py-2.5 px-4 text-xs font-semibold uppercase tracking-wider text-left;
   color: var(--theme-text-muted);
-  letter-spacing: 0.05em;
   border-bottom: 1px solid var(--theme-border-secondary);
 }
 
@@ -283,7 +299,9 @@
 
 .session-expansion {
   overflow: hidden;
-  transition: max-height 300ms ease, opacity 200ms ease;
+  transition:
+    max-height 300ms ease,
+    opacity 200ms ease;
 }
 
 .session-expansion--collapsed {
@@ -321,7 +339,6 @@
 .session-expansion-date-label {
   @apply text-[10px] uppercase tracking-wider mb-1;
   color: var(--theme-text-muted);
-  letter-spacing: 0.05em;
 }
 
 .session-expansion-date-label--error {
@@ -473,80 +490,14 @@
   }
 }
 
-@keyframes slideUpFade {
-  from {
-    opacity: 0;
-    transform: translateY(12px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.session-panel-enter {
-  animation: slideUpFade 300ms ease forwards;
-}
-
-/* ==============================================
- * BULK ACTIONS DROPDOWN
- * ============================================== */
-
-.bulk-actions-dropdown {
-  @apply flex items-center gap-2;
-}
-
-.bulk-actions-dropdown .bulk-actions-trigger {
-  @apply inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium cursor-pointer;
-  border-radius: var(--theme-border-radius);
-  background: var(--theme-bg-secondary);
-  border: 1px solid var(--theme-border-secondary);
-  color: var(--theme-text-muted);
-  transition: all 0.15s ease;
-}
-
-.bulk-actions-dropdown .bulk-actions-trigger:hover {
-  background: var(--theme-bg-tertiary);
-  border-color: var(--theme-border);
-  color: var(--theme-text-primary);
-}
-
-.bulk-actions-dropdown .bulk-actions-menu {
-  @apply absolute mt-1 py-1;
-  min-width: 160px;
-  border-radius: var(--theme-border-radius-lg);
-  background: var(--theme-bg-secondary);
-  border: 1px solid var(--theme-border);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
-  z-index: 20;
-}
-
-.bulk-actions-dropdown .bulk-actions-menu-item {
-  @apply flex items-center gap-2 w-full px-3 py-2 text-sm cursor-pointer;
-  color: var(--theme-text-primary);
-  transition: background 0.1s ease;
-}
-
-.bulk-actions-dropdown .bulk-actions-menu-item:hover {
-  background: var(--theme-bg-hover);
-}
-
-.bulk-actions-dropdown .bulk-actions-menu-item--danger {
-  color: var(--theme-error);
-}
-
-.bulk-actions-dropdown .bulk-actions-menu-item--danger:hover {
-  background: color-mix(in srgb, var(--theme-error) 10%, transparent);
-}
-
 /* ==============================================
  * RESPONSIVE BREAKPOINTS
  * ============================================== */
 
 /* Tablet: hide less important columns, keep grid 2-col */
 @media (max-width: 1023px) {
-  .session-table-header th:nth-child(n+4),
-  .session-table-row td:nth-child(n+4) {
+  .session-table-header th:nth-child(n + 4),
+  .session-table-row td:nth-child(n + 4) {
     display: none;
   }
 
@@ -565,8 +516,8 @@
     grid-column: auto;
   }
 
-  .session-table-header th:nth-child(n+3),
-  .session-table-row td:nth-child(n+3) {
+  .session-table-header th:nth-child(n + 3),
+  .session-table-row td:nth-child(n + 3) {
     display: none;
   }
 

@@ -494,41 +494,8 @@ export interface DefaultGuestRefreshRateChangedEvent {
   refreshRate: string;
 }
 
-export interface UserSessionsUpdatedEvent {
-  reason: string;
-}
-
-export interface GuestPrefillPermissionChangedEvent {
-  sessionId: string;
-  enabled: boolean;
-  prefillExpiresAt?: string;
-  service?: 'steam' | 'epic';
-}
-
 export interface GuestRefreshRateLockChangedEvent {
   locked: boolean;
-}
-
-export interface GuestPrefillConfigChangedEvent {
-  enabledByDefault: boolean;
-  durationHours: number;
-}
-
-export interface PrefillDefaultsChangedEvent {
-  operatingSystems: string[];
-  maxConcurrency: string;
-}
-
-export interface SteamUserBannedEvent {
-  sessionId: string;
-  username: string;
-  reason?: string;
-  expiresAt?: string;
-}
-
-export interface SteamUserUnbannedEvent {
-  sessionId: string;
-  username: string;
 }
 
 export interface DaemonSessionCreatedEvent {
@@ -579,10 +546,6 @@ export interface DaemonSessionTerminatedEvent {
 export interface UserSessionRevokedEvent {
   sessionId: string;
   sessionType: 'admin' | 'guest';
-}
-
-export interface GuestDurationUpdatedEvent {
-  durationHours: number;
 }
 
 export interface PrefillHistoryUpdatedEvent {

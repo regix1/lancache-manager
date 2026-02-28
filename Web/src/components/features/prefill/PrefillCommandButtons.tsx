@@ -2,10 +2,10 @@ import { useTranslation } from 'react-i18next';
 import { Card } from '../../ui/Card';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { MultiSelectDropdown } from '@components/ui/MultiSelectDropdown';
-import { Shield, Monitor, Link, Loader2 } from 'lucide-react';
+import { Monitor, Link, Loader2 } from 'lucide-react';
 import {
-  CommandButton,
-  CommandType,
+  type CommandButton,
+  type CommandType,
   SELECTION_COMMANDS,
   PREFILL_COMMANDS,
   UTILITY_COMMANDS,
@@ -217,16 +217,11 @@ export function PrefillCommandButtons({
 
         {/* Login Required Notice */}
         {!isLoggedIn && (
-          <div className="cmd-login-notice p-4 flex items-start gap-3">
-            <Shield className="h-5 w-5 flex-shrink-0 mt-0.5 text-warning" />
-            <div>
-              <p className="font-medium text-sm text-warning-text">
-                {t('prefill.loginNotice.title')}
-              </p>
-              <p className="text-sm text-themed-muted mt-1">
-                {t('prefill.loginNotice.message')}
-              </p>
-            </div>
+          <div className="cmd-login-notice p-4">
+            <p className="font-medium text-sm text-warning-text">
+              {t('prefill.loginNotice.title')}
+            </p>
+            <p className="text-sm text-themed-muted mt-1">{t('prefill.loginNotice.message')}</p>
           </div>
         )}
       </div>

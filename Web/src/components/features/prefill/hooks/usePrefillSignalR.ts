@@ -11,10 +11,7 @@ import type { LogEntryType } from '../ActivityLog';
 import i18n from '../../../../i18n';
 import { usePrefillAnimation } from './usePrefillAnimation';
 import { registerPrefillEventHandlers } from './usePrefillEventHandlers';
-import {
-  PREFILL_SESSION_TIMEOUT_MS,
-  COMPLETION_NOTIFICATION_WINDOW_MS
-} from './prefillConstants';
+import { PREFILL_SESSION_TIMEOUT_MS, COMPLETION_NOTIFICATION_WINDOW_MS } from './prefillConstants';
 import type { PrefillProgress, BackgroundCompletion } from './prefillTypes';
 
 interface UsePrefillSignalROptions {
@@ -35,7 +32,6 @@ interface UsePrefillSignalRReturn {
   // Connection
   hubConnection: React.RefObject<HubConnection | null>;
   isConnecting: boolean;
-  connectToHub: () => Promise<HubConnection | null>;
 
   // Session
   session: PrefillSessionDto | null;
@@ -52,7 +48,6 @@ interface UsePrefillSignalRReturn {
   isPrefillActive: boolean;
 
   // Session management
-  initializeSession: () => Promise<void>;
   createSession: (clearLogs: () => void) => Promise<void>;
 
   // Error
@@ -62,9 +57,6 @@ interface UsePrefillSignalRReturn {
   // Refs for command execution
   isCancelling: React.RefObject<boolean>;
   expectedAppCountRef: React.RefObject<number>;
-
-  // Session ref for stale closure issues
-  sessionRef: React.RefObject<PrefillSessionDto | null>;
 }
 
 export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefillSignalRReturn {
@@ -236,8 +228,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
         hubConnection.current = connection;
         setIsConnecting(false);
         return connection;
-      } catch (err) {
-        console.error('Failed to connect to hub:', err);
+      } catch {
         setError(t('prefill.errors.failedConnect'));
         setIsConnecting(false);
         return null;
@@ -251,28 +242,14 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
   }, [
     addLog,
     onAuthStateChanged,
-    setSession,
-    setTimeRemaining,
-    setIsLoggedIn,
-    setIsPrefillActive,
-    setPrefillProgress,
     onSessionEnd,
     clearBackgroundCompletion,
     isCompletionDismissed,
     clearAllPrefillStorage,
-    setBackgroundCompletionRef,
-    sessionRef,
-    isCancelling,
-    currentAnimationAppIdRef,
-    expectedAppCountRef,
-    downloadedGamesCountRef,
-    cachedGamesCountRef,
-    totalBytesDownloadedRef,
     enqueueAnimation,
     resetAnimationState,
-    cachedAnimationQueueRef,
-    isProcessingAnimationRef,
     serviceId,
+    hubPath,
     t
   ]);
 
@@ -319,9 +296,15 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
         if (activeSession.authState === 'Authenticated') {
           addLog('info', t('prefill.log.alreadyLoggedIn'));
         } else {
-          addLog('info', serviceId === 'epic'
-            ? t('prefill.log.loginToEpicPrompt', 'Please log in to Epic Games to start prefilling')
-            : t('prefill.log.loginToSteamPrompt'));
+          addLog(
+            'info',
+            serviceId === 'epic'
+              ? t(
+                  'prefill.log.loginToEpicPrompt',
+                  'Please log in to Epic Games to start prefilling'
+                )
+              : t('prefill.log.loginToSteamPrompt')
+          );
         }
 
         // Check for missed completions
@@ -400,9 +383,9 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
         errorMessage.includes('connection being closed') ||
         errorMessage.includes('Invocation canceled')
       ) {
-        console.debug('[PrefillSignalR] Hub connection closed - access denied or hub unavailable');
+        // Hub connection closed - access denied or hub unavailable
       } else {
-        console.error('Failed to initialize session:', err);
+        // Failed to initialize session
       }
     } finally {
       setIsInitializing(false);
@@ -455,9 +438,15 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
             t('prefill.log.sessionCreated'),
             t('prefill.log.containerDetail', { name: sessionDto.containerName })
           );
-          addLog('info', serviceId === 'epic'
-            ? t('prefill.log.loginToEpicBeforePrefill', 'Please log in to Epic Games before starting prefill')
-            : t('prefill.log.loginToSteamBeforePrefill'));
+          addLog(
+            'info',
+            serviceId === 'epic'
+              ? t(
+                  'prefill.log.loginToEpicBeforePrefill',
+                  'Please log in to Epic Games before starting prefill'
+                )
+              : t('prefill.log.loginToSteamBeforePrefill')
+          );
         }
         addLog(
           'info',
@@ -469,7 +458,6 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
         await connection.invoke('SubscribeToSession', sessionDto.id);
         setIsCreating(false);
       } catch (err) {
-        console.error('Failed to create session:', err);
         const errorMessage =
           err instanceof Error ? err.message : t('prefill.errors.failedCreateSession');
         setError(errorMessage);
@@ -490,7 +478,6 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
     // Connection
     hubConnection,
     isConnecting,
-    connectToHub,
 
     // Session
     session,
@@ -507,7 +494,6 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
     isPrefillActive,
 
     // Session management
-    initializeSession,
     createSession,
 
     // Error
@@ -516,7 +502,6 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
 
     // Refs
     isCancelling,
-    expectedAppCountRef,
-    sessionRef
+    expectedAppCountRef
   };
 }

@@ -29,6 +29,23 @@
     width: var(--progress-width);
   }
 
+  /* Loading State - Service-specific icon variants */
+  .prefill-loading-icon--steam {
+    background-color: color-mix(in srgb, var(--theme-steam) 15%, transparent);
+  }
+
+  .prefill-loading-icon--epic {
+    background-color: color-mix(in srgb, var(--theme-epic) 15%, transparent);
+  }
+
+  .prefill-loading-spinner--steam {
+    color: var(--theme-steam);
+  }
+
+  .prefill-loading-spinner--epic {
+    color: var(--theme-epic);
+  }
+
   /* ===== COMMAND CENTER STYLES ===== */
 
   /* Command center outer wrapper - subtle inset panel feel */
@@ -65,7 +82,9 @@
     border-radius: 2px;
     background: var(--section-accent, var(--theme-primary));
     opacity: 0.7;
-    transition: opacity 0.2s ease, height 0.2s ease;
+    transition:
+      opacity 0.2s ease,
+      height 0.2s ease;
   }
 
   .cmd-section:hover .cmd-section-header::before {
@@ -180,13 +199,6 @@
     border-radius: var(--theme-border-radius-lg);
   }
 
-  /* Divider between sections */
-  .cmd-divider {
-    height: 1px;
-    background: var(--theme-border-secondary);
-    margin: 0;
-  }
-
   /* Selection badge count */
   .cmd-badge {
     display: inline-flex;
@@ -210,10 +222,19 @@
     animation: fadeInUp 0.25s ease-out both;
   }
 
-  .cmd-tile-enter:nth-child(1) { animation-delay: 0ms; }
-  .cmd-tile-enter:nth-child(2) { animation-delay: 30ms; }
-  .cmd-tile-enter:nth-child(3) { animation-delay: 60ms; }
-  .cmd-tile-enter:nth-child(4) { animation-delay: 90ms; }
-  .cmd-tile-enter:nth-child(5) { animation-delay: 120ms; }
-  .cmd-tile-enter:nth-child(6) { animation-delay: 150ms; }
+  .cmd-tile-enter:nth-child(2) {
+    animation-delay: 30ms;
+  }
+  .cmd-tile-enter:nth-child(3) {
+    animation-delay: 60ms;
+  }
+  .cmd-tile-enter:nth-child(4) {
+    animation-delay: 90ms;
+  }
+  .cmd-tile-enter:nth-child(5) {
+    animation-delay: 120ms;
+  }
+  .cmd-tile-enter:nth-child(6) {
+    animation-delay: 150ms;
+  }
 }

@@ -8,7 +8,7 @@ import { useSignalR } from '@contexts/SignalRContext';
 import { useAuth } from '@contexts/AuthContext';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { EpicIcon } from '@components/ui/EpicIcon';
-import { ThemeOption, durationOptions, refreshRateOptions, showToast } from './types';
+import { type ThemeOption, durationOptions, refreshRateOptions, showToast } from './types';
 import AccessSecurityCard from './AccessSecurityCard';
 import PrefillServicePanel from './PrefillServicePanel';
 import AppearanceDisplayCard from './AppearanceDisplayCard';
@@ -90,23 +90,28 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   const [loadingEpicPrefillConfig, setLoadingEpicPrefillConfig] = useState(false);
   const [updatingEpicPrefillConfig, setUpdatingEpicPrefillConfig] = useState(false);
 
-
   // Helper to update default time format based on a format value
   const updateDefaultTimeFormat = async (format: TimeSettingValue) => {
     const newUseLocal = format.startsWith('local');
     const newUse24Hour = format.endsWith('24h');
 
     const [localResponse, formatResponse] = await Promise.all([
-      fetch('/api/system/default-guest-preferences/useLocalTimezone', ApiService.getFetchOptions({
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ value: newUseLocal })
-      })),
-      fetch('/api/system/default-guest-preferences/use24HourFormat', ApiService.getFetchOptions({
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ value: newUse24Hour })
-      }))
+      fetch(
+        '/api/system/default-guest-preferences/useLocalTimezone',
+        ApiService.getFetchOptions({
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value: newUseLocal })
+        })
+      ),
+      fetch(
+        '/api/system/default-guest-preferences/use24HourFormat',
+        ApiService.getFetchOptions({
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value: newUse24Hour })
+        })
+      )
     ]);
 
     if (localResponse.ok && formatResponse.ok) {
@@ -128,14 +133,18 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     return 'server-12h';
   };
 
-  const translatedDurationOptions = durationOptions.map((option: { value: string; label: string }) => ({
-    ...option,
-    label: t(`user.guest.durationOptions.${option.value}`)
-  }));
-  const translatedRefreshRateOptions = refreshRateOptions.map((option: { value: string; label: string }) => ({
-    ...option,
-    label: t(`user.guest.refreshRates.${option.value}`)
-  }));
+  const translatedDurationOptions = durationOptions.map(
+    (option: { value: string; label: string }) => ({
+      ...option,
+      label: t(`user.guest.durationOptions.${option.value}`)
+    })
+  );
+  const translatedRefreshRateOptions = refreshRateOptions.map(
+    (option: { value: string; label: string }) => ({
+      ...option,
+      label: t(`user.guest.refreshRates.${option.value}`)
+    })
+  );
   const prefillDurationOptions = [
     { value: '1', label: t('user.guest.prefillDurationOptions.1') },
     { value: '2', label: t('user.guest.prefillDurationOptions.2') }
@@ -145,8 +154,7 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     { value: '', label: t('user.guest.prefill.maxThreads.noLimit') },
     ...THREAD_VALUES.map((n: number) => ({
       value: String(n),
-      label: `${n} threads`,
-      disabled: false
+      label: `${n} threads`
     }))
   ];
   const preferenceLabels: Record<string, string> = {
@@ -159,7 +167,10 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   const loadDefaultGuestPreferences = async () => {
     try {
       setLoadingDefaultPrefs(true);
-      const response = await fetch('/api/system/default-guest-preferences', ApiService.getFetchOptions());
+      const response = await fetch(
+        '/api/system/default-guest-preferences',
+        ApiService.getFetchOptions()
+      );
       if (response.ok) {
         const data = await response.json();
         setDefaultGuestPreferences({
@@ -169,11 +180,16 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
           disableTooltips: data.disableTooltips ?? false,
           showDatasourceLabels: data.showDatasourceLabels ?? true,
           showYearInDates: data.showYearInDates ?? false,
-          allowedTimeFormats: data.allowedTimeFormats ?? ['server-24h', 'server-12h', 'local-24h', 'local-12h']
+          allowedTimeFormats: data.allowedTimeFormats ?? [
+            'server-24h',
+            'server-12h',
+            'local-24h',
+            'local-12h'
+          ]
         });
       }
     } catch (err) {
-      console.error('Failed to load default guest preferences:', err);
+      showToast('error', getErrorMessage(err) || t('user.guest.errors.loadPreferences'));
     } finally {
       setLoadingDefaultPrefs(false);
     }
@@ -183,13 +199,16 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     if (authMode !== 'authenticated') return;
     try {
       setUpdatingDefaultPref(key);
-      const response = await fetch(`/api/system/default-guest-preferences/${key}`, ApiService.getFetchOptions({
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ value })
-      }));
+      const response = await fetch(
+        `/api/system/default-guest-preferences/${key}`,
+        ApiService.getFetchOptions({
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ value })
+        })
+      );
 
       if (response.ok) {
         setDefaultGuestPreferences((prev: DefaultGuestPreferences) => ({
@@ -198,14 +217,22 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
         }));
       } else {
         const errorData = await response.json();
-        showToast('error', errorData.error || t('user.guest.errors.updateDefault', {
-          label: preferenceLabels[key] || key
-        }));
+        showToast(
+          'error',
+          errorData.error ||
+            t('user.guest.errors.updateDefault', {
+              label: preferenceLabels[key] || key
+            })
+        );
       }
     } catch (err: unknown) {
-      showToast('error', getErrorMessage(err) || t('user.guest.errors.updateDefault', {
-        label: preferenceLabels[key] || key
-      }));
+      showToast(
+        'error',
+        getErrorMessage(err) ||
+          t('user.guest.errors.updateDefault', {
+            label: preferenceLabels[key] || key
+          })
+      );
     } finally {
       setUpdatingDefaultPref(null);
     }
@@ -221,18 +248,19 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     []
   );
 
-  const handleAllowedTimeFormatsChanged = useCallback(
-    (data: { formats: string[] }) => {
-      setDefaultGuestPreferences((prev: DefaultGuestPreferences) => ({
-        ...prev,
-        allowedTimeFormats: data.formats
-      }));
-    },
-    []
-  );
+  const handleAllowedTimeFormatsChanged = useCallback((data: { formats: string[] }) => {
+    setDefaultGuestPreferences((prev: DefaultGuestPreferences) => ({
+      ...prev,
+      allowedTimeFormats: data.formats
+    }));
+  }, []);
 
   const handlePrefillConfigChanged = useCallback(
-    (data: { enabledByDefault: boolean; durationHours: number; maxThreadCount?: number | null }) => {
+    (data: {
+      enabledByDefault: boolean;
+      durationHours: number;
+      maxThreadCount?: number | null;
+    }) => {
       setPrefillConfig({
         enabledByDefault: data.enabledByDefault,
         durationHours: data.durationHours,
@@ -243,7 +271,11 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   );
 
   const handleEpicPrefillConfigChanged = useCallback(
-    (data: { enabledByDefault: boolean; durationHours: number; maxThreadCount?: number | null }) => {
+    (data: {
+      enabledByDefault: boolean;
+      durationHours: number;
+      maxThreadCount?: number | null;
+    }) => {
       setEpicPrefillConfig({
         enabledByDefault: data.enabledByDefault,
         durationHours: data.durationHours,
@@ -257,13 +289,16 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     if (authMode !== 'authenticated') return;
     try {
       setUpdatingAllowedFormats(true);
-      const response = await fetch('/api/system/default-guest-preferences/allowed-time-formats', ApiService.getFetchOptions({
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ formats })
-      }));
+      const response = await fetch(
+        '/api/system/default-guest-preferences/allowed-time-formats',
+        ApiService.getFetchOptions({
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ formats })
+        })
+      );
 
       if (response.ok) {
         // If current default is no longer in allowed list, update to first allowed format
@@ -291,7 +326,10 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   const loadPrefillConfig = async () => {
     try {
       setLoadingPrefillConfig(true);
-      const configResponse = await fetch('/api/auth/guest/prefill/config', ApiService.getFetchOptions());
+      const configResponse = await fetch(
+        '/api/auth/guest/prefill/config',
+        ApiService.getFetchOptions()
+      );
       if (configResponse.ok) {
         const data = await configResponse.json();
         setPrefillConfig({
@@ -301,13 +339,17 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
         });
       }
     } catch (err) {
-      console.error('Failed to load prefill config:', err);
+      showToast('error', getErrorMessage(err) || t('user.guest.prefill.errors.loadConfig'));
     } finally {
       setLoadingPrefillConfig(false);
     }
   };
 
-  const updatePrefillConfig = async (enabledByDefault: boolean, durationHours: number, maxThreadCount?: number | null) => {
+  const updatePrefillConfig = async (
+    enabledByDefault: boolean,
+    durationHours: number,
+    maxThreadCount?: number | null
+  ) => {
     if (authMode !== 'authenticated') return;
     try {
       setUpdatingPrefillConfig(true);
@@ -317,13 +359,16 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
       } else {
         body.maxThreadCount = prefillConfig.maxThreadCount;
       }
-      const response = await fetch('/api/auth/guest/prefill/config', ApiService.getFetchOptions({
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(body)
-      }));
+      const response = await fetch(
+        '/api/auth/guest/prefill/config',
+        ApiService.getFetchOptions({
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(body)
+        })
+      );
 
       if (response.ok) {
         const data = await response.json();
@@ -348,23 +393,30 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   const loadEpicPrefillConfig = async () => {
     try {
       setLoadingEpicPrefillConfig(true);
-      const configResponse = await fetch('/api/auth/guest/prefill/config', ApiService.getFetchOptions());
+      const configResponse = await fetch(
+        '/api/auth/guest/epic-prefill/config',
+        ApiService.getFetchOptions()
+      );
       if (configResponse.ok) {
         const data = await configResponse.json();
         setEpicPrefillConfig({
-          enabledByDefault: data.epicGuestPrefillEnabledByDefault ?? false,
-          durationHours: data.epicGuestPrefillDurationHours ?? 2,
-          maxThreadCount: data.epicDefaultGuestMaxThreadCount ?? null
+          enabledByDefault: data.enabledByDefault ?? false,
+          durationHours: data.durationHours ?? 2,
+          maxThreadCount: data.maxThreadCount ?? null
         });
       }
     } catch (err) {
-      console.error('Failed to load Epic prefill config:', err);
+      showToast('error', getErrorMessage(err) || t('user.guest.prefill.errors.loadConfig'));
     } finally {
       setLoadingEpicPrefillConfig(false);
     }
   };
 
-  const updateEpicPrefillConfig = async (enabledByDefault: boolean, durationHours: number, maxThreadCount?: number | null) => {
+  const updateEpicPrefillConfig = async (
+    enabledByDefault: boolean,
+    durationHours: number,
+    maxThreadCount?: number | null
+  ) => {
     if (authMode !== 'authenticated') return;
     try {
       setUpdatingEpicPrefillConfig(true);
@@ -374,13 +426,16 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
       } else {
         body.maxThreadCount = epicPrefillConfig.maxThreadCount;
       }
-      const response = await fetch('/api/auth/guest/epic-prefill/config', ApiService.getFetchOptions({
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(body)
-      }));
+      const response = await fetch(
+        '/api/auth/guest/epic-prefill/config',
+        ApiService.getFetchOptions({
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(body)
+        })
+      );
 
       if (response.ok) {
         const data = await response.json();
@@ -423,7 +478,11 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
   };
 
   const handleEpicMaxThreadsChange = (threads: number | null) => {
-    updateEpicPrefillConfig(epicPrefillConfig.enabledByDefault, epicPrefillConfig.durationHours, threads);
+    updateEpicPrefillConfig(
+      epicPrefillConfig.enabledByDefault,
+      epicPrefillConfig.durationHours,
+      threads
+    );
   };
 
   useEffect(() => {
@@ -442,7 +501,14 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
       off('GuestPrefillConfigChanged', handlePrefillConfigChanged);
       off('EpicGuestPrefillConfigChanged', handleEpicPrefillConfigChanged);
     };
-  }, [on, off, handleDefaultGuestPreferencesChanged, handleAllowedTimeFormatsChanged, handlePrefillConfigChanged, handleEpicPrefillConfigChanged]);
+  }, [
+    on,
+    off,
+    handleDefaultGuestPreferencesChanged,
+    handleAllowedTimeFormatsChanged,
+    handlePrefillConfigChanged,
+    handleEpicPrefillConfigChanged
+  ]);
 
   return (
     <div className="space-y-4">

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import ApiService from '@services/api.service';
 import { useNotifications } from '@contexts/notifications';
 
-export interface SteamAuthOptions {
+interface SteamAuthOptions {
   autoStartPics?: boolean;
   onSuccess?: (message: string) => void;
   onError?: (message: string) => void;
@@ -130,20 +130,23 @@ export function useSteamAuthentication(options: SteamAuthOptions = {}) {
     }
 
     try {
-      const response = await fetch('/api/steam-auth/login', ApiService.getFetchOptions({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          username,
-          password,
-          twoFactorCode: needsTwoFactor || useManualCode ? twoFactorCode : undefined,
-          emailCode: needsEmailCode ? emailCode : undefined,
-          // Allow mobile confirmation unless user explicitly chose manual code entry
-          allowMobileConfirmation: !useManualCode,
-          autoStartPicsRebuild: autoStartPics
-        }),
-        signal: controller.signal
-      }));
+      const response = await fetch(
+        '/api/steam-auth/login',
+        ApiService.getFetchOptions({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username,
+            password,
+            twoFactorCode: needsTwoFactor || useManualCode ? twoFactorCode : undefined,
+            emailCode: needsEmailCode ? emailCode : undefined,
+            // Allow mobile confirmation unless user explicitly chose manual code entry
+            allowMobileConfirmation: !useManualCode,
+            autoStartPicsRebuild: autoStartPics
+          }),
+          signal: controller.signal
+        })
+      );
 
       let result;
       try {
@@ -268,6 +271,7 @@ export function useSteamAuthentication(options: SteamAuthOptions = {}) {
     setUseManualCode,
     setNeedsTwoFactor,
     setWaitingForMobileConfirmation,
+    // eslint-disable-next-line @typescript-eslint/no-empty-function
     setAuthorizationCode: () => {},
     handleAuthenticate,
     resetAuthForm,

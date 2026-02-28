@@ -106,7 +106,10 @@ const ManagementTab: React.FC = () => {
   useEffect(() => {
     const checkLogRotation = async () => {
       try {
-        const response = await fetch('/api/system/log-rotation/status', ApiService.getFetchOptions());
+        const response = await fetch(
+          '/api/system/log-rotation/status',
+          ApiService.getFetchOptions()
+        );
         if (response.ok) {
           const data = await response.json();
           setLogRotationEnabled(data.enabled === true);
@@ -169,10 +172,10 @@ const ManagementTab: React.FC = () => {
       return (
         <Card>
           <div className="text-center py-12">
-            <p className="text-themed-secondary text-lg mb-2">{t('management.sections.authRequired')}</p>
-            <p className="text-themed-muted text-sm">
-              {t('management.sections.authRequiredDesc')}
+            <p className="text-themed-secondary text-lg mb-2">
+              {t('management.sections.authRequired')}
             </p>
+            <p className="text-themed-muted text-sm">{t('management.sections.authRequiredDesc')}</p>
           </div>
         </Card>
       );
@@ -220,11 +223,7 @@ const ManagementTab: React.FC = () => {
         );
 
       case 'preferences':
-        return (
-          <PreferencesSection
-            isAdmin={isAdmin}
-          />
-        );
+        return <PreferencesSection isAdmin={isAdmin} />;
 
       case 'clients':
         return (
@@ -239,13 +238,7 @@ const ManagementTab: React.FC = () => {
 
       case 'prefill-sessions':
         return (
-          <PrefillSessionsSection
-            isAdmin={isAdmin}
-            authMode={authMode}
-            mockMode={mockMode}
-            onError={addError}
-            onSuccess={setSuccess}
-          />
+          <PrefillSessionsSection isAdmin={isAdmin} onError={addError} onSuccess={setSuccess} />
         );
 
       default:
@@ -263,19 +256,17 @@ const ManagementTab: React.FC = () => {
       />
 
       {/* Active Section Content */}
-      <div className="management-content">
-        {renderActiveSection()}
-      </div>
+      <div className="management-content">{renderActiveSection()}</div>
 
       {/* Guest Mode Info - shown in nav area when not authenticated */}
       {authMode === 'guest' && activeSection !== 'settings' && (
         <div className="mt-4">
           <Card>
             <div className="text-center py-6">
-              <p className="text-themed-secondary text-lg mb-2">{t('management.sections.guestModeActive')}</p>
-              <p className="text-themed-muted text-sm">
-                {t('management.sections.guestModeDesc')}
+              <p className="text-themed-secondary text-lg mb-2">
+                {t('management.sections.guestModeActive')}
               </p>
+              <p className="text-themed-muted text-sm">{t('management.sections.guestModeDesc')}</p>
             </div>
           </Card>
         </div>

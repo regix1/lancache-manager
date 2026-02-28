@@ -9,7 +9,7 @@ interface PrefillLoadingStateProps {
 
 export function PrefillLoadingState({ status, serviceId }: PrefillLoadingStateProps) {
   const { t } = useTranslation();
-  const themeColor = serviceId === 'epic' ? '--theme-epic' : '--theme-steam';
+  const isEpic = serviceId === 'epic';
 
   const title =
     status === 'creating'
@@ -22,15 +22,18 @@ export function PrefillLoadingState({ status, serviceId }: PrefillLoadingStatePr
         <CardContent className="py-12">
           <div className="flex flex-col items-center justify-center gap-4">
             <div
-              className="w-16 h-16 rounded-xl flex items-center justify-center"
-              style={{ backgroundColor: `color-mix(in srgb, var(${themeColor}) 15%, transparent)` }}
+              className={`w-16 h-16 rounded-xl flex items-center justify-center ${
+                isEpic ? 'prefill-loading-icon--epic' : 'prefill-loading-icon--steam'
+              }`}
             >
-              <Loader2 className="h-8 w-8 animate-spin" style={{ color: `var(${themeColor})` }} />
+              <Loader2
+                className={`h-8 w-8 animate-spin ${
+                  isEpic ? 'prefill-loading-spinner--epic' : 'prefill-loading-spinner--steam'
+                }`}
+              />
             </div>
             <div className="text-center">
-              <p className="text-lg font-medium text-themed-primary">
-                {title}
-              </p>
+              <p className="text-lg font-medium text-themed-primary">{title}</p>
               <p className="text-sm text-themed-muted mt-1">{t('prefill.loading.mayTakeMoment')}</p>
             </div>
           </div>

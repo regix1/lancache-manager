@@ -11,7 +11,7 @@ interface AppearanceDisplayCardProps {
   defaultGuestTheme: string;
   onGuestThemeChange: (themeId: string) => void;
   updatingGuestTheme: boolean;
-  availableThemes: Array<{ id: string; name: string }>;
+  availableThemes: { id: string; name: string }[];
   // Refresh rate
   defaultGuestRefreshRate: string;
   onGuestRefreshRateChange: (rate: string) => void;
@@ -19,7 +19,7 @@ interface AppearanceDisplayCardProps {
   guestRefreshRateLocked: boolean;
   onGuestRefreshRateLockChange: (locked: boolean) => void;
   updatingGuestRefreshRateLock: boolean;
-  refreshRateOptions: Array<{ value: string; label: string }>;
+  refreshRateOptions: { value: string; label: string }[];
   // Date & Time
   defaultGuestPreferences: {
     useLocalTimezone: boolean;
@@ -98,27 +98,9 @@ const AppearanceDisplayCard: React.FC<AppearanceDisplayCardProps> = ({
     }
   };
 
-  const handleShowYearToggle = () => {
+  const handlePrefToggle = (key: keyof typeof defaultGuestPreferences, currentValue: boolean) => {
     if (!loadingDefaultPrefs) {
-      onUpdateDefaultPref('showYearInDates', !defaultGuestPreferences.showYearInDates);
-    }
-  };
-
-  const handleSharpCornersToggle = () => {
-    if (!loadingDefaultPrefs) {
-      onUpdateDefaultPref('sharpCorners', !defaultGuestPreferences.sharpCorners);
-    }
-  };
-
-  const handleDisableTooltipsToggle = () => {
-    if (!loadingDefaultPrefs) {
-      onUpdateDefaultPref('disableTooltips', !defaultGuestPreferences.disableTooltips);
-    }
-  };
-
-  const handleDatasourceLabelsToggle = () => {
-    if (!loadingDefaultPrefs) {
-      onUpdateDefaultPref('showDatasourceLabels', !defaultGuestPreferences.showDatasourceLabels);
+      onUpdateDefaultPref(key, !currentValue);
     }
   };
 
@@ -144,9 +126,7 @@ const AppearanceDisplayCard: React.FC<AppearanceDisplayCardProps> = ({
         <div className="grid gap-4 sm:grid-cols-2">
           {/* Left column: Appearance */}
           <div className="settings-group settings-group--look">
-            <div className="config-section-title">
-              {t('user.guest.sections.appearance')}
-            </div>
+            <div className="config-section-title">{t('user.guest.sections.appearance')}</div>
 
             {/* Default Theme dropdown */}
             <div className="space-y-1.5">
@@ -183,10 +163,7 @@ const AppearanceDisplayCard: React.FC<AppearanceDisplayCardProps> = ({
             </div>
 
             {/* Lock Refresh Rate toggle */}
-            <div
-              className="toggle-row cursor-pointer"
-              onClick={handleRefreshRateLockToggle}
-            >
+            <div className="toggle-row cursor-pointer" onClick={handleRefreshRateLockToggle}>
               <div>
                 <div className="toggle-row-label flex items-center gap-1.5">
                   {guestRefreshRateLocked ? (
@@ -213,9 +190,7 @@ const AppearanceDisplayCard: React.FC<AppearanceDisplayCardProps> = ({
 
           {/* Right column: Date & Time */}
           <div className="settings-group settings-group--look">
-            <div className="config-section-title">
-              {t('user.guest.sections.dateTime')}
-            </div>
+            <div className="config-section-title">{t('user.guest.sections.dateTime')}</div>
 
             {/* Allowed Time Formats multi-select */}
             <div className="space-y-1.5">
@@ -234,25 +209,29 @@ const AppearanceDisplayCard: React.FC<AppearanceDisplayCardProps> = ({
                   <Loader2 className="w-4 h-4 animate-spin absolute right-10 top-1/2 -translate-y-1/2 text-themed-accent" />
                 )}
               </div>
-              <div className="toggle-row-description">
-                {t('user.guest.timeFormats.note')}
-              </div>
+              <div className="toggle-row-description">{t('user.guest.timeFormats.note')}</div>
             </div>
 
             {/* Show Year in Dates toggle */}
             <div
               className="toggle-row cursor-pointer"
-              onClick={handleShowYearToggle}
+              onClick={() =>
+                handlePrefToggle('showYearInDates', defaultGuestPreferences.showYearInDates)
+              }
             >
               <div>
                 <div className="toggle-row-label">{t('user.guest.preferences.showYear.label')}</div>
-                <div className="toggle-row-description">{t('user.guest.preferences.showYear.description')}</div>
+                <div className="toggle-row-description">
+                  {t('user.guest.preferences.showYear.description')}
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 {updatingDefaultPref === 'showYearInDates' && (
                   <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
                 )}
-                <div className={`modern-toggle ${defaultGuestPreferences.showYearInDates ? 'checked' : ''}`}>
+                <div
+                  className={`modern-toggle ${defaultGuestPreferences.showYearInDates ? 'checked' : ''}`}
+                >
                   <span className="toggle-thumb" />
                 </div>
               </div>
@@ -271,17 +250,23 @@ const AppearanceDisplayCard: React.FC<AppearanceDisplayCardProps> = ({
             {/* Sharp Corners toggle */}
             <div
               className="toggle-row cursor-pointer"
-              onClick={handleSharpCornersToggle}
+              onClick={() => handlePrefToggle('sharpCorners', defaultGuestPreferences.sharpCorners)}
             >
               <div>
-                <div className="toggle-row-label">{t('user.guest.preferences.sharpCorners.label')}</div>
-                <div className="toggle-row-description">{t('user.guest.preferences.sharpCorners.description')}</div>
+                <div className="toggle-row-label">
+                  {t('user.guest.preferences.sharpCorners.label')}
+                </div>
+                <div className="toggle-row-description">
+                  {t('user.guest.preferences.sharpCorners.description')}
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 {updatingDefaultPref === 'sharpCorners' && (
                   <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
                 )}
-                <div className={`modern-toggle ${defaultGuestPreferences.sharpCorners ? 'checked' : ''}`}>
+                <div
+                  className={`modern-toggle ${defaultGuestPreferences.sharpCorners ? 'checked' : ''}`}
+                >
                   <span className="toggle-thumb" />
                 </div>
               </div>
@@ -290,17 +275,25 @@ const AppearanceDisplayCard: React.FC<AppearanceDisplayCardProps> = ({
             {/* Disable Tooltips toggle */}
             <div
               className="toggle-row cursor-pointer"
-              onClick={handleDisableTooltipsToggle}
+              onClick={() =>
+                handlePrefToggle('disableTooltips', defaultGuestPreferences.disableTooltips)
+              }
             >
               <div>
-                <div className="toggle-row-label">{t('user.guest.preferences.disableTooltips.label')}</div>
-                <div className="toggle-row-description">{t('user.guest.preferences.disableTooltips.description')}</div>
+                <div className="toggle-row-label">
+                  {t('user.guest.preferences.disableTooltips.label')}
+                </div>
+                <div className="toggle-row-description">
+                  {t('user.guest.preferences.disableTooltips.description')}
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 {updatingDefaultPref === 'disableTooltips' && (
                   <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
                 )}
-                <div className={`modern-toggle ${defaultGuestPreferences.disableTooltips ? 'checked' : ''}`}>
+                <div
+                  className={`modern-toggle ${defaultGuestPreferences.disableTooltips ? 'checked' : ''}`}
+                >
                   <span className="toggle-thumb" />
                 </div>
               </div>
@@ -309,17 +302,28 @@ const AppearanceDisplayCard: React.FC<AppearanceDisplayCardProps> = ({
             {/* Show Datasource Labels toggle */}
             <div
               className="toggle-row cursor-pointer"
-              onClick={handleDatasourceLabelsToggle}
+              onClick={() =>
+                handlePrefToggle(
+                  'showDatasourceLabels',
+                  defaultGuestPreferences.showDatasourceLabels
+                )
+              }
             >
               <div>
-                <div className="toggle-row-label">{t('user.guest.preferences.datasourceLabels.label')}</div>
-                <div className="toggle-row-description">{t('user.guest.preferences.datasourceLabels.description')}</div>
+                <div className="toggle-row-label">
+                  {t('user.guest.preferences.datasourceLabels.label')}
+                </div>
+                <div className="toggle-row-description">
+                  {t('user.guest.preferences.datasourceLabels.description')}
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 {updatingDefaultPref === 'showDatasourceLabels' && (
                   <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
                 )}
-                <div className={`modern-toggle ${defaultGuestPreferences.showDatasourceLabels ? 'checked' : ''}`}>
+                <div
+                  className={`modern-toggle ${defaultGuestPreferences.showDatasourceLabels ? 'checked' : ''}`}
+                >
                   <span className="toggle-thumb" />
                 </div>
               </div>

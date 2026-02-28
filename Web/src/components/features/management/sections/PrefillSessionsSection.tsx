@@ -30,23 +30,26 @@ import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDr
 import { Checkbox } from '@components/ui/Checkbox';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import ApiService, {
-  PrefillSessionDto,
-  DaemonSessionDto,
-  BannedSteamUserDto,
-  PrefillHistoryEntryDto
+  type PrefillSessionDto,
+  type DaemonSessionDto,
+  type BannedSteamUserDto,
+  type PrefillHistoryEntryDto
 } from '@services/api.service';
 import { getErrorMessage } from '@utils/error';
 import { formatBytes } from '@utils/formatters';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { useSignalR } from '@contexts/SignalRContext';
 import { cleanIpAddress } from '@components/features/user/types';
-import type { DaemonSessionCreatedEvent, DaemonSessionUpdatedEvent, DaemonSessionTerminatedEvent, PrefillHistoryUpdatedEvent } from '@contexts/SignalRContext/types';
+import type {
+  DaemonSessionCreatedEvent,
+  DaemonSessionUpdatedEvent,
+  DaemonSessionTerminatedEvent,
+  PrefillHistoryUpdatedEvent
+} from '@contexts/SignalRContext/types';
 import './PrefillSessionsSection.css';
 
 interface PrefillSessionsSectionProps {
   isAdmin: boolean;
-  authMode: string;
-  mockMode: boolean;
   onError: (message: string) => void;
   onSuccess: (message: string) => void;
 }
@@ -58,7 +61,10 @@ const FormattedTimestamp: React.FC<{ timestamp: string | undefined }> = ({ times
 };
 
 // Prefill history status badge
-const HistoryStatusBadge: React.FC<{ status: string; completedAtUtc?: string }> = ({ status, completedAtUtc }) => {
+const HistoryStatusBadge: React.FC<{ status: string; completedAtUtc?: string }> = ({
+  status,
+  completedAtUtc
+}) => {
   const { t } = useTranslation();
 
   const getEffectiveStatus = () => {
@@ -93,21 +99,24 @@ const HistoryStatusBadge: React.FC<{ status: string; completedAtUtc?: string }> 
 
   const getDisplayStatus = () => {
     switch (effectiveStatus) {
-      case 'completed': return t('management.prefillSessions.historyStatusBadges.completed');
-      case 'inprogress': return t('management.prefillSessions.historyStatusBadges.inProgress');
-      case 'failed': return t('management.prefillSessions.historyStatusBadges.failed');
-      case 'error': return t('management.prefillSessions.historyStatusBadges.error');
-      case 'cancelled': return t('management.prefillSessions.historyStatusBadges.cancelled');
-      case 'cached': return t('management.prefillSessions.historyStatusBadges.cached');
-      default: return status;
+      case 'completed':
+        return t('management.prefillSessions.historyStatusBadges.completed');
+      case 'inprogress':
+        return t('management.prefillSessions.historyStatusBadges.inProgress');
+      case 'failed':
+        return t('management.prefillSessions.historyStatusBadges.failed');
+      case 'error':
+        return t('management.prefillSessions.historyStatusBadges.error');
+      case 'cancelled':
+        return t('management.prefillSessions.historyStatusBadges.cancelled');
+      case 'cached':
+        return t('management.prefillSessions.historyStatusBadges.cached');
+      default:
+        return status;
     }
   };
 
-  return (
-    <span className={config.className}>
-      {getDisplayStatus()}
-    </span>
-  );
+  return <span className={config.className}>{getDisplayStatus()}</span>;
 };
 
 // Status badge component
@@ -136,9 +145,7 @@ const StatusBadge: React.FC<{ status: string; isLive?: boolean }> = ({ status, i
 
   return (
     <div className="flex items-center gap-1.5 flex-wrap">
-      <span className={getStatusClass(status)}>
-        {status}
-      </span>
+      <span className={getStatusClass(status)}>{status}</span>
       {isLive && (
         <Tooltip content={t('management.prefillSessions.tooltips.sessionActive')}>
           <span className="prefill-live-badge">
@@ -159,9 +166,7 @@ const StatCard: React.FC<{
   iconBgClass: string;
 }> = ({ icon, value, label, iconBgClass }) => (
   <div className="prefill-stat-card">
-    <div className={`prefill-stat-icon ${iconBgClass}`}>
-      {icon}
-    </div>
+    <div className={`prefill-stat-icon ${iconBgClass}`}>{icon}</div>
     <div className="prefill-stat-content">
       <div className="prefill-stat-value">{value}</div>
       <div className="prefill-stat-label">{label}</div>
@@ -206,15 +211,25 @@ const SessionCard: React.FC<{
   const isDaemonSession = 'id' in session && !('sessionId' in session);
   const status = session.status;
   const isPrefilling = isDaemonSession ? (session as DaemonSessionDto).isPrefilling : false;
-  const steamUsername = isDaemonSession ? (session as DaemonSessionDto).steamUsername : (session as PrefillSessionDto).steamUsername;
-  const containerName = isDaemonSession ? (session as DaemonSessionDto).containerName : (session as PrefillSessionDto).containerName;
-  const createdAt = isDaemonSession ? (session as DaemonSessionDto).createdAt : (session as PrefillSessionDto).createdAtUtc;
+  const steamUsername = isDaemonSession
+    ? (session as DaemonSessionDto).steamUsername
+    : (session as PrefillSessionDto).steamUsername;
+  const containerName = isDaemonSession
+    ? (session as DaemonSessionDto).containerName
+    : (session as PrefillSessionDto).containerName;
+  const createdAt = isDaemonSession
+    ? (session as DaemonSessionDto).createdAt
+    : (session as PrefillSessionDto).createdAtUtc;
   const endedAt = isDaemonSession ? undefined : (session as PrefillSessionDto).endedAtUtc;
   const ipAddress = isDaemonSession ? (session as DaemonSessionDto).ipAddress : undefined;
-  const operatingSystem = isDaemonSession ? (session as DaemonSessionDto).operatingSystem : undefined;
+  const operatingSystem = isDaemonSession
+    ? (session as DaemonSessionDto).operatingSystem
+    : undefined;
   const browser = isDaemonSession ? (session as DaemonSessionDto).browser : undefined;
   const currentAppName = isDaemonSession ? (session as DaemonSessionDto).currentAppName : undefined;
-  const totalBytesTransferred = isDaemonSession ? (session as DaemonSessionDto).totalBytesTransferred : undefined;
+  const totalBytesTransferred = isDaemonSession
+    ? (session as DaemonSessionDto).totalBytesTransferred
+    : undefined;
   const isAuthenticated_ = isDaemonSession
     ? (session as DaemonSessionDto).authState === 'Authenticated'
     : (session as PrefillSessionDto).isAuthenticated;
@@ -236,12 +251,17 @@ const SessionCard: React.FC<{
           {/* Left side: Status indicator and session info */}
           <div className="prefill-session-main">
             {/* Status indicator */}
-            <div className={`prefill-session-indicator ${
-              isPrefilling ? 'prefill-indicator-downloading' :
-              isLive ? 'prefill-indicator-active' :
-              status === 'Terminated' ? 'prefill-indicator-terminated' :
-              'prefill-indicator-default'
-            }`}>
+            <div
+              className={`prefill-session-indicator ${
+                isPrefilling
+                  ? 'prefill-indicator-downloading'
+                  : isLive
+                    ? 'prefill-indicator-active'
+                    : status === 'Terminated'
+                      ? 'prefill-indicator-terminated'
+                      : 'prefill-indicator-default'
+              }`}
+            >
               {isPrefilling ? (
                 <Loader2 className="w-5 h-5 animate-spin" />
               ) : isLive ? (
@@ -330,17 +350,24 @@ const SessionCard: React.FC<{
           {/* Right side: Stats and actions */}
           <div className="prefill-session-actions">
             {/* Stats badges */}
-            {(gamesCount > 0 || totalBytesFromHistory > 0 || (!isPrefilling && (totalBytesTransferred ?? 0) > 0)) && (
+            {(gamesCount > 0 ||
+              totalBytesFromHistory > 0 ||
+              (!isPrefilling && (totalBytesTransferred ?? 0) > 0)) && (
               <div className="prefill-session-stats">
                 {gamesCount > 0 && (
-                  <Tooltip content={t('management.prefillSessions.tooltips.gamesPrefilled', { count: gamesCount })}>
+                  <Tooltip
+                    content={t('management.prefillSessions.tooltips.gamesPrefilled', {
+                      count: gamesCount
+                    })}
+                  >
                     <span className="prefill-stat-badge prefill-stat-games">
                       <Gamepad2 className="w-3.5 h-3.5" />
                       <span>{gamesCount}</span>
                     </span>
                   </Tooltip>
                 )}
-                {(totalBytesFromHistory > 0 || (!isPrefilling && (totalBytesTransferred ?? 0) > 0)) && (
+                {(totalBytesFromHistory > 0 ||
+                  (!isPrefilling && (totalBytesTransferred ?? 0) > 0)) && (
                   <Tooltip content={t('management.prefillSessions.tooltips.totalDataDownloaded')}>
                     <span className="prefill-stat-badge prefill-stat-bytes">
                       {formatBytes(totalBytesFromHistory || totalBytesTransferred || 0)}
@@ -432,15 +459,23 @@ const SessionCard: React.FC<{
               <>
                 {/* Summary stats */}
                 <div className="prefill-history-summary">
-                  <span>{t('management.prefillSessions.labels.gamesPrefilled', { count: historyData.length })}</span>
+                  <span>
+                    {t('management.prefillSessions.labels.gamesPrefilled', {
+                      count: historyData.length
+                    })}
+                  </span>
                   {totalBytesFromHistory > 0 && (
-                    <span>{t('management.prefillSessions.labels.total', { bytes: formatBytes(totalBytesFromHistory) })}</span>
+                    <span>
+                      {t('management.prefillSessions.labels.total', {
+                        bytes: formatBytes(totalBytesFromHistory)
+                      })}
+                    </span>
                   )}
                 </div>
 
                 {/* History entries */}
                 <div className="prefill-history-list">
-                  {paginatedEntries.map(entry => (
+                  {paginatedEntries.map((entry) => (
                     <div key={entry.id} className="prefill-history-entry">
                       <div className="prefill-history-entry-main">
                         <Gamepad2 className="w-4 h-4 text-themed-muted flex-shrink-0" />
@@ -449,16 +484,25 @@ const SessionCard: React.FC<{
                             <span className="prefill-history-entry-name">
                               {entry.appName || `App ${entry.appId}`}
                             </span>
-                            <HistoryStatusBadge status={entry.status} completedAtUtc={entry.completedAtUtc} />
+                            <HistoryStatusBadge
+                              status={entry.status}
+                              completedAtUtc={entry.completedAtUtc}
+                            />
                           </div>
                           <div className="prefill-history-entry-meta">
-                            <span>Started: <FormattedTimestamp timestamp={entry.startedAtUtc} /></span>
+                            <span>
+                              Started: <FormattedTimestamp timestamp={entry.startedAtUtc} />
+                            </span>
                             {entry.completedAtUtc && (
-                              <span>Completed: <FormattedTimestamp timestamp={entry.completedAtUtc} /></span>
+                              <span>
+                                Completed: <FormattedTimestamp timestamp={entry.completedAtUtc} />
+                              </span>
                             )}
                             {(entry.bytesDownloaded > 0 || entry.totalBytes > 0) && (
                               <span>
-                                {entry.totalBytes > 0 && entry.bytesDownloaded !== entry.totalBytes && entry.status.toLowerCase() !== 'cached'
+                                {entry.totalBytes > 0 &&
+                                entry.bytesDownloaded !== entry.totalBytes &&
+                                entry.status.toLowerCase() !== 'cached'
                                   ? `${formatBytes(entry.bytesDownloaded)} / ${formatBytes(entry.totalBytes)}`
                                   : formatBytes(entry.bytesDownloaded || entry.totalBytes)}
                               </span>
@@ -510,7 +554,9 @@ const BannedUserCard: React.FC<{
 
   return (
     <div className="prefill-ban-card">
-      <div className={`prefill-ban-icon ${ban.isActive ? 'prefill-ban-active' : 'prefill-ban-lifted'}`}>
+      <div
+        className={`prefill-ban-icon ${ban.isActive ? 'prefill-ban-active' : 'prefill-ban-lifted'}`}
+      >
         <Ban className="w-4 h-4" />
       </div>
       <div className="prefill-ban-content">
@@ -649,7 +695,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
         results.forEach(({ sessionId, history }) => {
           newHistoryData[sessionId] = history;
         });
-        setHistoryData(prev => ({ ...prev, ...newHistoryData }));
+        setHistoryData((prev) => ({ ...prev, ...newHistoryData }));
       });
     } catch (error) {
       onError(getErrorMessage(error));
@@ -673,37 +719,43 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   }, [onError]);
 
   // Load prefill history for a session
-  const loadHistory = useCallback(async (sessionId: string) => {
-    setLoadingHistory(prev => new Set(prev).add(sessionId));
-    try {
-      const history = await ApiService.getPrefillSessionHistory(sessionId);
-      setHistoryData(prev => ({ ...prev, [sessionId]: history }));
-    } catch (error) {
-      onError(getErrorMessage(error));
-    } finally {
-      setLoadingHistory(prev => {
-        const next = new Set(prev);
-        next.delete(sessionId);
-        return next;
-      });
-    }
-  }, [onError]);
+  const loadHistory = useCallback(
+    async (sessionId: string) => {
+      setLoadingHistory((prev) => new Set(prev).add(sessionId));
+      try {
+        const history = await ApiService.getPrefillSessionHistory(sessionId);
+        setHistoryData((prev) => ({ ...prev, [sessionId]: history }));
+      } catch (error) {
+        onError(getErrorMessage(error));
+      } finally {
+        setLoadingHistory((prev) => {
+          const next = new Set(prev);
+          next.delete(sessionId);
+          return next;
+        });
+      }
+    },
+    [onError]
+  );
 
   // Toggle history expansion
-  const toggleHistory = useCallback((sessionId: string) => {
-    setExpandedHistory(prev => {
-      const next = new Set(prev);
-      if (next.has(sessionId)) {
-        next.delete(sessionId);
-      } else {
-        next.add(sessionId);
-        if (!historyData[sessionId]) {
-          loadHistory(sessionId);
+  const toggleHistory = useCallback(
+    (sessionId: string) => {
+      setExpandedHistory((prev) => {
+        const next = new Set(prev);
+        if (next.has(sessionId)) {
+          next.delete(sessionId);
+        } else {
+          next.add(sessionId);
+          if (!historyData[sessionId]) {
+            loadHistory(sessionId);
+          }
         }
-      }
-      return next;
-    });
-  }, [historyData, loadHistory]);
+        return next;
+      });
+    },
+    [historyData, loadHistory]
+  );
 
   // Initial load
   useEffect(() => {
@@ -717,20 +769,20 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   // SignalR subscriptions
   useEffect(() => {
     const handleSessionCreated = (session: DaemonSessionCreatedEvent) => {
-      setActiveSessions(prev => {
-        if (prev.some(s => s.id === session.id)) return prev;
+      setActiveSessions((prev) => {
+        if (prev.some((s) => s.id === session.id)) return prev;
         return [...prev, session as DaemonSessionDto];
       });
     };
 
     const handleSessionUpdated = (session: DaemonSessionUpdatedEvent) => {
-      setActiveSessions(prev =>
-        prev.map(s => s.id === session.id ? session as DaemonSessionDto : s)
+      setActiveSessions((prev) =>
+        prev.map((s) => (s.id === session.id ? (session as DaemonSessionDto) : s))
       );
     };
 
     const handleSessionTerminated = async (event: DaemonSessionTerminatedEvent) => {
-      setActiveSessions(prev => prev.filter(s => s.id !== event.sessionId));
+      setActiveSessions((prev) => prev.filter((s) => s.id !== event.sessionId));
       try {
         const [sessionsRes, activeRes] = await Promise.all([
           ApiService.getPrefillSessions(1, 20),
@@ -747,7 +799,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
     const handlePrefillHistoryUpdated = async (event: PrefillHistoryUpdatedEvent) => {
       try {
         const history = await ApiService.getPrefillSessionHistory(event.sessionId);
-        setHistoryData(prev => ({ ...prev, [event.sessionId]: history }));
+        setHistoryData((prev) => ({ ...prev, [event.sessionId]: history }));
       } catch {
         // Ignore errors in SignalR handler
       }
@@ -824,9 +876,9 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   };
 
   const totalPages = Math.ceil(totalCount / pageSize);
-  const activeBansCount = bans.filter(b => b.isActive).length;
+  const activeBansCount = bans.filter((b) => b.isActive).length;
   const visibleBans = useMemo(
-    () => (includeLifted ? bans : bans.filter(b => b.isActive)),
+    () => (includeLifted ? bans : bans.filter((b) => b.isActive)),
     [bans, includeLifted]
   );
   const hasVisibleBans = visibleBans.length > 0;
@@ -848,11 +900,15 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
           <Button
             variant="subtle"
             size="sm"
-            onClick={() => { loadSessions(); loadBans(); }}
+            onClick={() => {
+              loadSessions();
+              loadBans();
+            }}
             disabled={loadingSessions || loadingBans}
-            className="prefill-refresh-btn"
           >
-            <RefreshCw className={`w-4 h-4 ${loadingSessions || loadingBans ? 'animate-spin' : ''}`} />
+            <RefreshCw
+              className={`w-4 h-4 ${loadingSessions || loadingBans ? 'animate-spin' : ''}`}
+            />
             <span className="hidden sm:inline">{t('common.refresh')}</span>
           </Button>
           {isAdmin && activeSessions.length > 0 && (
@@ -912,12 +968,16 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
         ) : activeSessions.length === 0 ? (
           <div className="prefill-empty-state">
             <Container className="w-12 h-12 opacity-50" />
-            <p className="prefill-empty-title">{t('management.prefillSessions.noActiveSessions')}</p>
-            <p className="prefill-empty-desc">{t('management.prefillSessions.noActiveSessionsDesc')}</p>
+            <p className="prefill-empty-title">
+              {t('management.prefillSessions.noActiveSessions')}
+            </p>
+            <p className="prefill-empty-desc">
+              {t('management.prefillSessions.noActiveSessionsDesc')}
+            </p>
           </div>
         ) : (
           <div className="prefill-sessions-list">
-            {activeSessions.map(session => (
+            {activeSessions.map((session) => (
               <SessionCard
                 key={session.id}
                 session={session}
@@ -928,11 +988,17 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                 isLoadingHistory={loadingHistory.has(session.id)}
                 onToggleHistory={() => toggleHistory(session.id)}
                 onTerminate={() => handleTerminateSession(session.id)}
-                onBan={session.steamUsername ? () => setBanConfirm({ sessionId: session.id, reason: '' }) : undefined}
+                onBan={
+                  session.steamUsername
+                    ? () => setBanConfirm({ sessionId: session.id, reason: '' })
+                    : undefined
+                }
                 isTerminating={terminatingSession === session.id}
                 isBanning={banningSession === session.id}
                 historyPage={historyPage[session.id] || 1}
-                onHistoryPageChange={(p) => setHistoryPage(prev => ({ ...prev, [session.id]: p }))}
+                onHistoryPageChange={(p) =>
+                  setHistoryPage((prev) => ({ ...prev, [session.id]: p }))
+                }
               />
             ))}
           </div>
@@ -950,15 +1016,26 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
         badge={
           <div className="prefill-filter-inline">
             <EnhancedDropdown
-              options={[
-                { value: '', label: t('management.prefillSessions.statusFilters.all') },
-                { value: 'Active', label: t('management.prefillSessions.statusFilters.active') },
-                { value: 'Terminated', label: t('management.prefillSessions.statusFilters.terminated') },
-                { value: 'Orphaned', label: t('management.prefillSessions.statusFilters.orphaned') },
-                { value: 'Cleaned', label: t('management.prefillSessions.statusFilters.cleaned') }
-              ] as DropdownOption[]}
+              options={
+                [
+                  { value: '', label: t('management.prefillSessions.statusFilters.all') },
+                  { value: 'Active', label: t('management.prefillSessions.statusFilters.active') },
+                  {
+                    value: 'Terminated',
+                    label: t('management.prefillSessions.statusFilters.terminated')
+                  },
+                  {
+                    value: 'Orphaned',
+                    label: t('management.prefillSessions.statusFilters.orphaned')
+                  },
+                  { value: 'Cleaned', label: t('management.prefillSessions.statusFilters.cleaned') }
+                ] as DropdownOption[]
+              }
               value={statusFilter}
-              onChange={(value) => { setStatusFilter(value); setPage(1); }}
+              onChange={(value) => {
+                setStatusFilter(value);
+                setPage(1);
+              }}
               placeholder={t('management.prefillSessions.statusFilters.all')}
               compactMode
               className="min-w-[120px]"
@@ -979,7 +1056,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
         ) : (
           <>
             <div className="prefill-sessions-list">
-              {sessions.map(session => (
+              {sessions.map((session) => (
                 <SessionCard
                   key={session.id}
                   session={session}
@@ -989,12 +1066,20 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                   isHistoryExpanded={expandedHistory.has(session.sessionId)}
                   isLoadingHistory={loadingHistory.has(session.sessionId)}
                   onToggleHistory={() => toggleHistory(session.sessionId)}
-                  onTerminate={session.isLive ? () => handleTerminateSession(session.sessionId) : undefined}
-                  onBan={session.isLive && session.steamUsername ? () => setBanConfirm({ sessionId: session.sessionId, reason: '' }) : undefined}
+                  onTerminate={
+                    session.isLive ? () => handleTerminateSession(session.sessionId) : undefined
+                  }
+                  onBan={
+                    session.isLive && session.steamUsername
+                      ? () => setBanConfirm({ sessionId: session.sessionId, reason: '' })
+                      : undefined
+                  }
                   isTerminating={terminatingSession === session.sessionId}
                   isBanning={banningSession === session.sessionId}
                   historyPage={historyPage[session.sessionId] || 1}
-                  onHistoryPageChange={(p) => setHistoryPage(prev => ({ ...prev, [session.sessionId]: p }))}
+                  onHistoryPageChange={(p) =>
+                    setHistoryPage((prev) => ({ ...prev, [session.sessionId]: p }))
+                  }
                 />
               ))}
             </div>
@@ -1039,12 +1124,18 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
         ) : !loadingBans && !hasVisibleBans ? (
           <div className="prefill-empty-state">
             <Shield className="w-12 h-12 opacity-50" />
-            <p className="prefill-empty-title">{t('management.prefillSessions.bannedUsers.noBannedUsers')}</p>
-            <p className="prefill-empty-desc">{t('management.prefillSessions.bannedUsers.noBannedUsersDesc')}</p>
+            <p className="prefill-empty-title">
+              {t('management.prefillSessions.bannedUsers.noBannedUsers')}
+            </p>
+            <p className="prefill-empty-desc">
+              {t('management.prefillSessions.bannedUsers.noBannedUsersDesc')}
+            </p>
           </div>
         ) : (
-          <div className={`prefill-bans-list ${loadingBans ? 'opacity-60 pointer-events-none' : ''}`}>
-            {visibleBans.map(ban => (
+          <div
+            className={`prefill-bans-list ${loadingBans ? 'opacity-60 pointer-events-none' : ''}`}
+          >
+            {visibleBans.map((ban) => (
               <BannedUserCard
                 key={ban.id}
                 ban={ban}
@@ -1070,7 +1161,9 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       >
         <div className="space-y-4">
           <p className="text-themed-secondary">
-            {t('management.prefillSessions.modals.terminateAll.message', { count: activeSessions.length })}
+            {t('management.prefillSessions.modals.terminateAll.message', {
+              count: activeSessions.length
+            })}
           </p>
           <Alert color="yellow">
             <p className="text-sm">{t('management.prefillSessions.modals.terminateAll.warning')}</p>
@@ -1119,7 +1212,9 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
             <input
               type="text"
               value={banConfirm?.reason || ''}
-              onChange={(e) => banConfirm && setBanConfirm({ ...banConfirm, reason: e.target.value })}
+              onChange={(e) =>
+                banConfirm && setBanConfirm({ ...banConfirm, reason: e.target.value })
+              }
               placeholder={t('management.prefillSessions.modals.ban.reasonPlaceholder')}
               className="prefill-input"
             />
@@ -1172,7 +1267,9 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                 </span>
                 {liftBanConfirm.banReason && (
                   <div className="mt-2 text-themed-muted">
-                    {t('management.prefillSessions.bannedUsers.reason', { reason: liftBanConfirm.banReason })}
+                    {t('management.prefillSessions.bannedUsers.reason', {
+                      reason: liftBanConfirm.banReason
+                    })}
                   </div>
                 )}
               </div>

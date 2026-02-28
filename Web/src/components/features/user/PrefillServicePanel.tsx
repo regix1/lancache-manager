@@ -1,6 +1,7 @@
 import React from 'react';
-import { Loader2, AlertTriangle, Network } from 'lucide-react';
+import { Loader2, Network } from 'lucide-react';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
+import { Alert } from '@components/ui/Alert';
 
 interface PrefillServicePanelProps {
   serviceName: string;
@@ -22,8 +23,8 @@ interface PrefillServicePanelProps {
   maxThreadsLabel: string;
   enableLabel: string;
   enableDescription: string;
-  prefillDurationOptions: Array<{ value: string; label: string }>;
-  maxThreadOptions: Array<{ value: string; label: string }>;
+  prefillDurationOptions: { value: string; label: string }[];
+  maxThreadOptions: { value: string; label: string }[];
 }
 
 const PrefillServicePanel: React.FC<PrefillServicePanelProps> = ({
@@ -69,22 +70,13 @@ const PrefillServicePanel: React.FC<PrefillServicePanelProps> = ({
       </div>
 
       {/* Enable by default toggle */}
-      <div
-        className="toggle-row cursor-pointer"
-        onClick={handleToggleClick}
-      >
+      <div className="toggle-row cursor-pointer" onClick={handleToggleClick}>
         <div>
-          <div className="toggle-row-label">
-            {enableLabel}
-          </div>
-          <div className="toggle-row-description">
-            {enableDescription}
-          </div>
+          <div className="toggle-row-label">{enableLabel}</div>
+          <div className="toggle-row-description">{enableDescription}</div>
         </div>
         <div className="flex items-center gap-2">
-          {updating && (
-            <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
-          )}
+          {updating && <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />}
           <div className={`modern-toggle ${config.enabledByDefault ? 'checked' : ''}`}>
             <span className="toggle-thumb" />
           </div>
@@ -92,12 +84,7 @@ const PrefillServicePanel: React.FC<PrefillServicePanelProps> = ({
       </div>
 
       {/* Warning alert - only shown when enabled */}
-      {config.enabledByDefault && (
-        <div className="flex items-start gap-2 p-3 rounded-md text-sm bg-themed-warning border border-themed-warning text-themed-warning">
-          <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-          <span>{warningText}</span>
-        </div>
-      )}
+      {config.enabledByDefault && <Alert color="yellow">{warningText}</Alert>}
 
       {/* Permission Duration dropdown */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">

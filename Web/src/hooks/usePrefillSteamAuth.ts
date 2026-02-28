@@ -1,7 +1,8 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { HubConnection } from '@microsoft/signalr';
+import type { HubConnection } from '@microsoft/signalr';
 import { useNotifications } from '@contexts/notifications';
 import { type SteamLoginFlowState, type SteamAuthActions } from './useSteamAuthentication';
+import { getEventName } from '@components/features/prefill/hooks/prefillConstants';
 
 interface CredentialChallenge {
   type: string;
@@ -14,7 +15,7 @@ interface CredentialChallenge {
   expiresAt: string;
 }
 
-export interface UsePrefillSteamAuthOptions {
+interface UsePrefillSteamAuthOptions {
   sessionId: string | null;
   hubConnection: HubConnection | null;
   onSuccess?: () => void;
@@ -30,20 +31,15 @@ const DEVICE_CONFIRMATION_TIMEOUT_MS = 60000;
  * Hook for Steam authentication within a prefill Docker container.
  * Uses SignalR hub methods to handle encrypted credential exchange.
  */
-/** Maps generic event names to service-specific event names */
-function getEventName(base: string, serviceId: string): string {
-  if (serviceId === 'epic') {
-    const epicMap: Record<string, string> = {
-      'AuthStateChanged': 'EpicAuthStateChanged',
-      'CredentialChallenge': 'EpicCredentialChallenge',
-    };
-    return epicMap[base] ?? base;
-  }
-  return base;
-}
-
 export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
-  const { sessionId, hubConnection, onSuccess, onError, onDeviceConfirmationTimeout, serviceId = 'steam' } = options;
+  const {
+    sessionId,
+    hubConnection,
+    onSuccess,
+    onError,
+    onDeviceConfirmationTimeout,
+    serviceId = 'steam'
+  } = options;
   const { addNotification } = useNotifications();
 
   const [loading, setLoading] = useState(false);
@@ -78,7 +74,13 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
   useEffect(() => {
     if (!hubConnection || !sessionId) return;
 
-    const handleAuthStateChanged = ({ sessionId: payloadSessionId, authState }: { sessionId: string; authState: string }) => {
+    const handleAuthStateChanged = ({
+      sessionId: payloadSessionId,
+      authState
+    }: {
+      sessionId: string;
+      authState: string;
+    }) => {
       if (payloadSessionId !== sessionId) return;
 
       if (authState === 'Authenticated') {
@@ -113,7 +115,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         setNeedsEmailCode(false);
         setLoading(false);
         setPendingChallenge(null);
-        
+
         if (wasAuthenticating) {
           addNotification({
             type: 'generic',
@@ -139,7 +141,13 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
   useEffect(() => {
     if (!hubConnection || !sessionId) return;
 
-    const handleCredentialChallenge = async ({ sessionId: payloadSessionId, challenge }: { sessionId: string; challenge: CredentialChallenge }) => {
+    const handleCredentialChallenge = async ({
+      sessionId: payloadSessionId,
+      challenge
+    }: {
+      sessionId: string;
+      challenge: CredentialChallenge;
+    }) => {
       if (payloadSessionId !== sessionId) return;
 
       setPendingChallenge(challenge);
@@ -175,7 +183,8 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
             addNotification({
               type: 'generic',
               status: 'failed',
-              message: 'Authorization code was invalid or expired. Please try again with a new code.',
+              message:
+                'Authorization code was invalid or expired. Please try again with a new code.',
               details: { notificationType: 'error' }
             });
             // Clear the old code so user can paste a new one
@@ -198,7 +207,7 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
           // Send acknowledgement for device confirmation
           // This unblocks the daemon to continue polling Steam for approval
           // Note: We delay slightly to help WaitForChallenge see the file first
-          await new Promise(resolve => setTimeout(resolve, 300));
+          await new Promise((resolve) => setTimeout(resolve, 300));
           try {
             await hubConnection.invoke('ProvideCredential', sessionId, challenge, 'confirm');
           } catch (err) {
@@ -259,7 +268,13 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         }
       };
     }
-  }, [waitingForMobileConfirmation, hubConnection, sessionId, addNotification, onDeviceConfirmationTimeout]);
+  }, [
+    waitingForMobileConfirmation,
+    hubConnection,
+    sessionId,
+    addNotification,
+    onDeviceConfirmationTimeout
+  ]);
 
   const cancelPendingRequest = useCallback(() => {
     setLoading(false);
@@ -332,7 +347,11 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
 
         // Wait for next challenge or success
         // AuthStateChanged will trigger onSuccess if login succeeds
-        const nextChallenge = await hubConnection.invoke<CredentialChallenge | null>('WaitForChallenge', sessionId, 30);
+        const nextChallenge = await hubConnection.invoke<CredentialChallenge | null>(
+          'WaitForChallenge',
+          sessionId,
+          30
+        );
         if (nextChallenge) {
           setPendingChallenge(nextChallenge);
           handleChallengeType(nextChallenge);
@@ -382,7 +401,11 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         });
 
         // Wait for next challenge or success
-        const nextChallenge = await hubConnection.invoke<CredentialChallenge | null>('WaitForChallenge', sessionId, 30);
+        const nextChallenge = await hubConnection.invoke<CredentialChallenge | null>(
+          'WaitForChallenge',
+          sessionId,
+          30
+        );
         if (nextChallenge) {
           setPendingChallenge(nextChallenge);
           handleChallengeType(nextChallenge);
@@ -421,7 +444,12 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       setLoading(true);
 
       try {
-        await hubConnection.invoke('ProvideCredential', sessionId, pendingChallenge, authorizationCode);
+        await hubConnection.invoke(
+          'ProvideCredential',
+          sessionId,
+          pendingChallenge,
+          authorizationCode
+        );
         addNotification({
           type: 'generic',
           status: 'completed',
@@ -440,7 +468,8 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         // Return false so the modal stays open while we wait for the event
         return false;
       } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : 'Failed to send authorization code';
+        const errorMessage =
+          err instanceof Error ? err.message : 'Failed to send authorization code';
         addNotification({
           type: 'generic',
           status: 'failed',
@@ -460,7 +489,10 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
       hasStartedAuthRef.current = true;
 
       try {
-        const challenge = await hubConnection.invoke<CredentialChallenge | null>('StartLogin', sessionId);
+        const challenge = await hubConnection.invoke<CredentialChallenge | null>(
+          'StartLogin',
+          sessionId
+        );
 
         if (challenge && challenge.credentialType === 'authorization-url') {
           setPendingChallenge(challenge);
@@ -473,7 +505,11 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         if (!challenge) {
           // No challenge - might already be logged in, or challenge comes via event
           // Wait briefly for a challenge event
-          const eventChallenge = await hubConnection.invoke<CredentialChallenge | null>('WaitForChallenge', sessionId, 10);
+          const eventChallenge = await hubConnection.invoke<CredentialChallenge | null>(
+            'WaitForChallenge',
+            sessionId,
+            10
+          );
           if (eventChallenge && eventChallenge.credentialType === 'authorization-url') {
             setPendingChallenge(eventChallenge);
             setNeedsAuthorizationCode(true);
@@ -524,7 +560,10 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
 
     try {
       // Start login to get initial challenge (username)
-      const challenge = await hubConnection.invoke<CredentialChallenge | null>('StartLogin', sessionId);
+      const challenge = await hubConnection.invoke<CredentialChallenge | null>(
+        'StartLogin',
+        sessionId
+      );
 
       if (!challenge) {
         throw new Error('No challenge received from daemon');
@@ -536,7 +575,11 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
         await hubConnection.invoke('ProvideCredential', sessionId, challenge, username);
 
         // Wait for password challenge
-        const passChallenge = await hubConnection.invoke<CredentialChallenge | null>('WaitForChallenge', sessionId, 30);
+        const passChallenge = await hubConnection.invoke<CredentialChallenge | null>(
+          'WaitForChallenge',
+          sessionId,
+          30
+        );
         if (!passChallenge) {
           throw new Error('No password challenge received');
         }
@@ -553,7 +596,11 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
           });
 
           // Wait for next challenge (2FA, steamguard, device-confirmation) or success
-          const nextChallenge = await hubConnection.invoke<CredentialChallenge | null>('WaitForChallenge', sessionId, 60);
+          const nextChallenge = await hubConnection.invoke<CredentialChallenge | null>(
+            'WaitForChallenge',
+            sessionId,
+            60
+          );
           if (nextChallenge) {
             setPendingChallenge(nextChallenge);
             handleChallengeType(nextChallenge);
@@ -664,13 +711,6 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
   }, []);
 
   /**
-   * Call this when terminal output indicates a login prompt is needed
-   */
-  const triggerLoginPrompt = useCallback(() => {
-    resetAuthForm();
-  }, [resetAuthForm]);
-
-  /**
    * Call this when terminal output indicates 2FA is needed
    */
   const trigger2FAPrompt = useCallback(() => {
@@ -718,7 +758,6 @@ export function usePrefillSteamAuth(options: UsePrefillSteamAuthOptions) {
   return {
     state,
     actions,
-    triggerLoginPrompt,
     trigger2FAPrompt,
     triggerEmailPrompt
   };

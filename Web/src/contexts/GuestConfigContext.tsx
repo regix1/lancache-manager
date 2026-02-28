@@ -17,11 +17,7 @@ export const useGuestConfig = () => {
   return context;
 };
 
-interface GuestConfigProviderProps {
-  children: ReactNode;
-}
-
-export const GuestConfigProvider: React.FC<GuestConfigProviderProps> = ({ children }) => {
+export const GuestConfigProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const signalR = useSignalR();
   const [guestDurationHours, setGuestDurationHours] = useState<number>(6);
   const [guestModeLocked, setGuestModeLocked] = useState<boolean>(false);

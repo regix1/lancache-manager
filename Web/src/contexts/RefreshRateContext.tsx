@@ -1,4 +1,12 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  type ReactNode
+} from 'react';
 import { REFRESH_RATES, type RefreshRate } from '@utils/constants';
 import { useSignalR } from '@contexts/SignalRContext';
 import { useAuth } from '@contexts/AuthContext';
@@ -26,11 +34,7 @@ export const useRefreshRate = () => {
   return context;
 };
 
-interface RefreshRateProviderProps {
-  children: ReactNode;
-}
-
-export const RefreshRateProvider: React.FC<RefreshRateProviderProps> = ({ children }) => {
+export const RefreshRateProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   // Default to STANDARD (10s) until we fetch from API
   const [refreshRate, setRefreshRateState] = useState<RefreshRate>('STANDARD');
   const [isLoaded, setIsLoaded] = useState(false);
@@ -39,16 +43,14 @@ export const RefreshRateProvider: React.FC<RefreshRateProviderProps> = ({ childr
   const [globalLocked, setGlobalLocked] = useState<boolean>(true);
 
   const { on, off } = useSignalR();
-  const { authMode, sessionId } = useAuth();
+  const { authMode } = useAuth();
   const { currentPreferences } = useSessionPreferences();
 
-  // Refs to avoid stale closures in SignalR handlers
+  // Ref to avoid stale closures in SignalR handlers
   const authModeRef = useRef(authMode);
-  const sessionIdRef = useRef(sessionId);
-  const defaultGuestRateRef = useRef(defaultGuestRate);
-  useEffect(() => { authModeRef.current = authMode; }, [authMode]);
-  useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
-  useEffect(() => { defaultGuestRateRef.current = defaultGuestRate; }, [defaultGuestRate]);
+  useEffect(() => {
+    authModeRef.current = authMode;
+  }, [authMode]);
 
   // Fetch global default guest rate and lock state (for guests only)
   useEffect(() => {
@@ -99,7 +101,10 @@ export const RefreshRateProvider: React.FC<RefreshRateProviderProps> = ({ childr
 
       // Per-session override takes precedence: false means unlocked, true means locked
       // null/undefined means use global default
-      const effectiveLocked = perSessionLocked !== null && perSessionLocked !== undefined ? perSessionLocked : globalLocked;
+      const effectiveLocked =
+        perSessionLocked !== null && perSessionLocked !== undefined
+          ? perSessionLocked
+          : globalLocked;
       setIsControlledByAdmin(effectiveLocked);
     } else {
       // Authenticated: fetch global system refresh rate (not from user preferences)
@@ -142,7 +147,11 @@ export const RefreshRateProvider: React.FC<RefreshRateProviderProps> = ({ childr
     // Handle default guest rate change (affects guests using default)
     // Only apply if guest doesn't have a per-session override
     const handleDefaultGuestRefreshRateChanged = (data: DefaultGuestRefreshRateChangedEvent) => {
-      if (authModeRef.current === 'guest' && data.refreshRate && data.refreshRate in REFRESH_RATES) {
+      if (
+        authModeRef.current === 'guest' &&
+        data.refreshRate &&
+        data.refreshRate in REFRESH_RATES
+      ) {
         setDefaultGuestRate(data.refreshRate);
         // If no per-session rate is set (using default), update immediately
         // SessionPreferencesContext will have currentPreferences.refreshRate === null
@@ -176,7 +185,9 @@ export const RefreshRateProvider: React.FC<RefreshRateProviderProps> = ({ childr
     async (rate: RefreshRate) => {
       // Block guests from changing their refresh rate when locked
       if (isControlledByAdmin) {
-        console.warn('[RefreshRate] Guest users cannot change their refresh rate (locked by admin)');
+        console.warn(
+          '[RefreshRate] Guest users cannot change their refresh rate (locked by admin)'
+        );
         return;
       }
 
@@ -185,12 +196,10 @@ export const RefreshRateProvider: React.FC<RefreshRateProviderProps> = ({ childr
 
       // Save to API - guests save to user-preferences, admins to system refresh-rate
       try {
-        const endpoint = authMode === 'guest'
-          ? '/api/user-preferences/refreshRate'
-          : '/api/system/refresh-rate';
-        const body = authMode === 'guest'
-          ? JSON.stringify(rate)
-          : JSON.stringify({ refreshRate: rate });
+        const endpoint =
+          authMode === 'guest' ? '/api/user-preferences/refreshRate' : '/api/system/refresh-rate';
+        const body =
+          authMode === 'guest' ? JSON.stringify(rate) : JSON.stringify({ refreshRate: rate });
 
         const response = await fetch(endpoint, {
           method: 'PATCH',

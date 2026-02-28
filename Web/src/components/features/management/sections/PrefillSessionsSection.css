@@ -49,16 +49,10 @@
     width: 100%;
     justify-content: flex-start;
   }
-  
+
   .prefill-header-actions > button {
     flex: 0 0 auto;
   }
-}
-
-.prefill-refresh-btn {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
 }
 
 /* Stats Grid */
@@ -383,8 +377,13 @@
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
 }
 
 /* History Status Badges */

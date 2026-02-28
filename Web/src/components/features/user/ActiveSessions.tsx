@@ -20,7 +20,7 @@ import {
   History,
   MoreVertical,
   RotateCcw,
-  Eraser,
+  Eraser
 } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
@@ -34,7 +34,12 @@ import { MultiSelectDropdown } from '@components/ui/MultiSelectDropdown';
 import { Pagination } from '@components/ui/Pagination';
 import { ToggleSwitch } from '@components/ui/ToggleSwitch';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
-import { ActionMenu, ActionMenuItem, ActionMenuDivider, ActionMenuDangerItem } from '@components/ui/ActionMenu';
+import {
+  ActionMenu,
+  ActionMenuItem,
+  ActionMenuDivider,
+  ActionMenuDangerItem
+} from '@components/ui/ActionMenu';
 import ApiService from '@services/api.service';
 import themeService from '@services/theme.service';
 import authService from '@services/auth.service';
@@ -46,9 +51,9 @@ import { useSessionPreferences } from '@contexts/SessionPreferencesContext';
 import { useDefaultGuestPreferences } from '@hooks/useDefaultGuestPreferences';
 import { useActivityTracker } from '@hooks/useActivityTracker';
 import {
-  Session,
-  UserPreferences,
-  ThemeOption,
+  type Session,
+  type UserPreferences,
+  type ThemeOption,
   refreshRateOptions,
   cleanIpAddress,
   showToast,
@@ -101,9 +106,8 @@ const isGuestSession = (session: Session): boolean => {
 const getRelativeTime = (dateString: string | null): string => {
   if (!dateString) return 'Never';
   const now = new Date();
-  const rawStr = dateString.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(dateString)
-    ? dateString
-    : dateString + 'Z';
+  const rawStr =
+    dateString.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(dateString) ? dateString : dateString + 'Z';
   const date = new Date(rawStr);
   const diffMs = now.getTime() - date.getTime();
   const diffSecs = Math.floor(diffMs / 1000);
@@ -201,7 +205,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
   // Thread config state
   const [defaultGuestMaxThreadCount, setDefaultGuestMaxThreadCount] = useState<number | null>(null);
-  const [epicDefaultGuestMaxThreadCount, setEpicDefaultGuestMaxThreadCount] = useState<number | null>(null);
+  const [epicDefaultGuestMaxThreadCount, setEpicDefaultGuestMaxThreadCount] = useState<
+    number | null
+  >(null);
 
   // Dropdown options
   const timeFormatOptions = [
@@ -280,9 +286,12 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       setRevokingSession(pendingRevokeSession.id);
       const endpoint = `/api/sessions/${encodeURIComponent(pendingRevokeSession.id)}/revoke`;
 
-      const response = await fetch(endpoint, ApiService.getFetchOptions({
-        method: 'PATCH'
-      }));
+      const response = await fetch(
+        endpoint,
+        ApiService.getFetchOptions({
+          method: 'PATCH'
+        })
+      );
 
       if (response.ok) {
         if (isOwnSession) {
@@ -301,7 +310,10 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         onSessionsChange();
       } else {
         const errorData = await response.json();
-        showToast('error', errorData.message || errorData.error || t('activeSessions.errors.revokeSession'));
+        showToast(
+          'error',
+          errorData.message || errorData.error || t('activeSessions.errors.revokeSession')
+        );
       }
     } catch (err: unknown) {
       showToast('error', getErrorMessage(err) || t('activeSessions.errors.revokeSession'));
@@ -319,9 +331,12 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       setDeletingSession(pendingDeleteSession.id);
       const endpoint = `/api/sessions/${encodeURIComponent(pendingDeleteSession.id)}`;
 
-      const response = await fetch(endpoint, ApiService.getFetchOptions({
-        method: 'DELETE'
-      }));
+      const response = await fetch(
+        endpoint,
+        ApiService.getFetchOptions({
+          method: 'DELETE'
+        })
+      );
 
       if (response.ok) {
         setSessions((prev) => prev.filter((s: Session) => s.id !== pendingDeleteSession.id));
@@ -337,7 +352,10 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         }
       } else {
         const errorData = await response.json();
-        showToast('error', errorData.message || errorData.error || t('activeSessions.errors.deleteSession'));
+        showToast(
+          'error',
+          errorData.message || errorData.error || t('activeSessions.errors.deleteSession')
+        );
       }
     } catch (err: unknown) {
       showToast('error', getErrorMessage(err) || t('activeSessions.errors.deleteSession'));
@@ -458,7 +476,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
             })
           );
 
-          const prefillToggles: Array<{ service: string; enabled: boolean }> = [];
+          const prefillToggles: { service: string; enabled: boolean }[] = [];
           if (pendingSteamPrefillChange !== null) {
             prefillToggles.push({ service: 'steam', enabled: pendingSteamPrefillChange });
           }
@@ -497,9 +515,12 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   const handleBulkResetToDefaults = async () => {
     try {
       setBulkActionInProgress('reset');
-      const response = await fetch('/api/sessions/bulk/reset-to-defaults', ApiService.getFetchOptions({
-        method: 'POST'
-      }));
+      const response = await fetch(
+        '/api/sessions/bulk/reset-to-defaults',
+        ApiService.getFetchOptions({
+          method: 'POST'
+        })
+      );
 
       if (response.ok) {
         const data = await response.json();
@@ -519,9 +540,12 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   const handleClearAllGuests = async () => {
     try {
       setBulkActionInProgress('clear');
-      const response = await fetch('/api/sessions/bulk/clear-guests', ApiService.getFetchOptions({
-        method: 'DELETE'
-      }));
+      const response = await fetch(
+        '/api/sessions/bulk/clear-guests',
+        ApiService.getFetchOptions({
+          method: 'DELETE'
+        })
+      );
 
       if (response.ok) {
         const data = await response.json();
@@ -547,9 +571,12 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     loadSessions(false);
   }, [loadSessions]);
 
-  const handleSessionDeleted = useCallback((data: { sessionId: string; sessionType: string }) => {
-    setSessions((prev) => prev.filter((s: Session) => s.id !== data.sessionId));
-  }, [setSessions]);
+  const handleSessionDeleted = useCallback(
+    (data: { sessionId: string; sessionType: string }) => {
+      setSessions((prev) => prev.filter((s: Session) => s.id !== data.sessionId));
+    },
+    [setSessions]
+  );
 
   const handleSessionsCleared = useCallback(() => {
     loadSessions(false);
@@ -577,56 +604,62 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     loadSessions(false);
   }, [loadSessions]);
 
-  const handlePrefillPermissionChanged = useCallback((data: { sessionId: string; enabled: boolean; prefillExpiresAt?: string; service?: string }) => {
-    setSessions((prev: Session[]) => prev.map((s: Session) => {
-      if (s.id !== data.sessionId) return s;
-      if (data.service === 'epic') {
-        const epicEnabled = data.enabled;
-        const steamEnabled = s.steamPrefillEnabled;
-        return {
-          ...s,
-          epicPrefillEnabled: epicEnabled,
-          epicPrefillExpiresAt: data.prefillExpiresAt || null,
-          prefillEnabled: steamEnabled || epicEnabled
-        };
-      } else {
-        const steamEnabled = data.enabled;
-        const epicEnabled = s.epicPrefillEnabled;
-        return {
-          ...s,
-          steamPrefillEnabled: steamEnabled,
-          steamPrefillExpiresAt: data.prefillExpiresAt || null,
-          prefillEnabled: steamEnabled || epicEnabled
-        };
-      }
-    }));
-  }, [setSessions]);
+  const handlePrefillPermissionChanged = useCallback(
+    (data: {
+      sessionId: string;
+      enabled: boolean;
+      prefillExpiresAt?: string;
+      service?: string;
+    }) => {
+      setSessions((prev: Session[]) =>
+        prev.map((s: Session) => {
+          if (s.id !== data.sessionId) return s;
+          if (data.service === 'epic') {
+            return {
+              ...s,
+              epicPrefillEnabled: data.enabled,
+              epicPrefillExpiresAt: data.prefillExpiresAt || null
+            };
+          } else {
+            return {
+              ...s,
+              steamPrefillEnabled: data.enabled,
+              steamPrefillExpiresAt: data.prefillExpiresAt || null
+            };
+          }
+        })
+      );
+    },
+    [setSessions]
+  );
 
   const handleUserPreferencesReset = useCallback(() => {
     loadSessions(false);
   }, [loadSessions]);
 
-  const handleGuestPrefillConfigChanged = useCallback((data: { maxThreadCount?: number | null }) => {
-    loadSessions(false);
-    if ('maxThreadCount' in data) {
-      setDefaultGuestMaxThreadCount(data.maxThreadCount ?? null);
-    }
-  }, [loadSessions]);
+  const handleGuestPrefillConfigChanged = useCallback(
+    (data: { maxThreadCount?: number | null }) => {
+      loadSessions(false);
+      if ('maxThreadCount' in data) {
+        setDefaultGuestMaxThreadCount(data.maxThreadCount ?? null);
+      }
+    },
+    [loadSessions]
+  );
 
-  const handleEpicGuestPrefillConfigChanged = useCallback((data: { maxThreadCount?: number | null }) => {
-    loadSessions(false);
-    if ('maxThreadCount' in data) {
-      setEpicDefaultGuestMaxThreadCount(data.maxThreadCount ?? null);
-    }
-  }, [loadSessions]);
+  const handleEpicGuestPrefillConfigChanged = useCallback(
+    (data: { maxThreadCount?: number | null }) => {
+      loadSessions(false);
+      if ('maxThreadCount' in data) {
+        setEpicDefaultGuestMaxThreadCount(data.maxThreadCount ?? null);
+      }
+    },
+    [loadSessions]
+  );
 
-  const handleGuestRefreshRateUpdated = useCallback((data: { sessionId: string; refreshRate: string }) => {
-    setSessions((prev: Session[]) => prev.map((s: Session) =>
-      s.id === data.sessionId
-        ? { ...s, refreshRate: data.refreshRate }
-        : s
-    ));
-  }, [setSessions]);
+  const handleGuestRefreshRateUpdated = useCallback(() => {
+    loadSessions(false);
+  }, [loadSessions]);
 
   // ============================================================
   // Helper Functions
@@ -654,9 +687,8 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
   const formatTimeRemaining = (expiresAt: string) => {
     const now = new Date();
-    const expiryStr = expiresAt.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(expiresAt)
-      ? expiresAt
-      : expiresAt + 'Z';
+    const expiryStr =
+      expiresAt.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(expiresAt) ? expiresAt : expiresAt + 'Z';
     const expiry = new Date(expiryStr);
     const diff = expiry.getTime() - now.getTime();
 
@@ -683,9 +715,10 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     if (!session.lastSeenAt) return 'inactive';
 
     const now = new Date();
-    const lastSeenStr = session.lastSeenAt.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(session.lastSeenAt)
-      ? session.lastSeenAt
-      : session.lastSeenAt + 'Z';
+    const lastSeenStr =
+      session.lastSeenAt.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(session.lastSeenAt)
+        ? session.lastSeenAt
+        : session.lastSeenAt + 'Z';
     const lastSeen = new Date(lastSeenStr);
     const diffSeconds = (now.getTime() - lastSeen.getTime()) / 1000;
 
@@ -736,7 +769,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           setEpicDefaultGuestMaxThreadCount(data.maxThreadCount ?? null);
         }
       } catch (err) {
-        console.error('Failed to load thread config:', err);
+        showToast('error', getErrorMessage(err) || t('user.errors.loadThreadConfig'));
       }
     };
     loadThreadConfig();
@@ -802,11 +835,12 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   const activeSessions = sessions.filter((s: Session) => !s.isRevoked && !s.isExpired);
   const historySessions = sessions.filter((s: Session) => s.isRevoked || s.isExpired);
 
-  const filteredActiveSessions = activeFilterValue === 'all'
-    ? activeSessions
-    : activeFilterValue === 'admin'
-      ? activeSessions.filter((s: Session) => isAdminSession(s))
-      : activeSessions.filter((s: Session) => isGuestSession(s));
+  const filteredActiveSessions =
+    activeFilterValue === 'all'
+      ? activeSessions
+      : activeFilterValue === 'admin'
+        ? activeSessions.filter((s: Session) => isAdminSession(s))
+        : activeSessions.filter((s: Session) => isGuestSession(s));
 
   // ============================================================
   // Render Helpers: Desktop Table
@@ -830,11 +864,11 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
           {/* Device & Type */}
           <td>
-            <div className="text-sm font-medium text-themed-primary truncate">
-              {parsedUA.title}
-            </div>
+            <div className="text-sm font-medium text-themed-primary truncate">{parsedUA.title}</div>
             <div className="flex items-center gap-1.5 mt-0.5">
-              <span className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium ${isAdminSession(session) ? 'session-badge-user' : 'session-badge-guest'}`}>
+              <span
+                className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium ${isAdminSession(session) ? 'session-badge-user' : 'session-badge-guest'}`}
+              >
                 {isAdminSession(session)
                   ? t('activeSessions.labels.userBadge')
                   : t('activeSessions.labels.guestBadge')}
@@ -844,11 +878,14 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                   ({t('activeSessions.currentSessionShort', 'you')})
                 </span>
               )}
-              {!session.isCurrentSession && isGuestSession(session) && !session.isRevoked && !session.isExpired && (
-                <span className="text-[10px] text-themed-muted">
-                  {formatTimeRemaining(session.expiresAt)}
-                </span>
-              )}
+              {!session.isCurrentSession &&
+                isGuestSession(session) &&
+                !session.isRevoked &&
+                !session.isExpired && (
+                  <span className="text-[10px] text-themed-muted">
+                    {formatTimeRemaining(session.expiresAt)}
+                  </span>
+                )}
             </div>
           </td>
 
@@ -866,7 +903,16 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           <td>
             <span
               className="text-sm text-themed-secondary"
-              title={session.lastSeenAt ? new Date(session.lastSeenAt.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(session.lastSeenAt) ? session.lastSeenAt : session.lastSeenAt + 'Z').toLocaleString() : ''}
+              title={
+                session.lastSeenAt
+                  ? new Date(
+                      session.lastSeenAt.endsWith('Z') ||
+                        /[+-]\d{2}:\d{2}$/.test(session.lastSeenAt)
+                        ? session.lastSeenAt
+                        : session.lastSeenAt + 'Z'
+                    ).toLocaleString()
+                  : ''
+              }
             >
               {getRelativeTime(session.lastSeenAt)}
             </span>
@@ -874,7 +920,10 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
           {/* Actions */}
           <td>
-            <div className="session-row-actions" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+            <div
+              className="session-row-actions"
+              onClick={(e: React.MouseEvent) => e.stopPropagation()}
+            >
               <Button
                 variant="default"
                 color="blue"
@@ -895,19 +944,22 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                   {t('activeSessions.actions.logout')}
                 </Button>
               )}
-              {isGuestSession(session) && !session.isRevoked && !session.isExpired && !session.isCurrentSession && (
-                <Button
-                  variant="default"
-                  color="orange"
-                  size="sm"
-                  onClick={() => handleRevokeSession(session)}
-                  disabled={revokingSession === session.id}
-                >
-                  {revokingSession === session.id
-                    ? t('activeSessions.actions.revoking')
-                    : t('activeSessions.actions.revoke')}
-                </Button>
-              )}
+              {isGuestSession(session) &&
+                !session.isRevoked &&
+                !session.isExpired &&
+                !session.isCurrentSession && (
+                  <Button
+                    variant="default"
+                    color="orange"
+                    size="sm"
+                    onClick={() => handleRevokeSession(session)}
+                    disabled={revokingSession === session.id}
+                  >
+                    {revokingSession === session.id
+                      ? t('activeSessions.actions.revoking')
+                      : t('activeSessions.actions.revoke')}
+                  </Button>
+                )}
               {!session.isCurrentSession && (
                 <Button
                   variant="default"
@@ -928,7 +980,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         {/* Expansion panel */}
         <tr>
           <td colSpan={5} className="p-0">
-            <div className={`session-expansion ${isExpanded ? 'session-expansion--expanded' : 'session-expansion--collapsed'}`}>
+            <div
+              className={`session-expansion ${isExpanded ? 'session-expansion--expanded' : 'session-expansion--collapsed'}`}
+            >
               {isExpanded && (
                 <div className="session-expansion-content">
                   <div className="session-expansion-dates">
@@ -945,9 +999,11 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                         {t('activeSessions.labels.lastSeenShort', 'Last Seen')}
                       </div>
                       <div className="session-expansion-date-value">
-                        {session.lastSeenAt
-                          ? <FormattedTimestamp timestamp={session.lastSeenAt} />
-                          : t('activeSessions.labels.never', 'Never')}
+                        {session.lastSeenAt ? (
+                          <FormattedTimestamp timestamp={session.lastSeenAt} />
+                        ) : (
+                          t('activeSessions.labels.never', 'Never')
+                        )}
                       </div>
                     </div>
                     <div>
@@ -986,11 +1042,15 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                       <span className="session-expansion-prefill-label">
                         {t('activeSessions.prefill.title', 'Prefill Access')}:
                       </span>
-                      <span className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 ${session.steamPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}>
+                      <span
+                        className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 ${session.steamPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}
+                      >
                         <SteamIcon size={10} />
                         Steam
                       </span>
-                      <span className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 ${session.epicPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}>
+                      <span
+                        className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 ${session.epicPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}
+                      >
                         <EpicIcon size={10} />
                         Epic
                       </span>
@@ -1009,7 +1069,13 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     const prefs = getSessionPreferences(session.id);
     const isLoadingPrefs = isPreferencesLoading(session.id);
 
-    if (!prefs && !isLoadingPrefs && !isPreferencesLoaded(session.id) && !session.isRevoked && !session.isExpired) {
+    if (
+      !prefs &&
+      !isLoadingPrefs &&
+      !isPreferencesLoaded(session.id) &&
+      !session.isRevoked &&
+      !session.isExpired
+    ) {
       setTimeout(() => loadSessionPreferences(session.id), 0);
     }
 
@@ -1025,7 +1091,8 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     if (!prefs) return null;
 
     const themeName = prefs.selectedTheme
-      ? availableThemes.find((th: ThemeOption) => th.id === prefs.selectedTheme)?.name || prefs.selectedTheme
+      ? availableThemes.find((th: ThemeOption) => th.id === prefs.selectedTheme)?.name ||
+        prefs.selectedTheme
       : t('activeSessions.preferencesModal.defaultThemeShort', 'Default');
     const timezoneLabel = prefs.useLocalTimezone
       ? t('activeSessions.labels.local', 'Local')
@@ -1041,12 +1108,8 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           <Globe className="w-3 h-3" />
           {timezoneLabel}
         </span>
-        {prefs.sharpCorners && (
-          <span className="pref-badge">Sharp corners</span>
-        )}
-        {prefs.showDatasourceLabels && (
-          <span className="pref-badge">Labels</span>
-        )}
+        {prefs.sharpCorners && <span className="pref-badge">Sharp corners</span>}
+        {prefs.showDatasourceLabels && <span className="pref-badge">Labels</span>}
       </>
     );
   };
@@ -1066,12 +1129,19 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     const prefs = getSessionPreferences(session.id);
     const isLoadingPrefs = isPreferencesLoading(session.id);
 
-    if (!prefs && !isLoadingPrefs && !isPreferencesLoaded(session.id) && !session.isRevoked && !session.isExpired) {
+    if (
+      !prefs &&
+      !isLoadingPrefs &&
+      !isPreferencesLoaded(session.id) &&
+      !session.isRevoked &&
+      !session.isExpired
+    ) {
       setTimeout(() => loadSessionPreferences(session.id), 0);
     }
 
     const themeName = prefs?.selectedTheme
-      ? availableThemes.find((th: ThemeOption) => th.id === prefs.selectedTheme)?.name || prefs.selectedTheme
+      ? availableThemes.find((th: ThemeOption) => th.id === prefs.selectedTheme)?.name ||
+        prefs.selectedTheme
       : t('activeSessions.preferencesModal.defaultThemeShort');
     const timezoneLabel = prefs?.useLocalTimezone
       ? t('activeSessions.labels.local')
@@ -1081,10 +1151,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       <div key={session.id} className={`session-card ${isDimmed ? 'dimmed' : ''}`}>
         {/* Header - Always visible */}
         <div className="p-3">
-          <div
-            className="cursor-pointer"
-            onClick={() => toggleSessionExpanded(session.id)}
-          >
+          <div className="cursor-pointer" onClick={() => toggleSessionExpanded(session.id)}>
             <div className="flex items-start gap-3">
               <div className="relative">
                 <div
@@ -1098,7 +1165,11 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                     }`}
                   />
                 </div>
-                {(isActive || isAway) && <div className={`status-dot ${isActive ? 'active' : 'away'} absolute -bottom-0.5 -right-0.5`} />}
+                {(isActive || isAway) && (
+                  <div
+                    className={`status-dot ${isActive ? 'active' : 'away'} absolute -bottom-0.5 -right-0.5`}
+                  />
+                )}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap mb-1">
@@ -1116,7 +1187,11 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                   </span>
                 </div>
                 <p className="text-xs truncate text-themed-muted">
-                  {session.isCurrentSession ? t('activeSessions.currentSession') : (session.ipAddress ? cleanIpAddress(session.ipAddress) : t('activeSessions.unknownDeviceLower'))}
+                  {session.isCurrentSession
+                    ? t('activeSessions.currentSession')
+                    : session.ipAddress
+                      ? cleanIpAddress(session.ipAddress)
+                      : t('activeSessions.unknownDeviceLower')}
                 </p>
                 <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                   {isGuestSession(session) && !session.isRevoked && !session.isExpired && (
@@ -1223,11 +1298,15 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                   <span className="text-xs text-themed-muted">
                     {t('activeSessions.prefill.title', 'Prefill')}:
                   </span>
-                  <span className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 ${session.steamPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}>
+                  <span
+                    className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 ${session.steamPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}
+                  >
                     <SteamIcon size={10} />
                     Steam
                   </span>
-                  <span className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 ${session.epicPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}>
+                  <span
+                    className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 ${session.epicPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}
+                  >
                     <EpicIcon size={10} />
                     Epic
                   </span>
@@ -1276,23 +1355,26 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               >
                 {t('activeSessions.actions.editPreferences')}
               </Button>
-              {isGuestSession(session) && !session.isRevoked && !session.isExpired && !session.isCurrentSession && (
-                <Button
-                  variant="default"
-                  color="orange"
-                  size="sm"
-                  onClick={(e: React.MouseEvent) => {
-                    e.stopPropagation();
-                    handleRevokeSession(session);
-                  }}
-                  disabled={revokingSession === session.id}
-                  fullWidth
-                >
-                  {revokingSession === session.id
-                    ? t('activeSessions.actions.revoking')
-                    : t('activeSessions.actions.revokeSession')}
-                </Button>
-              )}
+              {isGuestSession(session) &&
+                !session.isRevoked &&
+                !session.isExpired &&
+                !session.isCurrentSession && (
+                  <Button
+                    variant="default"
+                    color="orange"
+                    size="sm"
+                    onClick={(e: React.MouseEvent) => {
+                      e.stopPropagation();
+                      handleRevokeSession(session);
+                    }}
+                    disabled={revokingSession === session.id}
+                    fullWidth
+                  >
+                    {revokingSession === session.id
+                      ? t('activeSessions.actions.revoking')
+                      : t('activeSessions.actions.revokeSession')}
+                  </Button>
+                )}
               {!session.isCurrentSession && (
                 <Button
                   variant="default"
@@ -1330,16 +1412,24 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         <div className="p-3 sm:p-4">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-start gap-3 flex-1 min-w-0">
-              <div className={`session-avatar ${isAdminSession(session) ? 'session-badge-user' : 'session-badge-guest'}`}>
-                <User className={`w-5 h-5 ${isAdminSession(session) ? 'user-session-icon' : 'guest-session-icon'}`} />
+              <div
+                className={`session-avatar ${isAdminSession(session) ? 'session-badge-user' : 'session-badge-guest'}`}
+              >
+                <User
+                  className={`w-5 h-5 ${isAdminSession(session) ? 'user-session-icon' : 'guest-session-icon'}`}
+                />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap mb-1">
                   <h3 className="font-semibold truncate text-sm text-themed-primary">
                     {parsedUA.title}
                   </h3>
-                  <span className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium flex-shrink-0 ${isAdminSession(session) ? 'session-badge-user' : 'session-badge-guest'}`}>
-                    {isAdminSession(session) ? t('activeSessions.labels.userBadge') : t('activeSessions.labels.guestBadge')}
+                  <span
+                    className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium flex-shrink-0 ${isAdminSession(session) ? 'session-badge-user' : 'session-badge-guest'}`}
+                  >
+                    {isAdminSession(session)
+                      ? t('activeSessions.labels.userBadge')
+                      : t('activeSessions.labels.guestBadge')}
                   </span>
                   {session.isRevoked && (
                     <span className="px-1.5 py-0.5 text-[10px] rounded font-medium status-badge-error">
@@ -1356,7 +1446,10 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                   {session.ipAddress && (
                     <span className="flex items-center gap-1">
                       <Network className="w-3 h-3" />
-                      <ClientIpDisplay clientIp={cleanIpAddress(session.ipAddress)} className="truncate" />
+                      <ClientIpDisplay
+                        clientIp={cleanIpAddress(session.ipAddress)}
+                        className="truncate"
+                      />
                     </span>
                   )}
                   <span className="flex items-center gap-1">
@@ -1366,7 +1459,8 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                   {session.revokedAt && (
                     <span className="flex items-center gap-1 text-themed-error">
                       <Clock className="w-3 h-3" />
-                      {t('activeSessions.labels.revokedAt')} <FormattedTimestamp timestamp={session.revokedAt} />
+                      {t('activeSessions.labels.revokedAt')}{' '}
+                      <FormattedTimestamp timestamp={session.revokedAt} />
                     </span>
                   )}
                 </div>
@@ -1412,24 +1506,42 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 <HelpSection title={t('activeSessions.help.sessionTypes.title')} variant="subtle">
                   <div className="divide-y divide-[var(--theme-text-muted)]">
                     <div className="py-1.5 first:pt-0 last:pb-0">
-                      <div className="font-medium text-themed-primary">{t('activeSessions.help.sessionTypes.authenticated.label')}</div>
-                      <div className="mt-0.5">{t('activeSessions.help.sessionTypes.authenticated.description')}</div>
+                      <div className="font-medium text-themed-primary">
+                        {t('activeSessions.help.sessionTypes.authenticated.label')}
+                      </div>
+                      <div className="mt-0.5">
+                        {t('activeSessions.help.sessionTypes.authenticated.description')}
+                      </div>
                     </div>
                     <div className="py-1.5 first:pt-0 last:pb-0">
-                      <div className="font-medium text-themed-primary">{t('activeSessions.help.sessionTypes.guest.label')}</div>
-                      <div className="mt-0.5">{t('activeSessions.help.sessionTypes.guest.description', { hours: guestDurationHours })}</div>
+                      <div className="font-medium text-themed-primary">
+                        {t('activeSessions.help.sessionTypes.guest.label')}
+                      </div>
+                      <div className="mt-0.5">
+                        {t('activeSessions.help.sessionTypes.guest.description', {
+                          hours: guestDurationHours
+                        })}
+                      </div>
                     </div>
                   </div>
                 </HelpSection>
                 <HelpSection title={t('activeSessions.help.actions.title')} variant="subtle">
                   <div className="divide-y divide-[var(--theme-text-muted)]">
                     <div className="py-1.5 first:pt-0 last:pb-0">
-                      <div className="font-medium text-themed-primary">{t('activeSessions.help.actions.revoke.label')}</div>
-                      <div className="mt-0.5">{t('activeSessions.help.actions.revoke.description')}</div>
+                      <div className="font-medium text-themed-primary">
+                        {t('activeSessions.help.actions.revoke.label')}
+                      </div>
+                      <div className="mt-0.5">
+                        {t('activeSessions.help.actions.revoke.description')}
+                      </div>
                     </div>
                     <div className="py-1.5 first:pt-0 last:pb-0">
-                      <div className="font-medium text-themed-primary">{t('activeSessions.help.actions.delete.label')}</div>
-                      <div className="mt-0.5">{t('activeSessions.help.actions.delete.description')}</div>
+                      <div className="font-medium text-themed-primary">
+                        {t('activeSessions.help.actions.delete.label')}
+                      </div>
+                      <div className="mt-0.5">
+                        {t('activeSessions.help.actions.delete.description')}
+                      </div>
                     </div>
                   </div>
                 </HelpSection>
@@ -1438,8 +1550,18 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
             <ToggleSwitch
               options={[
-                { value: 'unlocked', label: t('activeSessions.toggle.unlocked'), icon: <Unlock />, activeColor: 'success' },
-                { value: 'locked', label: t('activeSessions.toggle.locked'), icon: <Lock />, activeColor: 'error' }
+                {
+                  value: 'unlocked',
+                  label: t('activeSessions.toggle.unlocked'),
+                  icon: <Unlock />,
+                  activeColor: 'success'
+                },
+                {
+                  value: 'locked',
+                  label: t('activeSessions.toggle.locked'),
+                  icon: <Lock />,
+                  activeColor: 'error'
+                }
               ]}
               value={guestModeLocked ? 'locked' : 'unlocked'}
               onChange={onToggleGuestLock}
@@ -1517,9 +1639,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           {loading && (
             <div className="text-center py-12">
               <Loader2 className="w-8 h-8 animate-spin mx-auto text-themed-accent" />
-              <p className="text-sm mt-3 text-themed-muted">
-                {t('activeSessions.loading')}
-              </p>
+              <p className="text-sm mt-3 text-themed-muted">{t('activeSessions.loading')}</p>
             </div>
           )}
 
@@ -1528,12 +1648,8 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               <div className="w-16 h-16 mx-auto mb-4 rounded-xl flex items-center justify-center bg-themed-tertiary">
                 <Users className="w-8 h-8 text-themed-muted" />
               </div>
-              <p className="font-medium text-themed-secondary">
-                {t('activeSessions.empty.title')}
-              </p>
-              <p className="text-sm mt-1 text-themed-muted">
-                {t('activeSessions.empty.subtitle')}
-              </p>
+              <p className="font-medium text-themed-secondary">{t('activeSessions.empty.title')}</p>
+              <p className="text-sm mt-1 text-themed-muted">{t('activeSessions.empty.subtitle')}</p>
             </div>
           )}
 
@@ -1549,17 +1665,13 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                   <th className="w-1">{t('activeSessions.table.actions', 'Actions')}</th>
                 </tr>
               </thead>
-              <tbody>
-                {filteredActiveSessions.map(renderTableRow)}
-              </tbody>
+              <tbody>{filteredActiveSessions.map(renderTableRow)}</tbody>
             </table>
           )}
 
           {/* Mobile: Cards */}
           {!loading && filteredActiveSessions.length > 0 && isMobile && (
-            <div className="space-y-2">
-              {filteredActiveSessions.map(renderMobileCard)}
-            </div>
+            <div className="space-y-2">{filteredActiveSessions.map(renderMobileCard)}</div>
           )}
 
           {/* Filtered but no results */}
@@ -1647,9 +1759,10 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         <div className="space-y-4">
           <p className="text-themed-secondary">
             {t('activeSessions.revokeModal.message', {
-              type: pendingRevokeSession && isAdminSession(pendingRevokeSession)
-                ? t('activeSessions.sessionTypes.authenticatedUser')
-                : t('activeSessions.sessionTypes.guestUser')
+              type:
+                pendingRevokeSession && isAdminSession(pendingRevokeSession)
+                  ? t('activeSessions.sessionTypes.authenticatedUser')
+                  : t('activeSessions.sessionTypes.guestUser')
             })}
           </p>
 
@@ -1666,7 +1779,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
           <Alert color="yellow">
             <div>
-              <p className="text-sm font-medium mb-2">{t('activeSessions.revokeModal.noteTitle')}</p>
+              <p className="text-sm font-medium mb-2">
+                {t('activeSessions.revokeModal.noteTitle')}
+              </p>
               <ul className="list-disc list-inside text-sm space-y-1 ml-2">
                 <li>{t('activeSessions.revokeModal.points.marked')}</li>
                 <li>{t('activeSessions.revokeModal.points.logout')}</li>
@@ -1714,9 +1829,10 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         <div className="space-y-4">
           <p className="text-themed-secondary">
             {t('activeSessions.deleteModal.message', {
-              type: pendingDeleteSession && isAdminSession(pendingDeleteSession)
-                ? t('activeSessions.sessionTypes.authenticatedDevice')
-                : t('activeSessions.sessionTypes.guestDevice')
+              type:
+                pendingDeleteSession && isAdminSession(pendingDeleteSession)
+                  ? t('activeSessions.sessionTypes.authenticatedDevice')
+                  : t('activeSessions.sessionTypes.guestDevice')
             })}
           </p>
 
@@ -1733,7 +1849,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
           <Alert color="red">
             <div>
-              <p className="text-sm font-medium mb-2">{t('activeSessions.deleteModal.noteTitle')}</p>
+              <p className="text-sm font-medium mb-2">
+                {t('activeSessions.deleteModal.noteTitle')}
+              </p>
               <ul className="list-disc list-inside text-sm space-y-1 ml-2">
                 <li>{t('activeSessions.deleteModal.points.noUndo')}</li>
                 <li>{t('activeSessions.deleteModal.points.removed')}</li>
@@ -1780,13 +1898,13 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         size="md"
       >
         <div className="space-y-4">
-          <p className="text-themed-secondary">
-            {t('user.bulkActions.resetModal.message')}
-          </p>
+          <p className="text-themed-secondary">{t('user.bulkActions.resetModal.message')}</p>
 
           <Alert color="yellow">
             <div>
-              <p className="text-sm font-medium mb-2">{t('user.bulkActions.resetModal.noteTitle')}</p>
+              <p className="text-sm font-medium mb-2">
+                {t('user.bulkActions.resetModal.noteTitle')}
+              </p>
               <ul className="list-disc list-inside text-sm space-y-1 ml-2">
                 <li>{t('user.bulkActions.resetModal.points.theme')}</li>
                 <li>{t('user.bulkActions.resetModal.points.refreshRate')}</li>
@@ -1833,13 +1951,13 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         size="md"
       >
         <div className="space-y-4">
-          <p className="text-themed-secondary">
-            {t('user.bulkActions.clearModal.message')}
-          </p>
+          <p className="text-themed-secondary">{t('user.bulkActions.clearModal.message')}</p>
 
           <Alert color="red">
             <div>
-              <p className="text-sm font-medium mb-2">{t('user.bulkActions.clearModal.noteTitle')}</p>
+              <p className="text-sm font-medium mb-2">
+                {t('user.bulkActions.clearModal.noteTitle')}
+              </p>
               <ul className="list-disc list-inside text-sm space-y-1 ml-2">
                 <li>{t('user.bulkActions.clearModal.points.deleted')}</li>
                 <li>{t('user.bulkActions.clearModal.points.logout')}</li>
@@ -1921,7 +2039,8 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                   <label className="text-sm font-medium text-themed-primary">
                     {t('activeSessions.preferencesModal.selectedTheme')}
                   </label>
-                  {editingPreferences.selectedTheme && editingPreferences.selectedTheme !== defaultGuestTheme ? (
+                  {editingPreferences.selectedTheme &&
+                  editingPreferences.selectedTheme !== defaultGuestTheme ? (
                     <button
                       type="button"
                       onClick={() =>
@@ -1958,19 +2077,22 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                   {editingPreferences.selectedTheme
                     ? t('activeSessions.preferencesModal.customTheme')
                     : t('activeSessions.preferencesModal.defaultTheme', {
-                        theme: availableThemes.find((th: ThemeOption) => th.id === defaultGuestTheme)?.name || defaultGuestTheme
+                        theme:
+                          availableThemes.find((th: ThemeOption) => th.id === defaultGuestTheme)
+                            ?.name || defaultGuestTheme
                       })}
                 </p>
               </div>
 
               {/* Refresh Rate (Guest Users Only) */}
-              {editingSession && (isGuestSession(editingSession)) && (
+              {editingSession && isGuestSession(editingSession) && (
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <label className="text-sm font-medium text-themed-primary">
                       {t('activeSessions.preferencesModal.refreshRate')}
                     </label>
-                    {editingPreferences.refreshRate && editingPreferences.refreshRate !== defaultGuestRefreshRate ? (
+                    {editingPreferences.refreshRate &&
+                    editingPreferences.refreshRate !== defaultGuestRefreshRate ? (
                       <button
                         type="button"
                         onClick={() =>
@@ -2004,7 +2126,11 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                     {editingPreferences.refreshRate
                       ? t('activeSessions.preferencesModal.customRefreshRate')
                       : t('activeSessions.preferencesModal.defaultRefreshRate', {
-                          rate: translatedRefreshRateOptions.find((o: { value: string; label: string }) => o.value === defaultGuestRefreshRate)?.label || defaultGuestRefreshRate
+                          rate:
+                            translatedRefreshRateOptions.find(
+                              (o: { value: string; label: string }) =>
+                                o.value === defaultGuestRefreshRate
+                            )?.label || defaultGuestRefreshRate
                         })}
                   </p>
 
@@ -2047,7 +2173,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                         onClick={() =>
                           setEditingPreferences({
                             ...editingPreferences,
-                            refreshRateLocked: editingPreferences.refreshRateLocked === false ? true : false
+                            refreshRateLocked: editingPreferences.refreshRateLocked !== false
                           })
                         }
                       >
@@ -2059,151 +2185,177 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
               )}
 
               {/* Per-Service Prefill Access (Guest Users Only) */}
-              {editingSession && isGuestSession(editingSession) && !editingSession.isRevoked && !editingSession.isExpired && (
-                <div className="prefill-access-section">
-                  <div className="prefill-access-header">
-                    <Download className="w-4 h-4 text-themed-accent" />
-                    <h4 className="text-sm font-medium text-themed-primary">
-                      {t('activeSessions.prefill.title')}
-                    </h4>
+              {editingSession &&
+                isGuestSession(editingSession) &&
+                !editingSession.isRevoked &&
+                !editingSession.isExpired && (
+                  <div className="prefill-access-section">
+                    <div className="prefill-access-header">
+                      <Download className="w-4 h-4 text-themed-accent" />
+                      <h4 className="text-sm font-medium text-themed-primary">
+                        {t('activeSessions.prefill.title')}
+                      </h4>
+                    </div>
+                    <p className="text-xs text-themed-muted prefill-access-subtitle">
+                      {t('activeSessions.prefill.subtitle')}
+                    </p>
+
+                    {/* Steam Prefill Row */}
+                    {(() => {
+                      const current = editingSession.steamPrefillEnabled;
+                      const effective =
+                        pendingSteamPrefillChange !== null ? pendingSteamPrefillChange : current;
+                      const hasChange =
+                        pendingSteamPrefillChange !== null && pendingSteamPrefillChange !== current;
+                      return (
+                        <div className="prefill-service-row">
+                          <div className="prefill-service-row-label">
+                            <SteamIcon size={16} className="prefill-service-row-icon" />
+                            <span className="text-sm text-themed-secondary">Steam</span>
+                            {hasChange && (
+                              <span className="text-xs text-themed-accent italic">
+                                ({t('common.unsaved')})
+                              </span>
+                            )}
+                          </div>
+                          <div className="prefill-service-row-controls">
+                            <span
+                              className={`px-2 py-0.5 text-xs rounded-full font-medium ${effective ? 'status-badge-success' : 'status-badge-warning'}`}
+                            >
+                              {effective
+                                ? t('activeSessions.prefill.status.enabled')
+                                : t('activeSessions.prefill.status.disabled')}
+                            </span>
+                            <Button
+                              variant="default"
+                              color={effective ? 'orange' : 'green'}
+                              size="sm"
+                              onClick={() => setPendingSteamPrefillChange(!effective)}
+                            >
+                              {effective
+                                ? t('activeSessions.prefill.actions.revoke')
+                                : t('activeSessions.prefill.actions.grant')}
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Epic Prefill Row */}
+                    {(() => {
+                      const current = editingSession.epicPrefillEnabled;
+                      const effective =
+                        pendingEpicPrefillChange !== null ? pendingEpicPrefillChange : current;
+                      const hasChange =
+                        pendingEpicPrefillChange !== null && pendingEpicPrefillChange !== current;
+                      return (
+                        <div className="prefill-service-row">
+                          <div className="prefill-service-row-label">
+                            <EpicIcon size={16} className="prefill-service-row-icon" />
+                            <span className="text-sm text-themed-secondary">Epic Games</span>
+                            {hasChange && (
+                              <span className="text-xs text-themed-accent italic">
+                                ({t('common.unsaved')})
+                              </span>
+                            )}
+                          </div>
+                          <div className="prefill-service-row-controls">
+                            <span
+                              className={`px-2 py-0.5 text-xs rounded-full font-medium ${effective ? 'status-badge-success' : 'status-badge-warning'}`}
+                            >
+                              {effective
+                                ? t('activeSessions.prefill.status.enabled')
+                                : t('activeSessions.prefill.status.disabled')}
+                            </span>
+                            <Button
+                              variant="default"
+                              color={effective ? 'orange' : 'green'}
+                              size="sm"
+                              onClick={() => setPendingEpicPrefillChange(!effective)}
+                            >
+                              {effective
+                                ? t('activeSessions.prefill.actions.revoke')
+                                : t('activeSessions.prefill.actions.grant')}
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
-                  <p className="text-xs text-themed-muted prefill-access-subtitle">
-                    {t('activeSessions.prefill.subtitle')}
-                  </p>
-
-                  {/* Steam Prefill Row */}
-                  {(() => {
-                    const current = editingSession.steamPrefillEnabled;
-                    const effective = pendingSteamPrefillChange !== null ? pendingSteamPrefillChange : current;
-                    const hasChange = pendingSteamPrefillChange !== null && pendingSteamPrefillChange !== current;
-                    return (
-                      <div className="prefill-service-row">
-                        <div className="prefill-service-row-label">
-                          <SteamIcon size={16} className="prefill-service-row-icon" />
-                          <span className="text-sm text-themed-secondary">Steam</span>
-                          {hasChange && (
-                            <span className="text-xs text-themed-accent italic">
-                              ({t('common.unsaved')})
-                            </span>
-                          )}
-                        </div>
-                        <div className="prefill-service-row-controls">
-                          <span className={`px-2 py-0.5 text-xs rounded-full font-medium ${effective ? 'status-badge-success' : 'status-badge-warning'}`}>
-                            {effective ? t('activeSessions.prefill.status.enabled') : t('activeSessions.prefill.status.disabled')}
-                          </span>
-                          <Button
-                            variant="default"
-                            color={effective ? 'orange' : 'green'}
-                            size="sm"
-                            onClick={() => setPendingSteamPrefillChange(!effective)}
-                          >
-                            {effective ? t('activeSessions.prefill.actions.revoke') : t('activeSessions.prefill.actions.grant')}
-                          </Button>
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  {/* Epic Prefill Row */}
-                  {(() => {
-                    const current = editingSession.epicPrefillEnabled;
-                    const effective = pendingEpicPrefillChange !== null ? pendingEpicPrefillChange : current;
-                    const hasChange = pendingEpicPrefillChange !== null && pendingEpicPrefillChange !== current;
-                    return (
-                      <div className="prefill-service-row">
-                        <div className="prefill-service-row-label">
-                          <EpicIcon size={16} className="prefill-service-row-icon" />
-                          <span className="text-sm text-themed-secondary">Epic Games</span>
-                          {hasChange && (
-                            <span className="text-xs text-themed-accent italic">
-                              ({t('common.unsaved')})
-                            </span>
-                          )}
-                        </div>
-                        <div className="prefill-service-row-controls">
-                          <span className={`px-2 py-0.5 text-xs rounded-full font-medium ${effective ? 'status-badge-success' : 'status-badge-warning'}`}>
-                            {effective ? t('activeSessions.prefill.status.enabled') : t('activeSessions.prefill.status.disabled')}
-                          </span>
-                          <Button
-                            variant="default"
-                            color={effective ? 'orange' : 'green'}
-                            size="sm"
-                            onClick={() => setPendingEpicPrefillChange(!effective)}
-                          >
-                            {effective ? t('activeSessions.prefill.actions.revoke') : t('activeSessions.prefill.actions.grant')}
-                          </Button>
-                        </div>
-                      </div>
-                    );
-                  })()}
-                </div>
-              )}
+                )}
 
               {/* Max Thread Count (Guest Users Only) */}
-              {editingSession && (isGuestSession(editingSession)) && (() => {
-                const THREAD_VALUES = [1, 2, 4, 8, 16, 32, 64, 128, 256];
-                const threadOptions = [
-                  { value: '', label: t('user.guest.prefill.maxThreads.noLimit') },
-                  ...THREAD_VALUES.map((n: number) => ({
-                    value: String(n),
-                    label: `${n} threads`,
-                    disabled: false
-                  }))
-                ];
-                const hasOverride = editingPreferences.maxThreadCount != null;
+              {editingSession &&
+                isGuestSession(editingSession) &&
+                (() => {
+                  const THREAD_VALUES = [1, 2, 4, 8, 16, 32, 64, 128, 256];
+                  const threadOptions = [
+                    { value: '', label: t('user.guest.prefill.maxThreads.noLimit') },
+                    ...THREAD_VALUES.map((n: number) => ({
+                      value: String(n),
+                      label: `${n} threads`
+                    }))
+                  ];
+                  const hasOverride = editingPreferences.maxThreadCount != null;
 
-                return (
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <label className="text-sm font-medium text-themed-primary flex items-center gap-1.5">
-                        <Network className="w-4 h-4" />
-                        {t('user.guest.prefill.maxThreads.label')}
-                      </label>
-                      {hasOverride ? (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setEditingPreferences({
-                              ...editingPreferences,
-                              maxThreadCount: null
-                            })
-                          }
-                          className="text-xs px-2 py-0.5 rounded transition-colors text-themed-accent bg-themed-tertiary hover:bg-themed-secondary"
-                        >
-                          {t('actions.useDefault')}
-                        </button>
-                      ) : (
-                        <span className="text-xs px-2 py-0.5 rounded text-themed-muted bg-themed-tertiary">
-                          {t('actions.usingDefault')}
-                        </span>
+                  return (
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="text-sm font-medium text-themed-primary flex items-center gap-1.5">
+                          <Network className="w-4 h-4" />
+                          {t('user.guest.prefill.maxThreads.label')}
+                        </label>
+                        {hasOverride ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setEditingPreferences({
+                                ...editingPreferences,
+                                maxThreadCount: null
+                              })
+                            }
+                            className="text-xs px-2 py-0.5 rounded transition-colors text-themed-accent bg-themed-tertiary hover:bg-themed-secondary"
+                          >
+                            {t('actions.useDefault')}
+                          </button>
+                        ) : (
+                          <span className="text-xs px-2 py-0.5 rounded text-themed-muted bg-themed-tertiary">
+                            {t('actions.usingDefault')}
+                          </span>
+                        )}
+                      </div>
+                      <EnhancedDropdown
+                        options={threadOptions}
+                        value={
+                          editingPreferences.maxThreadCount != null
+                            ? String(editingPreferences.maxThreadCount)
+                            : defaultGuestMaxThreadCount != null
+                              ? String(defaultGuestMaxThreadCount)
+                              : ''
+                        }
+                        onChange={(value: string) =>
+                          setEditingPreferences({
+                            ...editingPreferences,
+                            maxThreadCount: value === '' ? null : Number(value)
+                          })
+                        }
+                        className="w-full"
+                      />
+                      <p className="text-xs text-themed-muted mt-1">
+                        {hasOverride
+                          ? t('user.guest.prefill.maxThreads.overridden')
+                          : defaultGuestMaxThreadCount != null
+                            ? `${t('user.guest.prefill.maxThreads.usingDefault')}: ${defaultGuestMaxThreadCount} threads (Steam)`
+                            : `${t('user.guest.prefill.maxThreads.usingDefault')}: ${t('user.guest.prefill.maxThreads.noLimit')} (Steam)`}
+                      </p>
+                      {epicDefaultGuestMaxThreadCount !== null && (
+                        <p className="text-xs text-themed-muted mt-0.5">
+                          {`${t('user.guest.prefill.maxThreads.usingDefault')}: ${epicDefaultGuestMaxThreadCount} threads (Epic)`}
+                        </p>
                       )}
                     </div>
-                    <EnhancedDropdown
-                      options={threadOptions}
-                      value={editingPreferences.maxThreadCount != null ? String(editingPreferences.maxThreadCount) : (defaultGuestMaxThreadCount != null ? String(defaultGuestMaxThreadCount) : '')}
-                      onChange={(value: string) =>
-                        setEditingPreferences({
-                          ...editingPreferences,
-                          maxThreadCount: value === '' ? null : Number(value)
-                        })
-                      }
-                      className="w-full"
-                    />
-                    <p className="text-xs text-themed-muted mt-1">
-                      {hasOverride
-                        ? t('user.guest.prefill.maxThreads.overridden')
-                        : defaultGuestMaxThreadCount != null
-                          ? `${t('user.guest.prefill.maxThreads.usingDefault')}: ${defaultGuestMaxThreadCount} threads (Steam)`
-                          : `${t('user.guest.prefill.maxThreads.usingDefault')}: ${t('user.guest.prefill.maxThreads.noLimit')} (Steam)`}
-                    </p>
-                    {epicDefaultGuestMaxThreadCount !== null && (
-                      <p className="text-xs text-themed-muted mt-0.5">
-                        {`${t('user.guest.prefill.maxThreads.usingDefault')}: ${epicDefaultGuestMaxThreadCount} threads (Epic)`}
-                      </p>
-                    )}
-                  </div>
-                );
-              })()}
+                  );
+                })()}
 
               {/* UI Preferences */}
               <div className="space-y-3">
@@ -2245,7 +2397,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                   </span>
                 </label>
 
-                {editingSession && (isAdminSession(editingSession)) && (
+                {editingSession && isAdminSession(editingSession) && (
                   <>
                     <label className="flex items-center gap-3 cursor-pointer">
                       <input
@@ -2330,10 +2482,16 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                     </label>
                     {(() => {
                       const currentFormats = editingPreferences.allowedTimeFormats;
-                      const defaultFormats = defaultGuestPrefs.allowedTimeFormats ?? ['server-24h', 'server-12h', 'local-24h', 'local-12h'];
-                      const isUsingDefault = !currentFormats ||
+                      const defaultFormats = defaultGuestPrefs.allowedTimeFormats ?? [
+                        'server-24h',
+                        'server-12h',
+                        'local-24h',
+                        'local-12h'
+                      ];
+                      const isUsingDefault =
+                        !currentFormats ||
                         (currentFormats.length === defaultFormats.length &&
-                         currentFormats.every((f: string) => defaultFormats.includes(f)));
+                          currentFormats.every((f: string) => defaultFormats.includes(f)));
 
                       return isUsingDefault ? (
                         <span className="text-xs px-2 py-0.5 rounded text-themed-muted bg-themed-tertiary">
@@ -2356,16 +2514,27 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                     })()}
                   </div>
                   <MultiSelectDropdown
-                    options={timeFormatOptions.map((opt: { value: string; label: string; description: string; icon: typeof Globe }) => ({
-                      value: opt.value,
-                      label: opt.label,
-                      description: opt.description,
-                      icon: opt.icon
-                    }))}
+                    options={timeFormatOptions.map(
+                      (opt: {
+                        value: string;
+                        label: string;
+                        description: string;
+                        icon: typeof Globe;
+                      }) => ({
+                        value: opt.value,
+                        label: opt.label,
+                        description: opt.description,
+                        icon: opt.icon
+                      })
+                    )}
                     values={
                       editingPreferences.allowedTimeFormats ??
-                      defaultGuestPrefs.allowedTimeFormats ??
-                      ['server-24h', 'server-12h', 'local-24h', 'local-12h']
+                      defaultGuestPrefs.allowedTimeFormats ?? [
+                        'server-24h',
+                        'server-12h',
+                        'local-24h',
+                        'local-12h'
+                      ]
                     }
                     onChange={(formats: string[]) =>
                       setEditingPreferences({
@@ -2381,11 +2550,17 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                     {editingPreferences.allowedTimeFormats
                       ? t('activeSessions.preferencesModal.customFormats')
                       : t('activeSessions.preferencesModal.defaultFormats', {
-                          formats: defaultGuestPrefs.allowedTimeFormats?.length === 4
-                            ? t('activeSessions.preferencesModal.allFormats')
-                            : defaultGuestPrefs.allowedTimeFormats
-                                ?.map((f: string) => timeFormatOptions.find((o: { value: string; label: string }) => o.value === f)?.label)
-                                .join(', ') || t('activeSessions.preferencesModal.allFormats')
+                          formats:
+                            defaultGuestPrefs.allowedTimeFormats?.length === 4
+                              ? t('activeSessions.preferencesModal.allFormats')
+                              : defaultGuestPrefs.allowedTimeFormats
+                                  ?.map(
+                                    (f: string) =>
+                                      timeFormatOptions.find(
+                                        (o: { value: string; label: string }) => o.value === f
+                                      )?.label
+                                  )
+                                  .join(', ') || t('activeSessions.preferencesModal.allFormats')
                         })}
                   </p>
                 </div>
@@ -2415,9 +2590,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
             </div>
           )}
 
-          <div
-            className="flex justify-end space-x-3 pt-4 border-t border-themed-secondary"
-          >
+          <div className="flex justify-end space-x-3 pt-4 border-t border-themed-secondary">
             <Button
               variant="default"
               onClick={() => {

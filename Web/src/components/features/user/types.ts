@@ -62,7 +62,7 @@ export const durationOptions = [
 ];
 
 // Parse UserAgent into friendly browser/OS info
-export interface ParsedUserAgent {
+interface ParsedUserAgent {
   browser: string;
   browserVersion: string;
   os: string;
@@ -70,7 +70,8 @@ export interface ParsedUserAgent {
 }
 
 export const parseUserAgent = (ua: string | null): ParsedUserAgent => {
-  if (!ua) return { browser: 'Unknown', browserVersion: '', os: 'Unknown', title: 'Unknown Device' };
+  if (!ua)
+    return { browser: 'Unknown', browserVersion: '', os: 'Unknown', title: 'Unknown Device' };
 
   let browser = 'Unknown';
   let browserVersion = '';

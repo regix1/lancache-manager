@@ -372,7 +372,6 @@ export interface UpdateClientGroupRequest {
   description?: string;
 }
 
-
 // Real-time download speed types
 export interface GameSpeedInfo {
   depotId: number;
@@ -414,18 +413,4 @@ export interface SpeedHistorySnapshot {
   totalBytes: number;
   averageBytesPerSecond: number;
   totalSessions: number;
-}
-
-// Universal operation cancellation types
-export interface OperationInfo {
-  id: string;
-  type: string;
-  name: string;
-  status: string;
-  message: string;
-  percentComplete: number;
-  startedAt: string;
-  completedAt?: string;
-  isCancelling: boolean;
-  metadata?: unknown;
 }

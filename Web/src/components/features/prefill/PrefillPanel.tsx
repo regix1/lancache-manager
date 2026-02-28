@@ -42,12 +42,15 @@ export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
 
   const hubPath = selectedService === 'epic' ? '/epic-prefill-daemon' : '/steam-daemon';
 
-  const handleServiceStart = useCallback((serviceId: GameServiceId) => {
-    if (serviceId !== selectedService) {
-      setSelectedService(serviceId);
-    }
-    setPendingService(serviceId);
-  }, [selectedService, setSelectedService]);
+  const handleServiceStart = useCallback(
+    (serviceId: GameServiceId) => {
+      if (serviceId !== selectedService) {
+        setSelectedService(serviceId);
+      }
+      setPendingService(serviceId);
+    },
+    [selectedService, setSelectedService]
+  );
 
   const handlePendingHandled = useCallback(() => {
     setPendingService(null);
@@ -74,7 +77,14 @@ interface ServicePrefillPanelProps extends PrefillPanelProps {
   onServiceStart: (serviceId: GameServiceId) => void;
 }
 
-function ServicePrefillPanel({ onSessionEnd, hubPath, serviceId, pendingService, onPendingServiceHandled, onServiceStart }: ServicePrefillPanelProps) {
+function ServicePrefillPanel({
+  onSessionEnd,
+  hubPath,
+  serviceId,
+  pendingService,
+  onPendingServiceHandled,
+  onServiceStart
+}: ServicePrefillPanelProps) {
   const { t } = useTranslation();
   const serviceBasePath = serviceId === 'epic' ? 'epic-daemon' : 'steam-daemon';
   const hasExpiredRef = useRef(false);
@@ -99,9 +109,7 @@ function ServicePrefillPanel({ onSessionEnd, hubPath, serviceId, pendingService,
     clearAllPrefillStorage
   } = usePrefillContext();
 
-  // Check if user is authenticated (not guest) for auth-only features
   const { isAdmin, steamPrefillEnabled, epicPrefillEnabled } = useAuth();
-  const isUserAuthenticated = isAdmin;
 
   // Main SignalR hub for system-level events (PrefillDefaultsChanged)
   const { on: onSignalR, off: offSignalR } = useSignalR();
@@ -152,8 +160,8 @@ function ServicePrefillPanel({ onSessionEnd, hubPath, serviceId, pendingService,
         }
         setMaxConcurrency(concurrency);
       }
-    } catch (err) {
-      console.error('[PrefillPanel] Failed to load prefill defaults:', err);
+    } catch {
+      // Failed to load defaults - will use existing values
     }
   }, []);
 
@@ -190,21 +198,27 @@ function ServicePrefillPanel({ onSessionEnd, hubPath, serviceId, pendingService,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
       });
-    } catch (err) {
-      console.error('[PrefillPanel] Failed to save prefill defaults:', err);
+    } catch {
+      // Failed to save defaults
     }
   }, []);
 
   // Wrapper setters that also persist to API
-  const handleOSChange = useCallback((newOS: string[]) => {
-    setSelectedOS(newOS);
-    savePrefillDefaults(newOS, undefined);
-  }, [savePrefillDefaults]);
+  const handleOSChange = useCallback(
+    (newOS: string[]) => {
+      setSelectedOS(newOS);
+      savePrefillDefaults(newOS, undefined);
+    },
+    [savePrefillDefaults]
+  );
 
-  const handleConcurrencyChange = useCallback((newConcurrency: string) => {
-    setMaxConcurrency(newConcurrency);
-    savePrefillDefaults(undefined, newConcurrency);
-  }, [savePrefillDefaults]);
+  const handleConcurrencyChange = useCallback(
+    (newConcurrency: string) => {
+      setMaxConcurrency(newConcurrency);
+      savePrefillDefaults(undefined, newConcurrency);
+    },
+    [savePrefillDefaults]
+  );
 
   // Confirmation dialog state
   const [pendingConfirmCommand, setPendingConfirmCommand] = useState<CommandType | null>(null);
@@ -212,13 +226,13 @@ function ServicePrefillPanel({ onSessionEnd, hubPath, serviceId, pendingService,
     bytes: number;
     loading: boolean;
     error?: string;
-    apps?: Array<{
+    apps?: {
       appId: string;
       name: string;
       downloadSize: number;
       isUnsupportedOs?: boolean;
       unavailableReason?: string;
-    }>;
+    }[];
     message?: string;
   }>({ bytes: 0, loading: false });
 
@@ -256,8 +270,7 @@ function ServicePrefillPanel({ onSessionEnd, hubPath, serviceId, pendingService,
           break;
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [addLog]
+    [addLog, t]
   );
 
   // SignalR hook - manages connection, session, and progress
@@ -298,9 +311,10 @@ function ServicePrefillPanel({ onSessionEnd, hubPath, serviceId, pendingService,
     const interval = setInterval(() => {
       // Ensure UTC interpretation for timestamps without timezone suffix
       const expiresAtStr = signalR.session!.expiresAt;
-      const expiresAtUtc = expiresAtStr.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(expiresAtStr)
-        ? expiresAtStr
-        : expiresAtStr + 'Z';
+      const expiresAtUtc =
+        expiresAtStr.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(expiresAtStr)
+          ? expiresAtStr
+          : expiresAtStr + 'Z';
       const remaining = Math.max(
         0,
         Math.floor((new Date(expiresAtUtc).getTime() - Date.now()) / 1000)
@@ -312,20 +326,42 @@ function ServicePrefillPanel({ onSessionEnd, hubPath, serviceId, pendingService,
         signalR.setError(t('prefill.errors.sessionExpired'));
         signalR.setTimeRemaining(0);
         signalR.setIsLoggedIn(false);
-        signalR.setSession(prev => prev ? { ...prev, status: 'Expired' } : prev);
+        signalR.setSession((prev) => (prev ? { ...prev, status: 'Expired' } : prev));
       }
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [signalR.session, signalR.setSession, signalR.setIsLoggedIn, signalR.setTimeRemaining, signalR.setError, t]);
+  }, [
+    signalR.session,
+    signalR.setSession,
+    signalR.setIsLoggedIn,
+    signalR.setTimeRemaining,
+    signalR.setError,
+    t
+  ]);
 
   // Auto-create session when service was started from home page
   useEffect(() => {
-    if (pendingService && !signalR.isInitializing && !signalR.isCreating && !signalR.isConnecting && !signalR.session) {
+    if (
+      pendingService &&
+      !signalR.isInitializing &&
+      !signalR.isCreating &&
+      !signalR.isConnecting &&
+      !signalR.session
+    ) {
       signalR.createSession(clearLogs);
       onPendingServiceHandled();
     }
-  }, [pendingService, signalR.isInitializing, signalR.isCreating, signalR.isConnecting, signalR.session, signalR.createSession, clearLogs, onPendingServiceHandled]);
+  }, [
+    pendingService,
+    signalR.isInitializing,
+    signalR.isCreating,
+    signalR.isConnecting,
+    signalR.session,
+    signalR.createSession,
+    clearLogs,
+    onPendingServiceHandled
+  ]);
 
   // Helper to call prefill REST API
   const callPrefillApi = useCallback(
@@ -364,13 +400,17 @@ function ServicePrefillPanel({ onSessionEnd, hubPath, serviceId, pendingService,
       });
 
       if (!response.ok) {
-        const error = await response.json().catch(() => ({ message: t('prefill.errors.requestFailed') }));
-        throw new Error(error.message || t('prefill.errors.httpStatus', { status: response.status }));
+        const error = await response
+          .json()
+          .catch(() => ({ message: t('prefill.errors.requestFailed') }));
+        throw new Error(
+          error.message || t('prefill.errors.httpStatus', { status: response.status })
+        );
       }
 
       return response.json();
     },
-    [selectedOS, maxConcurrency, maxThreadLimit, signalR.isCancelling, serviceBasePath]
+    [selectedOS, maxConcurrency, signalR.isCancelling, serviceBasePath]
   );
 
   const loadGames = useCallback(
@@ -380,11 +420,12 @@ function ServicePrefillPanel({ onSessionEnd, hubPath, serviceId, pendingService,
       setIsLoadingGames(true);
       try {
         const gamesCache = gamesCacheRef.current;
-        const isCacheFresh = !force
-          && gamesCache
-          && gamesCache.hasData
-          && gamesCache.sessionId === signalR.session.id
-          && Date.now() - gamesCache.fetchedAt < gamesCacheWindowMs;
+        const isCacheFresh =
+          !force &&
+          gamesCache &&
+          gamesCache.hasData &&
+          gamesCache.sessionId === signalR.session.id &&
+          Date.now() - gamesCache.fetchedAt < gamesCacheWindowMs;
 
         if (isCacheFresh) {
           setOwnedGames(gamesCache.ownedGames);
@@ -413,16 +454,19 @@ function ServicePrefillPanel({ onSessionEnd, hubPath, serviceId, pendingService,
 
         // Get cached apps via ApiService and verify against daemon manifests/build versions
         const cachedApps = await ApiService.getPrefillCachedApps();
-        let cachedIds = cachedApps.map(a => String(a.appId));
+        let cachedIds = cachedApps.map((a) => String(a.appId));
 
         if (cachedIds.length > 0) {
           try {
-            const cacheStatus = await ApiService.getPrefillCacheStatus(signalR.session.id, cachedIds, serviceBasePath);
+            const cacheStatus = await ApiService.getPrefillCacheStatus(
+              signalR.session.id,
+              cachedIds,
+              serviceBasePath
+            );
             cachedIds = cacheStatus?.upToDateAppIds?.length
               ? cacheStatus.upToDateAppIds.map((id: string) => String(id))
               : [];
-          } catch (cacheStatusError) {
-            console.warn('Failed to check cache status, clearing cached list:', cacheStatusError);
+          } catch {
             cachedIds = [];
           }
         }
@@ -438,8 +482,7 @@ function ServicePrefillPanel({ onSessionEnd, hubPath, serviceId, pendingService,
         if (cachedIds.length > 0) {
           addLog('info', t('prefill.log.gamesCached', { count: cachedIds.length }));
         }
-      } catch (err) {
-        console.error('Failed to load games:', err);
+      } catch {
         addLog('error', t('prefill.log.failedLoadLibrary'));
       } finally {
         setIsLoadingGames(false);
@@ -467,7 +510,10 @@ function ServicePrefillPanel({ onSessionEnd, hubPath, serviceId, pendingService,
               break;
             }
             signalR.expectedAppCountRef.current = selectedAppIds.length;
-            addLog('download', t('prefill.log.startingPrefillSelected', { count: selectedAppIds.length }));
+            addLog(
+              'download',
+              t('prefill.log.startingPrefillSelected', { count: selectedAppIds.length })
+            );
             const result = await callPrefillApi(signalR.session.id, {});
             if (!result?.success) {
               addLog('error', result?.errorMessage || t('prefill.log.prefillFailed'));
@@ -531,7 +577,8 @@ function ServicePrefillPanel({ onSessionEnd, hubPath, serviceId, pendingService,
               await signalR.hubConnection.current.invoke('ClearCache', signalR.session.id);
               addLog('success', t('prefill.log.tempCacheCleared'));
             } catch (err) {
-              const errorMessage = err instanceof Error ? err.message : t('prefill.log.failedClearCache');
+              const errorMessage =
+                err instanceof Error ? err.message : t('prefill.log.failedClearCache');
               addLog('error', errorMessage);
             }
             break;
@@ -543,20 +590,31 @@ function ServicePrefillPanel({ onSessionEnd, hubPath, serviceId, pendingService,
               addLog('success', result.message || t('prefill.log.cacheDbCleared'));
               setCachedAppIds([]);
             } catch (err) {
-              const errorMessage = err instanceof Error ? err.message : t('prefill.log.failedClearCacheDb');
+              const errorMessage =
+                err instanceof Error ? err.message : t('prefill.log.failedClearCacheDb');
               addLog('error', errorMessage);
             }
             break;
           }
         }
       } catch (err) {
-        console.error('Command execution failed:', err);
         addLog('error', err instanceof Error ? err.message : t('prefill.log.commandFailed'));
       } finally {
         setIsExecuting(false);
       }
     },
-    [signalR.session, signalR.hubConnection, signalR.expectedAppCountRef, signalR.timeRemaining, signalR.setError, callPrefillApi, selectedAppIds, addLog, loadGames, t]
+    [
+      signalR.session,
+      signalR.hubConnection,
+      signalR.expectedAppCountRef,
+      signalR.timeRemaining,
+      signalR.setError,
+      callPrefillApi,
+      selectedAppIds,
+      addLog,
+      loadGames,
+      t
+    ]
   );
 
   const handleEndSession = useCallback(async () => {
@@ -564,8 +622,8 @@ function ServicePrefillPanel({ onSessionEnd, hubPath, serviceId, pendingService,
 
     try {
       await signalR.hubConnection.current.invoke('EndSession', signalR.session.id);
-    } catch (err) {
-      console.error('Failed to end session:', err);
+    } catch {
+      // Session end failed - will be cleaned up by timeout
     }
   }, [signalR.session, signalR.hubConnection]);
 
@@ -576,8 +634,8 @@ function ServicePrefillPanel({ onSessionEnd, hubPath, serviceId, pendingService,
       await signalR.hubConnection.current.invoke('CancelLogin', signalR.session.id);
       setShowAuthModal(false);
       authActions.resetAuthForm();
-    } catch (err) {
-      console.error('Failed to cancel login:', err);
+    } catch {
+      // Cancel login failed
     }
   }, [signalR.session, signalR.hubConnection, authActions]);
 
@@ -623,8 +681,7 @@ function ServicePrefillPanel({ onSessionEnd, hubPath, serviceId, pendingService,
         setSelectedAppIds(normalizedAppIds);
         setShowGameSelection(false);
         addLog('success', t('prefill.log.selectedGames', { count: normalizedAppIds.length }));
-      } catch (err) {
-        console.error('Failed to save selection:', err);
+      } catch {
         addLog('error', t('prefill.log.failedSaveSelection'));
       }
     },
@@ -638,20 +695,20 @@ function ServicePrefillPanel({ onSessionEnd, hubPath, serviceId, pendingService,
     setEstimatedSize({ bytes: 0, loading: true });
 
     try {
-      const status = await signalR.hubConnection.current.invoke(
+      const status = (await signalR.hubConnection.current.invoke(
         'GetSelectedAppsStatus',
         signalR.session.id,
         selectedOS
-      ) as {
+      )) as {
         totalDownloadSize: number;
         message?: string;
-        apps?: Array<{
+        apps?: {
           appId: string;
           name: string;
           downloadSize: number;
           isUnsupportedOs?: boolean;
           unavailableReason?: string;
-        }>;
+        }[];
       };
 
       setEstimatedSize({
@@ -758,7 +815,8 @@ function ServicePrefillPanel({ onSessionEnd, hubPath, serviceId, pendingService,
   }, []);
 
   const isLoadingSession = signalR.isInitializing || signalR.isCreating;
-  const isSessionActive = !!signalR.session && signalR.session.status === 'Active' && signalR.timeRemaining > 0;
+  const isSessionActive =
+    !!signalR.session && signalR.session.status === 'Active' && signalR.timeRemaining > 0;
   const isSessionExpired = !!signalR.session && !isSessionActive;
 
   const handleStartNewSession = useCallback(() => {
@@ -870,9 +928,7 @@ function ServicePrefillPanel({ onSessionEnd, hubPath, serviceId, pendingService,
               <p className="font-medium text-sm text-[var(--theme-warning-text)]">
                 {t('prefill.sessionExpired.title')}
               </p>
-              <p className="text-sm text-themed-muted">
-                {t('prefill.sessionExpired.message')}
-              </p>
+              <p className="text-sm text-themed-muted">{t('prefill.sessionExpired.message')}</p>
             </div>
           </div>
           <Button
@@ -889,9 +945,11 @@ function ServicePrefillPanel({ onSessionEnd, hubPath, serviceId, pendingService,
       {/* Header Bar */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 rounded-lg bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-primary)]">
         <div className="flex items-center gap-4">
-          <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${
-            serviceId === 'epic' ? 'bg-[var(--theme-epic)]' : 'bg-[var(--theme-steam)]'
-          }`}>
+          <div
+            className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${
+              serviceId === 'epic' ? 'bg-[var(--theme-epic)]' : 'bg-[var(--theme-steam)]'
+            }`}
+          >
             {serviceId === 'epic' ? (
               <EpicIcon size={24} className="text-white" />
             ) : (
@@ -915,12 +973,16 @@ function ServicePrefillPanel({ onSessionEnd, hubPath, serviceId, pendingService,
           >
             <Timer
               className={`h-4 w-4 ${
-                signalR.timeRemaining < 600 ? 'text-[var(--theme-warning)]' : 'text-[var(--theme-text-muted)]'
+                signalR.timeRemaining < 600
+                  ? 'text-[var(--theme-warning)]'
+                  : 'text-[var(--theme-text-muted)]'
               }`}
             />
             <span
               className={`font-mono font-semibold tabular-nums ${
-                signalR.timeRemaining < 600 ? 'text-[var(--theme-warning-text)]' : 'text-[var(--theme-text-primary)]'
+                signalR.timeRemaining < 600
+                  ? 'text-[var(--theme-warning-text)]'
+                  : 'text-[var(--theme-text-primary)]'
               }`}
             >
               {formatTimeRemaining(signalR.timeRemaining)}
@@ -1009,12 +1071,18 @@ function ServicePrefillPanel({ onSessionEnd, hubPath, serviceId, pendingService,
 
           {/* Background Completion Notification Banner */}
           {backgroundCompletion && !signalR.prefillProgress && (
-            <CompletionBanner completion={backgroundCompletion} onDismiss={clearBackgroundCompletion} />
+            <CompletionBanner
+              completion={backgroundCompletion}
+              onDismiss={clearBackgroundCompletion}
+            />
           )}
 
           {/* Download Progress Card */}
           {signalR.prefillProgress && isSessionActive && (
-            <PrefillProgressCard progress={signalR.prefillProgress} onCancel={handleCancelPrefill} />
+            <PrefillProgressCard
+              progress={signalR.prefillProgress}
+              onCancel={handleCancelPrefill}
+            />
           )}
 
           {/* Command Buttons */}
@@ -1023,7 +1091,7 @@ function ServicePrefillPanel({ onSessionEnd, hubPath, serviceId, pendingService,
             isExecuting={isExecuting}
             isPrefillActive={signalR.isPrefillActive}
             isSessionActive={isSessionActive}
-            isUserAuthenticated={isUserAuthenticated}
+            isUserAuthenticated={isAdmin}
             selectedAppIds={selectedAppIds}
             selectedOS={selectedOS}
             maxConcurrency={maxConcurrency}
@@ -1042,7 +1110,9 @@ function ServicePrefillPanel({ onSessionEnd, hubPath, serviceId, pendingService,
                 <ScrollText className="h-4 w-4 text-[var(--theme-accent)]" />
               </div>
               <div>
-                <h3 className="text-base font-semibold text-themed-primary">{t('prefill.activityLog.title')}</h3>
+                <h3 className="text-base font-semibold text-themed-primary">
+                  {t('prefill.activityLog.title')}
+                </h3>
                 <p className="text-xs text-themed-muted">{t('prefill.activityLog.subtitle')}</p>
               </div>
             </div>

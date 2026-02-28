@@ -2,12 +2,7 @@ import { useTranslation } from 'react-i18next';
 import { Card } from '../../ui/Card';
 import { Button } from '../../ui/Button';
 import { CheckCircle2, X } from 'lucide-react';
-
-interface BackgroundCompletion {
-  completedAt: string;
-  message: string;
-  duration?: number;
-}
+import type { BackgroundCompletion } from './hooks/prefillTypes';
 
 interface CompletionBannerProps {
   completion: BackgroundCompletion;

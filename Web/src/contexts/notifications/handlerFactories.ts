@@ -29,7 +29,7 @@ import {
  * Configuration for creating a started event handler.
  * @template T - The type of the SignalR event
  */
-export interface StartedHandlerConfig<T> {
+interface StartedHandlerConfig<T> {
   /** The notification type this handler creates */
   type: NotificationType;
   /** Function to extract the notification ID from the event */
@@ -111,8 +111,6 @@ export function createStartedHandler<T>(
   };
 }
 
-
-
 // ============================================================================
 // Completion Handler Factory
 // ============================================================================
@@ -121,7 +119,7 @@ export function createStartedHandler<T>(
  * Configuration for creating a completion event handler.
  * @template T - The type of the SignalR event (must have success and optional message)
  */
-export interface CompletionHandlerConfig<T> {
+interface CompletionHandlerConfig<T> {
   /** The notification type this handler completes */
   type: NotificationType;
   /** Function to extract the notification ID from the event */
@@ -227,7 +225,7 @@ export function createCompletionHandler<T extends { success: boolean; message?: 
           // Fast completion - no prior started event
           if (config.supportFastCompletion) {
             const fastId = config.getFastCompletionId?.(event) ?? notificationId;
-            idToSchedule = fastId;  // Update the ID to schedule
+            idToSchedule = fastId; // Update the ID to schedule
             const status: 'completed' | 'failed' = event.success ? 'completed' : 'failed';
             const newNotification = {
               id: fastId,
@@ -287,7 +285,6 @@ export function createCompletionHandler<T extends { success: boolean; message?: 
   };
 }
 
-
 // ============================================================================
 // Status-Aware Progress Handler Factory
 // ============================================================================
@@ -297,7 +294,7 @@ export function createCompletionHandler<T extends { success: boolean; message?: 
  * This handler automatically detects completion/error states from the event's status field.
  * @template T - The type of the SignalR event (must have optional status field)
  */
-export interface StatusAwareProgressConfig<T> {
+interface StatusAwareProgressConfig<T> {
   /** The notification type this handler updates */
   type: NotificationType;
   /** Function to extract the notification ID from the event */
@@ -535,7 +532,11 @@ export function createDepotMappingCompletionHandler(
       setNotifications((prev: UnifiedNotification[]) =>
         prev.map((n) =>
           n.id === notificationId
-            ? { ...n, progress: newProgress, message: newProgress >= 100 ? successMessage : n.message }
+            ? {
+                ...n,
+                progress: newProgress,
+                message: newProgress >= 100 ? successMessage : n.message
+              }
             : n
         )
       );
@@ -550,7 +551,12 @@ export function createDepotMappingCompletionHandler(
             localStorage.removeItem(storageKey);
             return prev.map((n) =>
               n.id === notificationId
-                ? { ...n, status: 'completed' as const, message: successMessage, details: { ...n.details, ...successDetails } }
+                ? {
+                    ...n,
+                    status: 'completed' as const,
+                    message: successMessage,
+                    details: { ...n.details, ...successDetails }
+                  }
                 : n
             );
           });
@@ -585,7 +591,13 @@ export function createDepotMappingCompletionHandler(
       // Update existing notification
       return prev.map((n) =>
         n.id === notificationId
-          ? { ...n, status: 'completed' as const, message: 'Depot mapping scan cancelled', progress: 100, details: { ...n.details, cancelled: true } }
+          ? {
+              ...n,
+              status: 'completed' as const,
+              message: 'Depot mapping scan cancelled',
+              progress: 100,
+              details: { ...n.details, cancelled: true }
+            }
           : n
       );
     });
@@ -596,7 +608,10 @@ export function createDepotMappingCompletionHandler(
   /** Handles successful depot mapping completion */
   const handleSuccess = (event: DepotMappingCompleteEvent): void => {
     const successMessage = event.message || 'Depot mapping completed successfully';
-    const successDetails = { totalMappings: event.totalMappings, downloadsUpdated: event.downloadsUpdated };
+    const successDetails = {
+      totalMappings: event.totalMappings,
+      downloadsUpdated: event.downloadsUpdated
+    };
     const isIncremental = event.scanMode === 'incremental';
 
     localStorage.removeItem(storageKey);
@@ -654,7 +669,13 @@ export function createDepotMappingCompletionHandler(
         // Update existing notification
         return prev.map((n) =>
           n.id === notificationId
-            ? { ...n, status: 'completed' as const, message: successMessage, progress: 100, details: { ...n.details, ...successDetails } }
+            ? {
+                ...n,
+                status: 'completed' as const,
+                message: successMessage,
+                progress: 100,
+                details: { ...n.details, ...successDetails }
+              }
             : n
         );
       });
@@ -672,7 +693,9 @@ export function createDepotMappingCompletionHandler(
       errorMessage.includes('requires a full scan');
 
     if (requiresFullScan) {
-      window.dispatchEvent(new CustomEvent('show-full-scan-modal', { detail: { error: errorMessage } }));
+      window.dispatchEvent(
+        new CustomEvent('show-full-scan-modal', { detail: { error: errorMessage } })
+      );
     }
 
     localStorage.removeItem(storageKey);

@@ -8,7 +8,7 @@ import { useSignalR } from '@contexts/SignalRContext';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import ActiveSessions from './ActiveSessions';
 import GuestConfiguration from './GuestConfiguration';
-import { Session, ThemeOption, showToast } from './types';
+import { type Session, type ThemeOption, showToast } from './types';
 
 const UserTab: React.FC = () => {
   const { t } = useTranslation();
@@ -42,7 +42,7 @@ const UserTab: React.FC = () => {
         setGuestModeLocked(false);
       }
     } catch (err) {
-      console.error('Failed to load guest duration:', err);
+      showToast('error', getErrorMessage(err) || t('user.errors.loadGuestDuration'));
       setGuestDurationHours(6);
       setGuestModeLocked(false);
     }
@@ -64,22 +64,20 @@ const UserTab: React.FC = () => {
     try {
       setUpdatingGuestLock(true);
       const newLockState = value ? value === 'locked' : !guestModeLocked;
-      const response = await fetch('/api/auth/guest/config/lock', ApiService.getFetchOptions({
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ isLocked: newLockState })
-      }));
+      const response = await fetch(
+        '/api/auth/guest/config/lock',
+        ApiService.getFetchOptions({
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ isLocked: newLockState })
+        })
+      );
 
       if (response.ok) {
         setGuestModeLocked(newLockState);
-        showToast(
-          'success',
-          newLockState
-            ? t('user.locked')
-            : t('user.unlocked')
-        );
+        showToast('success', newLockState ? t('user.locked') : t('user.unlocked'));
       } else {
         const errorData = await response.json();
         showToast('error', errorData.error || t('user.errors.updateGuestLock'));
@@ -101,7 +99,7 @@ const UserTab: React.FC = () => {
         }))
       );
     } catch (err) {
-      console.error('Failed to load available themes:', err);
+      showToast('error', getErrorMessage(err) || t('user.errors.loadThemes'));
     }
   };
 
@@ -113,20 +111,23 @@ const UserTab: React.FC = () => {
         setDefaultGuestTheme(data.themeId || 'dark-default');
       }
     } catch (err) {
-      console.error('Failed to load default guest theme:', err);
+      showToast('error', getErrorMessage(err) || t('user.errors.loadGuestTheme'));
     }
   };
 
   const handleUpdateGuestTheme = async (newThemeId: string) => {
     try {
       setUpdatingGuestTheme(true);
-      const response = await fetch('/api/themes/preferences/guest', ApiService.getFetchOptions({
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ themeId: newThemeId })
-      }));
+      const response = await fetch(
+        '/api/themes/preferences/guest',
+        ApiService.getFetchOptions({
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ themeId: newThemeId })
+        })
+      );
 
       if (response.ok) {
         setDefaultGuestTheme(newThemeId);
@@ -143,27 +144,33 @@ const UserTab: React.FC = () => {
 
   const loadDefaultGuestRefreshRate = async () => {
     try {
-      const response = await fetch('/api/system/default-guest-refresh-rate', ApiService.getFetchOptions());
+      const response = await fetch(
+        '/api/system/default-guest-refresh-rate',
+        ApiService.getFetchOptions()
+      );
       if (response.ok) {
         const data = await response.json();
         setDefaultGuestRefreshRate(data.refreshRate || 'STANDARD');
         setGuestRefreshRateLocked(data.locked ?? true);
       }
     } catch (err) {
-      console.error('Failed to load default guest refresh rate:', err);
+      showToast('error', getErrorMessage(err) || t('user.errors.loadGuestRefreshRate'));
     }
   };
 
   const handleUpdateGuestRefreshRate = async (newRate: string) => {
     try {
       setUpdatingGuestRefreshRate(true);
-      const response = await fetch('/api/system/default-guest-refresh-rate', ApiService.getFetchOptions({
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ refreshRate: newRate })
-      }));
+      const response = await fetch(
+        '/api/system/default-guest-refresh-rate',
+        ApiService.getFetchOptions({
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ refreshRate: newRate })
+        })
+      );
 
       if (response.ok) {
         setDefaultGuestRefreshRate(newRate);
@@ -182,13 +189,16 @@ const UserTab: React.FC = () => {
   const handleUpdateGuestRefreshRateLock = async (locked: boolean) => {
     try {
       setUpdatingGuestRefreshRateLock(true);
-      const response = await fetch('/api/system/guest-refresh-rate-lock', ApiService.getFetchOptions({
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ locked })
-      }));
+      const response = await fetch(
+        '/api/system/guest-refresh-rate-lock',
+        ApiService.getFetchOptions({
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ locked })
+        })
+      );
 
       if (response.ok) {
         setGuestRefreshRateLocked(locked);
@@ -249,7 +259,15 @@ const UserTab: React.FC = () => {
       off('DefaultGuestRefreshRateChanged', handleDefaultGuestRefreshRateChanged);
       off('GuestRefreshRateLockChanged', handleGuestRefreshRateLockChanged);
     };
-  }, [on, off, handleGuestModeLockChanged, handleGuestDurationUpdated, handleDefaultGuestThemeChanged, handleDefaultGuestRefreshRateChanged, handleGuestRefreshRateLockChanged]);
+  }, [
+    on,
+    off,
+    handleGuestModeLockChanged,
+    handleGuestDurationUpdated,
+    handleDefaultGuestThemeChanged,
+    handleDefaultGuestRefreshRateChanged,
+    handleGuestRefreshRateLockChanged
+  ]);
 
   return (
     <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-6 space-y-5 sm:space-y-6 animate-fadeIn">
