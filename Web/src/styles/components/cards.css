@@ -110,11 +110,23 @@
     opacity: 0.8;
   }
 
+  .session-card--admin {
+    border-left: 3px solid var(--theme-user-session);
+  }
+
+  .session-card--guest {
+    border-left: 3px solid var(--theme-guest-session);
+  }
+
   /* Bulk action card */
   .bulk-action-card {
     @apply p-4;
     border-radius: var(--theme-border-radius-lg);
-    background: linear-gradient(135deg, var(--theme-bg-secondary) 0%, var(--theme-bg-tertiary) 100%);
+    background: linear-gradient(
+      135deg,
+      var(--theme-bg-secondary) 0%,
+      var(--theme-bg-tertiary) 100%
+    );
     border: 1px solid var(--theme-border-secondary);
   }
 

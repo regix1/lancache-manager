@@ -856,7 +856,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     return (
       <React.Fragment key={session.id}>
         <tr
-          className={`session-table-row session-table-row--${sessionStatus} cursor-pointer`}
+          className={`session-table-row session-table-row--${isAdminSession(session) ? 'admin' : 'guest'} cursor-pointer`}
           onClick={() => toggleSessionExpanded(session.id)}
         >
           {/* Status */}
@@ -1111,7 +1111,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           {timezoneLabel}
         </span>
         {prefs.sharpCorners && <span className="pref-badge">Sharp corners</span>}
-        {prefs.showDatasourceLabels && <span className="pref-badge">Labels</span>}
+        {!prefs.showDatasourceLabels && <span className="pref-badge">Labels off</span>}
       </>
     );
   };
@@ -1150,7 +1150,10 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       : t('activeSessions.labels.server');
 
     return (
-      <div key={session.id} className={`session-card ${isDimmed ? 'dimmed' : ''}`}>
+      <div
+        key={session.id}
+        className={`session-card session-card--${isAdminSession(session) ? 'admin' : 'guest'} ${isDimmed ? 'dimmed' : ''}`}
+      >
         {/* Header - Always visible */}
         <div className="p-3">
           <div className="cursor-pointer" onClick={() => toggleSessionExpanded(session.id)}>
@@ -1410,7 +1413,10 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     const parsedUA = parseUserAgent(session.userAgent);
 
     return (
-      <div key={session.id} className="session-card dimmed">
+      <div
+        key={session.id}
+        className={`session-card session-card--${isAdminSession(session) ? 'admin' : 'guest'} dimmed`}
+      >
         <div className="p-3 sm:p-4">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-start gap-3 flex-1 min-w-0">

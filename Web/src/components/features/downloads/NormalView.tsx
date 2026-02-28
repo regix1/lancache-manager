@@ -221,11 +221,12 @@ const GroupCard: React.FC<GroupCardProps> = ({
       className={`flex flex-col ${fullHeightBanners ? 'sm:flex-row sm:items-stretch' : 'sm:flex-row'}`}
     >
       {bannerContent && (
-        <div
-          className={`flex-shrink-0 overflow-hidden ${bannerWrapperClasses} sm:border-r sm:border-[var(--theme-border-secondary)]`}
-        >
-          {bannerContent}
-        </div>
+        <>
+          <div className={`flex-shrink-0 overflow-hidden ${bannerWrapperClasses}`}>
+            {bannerContent}
+          </div>
+          <div className="hidden sm:block w-px flex-shrink-0 self-stretch bg-[var(--theme-border-secondary)]" />
+        </>
       )}
       <div
         className={`flex-1 ${

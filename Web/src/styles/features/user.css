@@ -214,7 +214,6 @@
 .session-table-header th {
   @apply py-2.5 px-4 text-xs font-semibold uppercase tracking-wider text-left;
   color: var(--theme-text-muted);
-  border-bottom: 1px solid var(--theme-border-secondary);
 }
 
 /* Rounded row "cards" */
@@ -247,17 +246,13 @@
   background: var(--theme-bg-hover);
 }
 
-/* Left accent color matches session status */
-.session-table-row--active td:first-child {
-  border-left: 3px solid var(--theme-success);
+/* Left accent color matches user type */
+.session-table-row--admin td:first-child {
+  border-left: 3px solid var(--theme-user-session);
 }
 
-.session-table-row--away td:first-child {
-  border-left: 3px solid var(--theme-warning);
-}
-
-.session-table-row--inactive td:first-child {
-  border-left: 3px solid var(--theme-text-muted);
+.session-table-row--guest td:first-child {
+  border-left: 3px solid var(--theme-guest-session);
 }
 
 /* ==============================================
