@@ -820,7 +820,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     return (
       <React.Fragment key={session.id}>
         <tr
-          className={`session-table-row cursor-pointer ${session.isCurrentSession ? 'session-table-row--current' : ''}`}
+          className={`session-table-row session-table-row--${sessionStatus} cursor-pointer`}
           onClick={() => toggleSessionExpanded(session.id)}
         >
           {/* Status */}

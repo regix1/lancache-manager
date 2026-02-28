@@ -185,7 +185,8 @@
 
 .session-table {
   @apply w-full;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0 0.375rem;
 }
 
 .session-table-header {
@@ -200,23 +201,47 @@
   border-bottom: 1px solid var(--theme-border-secondary);
 }
 
+/* Rounded row "cards" */
 .session-table-row {
-  transition: background 0.15s ease;
-}
-
-.session-table-row:hover {
-  background: var(--theme-bg-hover);
-}
-
-.session-table-row--current {
-  border-left: 3px solid var(--theme-success);
+  transition: all 0.15s ease;
 }
 
 .session-table-row td {
   @apply py-3.5 px-4 text-sm;
   vertical-align: middle;
   color: var(--theme-text-primary);
+  border-top: 1px solid var(--theme-border-secondary);
   border-bottom: 1px solid var(--theme-border-secondary);
+  background: transparent;
+}
+
+.session-table-row td:first-child {
+  border-left: 1px solid var(--theme-border-secondary);
+  border-top-left-radius: var(--theme-border-radius-lg);
+  border-bottom-left-radius: var(--theme-border-radius-lg);
+}
+
+.session-table-row td:last-child {
+  border-right: 1px solid var(--theme-border-secondary);
+  border-top-right-radius: var(--theme-border-radius-lg);
+  border-bottom-right-radius: var(--theme-border-radius-lg);
+}
+
+.session-table-row:hover td {
+  background: var(--theme-bg-hover);
+}
+
+/* Left accent color matches session status */
+.session-table-row--active td:first-child {
+  border-left: 3px solid var(--theme-success);
+}
+
+.session-table-row--away td:first-child {
+  border-left: 3px solid var(--theme-warning);
+}
+
+.session-table-row--inactive td:first-child {
+  border-left: 3px solid var(--theme-text-muted);
 }
 
 /* ==============================================
