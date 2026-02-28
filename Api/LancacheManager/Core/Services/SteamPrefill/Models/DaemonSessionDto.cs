@@ -9,6 +9,7 @@ public class DaemonSessionDto
     public string UserId { get; set; } = string.Empty;
     public string ContainerName { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
+    public string? ErrorMessage { get; set; }
     public string AuthState { get; set; } = string.Empty;
     public bool IsPrefilling { get; set; }
     public DateTime CreatedAt { get; set; }
@@ -52,6 +53,7 @@ public class DaemonSessionDto
             UserId = session.UserId,
             ContainerName = session.ContainerName,
             Status = session.Status.ToString(),
+            ErrorMessage = session.ErrorMessage,
             AuthState = session.AuthState.ToString(),
             IsPrefilling = session.IsPrefilling,
             CreatedAt = session.CreatedAt,

@@ -603,8 +603,23 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         };
         daemonClient.OnDisconnected += async () =>
         {
-            _logger.LogWarning("Socket disconnected for session {SessionId}", sessionId);
-            await Task.CompletedTask;
+            _logger.LogWarning("Socket disconnected unexpectedly for session {SessionId}", sessionId);
+
+            if (_sessions.TryGetValue(sessionId, out var disconnectedSession))
+            {
+                disconnectedSession.Status = DaemonSessionStatus.Error;
+                disconnectedSession.ErrorMessage = "Socket connection lost unexpectedly";
+
+                try
+                {
+                    var sessionDto = DaemonSessionDto.FromSession(disconnectedSession);
+                    await _notifications.NotifyAllBothHubsAsync(EventSessionUpdated, sessionDto);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to notify frontend of disconnect for session {SessionId}", sessionId);
+                }
+            }
         };
 
         // Connect to daemon (socket or TCP) with retry

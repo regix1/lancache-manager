@@ -12,6 +12,7 @@ public class DaemonSession
     public string CommandsDir { get; init; } = string.Empty;
     public string ResponsesDir { get; init; } = string.Empty;
     public DaemonSessionStatus Status { get; set; } = DaemonSessionStatus.Active;
+    public string? ErrorMessage { get; set; }
     public DaemonAuthState AuthState { get; set; } = DaemonAuthState.NotAuthenticated;
     public bool IsPrefilling { get; set; }
     public DateTime? PrefillStartedAt { get; set; }
