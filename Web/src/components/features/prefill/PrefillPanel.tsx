@@ -404,17 +404,23 @@ function ServicePrefillPanel({ onSessionEnd, hubPath, serviceId, pendingService,
           throw new Error(`Failed to get games: HTTP ${gamesResponse.status}`);
         }
         const games = await gamesResponse.json();
-        setOwnedGames(games || []);
-        addLog('info', t('prefill.log.foundGames', { count: games?.length || 0 }));
+        const normalizedGames = (games || []).map((game: OwnedGame) => ({
+          ...game,
+          appId: String(game.appId)
+        }));
+        setOwnedGames(normalizedGames);
+        addLog('info', t('prefill.log.foundGames', { count: normalizedGames.length }));
 
         // Get cached apps via ApiService and verify against daemon manifests/build versions
         const cachedApps = await ApiService.getPrefillCachedApps();
-        let cachedIds = cachedApps.map(a => a.appId);
+        let cachedIds = cachedApps.map(a => String(a.appId));
 
         if (cachedIds.length > 0) {
           try {
             const cacheStatus = await ApiService.getPrefillCacheStatus(signalR.session.id, cachedIds, serviceBasePath);
-            cachedIds = cacheStatus?.upToDateAppIds?.length ? cacheStatus.upToDateAppIds : [];
+            cachedIds = cacheStatus?.upToDateAppIds?.length
+              ? cacheStatus.upToDateAppIds.map((id: string) => String(id))
+              : [];
           } catch (cacheStatusError) {
             console.warn('Failed to check cache status, clearing cached list:', cacheStatusError);
             cachedIds = [];
@@ -425,7 +431,7 @@ function ServicePrefillPanel({ onSessionEnd, hubPath, serviceId, pendingService,
         gamesCacheRef.current = {
           sessionId: signalR.session.id,
           fetchedAt: Date.now(),
-          ownedGames: games || [],
+          ownedGames: normalizedGames,
           cachedAppIds: cachedIds,
           hasData: true
         };
@@ -597,6 +603,7 @@ function ServicePrefillPanel({ onSessionEnd, hubPath, serviceId, pendingService,
   const handleSaveGameSelection = useCallback(
     async (appIds: string[]) => {
       if (!signalR.session) return;
+      const normalizedAppIds = appIds.map((id) => String(id));
 
       try {
         const response = await fetch(
@@ -607,15 +614,15 @@ function ServicePrefillPanel({ onSessionEnd, hubPath, serviceId, pendingService,
             headers: {
               'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ appIds })
+            body: JSON.stringify({ appIds: normalizedAppIds })
           }
         );
         if (!response.ok) {
           throw new Error(`Failed to save selection: HTTP ${response.status}`);
         }
-        setSelectedAppIds(appIds);
+        setSelectedAppIds(normalizedAppIds);
         setShowGameSelection(false);
-        addLog('success', t('prefill.log.selectedGames', { count: appIds.length }));
+        addLog('success', t('prefill.log.selectedGames', { count: normalizedAppIds.length }));
       } catch (err) {
         console.error('Failed to save selection:', err);
         addLog('error', t('prefill.log.failedSaveSelection'));
