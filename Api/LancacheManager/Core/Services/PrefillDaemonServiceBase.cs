@@ -383,7 +383,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                 $"{hostCommandsDir}:/commands",
                 $"{hostResponsesDir}:/responses"
             },
-            AutoRemove = true
+            AutoRemove = false  // Temporarily disabled for debugging socket disconnection
         };
 
         // Disable IPv6 to ensure DNS queries go through IPv4 lancache-dns
