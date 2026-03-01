@@ -422,7 +422,7 @@
 }
 
 .settings-group--access {
-  border-left-color: hsl(38, 92%, 50%);
+  border-left-color: var(--theme-icon-orange);
 }
 
 .settings-group--steam {
@@ -434,11 +434,11 @@
 }
 
 .settings-group--look {
-  border-left-color: hsl(210, 80%, 60%);
+  border-left-color: var(--theme-icon-blue);
 }
 
 .settings-group--display {
-  border-left-color: hsl(260, 60%, 65%);
+  border-left-color: var(--theme-icon-purple);
 }
 
 /* ==============================================
