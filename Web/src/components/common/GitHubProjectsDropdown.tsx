@@ -453,6 +453,14 @@ const DEPENDENCY_REPOS: GitHubRepo[] = [
     description: 'Background daemon for scheduled Steam game prefilling and cache warming',
     type: 'dependency',
     isFork: true
+  },
+  {
+    name: 'Epic Prefill Daemon',
+    shortName: 'epic-prefill-daemon',
+    url: 'https://github.com/regix1/epic-prefill-daemon',
+    description: 'Background daemon for scheduled Epic Games prefilling and cache warming',
+    type: 'dependency',
+    isFork: true
   }
 ];
 
