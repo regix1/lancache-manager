@@ -32,6 +32,8 @@ public class PrefillSessionDto
     public string? ContainerId { get; set; }
     public string? ContainerName { get; set; }
     public string? SteamUsername { get; set; }
+    public string Platform { get; set; } = "Steam";
+    public string? Username { get; set; }
     public string Status { get; set; } = string.Empty;
     public bool IsAuthenticated { get; set; }
     public bool IsPrefilling { get; set; }

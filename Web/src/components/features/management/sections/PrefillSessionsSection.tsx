@@ -214,6 +214,14 @@ const SessionCard: React.FC<{
   const steamUsername = isDaemonSession
     ? (session as DaemonSessionDto).steamUsername
     : (session as PrefillSessionDto).steamUsername;
+
+  const platform = isDaemonSession
+    ? (session as DaemonSessionDto).platform || 'Steam'
+    : (session as PrefillSessionDto).platform || 'Steam';
+
+  const displayUsername = isDaemonSession
+    ? (session as DaemonSessionDto).username || (session as DaemonSessionDto).steamUsername
+    : (session as PrefillSessionDto).username || (session as PrefillSessionDto).steamUsername;
   const containerName = isDaemonSession
     ? (session as DaemonSessionDto).containerName
     : (session as PrefillSessionDto).containerName;
@@ -277,19 +285,26 @@ const SessionCard: React.FC<{
             <div className="prefill-session-details">
               {/* Header: Username and status */}
               <div className="prefill-session-header">
-                {steamUsername ? (
-                  <span className="prefill-session-username">
+                {displayUsername ? (
+                  <span className={`prefill-session-username platform-${platform.toLowerCase()}`}>
                     <User className="w-3.5 h-3.5" />
-                    {steamUsername}
+                    {displayUsername}
                   </span>
                 ) : (
                   <span className="prefill-session-no-user">
-                    {isAuthenticated_
-                      ? t('management.prefillSessions.labels.unauthorizedAccount')
-                      : t('management.prefillSessions.labels.notLoggedInSession')}
+                    {platform === 'Epic'
+                      ? 'Epic Session'
+                      : isAuthenticated_
+                        ? t('management.prefillSessions.labels.unauthorizedAccount')
+                        : t('management.prefillSessions.labels.notLoggedInSession')}
                   </span>
                 )}
                 <StatusBadge status={status} isLive={isLive} />
+                <span
+                  className={`prefill-platform-badge prefill-platform-${platform.toLowerCase()}`}
+                >
+                  {platform}
+                </span>
                 {!isDaemonSession && (session as PrefillSessionDto).isAuthenticated && (
                   <Tooltip content={t('management.prefillSessions.tooltips.steamAuthenticated')}>
                     <CheckCircle className="w-4 h-4 icon-green flex-shrink-0" />
@@ -396,7 +411,7 @@ const SessionCard: React.FC<{
 
               {isAdmin && isLive && (
                 <>
-                  {steamUsername && onBan && (
+                  {platform === 'Steam' && steamUsername && onBan && (
                     <Tooltip content={t('management.prefillSessions.tooltips.banUser')}>
                       <Button
                         variant="subtle"
@@ -636,6 +651,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   const [pageSize] = useState(20);
   const [totalCount, setTotalCount] = useState(0);
   const [statusFilter, setStatusFilter] = useState<string>('');
+  const [platformFilter, setPlatformFilter] = useState<string>('all');
 
   // Bans state
   const [bans, setBans] = useState<BannedSteamUserDto[]>([]);
@@ -664,7 +680,12 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
     setLoadingSessions(true);
     try {
       const [sessionsRes, activeRes] = await Promise.all([
-        ApiService.getPrefillSessions(page, pageSize, statusFilter || undefined),
+        ApiService.getPrefillSessions(
+          page,
+          pageSize,
+          statusFilter || undefined,
+          platformFilter === 'all' ? undefined : platformFilter
+        ),
         ApiService.getActivePrefillSessions()
       ]);
       setSessions(sessionsRes.sessions);
@@ -702,7 +723,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
     } finally {
       setLoadingSessions(false);
     }
-  }, [page, pageSize, statusFilter, onError]);
+  }, [page, pageSize, statusFilter, platformFilter, onError]);
 
   // Load bans
   const loadBans = useCallback(async () => {
@@ -809,12 +830,20 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
     on('DaemonSessionUpdated', handleSessionUpdated);
     on('DaemonSessionTerminated', handleSessionTerminated);
     on('PrefillHistoryUpdated', handlePrefillHistoryUpdated);
+    on('EpicDaemonSessionCreated', handleSessionCreated);
+    on('EpicDaemonSessionUpdated', handleSessionUpdated);
+    on('EpicDaemonSessionTerminated', handleSessionTerminated);
+    on('EpicPrefillHistoryUpdated', handlePrefillHistoryUpdated);
 
     return () => {
       off('DaemonSessionCreated', handleSessionCreated);
       off('DaemonSessionUpdated', handleSessionUpdated);
       off('DaemonSessionTerminated', handleSessionTerminated);
       off('PrefillHistoryUpdated', handlePrefillHistoryUpdated);
+      off('EpicDaemonSessionCreated', handleSessionCreated);
+      off('EpicDaemonSessionUpdated', handleSessionUpdated);
+      off('EpicDaemonSessionTerminated', handleSessionTerminated);
+      off('EpicPrefillHistoryUpdated', handlePrefillHistoryUpdated);
     };
   }, [on, off]);
 
@@ -1032,11 +1061,29 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                 ] as DropdownOption[]
               }
               value={statusFilter}
-              onChange={(value) => {
+              onChange={(value: string) => {
                 setStatusFilter(value);
                 setPage(1);
               }}
               placeholder={t('management.prefillSessions.statusFilters.all')}
+              compactMode
+              className="min-w-[120px]"
+              dropdownWidth="140px"
+            />
+            <EnhancedDropdown
+              options={
+                [
+                  { value: 'all', label: 'All Platforms' },
+                  { value: 'Steam', label: 'Steam' },
+                  { value: 'Epic', label: 'Epic' }
+                ] as DropdownOption[]
+              }
+              value={platformFilter}
+              onChange={(value: string) => {
+                setPlatformFilter(value);
+                setPage(1);
+              }}
+              placeholder="All Platforms"
               compactMode
               className="min-w-[120px]"
               dropdownWidth="140px"

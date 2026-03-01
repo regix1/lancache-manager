@@ -387,6 +387,7 @@ public sealed class SocketDaemonClient : IDaemonClient
                     {
                         var state = authData.TryGetProperty("state", out var stateElem) ? stateElem.GetString() : null;
                         var message = authData.TryGetProperty("message", out var msgElem) ? msgElem.GetString() : null;
+                        var displayName = authData.TryGetProperty("displayName", out var dnElem) ? dnElem.GetString() : null;
                         _logger?.LogInformation("Auth state changed: {State} - {Message}", state, message);
                         // Convert auth state to DaemonStatus for the status event
                         if (OnStatusUpdate != null)
@@ -395,6 +396,7 @@ public sealed class SocketDaemonClient : IDaemonClient
                             {
                                 Status = state ?? "unknown",
                                 Message = message,
+                                DisplayName = displayName,
                                 Timestamp = DateTime.UtcNow
                             });
                         }

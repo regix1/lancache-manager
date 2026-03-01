@@ -319,6 +319,7 @@ public sealed class TcpDaemonClient : IDaemonClient
                     {
                         var state = authData.TryGetProperty("state", out var stateElem) ? stateElem.GetString() : null;
                         var message = authData.TryGetProperty("message", out var msgElem) ? msgElem.GetString() : null;
+                        var displayName = authData.TryGetProperty("displayName", out var dnElem) ? dnElem.GetString() : null;
                         _logger?.LogInformation("Auth state changed: {State} - {Message}", state, message);
                         if (OnStatusUpdate != null)
                         {
@@ -326,6 +327,7 @@ public sealed class TcpDaemonClient : IDaemonClient
                             {
                                 Status = state ?? "unknown",
                                 Message = message,
+                                DisplayName = displayName,
                                 Timestamp = DateTime.UtcNow
                             });
                         }

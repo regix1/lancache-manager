@@ -682,6 +682,7 @@
 .prefill-filter-inline {
   display: flex;
   align-items: center;
+  gap: 0.5rem;
 }
 
 /* Form Input */
@@ -703,6 +704,33 @@
 
 .prefill-input::placeholder {
   color: var(--theme-text-muted);
+}
+
+/* Platform badges */
+.prefill-platform-badge {
+  padding: 0.125rem 0.5rem;
+  border-radius: var(--theme-border-radius, 0.5rem);
+  font-size: 0.6875rem;
+  font-weight: 500;
+}
+
+.prefill-platform-steam {
+  background-color: color-mix(in srgb, var(--theme-steam) 15%, transparent);
+  color: var(--theme-steam);
+}
+
+.prefill-platform-epic {
+  background-color: color-mix(in srgb, var(--theme-epic) 15%, transparent);
+  color: var(--theme-epic);
+}
+
+/* Platform-aware username icon colors */
+.prefill-session-username.platform-steam svg {
+  color: var(--theme-steam);
+}
+
+.prefill-session-username.platform-epic svg {
+  color: var(--theme-epic);
 }
 
 /* Accordion spacing */

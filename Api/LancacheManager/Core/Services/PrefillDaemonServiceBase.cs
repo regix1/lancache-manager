@@ -567,6 +567,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             CommandsDir = commandsDir,
             ResponsesDir = responsesDir,
             ExpiresAt = DateTime.UtcNow.AddMinutes(GetSessionTimeoutMinutes()),
+            Platform = ServiceName,
             IpAddress = ipAddress,
             UserAgent = userAgent,
             OperatingSystem = os,
@@ -666,7 +667,8 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             userId,
             containerId,
             containerName,
-            session.ExpiresAt);
+            session.ExpiresAt,
+            ServiceName);
 
         _logger.LogInformation("Created daemon session {SessionId} for user {UserId}", sessionId, userId);
 
@@ -841,6 +843,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         if (challenge.CredentialType.Equals("username", StringComparison.OrdinalIgnoreCase))
         {
             session.SteamUsername = credential;
+            session.Username = credential;
 
             // Update the database record with the username
             await _sessionService.SetSessionUsernameAsync(sessionId, credential);

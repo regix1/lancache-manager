@@ -16,20 +16,23 @@ namespace LancacheManager.Controllers;
 public class PrefillAdminController : ControllerBase
 {
     private readonly PrefillSessionService _sessionService;
-    private readonly SteamDaemonService _daemonService;
+    private readonly SteamDaemonService _steamDaemonService;
+    private readonly EpicPrefillDaemonService _epicDaemonService;
     private readonly PrefillCacheService _cacheService;
     private readonly ILogger<PrefillAdminController> _logger;
     private readonly ISignalRNotificationService _notifications;
 
     public PrefillAdminController(
         PrefillSessionService sessionService,
-        SteamDaemonService daemonService,
+        SteamDaemonService steamDaemonService,
+        EpicPrefillDaemonService epicDaemonService,
         PrefillCacheService cacheService,
         ILogger<PrefillAdminController> logger,
         ISignalRNotificationService notifications)
     {
         _sessionService = sessionService;
-        _daemonService = daemonService;
+        _steamDaemonService = steamDaemonService;
+        _epicDaemonService = epicDaemonService;
         _cacheService = cacheService;
         _logger = logger;
         _notifications = notifications;
@@ -47,12 +50,15 @@ public class PrefillAdminController : ControllerBase
     public async Task<ActionResult<PrefillSessionsResponse>> GetSessions(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
-        [FromQuery] string? status = null)
+        [FromQuery] string? status = null,
+        [FromQuery] string? platform = null)
     {
-        var (sessions, totalCount) = await _sessionService.GetSessionsAsync(page, pageSize, status);
+        var (sessions, totalCount) = await _sessionService.GetSessionsAsync(page, pageSize, status, platform);
 
-        // Also get in-memory sessions for live data
-        var liveSessions = _daemonService.GetAllSessions();
+        // Also get in-memory sessions for live data from both services
+        var steamSessions = _steamDaemonService.GetAllSessions();
+        var epicSessions = _epicDaemonService.GetAllSessions();
+        var liveSessions = steamSessions.Concat(epicSessions).ToList();
 
         // Enrich DB sessions with live data
         var enrichedSessions = sessions.Select(s =>
@@ -66,6 +72,8 @@ public class PrefillAdminController : ControllerBase
                 ContainerId = s.ContainerId,
                 ContainerName = s.ContainerName,
                 SteamUsername = liveSession?.SteamUsername ?? s.SteamUsername,
+                Platform = liveSession?.Platform ?? s.Platform,
+                Username = liveSession != null ? (liveSession.Username ?? liveSession.SteamUsername) : s.SteamUsername,
                 Status = liveSession?.Status.ToString() ?? s.Status,
                 IsAuthenticated = liveSession?.AuthState == DaemonAuthState.Authenticated || s.IsAuthenticated,
                 IsPrefilling = liveSession?.IsPrefilling ?? s.IsPrefilling,
@@ -93,7 +101,8 @@ public class PrefillAdminController : ControllerBase
     [HttpGet("sessions/active")]
     public ActionResult<List<DaemonSessionDto>> GetActiveSessions()
     {
-        var sessions = _daemonService.GetAllSessions()
+        var sessions = _steamDaemonService.GetAllSessions()
+            .Concat(_epicDaemonService.GetAllSessions())
             .Select(DaemonSessionDto.FromSession)
             .ToList();
         return Ok(sessions);
@@ -137,7 +146,9 @@ public class PrefillAdminController : ControllerBase
         _logger.LogWarning("Admin session {AdminId} terminating session {SessionId}: {Reason}",
             adminSessionId, sessionId, reason);
 
-        await _daemonService.TerminateSessionAsync(sessionId, reason, force, adminSessionId);
+        // Try Steam first, then Epic if not found in Steam sessions
+        await _steamDaemonService.TerminateSessionAsync(sessionId, reason, force, adminSessionId);
+        await _epicDaemonService.TerminateSessionAsync(sessionId, reason, force, adminSessionId);
 
         return Ok(ApiResponse.Message("Session terminated"));
     }
@@ -152,15 +163,22 @@ public class PrefillAdminController : ControllerBase
         var reason = request?.Reason ?? "All sessions terminated by admin";
         var force = request?.Force ?? true;
 
-        var sessions = _daemonService.GetAllSessions().ToList();
-        var count = sessions.Count;
+        var steamSessions = _steamDaemonService.GetAllSessions().ToList();
+        var epicSessions = _epicDaemonService.GetAllSessions().ToList();
+        var allSessions = steamSessions.Concat(epicSessions).ToList();
+        var count = allSessions.Count;
 
         _logger.LogWarning("Admin session {AdminId} terminating all {Count} sessions: {Reason}",
             adminSessionId, count, reason);
 
-        foreach (var session in sessions)
+        foreach (var session in steamSessions)
         {
-            await _daemonService.TerminateSessionAsync(session.Id, reason, force, adminSessionId);
+            await _steamDaemonService.TerminateSessionAsync(session.Id, reason, force, adminSessionId);
+        }
+
+        foreach (var session in epicSessions)
+        {
+            await _epicDaemonService.TerminateSessionAsync(session.Id, reason, force, adminSessionId);
         }
 
         return Ok(new { message = $"Terminated {count} sessions" });
@@ -219,7 +237,7 @@ public class PrefillAdminController : ControllerBase
         }
 
         // Also terminate the session
-        await _daemonService.TerminateSessionAsync(sessionId, "Banned by admin", true, adminSessionId);
+        await _steamDaemonService.TerminateSessionAsync(sessionId, "Banned by admin", true, adminSessionId);
 
         // Notify the banned session via SignalR so their UI updates immediately
         if (!string.IsNullOrEmpty(ban.BannedBySessionId))

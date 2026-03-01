@@ -23,6 +23,8 @@ public class DaemonSessionDto
     public string? Browser { get; set; }
     public DateTime LastSeenAt { get; set; }
     public string? SteamUsername { get; set; }
+    public string Platform { get; set; } = "Steam";
+    public string? Username { get; set; }
 
     // Current prefill progress info for admin visibility
     public string? CurrentAppId { get; set; }
@@ -65,6 +67,8 @@ public class DaemonSessionDto
             Browser = session.Browser,
             LastSeenAt = session.LastSeenAt,
             SteamUsername = session.SteamUsername,
+            Platform = session.Platform,
+            Username = session.Username ?? session.SteamUsername,
             CurrentAppId = session.CurrentAppId,
             CurrentAppName = session.CurrentAppName,
             TotalBytesTransferred = session.TotalBytesTransferred,

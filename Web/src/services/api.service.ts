@@ -1360,11 +1360,13 @@ class ApiService {
     page = 1,
     pageSize = 20,
     status?: string,
+    platform?: string,
     signal?: AbortSignal
   ): Promise<PrefillSessionsResponse> {
     try {
       const params = new URLSearchParams({ page: page.toString(), pageSize: pageSize.toString() });
       if (status) params.set('status', status);
+      if (platform) params.append('platform', platform);
       const res = await fetch(
         `${API_BASE}/prefill-admin/sessions?${params}`,
         this.getFetchOptions({ signal })
@@ -1583,6 +1585,8 @@ export interface PrefillSessionDto {
   terminationReason?: string;
   terminatedBy?: string;
   isLive: boolean;
+  platform?: string;
+  username?: string;
 }
 
 export interface DnsTestResult {
@@ -1630,6 +1634,8 @@ export interface DaemonSessionDto {
   totalBytesTransferred?: number;
   // Network diagnostics results
   networkDiagnostics?: NetworkDiagnostics;
+  platform?: string;
+  username?: string;
 }
 
 interface PrefillSessionsResponse {

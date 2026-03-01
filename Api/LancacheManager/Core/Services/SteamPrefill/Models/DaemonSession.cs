@@ -27,6 +27,17 @@ public class DaemonSession
     public string? SteamUsername { get; set; }
 
     /// <summary>
+    /// Platform identifier (e.g., "Steam", "Epic")
+    /// </summary>
+    public string Platform { get; set; } = "Steam";
+
+    /// <summary>
+    /// Platform-agnostic display name. For Steam, populated from credential username.
+    /// For Epic, populated from OAuth token display name.
+    /// </summary>
+    public string? Username { get; set; }
+
+    /// <summary>
     /// Current prefill progress info for admin visibility
     /// </summary>
     public string? CurrentAppId { get; set; }

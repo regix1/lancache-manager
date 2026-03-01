@@ -56,6 +56,15 @@ public abstract partial class PrefillDaemonServiceBase
 
             session.AuthState = newAuthState;
 
+            // Capture Epic display name from daemon status updates
+            if (newAuthState == DaemonAuthState.Authenticated
+                && session.Platform == "Epic"
+                && !string.IsNullOrEmpty(status.DisplayName))
+            {
+                session.Username = status.DisplayName;
+                await _sessionService.SetSessionUsernameAsync(session.Id, status.DisplayName);
+            }
+
             if (session.AuthState != previousAuthState)
             {
                 await NotifyAuthStateChangeAsync(session);

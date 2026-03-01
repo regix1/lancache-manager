@@ -110,6 +110,9 @@ public class DaemonStatus
 
     [JsonPropertyName("timestamp")]
     public DateTime Timestamp { get; set; }
+
+    [JsonPropertyName("displayName")]
+    public string? DisplayName { get; set; }
 }
 
 public class CredentialChallenge

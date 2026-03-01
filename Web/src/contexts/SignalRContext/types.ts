@@ -516,6 +516,8 @@ export interface DaemonSessionCreatedEvent {
   steamUsername?: string;
   currentAppId?: string;
   currentAppName?: string;
+  platform?: string;
+  username?: string;
 }
 
 export interface DaemonSessionUpdatedEvent {
@@ -536,6 +538,8 @@ export interface DaemonSessionUpdatedEvent {
   steamUsername?: string;
   currentAppId?: string;
   currentAppName?: string;
+  platform?: string;
+  username?: string;
 }
 
 export interface DaemonSessionTerminatedEvent {

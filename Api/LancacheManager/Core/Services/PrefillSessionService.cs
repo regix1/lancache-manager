@@ -151,7 +151,8 @@ public class PrefillSessionService
         string createdBySessionId,
         string? containerId,
         string? containerName,
-        DateTime expiresAt)
+        DateTime expiresAt,
+        string platform = "Steam")
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
 
@@ -161,6 +162,7 @@ public class PrefillSessionService
             CreatedBySessionId = createdBySessionId,
             ContainerId = containerId,
             ContainerName = containerName,
+            Platform = platform,
             Status = "Active",
             CreatedAtUtc = DateTime.UtcNow,
             ExpiresAtUtc = expiresAt
@@ -273,7 +275,8 @@ public class PrefillSessionService
     public async Task<(List<PrefillSession> Sessions, int TotalCount)> GetSessionsAsync(
         int page = 1,
         int pageSize = 20,
-        string? statusFilter = null)
+        string? statusFilter = null,
+        string? platformFilter = null)
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
 
@@ -282,6 +285,11 @@ public class PrefillSessionService
         if (!string.IsNullOrEmpty(statusFilter))
         {
             query = query.Where(s => s.Status == statusFilter);
+        }
+
+        if (!string.IsNullOrEmpty(platformFilter))
+        {
+            query = query.Where(s => s.Platform == platformFilter);
         }
 
         var totalCount = await query.CountAsync();

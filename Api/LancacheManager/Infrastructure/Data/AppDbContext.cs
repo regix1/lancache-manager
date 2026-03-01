@@ -254,6 +254,13 @@ public class AppDbContext : DbContext
             .HasDatabaseName("IX_PrefillSessions_Status");
 
         modelBuilder.Entity<PrefillSession>()
+            .Property(p => p.Platform).HasDefaultValue("Steam");
+
+        modelBuilder.Entity<PrefillSession>()
+            .HasIndex(p => p.Platform)
+            .HasDatabaseName("IX_PrefillSessions_Platform");
+
+        modelBuilder.Entity<PrefillSession>()
             .HasIndex(p => p.CreatedAtUtc)
             .HasDatabaseName("IX_PrefillSessions_CreatedAtUtc");
 
