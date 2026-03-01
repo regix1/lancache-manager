@@ -54,7 +54,7 @@ jobs:
         run: |
           VERSION="${{ github.event.inputs.version }}"
           git add VERSION
-          git commit -m "Bump version to $VERSION"
+          git diff --cached --quiet && echo "VERSION already up to date" || git commit -m "Bump version to $VERSION"
 
       - name: Create Git tag on version commit
         run: |
