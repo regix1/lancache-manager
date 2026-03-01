@@ -198,9 +198,10 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
       );
       const left = Math.min(Math.max(desiredLeft, VIEWPORT_PADDING_PX), maxLeft);
 
-      // Calculate vertical position (flush: no gap so trigger and panel connect)
-      const top = shouldOpenUpward ? undefined : rect.bottom;
-      const bottom = shouldOpenUpward ? window.innerHeight - rect.top : undefined;
+      // Calculate vertical position (floating: small gap between trigger and panel)
+      const gap = 4;
+      const top = shouldOpenUpward ? undefined : rect.bottom + gap;
+      const bottom = shouldOpenUpward ? window.innerHeight - rect.top + gap : undefined;
 
       return { top, bottom, left, width: rect.width, shouldOpenUpward };
     };
@@ -365,7 +366,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
         createPortal(
           <div
             ref={dropdownRef}
-            className={`ed-dropdown ed-dropdown--menu fixed border border-themed-primary overflow-hidden bg-themed-secondary max-w-[calc(100vw-32px)] shadow-[0_10px_25px_-5px_rgba(0,0,0,0.3),0_8px_10px_-6px_rgba(0,0,0,0.2)] z-[85] ${dropdownWidth?.trim().startsWith('w-') ? dropdownWidth : ''}`}
+            className={`ed-dropdown ed-dropdown--menu fixed themed-border-radius border border-themed-primary overflow-hidden bg-themed-secondary max-w-[calc(100vw-32px)] shadow-[0_10px_25px_-5px_rgba(0,0,0,0.3),0_8px_10px_-6px_rgba(0,0,0,0.2)] z-[85] ${dropdownWidth?.trim().startsWith('w-') ? dropdownWidth : ''}`}
             style={{
               top: dropdownPosition.top,
               bottom: dropdownPosition.bottom,
@@ -388,6 +389,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
             <CustomScrollbar
               maxHeight={cleanStyle ? 'none' : maxHeight || '280px'}
               paddingMode="compact"
+              className="!rounded-none"
             >
               <div className="py-1">
                 {options.map((option) =>

@@ -14,7 +14,8 @@ export const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
   className = '',
   paddingMode = 'default'
 }) => {
-  const paddingRight = paddingMode === 'none' ? '0px' : paddingMode === 'compact' ? '6px' : '12px';
+  const basePaddingRight =
+    paddingMode === 'none' ? '0px' : paddingMode === 'compact' ? '6px' : '12px';
   const contentRef = useRef<HTMLDivElement>(null);
   const scrollTrackRef = useRef<HTMLDivElement>(null);
   const scrollThumbRef = useRef<HTMLDivElement>(null);
@@ -172,7 +173,7 @@ export const CustomScrollbar: React.FC<CustomScrollbarProps> = ({
         className="overflow-y-auto overflow-x-hidden rounded-[inherit]"
         style={{
           maxHeight,
-          paddingRight,
+          paddingRight: showScrollbar ? basePaddingRight : '0px',
           scrollbarWidth: 'none',
           msOverflowStyle: 'none',
           WebkitOverflowScrolling: 'touch',

@@ -63,7 +63,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   const [lastDetectionTime, setLastDetectionTime] = useState<string | null>(null);
   const [hasCachedResults, setHasCachedResults] = useState(false);
   const [missThreshold, setMissThreshold] = useState(3);
-  const [compareToCacheLogs, setCompareToCacheLogs] = useState(false);
+  const [compareToCacheLogs, setCompareToCacheLogs] = useState(true);
 
   const detectionModeOptions = [
     {
