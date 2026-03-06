@@ -45,7 +45,7 @@ export interface Download {
   cacheHitPercent: number;
   isActive: boolean;
   gameName?: string;
-  gameAppId?: string;
+  gameAppId?: number;
   gameImageUrl?: string;
   depotId?: number;
   lastUrl?: string;
@@ -376,7 +376,7 @@ export interface UpdateClientGroupRequest {
 export interface GameSpeedInfo {
   depotId: number;
   gameName?: string;
-  gameAppId?: string;
+  gameAppId?: number;
   service: string;
   clientIp?: string;
   bytesPerSecond: number;

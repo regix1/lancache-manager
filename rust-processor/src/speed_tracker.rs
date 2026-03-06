@@ -343,76 +343,28 @@ impl SpeedTracker {
             }
         }
 
-        // Collect depot IDs first, then lookup game info
-        let depot_ids: Vec<u32> = depot_groups.keys().map(|(depot_id, _)| *depot_id).collect();
-        for depot_id in depot_ids.into_iter().collect::<std::collections::HashSet<_>>() {
-            self.lookup_depot(depot_id); // Pre-populate cache
+        // Pre-populate depot cache for game name lookups
+        for &(depot_id, _) in depot_groups.keys() {
+            self.lookup_depot(depot_id);
         }
 
+        // Build game speeds from depot groups (Steam and services with depot IDs)
         let mut game_speeds: Vec<GameSpeedInfo> = depot_groups.into_iter()
             .map(|((depot_id, client_ip), entries)| {
-                let total_bytes: i64 = entries.iter().map(|e| e.bytes_sent).sum();
-                let cache_hit_bytes: i64 = entries.iter().filter(|e| e.is_cache_hit).map(|e| e.bytes_sent).sum();
-                let cache_miss_bytes = total_bytes - cache_hit_bytes;
-                let cache_hit_percent = if total_bytes > 0 {
-                    (cache_hit_bytes as f64 / total_bytes as f64) * 100.0
-                } else {
-                    0.0
-                };
-
                 let (game_name, game_app_id) = self.depot_cache.get(&depot_id)
                     .cloned()
                     .unwrap_or((None, None));
                 let service = entries.first().map(|e| e.service.clone()).unwrap_or_default();
-
-                GameSpeedInfo {
-                    depot_id,
-                    game_name,
-                    game_app_id,
-                    service,
-                    client_ip,
-                    bytes_per_second: total_bytes as f64 / WINDOW_SECONDS as f64,
-                    total_bytes,
-                    request_count: entries.len(),
-                    cache_hit_bytes,
-                    cache_miss_bytes,
-                    cache_hit_percent,
-                }
+                build_game_speed_info(entries, depot_id, client_ip, service, game_name, game_app_id)
             })
             .collect();
 
-        // Add non-depot service entries (Epic, Origin, etc.) as game speed entries
-        // These show the service name instead of a game name since we can't resolve it
-        let service_game_speeds: Vec<GameSpeedInfo> = service_groups.into_iter()
-            .map(|((service, client_ip), entries)| {
-                let total_bytes: i64 = entries.iter().map(|e| e.bytes_sent).sum();
-                let cache_hit_bytes: i64 = entries.iter().filter(|e| e.is_cache_hit).map(|e| e.bytes_sent).sum();
-                let cache_miss_bytes = total_bytes - cache_hit_bytes;
-                let cache_hit_percent = if total_bytes > 0 {
-                    (cache_hit_bytes as f64 / total_bytes as f64) * 100.0
-                } else {
-                    0.0
-                };
-
-                let display_name = get_service_display_name(&service);
-
-                GameSpeedInfo {
-                    depot_id: 0,
-                    game_name: Some(display_name),
-                    game_app_id: None,
-                    service,
-                    client_ip,
-                    bytes_per_second: total_bytes as f64 / WINDOW_SECONDS as f64,
-                    total_bytes,
-                    request_count: entries.len(),
-                    cache_hit_bytes,
-                    cache_miss_bytes,
-                    cache_hit_percent,
-                }
-            })
-            .collect();
-
-        game_speeds.extend(service_game_speeds);
+        // Add non-depot service entries (Epic, Origin, etc.)
+        // These show the service display name since individual games can't be resolved
+        for ((service, client_ip), entries) in service_groups {
+            let display_name = get_service_display_name(&service);
+            game_speeds.push(build_game_speed_info(entries, 0, client_ip, service, Some(display_name), None));
+        }
 
         // Sort by speed descending
         game_speeds.sort_by(|a, b| b.bytes_per_second.partial_cmp(&a.bytes_per_second).unwrap_or(std::cmp::Ordering::Equal));
@@ -507,6 +459,39 @@ impl SpeedTracker {
     }
 }
 
+/// Build a GameSpeedInfo from a group of log entries
+fn build_game_speed_info(
+    entries: Vec<SpeedLogEntry>,
+    depot_id: u32,
+    client_ip: String,
+    service: String,
+    game_name: Option<String>,
+    game_app_id: Option<u32>,
+) -> GameSpeedInfo {
+    let total_bytes: i64 = entries.iter().map(|e| e.bytes_sent).sum();
+    let cache_hit_bytes: i64 = entries.iter().filter(|e| e.is_cache_hit).map(|e| e.bytes_sent).sum();
+    let cache_miss_bytes = total_bytes - cache_hit_bytes;
+    let cache_hit_percent = if total_bytes > 0 {
+        (cache_hit_bytes as f64 / total_bytes as f64) * 100.0
+    } else {
+        0.0
+    };
+
+    GameSpeedInfo {
+        depot_id,
+        game_name,
+        game_app_id,
+        service,
+        client_ip,
+        bytes_per_second: total_bytes as f64 / WINDOW_SECONDS as f64,
+        total_bytes,
+        request_count: entries.len(),
+        cache_hit_bytes,
+        cache_miss_bytes,
+        cache_hit_percent,
+    }
+}
+
 /// Map normalized service names to human-readable display names
 fn get_service_display_name(service: &str) -> String {
     match service {
@@ -523,6 +508,9 @@ fn get_service_display_name(service: &str) -> String {
         "rockstar" => "Rockstar Games".to_string(),
         "wargaming" => "Wargaming".to_string(),
         "steam" => "Steam".to_string(),
+        "localhost" => "Localhost".to_string(),
+        "ip-address" => "Direct IP".to_string(),
+        "unknown" => "Unknown Service".to_string(),
         _ => service.to_string(),
     }
 }

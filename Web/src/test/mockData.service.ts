@@ -164,14 +164,14 @@ class MockDataService {
       } else {
         // Regular download
         let gameName: string | undefined;
-        let gameAppId: string | undefined;
+        let gameAppId: number | undefined;
         let totalBytes: number;
 
         if (service === 'steam' && Math.random() < 0.85) {
           // 85% chance of identifiable Steam game
           const game = steamGames[Math.floor(Math.random() * steamGames.length)];
           gameName = game.name;
-          gameAppId = game.appId;
+          gameAppId = parseInt(game.appId, 10);
           // Vary the size a bit (80-100% of full game size)
           totalBytes = Math.floor(game.size * (0.8 + Math.random() * 0.2));
         } else {
@@ -373,7 +373,7 @@ class MockDataService {
       cacheHitPercent: (cacheHitBytes / totalBytes) * 100,
       isActive: true,
       gameName: game.name,
-      gameAppId: game.appId
+      gameAppId: parseInt(game.appId, 10)
     };
   }
 

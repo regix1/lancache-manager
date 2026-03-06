@@ -219,7 +219,7 @@ interface DepotGroupedData {
   id: string;
   service: string;
   gameName: string;
-  gameAppId: string | null;
+  gameAppId: number | null;
   depotId: number | null;
   clientIp: string;
   startTimeUtc: string;
