@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Activity, HardDrive, Users, Loader2, RefreshCw } from 'lucide-react';
 import { useSpeed } from '@contexts/SpeedContext';
 import { formatBytes, formatSpeed } from '@utils/formatters';
+import { getServiceBadgeStyles } from '@utils/serviceColors';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import type { GameSpeedInfo, ClientSpeedInfo } from '../../../types';
 
@@ -74,7 +75,7 @@ const ActiveDownloadsView: React.FC = () => {
         {viewMode === 'games'
           ? games.map((game: GameSpeedInfo, index: number) => (
               <div
-                key={`${game.depotId}-${game.clientIp ?? 'unknown'}`}
+                key={`${game.service}-${game.depotId}-${game.clientIp ?? 'unknown'}`}
                 className={`download-item ${index === 0 ? 'top' : ''}`}
               >
                 <div className="download-avatar">
@@ -83,13 +84,21 @@ const ActiveDownloadsView: React.FC = () => {
                 </div>
 
                 <div className="download-info">
-                  <div
-                    className="download-name"
-                    title={
-                      game.gameName || t('downloads.active.depotLabel', { depotId: game.depotId })
-                    }
-                  >
-                    {game.gameName || t('downloads.active.depotLabel', { depotId: game.depotId })}
+                  <div className="download-name-row">
+                    <span
+                      className="active-service-badge"
+                      style={getServiceBadgeStyles(game.service)}
+                    >
+                      {game.service.toUpperCase()}
+                    </span>
+                    <span
+                      className="download-name"
+                      title={
+                        game.gameName || t('downloads.active.depotLabel', { depotId: game.depotId })
+                      }
+                    >
+                      {game.gameName || t('downloads.active.depotLabel', { depotId: game.depotId })}
+                    </span>
                   </div>
                   <div className="download-meta">
                     <span className="meta-item">{formatBytes(game.totalBytes)}</span>

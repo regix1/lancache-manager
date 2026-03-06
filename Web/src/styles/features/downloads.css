@@ -172,7 +172,9 @@
 
   .downloads-header .speed-icon {
     color: var(--theme-text-muted);
-    transition: color 0.3s ease, transform 0.3s ease;
+    transition:
+      color 0.3s ease,
+      transform 0.3s ease;
   }
 
   .downloads-header .speed-indicator.active .speed-icon {
@@ -181,8 +183,13 @@
   }
 
   @keyframes header-icon-pulse {
-    0%, 100% { transform: scale(1); }
-    50% { transform: scale(1.1); }
+    0%,
+    100% {
+      transform: scale(1);
+    }
+    50% {
+      transform: scale(1.1);
+    }
   }
 
   .downloads-header .speed-content {
@@ -345,8 +352,13 @@
   }
 
   @keyframes header-badge-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.7; }
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.7;
+    }
   }
 
   .downloads-header .today-stat {
@@ -389,7 +401,8 @@
   }
 
   @keyframes header-dot-pulse {
-    0%, 100% {
+    0%,
+    100% {
       opacity: 1;
       box-shadow: 0 0 0 0 color-mix(in srgb, var(--theme-success) 40%, transparent);
     }
@@ -465,8 +478,12 @@
   }
 
   @keyframes active-rotate-slow {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
   }
 
   .active-empty-state .empty-icon {
@@ -648,7 +665,8 @@
   }
 
   @keyframes active-pulse-dot {
-    0%, 100% {
+    0%,
+    100% {
       box-shadow: 0 0 0 0 color-mix(in srgb, var(--theme-success) 40%, transparent);
     }
     50% {
@@ -661,6 +679,23 @@
     min-width: 0;
   }
 
+  .active-downloads-view .download-name-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.25rem;
+    min-width: 0;
+  }
+
+  .active-downloads-view .active-service-badge {
+    padding: 0.1rem 0.4rem;
+    font-size: 0.65rem;
+    font-weight: 800;
+    border-radius: 0.3rem;
+    flex-shrink: 0;
+    line-height: 1.4;
+  }
+
   .active-downloads-view .download-name {
     font-size: 0.9rem;
     font-weight: 600;
@@ -668,7 +703,6 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    margin-bottom: 0.25rem;
   }
 
   .active-downloads-view .download-meta {

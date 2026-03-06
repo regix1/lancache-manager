@@ -1077,7 +1077,12 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
         {viewMode === 'active' ? (
           hasActiveDownloads && activeGames.length > 0 ? (
             activeGames.map((game, idx) => (
-              <ActiveDownloadItem key={game.depotId} game={game} index={idx} t={t} />
+              <ActiveDownloadItem
+                key={`${game.service}-${game.depotId}-${game.clientIp ?? 'unknown'}`}
+                game={game}
+                index={idx}
+                t={t}
+              />
             ))
           ) : (
             <div className="empty-state">

@@ -101,6 +101,10 @@ impl LogParser {
         let time_str = captures.name("time")?.as_str();
         let url = captures.name("url")?.as_str();
 
+        if service_utils::should_skip_url(url) {
+            return None;
+        }
+
         let bytes_str = captures.name("bytes")?.as_str();
         let bytes_sent = if bytes_str == "-" {
             return None; // Skip entries with no bytes
@@ -326,11 +330,16 @@ impl SpeedTracker {
             .cloned()
             .collect();
 
-        // Group by depot + client for game speeds
+        // Group by depot + client for game speeds (Steam and other services with depot IDs)
         let mut depot_groups: HashMap<(u32, String), Vec<SpeedLogEntry>> = HashMap::new();
+        // Group by service + client for non-depot entries (Epic, Origin, etc.)
+        let mut service_groups: HashMap<(String, String), Vec<SpeedLogEntry>> = HashMap::new();
+
         for entry in &window_entries {
             if let Some(depot_id) = entry.depot_id {
                 depot_groups.entry((depot_id, entry.client_ip.clone())).or_default().push(entry.clone());
+            } else {
+                service_groups.entry((entry.service.clone(), entry.client_ip.clone())).or_default().push(entry.clone());
             }
         }
 
@@ -372,15 +381,46 @@ impl SpeedTracker {
             })
             .collect();
 
+        // Add non-depot service entries (Epic, Origin, etc.) as game speed entries
+        // These show the service name instead of a game name since we can't resolve it
+        let service_game_speeds: Vec<GameSpeedInfo> = service_groups.into_iter()
+            .map(|((service, client_ip), entries)| {
+                let total_bytes: i64 = entries.iter().map(|e| e.bytes_sent).sum();
+                let cache_hit_bytes: i64 = entries.iter().filter(|e| e.is_cache_hit).map(|e| e.bytes_sent).sum();
+                let cache_miss_bytes = total_bytes - cache_hit_bytes;
+                let cache_hit_percent = if total_bytes > 0 {
+                    (cache_hit_bytes as f64 / total_bytes as f64) * 100.0
+                } else {
+                    0.0
+                };
+
+                let display_name = get_service_display_name(&service);
+
+                GameSpeedInfo {
+                    depot_id: 0,
+                    game_name: Some(display_name),
+                    game_app_id: None,
+                    service,
+                    client_ip,
+                    bytes_per_second: total_bytes as f64 / WINDOW_SECONDS as f64,
+                    total_bytes,
+                    request_count: entries.len(),
+                    cache_hit_bytes,
+                    cache_miss_bytes,
+                    cache_hit_percent,
+                }
+            })
+            .collect();
+
+        game_speeds.extend(service_game_speeds);
+
         // Sort by speed descending
         game_speeds.sort_by(|a, b| b.bytes_per_second.partial_cmp(&a.bytes_per_second).unwrap_or(std::cmp::Ordering::Equal));
 
-        // Group by client for client speeds (only entries with depot IDs - actual game downloads)
+        // Group by client for client speeds (all entries with actual data)
         let mut client_groups: HashMap<String, Vec<SpeedLogEntry>> = HashMap::new();
         for entry in &window_entries {
-            if entry.depot_id.is_some() {
-                client_groups.entry(entry.client_ip.clone()).or_default().push(entry.clone());
-            }
+            client_groups.entry(entry.client_ip.clone()).or_default().push(entry.clone());
         }
 
         let mut client_speeds: Vec<ClientSpeedInfo> = client_groups.into_iter()
@@ -388,10 +428,17 @@ impl SpeedTracker {
                 let total_bytes: i64 = entries.iter().map(|e| e.bytes_sent).sum();
                 let cache_hit_bytes: i64 = entries.iter().filter(|e| e.is_cache_hit).map(|e| e.bytes_sent).sum();
                 let cache_miss_bytes = total_bytes - cache_hit_bytes;
-                let active_games = entries.iter()
+                // Count active games: unique depot IDs + unique non-depot services
+                let depot_count = entries.iter()
                     .filter_map(|e| e.depot_id)
                     .collect::<std::collections::HashSet<_>>()
                     .len();
+                let service_count = entries.iter()
+                    .filter(|e| e.depot_id.is_none())
+                    .map(|e| e.service.as_str())
+                    .collect::<std::collections::HashSet<_>>()
+                    .len();
+                let active_games = depot_count + service_count;
 
                 ClientSpeedInfo {
                     client_ip,
@@ -407,10 +454,7 @@ impl SpeedTracker {
         client_speeds.sort_by(|a, b| b.bytes_per_second.partial_cmp(&a.bytes_per_second).unwrap_or(std::cmp::Ordering::Equal));
 
         let entries_count = window_entries.len();
-        // Only count bytes from entries with depot IDs (actual game downloads) for speed/activity
-        let depot_entries: Vec<&SpeedLogEntry> = window_entries.iter().filter(|e| e.depot_id.is_some()).collect();
-        let depot_entry_count = depot_entries.len();
-        let total_bytes: i64 = depot_entries.iter().map(|e| e.bytes_sent).sum();
+        let total_bytes: i64 = window_entries.iter().map(|e| e.bytes_sent).sum();
 
         DownloadSpeedSnapshot {
             timestamp_utc: now.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
@@ -419,7 +463,7 @@ impl SpeedTracker {
             client_speeds,
             window_seconds: WINDOW_SECONDS,
             entries_in_window: entries_count,
-            has_active_downloads: depot_entry_count > 0,
+            has_active_downloads: entries_count > 0,
         }
     }
 
@@ -460,6 +504,26 @@ impl SpeedTracker {
         );
 
         result.unwrap_or((None, None))
+    }
+}
+
+/// Map normalized service names to human-readable display names
+fn get_service_display_name(service: &str) -> String {
+    match service {
+        "epic" => "Epic Games".to_string(),
+        "origin" | "ea" => "EA / Origin".to_string(),
+        "blizzard" | "battlenet" | "battle.net" => "Blizzard / Battle.net".to_string(),
+        "riot" | "riotgames" => "Riot Games".to_string(),
+        "xbox" | "xboxlive" => "Xbox Live".to_string(),
+        "wsus" | "windows" => "Windows Update".to_string(),
+        "uplay" | "ubisoft" => "Ubisoft".to_string(),
+        "arenanet" => "ArenaNet".to_string(),
+        "sony" | "playstation" => "PlayStation".to_string(),
+        "nintendo" => "Nintendo".to_string(),
+        "rockstar" => "Rockstar Games".to_string(),
+        "wargaming" => "Wargaming".to_string(),
+        "steam" => "Steam".to_string(),
+        _ => service.to_string(),
     }
 }
 
