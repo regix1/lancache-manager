@@ -273,8 +273,14 @@ fn remove_service_from_logs(
         // Try to process the file, but skip if it's corrupted (e.g., invalid gzip header)
         let file_result = (|| -> Result<(u64, u64)> {
             // Create temp file for filtered output with automatic cleanup
+            // Try the log directory first (enables atomic rename), fall back to system temp
+            // if the directory doesn't allow file creation (common in Docker volume mounts)
             let file_dir = log_file.path.parent().context("Failed to get file directory")?;
-            let temp_file = NamedTempFile::new_in(file_dir)?;
+            let temp_file = NamedTempFile::new_in(file_dir)
+                .or_else(|_| {
+                    eprintln!("  Cannot create temp file in log directory, using system temp dir");
+                    NamedTempFile::new()
+                })?;
 
             let mut lines_processed: u64 = 0;
             let mut lines_removed: u64 = 0;

@@ -50,6 +50,16 @@ fi
 # /app needs read access for the application
 chown -R "$PUID:$PGID" /data /app/rust-processor 2>/dev/null || true
 
+# Fix ownership of /logs and /cache if they are writable (not mounted read-only)
+# Only chown the directory itself (not -R) to avoid slow recursive operations on large caches
+for dir in /logs /cache; do
+    if [ -d "$dir" ] && touch "$dir/.permcheck" 2>/dev/null; then
+        rm -f "$dir/.permcheck"
+        chown "$PUID:$PGID" "$dir" 2>/dev/null || true
+        echo "Fixed ownership of $dir for UID:$PUID GID:$PGID"
+    fi
+done
+
 # Ensure rust binaries are executable
 chmod +x /app/rust-processor/* 2>/dev/null || true
 
