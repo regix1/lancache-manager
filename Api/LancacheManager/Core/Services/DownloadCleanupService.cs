@@ -140,6 +140,10 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
             // Note: Image URL backfilling is now handled automatically by PICS during incremental scans
             // No manual cleanup needed - PICS fills in missing GameImageUrl fields when processing downloads
 
+            // Fix service name aliases that don't match lancache nginx cache identifiers
+            // The log processor previously normalized "epicgames" → "epic", but nginx cache keys use "epicgames"
+            await NormalizeServiceNamesAsync(context, stoppingToken);
+
             // Normalize datasource mappings - fix inconsistent case and missing datasources
             await NormalizeDatasourceMappingsAsync(context, stoppingToken);
 
@@ -151,6 +155,37 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
         catch (Exception ex)
         {
             Logger.LogError(ex, "Error during initial cleanup");
+        }
+    }
+
+    /// <summary>
+    /// Renames service name aliases in LogEntries and Downloads to match lancache nginx cache identifiers.
+    /// The Rust log processor previously aliased "epicgames" → "epic", but nginx uses "epicgames" in its
+    /// proxy_cache_key ($cacheidentifier$uri), causing cache file lookups to fail with wrong MD5 hashes.
+    /// </summary>
+    private async Task NormalizeServiceNamesAsync(AppDbContext context, CancellationToken stoppingToken)
+    {
+        // Map of old (incorrect) names → correct nginx cache identifier names
+        var serviceRenames = new Dictionary<string, string>
+        {
+            { "epic", "epicgames" }
+        };
+
+        foreach (var (oldName, newName) in serviceRenames)
+        {
+            var logEntriesUpdated = await context.Database.ExecuteSqlRawAsync(
+                "UPDATE LogEntries SET Service = {0} WHERE Service = {1}",
+                newName, oldName);
+
+            var downloadsUpdated = await context.Database.ExecuteSqlRawAsync(
+                "UPDATE Downloads SET Service = {0} WHERE Service = {1}",
+                newName, oldName);
+
+            if (logEntriesUpdated > 0 || downloadsUpdated > 0)
+            {
+                Logger.LogInformation("Renamed service '{OldName}' → '{NewName}': {LogEntries} log entries, {Downloads} downloads",
+                    oldName, newName, logEntriesUpdated, downloadsUpdated);
+            }
         }
     }
 

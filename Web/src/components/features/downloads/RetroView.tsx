@@ -191,6 +191,7 @@ const getServiceIcon = (service: string, size = 24) => {
     case 'riotgames':
       return <RiotIcon size={size} className="opacity-80 text-[var(--theme-riot)]" />;
     case 'epic':
+    case 'epicgames':
       return <EpicIcon size={size} className="opacity-80 text-[var(--theme-epic)]" />;
     case 'origin':
     case 'ea':

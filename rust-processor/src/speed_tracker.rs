@@ -495,7 +495,7 @@ fn build_game_speed_info(
 /// Map normalized service names to human-readable display names
 fn get_service_display_name(service: &str) -> String {
     match service {
-        "epic" => "Epic Games".to_string(),
+        "epic" | "epicgames" => "Epic Games".to_string(),
         "origin" | "ea" => "EA / Origin".to_string(),
         "blizzard" | "battlenet" | "battle.net" => "Blizzard / Battle.net".to_string(),
         "riot" | "riotgames" => "Riot Games".to_string(),

@@ -110,11 +110,12 @@ class MockDataService {
       serviceSizes: {
         steam: 650000000000,
         epic: 320000000000,
+        epicgames: 320000000000,
         origin: 180000000000,
         blizzard: 150000000000,
         wsus: 100000000000,
         riot: 50000000000
-      }
+      } as Record<string, number>
     };
 
     // Generate downloads with realistic patterns

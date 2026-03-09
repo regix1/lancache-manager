@@ -26,6 +26,7 @@ import type { DatasourceServiceCounts } from '@/types';
 const MAIN_SERVICES = [
   'steam',
   'epic',
+  'epicgames',
   'riot',
   'blizzard',
   'origin',

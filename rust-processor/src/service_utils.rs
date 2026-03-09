@@ -39,11 +39,7 @@ pub fn normalize_service_name(service: &str) -> String {
         }
     }
 
-    // Normalize service name aliases to match frontend canonical names
-    match service_lower.as_str() {
-        "epicgames" => "epic".to_string(),
-        _ => service_lower,
-    }
+    service_lower
 }
 
 /// Extract and normalize service name from a log line

@@ -372,10 +372,12 @@ fn query_service_downloads(db_path: &Path) -> Result<HashMap<String, Vec<(String
     for row_result in rows {
         if let Ok((service, url)) = row_result {
             let service_lower = service.to_lowercase();
+            // Group by lowercase for display, but preserve original case for MD5 hash calculation
+            // Nginx cache keys use the original service name case
             services
-                .entry(service_lower.clone())
+                .entry(service_lower)
                 .or_insert_with(Vec::new)
-                .push((service_lower, url));
+                .push((service, url));
         }
     }
 
