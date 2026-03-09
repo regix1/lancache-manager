@@ -6,7 +6,7 @@ namespace LancacheManager.Models;
 public class GameStat
 {
     public string GameName { get; set; } = "";
-    public int GameAppId { get; set; }
+    public uint GameAppId { get; set; }
     public int TotalDownloads { get; set; }
     public long TotalBytes { get; set; }
     public long CacheHitBytes { get; set; }

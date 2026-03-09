@@ -967,7 +967,7 @@ public class CacheController : ControllerBase
                 var metrics = op.Metadata as RemovalMetrics;
                 return new GameRemovalInfo
                 {
-                    GameAppId = int.TryParse(metrics?.EntityKey, out var appId) ? appId : 0,
+                    GameAppId = uint.TryParse(metrics?.EntityKey, out var appId) ? appId : 0,
                     GameName = metrics?.EntityName ?? op.Name,
                     Status = op.Status,
                     Message = op.Message,

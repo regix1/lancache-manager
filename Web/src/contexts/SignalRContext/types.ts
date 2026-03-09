@@ -188,13 +188,12 @@ export interface ProcessingProgressEvent {
   operationId: string;
   percentComplete: number;
   status: string;
-  progress?: number;
   message?: string;
   mbProcessed?: number;
   mbTotal?: number;
-  entriesProcessed?: number;
+  entriesSaved?: number;
   totalLines?: number;
-  linesProcessed?: number;
+  linesParsed?: number;
 }
 
 export interface LogProcessingCompleteEvent {
@@ -248,26 +247,29 @@ export interface LogRemovalCompleteEvent {
 export interface GameRemovalStartedEvent {
   operationId: string;
   message: string;
-  gameAppId?: string;
+  gameAppId?: number;
   gameName?: string;
+  timestamp?: string;
 }
 export interface GameRemovalProgressEvent {
   operationId: string;
   percentComplete: number;
   status: string;
-  gameAppId: string;
+  gameAppId: number;
   gameName: string;
   message?: string;
   filesDeleted?: number;
   bytesFreed?: number;
 }
 
+// C# sends GameRemovalComplete record: Success, OperationId, GameAppId (uint), GameName, Message, FilesDeleted, BytesFreed, LogEntriesRemoved
 export interface GameRemovalCompleteEvent {
   operationId: string;
   success: boolean;
   message: string;
   cancelled?: boolean;
-  gameAppId: string;
+  gameAppId: number;
+  gameName?: string;
   filesDeleted?: number;
   bytesFreed?: number;
   logEntriesRemoved?: number;
@@ -277,6 +279,7 @@ export interface ServiceRemovalStartedEvent {
   operationId: string;
   message: string;
   serviceName: string;
+  timestamp?: string;
 }
 export interface ServiceRemovalProgressEvent {
   operationId: string;
@@ -303,6 +306,7 @@ export interface CorruptionRemovalStartedEvent {
   operationId: string;
   service: string;
   message?: string;
+  timestamp?: string;
 }
 
 export interface CorruptionRemovalProgressEvent {
@@ -323,6 +327,7 @@ export interface CorruptionRemovalCompleteEvent {
   cancelled?: boolean;
   service: string;
   error?: string;
+  timestamp?: string;
 }
 
 export interface CorruptionDetectionStartedEvent {
@@ -341,12 +346,14 @@ export interface CorruptionDetectionProgressEvent {
   datasourceName?: string;
 }
 
+// C# sends anonymous object: OperationId, Success, Status, Message, Cancelled, totalServicesWithCorruption, totalCorruptedChunks
 export interface CorruptionDetectionCompleteEvent {
   operationId: string;
   success: boolean;
   message: string;
   cancelled?: boolean;
   error?: string;
+  status?: string;
   totalServicesWithCorruption?: number;
   totalCorruptedChunks?: number;
 }
@@ -355,6 +362,7 @@ export interface GameDetectionStartedEvent {
   operationId: string;
   scanType?: 'full' | 'incremental';
   message?: string;
+  timestamp?: string;
 }
 
 export interface GameDetectionProgressEvent {
@@ -364,7 +372,8 @@ export interface GameDetectionProgressEvent {
   message?: string;
   gamesDetected?: number;
   servicesDetected?: number;
-  progressPercent?: number;
+  gamesProcessed?: number;
+  totalGames?: number;
 }
 
 export interface GameDetectionCompleteEvent {
@@ -373,8 +382,10 @@ export interface GameDetectionCompleteEvent {
   message: string;
   cancelled?: boolean;
   error?: string;
+  status?: string;
   totalGamesDetected?: number;
   totalServicesDetected?: number;
+  timestamp?: string;
 }
 
 // Database Reset Events
@@ -410,9 +421,12 @@ export interface CacheClearCompleteEvent {
   message: string;
   cancelled?: boolean;
   error?: string;
+  status?: string;
   filesDeleted?: number;
   directoriesProcessed?: number;
-  datasourceName?: string;
+  bytesDeleted?: number;
+  datasourcesCleared?: number;
+  duration?: number;
 }
 
 // Standardized Cache Clearing Events
@@ -470,7 +484,11 @@ export interface DepotMappingCompleteEvent {
 export interface SteamSessionErrorEvent {
   errorType: string;
   message?: string;
-  sessionReplacedCount?: number;
+  reconnectAttempts?: number;
+  result?: string;
+  extendedResult?: string;
+  timestamp?: string;
+  wasRebuildActive?: boolean;
 }
 
 export interface SteamAutoLogoutEvent {

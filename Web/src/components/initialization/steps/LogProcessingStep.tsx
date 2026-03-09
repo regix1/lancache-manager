@@ -95,7 +95,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
 
   useEffect(() => {
     const handleProcessingProgress = (progress: ProcessingProgressEvent) => {
-      const currentProgress = progress.percentComplete || progress.progress || 0;
+      const currentProgress = progress.percentComplete || 0;
       const status = progress.status || 'processing';
 
       if (status.toLowerCase() === 'completed') {
@@ -103,8 +103,8 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
           isProcessing: false,
           progress: 100,
           status: 'completed',
-          entriesProcessed: progress.entriesProcessed,
-          linesProcessed: progress.linesProcessed || progress.totalLines,
+          entriesProcessed: progress.entriesSaved,
+          linesProcessed: progress.linesParsed || progress.totalLines,
           totalLines: progress.totalLines,
           mbProcessed: progress.mbTotal,
           mbTotal: progress.mbTotal
@@ -120,9 +120,9 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
         status: status,
         mbProcessed: progress.mbProcessed,
         mbTotal: progress.mbTotal,
-        entriesProcessed: progress.entriesProcessed,
+        entriesProcessed: progress.entriesSaved,
         totalLines: progress.totalLines,
-        linesProcessed: progress.linesProcessed
+        linesProcessed: progress.linesParsed
       });
     };
 

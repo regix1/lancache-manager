@@ -79,7 +79,7 @@ export interface UnifiedNotification {
     linesRemoved?: number;
 
     // For game_removal
-    gameAppId?: string;
+    gameAppId?: number;
     gameName?: string;
     bytesFreed?: number;
     logEntriesRemoved?: number;

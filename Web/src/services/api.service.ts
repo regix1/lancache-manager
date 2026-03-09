@@ -981,8 +981,8 @@ class ApiService {
 
   // Remove all cache files for a specific game (fire-and-forget, requires auth)
   static async removeGameFromCache(
-    gameAppId: string
-  ): Promise<{ message: string; gameAppId: string; status: string }> {
+    gameAppId: number
+  ): Promise<{ message: string; gameAppId: number; status: string }> {
     try {
       const res = await fetch(
         `${API_BASE}/games/${gameAppId}`,
@@ -991,7 +991,7 @@ class ApiService {
           // Returns immediately with 202 Accepted - removal happens in background
         })
       );
-      return await this.handleResponse<{ message: string; gameAppId: string; status: string }>(res);
+      return await this.handleResponse<{ message: string; gameAppId: number; status: string }>(res);
     } catch (error) {
       console.error('removeGameFromCache error:', error);
       throw error;

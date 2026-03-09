@@ -332,9 +332,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         getId: () => NOTIFICATION_IDS.LOG_PROCESSING,
         storageKey: NOTIFICATION_STORAGE_KEYS.LOG_PROCESSING,
         getMessage: formatLogProcessingMessage,
-        getProgress: (e) => Math.min(99.9, e.percentComplete || e.progress || 0),
+        getProgress: (e) => Math.min(99.9, e.percentComplete || 0),
         getStatus: (e) => (e.status?.toLowerCase() === 'completed' ? 'completed' : undefined),
-        getCompletedMessage: (e) => formatLogProcessingCompletionMessage(e.entriesProcessed),
+        getCompletedMessage: (e) => formatLogProcessingCompletionMessage(e.entriesSaved),
         getDetails: (e) => ({ operationId: e.operationId })
       },
       setNotifications,

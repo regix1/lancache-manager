@@ -177,7 +177,7 @@ public class StatsDataService : IStatsDataService
             {
                 // Use the first non-empty game name from the group
                 GameName = g.Select(d => d.GameName).FirstOrDefault(n => !string.IsNullOrEmpty(n)) ?? "",
-                GameAppId = (int)g.Key,
+                GameAppId = (uint)g.Key,
                 TotalDownloads = g.Count(),
                 TotalBytes = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes),
                 CacheHitBytes = g.Sum(d => d.CacheHitBytes),

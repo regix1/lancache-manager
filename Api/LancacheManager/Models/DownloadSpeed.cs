@@ -8,7 +8,7 @@ public class GameSpeedInfo
     /// <summary>
     /// Steam depot ID (or equivalent identifier for other services)
     /// </summary>
-    public long DepotId { get; set; }
+    public uint DepotId { get; set; }
 
     /// <summary>
     /// Game name (if resolved from depot mapping)
@@ -18,7 +18,7 @@ public class GameSpeedInfo
     /// <summary>
     /// Game app ID (if resolved from depot mapping)
     /// </summary>
-    public int? GameAppId { get; set; }
+    public uint? GameAppId { get; set; }
 
     /// <summary>
     /// Service name (steam, origin, epic, etc.)

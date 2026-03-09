@@ -35,8 +35,8 @@ const GamesList: React.FC<GamesListProps> = ({
   const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const [expandedGameId, setExpandedGameId] = useState<string | null>(null);
-  const [expandingGameId, setExpandingGameId] = useState<string | null>(null);
+  const [expandedGameId, setExpandedGameId] = useState<number | null>(null);
+  const [expandingGameId, setExpandingGameId] = useState<number | null>(null);
 
   // Reset page when search query changes
   useEffect(() => {
@@ -68,7 +68,7 @@ const GamesList: React.FC<GamesListProps> = ({
 
   const totalPages = Math.ceil(filteredAndSortedGames.length / ITEMS_PER_PAGE);
 
-  const toggleGameDetails = (gameId: string) => {
+  const toggleGameDetails = (gameId: number | string) => {
     // If already expanded, collapse immediately
     if (expandedGameId === gameId) {
       setExpandedGameId(null);
@@ -76,11 +76,11 @@ const GamesList: React.FC<GamesListProps> = ({
     }
 
     // Show loading state for expansion
-    setExpandingGameId(gameId);
+    setExpandingGameId(Number(gameId));
 
     // Use setTimeout to allow the loading spinner to render before heavy DOM updates
     setTimeout(() => {
-      setExpandedGameId(gameId);
+      setExpandedGameId(Number(gameId));
       setExpandingGameId(null);
     }, 50); // Small delay to let spinner show
   };

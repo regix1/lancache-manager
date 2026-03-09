@@ -132,3 +132,6 @@ rustup-init.exe
 
 # Steam Lancache Prefill tool
 steam-lancache-prefill/
+PROJECT_SERVICES_OVERVIEW.md
+PROJECT_TYPE_CONSISTENCY_AUDIT.md
+PROJECT_VARIABLE_USAGE_MAP.md

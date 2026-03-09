@@ -288,7 +288,7 @@ export interface CorruptedChunkDetail {
 }
 
 export interface GameCacheInfo {
-  game_app_id: string;
+  game_app_id: number;
   game_name: string;
   cache_files_found: number;
   total_size_bytes: number;
