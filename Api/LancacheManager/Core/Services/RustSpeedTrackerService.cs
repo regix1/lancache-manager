@@ -164,7 +164,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
             {
                 if (!string.IsNullOrEmpty(line))
                 {
-                    _logger.LogDebug("[speed_tracker stderr] {Line}", line);
+                    _logger.LogInformation("[speed_tracker stderr] {Line}", line);
                 }
             }
         }, stoppingToken);

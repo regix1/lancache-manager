@@ -25,7 +25,6 @@ import type { DatasourceServiceCounts } from '@/types';
 // Main services that should always be shown first
 const MAIN_SERVICES = [
   'steam',
-  'epic',
   'epicgames',
   'riot',
   'blizzard',

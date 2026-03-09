@@ -7,15 +7,7 @@ export const SIGNALR_BASE = import.meta.env.VITE_API_URL
   : '/hubs';
 
 // Services
-export const SERVICES = [
-  'steam',
-  'epic',
-  'epicgames',
-  'origin',
-  'blizzard',
-  'wsus',
-  'riot'
-] as const;
+export const SERVICES = ['steam', 'epicgames', 'origin', 'blizzard', 'wsus', 'riot'] as const;
 
 // Refresh rate options (in milliseconds) - controls how often SignalR updates are applied
 export const REFRESH_RATES = {

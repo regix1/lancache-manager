@@ -109,7 +109,6 @@ class MockDataService {
       totalFiles: 48293 + (typeof downloadCount === 'number' ? downloadCount : 500) * 100,
       serviceSizes: {
         steam: 650000000000,
-        epic: 320000000000,
         epicgames: 320000000000,
         origin: 180000000000,
         blizzard: 150000000000,

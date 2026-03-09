@@ -229,7 +229,7 @@ public class RustProcessHelper
                 if (!string.IsNullOrEmpty(line))
                 {
                     // Stderr may contain warnings or diagnostic info, log at debug level
-                    _logger.LogDebug("[{ProcessName} stderr] {Line}", processName, line);
+                    _logger.LogInformation("[{ProcessName} stderr] {Line}", processName, line);
                 }
             }
         });
