@@ -127,11 +127,11 @@ const GroupCard: React.FC<GroupCardProps> = ({
   const artworkId = showSteamImage ? steamAppId : showEpicImage ? `epic-${epicAppId}` : null;
   const hasArtwork = artworkId !== null && !imageErrors.has(artworkId);
   // Full-height: banner at natural aspect ratio, each row height varies
-  // Fit-to-row: fixed height, banner covers the space, uniform rows
+  // Fit-to-row: content dictates row height, banner stretches to fill
   const placeholderIconSize = fullHeightBanners ? 80 : 72;
   const bannerWrapperClasses = fullHeightBanners
     ? 'download-banner-mobile sm:w-[280px] sm:self-start'
-    : 'download-banner-mobile sm:w-[280px] sm:h-[130px] sm:self-start';
+    : 'download-banner-mobile sm:w-[280px] sm:self-stretch';
 
   React.useEffect(() => {
     if (!enableScrollIntoView) return;
