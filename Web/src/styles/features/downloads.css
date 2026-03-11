@@ -18,6 +18,16 @@
     image-rendering: crisp-edges;
   }
 
+  /* Full-height banner: natural aspect ratio, no cropping */
+  .download-banner-image-natural {
+    width: 100%;
+    height: auto;
+    object-fit: contain;
+    object-position: center;
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
+  }
+
   /* Banner placeholder with service icon */
   .download-banner-placeholder {
     display: flex;

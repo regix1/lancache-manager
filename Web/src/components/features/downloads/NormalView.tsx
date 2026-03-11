@@ -126,12 +126,12 @@ const GroupCard: React.FC<GroupCardProps> = ({
     (isSteam || isWsus || isRiot || isEpic || isEA || isBlizzard || isXbox || isOtherService);
   const artworkId = showSteamImage ? steamAppId : showEpicImage ? `epic-${epicAppId}` : null;
   const hasArtwork = artworkId !== null && !imageErrors.has(artworkId);
-  // Mobile: use aspect-ratio for proper image display without cropping
-  // Desktop: use fixed width with full height for side-by-side layout
+  // Full-height: banner at natural aspect ratio, each row height varies
+  // Fit-to-row: fixed height, banner covers the space, uniform rows
   const placeholderIconSize = fullHeightBanners ? 80 : 72;
   const bannerWrapperClasses = fullHeightBanners
-    ? 'download-banner-mobile sm:w-[280px] sm:aspect-auto sm:h-[160px] sm:self-start'
-    : 'download-banner-mobile sm:w-[280px] sm:aspect-auto sm:h-[130px] sm:self-start';
+    ? 'download-banner-mobile sm:w-[280px] sm:self-start'
+    : 'download-banner-mobile sm:w-[280px] sm:h-[130px] sm:self-start';
 
   React.useEffect(() => {
     if (!enableScrollIntoView) return;
@@ -181,7 +181,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
           gameAppId={showEpicImage ? epicAppId! : steamAppId!}
           epicAppId={showEpicImage ? epicAppId! : undefined}
           alt={primaryName || group.name}
-          className="download-banner-image"
+          className={fullHeightBanners ? 'download-banner-image-natural' : 'download-banner-image'}
           sizes="(max-width: 639px) 100vw, 280px"
           onFinalError={handleImageError}
         />
