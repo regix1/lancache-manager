@@ -131,7 +131,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
   const placeholderIconSize = fullHeightBanners ? 80 : 72;
   const bannerWrapperClasses = fullHeightBanners
     ? 'download-banner-mobile sm:w-[280px] sm:self-start'
-    : 'download-banner-mobile sm:w-[280px] sm:h-[130px] sm:self-center';
+    : 'download-banner-mobile sm:w-[280px] sm:self-stretch';
 
   React.useEffect(() => {
     if (!enableScrollIntoView) return;
@@ -221,7 +221,9 @@ const GroupCard: React.FC<GroupCardProps> = ({
   }
 
   const cardContent = (
-    <div className="flex flex-col sm:flex-row">
+    <div
+      className={`flex flex-col sm:flex-row ${fullHeightBanners ? 'download-card-fullheight' : 'sm:h-[160px]'}`}
+    >
       {bannerContent && (
         <>
           <div className={`flex-shrink-0 overflow-hidden ${bannerWrapperClasses}`}>
@@ -232,7 +234,9 @@ const GroupCard: React.FC<GroupCardProps> = ({
       )}
       <div
         className={`flex-1 ${
-          fullHeightBanners ? 'px-3 py-3 sm:px-4 sm:py-3' : 'px-3 py-3 sm:px-5 sm:py-4'
+          fullHeightBanners
+            ? 'download-card-content px-3 py-3 sm:px-4 sm:py-3'
+            : 'px-3 py-3 sm:px-5 sm:py-4 sm:overflow-hidden'
         }`}
       >
         {/* Mobile Layout - Clean and Spacious */}
@@ -436,9 +440,9 @@ const GroupCard: React.FC<GroupCardProps> = ({
   return (
     <div
       ref={cardRef}
-      className={`rounded-lg border overflow-hidden shadow-sm ${
+      className={`rounded-lg border overflow-hidden shadow-sm bg-[var(--theme-bg-secondary)] ${
         isExpanded ? 'ring-2 border-[var(--theme-primary)]' : 'border-[var(--theme-border-primary)]'
-      }`}
+      } ${!fullHeightBanners && !isExpanded ? 'sm:max-h-[160px]' : ''}`}
     >
       {fullHeightBanners ? (
         <div

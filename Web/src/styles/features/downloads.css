@@ -13,7 +13,6 @@
     height: 100%;
     object-fit: cover;
     object-position: center;
-    /* Enable high-quality image rendering */
     image-rendering: -webkit-optimize-contrast;
     image-rendering: crisp-edges;
   }
@@ -26,6 +25,22 @@
     object-position: center;
     image-rendering: -webkit-optimize-contrast;
     image-rendering: crisp-edges;
+  }
+
+  /* Full-height mode: banner determines row height, content clips to fit */
+  @media (min-width: 640px) {
+    .download-card-fullheight {
+      position: relative;
+    }
+
+    .download-card-fullheight > .download-card-content {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 281px;
+      right: 0;
+      overflow: hidden;
+    }
   }
 
   /* Banner placeholder with service icon */
