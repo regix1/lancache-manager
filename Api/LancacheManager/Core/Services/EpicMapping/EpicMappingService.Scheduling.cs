@@ -254,6 +254,20 @@ public partial class EpicMappingService
             _currentOperationId = null;
         }
 
+        // Resolve existing Epic downloads against updated CDN patterns
+        try
+        {
+            var resolved = await ResolveEpicDownloadsAsync(ct);
+            if (resolved > 0)
+            {
+                _logger.LogInformation("Resolved {Count} Epic downloads to game names after catalog refresh", resolved);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to resolve Epic downloads after catalog refresh (non-fatal)");
+        }
+
         // Notify frontend of updates
         await _notifications.NotifyAllAsync(SignalREvents.EpicGameMappingsUpdated, new
         {

@@ -557,29 +557,29 @@ public class RustLogProcessorService
                     // DownloadsRefresh event which triggers a database fetch. This ensures all data
                     // (downloads, stats, aggregates) comes from the same source and stays in sync.
 
-                    // These can run in background as they're not critical for the UI refresh
+                    // Resolve Epic downloads BEFORE the UI refresh so downloads show with game names
+                    try
+                    {
+                        using var epicScope = _serviceProvider.CreateScope();
+                        var epicMappingService = epicScope.ServiceProvider.GetRequiredService<EpicMappingService>();
+                        var resolved = await epicMappingService.ResolveEpicDownloadsAsync();
+                        if (resolved > 0)
+                        {
+                            _logger.LogInformation("Resolved {Count} Epic downloads to game names after log processing", resolved);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to resolve Epic downloads (non-fatal)");
+                    }
+
+                    // Image fetching can run in background as it's not critical for the UI refresh
                     _ = Task.Run(async () =>
                     {
                         await InvalidateCacheAsync(silentMode);
 
                         // Rust mapped the depot IDs to game names during processing, but we still need to fetch images
                         await FetchMissingGameImagesAsync();
-
-                        // Resolve Epic downloads to game names using CDN patterns
-                        try
-                        {
-                            using var epicScope = _serviceProvider.CreateScope();
-                            var epicMappingService = epicScope.ServiceProvider.GetRequiredService<EpicMappingService>();
-                            var resolved = await epicMappingService.ResolveEpicDownloadsAsync();
-                            if (resolved > 0)
-                            {
-                                _logger.LogInformation("Resolved {Count} Epic downloads to game names after log processing", resolved);
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogWarning(ex, "Failed to resolve Epic downloads (non-fatal)");
-                        }
 
                         // Fetch images for resolved Epic downloads
                         await FetchMissingEpicGameImagesAsync();

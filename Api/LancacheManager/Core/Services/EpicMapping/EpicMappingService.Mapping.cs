@@ -1,3 +1,4 @@
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
@@ -104,6 +105,13 @@ public partial class EpicMappingService
             await db.SaveChangesAsync(ct);
             _logger.LogInformation("Resolved {Count}/{Total} Epic downloads to game names",
                 resolvedCount, unresolvedDownloads.Count);
+
+            // Notify frontend to refresh downloads so resolved game names appear in the UI
+            await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, new
+            {
+                source = "epic-download-resolution",
+                resolvedCount
+            });
         }
         else
         {

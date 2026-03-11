@@ -97,6 +97,20 @@ public partial class EpicMappingService
             _lastCollectionUtc = DateTime.UtcNow;
             _lastRefreshTime = DateTime.UtcNow;
 
+            // Resolve existing Epic downloads against the freshly collected CDN patterns
+            try
+            {
+                var resolved = await ResolveEpicDownloadsAsync();
+                if (resolved > 0)
+                {
+                    _logger.LogInformation("Resolved {Count} Epic downloads to game names after login", resolved);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to resolve Epic downloads after login (non-fatal)");
+            }
+
             // Notify frontend
             await _notifications.NotifyAllAsync(SignalREvents.EpicGameMappingsUpdated, new
             {
@@ -189,10 +203,38 @@ public partial class EpicMappingService
                 };
                 _authStorage.SaveEpicAuthData(updatedAuthData);
 
+                // Refresh CDN patterns (paths may change with game updates)
+                try
+                {
+                    var cdnInfos = await _epicApiClient.GetCdnInfoAsync(tokens.AccessToken);
+                    if (cdnInfos.Count > 0)
+                    {
+                        await MergeCdnPatternsAsync(cdnInfos);
+                    }
+                }
+                catch (Exception cdnEx)
+                {
+                    _logger.LogWarning(cdnEx, "Failed to refresh CDN patterns during auto-reconnect");
+                }
+
                 _isAuthenticated = true;
                 _displayName = tokens.DisplayName;
                 _lastCollectionUtc = DateTime.UtcNow;
                 _lastRefreshTime = DateTime.UtcNow;
+
+                // Resolve any unresolved Epic downloads against stored CDN patterns
+                try
+                {
+                    var resolved = await ResolveEpicDownloadsAsync();
+                    if (resolved > 0)
+                    {
+                        _logger.LogInformation("Resolved {Count} Epic downloads to game names during auto-reconnect", resolved);
+                    }
+                }
+                catch (Exception resolveEx)
+                {
+                    _logger.LogWarning(resolveEx, "Failed to resolve Epic downloads during auto-reconnect");
+                }
 
                 _logger.LogInformation("Epic mapping auto-reconnect successful: {DisplayName}, {Games} games",
                     tokens.DisplayName, _gamesDiscovered);
