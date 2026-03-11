@@ -43,7 +43,9 @@ import type {
   LogRemovalStartedEvent,
   GameRemovalStartedEvent,
   ServiceRemovalStartedEvent,
-  DatabaseResetStartedEvent
+  DatabaseResetStartedEvent,
+  EpicGameMappingsUpdatedEvent,
+  EpicMappingProgressEvent
 } from '../SignalRContext/types';
 
 import type { UnifiedNotification, NotificationsContextType } from './types';
@@ -90,7 +92,10 @@ import {
   formatDataImportStartedMessage,
   formatDataImportProgressMessage,
   formatDataImportCompleteMessage,
-  formatDataImportFailureMessage
+  formatDataImportFailureMessage,
+  formatEpicMappingProgressMessage,
+  formatEpicMappingCompleteMessage,
+  formatEpicGameMappingsUpdatedMessage
 } from './detailMessageFormatters';
 
 const NotificationsContext = createContext<NotificationsContextType | undefined>(undefined);
@@ -199,7 +204,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         corruption_removal: NOTIFICATION_IDS.CORRUPTION_REMOVAL,
         game_detection: NOTIFICATION_IDS.GAME_DETECTION,
         corruption_detection: NOTIFICATION_IDS.CORRUPTION_DETECTION,
-        data_import: NOTIFICATION_IDS.DATA_IMPORT
+        data_import: NOTIFICATION_IDS.DATA_IMPORT,
+        epic_game_mapping: NOTIFICATION_IDS.EPIC_GAME_MAPPING
       };
 
       if (typeToIdMap[notification.type]) {
@@ -379,7 +385,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         getMessage: formatLogRemovalProgressMessage,
         getProgress: (e) => e.percentComplete || 0,
         getStatus: (e) =>
-          e.status === 'completed' ? 'completed' : e.status === 'error' ? 'failed' : undefined,
+          e.status === 'completed' ? 'completed' : e.status === 'failed' ? 'failed' : undefined,
         getCompletedMessage: (e) => e.message || 'Log removal completed',
         getErrorMessage: (e) => e.message || 'Log removal failed',
         getDetails: (e) => ({ operationId: e.operationId })
@@ -429,7 +435,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         getStatus: (e) =>
           e.status === 'completed'
             ? 'completed'
-            : e.status === 'error' || e.status === 'cancelled'
+            : e.status === 'failed' || e.status === 'cancelled'
               ? 'failed'
               : undefined,
         getCompletedMessage: (e) => e.message || 'Game removal completed',
@@ -482,7 +488,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           getStatus: (e) =>
             e.status === 'completed'
               ? 'completed'
-              : e.status === 'error' || e.status === 'cancelled'
+              : e.status === 'failed' || e.status === 'cancelled'
                 ? 'failed'
                 : undefined,
           getCompletedMessage: (e) => e.message || 'Service removal completed',
@@ -693,7 +699,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           getStatus: (e) =>
             e.status === 'completed'
               ? 'completed'
-              : e.status === 'failed' || e.status === 'error' || e.status === 'cancelled'
+              : e.status === 'failed' || e.status === 'cancelled'
                 ? 'failed'
                 : undefined,
           getCompletedMessage: formatDatabaseResetCompleteMessage,
@@ -788,7 +794,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         getProgress: (event) => event.percentComplete ?? event.progressPercent ?? 0,
         getStatus: (e) => {
           if (e.status === 'completed') return 'completed';
-          if (e.status === 'error' || e.status === 'failed') return 'failed';
+          if (e.status === 'failed') return 'failed';
           return undefined;
         },
         getCompletedMessage: (e) => e.message || 'Depot mapping completed successfully',
@@ -934,6 +940,58 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       }
     };
 
+    // ========== Epic Game Mapping (using factory pattern) ==========
+    const handleEpicMappingProgress = createStatusAwareProgressHandler<EpicMappingProgressEvent>(
+      {
+        type: 'epic_game_mapping',
+        getId: () => NOTIFICATION_IDS.EPIC_GAME_MAPPING,
+        storageKey: NOTIFICATION_STORAGE_KEYS.EPIC_GAME_MAPPING,
+        getMessage: formatEpicMappingProgressMessage,
+        getProgress: (e) => e.percentComplete || 0,
+        getStatus: (e) =>
+          e.status === 'completed' ? 'completed' : e.status === 'failed' ? 'failed' : undefined,
+        getCompletedMessage: formatEpicMappingCompleteMessage,
+        getErrorMessage: (e) => e.message || 'Epic games mapping failed',
+        supportFastCompletion: true,
+        getDetails: (e) => ({ operationId: e.operationId })
+      },
+      setNotifications,
+      scheduleAutoDismiss,
+      cancelAutoDismissTimer
+    );
+
+    // ========== Epic Game Mappings Updated ==========
+    // Simple one-shot completion notification: no start/progress phases, just a completion event.
+    // Only shows a notification when there are actual changes (new or updated games).
+    // This arrives after EpicMappingProgress completes and provides the final game counts.
+    const handleEpicGameMappingsUpdated = (event: EpicGameMappingsUpdatedEvent) => {
+      // Don't show a notification if nothing changed
+      if (event.newGames === 0 && event.updatedGames === 0) return;
+
+      const detailMessage = formatEpicGameMappingsUpdatedMessage(event);
+
+      setNotifications((prev: UnifiedNotification[]) => {
+        const filtered = prev.filter((n) => n.id !== NOTIFICATION_IDS.EPIC_GAME_MAPPING);
+        const newNotification: UnifiedNotification = {
+          id: NOTIFICATION_IDS.EPIC_GAME_MAPPING,
+          type: 'epic_game_mapping',
+          status: 'completed',
+          message: 'Epic Games Updated',
+          detailMessage,
+          startedAt: new Date(),
+          progress: 100,
+          details: {
+            totalEpicGames: event.totalGames,
+            newEpicGames: event.newGames,
+            updatedEpicGames: event.updatedGames
+          }
+        };
+        return [...filtered, newNotification];
+      });
+
+      scheduleAutoDismiss(NOTIFICATION_IDS.EPIC_GAME_MAPPING);
+    };
+
     // Subscribe to events
     signalR.on('LogProcessingStarted', handleLogProcessingStarted);
     signalR.on('LogProcessingProgress', handleProcessingProgress);
@@ -968,6 +1026,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     signalR.on('DataImportProgress', handleDataImportProgress);
     signalR.on('DataImportComplete', handleDataImportComplete);
     signalR.on('SteamSessionError', handleSteamSessionError);
+    signalR.on('EpicMappingProgress', handleEpicMappingProgress);
+    signalR.on('EpicGameMappingsUpdated', handleEpicGameMappingsUpdated);
 
     return () => {
       signalR.off('LogProcessingStarted', handleLogProcessingStarted);
@@ -1003,6 +1063,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       signalR.off('DataImportProgress', handleDataImportProgress);
       signalR.off('DataImportComplete', handleDataImportComplete);
       signalR.off('SteamSessionError', handleSteamSessionError);
+      signalR.off('EpicMappingProgress', handleEpicMappingProgress);
+      signalR.off('EpicGameMappingsUpdated', handleEpicGameMappingsUpdated);
     };
   }, [signalR, addNotification, updateNotification, scheduleAutoDismiss, cancelAutoDismissTimer]);
 

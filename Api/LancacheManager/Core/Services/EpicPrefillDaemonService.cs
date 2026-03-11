@@ -1,5 +1,6 @@
 using System.Text.Json;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Core.Services.EpicMapping;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Hubs;
 
@@ -12,6 +13,19 @@ namespace LancacheManager.Core.Services;
 public class EpicPrefillDaemonService : PrefillDaemonServiceBase
 {
     private const string EpicDockerImage = "ghcr.io/regix1/epic-prefill-daemon:latest";
+    private readonly EpicMappingService _mappingService;
+
+    /// <summary>
+    /// Event raised when any Epic prefill daemon session becomes authenticated.
+    /// EpicMappingService subscribes to this to track daemon auth state.
+    /// </summary>
+    public event Func<Task>? OnDaemonAuthenticated;
+
+    /// <summary>
+    /// Event raised when all Epic prefill daemon sessions are no longer authenticated.
+    /// EpicMappingService subscribes to this to track daemon auth state.
+    /// </summary>
+    public event Func<Task>? OnAllDaemonsLoggedOut;
 
     public EpicPrefillDaemonService(
         ILogger<EpicPrefillDaemonService> logger,
@@ -19,9 +33,11 @@ public class EpicPrefillDaemonService : PrefillDaemonServiceBase
         IConfiguration configuration,
         IPathResolver pathResolver,
         PrefillSessionService sessionService,
-        PrefillCacheService cacheService)
+        PrefillCacheService cacheService,
+        EpicMappingService mappingService)
         : base(logger, notifications, configuration, pathResolver, sessionService, cacheService)
     {
+        _mappingService = mappingService;
     }
 
     // Use Epic hub for per-connection notifications
@@ -58,9 +74,117 @@ public class EpicPrefillDaemonService : PrefillDaemonServiceBase
     // Epic daemon uses a different HKDF info string for credential encryption
     protected override string CredentialEncryptionHkdfInfo => "EpicPrefill-Credential-Encryption";
 
-    // Epic doesn't need OnSessionAuthenticated/OnAllSessionsLoggedOut
-    // (no SteamKit2 session conflict to manage)
-    // The base class defaults (Task.CompletedTask) are fine
+    protected override async Task OnSessionAuthenticatedAsync()
+    {
+        // Fire the OnDaemonAuthenticated event so EpicMappingService can react
+        if (OnDaemonAuthenticated != null)
+        {
+            try
+            {
+                await OnDaemonAuthenticated.Invoke();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in OnDaemonAuthenticated handler");
+            }
+        }
+
+        // Collect owned games from all authenticated sessions in the background
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await CollectGameMappingsFromAuthenticatedSessionsAsync();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to collect Epic game mappings after authentication");
+            }
+        });
+    }
+
+    /// <summary>
+    /// Called when all sessions are no longer authenticated.
+    /// Fires the OnAllDaemonsLoggedOut C# event so EpicMappingService can react.
+    /// </summary>
+    protected override async Task OnAllSessionsLoggedOutAsync()
+    {
+        if (OnAllDaemonsLoggedOut != null)
+        {
+            try
+            {
+                await OnAllDaemonsLoggedOut.Invoke();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in OnAllDaemonsLoggedOut handler");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Iterate all authenticated sessions and collect owned games.
+    /// Merges results into the cumulative mapping database.
+    /// </summary>
+    private async Task CollectGameMappingsFromAuthenticatedSessionsAsync()
+    {
+        foreach (var session in _sessions.Values)
+        {
+            if (session.AuthState != DaemonAuthState.Authenticated) continue;
+
+            try
+            {
+                _logger.LogInformation(
+                    "Collecting Epic game mappings from session {SessionId}",
+                    session.Id);
+
+                var games = await session.Client.GetOwnedGamesAsync();
+                if (games.Count == 0)
+                {
+                    _logger.LogInformation("No owned games returned from Epic session {SessionId}", session.Id);
+                    continue;
+                }
+
+                var sessionHash = ComputeAnonymousHash(session.UserId);
+                var result = await _mappingService.MergeOwnedGamesAsync(games, sessionHash, "prefill-login");
+
+                _logger.LogInformation(
+                    "Epic game mapping merge complete: {New} new, {Updated} updated, {Total} total",
+                    result.NewGames, result.UpdatedGames, result.TotalGames);
+
+                // Also collect CDN patterns for URL-to-game mapping
+                try
+                {
+                    var cdnInfos = await session.Client.GetCdnInfoAsync();
+                    if (cdnInfos.Count > 0)
+                    {
+                        await _mappingService.MergeCdnPatternsAsync(cdnInfos);
+                        _logger.LogInformation(
+                            "Epic CDN patterns collected: {Count} patterns from session {SessionId}",
+                            cdnInfos.Count, session.Id);
+                    }
+                }
+                catch (Exception cdnEx)
+                {
+                    _logger.LogWarning(cdnEx,
+                        "Failed to collect CDN patterns from Epic session {SessionId} (daemon may not support get-cdn-info yet)",
+                        session.Id);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Failed to collect games from Epic session {SessionId}",
+                    session.Id);
+            }
+        }
+    }
+
+    private static string ComputeAnonymousHash(string userId)
+    {
+        var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(userId));
+        return Convert.ToBase64String(hash)[..12];
+    }
 
     /// <summary>
     /// Override cache status check for Epic since Epic uses string app IDs (not uint depot/manifest pairs).

@@ -29,6 +29,7 @@ public class Download : IUtcMarkable
     public string? GameImageUrl { get; set; }
     public string? LastUrl { get; set; } // Store the last URL to extract game info
     public uint? DepotId { get; set; } // Steam depot ID extracted from URLs
+    public string? EpicAppId { get; set; } // Epic Games app ID (string, unlike Steam's uint)
 
     /// <summary>
     /// The datasource this download belongs to (for multi-datasource support).

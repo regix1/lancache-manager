@@ -721,6 +721,27 @@ public sealed class SocketDaemonClient : IDaemonClient
     }
 
     /// <summary>
+    /// Get CDN info for owned games.
+    /// </summary>
+    public async Task<List<CdnInfo>> GetCdnInfoAsync(CancellationToken cancellationToken = default)
+    {
+        var response = await SendCommandAsync("get-cdn-info",
+            timeout: TimeSpan.FromMinutes(10),
+            cancellationToken: cancellationToken);
+
+        if (!response.Success)
+            throw new InvalidOperationException(response.Error ?? "Failed to get CDN info");
+
+        if (response.Data is JsonElement element)
+        {
+            var result = JsonSerializer.Deserialize<CdnInfoResult>(element.GetRawText(), JsonOptions);
+            return result?.Apps ?? new List<CdnInfo>();
+        }
+
+        return new List<CdnInfo>();
+    }
+
+    /// <summary>
     /// Set selected apps for prefill.
     /// </summary>
     public async Task SetSelectedAppsAsync(List<string> appIds, CancellationToken cancellationToken = default)

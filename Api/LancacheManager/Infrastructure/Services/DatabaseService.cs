@@ -248,7 +248,7 @@ public class DatabaseService : IDatabaseService
             {
                 isProcessing = false,
                 percentComplete = 0.0,
-                status = "error",
+                status = "failed",
                 message = $"Database reset failed: {ex.Message}",
                 timestamp = DateTime.UtcNow
             });
@@ -337,7 +337,7 @@ public class DatabaseService : IDatabaseService
                     operationId,
                     isProcessing = false,
                     percentComplete = 0.0,
-                    status = "error",
+                    status = "failed",
                     message = "No valid tables selected for reset",
                     timestamp = DateTime.UtcNow
                 });
@@ -1012,7 +1012,7 @@ public class DatabaseService : IDatabaseService
                 operationId,
                 isProcessing = false,
                 percentComplete = 0.0,
-                status = "error",
+                status = "failed",
                 message = $"Database reset failed: {ex.Message}",
                 timestamp = DateTime.UtcNow
             });

@@ -168,6 +168,34 @@ public class OwnedGame
 
     [JsonPropertyName("name")]
     public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("imageUrl")]
+    public string? ImageUrl { get; set; }
+}
+
+public class CdnInfo
+{
+    [JsonPropertyName("appId")]
+    [JsonConverter(typeof(FlexibleStringConverter))]
+    public string AppId { get; set; } = string.Empty;
+
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("cdnHost")]
+    public string CdnHost { get; set; } = string.Empty;
+
+    [JsonPropertyName("chunkBaseUrl")]
+    public string ChunkBaseUrl { get; set; } = string.Empty;
+}
+
+public class CdnInfoResult
+{
+    [JsonPropertyName("apps")]
+    public List<CdnInfo> Apps { get; set; } = new();
+
+    [JsonPropertyName("message")]
+    public string? Message { get; set; }
 }
 
 public class PrefillResult

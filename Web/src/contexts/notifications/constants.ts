@@ -58,7 +58,9 @@ export const NOTIFICATION_STORAGE_KEYS = {
   /** Key for depot mapping operation state */
   DEPOT_MAPPING: 'notification_depot_mapping',
   /** Key for data import operation state */
-  DATA_IMPORT: 'notification_data_import'
+  DATA_IMPORT: 'notification_data_import',
+  /** Key for Epic game mapping operation state */
+  EPIC_GAME_MAPPING: 'notification_epic_game_mapping'
 } as const;
 
 // ============================================================================
@@ -93,6 +95,8 @@ export const NOTIFICATION_IDS = {
   CORRUPTION_DETECTION: 'corruption_detection',
   /** ID for data import operations */
   DATA_IMPORT: 'data_import',
+  /** ID for Epic game mapping updates */
+  EPIC_GAME_MAPPING: 'epic_game_mapping',
   /** ID for Steam session errors */
   STEAM_SESSION_ERROR: 'steam_session_error'
 } as const;

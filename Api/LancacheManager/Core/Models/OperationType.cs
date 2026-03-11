@@ -12,5 +12,6 @@ public enum OperationType
     DepotMapping,
     DataImport,
     DatabaseReset,
-    LogRemoval
+    LogRemoval,
+    EpicMapping
 }

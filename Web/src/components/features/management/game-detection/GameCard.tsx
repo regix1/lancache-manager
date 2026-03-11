@@ -1,10 +1,12 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { HardDrive, Database, FolderOpen } from 'lucide-react';
+import { EpicIcon } from '@components/ui/EpicIcon';
 import { formatBytes } from '@utils/formatters';
 import type { GameCacheInfo } from '../../../../types';
 import ExpandableItemCard, { type ExpandableItemStat } from './ExpandableItemCard';
 import ExpandableList from './ExpandableList';
+import { getGameUniqueId } from './gameUtils';
 
 interface GameCardProps {
   game: GameCacheInfo;
@@ -37,6 +39,8 @@ const GameCard: React.FC<GameCardProps> = ({
   onRemove
 }) => {
   const { t } = useTranslation();
+  const isEpic = game.service === 'epicgames';
+  const gameUniqueId = getGameUniqueId(game);
 
   const stats: ExpandableItemStat[] = [
     {
@@ -48,42 +52,68 @@ const GameCard: React.FC<GameCardProps> = ({
       icon: HardDrive,
       value: formatBytes(game.total_size_bytes),
       label: ''
-    },
-    {
+    }
+  ];
+
+  // Only show depot count for Steam games
+  if (!isEpic && game.depot_ids.length > 0) {
+    stats.push({
       icon: Database,
       value: game.depot_ids.length,
       label: 'management.gameDetection.depot',
       labelCount: game.depot_ids.length
-    }
-  ];
+    });
+  }
+
+  const serviceBadgeClass = isEpic
+    ? 'game-card-service-badge game-card-service-badge--epic'
+    : 'game-card-service-badge game-card-service-badge--steam';
+
+  const serviceBadgeLabel = isEpic
+    ? t('management.gameDetection.serviceEpicGames')
+    : t('management.gameDetection.serviceSteam');
 
   const subtitle = (
-    <span className="text-xs text-themed-muted bg-themed-elevated px-2 py-0.5 rounded flex-shrink-0">
-      AppID: {game.game_app_id}
+    <span className="flex items-center gap-1.5 flex-shrink-0">
+      <span className={serviceBadgeClass}>
+        {isEpic && <EpicIcon size={10} className="game-card-epic-icon" />}
+        {serviceBadgeLabel}
+      </span>
+      {!isEpic && (
+        <span className="text-xs text-themed-muted bg-themed-elevated px-2 py-0.5 rounded">
+          AppID: {game.game_app_id}
+        </span>
+      )}
     </span>
   );
 
+  // Epic games cannot be removed by AppId (game_app_id is 0)
+  const removeTooltip = isEpic
+    ? t('management.gameDetection.epicRemovalNotSupported')
+    : t('management.gameDetection.removeGameCache');
+
   return (
     <ExpandableItemCard
-      id={game.game_app_id}
+      id={gameUniqueId}
       title={game.game_name}
       subtitle={subtitle}
+      imageUrl={game.image_url}
       stats={stats}
       datasources={game.datasources}
       isExpanded={isExpanded}
       isExpanding={isExpanding}
       isRemoving={isRemoving}
-      isAnyRemovalRunning={isAnyRemovalRunning}
+      isAnyRemovalRunning={isAnyRemovalRunning || isEpic}
       isAdmin={isAdmin}
       cacheReadOnly={cacheReadOnly}
       dockerSocketAvailable={dockerSocketAvailable}
       checkingPermissions={checkingPermissions}
       onToggleDetails={(id) => onToggleDetails(String(id))}
       onRemove={() => onRemove(game)}
-      removeTooltip={t('management.gameDetection.removeGameCache')}
+      removeTooltip={removeTooltip}
     >
-      {/* Depot IDs */}
-      {game.depot_ids.length > 0 && (
+      {/* Depot IDs - Steam only */}
+      {!isEpic && game.depot_ids.length > 0 && (
         <div>
           <p className="text-xs text-themed-muted mb-1.5 font-medium">
             {t('management.gameDetection.depotIds')}

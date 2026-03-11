@@ -1352,6 +1352,13 @@
         "title": "Data Configuration",
         "subtitle": "Manage depot mappings, import data, and control database tables",
         "depotMapping": "Depot Mapping",
+        "steamDepotMapping": "Steam Depot Mapping",
+        "epicGameMapping": "Epic Games Mapping",
+        "epicResolve": {
+          "applyNow": "Apply Now",
+          "resolving": "Resolving...",
+          "noUnresolved": "No unresolved Epic downloads found"
+        },
         "dataImport": "Data Import",
         "databaseManagement": "Database Management",
         "selectedTables": "{{count}} table(s) selected",
@@ -1549,7 +1556,52 @@
         "subtitle": "Connect to Steam, configure Grafana endpoints, and manage external service integrations",
         "steamIntegration": "Steam Integration",
         "monitoringMetrics": "Monitoring & Metrics",
-        "loadingEndpoints": "Loading endpoints..."
+        "epicIntegration": "Epic Games Integration",
+        "loadingEndpoints": "Loading endpoints...",
+        "epicDaemonStatus": {
+          "title": "Epic Games Authentication",
+          "status": "Status",
+          "ready": "Ready",
+          "unavailable": "Unavailable",
+          "connected": "Connected",
+          "notConnected": "Not Connected",
+          "connectedAs": "Connected as {{name}}",
+          "notConnectedDesc": "Log in to discover Epic games and identify downloads",
+          "dockerStatus": "Docker Service",
+          "dockerAvailableDesc": "Docker is available and ready for Epic prefill sessions",
+          "dockerUnavailableDesc": "Start Docker Desktop to enable Epic Games authentication",
+          "gamesDiscovered": "{{count}} games discovered from this account",
+          "loginButton": "Login with Epic Games",
+          "loginDesc": "Sign in with your Epic Games account to discover your game library for download identification",
+          "logout": "Logout",
+          "prefillSessions": "Prefill Sessions",
+          "noActiveSessions": "No active sessions",
+          "noActiveSessionsDesc": "Log in through the Prefill tab to discover Epic games and build the mapping catalog",
+          "activeSessions": "{{count}} active session",
+          "activeSessions_plural": "{{count}} active sessions",
+          "goToPrefill": "Go to Prefill"
+        },
+        "epicGameMappings": {
+          "title": "Epic Games Library Mapping",
+          "description": "Games discovered from Epic accounts that have logged in",
+          "totalGames": "Total Games",
+          "lastUpdated": "Last Updated",
+          "noGames": "No games discovered yet. Log in with an Epic Games account to start building the catalog.",
+          "refresh": "Refresh",
+          "refreshing": "Refreshing...",
+          "search": "Search games...",
+          "appId": "App ID",
+          "name": "Name",
+          "discovered": "Discovered",
+          "lastSeen": "Last Seen",
+          "source": "Source",
+          "image": "Image",
+          "imageUrl": "Image URL",
+          "gamesDiscovered": "{{count}} game discovered",
+          "gamesDiscovered_plural": "{{count}} games discovered",
+          "noResults": "No games match your search",
+          "never": "Never"
+        }
       },
       "clients": {
         "title": "Client Nicknames",
@@ -1850,9 +1902,12 @@
           "description": "Remove <1>:ro</1> from your docker-compose volume mounts to enable game cache detection."
         }
       },
+      "serviceSteam": "Steam",
+      "serviceEpicGames": "Epic Games",
+      "epicRemovalNotSupported": "Individual Epic game cache removal is not yet supported. Use service-level removal instead.",
       "placeholders": {
         "allDatasources": "All datasources",
-        "searchGames": "Search by game name or AppID..."
+        "searchGames": "Search by game name, AppID, or service..."
       }
     },
     "datasources": {
@@ -2200,6 +2255,54 @@
           }
         },
         "note": "Account login needs the V2 Steam API. If you only have a V1 API key, it can still access restricted games but doesn't support logging in."
+      }
+    },
+    "epicMapping": {
+      "title": "Epic Games Mapping",
+      "subtitle": "Identifies Epic games from CDN download patterns",
+      "configureLogin": "Configure Epic Login",
+      "loginRequired": "Log in with your Epic Games account in the Integrations section to discover games and enable mapping.",
+      "resolveSuccess": "Resolved {{count}} Epic download(s) to game names",
+      "noUnresolved": "All Epic downloads are already mapped to games",
+      "status": {
+        "label": "Status:",
+        "connectedAs": "Connected as {{name}}",
+        "notConnected": "Not connected",
+        "gamesDiscovered": "Games discovered:",
+        "cdnPatterns": "CDN patterns",
+        "lastCollection": "Last collection:"
+      },
+      "buttons": {
+        "applyNow": "Apply Now",
+        "resolving": "Resolving..."
+      },
+      "schedule": {
+        "automaticRefresh": "Automatic Refresh",
+        "runsEvery": "Runs every:",
+        "nextRun": "Next run:",
+        "lastRun": "Last run:",
+        "disabled": "Disabled",
+        "calculating": "Calculating..."
+      },
+      "intervals": {
+        "disabled": "Disabled",
+        "every6Hours": "Every 6 hours",
+        "every12Hours": "Every 12 hours",
+        "every24Hours": "Every 24 hours",
+        "every2Days": "Every 2 days",
+        "weekly": "Weekly",
+        "hours": "{{count}} hour(s)"
+      },
+      "help": {
+        "howItWorks": {
+          "title": "How It Works",
+          "description": "Epic game mapping requires logging in with an Epic Games account. Once logged in, your owned games and their CDN patterns are collected and stored. These patterns are then used to match download URLs to game names."
+        },
+        "applyNow": {
+          "title": "Apply Now",
+          "description": "Matches unresolved Epic download URLs in the database against stored CDN patterns to identify which games they belong to."
+        },
+        "note": "Epic has no public game database like Steam's PICS. Game discovery requires at least one Epic account login."
       }
     },
     "depotMapping": {
@@ -4608,7 +4711,19 @@
     "failedLoadResults": "Failed to load previous results",
     "removing": "Removing {{name}}...",
     "cancelOperation": "Cancel operation",
-    "dismiss": "Dismiss"
+    "dismiss": "Dismiss",
+    "epicMappingProgress": {
+      "title": "Epic Games Mapping",
+      "mapping": "Mapping Epic games...",
+      "completed": "Epic games mapping completed",
+      "failed": "Epic games mapping failed"
+    },
+    "epicGameMappingsUpdated": {
+      "title": "Epic Games Updated",
+      "newGamesDiscovered": "{{count}} new game(s) discovered, {{total}} total",
+      "gamesUpdated": "{{count}} game(s) updated",
+      "noChanges": "No new games found"
+    }
   },
   "pagination": {
     "jumpTo": "Jump to...",

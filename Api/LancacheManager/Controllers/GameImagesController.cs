@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Security.Cryptography;
+using System.Text;
 using LancacheManager.Models;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Core.Interfaces;
@@ -118,6 +120,71 @@ public class GameImagesController : ControllerBase
             _logger.LogWarning("Timeout fetching Steam image for app {AppId}", appId);
             _failedImageCache.TryAdd(appId, DateTime.UtcNow);
             return StatusCode(504, new GameImageErrorResponse { Error = "Request timeout fetching game header image" });
+        }
+        catch (TaskCanceledException)
+        {
+            return StatusCode(499, new GameImageErrorResponse { Error = "Request cancelled" });
+        }
+    }
+
+    /// <summary>
+    /// Proxy Epic game images to avoid CORS issues.
+    /// Looks up the image URL from EpicGameMappings table.
+    /// Falls back to 404 if no image URL is stored.
+    /// </summary>
+    [HttpGet("epic/{epicAppId}/header")]
+    public async Task<IActionResult> GetEpicGameHeaderImage(
+        string epicAppId,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            // Generate a deterministic uint cache key from the string Epic app ID.
+            // OR with 0x80000000u to set the high bit, ensuring no collision with Steam uint IDs (which are always small).
+            var hashBytes = SHA256.HashData(Encoding.UTF8.GetBytes("epic_" + epicAppId));
+            var cacheKey = BitConverter.ToUInt32(hashBytes, 0) | 0x80000000u;
+
+            // Check if this app has recently failed all fallbacks
+            if (_failedImageCache.TryGetValue(cacheKey, out var failedTime))
+            {
+                if (DateTime.UtcNow - failedTime < _failedCacheDuration)
+                {
+                    _logger.LogTrace("Skipping cached failed image for Epic app {EpicAppId}", epicAppId);
+                    return NotFound(new GameImageErrorResponse { Error = $"Game image not available for Epic app {epicAppId}" });
+                }
+                _failedImageCache.TryRemove(cacheKey, out _);
+            }
+
+            // Look up the Epic game mapping to get the image URL
+            var mapping = await _context.EpicGameMappings
+                .FirstOrDefaultAsync(m => m.AppId == epicAppId, cancellationToken);
+
+            if (mapping == null || string.IsNullOrEmpty(mapping.ImageUrl))
+            {
+                return NotFound(new GameImageErrorResponse { Error = $"No image available for Epic app {epicAppId}" });
+            }
+
+            var imageUrl = mapping.ImageUrl;
+
+            var result = await TryGetImageAsync(cacheKey, imageUrl, cancellationToken);
+            if (result.HasValue)
+            {
+                var (imageBytes, contentType) = result.Value;
+                Response.Headers["Cache-Control"] = "public, max-age=86400";
+                Response.Headers["ETag"] = $"\"epic-{epicAppId}\"";
+                return File(imageBytes, contentType);
+            }
+
+            // Image download failed - cache the failure and return 404
+            _failedImageCache.TryAdd(cacheKey, DateTime.UtcNow);
+            return NotFound(new GameImageErrorResponse { Error = $"Epic header image not available for app {epicAppId}" });
+        }
+        catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
+        {
+            _logger.LogWarning("Timeout fetching Epic image for app {EpicAppId}", epicAppId);
+            var timeoutCacheKey = BitConverter.ToUInt32(SHA256.HashData(Encoding.UTF8.GetBytes("epic_" + epicAppId)), 0) | 0x80000000u;
+            _failedImageCache.TryAdd(timeoutCacheKey, DateTime.UtcNow);
+            return StatusCode(504, new GameImageErrorResponse { Error = "Request timeout fetching Epic game header image" });
         }
         catch (TaskCanceledException)
         {

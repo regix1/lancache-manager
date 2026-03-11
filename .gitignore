@@ -135,3 +135,7 @@ steam-lancache-prefill/
 PROJECT_SERVICES_OVERVIEW.md
 PROJECT_TYPE_CONSISTENCY_AUDIT.md
 PROJECT_VARIABLE_USAGE_MAP.md
+EPIC_GAME_MAPPING_PLAN.md
+
+# Build test artifacts
+build-test/

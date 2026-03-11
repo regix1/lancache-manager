@@ -10,6 +10,7 @@ import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
 import { type AuthMode } from '@services/auth.service';
 import ApiService from '@services/api.service';
 import DepotMappingManager from '../depot/DepotMappingManager';
+import EpicMappingManager from '../epic/EpicMappingManager';
 import DataImporter from '../data/DataImporter';
 interface DataSectionProps {
   isAdmin: boolean;
@@ -21,6 +22,7 @@ interface DataSectionProps {
   onSuccess: (message: string) => void;
   onDataRefresh: () => void;
   onNavigateToSteamApi?: () => void;
+  onNavigateToEpicLogin?: () => void;
 }
 
 const DataSection: React.FC<DataSectionProps> = ({
@@ -32,7 +34,8 @@ const DataSection: React.FC<DataSectionProps> = ({
   onError,
   onSuccess,
   onDataRefresh,
-  onNavigateToSteamApi
+  onNavigateToSteamApi,
+  onNavigateToEpicLogin
 }) => {
   const { t } = useTranslation();
 
@@ -256,12 +259,12 @@ const DataSection: React.FC<DataSectionProps> = ({
         <p className="text-themed-secondary text-sm">{t('management.sections.data.subtitle')}</p>
       </div>
 
-      {/* Subsection: Depot Mapping */}
+      {/* Subsection: Steam Depot Mapping */}
       <div className="mb-8">
         <div className="flex items-center gap-2 mb-4">
           <div className="w-1 h-5 rounded-full bg-[var(--theme-steam)]" />
           <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-            {t('management.sections.data.depotMapping')}
+            {t('management.sections.data.steamDepotMapping')}
           </h3>
         </div>
 
@@ -276,6 +279,25 @@ const DataSection: React.FC<DataSectionProps> = ({
           onSuccess={onSuccess}
           onDataRefresh={onDataRefresh}
           onNavigateToSteamApi={onNavigateToSteamApi}
+        />
+      </div>
+
+      {/* Subsection: Epic Game Mapping */}
+      <div className="mb-8">
+        <div className="flex items-center gap-2 mb-4">
+          <div className="w-1 h-5 rounded-full bg-[var(--theme-epic)]" />
+          <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
+            {t('management.sections.data.epicGameMapping')}
+          </h3>
+        </div>
+
+        <EpicMappingManager
+          isAdmin={isAdmin}
+          mockMode={mockMode}
+          onError={onError}
+          onSuccess={onSuccess}
+          onDataRefresh={onDataRefresh}
+          onNavigateToEpicLogin={onNavigateToEpicLogin}
         />
       </div>
 

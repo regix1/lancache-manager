@@ -16,6 +16,7 @@ interface ExpandableItemCardProps {
   title: string;
   titleClassName?: string;
   subtitle?: React.ReactNode;
+  imageUrl?: string;
   stats: ExpandableItemStat[];
   datasources?: string[];
   isExpanded: boolean;
@@ -37,6 +38,7 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
   title,
   titleClassName,
   subtitle,
+  imageUrl,
   stats,
   datasources,
   isExpanded,
@@ -72,6 +74,17 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
             <ChevronDown className="w-4 h-4" />
           )}
         </Button>
+        {imageUrl && (
+          <img
+            src={imageUrl}
+            alt={title}
+            className="game-card-image"
+            loading="lazy"
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = 'none';
+            }}
+          />
+        )}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1 flex-wrap">
             <h4 className={titleClassName || 'text-themed-primary font-semibold break-words'}>

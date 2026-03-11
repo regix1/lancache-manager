@@ -48,6 +48,7 @@ export interface Download {
   gameAppId?: number;
   gameImageUrl?: string;
   depotId?: number;
+  epicAppId?: string;
   lastUrl?: string;
   displayName?: string;
   /** The datasource this download belongs to (for multi-datasource support). */
@@ -296,6 +297,8 @@ export interface GameCacheInfo {
   sample_urls: string[];
   cache_file_paths: string[];
   datasources: string[];
+  service?: string; // "steam" (default) or "epicgames"
+  image_url?: string; // Game art URL (Steam header or Epic keyImages)
 }
 
 export interface ServiceCacheInfo {
@@ -413,4 +416,47 @@ export interface SpeedHistorySnapshot {
   totalBytes: number;
   averageBytesPerSecond: number;
   totalSessions: number;
+}
+
+// Epic Game Mappings
+export interface EpicGameMappingDto {
+  appId: string;
+  name: string;
+  discoveredAtUtc: string;
+  lastSeenAtUtc: string;
+  source: string;
+  imageUrl?: string;
+}
+
+export interface EpicMappingStats {
+  totalGames: number;
+  lastUpdatedUtc: string | null;
+  oldestGameUtc: string | null;
+  distinctSources: number;
+  cdnPatterns: number;
+}
+
+export interface EpicDaemonStatusDto {
+  dockerAvailable: boolean;
+  activeSessions: number;
+  maxSessionsPerUser: number;
+  sessionTimeoutMinutes: number;
+}
+
+export interface EpicMappingAuthStatus {
+  isAuthenticated: boolean;
+  displayName: string | null;
+  lastCollectionUtc: string | null;
+  gamesDiscovered: number;
+}
+
+export interface EpicScheduleStatus {
+  refreshIntervalHours: number;
+  isProcessing: boolean;
+  lastRefreshTime: string | null;
+  nextRefreshIn: number;
+  isAuthenticated: boolean;
+  operationId: string | null;
+  status: string;
+  progressPercent: number;
 }

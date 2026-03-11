@@ -1,0 +1,49 @@
+/* ==============================================
+ * GAME DETECTION - Game cards, service badges
+ * ============================================== */
+
+/* Service badge base styling */
+.game-card-service-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.625rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  line-height: 1.4;
+  flex-shrink: 0;
+}
+
+/* Steam service badge */
+.game-card-service-badge--steam {
+  background-color: color-mix(in srgb, var(--theme-steam) 15%, transparent);
+  color: var(--theme-steam);
+}
+
+/* Epic Games service badge */
+.game-card-service-badge--epic {
+  background-color: color-mix(in srgb, var(--theme-epic) 15%, transparent);
+  color: var(--theme-epic);
+}
+
+/* Epic icon placeholder in game cards */
+.game-card-epic-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--theme-epic);
+  opacity: 0.8;
+}
+
+/* Game card thumbnail image */
+.game-card-image {
+  width: 92px;
+  height: 43px;
+  object-fit: cover;
+  border-radius: 0.25rem;
+  flex-shrink: 0;
+  background-color: var(--theme-bg-elevated);
+}

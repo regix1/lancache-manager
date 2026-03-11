@@ -5,6 +5,8 @@ import { type AuthMode } from '@services/auth.service';
 import SteamLoginManager from '../steam/SteamLoginManager';
 import SteamWebApiStatus from '../steam/SteamWebApiStatus';
 import GrafanaEndpoints from '../grafana/GrafanaEndpoints';
+import EpicDaemonStatus from '../epic/EpicDaemonStatus';
+import EpicGameMappings from '../epic/EpicGameMappings';
 
 interface IntegrationsSectionProps {
   authMode: AuthMode;
@@ -43,7 +45,7 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
       </div>
 
       {/* Content Grid - Two column layout for larger screens */}
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
         {/* Steam Integration Column */}
         <div className="space-y-4">
           <div className="flex items-center gap-2 mb-2">
@@ -86,6 +88,19 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
           >
             <GrafanaEndpoints />
           </Suspense>
+        </div>
+
+        {/* Epic Games Integration Column */}
+        <div className="space-y-4">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-1 h-5 rounded-full bg-[var(--theme-epic)]" />
+            <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
+              {t('management.sections.integrations.epicIntegration')}
+            </h3>
+          </div>
+
+          <EpicDaemonStatus authMode={authMode} />
+          <EpicGameMappings authMode={authMode} />
         </div>
       </div>
     </div>

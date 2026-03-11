@@ -586,6 +586,15 @@ public class GameCacheDetectionService : IDisposable
                 completionMessage += $" across {datasources.Count} datasources";
             }
 
+            // Merge Epic games from resolved downloads
+            var epicGames = await GetEpicGamesFromDownloadsAsync();
+            if (epicGames.Count > 0)
+            {
+                finalGames.AddRange(epicGames);
+                totalGamesDetected = finalGames.Count;
+                _logger.LogInformation("[GameDetection] Added {Count} Epic games from resolved downloads", epicGames.Count);
+            }
+
             // For incremental mode, use existing services (service detection is skipped)
             // For full scan, use newly detected services
             var finalServices = incremental && existingServices != null && existingServices.Count > 0
@@ -834,13 +843,20 @@ public class GameCacheDetectionService : IDisposable
         var cachedGames = await dbContext.CachedGameDetections.ToListAsync();
         var cachedServices = await dbContext.CachedServiceDetections.ToListAsync();
 
-        if (cachedGames.Count == 0 && cachedServices.Count == 0)
+        var games = cachedGames.Select(ConvertToGameCacheInfo).ToList();
+        var services = cachedServices.Select(ConvertToServiceCacheInfo).ToList();
+
+        // Merge Epic games from resolved downloads
+        var epicGames = await GetEpicGamesFromDownloadsAsync();
+        if (epicGames.Count > 0)
+        {
+            games.AddRange(epicGames);
+        }
+
+        if (games.Count == 0 && services.Count == 0)
         {
             return null;
         }
-
-        var games = cachedGames.Select(ConvertToGameCacheInfo).ToList();
-        var services = cachedServices.Select(ConvertToServiceCacheInfo).ToList();
 
         var lastDetectedTime = DateTime.MinValue;
         if (cachedGames.Count > 0)
@@ -1319,7 +1335,10 @@ public class GameCacheDetectionService : IDisposable
             DepotIds = JsonSerializer.Deserialize<List<uint>>(cached.DepotIdsJson) ?? new List<uint>(),
             SampleUrls = JsonSerializer.Deserialize<List<string>>(cached.SampleUrlsJson) ?? new List<string>(),
             CacheFilePaths = JsonSerializer.Deserialize<List<string>>(cached.CacheFilePathsJson) ?? new List<string>(),
-            Datasources = JsonSerializer.Deserialize<List<string>>(datasourcesJson) ?? new List<string>()
+            Datasources = JsonSerializer.Deserialize<List<string>>(datasourcesJson) ?? new List<string>(),
+            ImageUrl = cached.GameAppId > 0
+                ? $"https://cdn.cloudflare.steamstatic.com/steam/apps/{cached.GameAppId}/header.jpg"
+                : null
         };
     }
 
@@ -1335,6 +1354,56 @@ public class GameCacheDetectionService : IDisposable
             CacheFilePaths = JsonSerializer.Deserialize<List<string>>(cached.CacheFilePathsJson) ?? new List<string>(),
             Datasources = JsonSerializer.Deserialize<List<string>>(datasourcesJson) ?? new List<string>()
         };
+    }
+
+    /// <summary>
+    /// Query the database for resolved Epic downloads and create GameCacheInfo entries.
+    /// These are merged into the game detection results alongside Rust-detected Steam games.
+    /// </summary>
+    private async Task<List<GameCacheInfo>> GetEpicGamesFromDownloadsAsync()
+    {
+        try
+        {
+            await using var db = await _dbContextFactory.CreateDbContextAsync();
+
+            var epicDownloads = await db.Downloads
+                .Where(d => d.EpicAppId != null && d.GameName != null)
+                .ToListAsync();
+
+            if (epicDownloads.Count == 0)
+                return new List<GameCacheInfo>();
+
+            // Load image URLs from EpicGameMappings for display
+            var imageLookup = await db.EpicGameMappings
+                .Where(m => m.ImageUrl != null)
+                .ToDictionaryAsync(m => m.AppId, m => m.ImageUrl);
+
+            // Group by EpicAppId to aggregate per-game stats
+            var epicGames = epicDownloads
+                .GroupBy(d => d.EpicAppId!)
+                .Select(g => new GameCacheInfo
+                {
+                    GameAppId = 0, // Epic uses string IDs, not uint
+                    GameName = g.First().GameName ?? $"Epic Game ({g.Key})",
+                    Service = "epicgames",
+                    CacheFilesFound = g.Count(),
+                    TotalSizeBytes = (ulong)g.Sum(d => d.CacheHitBytes + d.CacheMissBytes),
+                    DepotIds = new List<uint>(),
+                    SampleUrls = g.Where(d => d.LastUrl != null).Select(d => d.LastUrl!).Take(3).ToList(),
+                    CacheFilePaths = new List<string>(),
+                    Datasources = g.Select(d => d.Datasource).Distinct().ToList(),
+                    ImageUrl = imageLookup.TryGetValue(g.Key, out var url) ? url : null
+                })
+                .ToList();
+
+            _logger.LogInformation("Found {Count} Epic games from resolved downloads", epicGames.Count);
+            return epicGames;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to get Epic games from downloads");
+            return new List<GameCacheInfo>();
+        }
     }
 
     private class GameDetectionResult

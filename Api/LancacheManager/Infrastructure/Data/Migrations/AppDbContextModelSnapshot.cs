@@ -217,6 +217,92 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.ToTable("CachedServiceDetections");
                 });
 
+            modelBuilder.Entity("LancacheManager.Models.EpicCdnPattern", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("AppId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CdnHost")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ChunkBaseUrl")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("DiscoveredAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("LastSeenAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AppId")
+                        .HasDatabaseName("IX_EpicCdnPatterns_AppId");
+
+                    b.HasIndex("ChunkBaseUrl")
+                        .IsUnique()
+                        .HasDatabaseName("IX_EpicCdnPatterns_ChunkBaseUrl");
+
+                    b.ToTable("EpicCdnPatterns");
+                });
+
+            modelBuilder.Entity("LancacheManager.Models.EpicGameMapping", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("AppId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DiscoveredByHash")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("DiscoveredAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTime>("LastSeenAtUtc")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ImageUrl")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AppId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_EpicGameMappings_AppId");
+
+                    b.HasIndex("DiscoveredAtUtc")
+                        .HasDatabaseName("IX_EpicGameMappings_DiscoveredAtUtc");
+
+                    b.HasIndex("Name")
+                        .HasDatabaseName("IX_EpicGameMappings_Name");
+
+                    b.ToTable("EpicGameMappings");
+                });
+
             modelBuilder.Entity("LancacheManager.Models.ClientGroup", b =>
                 {
                     b.Property<int>("Id")
@@ -327,6 +413,9 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.Property<uint?>("DepotId")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("EpicAppId")
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime>("EndTimeLocal")
                         .HasColumnType("TEXT");
 
@@ -365,6 +454,9 @@ namespace LancacheManager.Infrastructure.Data.Migrations
 
                     b.HasIndex("DepotId")
                         .HasDatabaseName("IX_Downloads_DepotId");
+
+                    b.HasIndex("EpicAppId")
+                        .HasDatabaseName("IX_Downloads_EpicAppId");
 
                     b.HasIndex("EndTimeUtc")
                         .HasDatabaseName("IX_Downloads_EndTime");

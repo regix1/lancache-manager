@@ -28,4 +28,18 @@ public class GameCacheInfo
     /// </summary>
     [System.Text.Json.Serialization.JsonPropertyName("datasources")]
     public List<string> Datasources { get; set; } = new List<string>();
+
+    /// <summary>
+    /// The service/platform this game belongs to (e.g. "steam", "epicgames").
+    /// Defaults to "steam" for backward compatibility with Rust-detected games.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonPropertyName("service")]
+    public string Service { get; set; } = "steam";
+
+    /// <summary>
+    /// URL to the game's image art.
+    /// For Steam: constructed from AppID. For Epic: stored in EpicGameMappings.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonPropertyName("image_url")]
+    public string? ImageUrl { get; set; }
 }

@@ -290,7 +290,7 @@ public class RustDatabaseResetService
                         OperationId = _currentTrackerOperationId,
                         isProcessing = false,
                         percentComplete = 0.0,
-                        status = "error",
+                        status = "failed",
                         message = $"Database reset failed with exit code {exitCode}",
                         timestamp = DateTime.UtcNow
                     });
@@ -332,7 +332,7 @@ public class RustDatabaseResetService
                 OperationId = _currentTrackerOperationId,
                 isProcessing = false,
                 percentComplete = 0.0,
-                status = "error",
+                status = "failed",
                 message = $"Database reset failed: {ex.Message}",
                 timestamp = DateTime.UtcNow
             });

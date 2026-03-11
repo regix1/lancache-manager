@@ -86,7 +86,34 @@ export default tseslint.config(
       'no-console': ['warn', { allow: ['warn', 'error'] }],
       'prefer-const': 'warn',
       'no-unused-expressions': 'warn',
-      'no-duplicate-imports': 'error'
+      'no-duplicate-imports': 'error',
+
+      // Status string consistency: use "completed" not "complete"
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "BinaryExpression[operator='==='][right.value='complete'][left.property.name='status']",
+          message: "Use 'completed' instead of 'complete' for status checks. The backend sends 'completed' for all completion states."
+        }
+      ]
+    }
+  },
+
+  // SignalR status string rules - scoped to notification/SignalR files
+  {
+    files: ['src/contexts/notifications/**/*.{ts,tsx}', 'src/contexts/SignalRContext/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "BinaryExpression[operator='==='][right.value='error'][left.property.name='status']",
+          message: "Use 'failed' instead of 'error' for SignalR status checks. The backend sends 'failed' for all failure states."
+        },
+        {
+          selector: "BinaryExpression[operator='==='][right.value='complete'][left.property.name='status']",
+          message: "Use 'completed' instead of 'complete' for SignalR status checks. The backend sends 'completed' for all completion states."
+        }
+      ]
     }
   },
 

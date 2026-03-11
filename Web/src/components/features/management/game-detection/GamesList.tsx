@@ -4,6 +4,7 @@ import { Search } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Pagination } from '@components/ui/Pagination';
 import GameCard from './GameCard';
+import { getGameUniqueId } from './gameUtils';
 import type { GameCacheInfo } from '../../../../types';
 import type { UnifiedNotification } from '@contexts/notifications';
 
@@ -35,8 +36,8 @@ const GamesList: React.FC<GamesListProps> = ({
   const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const [expandedGameId, setExpandedGameId] = useState<number | null>(null);
-  const [expandingGameId, setExpandingGameId] = useState<number | null>(null);
+  const [expandedGameId, setExpandedGameId] = useState<string | null>(null);
+  const [expandingGameId, setExpandingGameId] = useState<string | null>(null);
 
   // Reset page when search query changes
   useEffect(() => {
@@ -45,11 +46,13 @@ const GamesList: React.FC<GamesListProps> = ({
 
   // Memoized filtered, sorted, and paginated games list
   const filteredAndSortedGames = useMemo(() => {
-    // Filter by search query (search in game name or app ID)
+    // Filter by search query (search in game name, app ID, or service name)
+    const query = searchQuery.toLowerCase();
     const filtered = games.filter(
       (game) =>
-        game.game_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        game.game_app_id.toString().includes(searchQuery)
+        game.game_name.toLowerCase().includes(query) ||
+        game.game_app_id.toString().includes(searchQuery) ||
+        (game.service && game.service.toLowerCase().includes(query))
     );
 
     // Sort alphabetically by game name (case-insensitive)
@@ -69,18 +72,19 @@ const GamesList: React.FC<GamesListProps> = ({
   const totalPages = Math.ceil(filteredAndSortedGames.length / ITEMS_PER_PAGE);
 
   const toggleGameDetails = (gameId: number | string) => {
+    const id = String(gameId);
     // If already expanded, collapse immediately
-    if (expandedGameId === gameId) {
+    if (expandedGameId === id) {
       setExpandedGameId(null);
       return;
     }
 
     // Show loading state for expansion
-    setExpandingGameId(Number(gameId));
+    setExpandingGameId(id);
 
     // Use setTimeout to allow the loading spinner to render before heavy DOM updates
     setTimeout(() => {
-      setExpandedGameId(Number(gameId));
+      setExpandedGameId(id);
       setExpandingGameId(null);
     }, 50); // Small delay to let spinner show
   };
@@ -129,27 +133,30 @@ const GamesList: React.FC<GamesListProps> = ({
       {filteredAndSortedGames.length > 0 && (
         <>
           <div className="space-y-3">
-            {paginatedGames.map((game) => (
-              <GameCard
-                key={game.game_app_id}
-                game={game}
-                isExpanded={expandedGameId === game.game_app_id}
-                isExpanding={expandingGameId === game.game_app_id}
-                isRemoving={notifications.some(
-                  (n) =>
-                    n.type === 'game_removal' &&
-                    n.details?.gameAppId === game.game_app_id &&
-                    n.status === 'running'
-                )}
-                isAnyRemovalRunning={isAnyRemovalRunning}
-                isAdmin={isAdmin}
-                cacheReadOnly={cacheReadOnly}
-                dockerSocketAvailable={dockerSocketAvailable}
-                checkingPermissions={checkingPermissions}
-                onToggleDetails={toggleGameDetails}
-                onRemove={onRemoveGame}
-              />
-            ))}
+            {paginatedGames.map((game) => {
+              const uniqueId = getGameUniqueId(game);
+              return (
+                <GameCard
+                  key={uniqueId}
+                  game={game}
+                  isExpanded={expandedGameId === uniqueId}
+                  isExpanding={expandingGameId === uniqueId}
+                  isRemoving={notifications.some(
+                    (n) =>
+                      n.type === 'game_removal' &&
+                      n.details?.gameAppId === game.game_app_id &&
+                      n.status === 'running'
+                  )}
+                  isAnyRemovalRunning={isAnyRemovalRunning}
+                  isAdmin={isAdmin}
+                  cacheReadOnly={cacheReadOnly}
+                  dockerSocketAvailable={dockerSocketAvailable}
+                  checkingPermissions={checkingPermissions}
+                  onToggleDetails={toggleGameDetails}
+                  onRemove={onRemoveGame}
+                />
+              );
+            })}
           </div>
 
           {/* Pagination Controls */}

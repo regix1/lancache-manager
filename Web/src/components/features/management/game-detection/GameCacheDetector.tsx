@@ -465,6 +465,16 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       });
       return;
     }
+    // Epic games cannot be removed by AppId (game_app_id is 0)
+    if (game.service === 'epicgames') {
+      addNotification({
+        type: 'generic',
+        status: 'failed',
+        message: t('management.gameDetection.epicRemovalNotSupported'),
+        details: { notificationType: 'info' }
+      });
+      return;
+    }
     setGameToRemove(game);
   };
 

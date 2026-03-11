@@ -1,6 +1,7 @@
 using FluentValidation;
 using FluentValidation.AspNetCore;
 using LancacheManager.Core.Services;
+using LancacheManager.Core.Services.EpicMapping;
 using LancacheManager.Core.Services.SteamKit2;
 using LancacheManager.Configuration;
 using LancacheManager.Infrastructure.Data;
@@ -389,6 +390,16 @@ builder.Services.AddHostedService(provider => provider.GetRequiredService<SteamD
 // Register EpicPrefillDaemonService for Epic Games daemon-based prefill management
 builder.Services.AddSingleton<EpicPrefillDaemonService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<EpicPrefillDaemonService>());
+
+// Register EpicApiDirectClient for direct HTTP calls to Epic APIs (no Docker needed)
+builder.Services.AddSingleton<EpicApiDirectClient>();
+
+// Register EpicAuthStorageService for Epic credential persistence
+builder.Services.AddSingleton<EpicAuthStorageService>();
+
+// Register unified EpicMappingService for game discovery, mapping, and scheduling
+builder.Services.AddSingleton<EpicMappingService>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<EpicMappingService>());
 
 // Register OperationStateService
 builder.Services.AddSingleton<OperationStateService>();

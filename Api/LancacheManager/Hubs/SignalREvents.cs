@@ -127,6 +127,10 @@ public static class SignalREvents
     // Epic Guest Prefill Config
     public const string EpicGuestPrefillConfigChanged = "EpicGuestPrefillConfigChanged";
 
+    // Epic Game Mapping
+    public const string EpicGameMappingsUpdated = "EpicGameMappingsUpdated";
+    public const string EpicMappingProgress = "EpicMappingProgress";
+
     // Directory Permissions
     public const string DirectoryPermissionsChanged = "DirectoryPermissionsChanged";
 

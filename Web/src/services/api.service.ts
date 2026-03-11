@@ -28,7 +28,12 @@ import type {
   ClientGroup,
   CreateClientGroupRequest,
   UpdateClientGroupRequest,
-  StatsExclusionsResponse
+  StatsExclusionsResponse,
+  EpicGameMappingDto,
+  EpicMappingStats,
+  EpicDaemonStatusDto,
+  EpicMappingAuthStatus,
+  EpicScheduleStatus
 } from '../types';
 
 // Response types for API operations
@@ -1566,6 +1571,103 @@ class ApiService {
       console.error('clearAllPrefillCache error:', error);
       throw error;
     }
+  }
+
+  // =====================================================
+  // Epic Game Mappings API
+  // =====================================================
+
+  static async getEpicDaemonStatus(): Promise<EpicDaemonStatusDto> {
+    const response = await fetch(`${API_BASE}/epic-daemon/status`, {
+      credentials: 'include'
+    });
+    return ApiService.handleResponse<EpicDaemonStatusDto>(response);
+  }
+
+  static async getEpicGameMappings(): Promise<EpicGameMappingDto[]> {
+    const response = await fetch(`${API_BASE}/epic/game-mappings`, {
+      credentials: 'include'
+    });
+    return ApiService.handleResponse<EpicGameMappingDto[]>(response);
+  }
+
+  static async getEpicMappingStats(): Promise<EpicMappingStats> {
+    const response = await fetch(`${API_BASE}/epic/game-mappings/stats`, {
+      credentials: 'include'
+    });
+    return ApiService.handleResponse<EpicMappingStats>(response);
+  }
+
+  static async searchEpicGames(query: string): Promise<EpicGameMappingDto[]> {
+    const response = await fetch(
+      `${API_BASE}/epic/game-mappings/search?q=${encodeURIComponent(query)}`,
+      { credentials: 'include' }
+    );
+    return ApiService.handleResponse<EpicGameMappingDto[]>(response);
+  }
+
+  static async resolveEpicDownloads(): Promise<{ resolved: number; message: string }> {
+    const response = await fetch(`${API_BASE}/epic/game-mappings/resolve`, {
+      method: 'POST',
+      credentials: 'include'
+    });
+    return ApiService.handleResponse<{ resolved: number; message: string }>(response);
+  }
+
+  static async getEpicMappingAuthStatus(): Promise<EpicMappingAuthStatus> {
+    const response = await fetch(`${API_BASE}/epic/game-mappings/auth-status`, {
+      credentials: 'include'
+    });
+    return ApiService.handleResponse<EpicMappingAuthStatus>(response);
+  }
+
+  static async getEpicScheduleStatus(): Promise<EpicScheduleStatus> {
+    const response = await fetch(`${API_BASE}/epic/game-mappings/schedule`, {
+      credentials: 'include'
+    });
+    return ApiService.handleResponse<EpicScheduleStatus>(response);
+  }
+
+  static async setEpicRefreshInterval(intervalHours: number): Promise<void> {
+    await fetch(`${API_BASE}/epic/game-mappings/schedule/interval`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(intervalHours)
+    });
+  }
+
+  static async startEpicMappingLogin(): Promise<{ authorizationUrl: string }> {
+    const response = await fetch(`${API_BASE}/epic/game-mappings/auth/login`, {
+      method: 'POST',
+      credentials: 'include'
+    });
+    return ApiService.handleResponse<{ authorizationUrl: string }>(response);
+  }
+
+  static async logoutEpicMapping(): Promise<void> {
+    const response = await fetch(`${API_BASE}/epic/game-mappings/auth`, {
+      method: 'DELETE',
+      credentials: 'include'
+    });
+    await ApiService.handleResponse(response);
+  }
+
+  static async cancelEpicRefresh(): Promise<void> {
+    await fetch(`${API_BASE}/epic/game-mappings/schedule/cancel`, {
+      method: 'POST',
+      credentials: 'include'
+    });
+  }
+
+  static async completeEpicMappingAuth(authorizationCode: string): Promise<void> {
+    const response = await fetch(`${API_BASE}/epic/game-mappings/auth/complete`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ authorizationCode })
+    });
+    await ApiService.handleResponse(response);
   }
 }
 

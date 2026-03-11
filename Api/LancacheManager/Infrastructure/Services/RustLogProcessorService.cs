@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
 using LancacheManager.Core.Services;
+using LancacheManager.Core.Services.EpicMapping;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Hubs;
 using LancacheManager.Core.Interfaces;
@@ -563,6 +564,25 @@ public class RustLogProcessorService
 
                         // Rust mapped the depot IDs to game names during processing, but we still need to fetch images
                         await FetchMissingGameImagesAsync();
+
+                        // Resolve Epic downloads to game names using CDN patterns
+                        try
+                        {
+                            using var epicScope = _serviceProvider.CreateScope();
+                            var epicMappingService = epicScope.ServiceProvider.GetRequiredService<EpicMappingService>();
+                            var resolved = await epicMappingService.ResolveEpicDownloadsAsync();
+                            if (resolved > 0)
+                            {
+                                _logger.LogInformation("Resolved {Count} Epic downloads to game names after log processing", resolved);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to resolve Epic downloads (non-fatal)");
+                        }
+
+                        // Fetch images for resolved Epic downloads
+                        await FetchMissingEpicGameImagesAsync();
                     });
                 }
 
@@ -866,6 +886,53 @@ public class RustLogProcessorService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Error fetching missing game images - this is non-critical");
+        }
+    }
+
+    /// <summary>
+    /// Sets GameImageUrl on Epic downloads that have been resolved to games but are missing images.
+    /// Looks up image URLs from the EpicGameMappings table.
+    /// </summary>
+    private async Task FetchMissingEpicGameImagesAsync()
+    {
+        try
+        {
+            using var scope = _serviceProvider.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            // Find Epic downloads that have EpicAppId but missing GameImageUrl
+            var downloadsNeedingImages = await context.Downloads
+                .Where(d => d.EpicAppId != null && string.IsNullOrEmpty(d.GameImageUrl))
+                .Take(100)
+                .ToListAsync();
+
+            if (downloadsNeedingImages.Count == 0)
+                return;
+
+            // Load all Epic game mappings with image URLs for lookup
+            var imageLookup = await context.EpicGameMappings
+                .Where(m => m.ImageUrl != null)
+                .ToDictionaryAsync(m => m.AppId, m => m.ImageUrl);
+
+            var updated = 0;
+            foreach (var download in downloadsNeedingImages)
+            {
+                if (download.EpicAppId != null && imageLookup.TryGetValue(download.EpicAppId, out var imageUrl))
+                {
+                    download.GameImageUrl = imageUrl;
+                    updated++;
+                }
+            }
+
+            if (updated > 0)
+            {
+                await context.SaveChangesAsync();
+                _logger.LogInformation("Updated {Count} Epic downloads with game images", updated);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error fetching missing Epic game images - this is non-critical");
         }
     }
 

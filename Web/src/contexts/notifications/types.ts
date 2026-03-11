@@ -19,6 +19,7 @@ export type NotificationType =
   | 'depot_mapping'
   | 'game_detection'
   | 'data_import'
+  | 'epic_game_mapping'
   | 'generic';
 
 /**
@@ -97,6 +98,11 @@ export interface UnifiedNotification {
     scanType?: 'full' | 'incremental';
     totalGamesDetected?: number;
     totalServicesDetected?: number;
+
+    // For epic_game_mapping
+    totalEpicGames?: number;
+    newEpicGames?: number;
+    updatedEpicGames?: number;
 
     // For generic notifications
     notificationType?: 'success' | 'error' | 'info' | 'warning';

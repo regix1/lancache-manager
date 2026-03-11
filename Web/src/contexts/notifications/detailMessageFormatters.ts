@@ -19,7 +19,9 @@ import type {
   DepotMappingStartedEvent,
   DataImportStartedEvent,
   DataImportProgressEvent,
-  DataImportCompleteEvent
+  DataImportCompleteEvent,
+  EpicMappingProgressEvent,
+  EpicGameMappingsUpdatedEvent
 } from '../SignalRContext/types';
 
 /**
@@ -426,4 +428,46 @@ export const formatDataImportCompleteMessage = (event: DataImportCompleteEvent):
  */
 export const formatDataImportFailureMessage = (event: DataImportCompleteEvent): string => {
   return event.message || 'Data import failed';
+};
+
+// ============================================================================
+// Epic Game Mapping
+// ============================================================================
+
+/**
+ * Formats the progress message for Epic game mapping.
+ * @param event - The Epic mapping progress event from SignalR
+ * @returns Formatted progress message string
+ */
+export const formatEpicMappingProgressMessage = (event: EpicMappingProgressEvent): string => {
+  return event.message || 'Mapping Epic games...';
+};
+
+/**
+ * Formats the completion message for Epic game mapping progress.
+ * @param event - The Epic mapping progress event from SignalR
+ * @returns Formatted completion message string
+ */
+export const formatEpicMappingCompleteMessage = (event: EpicMappingProgressEvent): string => {
+  return event.message || 'Epic games mapping completed';
+};
+
+/**
+ * Formats the detail message for Epic game mappings updated.
+ * Shows new/updated game counts and total.
+ * @param event - The Epic game mappings updated event from SignalR
+ * @returns Formatted detail message string
+ */
+export const formatEpicGameMappingsUpdatedMessage = (
+  event: EpicGameMappingsUpdatedEvent
+): string => {
+  const parts: string[] = [];
+  if (event.newGames > 0) {
+    parts.push(`${event.newGames} new game${event.newGames !== 1 ? 's' : ''} discovered`);
+  }
+  if (event.updatedGames > 0) {
+    parts.push(`${event.updatedGames} game${event.updatedGames !== 1 ? 's' : ''} updated`);
+  }
+  const detail = parts.join(', ');
+  return detail ? `${detail}, ${event.totalGames} total` : `${event.totalGames} total`;
 };

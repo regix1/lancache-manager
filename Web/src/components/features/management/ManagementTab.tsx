@@ -155,6 +155,11 @@ const ManagementTab: React.FC = () => {
     }, 2000);
   }, []);
 
+  // Handle navigation to Epic Login in Integrations section
+  const handleNavigateToEpicLogin = useCallback(() => {
+    setActiveSection('integrations');
+  }, []);
+
   // Render the active section
   const renderActiveSection = () => {
     // Settings section is always available
@@ -220,6 +225,7 @@ const ManagementTab: React.FC = () => {
             onSuccess={setSuccess}
             onDataRefresh={refreshStatsAndGameCache}
             onNavigateToSteamApi={handleNavigateToSteamApi}
+            onNavigateToEpicLogin={handleNavigateToEpicLogin}
           />
         );
 

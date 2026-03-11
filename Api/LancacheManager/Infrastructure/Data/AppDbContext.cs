@@ -25,6 +25,8 @@ public class AppDbContext : DbContext
     public DbSet<PrefillHistoryEntry> PrefillHistoryEntries { get; set; }
     public DbSet<PrefillCachedDepot> PrefillCachedDepots { get; set; }
     public DbSet<CacheSnapshot> CacheSnapshots { get; set; }
+    public DbSet<EpicGameMapping> EpicGameMappings { get; set; }
+    public DbSet<EpicCdnPattern> EpicCdnPatterns { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -59,6 +61,11 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Download>()
             .HasIndex(d => d.DepotId)
             .HasDatabaseName("IX_Downloads_DepotId");
+
+        // EpicAppId index for Epic Games download resolution
+        modelBuilder.Entity<Download>()
+            .HasIndex(d => d.EpicAppId)
+            .HasDatabaseName("IX_Downloads_EpicAppId");
 
         // ClientStats indexes
         modelBuilder.Entity<ClientStats>()
@@ -289,5 +296,29 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<CacheSnapshot>()
             .HasIndex(c => c.TimestampUtc)
             .HasDatabaseName("IX_CacheSnapshots_TimestampUtc");
+
+        // EpicGameMapping indexes
+        modelBuilder.Entity<EpicGameMapping>()
+            .HasIndex(m => m.AppId)
+            .HasDatabaseName("IX_EpicGameMappings_AppId")
+            .IsUnique();
+
+        modelBuilder.Entity<EpicGameMapping>()
+            .HasIndex(m => m.Name)
+            .HasDatabaseName("IX_EpicGameMappings_Name");
+
+        modelBuilder.Entity<EpicGameMapping>()
+            .HasIndex(m => m.DiscoveredAtUtc)
+            .HasDatabaseName("IX_EpicGameMappings_DiscoveredAtUtc");
+
+        // EpicCdnPattern indexes
+        modelBuilder.Entity<EpicCdnPattern>()
+            .HasIndex(p => p.AppId)
+            .HasDatabaseName("IX_EpicCdnPatterns_AppId");
+
+        modelBuilder.Entity<EpicCdnPattern>()
+            .HasIndex(p => p.ChunkBaseUrl)
+            .HasDatabaseName("IX_EpicCdnPatterns_ChunkBaseUrl")
+            .IsUnique();
     }
 }

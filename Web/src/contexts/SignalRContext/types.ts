@@ -155,7 +155,11 @@ export const SIGNALR_EVENTS = [
   'EpicSessionEnded',
 
   // Epic Guest Prefill Config
-  'EpicGuestPrefillConfigChanged'
+  'EpicGuestPrefillConfigChanged',
+
+  // Epic Game Mappings
+  'EpicMappingProgress',
+  'EpicGameMappingsUpdated'
 ] as const;
 
 /**
@@ -627,4 +631,19 @@ export interface DataImportCompleteEvent {
   recordsSkipped?: number;
   recordsErrors?: number;
   totalRecords?: number;
+}
+
+export interface EpicMappingProgressEvent {
+  operationId: string;
+  status: string;
+  percentComplete: number;
+  gamesDiscovered: number;
+  message: string;
+}
+
+export interface EpicGameMappingsUpdatedEvent {
+  totalGames: number;
+  newGames: number;
+  updatedGames: number;
+  lastUpdatedUtc: string;
 }

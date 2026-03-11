@@ -188,7 +188,7 @@ public partial class SteamKit2Service
         catch (OperationCanceledException)
         {
             // Cancellation is expected - don't log as error
-            _currentStatus = "Cancelled";
+            _currentStatus = "cancelled";
             _logger.LogDebug("Depot mapping scan was cancelled");
             // Notification is sent by RunAsync when it catches this exception
             throw;
@@ -537,7 +537,7 @@ public partial class SteamKit2Service
 
         var (downloadsUpdated, downloadsNotFound) = await UpdateDownloadsWithDepotMappings();
 
-        _currentStatus = "Complete";
+        _currentStatus = "completed";
         _lastCrawlTime = DateTime.UtcNow;
         SaveLastCrawlTime();
 

@@ -68,6 +68,11 @@ public interface IDaemonClient : IDisposable
     Task<List<OwnedGame>> GetOwnedGamesAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Get CDN URL patterns for games (Epic only).
+    /// </summary>
+    Task<List<CdnInfo>> GetCdnInfoAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Set selected apps for prefill.
     /// </summary>
     Task SetSelectedAppsAsync(List<string> appIds, CancellationToken cancellationToken = default);
