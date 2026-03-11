@@ -131,7 +131,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
   const placeholderIconSize = fullHeightBanners ? 80 : 72;
   const bannerWrapperClasses = fullHeightBanners
     ? 'download-banner-mobile sm:w-[280px] sm:self-start'
-    : 'download-banner-mobile sm:w-[280px] sm:self-stretch';
+    : 'download-banner-mobile sm:w-[340px] sm:self-stretch';
 
   React.useEffect(() => {
     if (!enableScrollIntoView) return;
