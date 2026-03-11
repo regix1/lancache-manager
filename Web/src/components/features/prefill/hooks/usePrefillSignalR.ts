@@ -471,9 +471,16 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
     [connectToHub, addLog, serviceId, t]
   );
 
-  // Initialize on mount
+  // Initialize on mount, cleanup on unmount
   useEffect(() => {
     initializeSession();
+
+    return () => {
+      if (hubConnection.current) {
+        hubConnection.current.stop().catch((error: unknown) => console.warn('Hub cleanup:', error));
+        hubConnection.current = null;
+      }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

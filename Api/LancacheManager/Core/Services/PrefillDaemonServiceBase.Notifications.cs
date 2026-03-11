@@ -502,7 +502,7 @@ public abstract partial class PrefillDaemonServiceBase
         // Broadcast session update to all clients on every progress (for admin pages - both hubs)
         // This ensures totalBytesTransferred updates in real-time
         var progressDto = DaemonSessionDto.FromSession(session);
-        await _notifications.NotifyAllBothHubsAsync(EventSessionUpdated, progressDto);
+        await NotifyAllDownloadsAndServiceHubAsync(EventSessionUpdated, progressDto);
 
         // Send detailed progress to subscribed connections (the user doing the prefill)
         foreach (var connectionId in session.SubscribedConnections.ToList())
@@ -523,7 +523,7 @@ public abstract partial class PrefillDaemonServiceBase
     private async Task BroadcastPrefillHistoryUpdatedAsync(string sessionId, string appId, string status)
     {
         var historyEvent = new { sessionId, appId, status };
-        await _notifications.NotifyAllBothHubsAsync(EventPrefillHistoryUpdated, historyEvent);
+        await NotifyAllDownloadsAndServiceHubAsync(EventPrefillHistoryUpdated, historyEvent);
     }
 
     private async Task NotifySessionEndedAsync(DaemonSession session, string reason)

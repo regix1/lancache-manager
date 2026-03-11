@@ -114,6 +114,18 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     }
 
     /// <summary>
+    /// Broadcasts a notification to the downloads hub and the correct daemon hub (Steam or Epic).
+    /// Avoids sending service-specific events to the wrong daemon hub.
+    /// </summary>
+    protected async Task NotifyAllDownloadsAndServiceHubAsync(string eventName, object? data = null)
+    {
+        if (UseEpicHub)
+            await _notifications.NotifyAllDownloadsAndEpicHubAsync(eventName, data);
+        else
+            await _notifications.NotifyAllDownloadsAndSteamHubAsync(eventName, data);
+    }
+
+    /// <summary>
     /// Fires an async callback in a fire-and-forget manner with error handling.
     /// </summary>
     protected void FireCallbackAsync(Func<Task> callback, string callbackName)
@@ -614,7 +626,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
                 try
                 {
                     var sessionDto = DaemonSessionDto.FromSession(disconnectedSession);
-                    await _notifications.NotifyAllBothHubsAsync(EventSessionUpdated, sessionDto);
+                    await NotifyAllDownloadsAndServiceHubAsync(EventSessionUpdated, sessionDto);
                 }
                 catch (Exception ex)
                 {
@@ -674,7 +686,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
         // Broadcast session creation to all clients for real-time updates (both hubs)
         var sessionDto = DaemonSessionDto.FromSession(session);
-        await _notifications.NotifyAllBothHubsAsync(EventSessionCreated, sessionDto);
+        await NotifyAllDownloadsAndServiceHubAsync(EventSessionCreated, sessionDto);
 
         return session;
     }
@@ -853,7 +865,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
             // Broadcast session update to all clients for real-time updates (both hubs)
             var updatedDto = DaemonSessionDto.FromSession(session);
-            await _notifications.NotifyAllBothHubsAsync(EventSessionUpdated, updatedDto);
+            await NotifyAllDownloadsAndServiceHubAsync(EventSessionUpdated, updatedDto);
         }
 
         _logger.LogInformation("Providing encrypted {CredentialType} for session {SessionId}",
@@ -1047,7 +1059,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         session.TotalBytesTransferred = 0;
         await NotifyPrefillStateChangeAsync(session, "started");
         var startDto = DaemonSessionDto.FromSession(session);
-        await _notifications.NotifyAllBothHubsAsync(EventSessionUpdated, startDto);
+        await NotifyAllDownloadsAndServiceHubAsync(EventSessionUpdated, startDto);
 
         try
         {
@@ -1098,7 +1110,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             session.PreviousAppId = null;
             session.PreviousAppName = null;
             var endDto = DaemonSessionDto.FromSession(session);
-            await _notifications.NotifyAllBothHubsAsync(EventSessionUpdated, endDto);
+            await NotifyAllDownloadsAndServiceHubAsync(EventSessionUpdated, endDto);
         }
     }
 
@@ -1207,7 +1219,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
         // Broadcast session termination to all clients for real-time updates (both hubs)
         var terminatedEvent = new { sessionId = session.Id, reason = reason };
-        await _notifications.NotifyAllBothHubsAsync(EventSessionTerminated, terminatedEvent);
+        await NotifyAllDownloadsAndServiceHubAsync(EventSessionTerminated, terminatedEvent);
 
         // Cancel any ongoing operations immediately
         session.CancellationTokenSource.Cancel();

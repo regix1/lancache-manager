@@ -143,4 +143,36 @@ public class SignalRNotificationService : ISignalRNotificationService
             _logger.LogError(ex, "Failed to send SignalR notification to all (all hubs): {EventName}", eventName);
         }
     }
+
+    public async Task NotifyAllDownloadsAndSteamHubAsync(string eventName, object? data = null)
+    {
+        try
+        {
+            await Task.WhenAll(
+                _downloadHubContext.Clients.All.SendAsync(eventName, data),
+                _steamHubContext.Clients.All.SendAsync(eventName, data)
+            );
+            _logger.LogDebug("SignalR notification sent (downloads + steam): {EventName}", eventName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send SignalR notification (downloads + steam): {EventName}", eventName);
+        }
+    }
+
+    public async Task NotifyAllDownloadsAndEpicHubAsync(string eventName, object? data = null)
+    {
+        try
+        {
+            await Task.WhenAll(
+                _downloadHubContext.Clients.All.SendAsync(eventName, data),
+                _epicHubContext.Clients.All.SendAsync(eventName, data)
+            );
+            _logger.LogDebug("SignalR notification sent (downloads + epic): {EventName}", eventName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send SignalR notification (downloads + epic): {EventName}", eventName);
+        }
+    }
 }

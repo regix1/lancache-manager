@@ -978,6 +978,7 @@ const DownloadsTab: React.FC = () => {
         contentRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     settings.selectedService,
     settings.selectedClient,
@@ -988,8 +989,7 @@ const DownloadsTab: React.FC = () => {
     settings.hideLocalhost,
     settings.hideUnknownGames,
     settings.viewMode,
-    settings.itemsPerPage,
-    currentPage
+    settings.itemsPerPage
   ]);
 
   // Click outside handler to close settings dropdown
