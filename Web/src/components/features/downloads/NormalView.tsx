@@ -107,22 +107,25 @@ const GroupCard: React.FC<GroupCardProps> = ({
   const isOtherService =
     !isSteam && !isWsus && !isRiot && !isEpic && !isEA && !isBlizzard && !isXbox;
   const steamAppId = primaryDownload?.gameAppId ? String(primaryDownload.gameAppId) : null;
+  const epicAppId = primaryDownload?.epicAppId ?? null;
   const primaryName = primaryDownload?.gameName ?? '';
   const isGenericSteamTitle =
     primaryName === 'Unknown Steam Game' || /^Steam App \d+$/.test(primaryName);
-  const showGameImage =
+  const showSteamImage =
     group.type === 'game' &&
     isSteam &&
     Boolean(steamAppId) &&
     !!primaryName &&
     !isGenericSteamTitle;
+  const showEpicImage = group.type === 'game' && isEpic && Boolean(epicAppId) && !!primaryName;
   const storeLink = primaryDownload?.gameAppId
     ? `https://store.steampowered.com/app/${primaryDownload.gameAppId}`
     : null;
   const shouldRenderBanner =
     !aestheticMode &&
     (isSteam || isWsus || isRiot || isEpic || isEA || isBlizzard || isXbox || isOtherService);
-  const hasSteamArtwork = showGameImage && steamAppId !== null && !imageErrors.has(steamAppId);
+  const artworkId = showSteamImage ? steamAppId : showEpicImage ? `epic-${epicAppId}` : null;
+  const hasArtwork = artworkId !== null && !imageErrors.has(artworkId);
   // Mobile: use aspect-ratio for proper image display without cropping
   // Desktop: use fixed width with full height for side-by-side layout
   const placeholderIconSize = fullHeightBanners ? 80 : 72;
@@ -172,10 +175,11 @@ const GroupCard: React.FC<GroupCardProps> = ({
   let bannerContent: React.ReactNode | null = null;
 
   if (shouldRenderBanner) {
-    if (hasSteamArtwork && steamAppId) {
+    if (hasArtwork && artworkId) {
       bannerContent = (
         <GameImage
-          gameAppId={steamAppId}
+          gameAppId={showEpicImage ? epicAppId! : steamAppId!}
+          epicAppId={showEpicImage ? epicAppId! : undefined}
           alt={primaryName || group.name}
           className="download-banner-image"
           sizes="(max-width: 639px) 100vw, 280px"

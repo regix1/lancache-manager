@@ -221,6 +221,7 @@ interface DepotGroupedData {
   service: string;
   gameName: string;
   gameAppId: number | null;
+  epicAppId: string | null;
   depotId: number | null;
   clientIp: string;
   startTimeUtc: string;
@@ -258,6 +259,7 @@ const groupByDepot = (
             service: download.service,
             gameName: download.gameName || download.service,
             gameAppId: download.gameAppId || null,
+            epicAppId: download.epicAppId || null,
             depotId: download.depotId || null,
             clientIp: download.clientIp,
             startTimeUtc: download.startTimeUtc,
@@ -310,6 +312,7 @@ const groupByDepot = (
           service: download.service,
           gameName: download.gameName || download.service,
           gameAppId: download.gameAppId || null,
+          epicAppId: download.epicAppId || null,
           depotId: download.depotId || null,
           clientIp: download.clientIp,
           startTimeUtc: download.startTimeUtc,
@@ -1053,7 +1056,8 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(
         // Check if has game image
         const serviceLower = data.service.toLowerCase();
         const isSteam = serviceLower === 'steam';
-        const hasGameImage =
+        const isEpicService = serviceLower === 'epic' || serviceLower === 'epicgames';
+        const hasSteamImage =
           !aestheticMode &&
           isSteam &&
           data.gameAppId &&
@@ -1061,6 +1065,13 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(
           data.gameName !== 'Unknown Steam Game' &&
           !data.gameName.match(/^Steam App \d+$/) &&
           !imageErrors.has(String(data.gameAppId));
+        const hasEpicImage =
+          !aestheticMode &&
+          isEpicService &&
+          data.epicAppId &&
+          data.gameName &&
+          !imageErrors.has(`epic-${data.epicAppId}`);
+        const hasGameImage = hasSteamImage || hasEpicImage;
 
         return {
           ...data,
@@ -1267,9 +1278,10 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(
 
                     {/* Banner - dedicated column for game artwork */}
                     <div className="px-2 min-w-0 flex items-center justify-center" data-cell>
-                      {hasGameImage && data.gameAppId ? (
+                      {hasGameImage && (data.gameAppId || data.epicAppId) ? (
                         <GameImage
-                          gameAppId={data.gameAppId}
+                          gameAppId={data.epicAppId || data.gameAppId!}
+                          epicAppId={data.epicAppId || undefined}
                           alt={data.gameName || t('downloads.tab.retro.gameFallback')}
                           className="w-[120px] h-[56px] rounded object-cover"
                           onFinalError={handleImageError}
@@ -1388,9 +1400,10 @@ const RetroView = forwardRef<RetroViewHandle, RetroViewProps>(
                   <div className="p-3 pl-4 space-y-2 sm:space-y-3 w-full max-w-full overflow-hidden">
                     {/* App image and name */}
                     <div className="flex items-center gap-3 w-full min-w-0">
-                      {hasGameImage && data.gameAppId ? (
+                      {hasGameImage && (data.gameAppId || data.epicAppId) ? (
                         <GameImage
-                          gameAppId={data.gameAppId}
+                          gameAppId={data.epicAppId || data.gameAppId!}
+                          epicAppId={data.epicAppId || undefined}
                           alt={data.gameName || t('downloads.tab.retro.gameFallback')}
                           className="w-[120px] h-[56px] rounded object-cover flex-shrink-0"
                           onFinalError={handleImageError}

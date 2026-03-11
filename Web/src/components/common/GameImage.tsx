@@ -9,12 +9,13 @@ interface GameImageProps {
   loading?: 'lazy' | 'eager';
   onFinalError: (gameAppId: string) => void;
   sizes?: string;
+  epicAppId?: string;
 }
 
 /**
  * Game image component with automatic fallback to capsule image when header fails.
- * Backend endpoint: /api/game-images/{appId}/header?type=capsule
- * Falls back through: header -> capsule (via query param) -> error handler (shows placeholder)
+ * Steam: /api/game-images/{appId}/header -> ?type=capsule -> placeholder
+ * Epic: /api/game-images/epic/{epicAppId}/header -> placeholder
  */
 export const GameImage: React.FC<GameImageProps> = ({
   gameAppId,
@@ -22,35 +23,42 @@ export const GameImage: React.FC<GameImageProps> = ({
   className,
   loading = 'lazy',
   onFinalError,
-  sizes
+  sizes,
+  epicAppId
 }) => {
   const appId = String(gameAppId);
+  const imageKey = epicAppId ? `epic-${epicAppId}` : appId;
   const [useCapsule, setUseCapsule] = useState(false);
   const [hasTriedFallback, setHasTriedFallback] = useState(false);
 
-  // Reset state when gameAppId changes (component reused for different game)
+  // Reset state when gameAppId/epicAppId changes (component reused for different game)
   useEffect(() => {
     setUseCapsule(false);
     setHasTriedFallback(false);
-  }, [appId]);
+  }, [imageKey]);
 
   const handleError = useCallback(() => {
-    if (!useCapsule && !hasTriedFallback) {
-      // First failure: try capsule image as fallback (via query parameter)
+    if (epicAppId) {
+      // Epic has no capsule fallback - go straight to placeholder
+      onFinalError(imageKey);
+    } else if (!useCapsule && !hasTriedFallback) {
+      // Steam: first failure - try capsule image as fallback
       setUseCapsule(true);
       setHasTriedFallback(true);
     } else {
       // Capsule also failed: notify parent to show placeholder
-      onFinalError(appId);
+      onFinalError(imageKey);
     }
-  }, [useCapsule, hasTriedFallback, appId, onFinalError]);
+  }, [epicAppId, useCapsule, hasTriedFallback, imageKey, onFinalError]);
 
-  // Backend uses /header endpoint with optional ?type=capsule query param
-  // Do NOT use srcSet for fallback logic - it lets browser pick and defeats our fallback order
-  // Fallback order: header (460x215) -> capsule (616x353) -> placeholder
-  const src = useCapsule
-    ? `${API_BASE}/game-images/${appId}/header?type=capsule`
-    : `${API_BASE}/game-images/${appId}/header`;
+  let src: string;
+  if (epicAppId) {
+    src = `${API_BASE}/game-images/epic/${epicAppId}/header`;
+  } else if (useCapsule) {
+    src = `${API_BASE}/game-images/${appId}/header?type=capsule`;
+  } else {
+    src = `${API_BASE}/game-images/${appId}/header`;
+  }
 
   return (
     <img

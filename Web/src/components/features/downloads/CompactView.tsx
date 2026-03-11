@@ -107,15 +107,27 @@ const GroupRow: React.FC<GroupRowProps> = ({
 
   const hitPercent = group.totalBytes > 0 ? (group.cacheHitBytes / group.totalBytes) * 100 : 0;
   const primaryDownload = group.downloads[0];
-  const showGameImage =
+  const serviceLower = group.service.toLowerCase();
+  const isEpicService = serviceLower === 'epic' || serviceLower === 'epicgames';
+  const showSteamImage =
     group.type === 'game' &&
-    group.service.toLowerCase() === 'steam' &&
+    serviceLower === 'steam' &&
     primaryDownload?.gameAppId &&
     primaryDownload?.gameName &&
     primaryDownload.gameName !== 'Unknown Steam Game' &&
     !primaryDownload.gameName.match(/^Steam App \d+$/);
+  const showEpicImage =
+    group.type === 'game' &&
+    isEpicService &&
+    primaryDownload?.epicAppId &&
+    primaryDownload?.gameName;
+  const showGameImage = showSteamImage || showEpicImage;
+  const gameImageAppId = showEpicImage ? primaryDownload?.epicAppId : primaryDownload?.gameAppId;
+  const gameImageErrorKey = showEpicImage
+    ? `epic-${primaryDownload?.epicAppId}`
+    : String(primaryDownload?.gameAppId);
   const storeLink =
-    showGameImage && primaryDownload?.gameAppId
+    showSteamImage && primaryDownload?.gameAppId
       ? `https://store.steampowered.com/app/${primaryDownload.gameAppId}`
       : null;
 
@@ -271,15 +283,16 @@ const GroupRow: React.FC<GroupRowProps> = ({
           {/* Compact layout: stacked on mobile, side-by-side on desktop */}
           <div className="flex flex-col sm:flex-row gap-3">
             {/* Game image */}
-            {showGameImage && primaryDownload?.gameAppId && (
+            {showGameImage && gameImageAppId && (
               <div className="flex-shrink-0">
-                {aestheticMode || imageErrors.has(String(primaryDownload.gameAppId)) ? (
+                {aestheticMode || imageErrors.has(gameImageErrorKey) ? (
                   <div className="compact-expanded-banner sm:w-[100px] sm:h-[46px] rounded border flex items-center justify-center bg-[var(--theme-bg-tertiary)] border-[var(--theme-border-secondary)]">
                     <SteamIcon size={24} className="text-[var(--theme-steam)] opacity-60" />
                   </div>
                 ) : (
                   <GameImage
-                    gameAppId={primaryDownload.gameAppId}
+                    gameAppId={gameImageAppId}
+                    epicAppId={showEpicImage ? primaryDownload.epicAppId! : undefined}
                     alt={primaryDownload.gameName || group.name}
                     className="compact-expanded-banner sm:w-[100px] sm:h-[46px] rounded object-cover border border-[var(--theme-border-secondary)]"
                     sizes="(max-width: 639px) 100%, 100px"
