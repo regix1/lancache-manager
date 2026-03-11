@@ -130,7 +130,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
   // Desktop: use fixed width with full height for side-by-side layout
   const placeholderIconSize = fullHeightBanners ? 80 : 72;
   const bannerWrapperClasses = fullHeightBanners
-    ? 'download-banner-mobile sm:w-[280px] sm:aspect-auto sm:h-full sm:max-h-[200px] sm:self-start'
+    ? 'download-banner-mobile sm:w-[280px] sm:aspect-auto sm:h-[160px] sm:self-start'
     : 'download-banner-mobile sm:w-[280px] sm:aspect-auto sm:h-[130px] sm:self-start';
 
   React.useEffect(() => {
@@ -221,9 +221,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
   }
 
   const cardContent = (
-    <div
-      className={`flex flex-col ${fullHeightBanners ? 'sm:flex-row sm:items-stretch' : 'sm:flex-row'}`}
-    >
+    <div className="flex flex-col sm:flex-row">
       {bannerContent && (
         <>
           <div className={`flex-shrink-0 overflow-hidden ${bannerWrapperClasses}`}>
