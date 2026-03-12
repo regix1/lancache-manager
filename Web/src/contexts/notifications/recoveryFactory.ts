@@ -275,6 +275,22 @@ const RECOVERY_CONFIGS = {
       }
     }),
     staleMessage: 'Data import completed'
+  } satisfies SimpleRecoveryConfig,
+
+  epicGameMapping: {
+    apiEndpoint: '/api/epic/game-mappings/schedule',
+    storageKey: NOTIFICATION_STORAGE_KEYS.EPIC_GAME_MAPPING,
+    type: 'epic_game_mapping' as NotificationType,
+    notificationId: NOTIFICATION_IDS.EPIC_GAME_MAPPING,
+    isProcessing: (data: Record<string, unknown>) => Boolean(data.isProcessing),
+    createNotification: (data: Record<string, unknown>) => ({
+      message: (data.status as string) || 'Mapping Epic games...',
+      progress: (data.percentComplete as number) || 0,
+      details: {
+        operationId: data.operationId as string
+      }
+    }),
+    staleMessage: 'Epic game mapping completed'
   } satisfies SimpleRecoveryConfig
 };
 
@@ -553,6 +569,13 @@ export function createRecoveryRunner(
     scheduleAutoDismiss
   );
 
+  const recoverEpicGameMapping = createSimpleRecoveryFunction(
+    RECOVERY_CONFIGS.epicGameMapping,
+    fetchWithAuth,
+    setNotifications,
+    scheduleAutoDismiss
+  );
+
   const recoverCacheRemovals = createCacheRemovalsRecoveryFunction(
     fetchWithAuth,
     setNotifications,
@@ -570,6 +593,7 @@ export function createRecoveryRunner(
         recoverGameDetection(),
         recoverCorruptionDetection(),
         recoverDataImport(),
+        recoverEpicGameMapping(),
         recoverCacheRemovals()
       ]);
     } catch (err) {

@@ -375,7 +375,8 @@ export function createStatusAwareProgressHandler<T>(
               status: 'completed' as const,
               message: config.getCompletedMessage?.(event) ?? 'Operation completed',
               progress: 100,
-              startedAt: new Date()
+              startedAt: new Date(),
+              details: config.getDetails?.(event)
             };
 
             return [...prev, newNotification];
@@ -394,7 +395,8 @@ export function createStatusAwareProgressHandler<T>(
               ...n,
               status: 'completed' as const,
               message: config.getCompletedMessage?.(event) ?? 'Operation completed',
-              progress: 100
+              progress: 100,
+              details: { ...n.details, ...config.getDetails?.(event) }
             };
           }
           return n;

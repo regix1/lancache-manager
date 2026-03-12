@@ -228,14 +228,20 @@ public class EpicAuthStorageService
         {
             try
             {
-                var defaultData = new EpicAuthData();
-                SaveEpicAuthData(defaultData);
-                _cachedData = defaultData;
+                if (File.Exists(_epicAuthFilePath))
+                {
+                    File.Delete(_epicAuthFilePath);
+                    _logger.LogInformation("Deleted Epic credentials file: {Path}", _epicAuthFilePath);
+                }
+
+                _cachedData = new EpicAuthData();
                 _logger.LogInformation("Cleared Epic authentication data");
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to clear Epic auth data");
+                // Even if file deletion fails, clear the in-memory cache
+                _cachedData = new EpicAuthData();
                 throw;
             }
         }

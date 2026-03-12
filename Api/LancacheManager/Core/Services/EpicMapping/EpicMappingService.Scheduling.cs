@@ -51,11 +51,10 @@ public partial class EpicMappingService
 
         _ = Task.Run(async () =>
         {
-            if (_isProcessing) return;
+            if (Interlocked.CompareExchange(ref _isProcessingInt, 1, 0) != 0) return;
 
             try
             {
-                _isProcessing = true;
                 _currentStatus = "Refreshing catalog";
 
                 // Check if a cancel was requested for the current operation
@@ -67,7 +66,6 @@ public partial class EpicMappingService
                         _logger.LogInformation("Epic catalog refresh was cancelled");
                         _operationTracker.CompleteOperation(_currentOperationId, false, "Cancelled");
                         _currentOperationId = null;
-                        _isProcessing = false;
                         _currentStatus = "Idle";
                         return;
                     }
@@ -79,7 +77,6 @@ public partial class EpicMappingService
 
                 await RefreshCatalogAsync(_cancellationTokenSource.Token);
 
-                _lastRefreshTime = DateTime.UtcNow;
                 _currentStatus = "Idle";
 
                 _logger.LogInformation("Scheduled Epic catalog refresh completed successfully");
@@ -87,6 +84,23 @@ public partial class EpicMappingService
             catch (OperationCanceledException)
             {
                 _logger.LogInformation("Epic catalog refresh cancelled");
+
+                await _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress, new
+                {
+                    operationId = _currentOperationId,
+                    status = "completed",
+                    percentComplete = 100.0,
+                    gamesDiscovered = _gamesDiscovered,
+                    message = "Epic catalog refresh cancelled",
+                    cancelled = true
+                });
+
+                if (_currentOperationId != null)
+                {
+                    _operationTracker.CompleteOperation(_currentOperationId, false, "Cancelled");
+                    _currentOperationId = null;
+                }
+                _currentStatus = "Idle";
             }
             catch (Exception ex)
             {
@@ -109,7 +123,8 @@ public partial class EpicMappingService
             }
             finally
             {
-                _isProcessing = false;
+                _lastRefreshTime = DateTime.UtcNow;
+                Interlocked.Exchange(ref _isProcessingInt, 0);
             }
         });
     }
@@ -248,12 +263,6 @@ public partial class EpicMappingService
             message = $"Catalog refresh complete - {_gamesDiscovered} games"
         });
 
-        if (_currentOperationId != null)
-        {
-            _operationTracker.CompleteOperation(_currentOperationId, true);
-            _currentOperationId = null;
-        }
-
         // Resolve existing Epic downloads against updated CDN patterns
         try
         {
@@ -274,5 +283,11 @@ public partial class EpicMappingService
             totalGames = _gamesDiscovered,
             source = "scheduled-refresh"
         });
+
+        if (_currentOperationId != null)
+        {
+            _operationTracker.CompleteOperation(_currentOperationId, true);
+            _currentOperationId = null;
+        }
     }
 }

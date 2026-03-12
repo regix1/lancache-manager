@@ -175,6 +175,10 @@ public class EpicApiDirectClient : IDisposable
                 try
                 {
                     var metadata = await GetCatalogMetadataAsync(accessToken, asset.Namespace, asset.CatalogItemId, ct);
+
+                    // Small delay between catalog metadata API calls to avoid rate limiting (429)
+                    await Task.Delay(100, ct);
+
                     _logger.LogTrace("Epic catalog metadata for {AppName}: title={Title}", asset.AppName, metadata?.Title ?? "(null)");
                     if (metadata != null)
                     {
@@ -303,6 +307,9 @@ public class EpicApiDirectClient : IDisposable
         var json = await response.Content.ReadAsStringAsync(ct);
         var manifestResponse = JsonSerializer.Deserialize<EpicManifestResponse>(json);
 
+        // Most games have a single Windows element with a single manifest URI.
+        // Multiple elements could represent different platform variants, but we only
+        // request Windows assets, so the first element/manifest is the correct one.
         var manifestUri = manifestResponse?.Elements?.FirstOrDefault()?.Manifests?.FirstOrDefault()?.Uri;
         if (string.IsNullOrEmpty(manifestUri)) return null;
 
@@ -310,7 +317,9 @@ public class EpicApiDirectClient : IDisposable
         // URI: https://epicgames-download1.akamaized.net/Builds/Org/o-xxx/hash/default/manifest.manifest
         // ChunkBaseUrl: /Builds/Org/o-xxx/hash/default
         var uri = new Uri(manifestUri);
-        var pathWithoutFile = uri.AbsolutePath[..uri.AbsolutePath.LastIndexOf('/')];
+        var lastSlash = uri.AbsolutePath.LastIndexOf('/');
+        if (lastSlash <= 0) return null; // No meaningful path (e.g., just "/"), skip this entry
+        var pathWithoutFile = uri.AbsolutePath[..lastSlash];
         return pathWithoutFile;
     }
 

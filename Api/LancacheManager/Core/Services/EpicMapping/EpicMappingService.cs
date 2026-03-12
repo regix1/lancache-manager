@@ -32,6 +32,7 @@ public partial class EpicMappingService : IHostedService, IDisposable
     private EpicOAuthTokens? _currentTokens;
     private readonly SemaphoreSlim _sessionLock = new(1, 1);
     private readonly SemaphoreSlim _mergeLock = new(1, 1);
+    private readonly object _statusLock = new object();
 
     // Scheduling state
     private Timer? _periodicTimer;
@@ -43,7 +44,7 @@ public partial class EpicMappingService : IHostedService, IDisposable
 
     // Progress tracking
     private string _currentStatus = "Idle";
-    private bool _isProcessing;
+    private int _isProcessingInt;
 
     // Public properties
     public bool IsAuthenticated => _isAuthenticated;
@@ -119,13 +120,16 @@ public partial class EpicMappingService : IHostedService, IDisposable
     /// </summary>
     public EpicMappingAuthStatus GetAuthStatus()
     {
-        return new EpicMappingAuthStatus
+        lock (_statusLock)
         {
-            IsAuthenticated = _isAuthenticated,
-            DisplayName = _displayName,
-            LastCollectionUtc = _lastCollectionUtc,
-            GamesDiscovered = _gamesDiscovered
-        };
+            return new EpicMappingAuthStatus
+            {
+                IsAuthenticated = _isAuthenticated,
+                DisplayName = _displayName,
+                LastCollectionUtc = _lastCollectionUtc,
+                GamesDiscovered = _gamesDiscovered
+            };
+        }
     }
 
     /// <summary>
@@ -141,15 +145,16 @@ public partial class EpicMappingService : IHostedService, IDisposable
 
             if (value == 0)
             {
-                _periodicTimer?.Dispose();
-                _periodicTimer = null;
+                var oldTimer = Interlocked.Exchange(ref _periodicTimer, null);
+                oldTimer?.Dispose();
                 _logger.LogInformation("Disabled periodic Epic catalog refresh");
             }
             else
             {
                 // Restart timer with new interval
-                _periodicTimer?.Dispose();
-                _periodicTimer = new Timer(OnPeriodicRefreshTimer, null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+                var newTimer = new Timer(OnPeriodicRefreshTimer, null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+                var oldTimer = Interlocked.Exchange(ref _periodicTimer, newTimer);
+                oldTimer?.Dispose();
                 _logger.LogInformation("Restarted periodic Epic catalog refresh timer");
             }
         }
@@ -160,22 +165,25 @@ public partial class EpicMappingService : IHostedService, IDisposable
     /// </summary>
     public EpicScheduleStatus GetScheduleStatus()
     {
-        var timeSinceLastRefresh = DateTime.UtcNow - _lastRefreshTime;
-        var nextRefreshIn = _refreshInterval.TotalHours > 0 && _lastRefreshTime != DateTime.MinValue
-            ? Math.Max(0, (_refreshInterval - timeSinceLastRefresh).TotalSeconds)
-            : 0;
-
-        return new EpicScheduleStatus
+        lock (_statusLock)
         {
-            RefreshIntervalHours = _refreshInterval.TotalHours,
-            IsProcessing = _isProcessing,
-            LastRefreshTime = _lastRefreshTime == DateTime.MinValue ? null : _lastRefreshTime,
-            NextRefreshIn = nextRefreshIn,
-            IsAuthenticated = _isAuthenticated,
-            OperationId = _currentOperationId,
-            Status = _currentStatus,
-            ProgressPercent = _isProcessing ? 50 : 0
-        };
+            var timeSinceLastRefresh = DateTime.UtcNow - _lastRefreshTime;
+            var nextRefreshIn = _refreshInterval.TotalHours > 0 && _lastRefreshTime != DateTime.MinValue
+                ? Math.Max(0, (_refreshInterval - timeSinceLastRefresh).TotalSeconds)
+                : 0;
+
+            return new EpicScheduleStatus
+            {
+                RefreshIntervalHours = _refreshInterval.TotalHours,
+                IsProcessing = _isProcessingInt != 0,
+                LastRefreshTime = _lastRefreshTime == DateTime.MinValue ? null : _lastRefreshTime,
+                NextRefreshIn = nextRefreshIn,
+                IsAuthenticated = _isAuthenticated,
+                OperationId = _currentOperationId,
+                Status = _currentStatus,
+                ProgressPercent = _isProcessingInt != 0 ? 50 : 0
+            };
+        }
     }
 
     public void Dispose()
@@ -212,7 +220,9 @@ public partial class EpicMappingService : IHostedService, IDisposable
     {
         try
         {
-            using var scope = _scopeFactory.CreateScope();
+            // EpicPrefillDaemonService is a singleton, so we don't need a scoped scope.
+            // Using a scope and disposing it is fragile since the singleton outlives the scope.
+            var scope = _scopeFactory.CreateScope();
             _epicDaemonService = scope.ServiceProvider.GetService<EpicPrefillDaemonService>();
             if (_epicDaemonService != null)
             {

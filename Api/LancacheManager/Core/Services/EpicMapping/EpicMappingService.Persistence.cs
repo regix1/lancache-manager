@@ -50,7 +50,13 @@ public partial class EpicMappingService
                         existing.ImageUrl = game.ImageUrl;
                         changed = true;
                     }
-                    existing.LastSeenAtUtc = now;
+
+                    // Only update LastSeenAtUtc when it's more than 1 hour old to reduce unnecessary DB writes
+                    if ((now - existing.LastSeenAtUtc).TotalHours >= 1)
+                    {
+                        existing.LastSeenAtUtc = now;
+                        changed = true;
+                    }
 
                     if (changed)
                         result.UpdatedGames++;
@@ -218,48 +224,56 @@ public partial class EpicMappingService
     {
         if (cdnInfos.Count == 0) return;
 
-        using var db = _dbContextFactory.CreateDbContext();
-        var now = DateTime.UtcNow;
-
-        var existingPatterns = await db.EpicCdnPatterns
-            .ToDictionaryAsync(p => p.ChunkBaseUrl, ct);
-
-        var newCount = 0;
-        var updatedCount = 0;
-
-        foreach (var info in cdnInfos)
+        await _mergeLock.WaitAsync(ct);
+        try
         {
-            if (string.IsNullOrWhiteSpace(info.ChunkBaseUrl)) continue;
+            using var db = _dbContextFactory.CreateDbContext();
+            var now = DateTime.UtcNow;
 
-            if (existingPatterns.TryGetValue(info.ChunkBaseUrl, out var existing))
+            var existingPatterns = await db.EpicCdnPatterns
+                .ToDictionaryAsync(p => p.ChunkBaseUrl, ct);
+
+            var newCount = 0;
+            var updatedCount = 0;
+
+            foreach (var info in cdnInfos)
             {
-                existing.LastSeenAtUtc = now;
-                if (!string.IsNullOrWhiteSpace(info.Name))
-                    existing.Name = info.Name;
-                updatedCount++;
-            }
-            else
-            {
-                var newPattern = new EpicCdnPattern
+                if (string.IsNullOrWhiteSpace(info.ChunkBaseUrl)) continue;
+
+                if (existingPatterns.TryGetValue(info.ChunkBaseUrl, out var existing))
                 {
-                    AppId = info.AppId,
-                    Name = info.Name,
-                    CdnHost = info.CdnHost,
-                    ChunkBaseUrl = info.ChunkBaseUrl,
-                    DiscoveredAtUtc = now,
-                    LastSeenAtUtc = now
-                };
-                db.EpicCdnPatterns.Add(newPattern);
-                existingPatterns[info.ChunkBaseUrl] = newPattern;
-                newCount++;
+                    existing.LastSeenAtUtc = now;
+                    if (!string.IsNullOrWhiteSpace(info.Name))
+                        existing.Name = info.Name;
+                    updatedCount++;
+                }
+                else
+                {
+                    var newPattern = new EpicCdnPattern
+                    {
+                        AppId = info.AppId,
+                        Name = info.Name,
+                        CdnHost = info.CdnHost,
+                        ChunkBaseUrl = info.ChunkBaseUrl,
+                        DiscoveredAtUtc = now,
+                        LastSeenAtUtc = now
+                    };
+                    db.EpicCdnPatterns.Add(newPattern);
+                    existingPatterns[info.ChunkBaseUrl] = newPattern;
+                    newCount++;
+                }
             }
+
+            await db.SaveChangesAsync(ct);
+
+            _logger.LogInformation(
+                "Epic CDN pattern merge: {New} new, {Updated} updated, {Total} total",
+                newCount, updatedCount, newCount + updatedCount + (existingPatterns.Count - updatedCount));
         }
-
-        await db.SaveChangesAsync(ct);
-
-        _logger.LogInformation(
-            "Epic CDN pattern merge: {New} new, {Updated} updated, {Total} total",
-            newCount, updatedCount, newCount + updatedCount + (existingPatterns.Count - updatedCount));
+        finally
+        {
+            _mergeLock.Release();
+        }
     }
 }
 

@@ -24,6 +24,12 @@ public partial class EpicMappingService
     /// </summary>
     public async Task OnAuthCodeReceivedAsync(string authorizationCode)
     {
+        if (Interlocked.CompareExchange(ref _isProcessingInt, 1, 0) != 0)
+        {
+            _logger.LogWarning("Epic auth login skipped - another operation is already in progress");
+            return;
+        }
+
         await _sessionLock.WaitAsync();
         try
         {
@@ -38,17 +44,17 @@ public partial class EpicMappingService
             _currentStatus = "Authenticating";
 
             // Exchange authorization code for tokens
-            var tokens = await _epicApiClient.ExchangeAuthCodeAsync(authorizationCode);
+            var tokens = await _epicApiClient.ExchangeAuthCodeAsync(authorizationCode, authCts.Token);
             _currentTokens = tokens;
             _logger.LogDebug("Epic OAuth tokens received, expires at {ExpiresAt}", tokens.ExpiresAt);
 
             // Fetch owned games with metadata
-            var games = await _epicApiClient.GetOwnedGamesAsync(tokens.AccessToken);
+            var games = await _epicApiClient.GetOwnedGamesAsync(tokens.AccessToken, authCts.Token);
 
             if (games.Count > 0)
             {
                 var sessionHash = ComputeAnonymousHash("mapping-session");
-                var result = await MergeOwnedGamesAsync(games, sessionHash, "mapping-login");
+                var result = await MergeOwnedGamesAsync(games, sessionHash, "mapping-login", authCts.Token);
 
                 _logger.LogInformation(
                     "Mapping login game collection: {New} new, {Updated} updated, {Total} total",
@@ -69,14 +75,14 @@ public partial class EpicMappingService
             // Collect CDN patterns
             try
             {
-                var cdnInfos = await _epicApiClient.GetCdnInfoAsync(tokens.AccessToken);
+                var cdnInfos = await _epicApiClient.GetCdnInfoAsync(tokens.AccessToken, authCts.Token);
                 if (cdnInfos.Count > 0)
                 {
-                    await MergeCdnPatternsAsync(cdnInfos);
+                    await MergeCdnPatternsAsync(cdnInfos, authCts.Token);
                     _logger.LogInformation("Mapping login CDN patterns: {Count}", cdnInfos.Count);
                 }
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 _logger.LogWarning(ex, "Failed to collect CDN patterns from mapping login");
             }
@@ -100,13 +106,13 @@ public partial class EpicMappingService
             // Resolve existing Epic downloads against the freshly collected CDN patterns
             try
             {
-                var resolved = await ResolveEpicDownloadsAsync();
+                var resolved = await ResolveEpicDownloadsAsync(authCts.Token);
                 if (resolved > 0)
                 {
                     _logger.LogInformation("Resolved {Count} Epic downloads to game names after login", resolved);
                 }
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 _logger.LogWarning(ex, "Failed to resolve Epic downloads after login (non-fatal)");
             }
@@ -128,9 +134,31 @@ public partial class EpicMappingService
             _logger.LogInformation("Epic mapping login complete: {DisplayName}, {Games} games",
                 tokens.DisplayName, _gamesDiscovered);
         }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("Epic mapping auth login cancelled");
+
+            await _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress, new
+            {
+                operationId = _currentOperationId,
+                status = "completed",
+                percentComplete = 100.0,
+                gamesDiscovered = _gamesDiscovered,
+                message = "Epic game mapping cancelled",
+                cancelled = true
+            });
+
+            if (_currentOperationId != null)
+            {
+                _operationTracker.CompleteOperation(_currentOperationId, false, "Cancelled");
+                _currentOperationId = null;
+            }
+            _currentStatus = "Idle";
+        }
         finally
         {
             _sessionLock.Release();
+            Interlocked.Exchange(ref _isProcessingInt, 0);
         }
     }
 
@@ -164,6 +192,8 @@ public partial class EpicMappingService
     /// </summary>
     private async Task TryAutoReconnectAsync()
     {
+        var ct = _cancellationTokenSource.Token;
+        await _sessionLock.WaitAsync(ct);
         try
         {
             var authData = _authStorage.GetEpicAuthData();
@@ -178,17 +208,17 @@ public partial class EpicMappingService
             try
             {
                 // Refresh the token directly via HTTP
-                var tokens = await _epicApiClient.RefreshTokenAsync(authData.RefreshToken);
+                var tokens = await _epicApiClient.RefreshTokenAsync(authData.RefreshToken, ct);
                 _currentTokens = tokens;
                 _logger.LogDebug("Epic token refresh succeeded, new expiry: {ExpiresAt}", tokens.ExpiresAt);
 
                 // Fetch fresh game data
-                var games = await _epicApiClient.GetOwnedGamesAsync(tokens.AccessToken);
+                var games = await _epicApiClient.GetOwnedGamesAsync(tokens.AccessToken, ct);
 
                 if (games.Count > 0)
                 {
                     var sessionHash = ComputeAnonymousHash("mapping-session");
-                    var result = await MergeOwnedGamesAsync(games, sessionHash, "mapping-login");
+                    var result = await MergeOwnedGamesAsync(games, sessionHash, "mapping-login", ct);
                     _gamesDiscovered = result.TotalGames;
                 }
 
@@ -206,10 +236,10 @@ public partial class EpicMappingService
                 // Refresh CDN patterns (paths may change with game updates)
                 try
                 {
-                    var cdnInfos = await _epicApiClient.GetCdnInfoAsync(tokens.AccessToken);
+                    var cdnInfos = await _epicApiClient.GetCdnInfoAsync(tokens.AccessToken, ct);
                     if (cdnInfos.Count > 0)
                     {
-                        await MergeCdnPatternsAsync(cdnInfos);
+                        await MergeCdnPatternsAsync(cdnInfos, ct);
                     }
                 }
                 catch (Exception cdnEx)
@@ -225,7 +255,7 @@ public partial class EpicMappingService
                 // Resolve any unresolved Epic downloads against stored CDN patterns
                 try
                 {
-                    var resolved = await ResolveEpicDownloadsAsync();
+                    var resolved = await ResolveEpicDownloadsAsync(ct);
                     if (resolved > 0)
                     {
                         _logger.LogInformation("Resolved {Count} Epic downloads to game names during auto-reconnect", resolved);
@@ -253,6 +283,10 @@ public partial class EpicMappingService
         {
             _logger.LogWarning(ex, "Failed to auto-reconnect Epic mapping session");
             _isAuthenticated = false;
+        }
+        finally
+        {
+            _sessionLock.Release();
         }
     }
 

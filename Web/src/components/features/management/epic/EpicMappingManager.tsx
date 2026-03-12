@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Zap, Loader2, ExternalLink, CheckCircle, XCircle, Clock } from 'lucide-react';
+import { Loader2, ExternalLink, CheckCircle, XCircle, Clock } from 'lucide-react';
 import { EpicIcon } from '@components/ui/EpicIcon';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
@@ -81,10 +81,14 @@ const EpicMappingManager: React.FC<EpicMappingManagerProps> = ({
     };
     on('EpicGameMappingsUpdated', handleUpdate);
     on('EpicDaemonSessionCreated', handleUpdate);
+    on('EpicDaemonSessionUpdated', handleUpdate);
+    on('EpicDaemonSessionTerminated', handleUpdate);
     on('EpicSessionEnded', handleUpdate);
     return () => {
       off('EpicGameMappingsUpdated', handleUpdate);
       off('EpicDaemonSessionCreated', handleUpdate);
+      off('EpicDaemonSessionUpdated', handleUpdate);
+      off('EpicDaemonSessionTerminated', handleUpdate);
       off('EpicSessionEnded', handleUpdate);
     };
   }, [on, off, loadStatus]);
@@ -344,7 +348,6 @@ const EpicMappingManager: React.FC<EpicMappingManagerProps> = ({
         <Button
           variant="filled"
           color="blue"
-          leftSection={<Zap className="w-4 h-4" />}
           onClick={handleResolve}
           disabled={resolving || mockMode || !isAdmin || !isAuthenticated}
           loading={resolving}

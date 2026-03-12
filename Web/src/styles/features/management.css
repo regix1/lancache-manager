@@ -46,7 +46,9 @@
 
 /* Card hover effects within management sections */
 .management-section .themed-card {
-  transition: transform 0.15s ease-out, box-shadow 0.15s ease-out;
+  transition:
+    transform 0.15s ease-out,
+    box-shadow 0.15s ease-out;
 }
 
 .management-section .themed-card:hover {
@@ -61,6 +63,49 @@
 @media (min-width: 1280px) {
   .management-section .grid.grid-cols-1.xl\:grid-cols-2 {
     gap: 1.5rem;
+  }
+}
+
+/* Combined integration card - strip inner card styling so sub-components merge into one card.
+   Use :not(.ed-trigger) to avoid stripping dropdown trigger button styling. */
+.integrations-platform-card > .integrations-split .themed-card:not(.ed-trigger) {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+}
+
+.integrations-platform-card > .integrations-split .themed-card:not(.ed-trigger):hover {
+  transform: none;
+}
+
+.integrations-platform-card > .integrations-split .highlight-glow-wrapper {
+  height: 100%;
+}
+
+/* Vertical divider between left/right sections on large screens */
+@media (min-width: 1024px) {
+  .integrations-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 1px minmax(0, 1fr);
+    gap: 1.5rem;
+  }
+
+  .integrations-split-divider {
+    background: var(--theme-border);
+  }
+}
+
+/* Stack on small screens, hide divider */
+@media (max-width: 1023px) {
+  .integrations-split {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  .integrations-split-divider {
+    display: none;
   }
 }
 

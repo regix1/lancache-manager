@@ -15,6 +15,7 @@ interface IntegrationsSectionProps {
   onError: (message: string) => void;
   onSuccess: (message: string) => void;
   highlightSteamApi?: boolean;
+  highlightEpic?: boolean;
 }
 
 const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
@@ -23,7 +24,8 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
   mockMode,
   onError,
   onSuccess,
-  highlightSteamApi
+  highlightSteamApi,
+  highlightEpic
 }) => {
   const { t } = useTranslation();
 
@@ -34,7 +36,7 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
       id="panel-integrations"
       aria-labelledby="tab-integrations"
     >
-      {/* Section Header */}
+      {/* Page Header */}
       <div className="mb-6">
         <h2 className="text-xl font-semibold text-themed-primary mb-1">
           {t('management.sections.integrations.title')}
@@ -44,64 +46,45 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
         </p>
       </div>
 
-      {/* Content Grid - Two column layout for larger screens */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-        {/* Steam Integration Column */}
-        <div className="space-y-4">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-1 h-5 rounded-full bg-[var(--theme-steam)]" />
-            <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-              {t('management.sections.integrations.steamIntegration')}
-            </h3>
+      <div className="space-y-4">
+        {/* Steam Integration */}
+        <Card className="integrations-platform-card">
+          <div className="integrations-split">
+            <SteamLoginManager
+              authMode={authMode}
+              mockMode={mockMode}
+              onError={onError}
+              onSuccess={onSuccess}
+              highlight={highlightSteamApi}
+            />
+            <div className="integrations-split-divider" />
+            <SteamWebApiStatus steamAuthMode={steamAuthMode} highlight={highlightSteamApi} />
           </div>
+        </Card>
 
-          <SteamLoginManager
-            authMode={authMode}
-            mockMode={mockMode}
-            onError={onError}
-            onSuccess={onSuccess}
-            highlight={highlightSteamApi}
-          />
-
-          <SteamWebApiStatus steamAuthMode={steamAuthMode} highlight={highlightSteamApi} />
-        </div>
-
-        {/* Monitoring & Metrics Column */}
-        <div className="space-y-4">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-1 h-5 rounded-full bg-[var(--theme-primary)]" />
-            <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-              {t('management.sections.integrations.monitoringMetrics')}
-            </h3>
+        {/* Epic Integration */}
+        <Card className="integrations-platform-card">
+          <div className="integrations-split">
+            <EpicDaemonStatus authMode={authMode} highlight={highlightEpic} />
+            <div className="integrations-split-divider" />
+            <EpicGameMappings authMode={authMode} highlight={highlightEpic} />
           </div>
+        </Card>
 
-          <Suspense
-            fallback={
-              <Card>
-                <div className="flex items-center justify-center py-8">
-                  <div className="text-themed-muted">
-                    {t('management.sections.integrations.loadingEndpoints')}
-                  </div>
+        {/* Grafana - monitoring */}
+        <Suspense
+          fallback={
+            <Card>
+              <div className="flex items-center justify-center py-8">
+                <div className="text-themed-muted">
+                  {t('management.sections.integrations.loadingEndpoints')}
                 </div>
-              </Card>
-            }
-          >
-            <GrafanaEndpoints />
-          </Suspense>
-        </div>
-
-        {/* Epic Games Integration Column */}
-        <div className="space-y-4">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-1 h-5 rounded-full bg-[var(--theme-epic)]" />
-            <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-              {t('management.sections.integrations.epicIntegration')}
-            </h3>
-          </div>
-
-          <EpicDaemonStatus authMode={authMode} />
-          <EpicGameMappings authMode={authMode} />
-        </div>
+              </div>
+            </Card>
+          }
+        >
+          <GrafanaEndpoints />
+        </Suspense>
       </div>
     </div>
   );

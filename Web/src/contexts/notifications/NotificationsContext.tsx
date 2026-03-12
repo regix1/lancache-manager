@@ -953,7 +953,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         getCompletedMessage: formatEpicMappingCompleteMessage,
         getErrorMessage: (e) => e.message || 'Epic games mapping failed',
         supportFastCompletion: true,
-        getDetails: (e) => ({ operationId: e.operationId })
+        getDetails: (e) => ({ operationId: e.operationId, cancelled: e.cancelled })
       },
       setNotifications,
       scheduleAutoDismiss,
@@ -991,6 +991,35 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
 
       scheduleAutoDismiss(NOTIFICATION_IDS.EPIC_GAME_MAPPING);
     };
+
+    // ========== Prefill Daemon Events (Steam + Epic) ==========
+    // The following prefill daemon events are registered in SIGNALR_EVENTS but do NOT
+    // need notification handlers in NotificationsContext. Here's why:
+    //
+    // PER-CONNECTION EVENTS (sent only to specific user's connection on the daemon hub,
+    // NOT broadcast to the /downloads hub that NotificationsContext subscribes to):
+    //
+    //   Steam (via /steam-daemon hub):
+    //   - AuthStateChanged, CredentialChallenge, StatusChanged
+    //   - PrefillStateChanged, PrefillProgress, SessionEnded
+    //
+    //   Epic (via /epic-prefill-daemon hub):
+    //   - EpicAuthStateChanged, EpicCredentialChallenge, EpicStatusChanged
+    //   - EpicPrefillStateChanged, EpicPrefillProgress, EpicSessionEnded
+    //
+    // BROADCAST EVENTS (arrive on downloads hub but handled by specific UI components):
+    //   - PrefillHistoryUpdated / EpicPrefillHistoryUpdated: Data refresh (PrefillSessionsSection.tsx)
+    //   - GuestPrefillConfigChanged / EpicGuestPrefillConfigChanged: Config change (GuestConfiguration.tsx)
+    //   - DaemonSession{Created,Updated,Terminated}: Session management (PrefillSessionsSection.tsx)
+    //   - EpicDaemonSession{Created,Updated,Terminated}: Session management (PrefillSessionsSection.tsx)
+    //
+    // All per-connection events are handled by usePrefillSignalR.ts which connects directly
+    // to the service-specific daemon hub (/steam-daemon or /epic-prefill-daemon). The backend
+    // sends these via SendToServiceClientRawAsync, so they never reach the /downloads hub.
+    // Broadcast events are data-refresh signals that specific UI components subscribe to.
+    //
+    // See: Web/src/components/features/prefill/hooks/prefillConstants.ts (EPIC_EVENT_MAP)
+    // See: Web/src/components/features/prefill/hooks/usePrefillSignalR.ts (event handlers)
 
     // Subscribe to events
     signalR.on('LogProcessingStarted', handleLogProcessingStarted);

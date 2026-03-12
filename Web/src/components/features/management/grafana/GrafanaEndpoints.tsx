@@ -1,11 +1,22 @@
 import React, { useState, useEffect } from 'react';
-import { Link, Copy, CheckCircle, Lock, Unlock, Lightbulb, RefreshCw, Clock } from 'lucide-react';
+import {
+  Link,
+  Copy,
+  CheckCircle,
+  Lock,
+  Unlock,
+  Lightbulb,
+  RefreshCw,
+  Clock,
+  Settings
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { ToggleSwitch } from '@components/ui/ToggleSwitch';
+import { AccordionSection } from '@components/ui/AccordionSection';
 import ApiService from '@services/api.service';
 
 const GrafanaEndpoints: React.FC = () => {
@@ -101,6 +112,7 @@ const GrafanaEndpoints: React.FC = () => {
   const [dataRefreshRate, setDataRefreshRate] = useState<string>('15');
   const [scrapeInterval, setScrapeInterval] = useState<string>('15');
   const [isToggling, setIsToggling] = useState(false);
+  const [isConfigExpanded, setIsConfigExpanded] = useState(false);
 
   // Load initial state on mount
   useEffect(() => {
@@ -333,19 +345,25 @@ const GrafanaEndpoints: React.FC = () => {
         </div>
       </div>
 
-      {/* Prometheus Configuration - shows config based on current auth state */}
-      <div className="mt-4 p-3 rounded-lg border bg-themed-tertiary border-themed-secondary">
-        <div className="flex items-center justify-between mb-3">
+      {/* Stale data warning - shown when scrape is faster than refresh */}
+      {parseInt(scrapeInterval) < parseInt(dataRefreshRate) && (
+        <p className="text-xs mt-2 px-3 flex items-center gap-1.5 text-themed-warning">
+          <Lightbulb className="w-3 h-3 icon-warning" />
+          {t('management.grafana.staleDataWarning')}
+        </p>
+      )}
+
+      {/* Prometheus Scrape Interval - Controls how often Prometheus pulls metrics */}
+      <div className="mt-2 p-3 rounded-lg border bg-themed-tertiary border-themed-secondary">
+        <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Clock className="w-4 h-4 text-themed-muted" />
             <div>
               <span className="text-sm font-medium text-themed-primary">
-                {t('management.grafana.prometheusConfig')}
+                {t('management.grafana.scrapeIntervalRate')}
               </span>
               <p className="text-xs text-themed-muted">
-                {metricsSecured
-                  ? t('management.grafana.prometheusConfigSecured')
-                  : t('management.grafana.prometheusConfigPublic')}
+                {t('management.grafana.scrapeIntervalRateDesc')}
               </p>
             </div>
           </div>
@@ -358,115 +376,130 @@ const GrafanaEndpoints: React.FC = () => {
             dropdownWidth="w-56"
             alignRight={true}
             dropdownTitle={t('management.grafana.scrapeIntervalTitle')}
-            footerNote={t('management.grafana.scrapeIntervalFooter')}
+            footerNote={t('management.grafana.scrapeIntervalRateFooter')}
             footerIcon={Lightbulb}
             cleanStyle={true}
           />
         </div>
-
-        {/* Config content based on current auth state */}
-        <div className="space-y-3">
-          <div>
-            <p className="text-xs font-medium text-themed-secondary mb-1.5">prometheus.yml</p>
-            <div className="bg-themed-secondary p-2 rounded font-mono text-[10px] text-themed-muted">
-              <div>scrape_configs:</div>
-              <div className="ml-2">- job_name: &apos;lancache-manager&apos;</div>
-              <div className="ml-4">static_configs:</div>
-              <div className="ml-6">- targets: [&apos;lancache-manager:80&apos;]</div>
-              <div className="ml-4">scrape_interval: {scrapeInterval}s</div>
-              <div className="ml-4">metrics_path: &apos;/metrics&apos;</div>
-              {metricsSecured && (
-                <>
-                  <div className="ml-4 text-themed-success">authorization:</div>
-                  <div className="ml-6 text-themed-success">type: Bearer</div>
-                  <div className="ml-6 text-themed-success">
-                    credentials: &apos;your-api-key-here&apos;
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-          {metricsSecured && (
-            <p className="text-xs text-themed-muted flex items-center gap-1.5">
-              <Lightbulb className="w-3 h-3 icon-warning" />
-              {t('management.grafana.replaceApiKey')}
-            </p>
-          )}
-          <p className="text-xs text-themed-muted flex items-center gap-1.5">
-            <Lightbulb className="w-3 h-3 icon-info" />
-            {t('management.grafana.portInfo')}
-          </p>
-        </div>
-
-        {parseInt(scrapeInterval) < parseInt(dataRefreshRate) && (
-          <p className="text-xs mt-3 flex items-center gap-1.5 text-themed-warning">
-            <Lightbulb className="w-3 h-3 icon-warning" />
-            {t('management.grafana.staleDataWarning')}
-          </p>
-        )}
       </div>
 
-      {/* Grafana Query Examples */}
-      <div className="mt-4 p-3 rounded-lg border bg-themed-tertiary border-themed-secondary">
-        <p className="text-sm font-medium text-themed-primary mb-2">
-          {t('management.grafana.queryExamples')}
-        </p>
-        <div className="space-y-2">
-          <div className="bg-themed-secondary p-2 rounded">
-            <p className="text-[10px] text-themed-muted mb-1">
-              # {t('management.grafana.queries.hitRate')}
+      {/* Prometheus Config & Query Examples - collapsible */}
+      <div className="mt-4">
+        <AccordionSection
+          title={t('management.grafana.prometheusConfig')}
+          icon={Settings}
+          count={7}
+          isExpanded={isConfigExpanded}
+          onToggle={() => setIsConfigExpanded((prev) => !prev)}
+        >
+          {/* Prometheus Configuration - shows config based on current auth state */}
+          <div className="p-3 rounded-lg border bg-themed-tertiary border-themed-secondary">
+            <p className="text-xs text-themed-muted mb-3">
+              {metricsSecured
+                ? t('management.grafana.prometheusConfigSecured')
+                : t('management.grafana.prometheusConfigPublic')}
             </p>
-            <code className="text-[10px] font-mono text-themed-secondary">
-              lancache_cache_hit_ratio * 100
-            </code>
+
+            {/* Config content based on current auth state */}
+            <div className="space-y-3">
+              <div>
+                <p className="text-xs font-medium text-themed-secondary mb-1.5">prometheus.yml</p>
+                <div className="bg-themed-secondary p-2 rounded font-mono text-[10px] text-themed-muted">
+                  <div>scrape_configs:</div>
+                  <div className="ml-2">- job_name: &apos;lancache-manager&apos;</div>
+                  <div className="ml-4">static_configs:</div>
+                  <div className="ml-6">- targets: [&apos;lancache-manager:80&apos;]</div>
+                  <div className="ml-4">scrape_interval: {scrapeInterval}s</div>
+                  <div className="ml-4">metrics_path: &apos;/metrics&apos;</div>
+                  {metricsSecured && (
+                    <>
+                      <div className="ml-4 text-themed-success">authorization:</div>
+                      <div className="ml-6 text-themed-success">type: Bearer</div>
+                      <div className="ml-6 text-themed-success">
+                        credentials: &apos;your-api-key-here&apos;
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+              {metricsSecured && (
+                <p className="text-xs text-themed-muted flex items-center gap-1.5">
+                  <Lightbulb className="w-3 h-3 icon-warning" />
+                  {t('management.grafana.replaceApiKey')}
+                </p>
+              )}
+              <p className="text-xs text-themed-muted flex items-center gap-1.5">
+                <Lightbulb className="w-3 h-3 icon-info" />
+                {t('management.grafana.portInfo')}
+              </p>
+            </div>
           </div>
-          <div className="bg-themed-secondary p-2 rounded">
-            <p className="text-[10px] text-themed-muted mb-1">
-              # {t('management.grafana.queries.bandwidthSaved')}
+
+          {/* Grafana Query Examples */}
+          <div className="mt-3 p-3 rounded-lg border bg-themed-tertiary border-themed-secondary">
+            <p className="text-sm font-medium text-themed-primary mb-2">
+              {t('management.grafana.queryExamples')}
             </p>
-            <code className="text-[10px] font-mono text-themed-secondary">
-              increase(lancache_cache_hit_bytes_total[24h])
-            </code>
+            <div className="space-y-2">
+              <div className="bg-themed-secondary p-2 rounded">
+                <p className="text-[10px] text-themed-muted mb-1">
+                  # {t('management.grafana.queries.hitRate')}
+                </p>
+                <code className="text-[10px] font-mono text-themed-secondary">
+                  lancache_cache_hit_ratio * 100
+                </code>
+              </div>
+              <div className="bg-themed-secondary p-2 rounded">
+                <p className="text-[10px] text-themed-muted mb-1">
+                  # {t('management.grafana.queries.bandwidthSaved')}
+                </p>
+                <code className="text-[10px] font-mono text-themed-secondary">
+                  increase(lancache_cache_hit_bytes_total[24h])
+                </code>
+              </div>
+              <div className="bg-themed-secondary p-2 rounded">
+                <p className="text-[10px] text-themed-muted mb-1">
+                  # {t('management.grafana.queries.cacheUsage')}
+                </p>
+                <code className="text-[10px] font-mono text-themed-secondary">
+                  lancache_cache_used_bytes / 1024 / 1024 / 1024
+                </code>
+              </div>
+              <div className="bg-themed-secondary p-2 rounded">
+                <p className="text-[10px] text-themed-muted mb-1">
+                  # {t('management.grafana.queries.peakHour')}
+                </p>
+                <code className="text-[10px] font-mono text-themed-secondary">
+                  lancache_peak_hour
+                </code>
+              </div>
+              <div className="bg-themed-secondary p-2 rounded">
+                <p className="text-[10px] text-themed-muted mb-1">
+                  # {t('management.grafana.queries.hourlyDownloads')}
+                </p>
+                <code className="text-[10px] font-mono text-themed-secondary">
+                  lancache_hourly_downloads
+                </code>
+              </div>
+              <div className="bg-themed-secondary p-2 rounded">
+                <p className="text-[10px] text-themed-muted mb-1">
+                  # {t('management.grafana.queries.growthRate')}
+                </p>
+                <code className="text-[10px] font-mono text-themed-secondary">
+                  lancache_cache_growth_daily_bytes / 1024 / 1024 / 1024
+                </code>
+              </div>
+              <div className="bg-themed-secondary p-2 rounded">
+                <p className="text-[10px] text-themed-muted mb-1">
+                  # {t('management.grafana.queries.daysUntilFull')}
+                </p>
+                <code className="text-[10px] font-mono text-themed-secondary">
+                  lancache_cache_days_until_full
+                </code>
+              </div>
+            </div>
           </div>
-          <div className="bg-themed-secondary p-2 rounded">
-            <p className="text-[10px] text-themed-muted mb-1">
-              # {t('management.grafana.queries.cacheUsage')}
-            </p>
-            <code className="text-[10px] font-mono text-themed-secondary">
-              lancache_cache_used_bytes / 1024 / 1024 / 1024
-            </code>
-          </div>
-          <div className="bg-themed-secondary p-2 rounded">
-            <p className="text-[10px] text-themed-muted mb-1">
-              # {t('management.grafana.queries.peakHour')}
-            </p>
-            <code className="text-[10px] font-mono text-themed-secondary">lancache_peak_hour</code>
-          </div>
-          <div className="bg-themed-secondary p-2 rounded">
-            <p className="text-[10px] text-themed-muted mb-1">
-              # {t('management.grafana.queries.hourlyDownloads')}
-            </p>
-            <code className="text-[10px] font-mono text-themed-secondary">
-              lancache_hourly_downloads
-            </code>
-          </div>
-          <div className="bg-themed-secondary p-2 rounded">
-            <p className="text-[10px] text-themed-muted mb-1">
-              # {t('management.grafana.queries.growthRate')}
-            </p>
-            <code className="text-[10px] font-mono text-themed-secondary">
-              lancache_cache_growth_daily_bytes / 1024 / 1024 / 1024
-            </code>
-          </div>
-          <div className="bg-themed-secondary p-2 rounded">
-            <p className="text-[10px] text-themed-muted mb-1">
-              # {t('management.grafana.queries.daysUntilFull')}
-            </p>
-            <code className="text-[10px] font-mono text-themed-secondary">
-              lancache_cache_days_until_full
-            </code>
-          </div>
-        </div>
+        </AccordionSection>
       </div>
     </Card>
   );

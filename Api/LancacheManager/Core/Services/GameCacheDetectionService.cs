@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Hubs;
@@ -616,8 +618,12 @@ public class GameCacheDetectionService : IDisposable
             await SendProgressAsync("saving", "Saving results to database...", totalGamesDetected, finalServices.Count, 90);
 
             // Save results to database (replaces in-memory cache)
-            await SaveGamesToDatabaseAsync(finalGames, incremental);
-            _logger.LogInformation("[GameDetection] Results saved to database - {Count} games total", totalGamesDetected);
+            // Epic games are excluded from DB persistence - they are always re-derived fresh
+            // from the Downloads table via GetEpicGamesFromDownloadsAsync()
+            var steamGamesForDb = finalGames.Where(g => g.Service != "epicgames").ToList();
+            await SaveGamesToDatabaseAsync(steamGamesForDb, incremental);
+            _logger.LogInformation("[GameDetection] Results saved to database - {SteamCount} Steam games persisted, {TotalCount} total (including {EpicCount} Epic)",
+                steamGamesForDb.Count, totalGamesDetected, finalGames.Count - steamGamesForDb.Count);
 
             // For incremental scans, resolve any unknown games that now have depot mappings
             // Full scans already query fresh mappings, so this is only needed for incremental
@@ -840,13 +846,26 @@ public class GameCacheDetectionService : IDisposable
         }
 
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
+
+        // Clean up any legacy GameAppId=0 entries left by the old Epic dedup bug
+        var legacyZeroEntries = await dbContext.CachedGameDetections
+            .Where(g => g.GameAppId == 0)
+            .ToListAsync();
+        if (legacyZeroEntries.Count > 0)
+        {
+            dbContext.CachedGameDetections.RemoveRange(legacyZeroEntries);
+            await dbContext.SaveChangesAsync();
+            _logger.LogInformation("[GameDetection] Cleaned up {Count} legacy GameAppId=0 entries from cache", legacyZeroEntries.Count);
+        }
+
         var cachedGames = await dbContext.CachedGameDetections.ToListAsync();
         var cachedServices = await dbContext.CachedServiceDetections.ToListAsync();
 
         var games = cachedGames.Select(ConvertToGameCacheInfo).ToList();
         var services = cachedServices.Select(ConvertToServiceCacheInfo).ToList();
 
-        // Merge Epic games from resolved downloads
+        // Merge Epic games from resolved downloads (Epic games are always derived fresh,
+        // not persisted to CachedGameDetections, to avoid dedup issues with hash-based IDs)
         var epicGames = await GetEpicGamesFromDownloadsAsync();
         if (epicGames.Count > 0)
         {
@@ -1383,7 +1402,7 @@ public class GameCacheDetectionService : IDisposable
                 .GroupBy(d => d.EpicAppId!)
                 .Select(g => new GameCacheInfo
                 {
-                    GameAppId = 0, // Epic uses string IDs, not uint
+                    GameAppId = GenerateEpicGameAppId(g.Key),
                     GameName = g.First().GameName ?? $"Epic Game ({g.Key})",
                     Service = "epicgames",
                     CacheFilesFound = g.Count(),
@@ -1404,6 +1423,21 @@ public class GameCacheDetectionService : IDisposable
             _logger.LogWarning(ex, "Failed to get Epic games from downloads");
             return new List<GameCacheInfo>();
         }
+    }
+
+    /// <summary>
+    /// Generates a deterministic unique uint GameAppId from an Epic string AppId.
+    /// Uses SHA256 hash mapped to the upper half of uint range (2,147,483,648 - 4,294,967,295)
+    /// to avoid collisions with Steam AppIds which use the lower range (typically under 3,000,000).
+    /// </summary>
+    private static uint GenerateEpicGameAppId(string epicAppId)
+    {
+        var hashBytes = SHA256.HashData(Encoding.UTF8.GetBytes(epicAppId));
+        // Use first 4 bytes of SHA256 hash as a uint
+        var rawHash = BitConverter.ToUInt32(hashBytes, 0);
+        // Map to upper half of uint range (set the high bit) to avoid Steam AppId collisions.
+        // Also ensure non-zero by OR-ing with the high bit.
+        return rawHash | 0x80000000;
     }
 
     private class GameDetectionResult

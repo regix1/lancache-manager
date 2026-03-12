@@ -162,6 +162,7 @@
       "cancelLogRemoval": "Cancel log removal",
       "cancelDatabaseReset": "Cancel database reset",
       "cancelDataImport": "Cancel data import",
+      "cancelEpicGameMapping": "Cancel Epic game mapping",
       "cancelOperationAria": "Cancel operation",
       "cancelling": "Cancelling...",
       "corruptedChunksRemoved": "Corrupted chunks successfully removed",
@@ -1575,11 +1576,10 @@
           "loginDesc": "Sign in with your Epic Games account to discover your game library for download identification",
           "logout": "Logout",
           "prefillSessions": "Prefill Sessions",
+          "loadError": "Failed to load Epic status. Displaying default values.",
           "noActiveSessions": "No active sessions",
-          "noActiveSessionsDesc": "Log in through the Prefill tab to discover Epic games and build the mapping catalog",
           "activeSessions": "{{count}} active session",
-          "activeSessions_plural": "{{count}} active sessions",
-          "goToPrefill": "Go to Prefill"
+          "activeSessions_plural": "{{count}} active sessions"
         },
         "epicGameMappings": {
           "title": "Epic Games Library Mapping",
@@ -2557,8 +2557,11 @@
       "copied": "Copied!",
       "prometheusFormat": "OpenMetrics/Prometheus format for scraping",
       "dataRefreshRate": "Data Refresh Rate",
-      "dataRefreshRateDesc": "How often metrics are recalculated",
+      "dataRefreshRateDesc": "How often the app recalculates internal metrics values",
       "dataRefreshFooter": "Controls internal metrics update frequency",
+      "scrapeIntervalRate": "Prometheus Scrape Interval",
+      "scrapeIntervalRateDesc": "How often Prometheus pulls data from the /metrics endpoint",
+      "scrapeIntervalRateFooter": "Set this in your prometheus.yml scrape_interval",
       "prometheusConfig": "Prometheus Configuration",
       "prometheusConfigSecured": "Authentication required - include authorization header",
       "prometheusConfigPublic": "Public access - no authentication needed",
@@ -3524,6 +3527,26 @@
         "failedToSwitchToAnonymous": "Failed to switch to anonymous mode",
         "failedToRemoveApiKey": "Failed to remove API key",
         "networkError": "Network error - failed to remove API key"
+      }
+    },
+    "epicAuth": {
+      "title": "Epic Games Authentication",
+      "signInTitle": "Sign in with Epic Games",
+      "signInDescription": "You'll be redirected to Epic Games to authorize access to your game library. After signing in, you'll receive a code to paste back here.",
+      "securityNote": "Authentication uses Epic's official OAuth flow. Your credentials are entered directly on Epic's website and are never shared with this application.",
+      "connectingTitle": "Connecting to Epic Games...",
+      "connectingSubtitle": "Starting the authorization process",
+      "enterCodeTitle": "Enter Authorization Code",
+      "enterCodeDescription": "Click the button below to open Epic Games login, then paste the authorization code you receive.",
+      "openEpicLogin": "Open Epic Games Login",
+      "authorizationCodeLabel": "Authorization Code",
+      "authorizationCodePlaceholder": "Paste your authorization code here",
+      "authenticatingMessage": "Authenticating with Epic Games...",
+      "actions": {
+        "authenticating": "Authenticating...",
+        "submitCode": "Submit Code",
+        "connecting": "Connecting...",
+        "continue": "Continue"
       }
     },
     "cacheRemoval": {

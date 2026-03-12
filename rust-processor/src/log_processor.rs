@@ -361,6 +361,22 @@ impl Processor {
         Ok(())
     }
 
+    /// Extract a path prefix from an Epic CDN URL to use as a session discriminator.
+    /// Epic CDN URLs follow the pattern: /Builds/Org/o-<orgHash>/<buildHash>/default/<chunkFile>
+    /// We extract the first 5 segments (/Builds/Org/o-xxx/hash/default) which uniquely identify a game.
+    /// Returns None if the URL doesn't have enough segments, falling back to `_nodepot` behavior.
+    fn extract_epic_path_prefix(url: &str) -> Option<String> {
+        // Split the URL path into segments, skipping empty segments from leading slash
+        let segments: Vec<&str> = url.split('/').filter(|s| !s.is_empty()).collect();
+        // Need at least 5 segments for a meaningful Epic CDN path prefix
+        if segments.len() >= 5 {
+            // Rejoin the first 5 segments as the prefix key
+            Some(format!("/{}", segments[..5].join("/")))
+        } else {
+            None
+        }
+    }
+
     fn process_batch(&mut self, conn: &mut Connection, entries: &[LogEntry]) -> Result<()> {
         if entries.is_empty() {
             return Ok(());
@@ -370,9 +386,21 @@ impl Processor {
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
 
         // Group entries by client_ip + service + depot_id to prevent different games from being merged
+        // For Epic services without a depot_id, use the URL path prefix as a discriminator
+        // so different Epic games get separate sessions instead of being merged into one
         let mut grouped: HashMap<String, Vec<&LogEntry>> = HashMap::new();
         for entry in entries {
-            let depot_suffix = entry.depot_id.map_or("_nodepot".to_string(), |id| format!("_{}", id));
+            let depot_suffix = if let Some(id) = entry.depot_id {
+                format!("_{}", id)
+            } else if entry.service.to_lowercase().contains("epic") {
+                // For Epic entries, use the CDN path prefix (e.g., /Builds/Org/o-xxx/hash/default)
+                // as the session discriminator to keep different games in separate sessions
+                Self::extract_epic_path_prefix(&entry.url)
+                    .map(|prefix| format!("_epic:{}", prefix))
+                    .unwrap_or_else(|| "_nodepot".to_string())
+            } else {
+                "_nodepot".to_string()
+            };
             let key = format!("{}_{}{}",  entry.client_ip, entry.service, depot_suffix);
             grouped.entry(key).or_insert_with(Vec::new).push(entry);
         }
@@ -614,7 +642,7 @@ impl Processor {
 
             download_id
         } else {
-            // Try to find existing active download for this specific depot
+            // Try to find existing active download for this specific depot/game
             let download_id_opt: Option<i64> = if let Some(depot_id) = primary_depot_id {
                 tx.query_row(
                     "SELECT Id FROM Downloads WHERE ClientIp = ? AND Service = ? AND DepotId = ? AND IsActive = 1 ORDER BY StartTimeUtc DESC LIMIT 1",
@@ -622,6 +650,25 @@ impl Processor {
                     |row| row.get(0),
                 )
                 .optional()?
+            } else if service.to_lowercase().contains("epic") {
+                // For Epic services, match by URL path prefix to find the correct game session
+                // instead of matching any DepotId IS NULL download (which would merge all Epic games)
+                if let Some(path_prefix) = last_url.and_then(|u| Self::extract_epic_path_prefix(u)) {
+                    let like_pattern = format!("{}%", path_prefix);
+                    tx.query_row(
+                        "SELECT Id FROM Downloads WHERE ClientIp = ? AND Service = ? AND DepotId IS NULL AND IsActive = 1 AND LastUrl LIKE ? ORDER BY StartTimeUtc DESC LIMIT 1",
+                        params![client_ip, service, like_pattern],
+                        |row| row.get(0),
+                    )
+                    .optional()?
+                } else {
+                    tx.query_row(
+                        "SELECT Id FROM Downloads WHERE ClientIp = ? AND Service = ? AND DepotId IS NULL AND IsActive = 1 ORDER BY StartTimeUtc DESC LIMIT 1",
+                        params![client_ip, service],
+                        |row| row.get(0),
+                    )
+                    .optional()?
+                }
             } else {
                 tx.query_row(
                     "SELECT Id FROM Downloads WHERE ClientIp = ? AND Service = ? AND DepotId IS NULL AND IsActive = 1 ORDER BY StartTimeUtc DESC LIMIT 1",

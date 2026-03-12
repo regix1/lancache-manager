@@ -119,8 +119,16 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
   };
 
   const dropdownOptions = [
-    { value: 'anonymous', label: t('management.steamAuth.modes.anonymous') },
-    { value: 'authenticated', label: t('management.steamAuth.modes.authenticated') }
+    {
+      value: 'anonymous',
+      label: t('management.steamAuth.anonymous'),
+      description: t('management.steamAuth.status.publicOnly')
+    },
+    {
+      value: 'authenticated',
+      label: t('management.steamAuth.accountLogin'),
+      description: t('management.steamAuth.status.canAccessRestricted')
+    }
   ];
 
   return (
@@ -243,6 +251,8 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
                     value={steamAuthMode}
                     onChange={handleModeChange}
                     disabled={loading}
+                    dropdownWidth="w-72"
+                    alignRight={true}
                   />
                 </div>
               ) : (

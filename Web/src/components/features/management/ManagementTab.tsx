@@ -42,6 +42,7 @@ const ManagementTab: React.FC = () => {
   const [logRotationEnabled, setLogRotationEnabled] = useState(false);
   const [gameCacheRefreshKey, setGameCacheRefreshKey] = useState(0);
   const [highlightSteamApi, setHighlightSteamApi] = useState(false);
+  const [highlightEpic, setHighlightEpic] = useState(false);
 
   // Derive log processing state from notifications for DepotMappingManager
   const activeProcessingNotification = notifications.find(
@@ -158,6 +159,11 @@ const ManagementTab: React.FC = () => {
   // Handle navigation to Epic Login in Integrations section
   const handleNavigateToEpicLogin = useCallback(() => {
     setActiveSection('integrations');
+    setHighlightEpic(true);
+    // Clear highlight after animation completes
+    setTimeout(() => {
+      setHighlightEpic(false);
+    }, 2000);
   }, []);
 
   // Render the active section
@@ -197,6 +203,7 @@ const ManagementTab: React.FC = () => {
             onError={addError}
             onSuccess={setSuccess}
             highlightSteamApi={highlightSteamApi}
+            highlightEpic={highlightEpic}
           />
         );
 
