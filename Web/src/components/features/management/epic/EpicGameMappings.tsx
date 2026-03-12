@@ -185,7 +185,7 @@ const EpicGameMappings: React.FC<EpicGameMappingsProps> = ({ authMode }) => {
             <Gamepad2 className="w-5 h-5 icon-purple" />
           </div>
           <div>
-            <h3 className="text-sm font-semibold text-themed-primary">
+            <h3 className="text-lg font-semibold text-themed-primary">
               {t('management.sections.integrations.epicGameMappings.title')}
             </h3>
             <p className="text-xs text-themed-muted">

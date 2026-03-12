@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Key, User, AlertTriangle } from 'lucide-react';
+import { Key, CheckCircle, LogOut, AlertTriangle, Loader2 } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 
 import { Button } from '@components/ui/Button';
@@ -132,7 +132,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
   return (
     <>
       <Card>
-        <div className="flex items-center gap-3 mb-6">
+        <div className="flex items-center gap-3 mb-4">
           <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-blue">
             <Key className="w-5 h-5 icon-blue" />
           </div>
@@ -223,7 +223,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
         )}
 
         {/* Main auth mode selector */}
-        <div className={`p-4 rounded-lg mb-4 bg-themed-tertiary `}>
+        <div className="p-3 rounded-lg bg-themed-tertiary">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div className="flex-1 min-w-0">
               <p className="text-themed-primary text-sm font-medium mb-1">
@@ -262,7 +262,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
         </div>
 
         {/* Configuration section */}
-        <div className={`p-4 rounded-lg bg-themed-tertiary `}>
+        <div className="p-3 mt-2 rounded-lg bg-themed-tertiary">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div className="flex-1 min-w-0">
               <p className="text-themed-primary font-medium text-sm mb-1">
@@ -297,28 +297,38 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
           </div>
         </div>
 
-        {/* Authenticated status */}
+        {/* Authenticated status row */}
         {steamAuthMode === 'authenticated' && (
-          <div className="mt-4">
-            <Alert color="green">
-              <div className="flex items-center justify-between">
-                <span className="text-sm">
-                  <User className="w-4 h-4 inline mr-2" />
+          <>
+            <div className="flex items-center justify-between gap-4 p-3 mt-2 rounded-lg bg-themed-tertiary">
+              <div className="flex-1 min-w-0">
+                <p className="text-themed-primary text-sm font-medium">
                   {t('management.steamAuth.authenticatedAs')}{' '}
                   <strong>{authenticatedUsername || t('management.steamAuth.steamUser')}</strong>
+                </p>
+              </div>
+              <div className="flex-shrink-0">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-success text-themed-success">
+                  <CheckCircle size={14} />
+                  Connected
                 </span>
+              </div>
+            </div>
+            {authMode === 'authenticated' && !mockMode && (
+              <div className="mt-3 pt-3 border-t border-[var(--theme-border)]">
                 <Button
-                  size="xs"
-                  variant="filled"
-                  color="red"
                   onClick={handleSwitchToAnonymous}
-                  disabled={loading || mockMode}
+                  disabled={loading}
+                  variant="outline"
+                  color="red"
+                  size="sm"
                 >
+                  {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogOut size={14} />}
                   {t('management.steamAuth.logout')}
                 </Button>
               </div>
-            </Alert>
-          </div>
+            )}
+          </>
         )}
       </Card>
 

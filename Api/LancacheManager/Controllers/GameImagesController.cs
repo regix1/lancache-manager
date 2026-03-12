@@ -170,8 +170,8 @@ public class GameImagesController : ControllerBase
             if (result.HasValue)
             {
                 var (imageBytes, contentType) = result.Value;
-                Response.Headers["Cache-Control"] = "public, max-age=86400";
-                Response.Headers["ETag"] = $"\"epic-{epicAppId}\"";
+                Response.Headers["Cache-Control"] = "public, max-age=3600";
+                Response.Headers["ETag"] = $"\"epic-{epicAppId}-{imageUrl.GetHashCode():x}\"";
                 return File(imageBytes, contentType);
             }
 

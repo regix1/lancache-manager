@@ -250,7 +250,13 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({ authMode }) => {
                 })}
               </p>
               {authMode === 'authenticated' && (
-                <Button onClick={handleLogout} disabled={loggingOut} variant="outline" size="sm">
+                <Button
+                  onClick={handleLogout}
+                  disabled={loggingOut}
+                  variant="outline"
+                  color="red"
+                  size="sm"
+                >
                   {loggingOut ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogOut size={14} />}
                   {t('management.sections.integrations.epicDaemonStatus.logout')}
                 </Button>
