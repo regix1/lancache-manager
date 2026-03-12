@@ -194,13 +194,13 @@ public class GameImagesController : ControllerBase
     }
 
     /// <summary>
-    /// Clears the game image disk cache, failure markers, and in-memory failed-fetch cache.
-    /// Forces all images to be re-downloaded from source on next request.
+    /// Clears the game image disk cache, failure markers, in-memory failed-fetch cache,
+    /// and stored Epic image URLs so they are re-fetched with the correct image type on next catalog refresh.
     /// </summary>
     [HttpDelete("cache")]
     public async Task<IActionResult> ClearImageCache()
     {
-        _logger.LogInformation("Clearing game image cache (disk + in-memory)");
+        _logger.LogInformation("Clearing game image cache (disk + in-memory + Epic DB URLs)");
 
         // Clear in-memory failed-fetch cache
         var failedCount = _failedImageCache.Count;
@@ -209,9 +209,21 @@ public class GameImagesController : ControllerBase
         // Clear disk cache (images, metadata, failure markers)
         await _imageCacheService.ClearCacheAsync();
 
-        _logger.LogInformation("Image cache cleared: {FailedCacheEntries} in-memory entries removed", failedCount);
+        // Clear stored Epic image URLs so they get re-populated with correct landscape images
+        // on the next catalog refresh or Epic login
+        var epicMappings = await _context.EpicGameMappings
+            .Where(m => m.ImageUrl != null)
+            .ToListAsync();
+        foreach (var mapping in epicMappings)
+        {
+            mapping.ImageUrl = null;
+        }
+        var epicUrlsCleared = await _context.SaveChangesAsync();
 
-        return Ok(new { message = "Image cache cleared", failedCacheEntriesCleared = failedCount });
+        _logger.LogInformation("Image cache cleared: {FailedCacheEntries} in-memory entries removed, {EpicUrls} Epic image URLs cleared",
+            failedCount, epicUrlsCleared);
+
+        return Ok(new { message = "Image cache cleared", failedCacheEntriesCleared = failedCount, epicImageUrlsCleared = epicUrlsCleared });
     }
 
     /// <summary>

@@ -266,6 +266,13 @@ public partial class EpicMappingService
                     _logger.LogWarning(resolveEx, "Failed to resolve Epic downloads during auto-reconnect");
                 }
 
+                // Notify frontend that mapping data is now available
+                await _notifications.NotifyAllAsync(SignalREvents.EpicGameMappingsUpdated, new
+                {
+                    totalGames = _gamesDiscovered,
+                    source = "auto-reconnect"
+                });
+
                 _logger.LogInformation("Epic mapping auto-reconnect successful: {DisplayName}, {Games} games",
                     tokens.DisplayName, _gamesDiscovered);
             }

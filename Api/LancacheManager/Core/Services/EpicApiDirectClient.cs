@@ -345,51 +345,29 @@ public class EpicApiDirectClient : IDisposable
     }
 
     /// <summary>
-    /// Selects the best image URL from keyImages array using priority order.
-    /// Matches the daemon's AppMetadataResponse.GetBestImageUrl() logic.
-    /// Appends CDN resize parameters so we fetch a compact landscape image (~460x215)
-    /// instead of the full 2560x1440 source.
+    /// Selects the best landscape image URL from keyImages array.
+    /// Only selects wide/landscape images — never portrait/tall.
+    /// Appends CDN resize parameters so we fetch a compact 640x360 image.
     /// </summary>
     private static string? GetBestImageUrl(List<EpicKeyImage>? keyImages)
     {
         if (keyImages == null || keyImages.Count == 0) return null;
 
-        // Prefer wide/banner images (horizontal) over tall/portrait
-        var preferredTypes = new[]
-        {
-            "DieselStoreFrontWide",      // 2560x1440 - primary store banner
-            "OfferImageWide",            // 2560x1440 - offer banner
-            "DieselGameBox",             // 2560x1440 - standard game box (landscape, very common)
-            "DieselGameBoxWide",         // Wide game box art
-            "Featured",                  // 894x488 - featured banner
-            "VaultClosed",               // Vault promotion banner
-        };
+        // Only use DieselStoreFrontWide — the primary wide store banner (2560x1440, 16:9)
+        var match = keyImages.FirstOrDefault(img =>
+            string.Equals(img.Type, "DieselStoreFrontWide", StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrEmpty(img.Url));
+        if (match != null) return AppendResizeParams(match.Url!);
 
-        foreach (var preferredType in preferredTypes)
-        {
-            var match = keyImages.FirstOrDefault(img =>
-                string.Equals(img.Type, preferredType, StringComparison.OrdinalIgnoreCase)
-                && !string.IsNullOrEmpty(img.Url));
-            if (match != null) return AppendResizeParams(match.Url!);
-        }
-
-        // If no preferred wide type found, pick the widest landscape image by actual dimensions
-        var widestImage = keyImages
-            .Where(img => !string.IsNullOrEmpty(img.Url) && img.Width > 0 && img.Height > 0 && img.Width >= img.Height)
+        // Fallback: pick the widest landscape image (width > height) by aspect ratio
+        var widestLandscape = keyImages
+            .Where(img => !string.IsNullOrEmpty(img.Url) && img.Width > 0 && img.Height > 0 && img.Width > img.Height)
             .OrderByDescending(img => (double)img.Width / img.Height)
             .ThenByDescending(img => img.Width)
             .FirstOrDefault();
-        if (widestImage != null) return AppendResizeParams(widestImage.Url!);
+        if (widestLandscape != null) return AppendResizeParams(widestLandscape.Url!);
 
-        // Last resort: any image with a URL, preferring landscape by dimensions
-        var anyWide = keyImages
-            .Where(img => !string.IsNullOrEmpty(img.Url) && img.Width > 0 && img.Height > 0)
-            .OrderByDescending(img => (double)img.Width / img.Height)
-            .FirstOrDefault();
-        if (anyWide != null) return AppendResizeParams(anyWide.Url!);
-
-        var fallback = keyImages.FirstOrDefault(img => !string.IsNullOrEmpty(img.Url))?.Url;
-        return fallback != null ? AppendResizeParams(fallback) : null;
+        return null;
     }
 
     /// <summary>
