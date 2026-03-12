@@ -169,8 +169,32 @@ const EpicGameMappings: React.FC<EpicGameMappingsProps> = ({ authMode }) => {
   if (loading) {
     return (
       <Card>
-        <div className="flex items-center justify-center py-8">
-          <Loader2 className="w-5 h-5 animate-spin text-themed-secondary" />
+        <div className="flex flex-col gap-4">
+          {/* Header */}
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-purple">
+              <Gamepad2 className="w-5 h-5 icon-purple" />
+            </div>
+            <div>
+              <h3 className="text-lg font-semibold text-themed-primary">
+                {t('management.sections.integrations.epicGameMappings.title')}
+              </h3>
+              <p className="text-xs text-themed-muted">
+                {t('management.sections.integrations.epicGameMappings.description')}
+              </p>
+            </div>
+          </div>
+
+          {/* Loading indicator */}
+          <div className="flex flex-col items-center justify-center py-8 gap-3">
+            <Loader2 className="w-6 h-6 animate-spin text-themed-accent" />
+            <p className="text-sm text-themed-secondary">
+              {t(
+                'management.sections.integrations.epicGameMappings.loading',
+                'Loading game mappings...'
+              )}
+            </p>
+          </div>
         </div>
       </Card>
     );

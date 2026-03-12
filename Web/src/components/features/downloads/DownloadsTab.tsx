@@ -1414,9 +1414,9 @@ const DownloadsTab: React.FC = () => {
                       variant="subtle"
                       size="sm"
                       onClick={handleClearImageCache}
-                      loading={imageCacheClearing}
+                      disabled={imageCacheClearing}
                     >
-                      <RefreshCw size={18} />
+                      <RefreshCw size={18} className={imageCacheClearing ? 'animate-spin' : ''} />
                     </Button>
                   </Tooltip>
 
