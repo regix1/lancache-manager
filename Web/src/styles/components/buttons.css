@@ -34,9 +34,52 @@
     background-color: var(--theme-action-delete-hover);
   }
 
+  /* Outline Action Buttons - colored border + text, transparent bg */
+  .outline-delete {
+    border-color: var(--theme-action-delete-bg);
+    color: var(--theme-action-delete-bg);
+    transition: background-color 0.2s ease;
+  }
+
+  .outline-delete:hover {
+    background-color: color-mix(in srgb, var(--theme-action-delete-bg) 10%, transparent);
+  }
+
+  .outline-process {
+    border-color: var(--theme-action-process-bg);
+    color: var(--theme-action-process-bg);
+    transition: background-color 0.2s ease;
+  }
+
+  .outline-process:hover {
+    background-color: color-mix(in srgb, var(--theme-action-process-bg) 10%, transparent);
+  }
+
+  .outline-primary {
+    border-color: var(--theme-button-bg);
+    color: var(--theme-button-bg);
+    transition: background-color 0.2s ease;
+  }
+
+  .outline-primary:hover {
+    background-color: color-mix(in srgb, var(--theme-button-bg) 10%, transparent);
+  }
+
+  .outline-reset {
+    border-color: var(--theme-action-reset-bg);
+    color: var(--theme-action-reset-bg);
+    transition: background-color 0.2s ease;
+  }
+
+  .outline-reset:hover {
+    background-color: color-mix(in srgb, var(--theme-action-reset-bg) 10%, transparent);
+  }
+
   /* Subtle delete hover for icon buttons */
   .delete-hover {
-    transition: background-color 0.2s, color 0.2s;
+    transition:
+      background-color 0.2s,
+      color 0.2s;
   }
   .delete-hover:hover {
     background-color: color-mix(in srgb, var(--theme-icon-red) 15%, transparent);
@@ -72,7 +115,9 @@
   }
 
   .hover-btn-trigger {
-    transition: background-color 0.15s ease, color 0.15s ease;
+    transition:
+      background-color 0.15s ease,
+      color 0.15s ease;
   }
 
   .hover-btn-trigger:hover {

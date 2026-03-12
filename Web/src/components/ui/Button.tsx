@@ -57,7 +57,18 @@ export const Button: React.FC<ButtonProps> = ({
       return colors[color];
     }
     if (variant === 'outline') {
-      return 'border border-themed-secondary hover:bg-themed-hover focus:bg-[var(--theme-bg-hover)] focus:border-[var(--theme-border-focus)] text-themed-primary';
+      const base = 'border focus:border-[var(--theme-border-focus)]';
+      const colors = {
+        blue: `${base} outline-primary`,
+        green: `${base} outline-process`,
+        red: `${base} outline-delete`,
+        yellow: `${base} outline-reset`,
+        orange: `${base} outline-reset`,
+        purple: `${base} outline-primary`,
+        gray: `${base} border-themed-secondary hover:bg-themed-hover text-themed-primary`,
+        default: `${base} border-themed-secondary hover:bg-themed-hover text-themed-primary`
+      };
+      return colors[color];
     }
     return 'bg-themed-tertiary hover:bg-themed-hover text-themed-primary border border-themed-secondary';
   };

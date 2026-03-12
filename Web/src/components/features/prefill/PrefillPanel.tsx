@@ -997,9 +997,10 @@ function ServicePrefillPanel({
           {!isSessionExpired && (
             <Button
               variant="outline"
+              color="red"
               size="sm"
               onClick={handleEndSession}
-              className="flex-shrink-0 border-[color-mix(in_srgb,var(--theme-error)_40%,transparent)] text-[var(--theme-error)]"
+              className="flex-shrink-0"
             >
               <X className="h-4 w-4" />
               <span className="hidden sm:inline">{t('prefill.endSession')}</span>
