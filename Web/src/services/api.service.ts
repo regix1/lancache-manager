@@ -461,6 +461,22 @@ class ApiService {
     }
   }
 
+  // Clear the game image cache (disk + in-memory failed-fetch cache)
+  static async clearImageCache(): Promise<{ message: string; failedCacheEntriesCleared: number }> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/game-images/cache`,
+        this.getFetchOptions({
+          method: 'DELETE'
+        })
+      );
+      return await this.handleResponse<{ message: string; failedCacheEntriesCleared: number }>(res);
+    } catch (error) {
+      console.error('clearImageCache error:', error);
+      throw error;
+    }
+  }
+
   // Start async cache clearing operation for a specific datasource (requires auth)
   static async clearDatasourceCache(datasourceName: string): Promise<ClearCacheResponse> {
     try {

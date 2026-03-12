@@ -9,7 +9,8 @@ import {
   Table,
   Search,
   X,
-  Maximize2
+  Maximize2,
+  RefreshCw
 } from 'lucide-react';
 import { useDownloads } from '@contexts/DashboardDataContext';
 import { useTimeFilter } from '@contexts/TimeFilterContext';
@@ -267,6 +268,8 @@ const DownloadsTab: React.FC = () => {
   const [settingsOpened, setSettingsOpened] = useState(false);
   const [exportLoading, setExportLoading] = useState(false);
   const [showExportOptions, setShowExportOptions] = useState(false);
+  const [imageCacheClearing, setImageCacheClearing] = useState(false);
+  const [imageCacheVersion, setImageCacheVersion] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
   // Retro view manages its own pagination since it groups by depot
   const [retroTotalPages, setRetroTotalPages] = useState(1);
@@ -1088,6 +1091,19 @@ const DownloadsTab: React.FC = () => {
     }
   };
 
+  const handleClearImageCache = async () => {
+    setImageCacheClearing(true);
+    try {
+      await ApiService.clearImageCache();
+      // Bump version to force all GameImage components to re-fetch
+      setImageCacheVersion((v) => v + 1);
+    } catch (error) {
+      console.error('Failed to clear image cache:', error);
+    } finally {
+      setImageCacheClearing(false);
+    }
+  };
+
   const handleItemClick = (id: string) => {
     setExpandedItem(expandedItem === id ? null : id);
   };
@@ -1393,6 +1409,17 @@ const DownloadsTab: React.FC = () => {
                     </Tooltip>
                   )}
 
+                  <Tooltip content={t('downloads.tab.tooltips.refreshImages')} position="bottom">
+                    <Button
+                      variant="subtle"
+                      size="sm"
+                      onClick={handleClearImageCache}
+                      loading={imageCacheClearing}
+                    >
+                      <RefreshCw size={18} />
+                    </Button>
+                  </Tooltip>
+
                   <Tooltip content={t('downloads.tab.tooltips.settings')} position="bottom">
                     <Button
                       variant="subtle"
@@ -1678,6 +1705,7 @@ const DownloadsTab: React.FC = () => {
               >
                 {settings.viewMode === 'compact' && (
                   <CompactView
+                    key={`compact-${imageCacheVersion}`}
                     items={itemsToDisplay as (Download | DownloadGroup)[]}
                     expandedItem={expandedItem}
                     onItemClick={handleItemClick}
@@ -1699,6 +1727,7 @@ const DownloadsTab: React.FC = () => {
               >
                 {settings.viewMode === 'normal' && (
                   <NormalView
+                    key={`normal-${imageCacheVersion}`}
                     items={itemsToDisplay as (Download | DownloadGroup)[]}
                     expandedItem={expandedItem}
                     onItemClick={handleItemClick}
@@ -1721,6 +1750,7 @@ const DownloadsTab: React.FC = () => {
               >
                 {settings.viewMode === 'retro' && (
                   <RetroView
+                    key={`retro-${imageCacheVersion}`}
                     ref={retroViewRef}
                     items={allItemsSorted as (Download | DownloadGroup)[]}
                     aestheticMode={settings.aestheticMode}

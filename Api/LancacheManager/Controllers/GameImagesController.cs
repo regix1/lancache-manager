@@ -193,6 +193,27 @@ public class GameImagesController : ControllerBase
     }
 
     /// <summary>
+    /// Clears the game image disk cache, failure markers, and in-memory failed-fetch cache.
+    /// Forces all images to be re-downloaded from source on next request.
+    /// </summary>
+    [HttpDelete("cache")]
+    public async Task<IActionResult> ClearImageCache()
+    {
+        _logger.LogInformation("Clearing game image cache (disk + in-memory)");
+
+        // Clear in-memory failed-fetch cache
+        var failedCount = _failedImageCache.Count;
+        _failedImageCache.Clear();
+
+        // Clear disk cache (images, metadata, failure markers)
+        await _imageCacheService.ClearCacheAsync();
+
+        _logger.LogInformation("Image cache cleared: {FailedCacheEntries} in-memory entries removed", failedCount);
+
+        return Ok(new { message = "Image cache cleared", failedCacheEntriesCleared = failedCount });
+    }
+
+    /// <summary>
     /// Get the stored image URL from the database for a game
     /// </summary>
     private async Task<string?> GetDatabaseImageUrlAsync(uint appId, CancellationToken cancellationToken)
