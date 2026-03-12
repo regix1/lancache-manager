@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Loader2, Gamepad2, Search, ExternalLink } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
-import HighlightGlow from '@components/ui/HighlightGlow';
+
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import { useSignalR } from '@contexts/SignalRContext';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
@@ -13,7 +13,6 @@ import type { EpicGameMappingDto, EpicMappingStats } from '../../../../types';
 
 interface EpicGameMappingsProps {
   authMode: AuthMode;
-  highlight?: boolean;
 }
 
 /** Sub-component for rendering a single mapping row, so useFormattedDateTime hook can be called per-row */
@@ -84,7 +83,7 @@ const LastUpdatedLabel: React.FC<{ dateStr: string; label: string }> = ({ dateSt
   );
 };
 
-const EpicGameMappings: React.FC<EpicGameMappingsProps> = ({ authMode, highlight }) => {
+const EpicGameMappings: React.FC<EpicGameMappingsProps> = ({ authMode }) => {
   const { t } = useTranslation();
   const { on, off } = useSignalR();
 
@@ -169,150 +168,144 @@ const EpicGameMappings: React.FC<EpicGameMappingsProps> = ({ authMode, highlight
 
   if (loading) {
     return (
-      <HighlightGlow enabled={highlight}>
-        <Card>
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="w-5 h-5 animate-spin text-themed-secondary" />
-          </div>
-        </Card>
-      </HighlightGlow>
+      <Card>
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="w-5 h-5 animate-spin text-themed-secondary" />
+        </div>
+      </Card>
     );
   }
 
   return (
-    <HighlightGlow enabled={highlight}>
-      <Card>
-        <div className="flex flex-col gap-4">
-          {/* Card Header */}
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-purple">
-              <Gamepad2 className="w-5 h-5 icon-purple" />
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-themed-primary">
-                {t('management.sections.integrations.epicGameMappings.title')}
-              </h3>
-              <p className="text-xs text-themed-muted">
-                {stats && stats.totalGames > 0
-                  ? t('management.sections.integrations.epicGameMappings.gamesDiscovered', {
-                      count: stats.totalGames
-                    })
-                  : t('management.sections.integrations.epicGameMappings.description')}
-                {stats?.lastUpdatedUtc && (
-                  <LastUpdatedLabel
-                    dateStr={stats.lastUpdatedUtc}
-                    label={t('management.sections.integrations.epicGameMappings.lastUpdated')}
-                  />
-                )}
-              </p>
-            </div>
+    <Card>
+      <div className="flex flex-col gap-4">
+        {/* Card Header */}
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-purple">
+            <Gamepad2 className="w-5 h-5 icon-purple" />
           </div>
-
-          {/* Error / Info Message */}
-          {error && <div className="p-4 text-center text-[var(--theme-error)]">{error}</div>}
-
-          {/* Empty State */}
-          {mappings.length === 0 && !searchQuery && (
-            <p className="text-xs text-themed-secondary text-center py-6">
-              {t('management.sections.integrations.epicGameMappings.noGames')}
-            </p>
-          )}
-
-          {/* Search and Table */}
-          {(mappings.length > 0 || searchQuery) && (
-            <>
-              {/* Search */}
-              <div className="relative">
-                <Search
-                  size={14}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-themed-muted pointer-events-none"
+          <div>
+            <h3 className="text-sm font-semibold text-themed-primary">
+              {t('management.sections.integrations.epicGameMappings.title')}
+            </h3>
+            <p className="text-xs text-themed-muted">
+              {stats && stats.totalGames > 0
+                ? t('management.sections.integrations.epicGameMappings.gamesDiscovered', {
+                    count: stats.totalGames
+                  })
+                : t('management.sections.integrations.epicGameMappings.description')}
+              {stats?.lastUpdatedUtc && (
+                <LastUpdatedLabel
+                  dateStr={stats.lastUpdatedUtc}
+                  label={t('management.sections.integrations.epicGameMappings.lastUpdated')}
                 />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    handleSearch(e.target.value)
-                  }
-                  placeholder={t('management.sections.integrations.epicGameMappings.search')}
-                  className="w-full py-2 pl-8 pr-3 border border-[var(--theme-border)] rounded-lg bg-themed-secondary text-themed-primary text-xs outline-none focus:border-[var(--theme-primary)]"
-                />
-              </div>
-
-              {/* Table */}
-              {mappings.length === 0 ? (
-                <p className="text-xs text-themed-secondary text-center py-4">
-                  {t('management.sections.integrations.epicGameMappings.noResults')}
-                </p>
-              ) : (
-                <div className="rounded-lg border border-[var(--theme-border)] overflow-hidden">
-                  <CustomScrollbar maxHeight="400px" className="!rounded-lg">
-                    <table className="w-full text-xs border-collapse table-fixed">
-                      <colgroup>
-                        <col className="w-12" />
-                        <col />
-                        <col />
-                        <col />
-                        <col />
-                        <col />
-                        <col className="w-[4.5rem]" />
-                      </colgroup>
-                      <thead>
-                        <tr>
-                          <th className="text-left px-3 py-2 font-semibold text-themed-secondary border-b border-[var(--theme-border)] sticky top-0 bg-[var(--theme-bg-primary)]">
-                            {t('management.sections.integrations.epicGameMappings.image')}
-                          </th>
-                          <th className="text-left px-3 py-2 font-semibold text-themed-secondary border-b border-[var(--theme-border)] sticky top-0 bg-[var(--theme-bg-primary)]">
-                            {t('management.sections.integrations.epicGameMappings.name')}
-                          </th>
-                          <th className="text-left px-3 py-2 font-semibold text-themed-secondary border-b border-[var(--theme-border)] sticky top-0 bg-[var(--theme-bg-primary)]">
-                            {t('management.sections.integrations.epicGameMappings.appId')}
-                          </th>
-                          <th className="text-left px-3 py-2 font-semibold text-themed-secondary border-b border-[var(--theme-border)] sticky top-0 bg-[var(--theme-bg-primary)]">
-                            {t('management.sections.integrations.epicGameMappings.source')}
-                          </th>
-                          <th className="text-left px-3 py-2 font-semibold text-themed-secondary border-b border-[var(--theme-border)] sticky top-0 bg-[var(--theme-bg-primary)]">
-                            {t('management.sections.integrations.epicGameMappings.discovered')}
-                          </th>
-                          <th className="text-left px-3 py-2 font-semibold text-themed-secondary border-b border-[var(--theme-border)] sticky top-0 bg-[var(--theme-bg-primary)]">
-                            {t('management.sections.integrations.epicGameMappings.lastSeen')}
-                          </th>
-                          <th className="text-center px-3 py-2 font-semibold text-themed-secondary border-b border-[var(--theme-border)] sticky top-0 bg-[var(--theme-bg-primary)]">
-                            {t('management.sections.integrations.epicGameMappings.imageUrl')}
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {mappings.map((mapping: EpicGameMappingDto) => (
-                          <MappingRow key={mapping.appId} mapping={mapping} />
-                        ))}
-                      </tbody>
-                    </table>
-                  </CustomScrollbar>
-                </div>
               )}
-            </>
-          )}
-
-          {/* Apply Now Button */}
-          {isAdmin && (
-            <div className="pt-2 border-t border-[var(--theme-border)]">
-              <Button
-                variant="filled"
-                color="blue"
-                onClick={handleResolve}
-                disabled={resolving}
-                loading={resolving}
-                fullWidth
-              >
-                {resolving
-                  ? t('management.sections.data.epicResolve.resolving')
-                  : t('management.sections.data.epicResolve.applyNow')}
-              </Button>
-            </div>
-          )}
+            </p>
+          </div>
         </div>
-      </Card>
-    </HighlightGlow>
+
+        {/* Error / Info Message */}
+        {error && <div className="p-4 text-center text-[var(--theme-error)]">{error}</div>}
+
+        {/* Empty State */}
+        {mappings.length === 0 && !searchQuery && (
+          <p className="text-xs text-themed-secondary text-center py-6">
+            {t('management.sections.integrations.epicGameMappings.noGames')}
+          </p>
+        )}
+
+        {/* Search and Table */}
+        {(mappings.length > 0 || searchQuery) && (
+          <>
+            {/* Search */}
+            <div className="relative">
+              <Search
+                size={14}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-themed-muted pointer-events-none"
+              />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleSearch(e.target.value)}
+                placeholder={t('management.sections.integrations.epicGameMappings.search')}
+                className="w-full py-2 pl-8 pr-3 border border-[var(--theme-border)] rounded-lg bg-themed-secondary text-themed-primary text-xs outline-none focus:border-[var(--theme-primary)]"
+              />
+            </div>
+
+            {/* Table */}
+            {mappings.length === 0 ? (
+              <p className="text-xs text-themed-secondary text-center py-4">
+                {t('management.sections.integrations.epicGameMappings.noResults')}
+              </p>
+            ) : (
+              <div className="rounded-lg border border-[var(--theme-border)] overflow-hidden">
+                <CustomScrollbar maxHeight="400px" className="!rounded-lg">
+                  <table className="w-full text-xs border-collapse table-fixed">
+                    <colgroup>
+                      <col className="w-12" />
+                      <col />
+                      <col />
+                      <col />
+                      <col />
+                      <col />
+                      <col className="w-[4.5rem]" />
+                    </colgroup>
+                    <thead>
+                      <tr>
+                        <th className="text-left px-3 py-2 font-semibold text-themed-secondary border-b border-[var(--theme-border)] sticky top-0 bg-[var(--theme-bg-primary)]">
+                          {t('management.sections.integrations.epicGameMappings.image')}
+                        </th>
+                        <th className="text-left px-3 py-2 font-semibold text-themed-secondary border-b border-[var(--theme-border)] sticky top-0 bg-[var(--theme-bg-primary)]">
+                          {t('management.sections.integrations.epicGameMappings.name')}
+                        </th>
+                        <th className="text-left px-3 py-2 font-semibold text-themed-secondary border-b border-[var(--theme-border)] sticky top-0 bg-[var(--theme-bg-primary)]">
+                          {t('management.sections.integrations.epicGameMappings.appId')}
+                        </th>
+                        <th className="text-left px-3 py-2 font-semibold text-themed-secondary border-b border-[var(--theme-border)] sticky top-0 bg-[var(--theme-bg-primary)]">
+                          {t('management.sections.integrations.epicGameMappings.source')}
+                        </th>
+                        <th className="text-left px-3 py-2 font-semibold text-themed-secondary border-b border-[var(--theme-border)] sticky top-0 bg-[var(--theme-bg-primary)]">
+                          {t('management.sections.integrations.epicGameMappings.discovered')}
+                        </th>
+                        <th className="text-left px-3 py-2 font-semibold text-themed-secondary border-b border-[var(--theme-border)] sticky top-0 bg-[var(--theme-bg-primary)]">
+                          {t('management.sections.integrations.epicGameMappings.lastSeen')}
+                        </th>
+                        <th className="text-center px-3 py-2 font-semibold text-themed-secondary border-b border-[var(--theme-border)] sticky top-0 bg-[var(--theme-bg-primary)]">
+                          {t('management.sections.integrations.epicGameMappings.imageUrl')}
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {mappings.map((mapping: EpicGameMappingDto) => (
+                        <MappingRow key={mapping.appId} mapping={mapping} />
+                      ))}
+                    </tbody>
+                  </table>
+                </CustomScrollbar>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Apply Now Button */}
+        {isAdmin && (
+          <div className="pt-2 border-t border-[var(--theme-border)]">
+            <Button
+              variant="filled"
+              color="blue"
+              onClick={handleResolve}
+              disabled={resolving}
+              loading={resolving}
+              fullWidth
+            >
+              {resolving
+                ? t('management.sections.data.epicResolve.resolving')
+                : t('management.sections.data.epicResolve.applyNow')}
+            </Button>
+          </div>
+        )}
+      </div>
+    </Card>
   );
 };
 

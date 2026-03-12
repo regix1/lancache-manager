@@ -347,6 +347,8 @@ public class EpicApiDirectClient : IDisposable
     /// <summary>
     /// Selects the best image URL from keyImages array using priority order.
     /// Matches the daemon's AppMetadataResponse.GetBestImageUrl() logic.
+    /// Appends CDN resize parameters so we fetch a compact landscape image (~460x215)
+    /// instead of the full 2560x1440 source.
     /// </summary>
     private static string? GetBestImageUrl(List<EpicKeyImage>? keyImages)
     {
@@ -357,6 +359,7 @@ public class EpicApiDirectClient : IDisposable
         {
             "DieselStoreFrontWide",      // 2560x1440 - primary store banner
             "OfferImageWide",            // 2560x1440 - offer banner
+            "DieselGameBox",             // 2560x1440 - standard game box (landscape, very common)
             "DieselGameBoxWide",         // Wide game box art
             "Featured",                  // 894x488 - featured banner
             "VaultClosed",               // Vault promotion banner
@@ -367,25 +370,37 @@ public class EpicApiDirectClient : IDisposable
             var match = keyImages.FirstOrDefault(img =>
                 string.Equals(img.Type, preferredType, StringComparison.OrdinalIgnoreCase)
                 && !string.IsNullOrEmpty(img.Url));
-            if (match != null) return match.Url;
+            if (match != null) return AppendResizeParams(match.Url!);
         }
 
-        // If no preferred wide type found, pick the widest image by actual dimensions
+        // If no preferred wide type found, pick the widest landscape image by actual dimensions
         var widestImage = keyImages
             .Where(img => !string.IsNullOrEmpty(img.Url) && img.Width > 0 && img.Height > 0 && img.Width >= img.Height)
             .OrderByDescending(img => (double)img.Width / img.Height)
             .ThenByDescending(img => img.Width)
             .FirstOrDefault();
-        if (widestImage != null) return widestImage.Url;
+        if (widestImage != null) return AppendResizeParams(widestImage.Url!);
 
         // Last resort: any image with a URL, preferring landscape by dimensions
         var anyWide = keyImages
             .Where(img => !string.IsNullOrEmpty(img.Url) && img.Width > 0 && img.Height > 0)
             .OrderByDescending(img => (double)img.Width / img.Height)
             .FirstOrDefault();
-        if (anyWide != null) return anyWide.Url;
+        if (anyWide != null) return AppendResizeParams(anyWide.Url!);
 
-        return keyImages.FirstOrDefault(img => !string.IsNullOrEmpty(img.Url))?.Url;
+        var fallback = keyImages.FirstOrDefault(img => !string.IsNullOrEmpty(img.Url))?.Url;
+        return fallback != null ? AppendResizeParams(fallback) : null;
+    }
+
+    /// <summary>
+    /// Appends Epic CDN resize parameters to request a compact landscape image.
+    /// Uses 640x360 (16:9) which is more than sufficient for card banners and
+    /// avoids downloading massive 2560x1440 originals.
+    /// </summary>
+    private static string AppendResizeParams(string imageUrl)
+    {
+        var separator = imageUrl.Contains('?') ? "&" : "?";
+        return $"{imageUrl}{separator}w=640&h=360&resize=1";
     }
 
     /// <summary>

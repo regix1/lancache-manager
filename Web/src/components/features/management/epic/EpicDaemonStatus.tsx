@@ -4,7 +4,7 @@ import { CheckCircle, Loader2, LogOut, XCircle, Activity, User, Container } from
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { EpicIcon } from '@components/ui/EpicIcon';
-import HighlightGlow from '@components/ui/HighlightGlow';
+
 import { EpicAuthModal } from '@components/modals/auth/EpicAuthModal';
 import { useSignalR } from '@contexts/SignalRContext';
 import { useEpicMappingAuth } from '@hooks/useEpicMappingAuth';
@@ -14,10 +14,9 @@ import type { EpicMappingAuthStatus, EpicDaemonStatusDto } from '../../../../typ
 
 interface EpicDaemonStatusProps {
   authMode: AuthMode;
-  highlight?: boolean;
 }
 
-const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({ authMode, highlight }) => {
+const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({ authMode }) => {
   const { t } = useTranslation();
   const { on, off } = useSignalR();
   const [authStatus, setAuthStatus] = useState<EpicMappingAuthStatus | null>(null);
@@ -125,159 +124,153 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({ authMode, highlight
 
   return (
     <>
-      <HighlightGlow enabled={highlight}>
-        <Card>
-          <div className="flex flex-col">
-            {/* Header */}
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-[color-mix(in_srgb,var(--theme-epic)_15%,transparent)] text-[var(--theme-epic)]">
-                <EpicIcon size={20} />
-              </div>
-              <h3 className="text-lg font-semibold text-themed-primary">
-                {t('management.sections.integrations.epicDaemonStatus.title')}
-              </h3>
+      <Card>
+        <div className="flex flex-col">
+          {/* Header */}
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-[color-mix(in_srgb,var(--theme-epic)_15%,transparent)] text-[var(--theme-epic)]">
+              <EpicIcon size={20} />
             </div>
-
-            {/* Error Warning */}
-            {hasError && (
-              <div className="p-2 mb-2 rounded-lg bg-themed-warning text-themed-warning text-xs">
-                {t(
-                  'management.sections.integrations.epicDaemonStatus.loadError',
-                  'Failed to load Epic status. Displaying default values.'
-                )}
-              </div>
-            )}
-
-            {/* Auth Status Row */}
-            <div className="flex items-center justify-between gap-4 p-3 rounded-lg bg-themed-tertiary">
-              <div className="flex-1 min-w-0">
-                <p className="text-themed-primary text-sm font-medium">
-                  {t('management.sections.integrations.epicDaemonStatus.status')}
-                </p>
-                <p className="text-xs text-themed-muted">
-                  {isAuthenticated
-                    ? t('management.sections.integrations.epicDaemonStatus.connectedAs', {
-                        name: authStatus?.displayName || 'Epic User'
-                      })
-                    : t('management.sections.integrations.epicDaemonStatus.notConnectedDesc')}
-                </p>
-              </div>
-              <div className="flex-shrink-0">
-                {isAuthenticated ? (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-success text-themed-success">
-                    <CheckCircle size={14} />
-                    {t('management.sections.integrations.epicDaemonStatus.connected')}
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-secondary text-themed-muted">
-                    <XCircle size={14} />
-                    {t('management.sections.integrations.epicDaemonStatus.notConnected')}
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {/* Docker Status Row */}
-            <div className="flex items-center justify-between gap-4 p-3 mt-2 rounded-lg bg-themed-tertiary">
-              <div className="flex-1 min-w-0">
-                <p className="text-themed-primary text-sm font-medium">
-                  {t('management.sections.integrations.epicDaemonStatus.dockerStatus')}
-                </p>
-                <p className="text-xs text-themed-muted">
-                  {isDockerAvailable
-                    ? t('management.sections.integrations.epicDaemonStatus.dockerAvailableDesc')
-                    : t('management.sections.integrations.epicDaemonStatus.dockerUnavailableDesc')}
-                </p>
-              </div>
-              <div className="flex-shrink-0">
-                {isDockerAvailable ? (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-success text-themed-success">
-                    <Container size={14} />
-                    {t('management.sections.integrations.epicDaemonStatus.ready')}
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-secondary text-themed-muted">
-                    <XCircle size={14} />
-                    {t('management.sections.integrations.epicDaemonStatus.unavailable')}
-                  </span>
-                )}
-              </div>
-            </div>
-
-            {/* Active Prefill Sessions Row */}
-            {isDockerAvailable && (
-              <div
-                className={`flex items-center gap-3 p-3 mt-2 rounded-lg ${
-                  activeSessions > 0
-                    ? 'bg-[color-mix(in_srgb,var(--theme-epic)_8%,transparent)]'
-                    : 'bg-themed-tertiary'
-                }`}
-              >
-                <div className="flex-shrink-0 flex items-center justify-center">
-                  {activeSessions > 0 ? (
-                    <Activity size={16} className="text-[var(--theme-epic)] animate-pulse" />
-                  ) : (
-                    <Activity size={16} className="text-themed-muted" />
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-themed-primary text-sm font-medium">
-                    {t('management.sections.integrations.epicDaemonStatus.prefillSessions')}
-                  </p>
-                  <p className="text-xs text-themed-muted">
-                    {activeSessions > 0
-                      ? t('management.sections.integrations.epicDaemonStatus.activeSessions', {
-                          count: activeSessions
-                        })
-                      : t('management.sections.integrations.epicDaemonStatus.noActiveSessions')}
-                  </p>
-                </div>
-                {activeSessions > 0 && (
-                  <div className="flex-shrink-0">
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-[color-mix(in_srgb,var(--theme-epic)_15%,transparent)] text-[var(--theme-epic)]">
-                      <User size={12} />
-                      {activeSessions}
-                    </span>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Authenticated - Show stats and logout */}
-            {isAuthenticated && (
-              <div className="mt-3 pt-3 border-t border-[var(--theme-border)]">
-                <p className="text-xs text-themed-muted mb-2">
-                  {t('management.sections.integrations.epicDaemonStatus.gamesDiscovered', {
-                    count: authStatus?.gamesDiscovered || 0
-                  })}
-                </p>
-                {authMode === 'authenticated' && (
-                  <Button onClick={handleLogout} disabled={loggingOut} variant="outline" size="sm">
-                    {loggingOut ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <LogOut size={14} />
-                    )}
-                    {t('management.sections.integrations.epicDaemonStatus.logout')}
-                  </Button>
-                )}
-              </div>
-            )}
-
-            {/* Not Authenticated - Show login button */}
-            {!isAuthenticated && authMode === 'authenticated' && (
-              <div className="mt-3 pt-3 border-t border-[var(--theme-border)]">
-                <p className="text-xs text-themed-muted mb-2">
-                  {t('management.sections.integrations.epicDaemonStatus.loginDesc')}
-                </p>
-                <Button onClick={handleLoginClick} variant="outline" size="sm">
-                  {t('management.sections.integrations.epicDaemonStatus.loginButton')}
-                </Button>
-              </div>
-            )}
+            <h3 className="text-lg font-semibold text-themed-primary">
+              {t('management.sections.integrations.epicDaemonStatus.title')}
+            </h3>
           </div>
-        </Card>
-      </HighlightGlow>
+
+          {/* Error Warning */}
+          {hasError && (
+            <div className="p-2 mb-2 rounded-lg bg-themed-warning text-themed-warning text-xs">
+              {t(
+                'management.sections.integrations.epicDaemonStatus.loadError',
+                'Failed to load Epic status. Displaying default values.'
+              )}
+            </div>
+          )}
+
+          {/* Auth Status Row */}
+          <div className="flex items-center justify-between gap-4 p-3 rounded-lg bg-themed-tertiary">
+            <div className="flex-1 min-w-0">
+              <p className="text-themed-primary text-sm font-medium">
+                {t('management.sections.integrations.epicDaemonStatus.status')}
+              </p>
+              <p className="text-xs text-themed-muted">
+                {isAuthenticated
+                  ? t('management.sections.integrations.epicDaemonStatus.connectedAs', {
+                      name: authStatus?.displayName || 'Epic User'
+                    })
+                  : t('management.sections.integrations.epicDaemonStatus.notConnectedDesc')}
+              </p>
+            </div>
+            <div className="flex-shrink-0">
+              {isAuthenticated ? (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-success text-themed-success">
+                  <CheckCircle size={14} />
+                  {t('management.sections.integrations.epicDaemonStatus.connected')}
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-secondary text-themed-muted">
+                  <XCircle size={14} />
+                  {t('management.sections.integrations.epicDaemonStatus.notConnected')}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Docker Status Row */}
+          <div className="flex items-center justify-between gap-4 p-3 mt-2 rounded-lg bg-themed-tertiary">
+            <div className="flex-1 min-w-0">
+              <p className="text-themed-primary text-sm font-medium">
+                {t('management.sections.integrations.epicDaemonStatus.dockerStatus')}
+              </p>
+              <p className="text-xs text-themed-muted">
+                {isDockerAvailable
+                  ? t('management.sections.integrations.epicDaemonStatus.dockerAvailableDesc')
+                  : t('management.sections.integrations.epicDaemonStatus.dockerUnavailableDesc')}
+              </p>
+            </div>
+            <div className="flex-shrink-0">
+              {isDockerAvailable ? (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-success text-themed-success">
+                  <Container size={14} />
+                  {t('management.sections.integrations.epicDaemonStatus.ready')}
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-themed-secondary text-themed-muted">
+                  <XCircle size={14} />
+                  {t('management.sections.integrations.epicDaemonStatus.unavailable')}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Active Prefill Sessions Row */}
+          {isDockerAvailable && (
+            <div
+              className={`flex items-center gap-3 p-3 mt-2 rounded-lg ${
+                activeSessions > 0
+                  ? 'bg-[color-mix(in_srgb,var(--theme-epic)_8%,transparent)]'
+                  : 'bg-themed-tertiary'
+              }`}
+            >
+              <div className="flex-shrink-0 flex items-center justify-center">
+                {activeSessions > 0 ? (
+                  <Activity size={16} className="text-[var(--theme-epic)] animate-pulse" />
+                ) : (
+                  <Activity size={16} className="text-themed-muted" />
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-themed-primary text-sm font-medium">
+                  {t('management.sections.integrations.epicDaemonStatus.prefillSessions')}
+                </p>
+                <p className="text-xs text-themed-muted">
+                  {activeSessions > 0
+                    ? t('management.sections.integrations.epicDaemonStatus.activeSessions', {
+                        count: activeSessions
+                      })
+                    : t('management.sections.integrations.epicDaemonStatus.noActiveSessions')}
+                </p>
+              </div>
+              {activeSessions > 0 && (
+                <div className="flex-shrink-0">
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-[color-mix(in_srgb,var(--theme-epic)_15%,transparent)] text-[var(--theme-epic)]">
+                    <User size={12} />
+                    {activeSessions}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Authenticated - Show stats and logout */}
+          {isAuthenticated && (
+            <div className="mt-3 pt-3 border-t border-[var(--theme-border)]">
+              <p className="text-xs text-themed-muted mb-2">
+                {t('management.sections.integrations.epicDaemonStatus.gamesDiscovered', {
+                  count: authStatus?.gamesDiscovered || 0
+                })}
+              </p>
+              {authMode === 'authenticated' && (
+                <Button onClick={handleLogout} disabled={loggingOut} variant="outline" size="sm">
+                  {loggingOut ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogOut size={14} />}
+                  {t('management.sections.integrations.epicDaemonStatus.logout')}
+                </Button>
+              )}
+            </div>
+          )}
+
+          {/* Not Authenticated - Show login button */}
+          {!isAuthenticated && authMode === 'authenticated' && (
+            <div className="mt-3 pt-3 border-t border-[var(--theme-border)]">
+              <p className="text-xs text-themed-muted mb-2">
+                {t('management.sections.integrations.epicDaemonStatus.loginDesc')}
+              </p>
+              <Button onClick={handleLoginClick} variant="outline" size="sm">
+                {t('management.sections.integrations.epicDaemonStatus.loginButton')}
+              </Button>
+            </div>
+          )}
+        </div>
+      </Card>
 
       {/* Auth Modal */}
       <EpicAuthModal

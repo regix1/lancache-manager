@@ -1,6 +1,7 @@
 import React, { Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card } from '@components/ui/Card';
+import HighlightGlow from '@components/ui/HighlightGlow';
 import { type AuthMode } from '@services/auth.service';
 import SteamLoginManager from '../steam/SteamLoginManager';
 import SteamWebApiStatus from '../steam/SteamWebApiStatus';
@@ -48,28 +49,31 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
 
       <div className="space-y-4">
         {/* Steam Integration */}
-        <Card className="integrations-platform-card">
-          <div className="integrations-split">
-            <SteamLoginManager
-              authMode={authMode}
-              mockMode={mockMode}
-              onError={onError}
-              onSuccess={onSuccess}
-              highlight={highlightSteamApi}
-            />
-            <div className="integrations-split-divider" />
-            <SteamWebApiStatus steamAuthMode={steamAuthMode} highlight={highlightSteamApi} />
-          </div>
-        </Card>
+        <HighlightGlow enabled={highlightSteamApi}>
+          <Card className="integrations-platform-card">
+            <div className="integrations-split">
+              <SteamLoginManager
+                authMode={authMode}
+                mockMode={mockMode}
+                onError={onError}
+                onSuccess={onSuccess}
+              />
+              <div className="integrations-split-divider" />
+              <SteamWebApiStatus steamAuthMode={steamAuthMode} />
+            </div>
+          </Card>
+        </HighlightGlow>
 
         {/* Epic Integration */}
-        <Card className="integrations-platform-card">
-          <div className="integrations-split">
-            <EpicDaemonStatus authMode={authMode} highlight={highlightEpic} />
-            <div className="integrations-split-divider" />
-            <EpicGameMappings authMode={authMode} highlight={highlightEpic} />
-          </div>
-        </Card>
+        <HighlightGlow enabled={highlightEpic}>
+          <Card className="integrations-platform-card">
+            <div className="integrations-split">
+              <EpicDaemonStatus authMode={authMode} />
+              <div className="integrations-split-divider" />
+              <EpicGameMappings authMode={authMode} />
+            </div>
+          </Card>
+        </HighlightGlow>
 
         {/* Grafana - monitoring */}
         <Suspense
