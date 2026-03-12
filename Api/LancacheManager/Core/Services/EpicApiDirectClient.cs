@@ -346,18 +346,29 @@ public class EpicApiDirectClient : IDisposable
 
     /// <summary>
     /// Selects the best landscape image URL from keyImages array.
-    /// Only selects wide/landscape images — never portrait/tall.
+    /// Only selects explicitly-wide image types — never portrait/tall.
     /// Appends CDN resize parameters so we fetch a compact 640x360 image.
     /// </summary>
     private static string? GetBestImageUrl(List<EpicKeyImage>? keyImages)
     {
         if (keyImages == null || keyImages.Count == 0) return null;
 
-        // Only use DieselStoreFrontWide — the primary wide store banner (2560x1440, 16:9)
-        var match = keyImages.FirstOrDefault(img =>
-            string.Equals(img.Type, "DieselStoreFrontWide", StringComparison.OrdinalIgnoreCase)
-            && !string.IsNullOrEmpty(img.Url));
-        if (match != null) return AppendResizeParams(match.Url!);
+        // Only explicitly-wide types. DieselGameBox is excluded — it can be portrait.
+        var preferredTypes = new[]
+        {
+            "DieselStoreFrontWide",      // 2560x1440 - primary wide store banner
+            "OfferImageWide",            // 2560x1440 - wide offer banner
+            "DieselGameBoxWide",         // Wide game box art
+            "Featured",                  // 894x488 - featured banner (always landscape)
+        };
+
+        foreach (var preferredType in preferredTypes)
+        {
+            var match = keyImages.FirstOrDefault(img =>
+                string.Equals(img.Type, preferredType, StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrEmpty(img.Url));
+            if (match != null) return AppendResizeParams(match.Url!);
+        }
 
         // Fallback: pick the widest landscape image (width > height) by aspect ratio
         var widestLandscape = keyImages
