@@ -77,6 +77,7 @@ public partial class EpicMappingService
 
                 await RefreshCatalogAsync(_cancellationTokenSource.Token);
 
+                _lastRefreshTime = DateTime.UtcNow;
                 _currentStatus = "Idle";
 
                 _logger.LogInformation("Scheduled Epic catalog refresh completed successfully");
@@ -123,7 +124,6 @@ public partial class EpicMappingService
             }
             finally
             {
-                _lastRefreshTime = DateTime.UtcNow;
                 Interlocked.Exchange(ref _isProcessingInt, 0);
             }
         });

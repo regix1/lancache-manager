@@ -32,7 +32,6 @@ public partial class EpicMappingService : IHostedService, IDisposable
     private EpicOAuthTokens? _currentTokens;
     private readonly SemaphoreSlim _sessionLock = new(1, 1);
     private readonly SemaphoreSlim _mergeLock = new(1, 1);
-    private readonly object _statusLock = new object();
 
     // Scheduling state
     private Timer? _periodicTimer;
@@ -120,16 +119,13 @@ public partial class EpicMappingService : IHostedService, IDisposable
     /// </summary>
     public EpicMappingAuthStatus GetAuthStatus()
     {
-        lock (_statusLock)
+        return new EpicMappingAuthStatus
         {
-            return new EpicMappingAuthStatus
-            {
-                IsAuthenticated = _isAuthenticated,
-                DisplayName = _displayName,
-                LastCollectionUtc = _lastCollectionUtc,
-                GamesDiscovered = _gamesDiscovered
-            };
-        }
+            IsAuthenticated = _isAuthenticated,
+            DisplayName = _displayName,
+            LastCollectionUtc = _lastCollectionUtc,
+            GamesDiscovered = _gamesDiscovered
+        };
     }
 
     /// <summary>
@@ -165,25 +161,22 @@ public partial class EpicMappingService : IHostedService, IDisposable
     /// </summary>
     public EpicScheduleStatus GetScheduleStatus()
     {
-        lock (_statusLock)
-        {
-            var timeSinceLastRefresh = DateTime.UtcNow - _lastRefreshTime;
-            var nextRefreshIn = _refreshInterval.TotalHours > 0 && _lastRefreshTime != DateTime.MinValue
-                ? Math.Max(0, (_refreshInterval - timeSinceLastRefresh).TotalSeconds)
-                : 0;
+        var timeSinceLastRefresh = DateTime.UtcNow - _lastRefreshTime;
+        var nextRefreshIn = _refreshInterval.TotalHours > 0 && _lastRefreshTime != DateTime.MinValue
+            ? Math.Max(0, (_refreshInterval - timeSinceLastRefresh).TotalSeconds)
+            : 0;
 
-            return new EpicScheduleStatus
-            {
-                RefreshIntervalHours = _refreshInterval.TotalHours,
-                IsProcessing = _isProcessingInt != 0,
-                LastRefreshTime = _lastRefreshTime == DateTime.MinValue ? null : _lastRefreshTime,
-                NextRefreshIn = nextRefreshIn,
-                IsAuthenticated = _isAuthenticated,
-                OperationId = _currentOperationId,
-                Status = _currentStatus,
-                ProgressPercent = _isProcessingInt != 0 ? 50 : 0
-            };
-        }
+        return new EpicScheduleStatus
+        {
+            RefreshIntervalHours = _refreshInterval.TotalHours,
+            IsProcessing = _isProcessingInt != 0,
+            LastRefreshTime = _lastRefreshTime == DateTime.MinValue ? null : _lastRefreshTime,
+            NextRefreshIn = nextRefreshIn,
+            IsAuthenticated = _isAuthenticated,
+            OperationId = _currentOperationId,
+            Status = _currentStatus,
+            ProgressPercent = _isProcessingInt != 0 ? 50 : 0
+        };
     }
 
     public void Dispose()

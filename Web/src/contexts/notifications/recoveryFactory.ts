@@ -285,7 +285,7 @@ const RECOVERY_CONFIGS = {
     isProcessing: (data: Record<string, unknown>) => Boolean(data.isProcessing),
     createNotification: (data: Record<string, unknown>) => ({
       message: (data.status as string) || 'Mapping Epic games...',
-      progress: (data.percentComplete as number) || 0,
+      progress: (data.progressPercent as number) || 0,
       details: {
         operationId: data.operationId as string
       }
