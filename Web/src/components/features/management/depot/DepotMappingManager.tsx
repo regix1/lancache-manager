@@ -409,6 +409,9 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
 
   // Clear operation type when scan completes
   useEffect(() => {
+    // Don't clear loading state while we're still starting the scan (API calls in flight)
+    if (applyInProgressRef.current) return;
+
     if (!depotConfig?.isProcessing && operationType === 'scanning') {
       setOperationType(null);
       setActionLoading(false);

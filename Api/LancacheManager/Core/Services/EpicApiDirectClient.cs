@@ -404,6 +404,20 @@ public class EpicApiDirectClient : IDisposable
     }
 
     /// <summary>
+    /// Idempotent version of AppendResizeParams: ensures an Epic CDN image URL
+    /// includes resize parameters without double-applying them.
+    /// Used by GameImagesController to fix legacy DB entries that lack resize params.
+    /// </summary>
+    internal static string EnsureResizeParams(string imageUrl)
+    {
+        if (string.IsNullOrEmpty(imageUrl) || !imageUrl.Contains("epicgames.com") || imageUrl.Contains("resize="))
+            return imageUrl;
+
+        var separator = imageUrl.Contains('?') ? "&" : "?";
+        return $"{imageUrl}{separator}w=640&h=360&resize=1";
+    }
+
+    /// <summary>
     /// Fetches currently free games from Epic's public free games promotions API.
     /// This endpoint does NOT require authentication. Returns OwnedGame DTOs
     /// so results can be merged into the mapping DB alongside owned games.

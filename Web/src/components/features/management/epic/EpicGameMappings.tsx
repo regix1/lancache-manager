@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { flushSync } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { Loader2, Gamepad2, Search, ExternalLink } from 'lucide-react';
 import { Card } from '@components/ui/Card';
@@ -85,7 +86,7 @@ const LastUpdatedLabel: React.FC<{ dateStr: string; label: string }> = ({ dateSt
 
 const EpicGameMappings: React.FC<EpicGameMappingsProps> = ({ authMode }) => {
   const { t } = useTranslation();
-  const { on, off } = useSignalR();
+  const { on, off, connectionState } = useSignalR();
 
   const [mappings, setMappings] = useState<EpicGameMappingDto[]>([]);
   const [stats, setStats] = useState<EpicMappingStats | null>(null);
@@ -124,14 +125,26 @@ const EpicGameMappings: React.FC<EpicGameMappingsProps> = ({ authMode }) => {
     };
 
     on('EpicGameMappingsUpdated', handleUpdate);
+    on('EpicMappingProgress', handleUpdate);
     return () => {
       off('EpicGameMappingsUpdated', handleUpdate);
+      off('EpicMappingProgress', handleUpdate);
     };
   }, [on, off, loadData]);
 
+  // Refresh data when SignalR reconnects (catches events missed during disconnect)
+  useEffect(() => {
+    if (connectionState === 'connected') {
+      loadData();
+    }
+  }, [connectionState, loadData]);
+
   const handleResolve = async () => {
-    setResolving(true);
-    setError(null);
+    // Flush synchronously so the Loader2 spinner appears instantly before any async work
+    flushSync(() => {
+      setResolving(true);
+      setError(null);
+    });
     try {
       const result = await ApiService.resolveEpicDownloads();
       // Reload data to show updated state

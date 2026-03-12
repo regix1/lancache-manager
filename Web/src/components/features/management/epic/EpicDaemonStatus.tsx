@@ -18,7 +18,7 @@ interface EpicDaemonStatusProps {
 
 const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({ authMode }) => {
   const { t } = useTranslation();
-  const { on, off } = useSignalR();
+  const { on, off, connectionState } = useSignalR();
   const [authStatus, setAuthStatus] = useState<EpicMappingAuthStatus | null>(null);
   const [daemonStatus, setDaemonStatus] = useState<EpicDaemonStatusDto | null>(null);
   const [loading, setLoading] = useState(true);
@@ -67,15 +67,22 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({ authMode }) => {
     on('EpicDaemonSessionCreated', handleUpdate);
     on('EpicDaemonSessionUpdated', handleUpdate);
     on('EpicDaemonSessionTerminated', handleUpdate);
-    on('EpicSessionEnded', handleUpdate);
+    on('EpicMappingProgress', handleUpdate);
     return () => {
       off('EpicGameMappingsUpdated', handleUpdate);
       off('EpicDaemonSessionCreated', handleUpdate);
       off('EpicDaemonSessionUpdated', handleUpdate);
       off('EpicDaemonSessionTerminated', handleUpdate);
-      off('EpicSessionEnded', handleUpdate);
+      off('EpicMappingProgress', handleUpdate);
     };
   }, [on, off, loadStatus]);
+
+  // Refresh data when SignalR reconnects (catches events missed during disconnect)
+  useEffect(() => {
+    if (connectionState === 'connected') {
+      loadStatus();
+    }
+  }, [connectionState, loadStatus]);
 
   const {
     state: loginState,

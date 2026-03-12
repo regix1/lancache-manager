@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { flushSync } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { Loader2, ExternalLink, CheckCircle, XCircle, Clock } from 'lucide-react';
 import { EpicIcon } from '@components/ui/EpicIcon';
@@ -34,7 +35,7 @@ const EpicMappingManager: React.FC<EpicMappingManagerProps> = ({
   onNavigateToEpicLogin
 }) => {
   const { t } = useTranslation();
-  const { on, off } = useSignalR();
+  const { on, off, connectionState } = useSignalR();
 
   const [authStatus, setAuthStatus] = useState<EpicMappingAuthStatus | null>(null);
   const [stats, setStats] = useState<EpicMappingStats | null>(null);
@@ -83,15 +84,22 @@ const EpicMappingManager: React.FC<EpicMappingManagerProps> = ({
     on('EpicDaemonSessionCreated', handleUpdate);
     on('EpicDaemonSessionUpdated', handleUpdate);
     on('EpicDaemonSessionTerminated', handleUpdate);
-    on('EpicSessionEnded', handleUpdate);
+    on('EpicMappingProgress', handleUpdate);
     return () => {
       off('EpicGameMappingsUpdated', handleUpdate);
       off('EpicDaemonSessionCreated', handleUpdate);
       off('EpicDaemonSessionUpdated', handleUpdate);
       off('EpicDaemonSessionTerminated', handleUpdate);
-      off('EpicSessionEnded', handleUpdate);
+      off('EpicMappingProgress', handleUpdate);
     };
   }, [on, off, loadStatus]);
+
+  // Refresh data when SignalR reconnects (catches events missed during disconnect)
+  useEffect(() => {
+    if (connectionState === 'connected') {
+      loadStatus();
+    }
+  }, [connectionState, loadStatus]);
 
   // Sync localNextRefreshIn when schedule data changes
   useEffect(() => {
@@ -137,7 +145,8 @@ const EpicMappingManager: React.FC<EpicMappingManagerProps> = ({
   const handleResolve = async () => {
     if (resolveInProgressRef.current) return;
     resolveInProgressRef.current = true;
-    setResolving(true);
+    // Flush synchronously so the Loader2 spinner appears instantly before any async work
+    flushSync(() => setResolving(true));
 
     try {
       const result = await ApiService.resolveEpicDownloads();

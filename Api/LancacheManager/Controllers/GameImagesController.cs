@@ -4,6 +4,7 @@ using System.Text;
 using LancacheManager.Models;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Core.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -164,7 +165,7 @@ public class GameImagesController : ControllerBase
                 return NotFound(new GameImageErrorResponse { Error = $"No image available for Epic app {epicAppId}" });
             }
 
-            var imageUrl = mapping.ImageUrl;
+            var imageUrl = EpicApiDirectClient.EnsureResizeParams(mapping.ImageUrl);
 
             var result = await TryGetImageAsync(cacheKey, imageUrl, cancellationToken);
             if (result.HasValue)

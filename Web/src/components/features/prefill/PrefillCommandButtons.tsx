@@ -132,7 +132,9 @@ export function PrefillCommandButtons({
         {/* Top Row: Game Selection + Download Settings side-by-side */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {/* Game Selection */}
-          <div className="cmd-section cmd-section--select p-4">
+          <div
+            className={`cmd-section cmd-section--select p-4 ${isGlobalDisabled ? 'cmd-section--disabled' : ''}`}
+          >
             <div className="cmd-section-header mb-3">
               <h3 className="text-xs font-semibold uppercase tracking-wider text-themed-muted">
                 {t('prefill.sections.gameSelection')}
@@ -144,7 +146,9 @@ export function PrefillCommandButtons({
           </div>
 
           {/* Download Settings - spans 2 columns on large */}
-          <div className="cmd-section cmd-section--settings p-4 lg:col-span-2">
+          <div
+            className={`cmd-section cmd-section--settings p-4 lg:col-span-2 ${isGlobalDisabled ? 'cmd-section--disabled' : ''}`}
+          >
             <div className="cmd-section-header mb-3">
               <h3 className="text-xs font-semibold uppercase tracking-wider text-themed-muted">
                 {t('prefill.sections.downloadSettings')}
@@ -190,7 +194,9 @@ export function PrefillCommandButtons({
         </div>
 
         {/* Prefill Commands - the hero section */}
-        <div className="cmd-section cmd-section--prefill p-4">
+        <div
+          className={`cmd-section cmd-section--prefill p-4 ${isGlobalDisabled ? 'cmd-section--disabled' : ''}`}
+        >
           <div className="cmd-section-header mb-3">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-themed-muted">
               {t('prefill.sections.prefillOptions')}
@@ -202,7 +208,9 @@ export function PrefillCommandButtons({
         </div>
 
         {/* Utilities - compact bottom row */}
-        <div className="cmd-section cmd-section--utility p-4">
+        <div
+          className={`cmd-section cmd-section--utility p-4 ${isGlobalDisabled ? 'cmd-section--disabled' : ''}`}
+        >
           <div className="cmd-section-header mb-3">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-themed-muted">
               {t('prefill.sections.utilities')}

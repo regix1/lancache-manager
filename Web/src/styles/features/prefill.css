@@ -61,8 +61,13 @@
     transition: border-color 0.2s ease;
   }
 
-  .cmd-section:hover {
+  .cmd-section:hover:not(.cmd-section--disabled) {
     border-color: var(--theme-border);
+  }
+
+  .cmd-section--disabled {
+    opacity: 0.45;
+    pointer-events: none;
   }
 
   /* Section header with left accent bar */
@@ -136,7 +141,6 @@
   }
 
   .cmd-tile:disabled {
-    opacity: 0.45;
     cursor: not-allowed;
   }
 
