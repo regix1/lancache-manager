@@ -182,11 +182,20 @@ public class EpicApiDirectClient : IDisposable
                     _logger.LogTrace("Epic catalog metadata for {AppName}: title={Title}", asset.AppName, metadata?.Title ?? "(null)");
                     if (metadata != null)
                     {
+                        var imageUrl = GetBestImageUrl(metadata.KeyImages);
+                        if (imageUrl == null && metadata.KeyImages?.Count > 0)
+                        {
+                            var types = string.Join(", ", metadata.KeyImages
+                                .Where(ki => !string.IsNullOrEmpty(ki.Type))
+                                .Select(ki => $"{ki.Type}({ki.Width}x{ki.Height})"));
+                            _logger.LogWarning("No landscape image found for {AppName}. Available types: {Types}",
+                                asset.AppName, types);
+                        }
                         games.Add(new OwnedGame
                         {
                             AppId = asset.AppName,
                             Name = metadata.Title ?? asset.AppName,
-                            ImageUrl = GetBestImageUrl(metadata.KeyImages)
+                            ImageUrl = imageUrl
                         });
                     }
                     else
@@ -346,31 +355,43 @@ public class EpicApiDirectClient : IDisposable
 
     /// <summary>
     /// Selects the best landscape image URL from keyImages array.
-    /// Only selects explicitly-wide image types — never portrait/tall.
+    /// Only selects wide/landscape images — never portrait/tall.
     /// Appends CDN resize parameters so we fetch a compact 640x360 image.
     /// </summary>
     private static string? GetBestImageUrl(List<EpicKeyImage>? keyImages)
     {
         if (keyImages == null || keyImages.Count == 0) return null;
 
-        // Only explicitly-wide types. DieselGameBox is excluded — it can be portrait.
-        var preferredTypes = new[]
+        // 1. Explicitly-wide types first (guaranteed landscape by name)
+        var wideTypes = new[]
         {
             "DieselStoreFrontWide",      // 2560x1440 - primary wide store banner
             "OfferImageWide",            // 2560x1440 - wide offer banner
             "DieselGameBoxWide",         // Wide game box art
-            "Featured",                  // 894x488 - featured banner (always landscape)
         };
 
-        foreach (var preferredType in preferredTypes)
+        foreach (var wideType in wideTypes)
         {
             var match = keyImages.FirstOrDefault(img =>
-                string.Equals(img.Type, preferredType, StringComparison.OrdinalIgnoreCase)
+                string.Equals(img.Type, wideType, StringComparison.OrdinalIgnoreCase)
                 && !string.IsNullOrEmpty(img.Url));
             if (match != null) return AppendResizeParams(match.Url!);
         }
 
-        // Fallback: pick the widest landscape image (width > height) by aspect ratio
+        // 2. DieselGameBox — very common but can be portrait, so require landscape dimensions
+        var dieselGameBox = keyImages.FirstOrDefault(img =>
+            string.Equals(img.Type, "DieselGameBox", StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrEmpty(img.Url)
+            && img.Width > 0 && img.Height > 0 && img.Width > img.Height);
+        if (dieselGameBox != null) return AppendResizeParams(dieselGameBox.Url!);
+
+        // 3. Featured — always landscape (894x488)
+        var featured = keyImages.FirstOrDefault(img =>
+            string.Equals(img.Type, "Featured", StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrEmpty(img.Url));
+        if (featured != null) return AppendResizeParams(featured.Url!);
+
+        // 4. Last resort: pick the widest landscape image by actual dimensions
         var widestLandscape = keyImages
             .Where(img => !string.IsNullOrEmpty(img.Url) && img.Width > 0 && img.Height > 0 && img.Width > img.Height)
             .OrderByDescending(img => (double)img.Width / img.Height)
