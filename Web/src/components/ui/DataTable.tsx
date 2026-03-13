@@ -32,7 +32,7 @@ export interface DataTableColumn<T> {
   render: (item: T) => React.ReactNode;
 }
 
-export interface DataTableProps<T> {
+interface DataTableProps<T> {
   columns: DataTableColumn<T>[];
   data: T[];
   keyExtractor: (item: T) => string;
@@ -51,7 +51,7 @@ export interface DataTableProps<T> {
   storageKey?: string;
 }
 
-export interface DataTableHandle {
+interface DataTableHandle {
   /** Reset all column widths to fit container without horizontal scrolling */
   resetWidths: () => void;
 }
@@ -448,5 +448,3 @@ function DataTableInner<T>(
 export const DataTable = forwardRef(DataTableInner) as <T>(
   props: DataTableProps<T> & { ref?: React.Ref<DataTableHandle> }
 ) => React.ReactElement | null;
-
-export default DataTable;
