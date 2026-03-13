@@ -9,8 +9,9 @@
 @import './styles/components/badges.css';
 @import './styles/components/buttons.css';
 @import './styles/components/cards.css';
-@import './styles/components/forms.css';
+@import './styles/components/data-table.css';
 @import './styles/components/dropdowns.css';
+@import './styles/components/forms.css';
 @import './styles/components/modals.css';
 @import './styles/components/service-selector.css';
 

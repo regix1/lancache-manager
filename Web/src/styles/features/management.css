@@ -109,6 +109,82 @@
   }
 }
 
+/* ===== EPIC GAME MAPPINGS - Source discovery badges ===== */
+
+.epic-source-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.4;
+  border-radius: 6px;
+  text-transform: capitalize;
+  cursor: help;
+}
+
+/* Mapping-Login: user logged in, library scanned (green/success) */
+.source-badge-mapping-login {
+  background-color: color-mix(in srgb, var(--theme-success) 15%, transparent);
+  color: var(--theme-success);
+  border: 1px solid color-mix(in srgb, var(--theme-success) 25%, transparent);
+}
+
+/* Prefill-Login: prefill daemon authenticated (blue/primary) */
+.source-badge-prefill-login {
+  background-color: color-mix(in srgb, var(--theme-primary) 15%, transparent);
+  color: var(--theme-primary);
+  border: 1px solid color-mix(in srgb, var(--theme-primary) 25%, transparent);
+}
+
+/* Free-Games: Epic free games catalog (purple/epic) */
+.source-badge-free-games {
+  background-color: color-mix(in srgb, var(--theme-epic) 15%, transparent);
+  color: var(--theme-epic);
+  border: 1px solid color-mix(in srgb, var(--theme-epic) 25%, transparent);
+}
+
+/* Library: user's owned games */
+.source-badge-library {
+  background-color: color-mix(in srgb, var(--theme-success) 15%, transparent);
+  color: var(--theme-success);
+  border: 1px solid color-mix(in srgb, var(--theme-success) 25%, transparent);
+}
+
+/* Wishlist */
+.source-badge-wishlist {
+  background-color: color-mix(in srgb, var(--theme-epic) 15%, transparent);
+  color: var(--theme-epic);
+  border: 1px solid color-mix(in srgb, var(--theme-epic) 25%, transparent);
+}
+
+/* Store catalog (orange/warning) */
+.source-badge-store {
+  background-color: color-mix(in srgb, var(--theme-warning) 15%, transparent);
+  color: var(--theme-warning);
+  border: 1px solid color-mix(in srgb, var(--theme-warning) 25%, transparent);
+}
+
+/* Manual entry (gray) */
+.source-badge-manual {
+  background-color: color-mix(in srgb, var(--theme-text-secondary) 10%, transparent);
+  color: var(--theme-text-secondary);
+  border: 1px solid color-mix(in srgb, var(--theme-text-secondary) 20%, transparent);
+}
+
+/* Daemon discovered */
+.source-badge-daemon {
+  background-color: color-mix(in srgb, var(--theme-primary) 15%, transparent);
+  color: var(--theme-primary);
+  border: 1px solid color-mix(in srgb, var(--theme-primary) 25%, transparent);
+}
+
+/* Default/unknown */
+.source-badge-default {
+  background-color: color-mix(in srgb, var(--theme-text-secondary) 10%, transparent);
+  color: var(--theme-text-secondary);
+  border: 1px solid color-mix(in srgb, var(--theme-text-secondary) 20%, transparent);
+}
+
 /* Mobile tab scrollbar styling - thin and subtle */
 @media (max-width: 768px) {
   .management-nav-container .custom-scrollbar::-webkit-scrollbar {

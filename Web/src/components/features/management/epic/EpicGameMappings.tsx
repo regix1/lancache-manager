@@ -1,75 +1,68 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { flushSync } from 'react-dom';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Gamepad2, Search, ExternalLink } from 'lucide-react';
+import { Gamepad2, Search } from 'lucide-react';
 import { Card } from '@components/ui/Card';
-import { Button } from '@components/ui/Button';
-
-import { CustomScrollbar } from '@components/ui/CustomScrollbar';
+import { DataTable, type DataTableColumn } from '@components/ui/DataTable';
+import { Tooltip } from '@components/ui/Tooltip';
 import { useSignalR } from '@contexts/SignalRContext';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import ApiService from '@services/api.service';
-import { type AuthMode } from '@services/auth.service';
 import type { EpicGameMappingDto, EpicMappingStats } from '../../../../types';
 
-interface EpicGameMappingsProps {
-  authMode: AuthMode;
-}
+/** Returns a badge CSS class based on the discovery source */
+const getSourceBadgeClass = (source: string): string => {
+  const key = source.toLowerCase();
+  const classMap: Record<string, string> = {
+    'mapping-login': 'source-badge-mapping-login',
+    'prefill-login': 'source-badge-prefill-login',
+    'free-games': 'source-badge-free-games',
+    library: 'source-badge-library',
+    wishlist: 'source-badge-wishlist',
+    store: 'source-badge-store',
+    manual: 'source-badge-manual',
+    daemon: 'source-badge-daemon'
+  };
+  return classMap[key] ?? 'source-badge-default';
+};
 
-/** Sub-component for rendering a single mapping row, so useFormattedDateTime hook can be called per-row */
-const MappingRow: React.FC<{ mapping: EpicGameMappingDto }> = ({ mapping }) => {
-  const formattedDiscovered = useFormattedDateTime(mapping.discoveredAtUtc);
-  const formattedLastSeen = useFormattedDateTime(mapping.lastSeenAtUtc);
+/** Returns the i18n key suffix for source description tooltip */
+const getSourceDescriptionKey = (source: string): string => {
+  const key = source.toLowerCase();
+  const validKeys = [
+    'mapping-login',
+    'prefill-login',
+    'free-games',
+    'library',
+    'wishlist',
+    'store',
+    'manual',
+    'daemon'
+  ];
+  return validKeys.includes(key) ? key : 'unknown';
+};
 
+/** Wrapper component so useFormattedDateTime hook can be called per-row */
+const FormattedDateCell: React.FC<{ dateStr: string }> = ({ dateStr }) => {
+  const formatted = useFormattedDateTime(dateStr);
   return (
-    <tr className="hover:bg-[var(--theme-bg-hover,var(--theme-bg-secondary))]">
-      <td className="px-2 py-1 text-themed-primary border-b border-[var(--theme-border)] w-12">
-        {mapping.imageUrl ? (
-          <img
-            src={mapping.imageUrl}
-            alt={mapping.name}
-            className="w-10 h-[22px] object-cover rounded-sm align-middle"
-            onError={(e: React.SyntheticEvent<HTMLImageElement>) => {
-              e.currentTarget.style.display = 'none';
-            }}
-          />
-        ) : (
-          <span className="text-themed-muted text-xs">—</span>
-        )}
-      </td>
-      <td className="px-3 py-1.5 text-themed-primary border-b border-[var(--theme-border)] font-medium truncate">
-        {mapping.name}
-      </td>
-      <td className="px-3 py-1.5 border-b border-[var(--theme-border)] font-mono text-xs text-themed-secondary truncate">
-        {mapping.appId}
-      </td>
-      <td className="px-3 py-1.5 border-b border-[var(--theme-border)]">
-        <span className="inline-block px-2 py-0.5 text-[10px] font-medium rounded-md bg-themed-secondary border border-themed-primary text-themed-secondary">
-          {mapping.source}
-        </span>
-      </td>
-      <td className="px-3 py-1.5 text-themed-primary border-b border-[var(--theme-border)] whitespace-nowrap">
-        {formattedDiscovered}
-      </td>
-      <td className="px-3 py-1.5 text-themed-primary border-b border-[var(--theme-border)] whitespace-nowrap">
-        {formattedLastSeen}
-      </td>
-      <td className="px-3 py-1.5 border-b border-[var(--theme-border)] text-center">
-        {mapping.imageUrl ? (
-          <a
-            href={mapping.imageUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded-md bg-themed-secondary border border-themed-primary text-themed-secondary no-underline hover:bg-[var(--theme-bg-hover)] transition-colors"
-          >
-            <ExternalLink className="w-3 h-3" />
-            View
-          </a>
-        ) : (
-          <span className="text-themed-muted text-xs">—</span>
-        )}
-      </td>
-    </tr>
+    <span className="block truncate text-xs text-themed-secondary whitespace-nowrap">
+      {formatted}
+    </span>
+  );
+};
+
+/** Source badge with tooltip explaining discovery method */
+const SourceBadgeCell: React.FC<{ source: string }> = ({ source }) => {
+  const { t } = useTranslation();
+  return (
+    <Tooltip
+      content={t(
+        `management.sections.integrations.epicGameMappings.sourceDescriptions.${getSourceDescriptionKey(source)}`
+      )}
+      position="top"
+    >
+      <span className={`epic-source-badge ${getSourceBadgeClass(source)}`}>{source}</span>
+    </Tooltip>
   );
 };
 
@@ -84,18 +77,15 @@ const LastUpdatedLabel: React.FC<{ dateStr: string; label: string }> = ({ dateSt
   );
 };
 
-const EpicGameMappings: React.FC<EpicGameMappingsProps> = ({ authMode }) => {
+const EpicGameMappings: React.FC = () => {
   const { t } = useTranslation();
   const { on, off, connectionState } = useSignalR();
 
   const [mappings, setMappings] = useState<EpicGameMappingDto[]>([]);
   const [stats, setStats] = useState<EpicMappingStats | null>(null);
-  const [resolving, setResolving] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-
-  const isAdmin = authMode === 'authenticated';
 
   const loadData = useCallback(async () => {
     try {
@@ -108,8 +98,6 @@ const EpicGameMappings: React.FC<EpicGameMappingsProps> = ({ authMode }) => {
       setStats(statsData);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load Epic game mappings');
-    } finally {
-      // data loaded
     }
   }, []);
 
@@ -138,26 +126,6 @@ const EpicGameMappings: React.FC<EpicGameMappingsProps> = ({ authMode }) => {
     }
   }, [connectionState, loadData]);
 
-  const handleResolve = async () => {
-    // Flush synchronously so the Loader2 spinner appears instantly before any async work
-    flushSync(() => {
-      setResolving(true);
-      setError(null);
-    });
-    try {
-      const result = await ApiService.resolveEpicDownloads();
-      // Reload data to show updated state
-      await loadData();
-      if (result.resolved === 0) {
-        setError(t('management.sections.data.epicResolve.noUnresolved'));
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to resolve Epic downloads');
-    } finally {
-      setResolving(false);
-    }
-  };
-
   const handleSearch = (value: string) => {
     setSearchQuery(value);
     if (searchTimeoutRef.current) {
@@ -177,6 +145,89 @@ const EpicGameMappings: React.FC<EpicGameMappingsProps> = ({ authMode }) => {
       loadData();
     }
   };
+
+  // Define columns for DataTable (resizable with pixel defaults)
+  const columns: DataTableColumn<EpicGameMappingDto>[] = useMemo(
+    () => [
+      {
+        key: 'image',
+        header: '',
+        defaultWidth: 52,
+        minWidth: 48,
+        align: 'center' as const,
+        render: (mapping: EpicGameMappingDto) =>
+          mapping.imageUrl ? (
+            <img
+              src={mapping.imageUrl}
+              alt={mapping.name}
+              className="w-10 h-10 object-cover rounded align-middle"
+              onError={(e: React.SyntheticEvent<HTMLImageElement>) => {
+                e.currentTarget.classList.add('hidden');
+              }}
+            />
+          ) : (
+            <div className="w-10 h-10 rounded flex items-center justify-center bg-[var(--theme-bg-tertiary)]">
+              <Gamepad2 className="w-4 h-4 text-themed-muted" />
+            </div>
+          )
+      },
+      {
+        key: 'name',
+        header: t('management.sections.integrations.epicGameMappings.name'),
+        defaultWidth: 200,
+        minWidth: 100,
+        render: (mapping: EpicGameMappingDto) => (
+          <span
+            className="block truncate text-xs font-medium text-themed-primary"
+            title={mapping.name}
+          >
+            {mapping.name}
+          </span>
+        )
+      },
+      {
+        key: 'appId',
+        header: t('management.sections.integrations.epicGameMappings.appId'),
+        defaultWidth: 140,
+        minWidth: 80,
+        render: (mapping: EpicGameMappingDto) => (
+          <span
+            className="block truncate font-mono text-xs text-themed-secondary"
+            title={mapping.appId}
+          >
+            {mapping.appId}
+          </span>
+        )
+      },
+      {
+        key: 'source',
+        header: t('management.sections.integrations.epicGameMappings.source'),
+        defaultWidth: 130,
+        minWidth: 80,
+        align: 'center' as const,
+        render: (mapping: EpicGameMappingDto) => <SourceBadgeCell source={mapping.source} />
+      },
+      {
+        key: 'discovered',
+        header: t('management.sections.integrations.epicGameMappings.discovered'),
+        defaultWidth: 150,
+        minWidth: 100,
+        render: (mapping: EpicGameMappingDto) => (
+          <FormattedDateCell dateStr={mapping.discoveredAtUtc} />
+        )
+      },
+      {
+        key: 'lastSeen',
+        header: t('management.sections.integrations.epicGameMappings.lastSeen'),
+        defaultWidth: 150,
+        minWidth: 100,
+        render: (mapping: EpicGameMappingDto) => (
+          <FormattedDateCell dateStr={mapping.lastSeenAtUtc} />
+        )
+      }
+    ],
+    [t]
+  );
 
   return (
     <Card>
@@ -234,77 +285,24 @@ const EpicGameMappings: React.FC<EpicGameMappingsProps> = ({ authMode }) => {
               />
             </div>
 
-            {/* Table */}
+            {/* DataTable */}
             {mappings.length === 0 ? (
               <p className="text-xs text-themed-secondary text-center py-4">
                 {t('management.sections.integrations.epicGameMappings.noResults')}
               </p>
             ) : (
-              <div className="rounded-lg border border-[var(--theme-border)] overflow-hidden">
-                <CustomScrollbar maxHeight="400px" className="!rounded-lg">
-                  <table className="w-full text-xs border-collapse table-fixed">
-                    <colgroup>
-                      <col className="w-12" />
-                      <col />
-                      <col />
-                      <col />
-                      <col />
-                      <col />
-                      <col className="w-[4.5rem]" />
-                    </colgroup>
-                    <thead>
-                      <tr>
-                        <th className="text-left px-3 py-2 font-semibold text-themed-secondary border-b border-[var(--theme-border)] sticky top-0 bg-[var(--theme-bg-primary)]">
-                          {t('management.sections.integrations.epicGameMappings.image')}
-                        </th>
-                        <th className="text-left px-3 py-2 font-semibold text-themed-secondary border-b border-[var(--theme-border)] sticky top-0 bg-[var(--theme-bg-primary)]">
-                          {t('management.sections.integrations.epicGameMappings.name')}
-                        </th>
-                        <th className="text-left px-3 py-2 font-semibold text-themed-secondary border-b border-[var(--theme-border)] sticky top-0 bg-[var(--theme-bg-primary)]">
-                          {t('management.sections.integrations.epicGameMappings.appId')}
-                        </th>
-                        <th className="text-left px-3 py-2 font-semibold text-themed-secondary border-b border-[var(--theme-border)] sticky top-0 bg-[var(--theme-bg-primary)]">
-                          {t('management.sections.integrations.epicGameMappings.source')}
-                        </th>
-                        <th className="text-left px-3 py-2 font-semibold text-themed-secondary border-b border-[var(--theme-border)] sticky top-0 bg-[var(--theme-bg-primary)]">
-                          {t('management.sections.integrations.epicGameMappings.discovered')}
-                        </th>
-                        <th className="text-left px-3 py-2 font-semibold text-themed-secondary border-b border-[var(--theme-border)] sticky top-0 bg-[var(--theme-bg-primary)]">
-                          {t('management.sections.integrations.epicGameMappings.lastSeen')}
-                        </th>
-                        <th className="text-center px-3 py-2 font-semibold text-themed-secondary border-b border-[var(--theme-border)] sticky top-0 bg-[var(--theme-bg-primary)]">
-                          {t('management.sections.integrations.epicGameMappings.imageUrl')}
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {mappings.map((mapping: EpicGameMappingDto) => (
-                        <MappingRow key={mapping.appId} mapping={mapping} />
-                      ))}
-                    </tbody>
-                  </table>
-                </CustomScrollbar>
-              </div>
+              <DataTable<EpicGameMappingDto>
+                columns={columns}
+                data={mappings}
+                keyExtractor={(mapping: EpicGameMappingDto) => mapping.appId}
+                maxHeight="400px"
+                accentColor={() => 'var(--theme-epic)'}
+                resizable
+                storageKey="epic-game-mappings-column-widths"
+                compact
+              />
             )}
           </>
-        )}
-
-        {/* Apply Now Button */}
-        {isAdmin && (
-          <div className="pt-2 border-t border-[var(--theme-border)]">
-            <Button
-              variant="filled"
-              color="blue"
-              onClick={handleResolve}
-              disabled={resolving}
-              loading={resolving}
-              fullWidth
-            >
-              {resolving
-                ? t('management.sections.data.epicResolve.resolving')
-                : t('management.sections.data.epicResolve.applyNow')}
-            </Button>
-          </div>
         )}
       </div>
     </Card>

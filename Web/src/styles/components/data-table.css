@@ -1,0 +1,247 @@
+@layer components {
+  /* ==============================================
+   * DATA TABLE - Reusable CSS Grid Table
+   * Follows RetroView design patterns with
+   * optional column resize support
+   * ============================================== */
+
+  /* Container */
+  .data-table {
+    border-radius: 0.5rem;
+    overflow: hidden;
+    background-color: transparent;
+  }
+
+  /* Embedded mode - strip outer border/bg when inside a Card */
+  .data-table-embedded {
+    border: none;
+    background-color: transparent;
+  }
+
+  /* Allow horizontal scroll inside CustomScrollbar for resizable tables */
+  .data-table-resizable .overflow-x-hidden {
+    overflow-x: auto;
+  }
+
+  /* Horizontal scroll wrapper for wide tables */
+  .data-table-scroll-wrapper {
+    overflow-x: auto;
+    min-width: 0;
+  }
+
+  /* Header row */
+  .data-table-header {
+    display: grid;
+    padding: 0.75rem 1rem;
+    align-items: center;
+    font-size: 11px;
+    line-height: 1;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.025em;
+    border-bottom: 1px solid var(--theme-border-secondary);
+    user-select: none;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background-color: var(--theme-bg-tertiary);
+    color: var(--theme-text-secondary);
+    min-width: fit-content;
+  }
+
+  .data-table-header-non-sticky {
+    position: relative;
+    z-index: auto;
+  }
+
+  /* Header cells */
+  .data-table-header-cell {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Header cell in resizable mode - needs relative positioning for handle */
+  .data-table-header-cell-resizable {
+    position: relative;
+    display: flex;
+    align-items: center;
+    height: 100%;
+  }
+
+  .data-table-header-cell-center {
+    text-align: center;
+    justify-content: center;
+  }
+
+  .data-table-header-cell-right {
+    text-align: right;
+    justify-content: flex-end;
+  }
+
+  /* Header label (truncates within flex layout) */
+  .data-table-header-label {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ===== RESIZE HANDLE (matches RetroView) ===== */
+
+  .data-table-resize-handle {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 6px;
+    cursor: col-resize;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+  }
+
+  /* Subtle divider line - always visible */
+  .data-table-resize-line {
+    height: 1rem;
+    width: 1px;
+    border-radius: 9999px;
+    transition: all 0.15s ease;
+    background-color: var(--theme-primary);
+    opacity: 0.3;
+  }
+
+  .data-table-resize-handle:hover .data-table-resize-line {
+    height: 100%;
+    width: 2px;
+  }
+
+  /* Brighter line on hover */
+  .data-table-resize-line-hover {
+    position: absolute;
+    height: 100%;
+    width: 2px;
+    border-radius: 9999px;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+    background-color: var(--theme-primary);
+  }
+
+  .data-table-resize-handle:hover .data-table-resize-line-hover {
+    opacity: 1;
+  }
+
+  /* Body */
+  .data-table-body {
+    min-width: fit-content;
+  }
+
+  /* Row */
+  .data-table-row {
+    position: relative;
+    border-bottom: 1px solid var(--theme-border-secondary);
+    transition: background-color 0.15s ease;
+  }
+
+  .data-table-row:last-child {
+    border-bottom: none;
+  }
+
+  .data-table-row:hover {
+    background-color: color-mix(in srgb, var(--theme-bg-tertiary) 50%, transparent);
+  }
+
+  .data-table-row-clickable {
+    cursor: pointer;
+  }
+
+  /* Row grid layout */
+  .data-table-row-grid {
+    display: grid;
+    padding: 0.75rem 1rem;
+    align-items: center;
+  }
+
+  /* Row accent (left color bar - like RetroView efficiency indicator) */
+  .data-table-row-accent {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    opacity: 0.7;
+  }
+
+  /* Cell */
+  .data-table-cell {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .data-table-cell-center {
+    text-align: center;
+  }
+
+  .data-table-cell-right {
+    text-align: right;
+  }
+
+  .data-table-cell-truncate {
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+
+  /* Striped rows */
+  .data-table-striped .data-table-row:nth-child(even) {
+    background-color: color-mix(in srgb, var(--theme-bg-tertiary) 25%, transparent);
+  }
+
+  .data-table-striped .data-table-row:nth-child(even):hover {
+    background-color: color-mix(in srgb, var(--theme-bg-tertiary) 50%, transparent);
+  }
+
+  /* Compact mode */
+  .data-table-compact .data-table-header {
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+  }
+
+  .data-table-compact .data-table-row-grid {
+    padding-top: 0.375rem;
+    padding-bottom: 0.375rem;
+  }
+
+  .data-table-compact .data-table-cell {
+    padding-left: 0.375rem;
+    padding-right: 0.375rem;
+  }
+
+  .data-table-compact .data-table-header-cell {
+    padding-left: 0.375rem;
+    padding-right: 0.375rem;
+  }
+
+  /* Empty state */
+  .data-table-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem 1rem;
+    color: var(--theme-text-muted);
+    font-size: 0.875rem;
+  }
+
+  /* Resizable mode - ensure scroll wrapper works */
+  .data-table-resizable .data-table-header,
+  .data-table-resizable .data-table-body {
+    min-width: fit-content;
+  }
+}

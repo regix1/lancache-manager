@@ -1580,28 +1580,53 @@
           "loadError": "Failed to load Epic status. Displaying default values.",
           "noActiveSessions": "No active sessions",
           "activeSessions": "{{count}} active session",
-          "activeSessions_plural": "{{count}} active sessions"
+          "activeSessions_plural": "{{count}} active sessions",
+          "help": {
+            "authentication": {
+              "title": "Epic Games Authentication",
+              "loginRequired": {
+                "term": "Login Required",
+                "description": "Epic Games requires a full account login to discover your game library. Unlike Steam, there is no anonymous mode available."
+              },
+              "gameDiscovery": {
+                "term": "Game Discovery",
+                "description": "Once connected, your Epic Games library is scanned to identify cached downloads and match them to game titles."
+              }
+            },
+            "note": "Your credentials are stored securely and used only for game library discovery."
+          }
         },
         "epicGameMappings": {
-          "title": "Epic Games Library Mapping",
+          "title": "Epic Games Library",
           "description": "Games discovered from Epic accounts that have logged in",
           "totalGames": "Total Games",
           "lastUpdated": "Last Updated",
           "noGames": "No games discovered yet. Log in with an Epic Games account to start building the catalog.",
           "refresh": "Refresh",
           "refreshing": "Refreshing...",
-          "search": "Search games...",
-          "appId": "App ID",
-          "name": "Name",
-          "discovered": "Discovered",
+          "search": "Search by game name or app ID...",
+          "appId": "Epic App ID",
+          "name": "Game",
+          "discovered": "First Seen",
           "lastSeen": "Last Seen",
-          "source": "Source",
-          "image": "Image",
-          "imageUrl": "Image URL",
+          "source": "Discovery Method",
+          "image": "",
+          "imageUrl": "Cover Art",
           "gamesDiscovered": "{{count}} game discovered",
           "gamesDiscovered_plural": "{{count}} games discovered",
           "noResults": "No games match your search",
-          "never": "Never"
+          "never": "Never",
+          "sourceDescriptions": {
+            "mapping-login": "Discovered when a user logs in and their Epic Games library is scanned",
+            "prefill-login": "Discovered by the prefill daemon during authenticated login",
+            "free-games": "Discovered from the Epic Games Store free games catalog",
+            "library": "Discovered from user's Epic Games library — games they own or have claimed",
+            "wishlist": "Found on a user's Epic Games wishlist",
+            "store": "Discovered from the Epic Games Store catalog",
+            "manual": "Manually added mapping entry",
+            "daemon": "Automatically discovered by the prefill daemon service",
+            "unknown": "Unknown discovery method"
+          }
         }
       },
       "clients": {

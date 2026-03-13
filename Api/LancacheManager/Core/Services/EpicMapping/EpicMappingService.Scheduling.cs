@@ -263,19 +263,9 @@ public partial class EpicMappingService
             message = $"Catalog refresh complete - {_gamesDiscovered} games"
         });
 
-        // Resolve existing Epic downloads against updated CDN patterns
-        try
-        {
-            var resolved = await ResolveEpicDownloadsAsync(ct);
-            if (resolved > 0)
-            {
-                _logger.LogInformation("Resolved {Count} Epic downloads to game names after catalog refresh", resolved);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to resolve Epic downloads after catalog refresh (non-fatal)");
-        }
+        // Note: ResolveEpicDownloadsAsync() is not called here because it already runs
+        // continuously via LiveLogMonitorService -> RustLogProcessorService after every log processing.
+        // The continuous loop will pick up newly-fetched CDN patterns automatically.
 
         // Notify frontend of updates
         await _notifications.NotifyAllAsync(SignalREvents.EpicGameMappingsUpdated, new

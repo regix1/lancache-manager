@@ -68,9 +68,14 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
         <HighlightGlow enabled={highlightEpic}>
           <Card className="integrations-platform-card">
             <div className="integrations-split">
-              <EpicDaemonStatus authMode={authMode} />
+              <EpicDaemonStatus
+                authMode={authMode}
+                mockMode={mockMode}
+                onError={onError}
+                onSuccess={onSuccess}
+              />
               <div className="integrations-split-divider" />
-              <EpicGameMappings authMode={authMode} />
+              <EpicGameMappings />
             </div>
           </Card>
         </HighlightGlow>
