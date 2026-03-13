@@ -28,6 +28,7 @@ import { ActionMenu, ActionMenuItem } from '@components/ui/ActionMenu';
 import { Pagination } from '@components/ui/Pagination';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { Tooltip } from '@components/ui/Tooltip';
+import { ImageCacheContext } from '@components/common/GameImage';
 
 // Import view components
 import CompactView from './CompactView';
@@ -1695,75 +1696,77 @@ const DownloadsTab: React.FC = () => {
           {/* Downloads list */}
           <div className="relative overflow-x-hidden" ref={contentRef}>
             {/* Content based on view mode with fade transition */}
-            <div className="relative">
-              <div
-                className={`transition-opacity duration-300 ${
-                  settings.viewMode === 'compact'
-                    ? 'opacity-100'
-                    : 'opacity-0 absolute inset-0 pointer-events-none'
-                }`}
-              >
-                {settings.viewMode === 'compact' && (
-                  <CompactView
-                    key={`compact-${imageCacheVersion}`}
-                    items={itemsToDisplay as (Download | DownloadGroup)[]}
-                    expandedItem={expandedItem}
-                    onItemClick={handleItemClick}
-                    aestheticMode={settings.aestheticMode}
-                    groupByFrequency={settings.groupByFrequency}
-                    enableScrollIntoView={settings.enableScrollIntoView}
-                    showDatasourceLabels={showDatasourceLabels}
-                    hasMultipleDatasources={hasMultipleDatasources}
-                  />
-                )}
-              </div>
+            <ImageCacheContext.Provider value={imageCacheVersion}>
+              <div className="relative">
+                <div
+                  className={`transition-opacity duration-300 ${
+                    settings.viewMode === 'compact'
+                      ? 'opacity-100'
+                      : 'opacity-0 absolute inset-0 pointer-events-none'
+                  }`}
+                >
+                  {settings.viewMode === 'compact' && (
+                    <CompactView
+                      key={`compact-${imageCacheVersion}`}
+                      items={itemsToDisplay as (Download | DownloadGroup)[]}
+                      expandedItem={expandedItem}
+                      onItemClick={handleItemClick}
+                      aestheticMode={settings.aestheticMode}
+                      groupByFrequency={settings.groupByFrequency}
+                      enableScrollIntoView={settings.enableScrollIntoView}
+                      showDatasourceLabels={showDatasourceLabels}
+                      hasMultipleDatasources={hasMultipleDatasources}
+                    />
+                  )}
+                </div>
 
-              <div
-                className={`transition-opacity duration-300 ${
-                  settings.viewMode === 'normal'
-                    ? 'opacity-100'
-                    : 'opacity-0 absolute inset-0 pointer-events-none'
-                }`}
-              >
-                {settings.viewMode === 'normal' && (
-                  <NormalView
-                    key={`normal-${imageCacheVersion}`}
-                    items={itemsToDisplay as (Download | DownloadGroup)[]}
-                    expandedItem={expandedItem}
-                    onItemClick={handleItemClick}
-                    aestheticMode={settings.aestheticMode}
-                    fullHeightBanners={settings.fullHeightBanners}
-                    groupByFrequency={settings.groupByFrequency}
-                    enableScrollIntoView={settings.enableScrollIntoView}
-                    showDatasourceLabels={showDatasourceLabels}
-                    hasMultipleDatasources={hasMultipleDatasources}
-                  />
-                )}
-              </div>
+                <div
+                  className={`transition-opacity duration-300 ${
+                    settings.viewMode === 'normal'
+                      ? 'opacity-100'
+                      : 'opacity-0 absolute inset-0 pointer-events-none'
+                  }`}
+                >
+                  {settings.viewMode === 'normal' && (
+                    <NormalView
+                      key={`normal-${imageCacheVersion}`}
+                      items={itemsToDisplay as (Download | DownloadGroup)[]}
+                      expandedItem={expandedItem}
+                      onItemClick={handleItemClick}
+                      aestheticMode={settings.aestheticMode}
+                      fullHeightBanners={settings.fullHeightBanners}
+                      groupByFrequency={settings.groupByFrequency}
+                      enableScrollIntoView={settings.enableScrollIntoView}
+                      showDatasourceLabels={showDatasourceLabels}
+                      hasMultipleDatasources={hasMultipleDatasources}
+                    />
+                  )}
+                </div>
 
-              <div
-                className={`transition-opacity duration-300 ${
-                  settings.viewMode === 'retro'
-                    ? 'opacity-100'
-                    : 'opacity-0 absolute inset-0 pointer-events-none'
-                }`}
-              >
-                {settings.viewMode === 'retro' && (
-                  <RetroView
-                    key={`retro-${imageCacheVersion}`}
-                    ref={retroViewRef}
-                    items={allItemsSorted as (Download | DownloadGroup)[]}
-                    aestheticMode={settings.aestheticMode}
-                    itemsPerPage={settings.itemsPerPage}
-                    currentPage={currentPage}
-                    onTotalPagesChange={handleRetroTotalPagesChange}
-                    sortOrder={settings.sortOrder}
-                    showDatasourceLabels={showDatasourceLabels}
-                    hasMultipleDatasources={hasMultipleDatasources}
-                  />
-                )}
+                <div
+                  className={`transition-opacity duration-300 ${
+                    settings.viewMode === 'retro'
+                      ? 'opacity-100'
+                      : 'opacity-0 absolute inset-0 pointer-events-none'
+                  }`}
+                >
+                  {settings.viewMode === 'retro' && (
+                    <RetroView
+                      key={`retro-${imageCacheVersion}`}
+                      ref={retroViewRef}
+                      items={allItemsSorted as (Download | DownloadGroup)[]}
+                      aestheticMode={settings.aestheticMode}
+                      itemsPerPage={settings.itemsPerPage}
+                      currentPage={currentPage}
+                      onTotalPagesChange={handleRetroTotalPagesChange}
+                      sortOrder={settings.sortOrder}
+                      showDatasourceLabels={showDatasourceLabels}
+                      hasMultipleDatasources={hasMultipleDatasources}
+                    />
+                  )}
+                </div>
               </div>
-            </div>
+            </ImageCacheContext.Provider>
           </div>
 
           {/* Pagination Controls */}

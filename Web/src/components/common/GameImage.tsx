@@ -1,6 +1,13 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useContext, createContext } from 'react';
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
+
+/**
+ * Context for cache-busting game images after a manual refresh.
+ * When the value changes, all GameImage URLs get a new query param,
+ * forcing the browser to bypass its HTTP cache.
+ */
+export const ImageCacheContext = createContext(0);
 
 interface GameImageProps {
   gameAppId: string | number;
@@ -30,6 +37,7 @@ export const GameImage: React.FC<GameImageProps> = ({
   const imageKey = epicAppId ? `epic-${epicAppId}` : appId;
   const [useCapsule, setUseCapsule] = useState(false);
   const [hasTriedFallback, setHasTriedFallback] = useState(false);
+  const cacheBuster = useContext(ImageCacheContext);
 
   // Reset state when gameAppId/epicAppId changes (component reused for different game)
   useEffect(() => {
@@ -51,13 +59,16 @@ export const GameImage: React.FC<GameImageProps> = ({
     }
   }, [epicAppId, useCapsule, hasTriedFallback, imageKey, onFinalError]);
 
+  // Build cache-bust suffix (only when version > 0, i.e. after a manual refresh)
+  const cbParam = cacheBuster > 0 ? `_cb=${cacheBuster}` : '';
+
   let src: string;
   if (epicAppId) {
-    src = `${API_BASE}/game-images/epic/${epicAppId}/header`;
+    src = `${API_BASE}/game-images/epic/${epicAppId}/header${cbParam ? `?${cbParam}` : ''}`;
   } else if (useCapsule) {
-    src = `${API_BASE}/game-images/${appId}/header?type=capsule`;
+    src = `${API_BASE}/game-images/${appId}/header?type=capsule${cbParam ? `&${cbParam}` : ''}`;
   } else {
-    src = `${API_BASE}/game-images/${appId}/header`;
+    src = `${API_BASE}/game-images/${appId}/header${cbParam ? `?${cbParam}` : ''}`;
   }
 
   return (
