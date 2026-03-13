@@ -248,6 +248,9 @@ public class GameImagesController : ControllerBase
         _logger.LogInformation("=== ClearImageCache END === Failed entries cleared: {Failed}, Epic URLs refreshed: {Epic}",
             failedCount, epicUrlsRefreshed);
 
+        // Tell the browser to drop its HTTP cache so stale images aren't served on page reload
+        Response.Headers["Clear-Site-Data"] = "\"cache\"";
+
         return Ok(new
         {
             message = "Image cache cleared",
