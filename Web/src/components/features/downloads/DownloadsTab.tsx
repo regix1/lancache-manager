@@ -259,6 +259,11 @@ const DownloadsTab: React.FC = () => {
       }
     };
     loadDatasourceSettings();
+
+    // Load the backend cache generation so image URLs are cache-busted correctly
+    ApiService.getImageCacheVersion().then((v) => {
+      if (v > 0) setImageCacheVersion(v);
+    });
   }, []);
 
   // Compute whether to show datasource labels (show if any datasources are configured)
@@ -1096,8 +1101,8 @@ const DownloadsTab: React.FC = () => {
     setImageCacheClearing(true);
     try {
       const result = await ApiService.clearImageCache();
-      // Bump version to force all GameImage components to re-fetch
-      setImageCacheVersion((v) => v + 1);
+      // Use backend generation so the version survives page reload / SPA navigation
+      setImageCacheVersion(result.cacheGeneration);
 
       // If Epic URLs weren't refreshed (auth may still be in progress),
       // do a delayed second bump to catch URLs populated by auto-reconnect

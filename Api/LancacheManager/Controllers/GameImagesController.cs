@@ -28,6 +28,9 @@ public class GameImagesController : ControllerBase
     private static readonly ConcurrentDictionary<uint, DateTime> _failedImageCache = new();
     private static readonly TimeSpan _failedCacheDuration = TimeSpan.FromHours(24);
 
+    // Bumped on cache clear so the frontend can build cache-busted image URLs
+    private static long _cacheGeneration = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
     public GameImagesController(
         ILogger<GameImagesController> logger,
         AppDbContext context,
@@ -200,6 +203,12 @@ public class GameImagesController : ControllerBase
     }
 
     /// <summary>
+    /// Returns the current cache generation so the frontend can build cache-busted image URLs on page load.
+    /// </summary>
+    [HttpGet("cache-version")]
+    public IActionResult GetCacheVersion() => Ok(new { version = _cacheGeneration });
+
+    /// <summary>
     /// Clears the game image disk cache, failure markers, and in-memory failed-fetch cache,
     /// then immediately triggers an Epic image URL refresh so landscape URLs are repopulated.
     /// </summary>
@@ -245,17 +254,18 @@ public class GameImagesController : ControllerBase
             _logger.LogDebug("EpicMappingService not available - skipping Epic image URL refresh");
         }
 
+        // Bump so frontend image URLs change on next load
+        _cacheGeneration = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
         _logger.LogInformation("=== ClearImageCache END === Failed entries cleared: {Failed}, Epic URLs refreshed: {Epic}",
             failedCount, epicUrlsRefreshed);
-
-        // Tell the browser to drop its HTTP cache so stale images aren't served on page reload
-        Response.Headers["Clear-Site-Data"] = "\"cache\"";
 
         return Ok(new
         {
             message = "Image cache cleared",
             failedCacheEntriesCleared = failedCount,
-            epicImageUrlsRefreshed = epicUrlsRefreshed
+            epicImageUrlsRefreshed = epicUrlsRefreshed,
+            cacheGeneration = _cacheGeneration
         });
     }
 

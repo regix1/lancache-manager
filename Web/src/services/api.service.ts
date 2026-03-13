@@ -461,11 +461,23 @@ class ApiService {
     }
   }
 
+  // Get the backend's image cache generation (used as cache-bust param on image URLs)
+  static async getImageCacheVersion(): Promise<number> {
+    try {
+      const res = await fetch(`${API_BASE}/game-images/cache-version`, this.getFetchOptions({}));
+      const result = await this.handleResponse<{ version: number }>(res);
+      return result.version;
+    } catch {
+      return 0;
+    }
+  }
+
   // Clear the game image cache (disk + in-memory failed-fetch cache)
   static async clearImageCache(): Promise<{
     message: string;
     failedCacheEntriesCleared: number;
     epicImageUrlsRefreshed: number;
+    cacheGeneration: number;
   }> {
     try {
       const res = await fetch(
@@ -478,6 +490,7 @@ class ApiService {
         message: string;
         failedCacheEntriesCleared: number;
         epicImageUrlsRefreshed: number;
+        cacheGeneration: number;
       }>(res);
       return result;
     } catch (error) {
