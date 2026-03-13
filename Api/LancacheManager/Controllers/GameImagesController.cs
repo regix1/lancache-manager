@@ -109,9 +109,7 @@ public class GameImagesController : ControllerBase
                 if (result.HasValue)
                 {
                     var (imageBytes, contentType) = result.Value;
-                    Response.Headers["Cache-Control"] = "public, max-age=86400";
-                    Response.Headers["ETag"] = $"\"{appId}{etagSuffix}\"";
-                    return File(imageBytes, contentType);
+                    return ReturnImageWithCaching(imageBytes, contentType, $"{appId}{etagSuffix}");
                 }
             }
 
@@ -181,9 +179,7 @@ public class GameImagesController : ControllerBase
             if (result.HasValue)
             {
                 var (imageBytes, contentType) = result.Value;
-                Response.Headers["Cache-Control"] = "public, max-age=3600";
-                Response.Headers["ETag"] = $"\"epic-{epicAppId}-{imageUrl.GetHashCode():x}\"";
-                return File(imageBytes, contentType);
+                return ReturnImageWithCaching(imageBytes, contentType, $"epic-{epicAppId}");
             }
 
             // Image download failed - cache the failure and return 404
@@ -290,6 +286,27 @@ public class GameImagesController : ControllerBase
 
         // SLOW PATH: Download and cache the image
         return await _imageCacheService.GetOrDownloadImageAsync(cacheKey, imageUrl, cancellationToken);
+    }
+
+    /// <summary>
+    /// Returns an image response with proper cache headers and ETag-based conditional request support.
+    /// Uses no-cache so the browser always revalidates, but gets efficient 304 responses when the image hasn't changed.
+    /// </summary>
+    private IActionResult ReturnImageWithCaching(byte[] imageBytes, string contentType, string etagPrefix)
+    {
+        var hash = Convert.ToHexString(MD5.HashData(imageBytes)).ToLowerInvariant();
+        var etag = $"\"{etagPrefix}-{hash}\"";
+
+        Response.Headers["Cache-Control"] = "public, no-cache";
+        Response.Headers["ETag"] = etag;
+
+        var ifNoneMatch = Request.Headers["If-None-Match"].ToString();
+        if (!string.IsNullOrEmpty(ifNoneMatch) && (ifNoneMatch.Contains(etag) || ifNoneMatch.Trim() == "*"))
+        {
+            return StatusCode(304);
+        }
+
+        return File(imageBytes, contentType);
     }
 
 }
