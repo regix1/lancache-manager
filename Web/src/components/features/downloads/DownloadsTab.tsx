@@ -1102,6 +1102,18 @@ const DownloadsTab: React.FC = () => {
       // Bump version to force all GameImage components to re-fetch
       setImageCacheVersion((v) => v + 1);
       console.log('[handleClearImageCache] Cache version bumped, images will re-fetch');
+
+      // If Epic URLs weren't refreshed (auth may still be in progress),
+      // do a delayed second bump to catch URLs populated by auto-reconnect
+      if (result.epicImageUrlsRefreshed === 0) {
+        console.log(
+          '[handleClearImageCache] Epic URLs not refreshed yet - scheduling delayed retry'
+        );
+        setTimeout(() => {
+          console.log('[handleClearImageCache] Delayed retry: bumping cache version again');
+          setImageCacheVersion((v) => v + 1);
+        }, 6000);
+      }
     } catch (error) {
       console.error('[handleClearImageCache] Failed to clear image cache:', error);
     } finally {

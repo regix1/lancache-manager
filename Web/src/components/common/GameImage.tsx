@@ -37,21 +37,38 @@ export const GameImage: React.FC<GameImageProps> = ({
   const imageKey = epicAppId ? `epic-${epicAppId}` : appId;
   const [useCapsule, setUseCapsule] = useState(false);
   const [hasTriedFallback, setHasTriedFallback] = useState(false);
+  const [epicRetryCount, setEpicRetryCount] = useState(0);
+  const [retryTrigger, setRetryTrigger] = useState(0);
   const cacheBuster = useContext(ImageCacheContext);
 
-  // Reset state when gameAppId/epicAppId changes (component reused for different game)
+  // Reset state when gameAppId/epicAppId changes
   useEffect(() => {
     setUseCapsule(false);
     setHasTriedFallback(false);
+    setEpicRetryCount(0);
+    setRetryTrigger(0);
   }, [imageKey]);
 
   const handleError = useCallback(() => {
     console.log(
-      `[GameImage] Image load error: imageKey=${imageKey}, epicAppId=${epicAppId ?? 'none'}, useCapsule=${useCapsule}`
+      `[GameImage] Image load error: imageKey=${imageKey}, epicAppId=${epicAppId ?? 'none'}, useCapsule=${useCapsule}, epicRetry=${epicRetryCount}`
     );
     if (epicAppId) {
-      // Epic has no capsule fallback - go straight to placeholder
-      onFinalError(imageKey);
+      // Epic: retry up to 2 times with increasing delays (3s, 6s)
+      // This handles the race where auto-reconnect hasn't populated URLs yet
+      if (epicRetryCount < 2) {
+        const delay = (epicRetryCount + 1) * 3000;
+        console.log(
+          `[GameImage] Epic image ${epicAppId} failed, scheduling retry ${epicRetryCount + 1}/2 in ${delay}ms`
+        );
+        setTimeout(() => {
+          setEpicRetryCount((c) => c + 1);
+          setRetryTrigger((t) => t + 1);
+        }, delay);
+      } else {
+        console.log(`[GameImage] Epic image ${epicAppId} exhausted retries, showing placeholder`);
+        onFinalError(imageKey);
+      }
     } else if (!useCapsule && !hasTriedFallback) {
       // Steam: first failure - try capsule image as fallback
       setUseCapsule(true);
@@ -60,21 +77,24 @@ export const GameImage: React.FC<GameImageProps> = ({
       // Capsule also failed: notify parent to show placeholder
       onFinalError(imageKey);
     }
-  }, [epicAppId, useCapsule, hasTriedFallback, imageKey, onFinalError]);
+  }, [epicAppId, useCapsule, hasTriedFallback, imageKey, onFinalError, epicRetryCount]);
 
-  // Build cache-bust suffix (only when version > 0, i.e. after a manual refresh)
+  // Build cache-bust suffix
   const cbParam = cacheBuster > 0 ? `_cb=${cacheBuster}` : '';
+  // Add retry trigger to force re-fetch on retry
+  const retryParam = retryTrigger > 0 ? `_rt=${retryTrigger}` : '';
+  const extraParams = [cbParam, retryParam].filter(Boolean).join('&');
 
   let src: string;
   if (epicAppId) {
-    src = `${API_BASE}/game-images/epic/${epicAppId}/header${cbParam ? `?${cbParam}` : ''}`;
+    src = `${API_BASE}/game-images/epic/${epicAppId}/header${extraParams ? `?${extraParams}` : ''}`;
   } else if (useCapsule) {
-    src = `${API_BASE}/game-images/${appId}/header?type=capsule${cbParam ? `&${cbParam}` : ''}`;
+    src = `${API_BASE}/game-images/${appId}/header?type=capsule${extraParams ? `&${extraParams}` : ''}`;
   } else {
-    src = `${API_BASE}/game-images/${appId}/header${cbParam ? `?${cbParam}` : ''}`;
+    src = `${API_BASE}/game-images/${appId}/header${extraParams ? `?${extraParams}` : ''}`;
   }
 
-  // Diagnostic logging for image sources
+  // Diagnostic logging for Epic image sources
   if (epicAppId) {
     console.log(`[GameImage] Epic image request: epicAppId=${epicAppId}, src=${src}`);
   }
