@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { flushSync } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { Loader2, ExternalLink, CheckCircle, XCircle, Clock } from 'lucide-react';
+import { ExternalLink, CheckCircle, XCircle, Clock } from 'lucide-react';
 import { EpicIcon } from '@components/ui/EpicIcon';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
@@ -41,7 +41,6 @@ const EpicMappingManager: React.FC<EpicMappingManagerProps> = ({
   const [stats, setStats] = useState<EpicMappingStats | null>(null);
   const [schedule, setSchedule] = useState<EpicScheduleStatus | null>(null);
   const [localNextRefreshIn, setLocalNextRefreshIn] = useState<number | null>(null);
-  const [loading, setLoading] = useState(true);
   const [resolving, setResolving] = useState(false);
   const resolveInProgressRef = useRef(false);
 
@@ -67,7 +66,7 @@ const EpicMappingManager: React.FC<EpicMappingManagerProps> = ({
       setStats(null);
       setSchedule(null);
     } finally {
-      setLoading(false);
+      // data loaded
     }
   }, []);
 
@@ -199,7 +198,7 @@ const EpicMappingManager: React.FC<EpicMappingManagerProps> = ({
       />
 
       {/* Auth Status */}
-      {!loading && (
+      {
         <div className="mb-4 p-3 rounded-lg bg-themed-tertiary">
           <div className="flex items-center justify-between">
             <div className="flex-1">
@@ -258,10 +257,10 @@ const EpicMappingManager: React.FC<EpicMappingManagerProps> = ({
             </div>
           </div>
         </div>
-      )}
+      }
 
       {/* Schedule Status */}
-      {!loading && isAuthenticated && (
+      {isAuthenticated && (
         <div className="mb-4 p-3 rounded-lg bg-themed-tertiary">
           <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
             <div className="flex-1">
@@ -338,15 +337,8 @@ const EpicMappingManager: React.FC<EpicMappingManagerProps> = ({
         </div>
       )}
 
-      {/* Loading State */}
-      {loading && (
-        <div className="flex items-center justify-center py-4">
-          <Loader2 className="w-5 h-5 animate-spin text-themed-secondary" />
-        </div>
-      )}
-
       {/* Not Authenticated Message */}
-      {!loading && !isAuthenticated && (
+      {!isAuthenticated && (
         <div className="mb-4 text-xs text-themed-muted text-center py-2">
           {t('management.epicMapping.loginRequired')}
         </div>

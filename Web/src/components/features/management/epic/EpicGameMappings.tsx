@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { flushSync } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import { Loader2, Gamepad2, Search, ExternalLink } from 'lucide-react';
+import { Gamepad2, Search, ExternalLink } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 
@@ -90,7 +90,6 @@ const EpicGameMappings: React.FC<EpicGameMappingsProps> = ({ authMode }) => {
 
   const [mappings, setMappings] = useState<EpicGameMappingDto[]>([]);
   const [stats, setStats] = useState<EpicMappingStats | null>(null);
-  const [loading, setLoading] = useState(true);
   const [resolving, setResolving] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -110,7 +109,7 @@ const EpicGameMappings: React.FC<EpicGameMappingsProps> = ({ authMode }) => {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load Epic game mappings');
     } finally {
-      setLoading(false);
+      // data loaded
     }
   }, []);
 
@@ -178,40 +177,6 @@ const EpicGameMappings: React.FC<EpicGameMappingsProps> = ({ authMode }) => {
       loadData();
     }
   };
-
-  if (loading) {
-    return (
-      <Card>
-        <div className="flex flex-col gap-4">
-          {/* Header */}
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-purple">
-              <Gamepad2 className="w-5 h-5 icon-purple" />
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-themed-primary">
-                {t('management.sections.integrations.epicGameMappings.title')}
-              </h3>
-              <p className="text-xs text-themed-muted">
-                {t('management.sections.integrations.epicGameMappings.description')}
-              </p>
-            </div>
-          </div>
-
-          {/* Loading indicator */}
-          <div className="flex flex-col items-center justify-center py-8 gap-3">
-            <Loader2 className="w-6 h-6 animate-spin text-themed-accent" />
-            <p className="text-sm text-themed-secondary">
-              {t(
-                'management.sections.integrations.epicGameMappings.loading',
-                'Loading game mappings...'
-              )}
-            </p>
-          </div>
-        </div>
-      </Card>
-    );
-  }
 
   return (
     <Card>
