@@ -360,8 +360,6 @@ public class EpicApiDirectClient : IDisposable
     /// </summary>
     private static string? GetBestImageUrl(List<EpicKeyImage>? keyImages, string appName = "")
     {
-        Console.WriteLine($"[GetBestImageUrl] App: {appName}, keyImages count: {keyImages?.Count ?? 0}");
-
         if (keyImages == null || keyImages.Count == 0) return null;
 
         // 1. Explicitly-wide types first (guaranteed landscape by name)
@@ -379,9 +377,7 @@ public class EpicApiDirectClient : IDisposable
                 && !string.IsNullOrEmpty(img.Url));
             if (match != null)
             {
-                Console.WriteLine($"[GetBestImageUrl] {appName}: Selected {match.Type} ({match.Width}x{match.Height})");
                 var result = AppendResizeParams(match.Url!);
-                Console.WriteLine($"[GetBestImageUrl] {appName}: Final URL = {result}");
                 return result;
             }
         }
@@ -393,9 +389,7 @@ public class EpicApiDirectClient : IDisposable
             && img.Width > 0 && img.Height > 0 && img.Width > img.Height);
         if (dieselGameBox != null)
         {
-            Console.WriteLine($"[GetBestImageUrl] {appName}: Selected {dieselGameBox.Type} ({dieselGameBox.Width}x{dieselGameBox.Height})");
             var result = AppendResizeParams(dieselGameBox.Url!);
-            Console.WriteLine($"[GetBestImageUrl] {appName}: Final URL = {result}");
             return result;
         }
 
@@ -405,9 +399,7 @@ public class EpicApiDirectClient : IDisposable
             && !string.IsNullOrEmpty(img.Url));
         if (featured != null)
         {
-            Console.WriteLine($"[GetBestImageUrl] {appName}: Selected {featured.Type} ({featured.Width}x{featured.Height})");
             var result = AppendResizeParams(featured.Url!);
-            Console.WriteLine($"[GetBestImageUrl] {appName}: Final URL = {result}");
             return result;
         }
 
@@ -419,14 +411,10 @@ public class EpicApiDirectClient : IDisposable
             .FirstOrDefault();
         if (widestLandscape != null)
         {
-            Console.WriteLine($"[GetBestImageUrl] {appName}: Selected {widestLandscape.Type} ({widestLandscape.Width}x{widestLandscape.Height})");
             var result = AppendResizeParams(widestLandscape.Url!);
-            Console.WriteLine($"[GetBestImageUrl] {appName}: Final URL = {result}");
             return result;
         }
 
-        Console.WriteLine($"[GetBestImageUrl] {appName}: No landscape image found! Available types: {string.Join(", ", keyImages.Select(k => $"{k.Type}({k.Width}x{k.Height})"))}");
-        Console.WriteLine($"[GetBestImageUrl] {appName}: Final URL = NULL");
         return null;
     }
 
@@ -438,9 +426,7 @@ public class EpicApiDirectClient : IDisposable
     private static string AppendResizeParams(string imageUrl)
     {
         var separator = imageUrl.Contains('?') ? "&" : "?";
-        var result = $"{imageUrl}{separator}w=640&h=360&resize=1";
-        Console.WriteLine($"[AppendResizeParams] {imageUrl} -> {result}");
-        return result;
+        return $"{imageUrl}{separator}w=640&h=360&resize=1";
     }
 
     /// <summary>
@@ -450,18 +436,13 @@ public class EpicApiDirectClient : IDisposable
     /// </summary>
     internal static string EnsureResizeParams(string imageUrl)
     {
-        Console.WriteLine($"[EnsureResizeParams] Input: {imageUrl}");
-
         if (string.IsNullOrEmpty(imageUrl) || !imageUrl.Contains("epicgames.com") || imageUrl.Contains("resize="))
         {
-            Console.WriteLine($"[EnsureResizeParams] Output: {imageUrl}");
             return imageUrl;
         }
 
         var separator = imageUrl.Contains('?') ? "&" : "?";
-        var result = $"{imageUrl}{separator}w=640&h=360&resize=1";
-        Console.WriteLine($"[EnsureResizeParams] Output: {result}");
-        return result;
+        return $"{imageUrl}{separator}w=640&h=360&resize=1";
     }
 
     /// <summary>

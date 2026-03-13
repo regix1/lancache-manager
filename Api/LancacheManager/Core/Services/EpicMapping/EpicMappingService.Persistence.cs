@@ -49,7 +49,6 @@ public partial class EpicMappingService
                     {
                         _logger.LogInformation("Updating ImageUrl for {AppId} ({Name}): {OldUrl} -> {NewUrl}",
                             game.AppId, game.Name, existing.ImageUrl ?? "null", game.ImageUrl);
-                        Console.WriteLine($"ImageUrl UPDATE: {game.AppId} ({game.Name}): {existing.ImageUrl ?? "null"} -> {game.ImageUrl}");
                         existing.ImageUrl = game.ImageUrl;
                         changed = true;
                     }
@@ -188,7 +187,6 @@ public partial class EpicMappingService
                             download.GameImageUrl = game.ImageUrl;
                             _logger.LogInformation("Propagating Epic image to Download: EpicAppId={AppId}, ImageUrl={Url}",
                                 game.AppId, game.ImageUrl);
-                            Console.WriteLine($"Download image update: {game.AppId} -> {game.ImageUrl}");
                             updated++;
                         }
                     }
@@ -218,12 +216,10 @@ public partial class EpicMappingService
     public async Task<int> RefreshImageUrlsAsync(CancellationToken ct = default)
     {
         _logger.LogInformation("=== RefreshImageUrlsAsync START ===");
-        Console.WriteLine("=== RefreshImageUrlsAsync START ===");
 
         if (!_isAuthenticated || _currentTokens == null)
         {
             _logger.LogWarning("Cannot refresh image URLs - not authenticated");
-            Console.WriteLine("RefreshImageUrlsAsync: not authenticated, returning 0");
             return 0;
         }
 
@@ -231,33 +227,27 @@ public partial class EpicMappingService
         if (_currentTokens.ExpiresAt <= DateTime.UtcNow)
         {
             _logger.LogInformation("Access token expired, refreshing before image URL update...");
-            Console.WriteLine("Token expired, refreshing...");
             try
             {
                 var tokens = await _epicApiClient.RefreshTokenAsync(_currentTokens.RefreshToken, ct);
                 _currentTokens = tokens;
                 _logger.LogInformation("Token refreshed successfully");
-                Console.WriteLine("Token refreshed OK");
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Token refresh failed during image URL refresh");
-                Console.WriteLine($"Token refresh FAILED: {ex.Message}");
                 return 0;
             }
         }
 
         // Re-fetch owned games (this calls GetBestImageUrl which selects correct landscape images)
         _logger.LogInformation("Fetching owned games from Epic catalog...");
-        Console.WriteLine("Fetching owned games...");
         var games = await _epicApiClient.GetOwnedGamesAsync(_currentTokens.AccessToken, ct);
         _logger.LogInformation("Got {Count} games from Epic catalog", games.Count);
-        Console.WriteLine($"Got {games.Count} games from Epic catalog");
 
         if (games.Count == 0)
         {
             _logger.LogWarning("No games returned from Epic catalog");
-            Console.WriteLine("No games returned, nothing to refresh");
             return 0;
         }
 
@@ -266,7 +256,6 @@ public partial class EpicMappingService
         {
             _logger.LogInformation("Sample game: {Name} ({AppId}) -> ImageUrl: {Url}",
                 game.Name, game.AppId, game.ImageUrl ?? "NULL");
-            Console.WriteLine($"  Sample: {game.Name} ({game.AppId}) -> {game.ImageUrl ?? "NULL"}");
         }
 
         // Merge into DB (updates ImageUrl where changed)
@@ -274,24 +263,20 @@ public partial class EpicMappingService
         var result = await MergeOwnedGamesAsync(games, sessionHash, "image-refresh", ct);
         _logger.LogInformation("Merge result: {New} new, {Updated} updated, {Unchanged} unchanged",
             result.NewGames, result.UpdatedGames, result.UnchangedGames);
-        Console.WriteLine($"Merge: {result.NewGames} new, {result.UpdatedGames} updated, {result.UnchangedGames} unchanged");
 
         // Also propagate to Downloads table
         try
         {
             var imageUpdates = await RefreshGameImagesAsync(_currentTokens.AccessToken, ct);
             _logger.LogInformation("Propagated {Count} image URLs to Downloads table", imageUpdates);
-            Console.WriteLine($"Propagated {imageUpdates} URLs to Downloads table");
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to propagate image URLs to Downloads table");
-            Console.WriteLine($"Failed to propagate to Downloads: {ex.Message}");
         }
 
         var totalUpdated = result.NewGames + result.UpdatedGames;
         _logger.LogInformation("=== RefreshImageUrlsAsync END === Updated {Count} games", totalUpdated);
-        Console.WriteLine($"=== RefreshImageUrlsAsync END === Updated {totalUpdated} games");
 
         return totalUpdated;
     }

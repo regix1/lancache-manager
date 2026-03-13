@@ -50,23 +50,16 @@ export const GameImage: React.FC<GameImageProps> = ({
   }, [imageKey]);
 
   const handleError = useCallback(() => {
-    console.log(
-      `[GameImage] Image load error: imageKey=${imageKey}, epicAppId=${epicAppId ?? 'none'}, useCapsule=${useCapsule}, epicRetry=${epicRetryCount}`
-    );
     if (epicAppId) {
       // Epic: retry up to 2 times with increasing delays (3s, 6s)
       // This handles the race where auto-reconnect hasn't populated URLs yet
       if (epicRetryCount < 2) {
         const delay = (epicRetryCount + 1) * 3000;
-        console.log(
-          `[GameImage] Epic image ${epicAppId} failed, scheduling retry ${epicRetryCount + 1}/2 in ${delay}ms`
-        );
         setTimeout(() => {
           setEpicRetryCount((c) => c + 1);
           setRetryTrigger((t) => t + 1);
         }, delay);
       } else {
-        console.log(`[GameImage] Epic image ${epicAppId} exhausted retries, showing placeholder`);
         onFinalError(imageKey);
       }
     } else if (!useCapsule && !hasTriedFallback) {
@@ -92,11 +85,6 @@ export const GameImage: React.FC<GameImageProps> = ({
     src = `${API_BASE}/game-images/${appId}/header?type=capsule${extraParams ? `&${extraParams}` : ''}`;
   } else {
     src = `${API_BASE}/game-images/${appId}/header${extraParams ? `?${extraParams}` : ''}`;
-  }
-
-  // Diagnostic logging for Epic image sources
-  if (epicAppId) {
-    console.log(`[GameImage] Epic image request: epicAppId=${epicAppId}, src=${src}`);
   }
 
   return (

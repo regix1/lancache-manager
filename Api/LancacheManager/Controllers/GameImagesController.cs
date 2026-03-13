@@ -167,7 +167,6 @@ public class GameImagesController : ControllerBase
             _logger.LogInformation("Epic image request for {EpicAppId}: mapping={Found}, imageUrl={Url}",
                 epicAppId, mapping != null ? "found" : "NOT FOUND",
                 mapping?.ImageUrl ?? "null");
-            Console.WriteLine($"Epic image request for {epicAppId}: mapping={( mapping != null ? "found" : "NOT FOUND")}, url={mapping?.ImageUrl ?? "null"}");
 
             if (mapping == null || string.IsNullOrEmpty(mapping.ImageUrl))
             {
@@ -177,7 +176,6 @@ public class GameImagesController : ControllerBase
             var imageUrl = EpicApiDirectClient.EnsureResizeParams(mapping.ImageUrl);
 
             _logger.LogInformation("Epic image URL for {EpicAppId} after EnsureResizeParams: {Url}", epicAppId, imageUrl);
-            Console.WriteLine($"Epic image URL for {epicAppId} after resize: {imageUrl}");
 
             var result = await TryGetImageAsync(cacheKey, imageUrl, cancellationToken);
             if (result.HasValue)
@@ -213,18 +211,15 @@ public class GameImagesController : ControllerBase
     public async Task<IActionResult> ClearImageCache(CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("=== ClearImageCache START ===");
-        Console.WriteLine("=== ClearImageCache START ===");
 
         // Step 1: Clear in-memory failed-fetch cache
         var failedCount = _failedImageCache.Count;
         _failedImageCache.Clear();
         _logger.LogInformation("Cleared {Count} in-memory failed-fetch entries", failedCount);
-        Console.WriteLine($"Cleared {failedCount} in-memory failed-fetch entries");
 
         // Step 2: Clear disk cache (images, metadata, failure markers)
         await _imageCacheService.ClearCacheAsync();
         _logger.LogInformation("Disk cache cleared (images, metadata, failure markers)");
-        Console.WriteLine("Disk cache cleared");
 
         // Step 3: Trigger immediate Epic image URL refresh (instead of nulling URLs!)
         // This re-fetches correct landscape URLs from Epic's catalog API
@@ -234,34 +229,28 @@ public class GameImagesController : ControllerBase
             if (_epicMappingService.IsAuthenticated)
             {
                 _logger.LogInformation("Epic is authenticated - triggering immediate catalog refresh for image URLs");
-                Console.WriteLine("Epic authenticated - triggering catalog refresh...");
                 try
                 {
                     epicUrlsRefreshed = await _epicMappingService.RefreshImageUrlsAsync(cancellationToken);
                     _logger.LogInformation("Epic image URL refresh complete: {Count} URLs updated", epicUrlsRefreshed);
-                    Console.WriteLine($"Epic image URL refresh complete: {epicUrlsRefreshed} URLs updated");
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Epic image URL refresh failed - existing URLs preserved");
-                    Console.WriteLine($"Epic image URL refresh failed: {ex.Message}");
                 }
             }
             else
             {
                 _logger.LogInformation("Epic not authenticated - skipping image URL refresh (existing URLs preserved)");
-                Console.WriteLine("Epic not authenticated - skipping URL refresh");
             }
         }
         else
         {
             _logger.LogDebug("EpicMappingService not available - skipping Epic image URL refresh");
-            Console.WriteLine("EpicMappingService not available");
         }
 
         _logger.LogInformation("=== ClearImageCache END === Failed entries cleared: {Failed}, Epic URLs refreshed: {Epic}",
             failedCount, epicUrlsRefreshed);
-        Console.WriteLine($"=== ClearImageCache END === Failed: {failedCount}, Epic refreshed: {epicUrlsRefreshed}");
 
         return Ok(new
         {

@@ -479,7 +479,6 @@ class ApiService {
         failedCacheEntriesCleared: number;
         epicImageUrlsRefreshed: number;
       }>(res);
-      console.log('[clearImageCache] Response:', JSON.stringify(result));
       return result;
     } catch (error) {
       console.error('clearImageCache error:', error);
