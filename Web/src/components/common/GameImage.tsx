@@ -46,6 +46,9 @@ export const GameImage: React.FC<GameImageProps> = ({
   }, [imageKey]);
 
   const handleError = useCallback(() => {
+    console.log(
+      `[GameImage] Image load error: imageKey=${imageKey}, epicAppId=${epicAppId ?? 'none'}, useCapsule=${useCapsule}`
+    );
     if (epicAppId) {
       // Epic has no capsule fallback - go straight to placeholder
       onFinalError(imageKey);
@@ -69,6 +72,11 @@ export const GameImage: React.FC<GameImageProps> = ({
     src = `${API_BASE}/game-images/${appId}/header?type=capsule${cbParam ? `&${cbParam}` : ''}`;
   } else {
     src = `${API_BASE}/game-images/${appId}/header${cbParam ? `?${cbParam}` : ''}`;
+  }
+
+  // Diagnostic logging for image sources
+  if (epicAppId) {
+    console.log(`[GameImage] Epic image request: epicAppId=${epicAppId}, src=${src}`);
   }
 
   return (

@@ -462,7 +462,11 @@ class ApiService {
   }
 
   // Clear the game image cache (disk + in-memory failed-fetch cache)
-  static async clearImageCache(): Promise<{ message: string; failedCacheEntriesCleared: number }> {
+  static async clearImageCache(): Promise<{
+    message: string;
+    failedCacheEntriesCleared: number;
+    epicImageUrlsRefreshed: number;
+  }> {
     try {
       const res = await fetch(
         `${API_BASE}/game-images/cache`,
@@ -470,7 +474,13 @@ class ApiService {
           method: 'DELETE'
         })
       );
-      return await this.handleResponse<{ message: string; failedCacheEntriesCleared: number }>(res);
+      const result = await this.handleResponse<{
+        message: string;
+        failedCacheEntriesCleared: number;
+        epicImageUrlsRefreshed: number;
+      }>(res);
+      console.log('[clearImageCache] Response:', JSON.stringify(result));
+      return result;
     } catch (error) {
       console.error('clearImageCache error:', error);
       throw error;

@@ -5,6 +5,7 @@ using LancacheManager.Models;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
+using LancacheManager.Core.Services.EpicMapping;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -21,6 +22,7 @@ public class GameImagesController : ControllerBase
     private readonly ILogger<GameImagesController> _logger;
     private readonly AppDbContext _context;
     private readonly IImageCacheService _imageCacheService;
+    private readonly EpicMappingService? _epicMappingService;
 
     // Cache of failed image fetches to avoid repeated 404 warnings (AppId -> timestamp)
     private static readonly ConcurrentDictionary<uint, DateTime> _failedImageCache = new();
@@ -29,11 +31,13 @@ public class GameImagesController : ControllerBase
     public GameImagesController(
         ILogger<GameImagesController> logger,
         AppDbContext context,
-        IImageCacheService imageCacheService)
+        IImageCacheService imageCacheService,
+        EpicMappingService? epicMappingService = null)
     {
         _logger = logger;
         _context = context;
         _imageCacheService = imageCacheService;
+        _epicMappingService = epicMappingService;
     }
 
     /// <summary>
@@ -160,12 +164,20 @@ public class GameImagesController : ControllerBase
             var mapping = await _context.EpicGameMappings
                 .FirstOrDefaultAsync(m => m.AppId == epicAppId, cancellationToken);
 
+            _logger.LogInformation("Epic image request for {EpicAppId}: mapping={Found}, imageUrl={Url}",
+                epicAppId, mapping != null ? "found" : "NOT FOUND",
+                mapping?.ImageUrl ?? "null");
+            Console.WriteLine($"Epic image request for {epicAppId}: mapping={( mapping != null ? "found" : "NOT FOUND")}, url={mapping?.ImageUrl ?? "null"}");
+
             if (mapping == null || string.IsNullOrEmpty(mapping.ImageUrl))
             {
                 return NotFound(new GameImageErrorResponse { Error = $"No image available for Epic app {epicAppId}" });
             }
 
             var imageUrl = EpicApiDirectClient.EnsureResizeParams(mapping.ImageUrl);
+
+            _logger.LogInformation("Epic image URL for {EpicAppId} after EnsureResizeParams: {Url}", epicAppId, imageUrl);
+            Console.WriteLine($"Epic image URL for {epicAppId} after resize: {imageUrl}");
 
             var result = await TryGetImageAsync(cacheKey, imageUrl, cancellationToken);
             if (result.HasValue)
@@ -194,36 +206,69 @@ public class GameImagesController : ControllerBase
     }
 
     /// <summary>
-    /// Clears the game image disk cache, failure markers, in-memory failed-fetch cache,
-    /// and stored Epic image URLs so they are re-fetched with the correct image type on next catalog refresh.
+    /// Clears the game image disk cache, failure markers, and in-memory failed-fetch cache,
+    /// then immediately triggers an Epic image URL refresh so landscape URLs are repopulated.
     /// </summary>
     [HttpDelete("cache")]
-    public async Task<IActionResult> ClearImageCache()
+    public async Task<IActionResult> ClearImageCache(CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("Clearing game image cache (disk + in-memory + Epic DB URLs)");
+        _logger.LogInformation("=== ClearImageCache START ===");
+        Console.WriteLine("=== ClearImageCache START ===");
 
-        // Clear in-memory failed-fetch cache
+        // Step 1: Clear in-memory failed-fetch cache
         var failedCount = _failedImageCache.Count;
         _failedImageCache.Clear();
+        _logger.LogInformation("Cleared {Count} in-memory failed-fetch entries", failedCount);
+        Console.WriteLine($"Cleared {failedCount} in-memory failed-fetch entries");
 
-        // Clear disk cache (images, metadata, failure markers)
+        // Step 2: Clear disk cache (images, metadata, failure markers)
         await _imageCacheService.ClearCacheAsync();
+        _logger.LogInformation("Disk cache cleared (images, metadata, failure markers)");
+        Console.WriteLine("Disk cache cleared");
 
-        // Clear stored Epic image URLs so they get re-populated with correct landscape images
-        // on the next catalog refresh or Epic login
-        var epicMappings = await _context.EpicGameMappings
-            .Where(m => m.ImageUrl != null)
-            .ToListAsync();
-        foreach (var mapping in epicMappings)
+        // Step 3: Trigger immediate Epic image URL refresh (instead of nulling URLs!)
+        // This re-fetches correct landscape URLs from Epic's catalog API
+        var epicUrlsRefreshed = 0;
+        if (_epicMappingService != null)
         {
-            mapping.ImageUrl = null;
+            if (_epicMappingService.IsAuthenticated)
+            {
+                _logger.LogInformation("Epic is authenticated - triggering immediate catalog refresh for image URLs");
+                Console.WriteLine("Epic authenticated - triggering catalog refresh...");
+                try
+                {
+                    epicUrlsRefreshed = await _epicMappingService.RefreshImageUrlsAsync(cancellationToken);
+                    _logger.LogInformation("Epic image URL refresh complete: {Count} URLs updated", epicUrlsRefreshed);
+                    Console.WriteLine($"Epic image URL refresh complete: {epicUrlsRefreshed} URLs updated");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Epic image URL refresh failed - existing URLs preserved");
+                    Console.WriteLine($"Epic image URL refresh failed: {ex.Message}");
+                }
+            }
+            else
+            {
+                _logger.LogInformation("Epic not authenticated - skipping image URL refresh (existing URLs preserved)");
+                Console.WriteLine("Epic not authenticated - skipping URL refresh");
+            }
         }
-        var epicUrlsCleared = await _context.SaveChangesAsync();
+        else
+        {
+            _logger.LogDebug("EpicMappingService not available - skipping Epic image URL refresh");
+            Console.WriteLine("EpicMappingService not available");
+        }
 
-        _logger.LogInformation("Image cache cleared: {FailedCacheEntries} in-memory entries removed, {EpicUrls} Epic image URLs cleared",
-            failedCount, epicUrlsCleared);
+        _logger.LogInformation("=== ClearImageCache END === Failed entries cleared: {Failed}, Epic URLs refreshed: {Epic}",
+            failedCount, epicUrlsRefreshed);
+        Console.WriteLine($"=== ClearImageCache END === Failed: {failedCount}, Epic refreshed: {epicUrlsRefreshed}");
 
-        return Ok(new { message = "Image cache cleared", failedCacheEntriesCleared = failedCount, epicImageUrlsCleared = epicUrlsCleared });
+        return Ok(new
+        {
+            message = "Image cache cleared",
+            failedCacheEntriesCleared = failedCount,
+            epicImageUrlsRefreshed = epicUrlsRefreshed
+        });
     }
 
     /// <summary>

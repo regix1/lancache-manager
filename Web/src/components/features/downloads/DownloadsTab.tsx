@@ -1094,12 +1094,16 @@ const DownloadsTab: React.FC = () => {
 
   const handleClearImageCache = async () => {
     setImageCacheClearing(true);
+    console.log('[handleClearImageCache] Starting image cache clear...');
     try {
-      await ApiService.clearImageCache();
+      const result = await ApiService.clearImageCache();
+      console.log('[handleClearImageCache] Cache cleared:', JSON.stringify(result));
+      console.log(`[handleClearImageCache] Epic URLs refreshed: ${result.epicImageUrlsRefreshed}`);
       // Bump version to force all GameImage components to re-fetch
       setImageCacheVersion((v) => v + 1);
+      console.log('[handleClearImageCache] Cache version bumped, images will re-fetch');
     } catch (error) {
-      console.error('Failed to clear image cache:', error);
+      console.error('[handleClearImageCache] Failed to clear image cache:', error);
     } finally {
       setImageCacheClearing(false);
     }

@@ -182,7 +182,7 @@ public class EpicApiDirectClient : IDisposable
                     _logger.LogTrace("Epic catalog metadata for {AppName}: title={Title}", asset.AppName, metadata?.Title ?? "(null)");
                     if (metadata != null)
                     {
-                        var imageUrl = GetBestImageUrl(metadata.KeyImages);
+                        var imageUrl = GetBestImageUrl(metadata.KeyImages, asset.AppName);
                         if (imageUrl == null && metadata.KeyImages?.Count > 0)
                         {
                             var types = string.Join(", ", metadata.KeyImages
@@ -358,8 +358,10 @@ public class EpicApiDirectClient : IDisposable
     /// Only selects wide/landscape images — never portrait/tall.
     /// Appends CDN resize parameters so we fetch a compact 640x360 image.
     /// </summary>
-    private static string? GetBestImageUrl(List<EpicKeyImage>? keyImages)
+    private static string? GetBestImageUrl(List<EpicKeyImage>? keyImages, string appName = "")
     {
+        Console.WriteLine($"[GetBestImageUrl] App: {appName}, keyImages count: {keyImages?.Count ?? 0}");
+
         if (keyImages == null || keyImages.Count == 0) return null;
 
         // 1. Explicitly-wide types first (guaranteed landscape by name)
@@ -375,7 +377,13 @@ public class EpicApiDirectClient : IDisposable
             var match = keyImages.FirstOrDefault(img =>
                 string.Equals(img.Type, wideType, StringComparison.OrdinalIgnoreCase)
                 && !string.IsNullOrEmpty(img.Url));
-            if (match != null) return AppendResizeParams(match.Url!);
+            if (match != null)
+            {
+                Console.WriteLine($"[GetBestImageUrl] {appName}: Selected {match.Type} ({match.Width}x{match.Height})");
+                var result = AppendResizeParams(match.Url!);
+                Console.WriteLine($"[GetBestImageUrl] {appName}: Final URL = {result}");
+                return result;
+            }
         }
 
         // 2. DieselGameBox — very common but can be portrait, so require landscape dimensions
@@ -383,13 +391,25 @@ public class EpicApiDirectClient : IDisposable
             string.Equals(img.Type, "DieselGameBox", StringComparison.OrdinalIgnoreCase)
             && !string.IsNullOrEmpty(img.Url)
             && img.Width > 0 && img.Height > 0 && img.Width > img.Height);
-        if (dieselGameBox != null) return AppendResizeParams(dieselGameBox.Url!);
+        if (dieselGameBox != null)
+        {
+            Console.WriteLine($"[GetBestImageUrl] {appName}: Selected {dieselGameBox.Type} ({dieselGameBox.Width}x{dieselGameBox.Height})");
+            var result = AppendResizeParams(dieselGameBox.Url!);
+            Console.WriteLine($"[GetBestImageUrl] {appName}: Final URL = {result}");
+            return result;
+        }
 
         // 3. Featured — always landscape (894x488)
         var featured = keyImages.FirstOrDefault(img =>
             string.Equals(img.Type, "Featured", StringComparison.OrdinalIgnoreCase)
             && !string.IsNullOrEmpty(img.Url));
-        if (featured != null) return AppendResizeParams(featured.Url!);
+        if (featured != null)
+        {
+            Console.WriteLine($"[GetBestImageUrl] {appName}: Selected {featured.Type} ({featured.Width}x{featured.Height})");
+            var result = AppendResizeParams(featured.Url!);
+            Console.WriteLine($"[GetBestImageUrl] {appName}: Final URL = {result}");
+            return result;
+        }
 
         // 4. Last resort: pick the widest landscape image by actual dimensions
         var widestLandscape = keyImages
@@ -397,8 +417,16 @@ public class EpicApiDirectClient : IDisposable
             .OrderByDescending(img => (double)img.Width / img.Height)
             .ThenByDescending(img => img.Width)
             .FirstOrDefault();
-        if (widestLandscape != null) return AppendResizeParams(widestLandscape.Url!);
+        if (widestLandscape != null)
+        {
+            Console.WriteLine($"[GetBestImageUrl] {appName}: Selected {widestLandscape.Type} ({widestLandscape.Width}x{widestLandscape.Height})");
+            var result = AppendResizeParams(widestLandscape.Url!);
+            Console.WriteLine($"[GetBestImageUrl] {appName}: Final URL = {result}");
+            return result;
+        }
 
+        Console.WriteLine($"[GetBestImageUrl] {appName}: No landscape image found! Available types: {string.Join(", ", keyImages.Select(k => $"{k.Type}({k.Width}x{k.Height})"))}");
+        Console.WriteLine($"[GetBestImageUrl] {appName}: Final URL = NULL");
         return null;
     }
 
@@ -410,7 +438,9 @@ public class EpicApiDirectClient : IDisposable
     private static string AppendResizeParams(string imageUrl)
     {
         var separator = imageUrl.Contains('?') ? "&" : "?";
-        return $"{imageUrl}{separator}w=640&h=360&resize=1";
+        var result = $"{imageUrl}{separator}w=640&h=360&resize=1";
+        Console.WriteLine($"[AppendResizeParams] {imageUrl} -> {result}");
+        return result;
     }
 
     /// <summary>
@@ -420,11 +450,18 @@ public class EpicApiDirectClient : IDisposable
     /// </summary>
     internal static string EnsureResizeParams(string imageUrl)
     {
+        Console.WriteLine($"[EnsureResizeParams] Input: {imageUrl}");
+
         if (string.IsNullOrEmpty(imageUrl) || !imageUrl.Contains("epicgames.com") || imageUrl.Contains("resize="))
+        {
+            Console.WriteLine($"[EnsureResizeParams] Output: {imageUrl}");
             return imageUrl;
+        }
 
         var separator = imageUrl.Contains('?') ? "&" : "?";
-        return $"{imageUrl}{separator}w=640&h=360&resize=1";
+        var result = $"{imageUrl}{separator}w=640&h=360&resize=1";
+        Console.WriteLine($"[EnsureResizeParams] Output: {result}");
+        return result;
     }
 
     /// <summary>
@@ -471,7 +508,7 @@ public class EpicApiDirectClient : IDisposable
             {
                 AppId = element.Id ?? string.Empty,
                 Name = element.Title ?? string.Empty,
-                ImageUrl = GetBestImageUrl(element.KeyImages)
+                ImageUrl = GetBestImageUrl(element.KeyImages, element.Title ?? element.Id ?? "")
             }).Where(game => !string.IsNullOrEmpty(game.AppId)).ToList();
 
             _logger.LogInformation("Found {Count} currently free Epic games", games.Count);
