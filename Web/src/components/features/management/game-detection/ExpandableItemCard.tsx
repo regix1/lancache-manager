@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader2, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Tooltip } from '@components/ui/Tooltip';
+import { GameImage } from '../../../common/GameImage';
 
 export interface ExpandableItemStat {
   icon: React.ComponentType<{ className?: string }>;
@@ -16,7 +17,9 @@ interface ExpandableItemCardProps {
   title: string;
   titleClassName?: string;
   subtitle?: React.ReactNode;
-  imageUrl?: string;
+  gameAppId?: string | number;
+  epicAppId?: string;
+  service?: string;
   stats: ExpandableItemStat[];
   datasources?: string[];
   isExpanded: boolean;
@@ -38,7 +41,9 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
   title,
   titleClassName,
   subtitle,
-  imageUrl,
+  gameAppId,
+  epicAppId,
+  service,
   stats,
   datasources,
   isExpanded,
@@ -55,6 +60,14 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
   children
 }) => {
   const { t } = useTranslation();
+  const [imageError, setImageError] = useState(false);
+
+  const handleImageFinalError = (_gameAppId: string) => {
+    setImageError(true);
+  };
+
+  const isEpic = service === 'epicgames';
+  const showImage = !!gameAppId && !imageError;
 
   return (
     <div className="rounded-lg border bg-themed-tertiary border-themed-secondary">
@@ -74,15 +87,14 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
             <ChevronDown className="w-4 h-4" />
           )}
         </Button>
-        {imageUrl && (
-          <img
-            src={imageUrl}
+        {showImage && (
+          <GameImage
+            gameAppId={gameAppId}
+            epicAppId={isEpic ? epicAppId : undefined}
             alt={title}
             className="game-card-image"
             loading="lazy"
-            onError={(e) => {
-              (e.target as HTMLImageElement).style.display = 'none';
-            }}
+            onFinalError={handleImageFinalError}
           />
         )}
         <div className="flex-1 min-w-0">

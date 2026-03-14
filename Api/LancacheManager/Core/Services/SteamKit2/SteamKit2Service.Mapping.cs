@@ -1,5 +1,6 @@
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
+using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 using SteamKit2;
 
@@ -65,12 +66,59 @@ public partial class SteamKit2Service
     }
 
     /// <summary>
+    /// Attempt to resolve specific unknown depot IDs by querying PICS for their parent apps.
+    /// Called from GameCacheDetectionService when unknown games remain after checking existing mappings.
+    /// Saves any discovered mappings directly to SteamDepotMappings so they are available
+    /// on the next call to ResolveUnknownGamesInCacheAsync.
+    /// Returns gracefully (empty list) if Steam is not connected.
+    /// </summary>
+    public async Task<List<uint>> TryResolveSpecificDepotsAsync(IReadOnlyList<uint> depotIds, CancellationToken ct)
+    {
+        if (depotIds.Count == 0)
+            return new List<uint>();
+
+        try
+        {
+            if (_steamApps == null || !_isLoggedOn)
+            {
+                _logger.LogDebug("[GameDetection] Skipping specific depot resolution for {Count} depot(s) - not connected to Steam", depotIds.Count);
+                return new List<uint>();
+            }
+
+            _logger.LogInformation("[GameDetection] Attempting PICS resolution for {Count} specific unknown depot(s): {DepotIds}",
+                depotIds.Count, string.Join(", ", depotIds.Take(10)));
+
+            var candidates = GenerateCandidateAppIds(depotIds);
+            if (candidates.Count == 0)
+                return new List<uint>();
+
+            _logger.LogInformation("[GameDetection] Querying PICS for {Count} candidate app(s) to resolve unknown depots", candidates.Count);
+
+            var (resolvedDepotIds, newMappings) = await QueryPicsForDepotMappingsAsync(depotIds, candidates, ct);
+
+            // Persist new mappings directly to SteamDepotMappings so they are available immediately
+            if (newMappings.Count > 0)
+                await PersistNewDepotMappingsAsync(newMappings, ct);
+
+            _logger.LogInformation("[GameDetection] Specific depot resolution complete: {Resolved}/{Total} depot(s) resolved",
+                resolvedDepotIds.Count, depotIds.Count);
+
+            return resolvedDepotIds;
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[GameDetection] Specific depot resolution failed (non-fatal)");
+            return new List<uint>();
+        }
+    }
+
+    /// <summary>
     /// Resolve orphan depots by querying PICS for candidate parent app IDs.
     /// Orphan depots are those present in the Downloads table with a DepotId but no GameAppId,
     /// and not already mapped via _depotOwners or the database. This handles delisted/removed
     /// games whose depots never appear in Steam's GetAppList API.
     /// </summary>
-    /// <returns>A list of newly resolved depot IDs.</returns>
     private async Task<List<uint>> ResolveOrphanDepotsAsync(CancellationToken ct)
     {
         try
@@ -116,21 +164,7 @@ public partial class SteamKit2Service
 
             _logger.LogInformation("Attempting orphan depot resolution for {Count} unmapped depot(s)", orphanDepotIds.Count);
 
-            // Generate candidate parent app IDs using common heuristics
-            var candidates = new HashSet<uint>();
-            foreach (var depotId in orphanDepotIds)
-            {
-                // Pattern 1: depotId - 1 (most common Steam convention: app=X, depot=X+1)
-                if (depotId > 0)
-                    candidates.Add(depotId - 1);
-
-                // Pattern 2: depotId itself (some apps use depot ID = app ID)
-                candidates.Add(depotId);
-
-                // Pattern 3: depotId - 2 (less common, but some games use this)
-                if (depotId > 1)
-                    candidates.Add(depotId - 2);
-            }
+            var candidates = GenerateCandidateAppIds(orphanDepotIds);
 
             // Filter out candidates already scanned during the main PICS pass
             candidates.ExceptWith(_scannedApps);
@@ -143,76 +177,152 @@ public partial class SteamKit2Service
 
             _logger.LogInformation("Querying PICS for {Count} candidate parent app(s) for orphan depots", candidates.Count);
 
-            var resolvedDepotIds = new List<uint>();
-            var candidateBatches = candidates.Chunk(50).ToList();
-
-            foreach (var batch in candidateBatches)
-            {
-                ct.ThrowIfCancellationRequested();
-
-                try
-                {
-                    // Get access tokens for the batch
-                    var tokensJob = _steamApps.PICSGetAccessTokens(batch, Enumerable.Empty<uint>());
-                    var tokens = await WaitForCallbackAsync(tokensJob, ct);
-
-                    // Build product info requests with tokens
-                    var appRequests = new List<SteamApps.PICSRequest>(batch.Length);
-                    foreach (var appId in batch)
-                    {
-                        var request = new SteamApps.PICSRequest(appId);
-                        if (tokens.AppTokens.TryGetValue(appId, out var token))
-                        {
-                            request.AccessToken = token;
-                        }
-                        appRequests.Add(request);
-                    }
-
-                    var productJob = _steamApps.PICSGetProductInfo(appRequests, Enumerable.Empty<SteamApps.PICSRequest>());
-                    var productCallbacks = await WaitForAllProductInfoAsync(productJob, ct);
-
-                    foreach (var cb in productCallbacks)
-                    {
-                        foreach (var app in cb.Apps.Values)
-                        {
-                            var beforeKeys = new HashSet<uint>(_depotOwners.Keys);
-                            ProcessAppDepots(app);
-                            // Find newly added depot IDs
-                            foreach (var key in _depotOwners.Keys)
-                            {
-                                if (!beforeKeys.Contains(key))
-                                {
-                                    resolvedDepotIds.Add(key);
-                                }
-                            }
-                        }
-                    }
-
-                    await Task.Delay(100, ct);
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to process orphan depot candidate batch. Continuing...");
-                }
-            }
+            var (resolvedDepotIds, _) = await QueryPicsForDepotMappingsAsync(orphanDepotIds, candidates, ct);
 
             _logger.LogInformation("Orphan depot resolution complete: {Resolved} new depot mapping(s) discovered from {Candidates} candidate(s)",
                 resolvedDepotIds.Count, candidates.Count);
 
             return resolvedDepotIds;
         }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
+        catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Orphan depot resolution failed (non-fatal) - some delisted game depots may remain unmapped");
             return new List<uint>();
+        }
+    }
+
+    /// <summary>
+    /// Generates candidate parent app IDs for a list of depot IDs using common Steam heuristics.
+    /// Pattern 1: depotId - 1 (most common convention: app=X, depot=X+1)
+    /// Pattern 2: depotId itself (some apps use depot ID = app ID)
+    /// Pattern 3: depotId - 2 (less common, but some games use this)
+    /// </summary>
+    private static HashSet<uint> GenerateCandidateAppIds(IReadOnlyList<uint> depotIds)
+    {
+        var candidates = new HashSet<uint>();
+        foreach (var depotId in depotIds)
+        {
+            if (depotId > 0)
+                candidates.Add(depotId - 1);
+            candidates.Add(depotId);
+            if (depotId > 1)
+                candidates.Add(depotId - 2);
+        }
+        return candidates;
+    }
+
+    /// <summary>
+    /// Queries PICS for candidate app IDs and discovers depot-to-app mappings.
+    /// Returns the resolved depot IDs (filtered to those in targetDepotIds) and
+    /// corresponding SteamDepotMapping records ready for DB persistence.
+    /// </summary>
+    private async Task<(List<uint> resolvedDepotIds, List<SteamDepotMapping> newMappings)> QueryPicsForDepotMappingsAsync(
+        IReadOnlyList<uint> targetDepotIds,
+        HashSet<uint> candidateAppIds,
+        CancellationToken ct)
+    {
+        var resolvedDepotIds = new List<uint>();
+        var newMappings = new List<SteamDepotMapping>();
+        var targetSet = new HashSet<uint>(targetDepotIds);
+        var candidateBatches = candidateAppIds.Chunk(50).ToList();
+
+        foreach (var batch in candidateBatches)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            try
+            {
+                var tokensJob = _steamApps!.PICSGetAccessTokens(batch, Enumerable.Empty<uint>());
+                var tokens = await WaitForCallbackAsync(tokensJob, ct);
+
+                var appRequests = new List<SteamApps.PICSRequest>(batch.Length);
+                foreach (var appId in batch)
+                {
+                    var request = new SteamApps.PICSRequest(appId);
+                    if (tokens.AppTokens.TryGetValue(appId, out var token))
+                        request.AccessToken = token;
+                    appRequests.Add(request);
+                }
+
+                var productJob = _steamApps.PICSGetProductInfo(appRequests, Enumerable.Empty<SteamApps.PICSRequest>());
+                var productCallbacks = await WaitForAllProductInfoAsync(productJob, ct);
+
+                foreach (var cb in productCallbacks)
+                {
+                    foreach (var app in cb.Apps.Values)
+                    {
+                        var beforeKeys = new HashSet<uint>(_depotOwners.Keys);
+                        ProcessAppDepots(app);
+
+                        foreach (var kvp in _depotOwners)
+                        {
+                            if (!beforeKeys.Contains(kvp.Key) && targetSet.Contains(kvp.Key))
+                            {
+                                resolvedDepotIds.Add(kvp.Key);
+
+                                var appName = _appNames.TryGetValue(kvp.Value, out var name) ? name : null;
+                                _depotNames.TryGetValue(kvp.Key, out var depotName);
+
+                                newMappings.Add(new SteamDepotMapping
+                                {
+                                    DepotId = kvp.Key,
+                                    DepotName = depotName,
+                                    AppId = kvp.Value,
+                                    AppName = appName,
+                                    IsOwner = true,
+                                    Source = "orphan-resolved",
+                                    DiscoveredAt = DateTime.UtcNow
+                                });
+                            }
+                        }
+                    }
+                }
+
+                await Task.Delay(100, ct);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to process candidate batch for depot resolution. Continuing...");
+            }
+        }
+
+        return (resolvedDepotIds, newMappings);
+    }
+
+    /// <summary>
+    /// Persists newly discovered depot mappings to SteamDepotMappings table,
+    /// avoiding duplicates with existing records.
+    /// </summary>
+    private async Task PersistNewDepotMappingsAsync(List<SteamDepotMapping> newMappings, CancellationToken ct)
+    {
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            var depotIdSet = newMappings.Select(m => m.DepotId).Distinct().ToList();
+            var existingDepotIds = await context.SteamDepotMappings
+                .Where(m => depotIdSet.Contains(m.DepotId) && m.IsOwner)
+                .Select(m => m.DepotId)
+                .ToHashSetAsync(ct);
+
+            var toInsert = newMappings
+                .Where(m => !existingDepotIds.Contains(m.DepotId))
+                .ToList();
+
+            if (toInsert.Count > 0)
+            {
+                await context.SteamDepotMappings.AddRangeAsync(toInsert, ct);
+                await context.SaveChangesAsync(ct);
+                _logger.LogInformation("Saved {Count} new orphan depot mapping(s) to database", toInsert.Count);
+            }
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to persist resolved depot mappings to database");
         }
     }
 

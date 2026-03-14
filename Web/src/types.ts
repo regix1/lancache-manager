@@ -299,6 +299,7 @@ export interface GameCacheInfo {
   datasources: string[];
   service?: string; // "steam" (default) or "epicgames"
   image_url?: string; // Game art URL (Steam header or Epic keyImages)
+  epic_app_id?: string; // Epic Games catalog item ID for image proxy
 }
 
 export interface ServiceCacheInfo {

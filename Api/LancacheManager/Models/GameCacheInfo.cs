@@ -42,4 +42,12 @@ public class GameCacheInfo
     /// </summary>
     [System.Text.Json.Serialization.JsonPropertyName("image_url")]
     public string? ImageUrl { get; set; }
+
+    /// <summary>
+    /// The Epic Games store App ID, used by the frontend GameImage component to proxy
+    /// image requests through /api/game-images/epic/{epicAppId}/header.
+    /// Only populated for Epic games (Service == "epicgames").
+    /// </summary>
+    [System.Text.Json.Serialization.JsonPropertyName("epic_app_id")]
+    public string? EpicAppId { get; set; }
 }

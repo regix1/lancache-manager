@@ -1134,8 +1134,32 @@ public class GameCacheDetectionService : IDisposable
             // Log and persist failed resolutions to state.json
             if (newlyFailedDepots.Count > 0)
             {
-                _logger.LogInformation("[GameDetection] Failed to resolve {Count} depot(s): {DepotIds}. Marked as Unknown - will retry in 24 hours",
+                _logger.LogInformation("[GameDetection] Failed to resolve {Count} depot(s): {DepotIds}. Triggering PICS resolution in background.",
                     newlyFailedDepots.Count, string.Join(", ", newlyFailedDepots));
+
+                // Fire-and-forget: ask SteamKit2Service to resolve these depot IDs via PICS.
+                // This is non-blocking - the next call to GetCachedDetectionAsync will pick up the results.
+                var depotsToResolve = newlyFailedDepots.ToList();
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        var resolved = await _steamKit2Service.TryResolveSpecificDepotsAsync(depotsToResolve, CancellationToken.None);
+                        if (resolved.Count > 0)
+                        {
+                            _logger.LogInformation("[GameDetection] Background PICS resolution resolved {Count} depot(s): {DepotIds}. Will be applied on next cache load.",
+                                resolved.Count, string.Join(", ", resolved));
+                        }
+                        else
+                        {
+                            _logger.LogDebug("[GameDetection] Background PICS resolution found no new mappings for {Count} depot(s).", depotsToResolve.Count);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "[GameDetection] Background PICS resolution encountered an error (non-fatal)");
+                    }
+                });
             }
 
             // Update state with all failed depots (previous + new, minus any resolved)
@@ -1355,9 +1379,7 @@ public class GameCacheDetectionService : IDisposable
             SampleUrls = JsonSerializer.Deserialize<List<string>>(cached.SampleUrlsJson) ?? new List<string>(),
             CacheFilePaths = JsonSerializer.Deserialize<List<string>>(cached.CacheFilePathsJson) ?? new List<string>(),
             Datasources = JsonSerializer.Deserialize<List<string>>(datasourcesJson) ?? new List<string>(),
-            ImageUrl = cached.GameAppId > 0
-                ? $"https://cdn.cloudflare.steamstatic.com/steam/apps/{cached.GameAppId}/header.jpg"
-                : null
+            ImageUrl = null
         };
     }
 
@@ -1392,11 +1414,6 @@ public class GameCacheDetectionService : IDisposable
             if (epicDownloads.Count == 0)
                 return new List<GameCacheInfo>();
 
-            // Load image URLs from EpicGameMappings for display
-            var imageLookup = await db.EpicGameMappings
-                .Where(m => m.ImageUrl != null)
-                .ToDictionaryAsync(m => m.AppId, m => m.ImageUrl);
-
             // Group by EpicAppId to aggregate per-game stats
             var epicGames = epicDownloads
                 .GroupBy(d => d.EpicAppId!)
@@ -1411,7 +1428,8 @@ public class GameCacheDetectionService : IDisposable
                     SampleUrls = g.Where(d => d.LastUrl != null).Select(d => d.LastUrl!).Take(3).ToList(),
                     CacheFilePaths = new List<string>(),
                     Datasources = g.Select(d => d.Datasource).Distinct().ToList(),
-                    ImageUrl = imageLookup.TryGetValue(g.Key, out var url) ? url : null
+                    ImageUrl = null,
+                    EpicAppId = g.Key
                 })
                 .ToList();
 
