@@ -183,19 +183,24 @@ public class GamesController : ControllerBase
     }
 
     /// <summary>
-    /// DELETE /api/games/epic/{gameName} - Remove Epic game from cache by name
-    /// Epic games use string-based identifiers and have no depot IDs,
-    /// so removal is done directly via cached file paths rather than the Rust binary.
+    /// DELETE /api/games/epic/{gameName} - Remove Epic game by name
+    /// Uses the Rust cache_epic_remove binary to delete cache files, log entries,
+    /// and database records - same three-step process as Steam game removal.
     /// </summary>
     [HttpDelete("epic/{gameName}")]
     public async Task<IActionResult> RemoveEpicGameFromCache(string gameName)
     {
-        // CRITICAL: Check write permissions BEFORE starting the operation
+        // Check write permissions before starting
         var cacheWritable = _pathResolver.IsCacheDirectoryWritable();
+        var logsWritable = _pathResolver.IsLogsDirectoryWritable();
 
-        if (!cacheWritable)
+        if (!cacheWritable || !logsWritable)
         {
-            var errorMessage = "Cannot remove game from cache: cache directory is read-only. " +
+            var errors = new List<string>();
+            if (!cacheWritable) errors.Add("cache directory is read-only");
+            if (!logsWritable) errors.Add("logs directory is read-only");
+
+            var errorMessage = $"Cannot remove Epic game from cache: {string.Join(" and ", errors)}. " +
                 "This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. " +
                 "The lancache container usually runs as UID/GID 33:33 (www-data).";
 

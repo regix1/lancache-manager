@@ -24,6 +24,7 @@ RUN mkdir src && \
     echo "fn main() {}" > src/cache_corruption.rs && \
     echo "fn main() {}" > src/cache_game_detect.rs && \
     echo "fn main() {}" > src/cache_game_remove.rs && \
+    echo "fn main() {}" > src/cache_epic_remove.rs && \
     echo "fn main() {}" > src/cache_service_remove.rs && \
     echo "fn main() {}" > src/db_reset.rs && \
     echo "fn main() {}" > src/db_migrate.rs && \
@@ -45,6 +46,7 @@ RUN cargo build --release && \
     cp target/release/cache_corruption /build/output/ && \
     cp target/release/cache_game_detect /build/output/ && \
     cp target/release/cache_game_remove /build/output/ && \
+    cp target/release/cache_epic_remove /build/output/ && \
     cp target/release/cache_service_remove /build/output/ && \
     cp target/release/db_reset /build/output/ && \
     cp target/release/db_migrate /build/output/ && \

@@ -1060,9 +1060,11 @@ public class CacheManagementService
     }
 
     /// <summary>
-    /// Remove all cache files for an Epic game by name.
-    /// Unlike Steam games (which use a Rust binary + depot IDs), Epic games are identified
-    /// by name and their cache file paths are stored in CachedGameDetections.
+    /// Remove all cache files, log entries, and database records for an Epic game.
+    /// Uses the Rust cache_epic_remove binary which mirrors the Steam game removal flow:
+    /// 1. Deletes cache files from disk (via MD5 cache path calculation)
+    /// 2. Removes matching lines from access log text files
+    /// 3. Deletes LogEntry and Download records from the database
     /// </summary>
     public async Task<GameCacheRemovalReport> RemoveEpicGameFromCache(string gameName, CancellationToken cancellationToken = default, Func<double, string, int, long, Task>? onProgress = null)
     {
@@ -1071,74 +1073,176 @@ public class CacheManagementService
         {
             _logger.LogInformation("[EpicGameRemoval] Starting removal for '{GameName}'", gameName);
 
-            // Look up the cached detection entry to get file paths
-            await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-            var cachedGame = await dbContext.CachedGameDetections
-                .FirstOrDefaultAsync(g => g.GameName == gameName && g.GameAppId == 0, cancellationToken);
+            var operationsDir = _pathResolver.GetOperationsDirectory();
+            var dbPath = _pathResolver.GetDatabasePath();
+            var rustBinaryPath = _pathResolver.GetRustEpicRemoverPath();
 
-            if (cachedGame == null)
+            _rustProcessHelper.ValidateRustBinaryExists(rustBinaryPath, "Epic game cache remover");
+
+            if (!File.Exists(dbPath))
             {
-                throw new InvalidOperationException($"Epic game '{gameName}' not found in cached detections");
+                var errorMsg = $"Database not found at {dbPath}";
+                _logger.LogError(errorMsg);
+                throw new FileNotFoundException(errorMsg);
             }
 
-            var cacheFilePaths = JsonSerializer.Deserialize<List<string>>(cachedGame.CacheFilePathsJson) ?? new List<string>();
-
-            var report = new GameCacheRemovalReport
+            var datasources = _datasourceService.GetDatasources();
+            var aggregatedReport = new GameCacheRemovalReport
             {
                 GameAppId = 0,
                 GameName = gameName
             };
 
-            int totalFiles = cacheFilePaths.Count;
-            int filesDeleted = 0;
-            long bytesFreed = 0;
+            int datasourcesProcessed = 0;
+            int datasourcesSkipped = 0;
 
-            foreach (string filePath in cacheFilePaths)
+            foreach (ResolvedDatasource datasource in datasources)
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                string dsLogsDir = datasource.LogPath;
+                string dsCachePath = datasource.CachePath;
 
-                try
+                if (!_pathResolver.IsDirectoryWritable(dsCachePath))
                 {
-                    if (File.Exists(filePath))
+                    _logger.LogWarning(
+                        "[EpicGameRemoval] Skipping datasource '{DatasourceName}': cache directory '{CachePath}' is not writable",
+                        datasource.Name, dsCachePath);
+                    datasourcesSkipped++;
+                    continue;
+                }
+
+                if (!Directory.Exists(dsLogsDir))
+                {
+                    _logger.LogWarning(
+                        "[EpicGameRemoval] Skipping datasource '{DatasourceName}': logs directory not found at '{LogsDir}'",
+                        datasource.Name, dsLogsDir);
+                    datasourcesSkipped++;
+                    continue;
+                }
+
+                if (!Directory.Exists(dsCachePath))
+                {
+                    _logger.LogWarning(
+                        "[EpicGameRemoval] Skipping datasource '{DatasourceName}': cache directory not found at '{CachePath}'",
+                        datasource.Name, dsCachePath);
+                    datasourcesSkipped++;
+                    continue;
+                }
+
+                var safeGameName = gameName.Replace(" ", "_").Replace("/", "_").Replace("\\", "_");
+                var outputJson = Path.Combine(operationsDir,
+                    $"epic_removal_{safeGameName}_{datasource.Name}_{DateTime.UtcNow:yyyyMMddHHmmss}.json");
+                var progressJson = Path.Combine(operationsDir,
+                    $"epic_removal_progress_{safeGameName}_{datasource.Name}_{DateTime.UtcNow:yyyyMMddHHmmss}.json");
+
+                var startInfo = _rustProcessHelper.CreateProcessStartInfo(
+                    rustBinaryPath,
+                    $"\"{dbPath}\" \"{dsLogsDir}\" \"{dsCachePath}\" \"{gameName}\" \"{outputJson}\" \"{progressJson}\"");
+
+                _logger.LogInformation("[EpicGameRemoval] Running removal for datasource '{DatasourceName}': {Binary} {Args}",
+                    datasource.Name, rustBinaryPath, startInfo.Arguments);
+
+                using (var process = Process.Start(startInfo))
+                {
+                    if (process == null)
                     {
-                        var fileInfo = new FileInfo(filePath);
-                        long fileSize = fileInfo.Length;
-                        File.Delete(filePath);
-                        bytesFreed += fileSize;
-                        filesDeleted++;
+                        throw new Exception($"Failed to start cache_epic_remove process for datasource '{datasource.Name}'");
                     }
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    _logger.LogWarning(ex, "[EpicGameRemoval] Failed to delete file: {FilePath}", filePath);
-                }
 
-                if (onProgress != null && totalFiles > 0)
-                {
-                    double percent = (double)filesDeleted / totalFiles * 100;
-                    await onProgress(percent, $"Deleting files... ({filesDeleted}/{totalFiles})", filesDeleted, bytesFreed);
+                    // Poll the progress file while the process runs
+                    using var pollCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    var pollTask = Task.Run(async () =>
+                    {
+                        while (!process.HasExited && !pollCts.Token.IsCancellationRequested)
+                        {
+                            await Task.Delay(500, pollCts.Token).ConfigureAwait(false);
+
+                            try
+                            {
+                                var progressData = await _rustProcessHelper.ReadProgressFileAsync<GameRemovalProgressData>(progressJson);
+                                if (progressData != null && onProgress != null)
+                                {
+                                    await onProgress(progressData.PercentComplete, progressData.Message, progressData.FilesProcessed, 0);
+                                }
+                            }
+                            catch (Exception ex) when (ex is not OperationCanceledException)
+                            {
+                                _logger.LogDebug("[EpicGameRemoval] Progress file read error (transient): {Error}", ex.Message);
+                            }
+                        }
+                    }, pollCts.Token);
+
+                    var outputTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
+                    var errorTask = process.StandardError.ReadToEndAsync(cancellationToken);
+
+                    await _processManager.WaitForProcessAsync(process, cancellationToken);
+
+                    pollCts.Cancel();
+                    try { await pollTask; } catch (OperationCanceledException) { /* expected */ }
+
+                    var output = await outputTask;
+                    var error = await errorTask;
+
+                    _logger.LogInformation("[EpicGameRemoval] Process exit code for datasource '{DatasourceName}': {Code}",
+                        datasource.Name, process.ExitCode);
+
+                    if (!string.IsNullOrEmpty(output))
+                    {
+                        _logger.LogInformation("[EpicGameRemoval] Process output for datasource '{DatasourceName}':\n{Output}",
+                            datasource.Name, output);
+                    }
+
+                    if (!string.IsNullOrEmpty(error))
+                    {
+                        _logger.LogInformation("[EpicGameRemoval] Process stderr for datasource '{DatasourceName}': {Error}",
+                            datasource.Name, error);
+                    }
+
+                    if (process.ExitCode != 0)
+                    {
+                        _logger.LogError("[EpicGameRemoval] Failed for datasource '{DatasourceName}' with exit code {Code}: {Error}",
+                            datasource.Name, process.ExitCode, error);
+                        throw new Exception($"cache_epic_remove failed for datasource '{datasource.Name}' with exit code {process.ExitCode}: {error}");
+                    }
+
+                    // Read the generated JSON report
+                    var dsReport = await _rustProcessHelper.ReadOutputJsonAsync<GameCacheRemovalReport>(outputJson, "EpicGameRemoval");
+
+                    if (onProgress != null)
+                    {
+                        await onProgress(100, "Complete", dsReport.CacheFilesDeleted, (long)dsReport.TotalBytesFreed);
+                    }
+
+                    // Aggregate results
+                    aggregatedReport.CacheFilesDeleted += dsReport.CacheFilesDeleted;
+                    aggregatedReport.TotalBytesFreed += dsReport.TotalBytesFreed;
+                    aggregatedReport.EmptyDirsRemoved += dsReport.EmptyDirsRemoved;
+                    aggregatedReport.LogEntriesRemoved += dsReport.LogEntriesRemoved;
+                    if (!string.IsNullOrEmpty(dsReport.GameName))
+                    {
+                        aggregatedReport.GameName = dsReport.GameName;
+                    }
+
+                    datasourcesProcessed++;
+
+                    _logger.LogInformation(
+                        "[EpicGameRemoval] Datasource '{DatasourceName}': removed {Files} files ({Bytes} bytes) for Epic game '{GameName}'",
+                        datasource.Name, dsReport.CacheFilesDeleted, dsReport.TotalBytesFreed, gameName);
                 }
             }
 
-            report.CacheFilesDeleted = filesDeleted;
-            report.TotalBytesFreed = (ulong)bytesFreed;
+            _logger.LogInformation(
+                "[EpicGameRemoval] Completed for '{GameName}': {Processed} datasource(s) processed, {Skipped} skipped. " +
+                "Total: {Files} files removed, {Bytes} bytes freed",
+                gameName, datasourcesProcessed, datasourcesSkipped,
+                aggregatedReport.CacheFilesDeleted, aggregatedReport.TotalBytesFreed);
 
-            // Remove the cached detection entry
-            dbContext.CachedGameDetections.Remove(cachedGame);
-            await dbContext.SaveChangesAsync(cancellationToken);
-            _logger.LogInformation("[EpicGameRemoval] Removed cached game detection entry for: {GameName}", gameName);
-
-            // Invalidate service counts cache since cache files were modified
+            // Invalidate service counts cache since logs were modified
             await InvalidateServiceCountsCache();
 
             // Signal nginx to reopen log files
             await _nginxLogRotationService.ReopenNginxLogsAsync();
 
-            _logger.LogInformation(
-                "[EpicGameRemoval] Completed for '{GameName}': {Files} files deleted, {Bytes} bytes freed",
-                gameName, filesDeleted, bytesFreed);
-
-            return report;
+            return aggregatedReport;
         }
         finally
         {

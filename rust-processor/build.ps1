@@ -19,6 +19,7 @@ $Binaries = @(
     "cache_corruption",        # Detect/remove corrupted chunks (was corruption_manager)
     "cache_game_detect",       # Detect games in cache (was game_cache_detector)
     "cache_game_remove",       # Remove game from cache (was game_cache_remover)
+    "cache_epic_remove",       # Remove Epic game from cache by name
     "cache_service_remove",    # Remove service from cache (was service_remover)
     "db_reset",                # Reset database (was database_reset)
     "db_migrate"               # Import from DeveLanCacheUI (was data_migrator)

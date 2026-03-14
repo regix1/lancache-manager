@@ -183,6 +183,9 @@ public class WindowsPathResolver : IPathResolver
     public string GetRustGameRemoverPath() =>
         Path.Combine(AppContext.BaseDirectory, "rust-processor", "cache_game_remove.exe");
 
+    public string GetRustEpicRemoverPath() =>
+        Path.Combine(AppContext.BaseDirectory, "rust-processor", "cache_epic_remove.exe");
+
     public string GetRustServiceRemoverPath() =>
         Path.Combine(AppContext.BaseDirectory, "rust-processor", "cache_service_remove.exe");
 

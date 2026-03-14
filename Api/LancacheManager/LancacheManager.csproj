@@ -40,8 +40,8 @@
     <!-- Windows build -->
     <Exec Condition="$([MSBuild]::IsOSPlatform('Windows'))" Command="powershell -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\rust-processor\build.ps1&quot; -Target $(RustTarget)" WorkingDirectory="$(MSBuildProjectDirectory)\..\..\rust-processor" IgnoreExitCode="false" />
 
-    <!-- Linux/Mac build -->
-    <Exec Condition="!$([MSBuild]::IsOSPlatform('Windows'))" Command="bash build.sh $(RustTarget)" WorkingDirectory="$(MSBuildProjectDirectory)/../../rust-processor" IgnoreExitCode="false" />
+    <!-- Linux/Mac: Use Docker or build.ps1 via pwsh. build.sh was removed (stale binary names). -->
+    <Exec Condition="!$([MSBuild]::IsOSPlatform('Windows'))" Command="pwsh -File build.ps1 -Target $(RustTarget)" WorkingDirectory="$(MSBuildProjectDirectory)/../../rust-processor" IgnoreExitCode="false" />
   </Target>
 
   <!--

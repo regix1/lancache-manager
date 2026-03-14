@@ -56,6 +56,11 @@ path = "src/cache_game_detect.rs"
 name = "cache_game_remove"
 path = "src/cache_game_remove.rs"
 
+# Remove all cache files for a specific Epic game by name
+[[bin]]
+name = "cache_epic_remove"
+path = "src/cache_epic_remove.rs"
+
 # Remove all cache files for a specific service (non-Steam)
 [[bin]]
 name = "cache_service_remove"

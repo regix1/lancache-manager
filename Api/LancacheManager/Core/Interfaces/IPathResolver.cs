@@ -139,6 +139,11 @@ public interface IPathResolver
     string GetRustGameRemoverPath();
 
     /// <summary>
+    /// Gets the path to the Rust Epic game remover executable
+    /// </summary>
+    string GetRustEpicRemoverPath();
+
+    /// <summary>
     /// Gets the path to the Rust service remover executable
     /// </summary>
     string GetRustServiceRemoverPath();
