@@ -202,6 +202,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
   // History state
   const [historyExpanded, setHistoryExpanded] = useState(false);
+  const [historySessions, setHistorySessions] = useState<Session[]>([]);
 
   // Thread config state
   const [defaultGuestMaxThreadCount, setDefaultGuestMaxThreadCount] = useState<number | null>(null);
@@ -264,6 +265,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           setTotalPages(data.pagination?.totalPages || 1);
           setTotalCount(data.pagination?.totalCount || loadedSessions.length);
           setCurrentPage(data.pagination?.page || 1);
+          setHistorySessions(data.historySessions || []);
         } else {
           const errorData = await response.json();
           showToast('error', errorData.error || t('activeSessions.errors.loadSessions'));
@@ -834,8 +836,8 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   // Derived Data
   // ============================================================
 
-  const activeSessions = sessions.filter((s: Session) => !s.isRevoked && !s.isExpired);
-  const historySessions = sessions.filter((s: Session) => s.isRevoked || s.isExpired);
+  // Sessions from API are already active-only (paginated); history comes separately
+  const activeSessions = sessions;
 
   const filteredActiveSessions =
     activeFilterValue === 'all'

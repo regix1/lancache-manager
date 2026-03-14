@@ -165,12 +165,14 @@ public class SessionService
     }
 
     /// <summary>
-    /// Get all sessions with pagination (includes revoked/expired for admin view).
+    /// Get active sessions with pagination (excludes revoked/expired).
     /// </summary>
-    public async Task<(List<UserSession> Sessions, int TotalCount)> GetAllSessionsPagedAsync(int page, int pageSize)
+    public async Task<(List<UserSession> Sessions, int TotalCount)> GetActiveSessionsPagedAsync(int page, int pageSize)
     {
+        var now = DateTime.UtcNow;
         var query = _dbContext.UserSessions
             .AsNoTracking()
+            .Where(s => !s.IsRevoked && s.ExpiresAtUtc > now)
             .OrderByDescending(s => s.LastSeenAtUtc);
 
         var totalCount = await query.CountAsync();
@@ -180,6 +182,19 @@ public class SessionService
             .ToListAsync();
 
         return (sessions, totalCount);
+    }
+
+    /// <summary>
+    /// Get all revoked or expired sessions (for session history display).
+    /// </summary>
+    public async Task<List<UserSession>> GetHistorySessionsAsync()
+    {
+        var now = DateTime.UtcNow;
+        return await _dbContext.UserSessions
+            .AsNoTracking()
+            .Where(s => s.IsRevoked || s.ExpiresAtUtc <= now)
+            .OrderByDescending(s => s.RevokedAtUtc ?? s.ExpiresAtUtc)
+            .ToListAsync();
     }
 
     public async Task UpdateLastSeenAsync(UserSession session)

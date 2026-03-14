@@ -36,27 +36,32 @@ public class SessionsController : ControllerBase
         if (pageSize < 1) pageSize = 20;
         if (pageSize > 100) pageSize = 100;
 
-        var (sessions, totalCount) = await _sessionService.GetAllSessionsPagedAsync(page, pageSize);
         var currentSessionId = HttpContext.GetUserSession()?.Id;
         var now = DateTime.UtcNow;
 
-        var dtos = sessions.Select(s => MapSessionToDto(s, currentSessionId, now)).ToList();
+        // Active sessions (paginated)
+        var (activeSessions, activeCount) = await _sessionService.GetActiveSessionsPagedAsync(page, pageSize);
+        var activeDtos = activeSessions.Select(s => MapSessionToDto(s, currentSessionId, now)).ToList();
+        var totalPages = (int)Math.Ceiling((double)activeCount / pageSize);
 
-        var totalPages = (int)Math.Ceiling((double)totalCount / pageSize);
+        // History sessions (revoked/expired) - unpaginated
+        var historySessions = await _sessionService.GetHistorySessionsAsync();
+        var historyDtos = historySessions.Select(s => MapSessionToDto(s, currentSessionId, now)).ToList();
 
         return Ok(new
         {
-            sessions = dtos,
-            count = dtos.Count,
-            adminCount = dtos.Count(s => s.SessionType == "admin"),
-            guestCount = dtos.Count(s => s.SessionType == "guest"),
+            sessions = activeDtos,
+            count = activeDtos.Count,
+            adminCount = activeDtos.Count(s => s.SessionType == "admin"),
+            guestCount = activeDtos.Count(s => s.SessionType == "guest"),
             pagination = new
             {
                 page,
                 pageSize,
-                totalCount,
+                totalCount = activeCount,
                 totalPages
-            }
+            },
+            historySessions = historyDtos
         });
     }
 

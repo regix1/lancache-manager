@@ -495,7 +495,7 @@ const SessionCard: React.FC<{
                 {/* History entries */}
                 <div className="prefill-history-list">
                   {paginatedEntries.map((entry) => (
-                    <div key={entry.id} className="prefill-history-entry">
+                    <div key={entry.id} className="prefill-history-entry rounded">
                       <div className="prefill-history-entry-main">
                         <Gamepad2 className="w-4 h-4 text-themed-muted flex-shrink-0" />
                         <div className="prefill-history-entry-content">
