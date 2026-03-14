@@ -326,7 +326,7 @@ public class DatabaseService : IDatabaseService
             });
 
             // Validate table names to prevent SQL injection
-            var validTables = new HashSet<string> { "LogEntries", "Downloads", "ClientStats", "ServiceStats", "SteamDepotMappings", "CachedGameDetections", "CachedServiceDetections", "CachedCorruptionDetections", "ClientGroups", "UserSessions", "UserPreferences", "Events", "EventDownloads", "PrefillSessions", "PrefillHistoryEntries", "PrefillCachedDepots", "BannedSteamUsers", "CacheSnapshots" };
+            var validTables = new HashSet<string> { "LogEntries", "Downloads", "ClientStats", "ServiceStats", "SteamDepotMappings", "CachedGameDetections", "CachedServiceDetections", "CachedCorruptionDetections", "ClientGroups", "UserSessions", "UserPreferences", "Events", "EventDownloads", "PrefillSessions", "PrefillHistoryEntries", "PrefillCachedDepots", "BannedSteamUsers", "CacheSnapshots", "EpicGameMappings", "EpicCdnPatterns" };
             var tablesToClear = tableNames.Where(t => validTables.Contains(t)).ToList();
 
             if (tablesToClear.Count == 0)
@@ -372,6 +372,8 @@ public class DatabaseService : IDatabaseService
                             "PrefillCachedDepots" => await context.PrefillCachedDepots.CountAsync(cancellationToken),
                             "BannedSteamUsers" => await context.BannedSteamUsers.CountAsync(cancellationToken),
                             "CacheSnapshots" => await context.CacheSnapshots.CountAsync(cancellationToken),
+                            "EpicGameMappings" => await context.EpicGameMappings.CountAsync(cancellationToken),
+                            "EpicCdnPatterns" => await context.EpicCdnPatterns.CountAsync(cancellationToken),
                             _ => 0
                         };
                         totalRows += count;
@@ -898,6 +900,45 @@ public class DatabaseService : IDatabaseService
                                 percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
                                 status = "deleting",
                                 message = $"Cleared cache size history ({cacheSnapshotsCount:N0} rows)",
+                                timestamp = DateTime.UtcNow
+                            });
+                            break;
+
+                        case "EpicGameMappings":
+                            var epicMappingCount = await context.EpicGameMappings.ExecuteDeleteAsync(cancellationToken);
+                            _logger.LogInformation($"Cleared {epicMappingCount:N0} Epic game mappings");
+                            deletedRows += epicMappingCount;
+
+                            _logger.LogInformation("Clearing Epic app ID from Downloads table");
+                            await context.Downloads
+                                .Where(d => d.EpicAppId != null)
+                                .ExecuteUpdateAsync(s => s
+                                    .SetProperty(d => d.EpicAppId, (string?)null), cancellationToken);
+                            _logger.LogInformation("Cleared Epic app ID from all downloads");
+
+                            await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
+                            {
+                                operationId,
+                                isProcessing = true,
+                                percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
+                                status = "deleting",
+                                message = $"Cleared Epic game mappings ({epicMappingCount:N0} rows) and unmapped all Epic downloads",
+                                timestamp = DateTime.UtcNow
+                            });
+                            break;
+
+                        case "EpicCdnPatterns":
+                            var epicCdnCount = await context.EpicCdnPatterns.ExecuteDeleteAsync(cancellationToken);
+                            _logger.LogInformation($"Cleared {epicCdnCount:N0} Epic CDN patterns");
+                            deletedRows += epicCdnCount;
+
+                            await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
+                            {
+                                operationId,
+                                isProcessing = true,
+                                percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
+                                status = "deleting",
+                                message = $"Cleared Epic CDN patterns ({epicCdnCount:N0} rows)",
                                 timestamp = DateTime.UtcNow
                             });
                             break;

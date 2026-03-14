@@ -1383,7 +1383,9 @@
           "userSessionsCleared": "All registered devices will be cleared - you will need to re-authenticate",
           "clientGroups": "All client groups and their member associations will be permanently deleted",
           "prefillSessions": "All prefill sessions will be permanently deleted",
-          "bannedSteamUsers": "All banned Steam users will be unblocked and can prefill again"
+          "bannedSteamUsers": "All banned Steam users will be unblocked and can prefill again",
+          "epicGameMappings": "Epic games will show as \"Unknown\" until mappings are rebuilt",
+          "epicCdnPatterns": "Epic game detection may not work until CDN patterns are re-fetched"
         },
         "clearTables": "Clear {{count}} Table",
         "clearTables_plural": "Clear {{count}} Tables",
@@ -1495,6 +1497,18 @@
             "description": "Historical snapshots of cache storage usage",
             "details": "Periodic records of cache size for growth charts and analytics",
             "affectedPages": "Dashboard • Cache growth charts"
+          },
+          "epicGameMappings": {
+            "label": "Epic Game Mappings",
+            "description": "Epic Games store game name associations",
+            "details": "Mapping between Epic app IDs and game names, images, and metadata",
+            "affectedPages": "Dashboard • Downloads • Epic game name displays"
+          },
+          "epicCdnPatterns": {
+            "label": "Epic CDN Patterns",
+            "description": "Epic Games CDN URL patterns for game detection",
+            "details": "CDN host and chunk URL patterns used to identify Epic game downloads",
+            "affectedPages": "Epic game detection • Cache tab"
           }
         }
       },

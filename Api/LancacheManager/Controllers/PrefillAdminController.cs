@@ -270,8 +270,9 @@ public class PrefillAdminController : ControllerBase
             return BadRequest(ApiResponse.Error("Could not ban user - session has no username. User may not have logged in yet."));
         }
 
-        // Also terminate the session
+        // Also terminate the session (try both Steam and Epic since we don't know the platform)
         await _steamDaemonService.TerminateSessionAsync(sessionId, "Banned by admin", true, adminSessionId);
+        await _epicDaemonService.TerminateSessionAsync(sessionId, "Banned by admin", true, adminSessionId);
 
         await NotifyBannedAsync(ban);
 

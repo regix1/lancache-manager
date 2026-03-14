@@ -190,7 +190,7 @@ public class PrefillSessionService
 
         if (session != null)
         {
-            session.SteamUsername = username.Trim().ToLowerInvariant();
+            session.SteamUsername = username.Trim();
             await context.SaveChangesAsync();
 
             _logger.LogDebug("Set username for session {SessionId}: {Username}", sessionId, username);

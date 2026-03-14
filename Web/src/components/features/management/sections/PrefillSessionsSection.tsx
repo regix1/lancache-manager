@@ -215,6 +215,10 @@ const SessionCard: React.FC<{
     ? (session as DaemonSessionDto).steamUsername
     : (session as PrefillSessionDto).steamUsername;
 
+  const username = isDaemonSession
+    ? (session as DaemonSessionDto).username
+    : (session as PrefillSessionDto).username;
+
   const platform = isDaemonSession
     ? (session as DaemonSessionDto).platform || 'Steam'
     : (session as PrefillSessionDto).platform || 'Steam';
@@ -411,7 +415,7 @@ const SessionCard: React.FC<{
 
               {isAdmin && isLive && (
                 <>
-                  {platform === 'Steam' && steamUsername && onBan && (
+                  {(steamUsername || username) && onBan && (
                     <Tooltip content={t('management.prefillSessions.tooltips.banUser')}>
                       <Button
                         variant="subtle"
@@ -1018,7 +1022,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                 onToggleHistory={() => toggleHistory(session.id)}
                 onTerminate={() => handleTerminateSession(session.id)}
                 onBan={
-                  session.steamUsername
+                  session.steamUsername || session.username
                     ? () => setBanConfirm({ sessionId: session.id, reason: '' })
                     : undefined
                 }
@@ -1117,7 +1121,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                     session.isLive ? () => handleTerminateSession(session.sessionId) : undefined
                   }
                   onBan={
-                    session.isLive && session.steamUsername
+                    session.isLive && (session.steamUsername || session.username)
                       ? () => setBanConfirm({ sessionId: session.sessionId, reason: '' })
                       : undefined
                   }

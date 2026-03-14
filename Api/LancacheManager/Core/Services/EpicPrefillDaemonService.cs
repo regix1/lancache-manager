@@ -64,7 +64,7 @@ public class EpicPrefillDaemonService : PrefillDaemonServiceBase
     protected override string CredentialEncryptionHkdfInfo => "EpicPrefill-Credential-Encryption";
 
     /// <summary>
-    /// After authentication, collect owned games from all authenticated sessions in the background.
+    /// After authentication, check for banned Epic users and collect owned games from all authenticated sessions in the background.
     /// </summary>
     protected override Task OnPostAuthenticationAsync()
     {
@@ -72,6 +72,9 @@ public class EpicPrefillDaemonService : PrefillDaemonServiceBase
         {
             try
             {
+                // Check all authenticated sessions for banned users
+                await EnforceBansOnAuthenticatedSessionsAsync();
+
                 await CollectGameMappingsFromAuthenticatedSessionsAsync();
             }
             catch (Exception ex)
@@ -81,6 +84,30 @@ public class EpicPrefillDaemonService : PrefillDaemonServiceBase
         });
 
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Checks all authenticated Epic sessions against the ban list.
+    /// If a banned user is found, their session is terminated immediately.
+    /// Epic uses OAuth (authorization-url), so bans cannot be checked at credential time
+    /// like Steam — they must be enforced after authentication when the display name is known.
+    /// </summary>
+    private async Task EnforceBansOnAuthenticatedSessionsAsync()
+    {
+        foreach (var session in _sessions.Values)
+        {
+            if (session.AuthState != DaemonAuthState.Authenticated) continue;
+            if (string.IsNullOrEmpty(session.Username)) continue;
+
+            if (await _sessionService.IsUsernameBannedAsync(session.Username))
+            {
+                _logger.LogWarning(
+                    "Blocked banned Epic user {Username} after authentication. Terminating session {SessionId}",
+                    session.Username, session.Id);
+
+                await TerminateSessionAsync(session.Id, "Banned by admin", true);
+            }
+        }
     }
 
     /// <summary>

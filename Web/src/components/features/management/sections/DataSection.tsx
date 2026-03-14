@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import './DataSection.css';
 import { useTranslation } from 'react-i18next';
 import { Database, AlertTriangle } from 'lucide-react';
 import { Card } from '@components/ui/Card';
@@ -175,6 +176,20 @@ const DataSection: React.FC<DataSectionProps> = ({
       description: t('management.sections.data.tables.cacheSnapshots.description'),
       details: t('management.sections.data.tables.cacheSnapshots.details'),
       affectedPages: t('management.sections.data.tables.cacheSnapshots.affectedPages')
+    },
+    {
+      name: 'EpicGameMappings',
+      label: t('management.sections.data.tables.epicGameMappings.label'),
+      description: t('management.sections.data.tables.epicGameMappings.description'),
+      details: t('management.sections.data.tables.epicGameMappings.details'),
+      affectedPages: t('management.sections.data.tables.epicGameMappings.affectedPages')
+    },
+    {
+      name: 'EpicCdnPatterns',
+      label: t('management.sections.data.tables.epicCdnPatterns.label'),
+      description: t('management.sections.data.tables.epicCdnPatterns.description'),
+      details: t('management.sections.data.tables.epicCdnPatterns.details'),
+      affectedPages: t('management.sections.data.tables.epicCdnPatterns.affectedPages')
     }
   ];
 
@@ -394,10 +409,7 @@ const DataSection: React.FC<DataSectionProps> = ({
             {tables.map((table) => (
               <label
                 key={table.name}
-                className="p-3 rounded-lg cursor-pointer flex items-start gap-3 transition-all duration-150 bg-themed-secondary"
-                style={{
-                  border: `1px solid ${selectedTables.includes(table.name) ? 'var(--theme-primary)' : 'var(--theme-border-primary)'}`
-                }}
+                className={`db-table-item p-3 rounded-lg cursor-pointer flex items-start gap-3 transition-all duration-150 bg-themed-secondary${selectedTables.includes(table.name) ? ' db-table-item-selected' : ''}`}
               >
                 <input
                   type="checkbox"
@@ -512,6 +524,12 @@ const DataSection: React.FC<DataSectionProps> = ({
                 )}
                 {selectedTables.includes('BannedSteamUsers') && (
                   <li>{t('management.sections.data.confirmClearWarnings.bannedSteamUsers')}</li>
+                )}
+                {selectedTables.includes('EpicGameMappings') && (
+                  <li>{t('management.sections.data.confirmClearWarnings.epicGameMappings')}</li>
+                )}
+                {selectedTables.includes('EpicCdnPatterns') && (
+                  <li>{t('management.sections.data.confirmClearWarnings.epicCdnPatterns')}</li>
                 )}
               </ul>
             </div>
