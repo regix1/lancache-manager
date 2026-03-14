@@ -69,16 +69,62 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     protected abstract string EventSessionEnded { get; }
 
     /// <summary>
-    /// Called when a session becomes authenticated. Override in derived class
-    /// to notify external services (e.g., SteamKit2Service).
+    /// Event raised when any prefill daemon session becomes authenticated.
+    /// External services subscribe to this to react to daemon auth state changes.
     /// </summary>
-    protected virtual Task OnSessionAuthenticatedAsync() => Task.CompletedTask;
+    public event Func<Task>? OnDaemonAuthenticated;
 
     /// <summary>
-    /// Called when all sessions are no longer authenticated. Override in derived class
-    /// to notify external services (e.g., SteamKit2Service).
+    /// Event raised when all prefill daemon sessions are no longer authenticated.
+    /// External services subscribe to this to react to daemon auth state changes.
     /// </summary>
-    protected virtual Task OnAllSessionsLoggedOutAsync() => Task.CompletedTask;
+    public event Func<Task>? OnAllDaemonsLoggedOut;
+
+    /// <summary>
+    /// Called when a session becomes authenticated.
+    /// Fires the OnDaemonAuthenticated event and calls OnPostAuthenticationAsync for derived class hooks.
+    /// </summary>
+    protected virtual async Task OnSessionAuthenticatedAsync()
+    {
+        if (OnDaemonAuthenticated != null)
+        {
+            try
+            {
+                await OnDaemonAuthenticated.Invoke();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in OnDaemonAuthenticated handler");
+            }
+        }
+
+        await OnPostAuthenticationAsync();
+    }
+
+    /// <summary>
+    /// Called when all sessions are no longer authenticated.
+    /// Fires the OnAllDaemonsLoggedOut event.
+    /// </summary>
+    protected virtual async Task OnAllSessionsLoggedOutAsync()
+    {
+        if (OnAllDaemonsLoggedOut != null)
+        {
+            try
+            {
+                await OnAllDaemonsLoggedOut.Invoke();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in OnAllDaemonsLoggedOut handler");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Virtual hook called after OnDaemonAuthenticated fires.
+    /// Override in derived classes for service-specific post-authentication behavior.
+    /// </summary>
+    protected virtual Task OnPostAuthenticationAsync() => Task.CompletedTask;
 
     /// <summary>
     /// If true, use Epic hub context for per-connection notifications.

@@ -9,7 +9,7 @@ public class SessionAuthMiddleware
     private readonly ILogger<SessionAuthMiddleware> _logger;
 
     // Public endpoints - no session required at all
-    private static readonly HashSet<string> PublicExactPaths = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly HashSet<string> _publicExactPaths = new(StringComparer.OrdinalIgnoreCase)
     {
         "/api/auth/status",
         "/api/auth/login",
@@ -24,7 +24,7 @@ public class SessionAuthMiddleware
         "/health"
     };
 
-    private static readonly string[] PublicPrefixes = new[]
+    private static readonly string[] _publicPrefixes = new[]
     {
         "/api/themes",
         "/api/game-images",
@@ -33,7 +33,7 @@ public class SessionAuthMiddleware
     };
 
     // Guest-allowed GET endpoints (guest OR admin can access)
-    private static readonly string[] GuestGetPrefixes = new[]
+    private static readonly string[] _guestGetPrefixes = new[]
     {
         "/api/downloads",
         "/api/stats",
@@ -53,7 +53,7 @@ public class SessionAuthMiddleware
     };
 
     // Prefill endpoints allowed for guests WITH active prefill access (GET + POST)
-    private static readonly string[] GuestPrefillPrefixes = new[]
+    private static readonly string[] _guestPrefillPrefixes = new[]
     {
         "/api/steam-daemon",
         "/api/epic-daemon",
@@ -86,7 +86,7 @@ public class SessionAuthMiddleware
         if (IsPublicEndpoint(path))
         {
             // Still try to attach session for context, but don't require it
-            await TryAttachSession(context);
+            await TryAttachSessionAsync(context);
             await _next(context);
             return;
         }
@@ -99,7 +99,7 @@ public class SessionAuthMiddleware
         }
 
         // Try to validate session
-        var session = await TryAttachSession(context);
+        var session = await TryAttachSessionAsync(context);
 
         if (session == null)
         {
@@ -121,7 +121,7 @@ public class SessionAuthMiddleware
         await _next(context);
     }
 
-    private async Task<UserSession?> TryAttachSession(HttpContext context)
+    private async Task<UserSession?> TryAttachSessionAsync(HttpContext context)
     {
         var rawToken = SessionService.GetSessionTokenFromCookie(context);
         if (string.IsNullOrEmpty(rawToken))
@@ -143,10 +143,10 @@ public class SessionAuthMiddleware
 
     private static bool IsPublicEndpoint(string path)
     {
-        if (PublicExactPaths.Contains(path))
+        if (_publicExactPaths.Contains(path))
             return true;
 
-        foreach (var prefix in PublicPrefixes)
+        foreach (var prefix in _publicPrefixes)
         {
             if (path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                 return true;
@@ -156,7 +156,7 @@ public class SessionAuthMiddleware
     }
 
     // Guest-allowed read/write endpoints (GET, PUT, PATCH)
-    private static readonly string[] GuestReadWritePrefixes = new[]
+    private static readonly string[] _guestReadWritePrefixes = new[]
     {
         "/api/user-preferences"
     };
@@ -166,7 +166,7 @@ public class SessionAuthMiddleware
         // Check standard guest GET endpoints first
         if (string.Equals(method, "GET", StringComparison.OrdinalIgnoreCase))
         {
-            foreach (var prefix in GuestGetPrefixes)
+            foreach (var prefix in _guestGetPrefixes)
             {
                 if (path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                     return true;
@@ -178,7 +178,7 @@ public class SessionAuthMiddleware
             string.Equals(method, "PUT", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(method, "PATCH", StringComparison.OrdinalIgnoreCase))
         {
-            foreach (var prefix in GuestReadWritePrefixes)
+            foreach (var prefix in _guestReadWritePrefixes)
             {
                 if (path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                     return true;

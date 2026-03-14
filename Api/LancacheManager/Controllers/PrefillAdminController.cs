@@ -2,6 +2,7 @@ using LancacheManager.Models;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Middleware;
 using LancacheManager.Hubs;
 using Microsoft.AspNetCore.Mvc;
 
@@ -38,8 +39,41 @@ public class PrefillAdminController : ControllerBase
         _notifications = notifications;
     }
 
-    private UserSession? GetSession() => HttpContext.Items["Session"] as UserSession;
+    private UserSession? GetSession() => HttpContext.GetUserSession();
     private string GetSessionId() => GetSession()?.Id.ToString() ?? "unknown";
+
+    /// <summary>
+    /// Builds a BannedSteamUserDto from a BannedSteamUser entity (always sets IsActive = true for new bans).
+    /// </summary>
+    private static BannedSteamUserDto BuildBanDto(BannedSteamUser ban) => new()
+    {
+        Id = ban.Id,
+        Username = ban.Username,
+        BanReason = ban.BanReason,
+        BannedBySessionId = ban.BannedBySessionId,
+        BannedAtUtc = ban.BannedAtUtc,
+        BannedBy = ban.BannedBy,
+        ExpiresAtUtc = ban.ExpiresAtUtc,
+        IsLifted = ban.IsLifted,
+        IsActive = true
+    };
+
+    /// <summary>
+    /// Notifies the banned user's session via SignalR so their UI updates immediately.
+    /// </summary>
+    private async Task NotifyBannedAsync(BannedSteamUser ban)
+    {
+        if (!string.IsNullOrEmpty(ban.BannedBySessionId))
+        {
+            await _notifications.NotifyAllAsync(SignalREvents.SteamUserBanned, new
+            {
+                sessionId = ban.BannedBySessionId,
+                username = ban.Username,
+                reason = ban.BanReason,
+                expiresAt = ban.ExpiresAtUtc?.ToString("o")
+            });
+        }
+    }
 
     #region Session Management
 
@@ -239,33 +273,12 @@ public class PrefillAdminController : ControllerBase
         // Also terminate the session
         await _steamDaemonService.TerminateSessionAsync(sessionId, "Banned by admin", true, adminSessionId);
 
-        // Notify the banned session via SignalR so their UI updates immediately
-        if (!string.IsNullOrEmpty(ban.BannedBySessionId))
-        {
-            await _notifications.NotifyAllAsync(SignalREvents.SteamUserBanned, new
-            {
-                sessionId = ban.BannedBySessionId,
-                username = ban.Username,
-                reason = ban.BanReason,
-                expiresAt = ban.ExpiresAtUtc?.ToString("o")
-            });
-        }
+        await NotifyBannedAsync(ban);
 
         _logger.LogWarning("Admin session {AdminId} banned Steam user {Username} from session {SessionId}. Reason: {Reason}",
             adminSessionId, ban.Username, sessionId, request.Reason);
 
-        return Ok(new BannedSteamUserDto
-        {
-            Id = ban.Id,
-            Username = ban.Username,
-            BanReason = ban.BanReason,
-            BannedBySessionId = ban.BannedBySessionId,
-            BannedAtUtc = ban.BannedAtUtc,
-            BannedBy = ban.BannedBy,
-            ExpiresAtUtc = ban.ExpiresAtUtc,
-            IsLifted = ban.IsLifted,
-            IsActive = true
-        });
+        return Ok(BuildBanDto(ban));
     }
 
     /// <summary>
@@ -288,33 +301,12 @@ public class PrefillAdminController : ControllerBase
             adminSessionId,
             request.ExpiresAt);
 
-        // Notify the banned session via SignalR so their UI updates immediately
-        if (!string.IsNullOrEmpty(ban.BannedBySessionId))
-        {
-            await _notifications.NotifyAllAsync(SignalREvents.SteamUserBanned, new
-            {
-                sessionId = ban.BannedBySessionId,
-                username = ban.Username,
-                reason = ban.BanReason,
-                expiresAt = ban.ExpiresAtUtc?.ToString("o")
-            });
-        }
+        await NotifyBannedAsync(ban);
 
         _logger.LogWarning("Admin session {AdminId} banned Steam user {Username}. Reason: {Reason}",
             adminSessionId, ban.Username, request.Reason);
 
-        return Ok(new BannedSteamUserDto
-        {
-            Id = ban.Id,
-            Username = ban.Username,
-            BanReason = ban.BanReason,
-            BannedBySessionId = ban.BannedBySessionId,
-            BannedAtUtc = ban.BannedAtUtc,
-            BannedBy = ban.BannedBy,
-            ExpiresAtUtc = ban.ExpiresAtUtc,
-            IsLifted = ban.IsLifted,
-            IsActive = true
-        });
+        return Ok(BuildBanDto(ban));
     }
 
     /// <summary>

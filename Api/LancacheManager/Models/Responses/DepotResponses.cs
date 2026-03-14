@@ -109,10 +109,3 @@ public class CrawlIntervalResponse
     public int IntervalHours { get; set; }
 }
 
-/// <summary>
-/// Response for depot rebuild cancel
-/// </summary>
-public class DepotRebuildCancelResponse
-{
-    public string Message { get; set; } = string.Empty;
-}

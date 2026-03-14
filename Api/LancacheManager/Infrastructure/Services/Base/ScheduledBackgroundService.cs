@@ -9,8 +9,8 @@ namespace LancacheManager.Infrastructure.Services.Base;
 /// </summary>
 public abstract class ScheduledBackgroundService : BackgroundService
 {
-    protected readonly ILogger Logger;
-    protected readonly IConfiguration Configuration;
+    protected readonly ILogger _logger;
+    protected readonly IConfiguration _configuration;
 
     /// <summary>
     /// The name of this service for logging purposes.
@@ -46,8 +46,8 @@ public abstract class ScheduledBackgroundService : BackgroundService
 
     protected ScheduledBackgroundService(ILogger logger, IConfiguration configuration)
     {
-        Logger = logger;
-        Configuration = configuration;
+        _logger = logger;
+        _configuration = configuration;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -55,19 +55,19 @@ public abstract class ScheduledBackgroundService : BackgroundService
         // Check if enabled
         if (!IsEnabled())
         {
-            Logger.LogInformation("{ServiceName} is disabled", ServiceName);
+            _logger.LogInformation("{ServiceName} is disabled", ServiceName);
             return;
         }
 
         // Startup delay
         if (StartupDelay > TimeSpan.Zero)
         {
-            Logger.LogDebug("{ServiceName} waiting {Delay} before starting",
+            _logger.LogDebug("{ServiceName} waiting {Delay} before starting",
                 ServiceName, StartupDelay);
             await Task.Delay(StartupDelay, stoppingToken);
         }
 
-        Logger.LogInformation("{ServiceName} started", ServiceName);
+        _logger.LogInformation("{ServiceName} started", ServiceName);
 
         // Optional: Run once at startup
         if (RunOnStartup)
@@ -78,7 +78,7 @@ public abstract class ScheduledBackgroundService : BackgroundService
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                Logger.LogError(ex, "{ServiceName} startup execution failed", ServiceName);
+                _logger.LogError(ex, "{ServiceName} startup execution failed", ServiceName);
             }
         }
 
@@ -95,7 +95,7 @@ public abstract class ScheduledBackgroundService : BackgroundService
             }
             catch (Exception ex)
             {
-                Logger.LogError(ex, "{ServiceName} error in execution loop", ServiceName);
+                _logger.LogError(ex, "{ServiceName} error in execution loop", ServiceName);
                 await SafeDelayAsync(ErrorRetryDelay, stoppingToken);
                 continue;
             }
@@ -106,7 +106,7 @@ public abstract class ScheduledBackgroundService : BackgroundService
             }
         }
 
-        Logger.LogInformation("{ServiceName} stopped", ServiceName);
+        _logger.LogInformation("{ServiceName} stopped", ServiceName);
     }
 
     /// <summary>
@@ -133,7 +133,7 @@ public abstract class ScheduledBackgroundService : BackgroundService
         if (string.IsNullOrEmpty(EnabledConfigKey))
             return true;
 
-        return Configuration.GetValue<bool>(EnabledConfigKey, EnabledByDefault);
+        return _configuration.GetValue<bool>(EnabledConfigKey, EnabledByDefault);
     }
 
     /// <summary>

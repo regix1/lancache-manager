@@ -1,7 +1,7 @@
 using System.Text.Json;
-using LancacheManager.Infrastructure.Data;
-using LancacheManager.Infrastructure.Services;
+using LancacheManager.Extensions;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -421,24 +421,23 @@ public class PicsDataService
     {
         try
         {
-            using var scope = _scopeFactory.CreateScope();
-            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            using var scopedDb = _scopeFactory.CreateScopedDbContext();
 
             int count;
             if (preserveOrphanResolved)
             {
                 // Preserve locally-resolved orphan depot mappings (delisted/removed games)
                 // These mappings were discovered via direct PICS queries and won't be in GitHub data
-                count = await context.SteamDepotMappings
+                count = await scopedDb.DbContext.SteamDepotMappings
                     .Where(m => m.Source != "orphan-resolved")
                     .ExecuteDeleteAsync(cancellationToken);
 
-                var preserved = await context.SteamDepotMappings.CountAsync(cancellationToken);
+                var preserved = await scopedDb.DbContext.SteamDepotMappings.CountAsync(cancellationToken);
                 _logger.LogInformation("Cleared {Deleted} depot mappings from database (preserved {Preserved} orphan-resolved mappings)", count, preserved);
             }
             else
             {
-                count = await context.SteamDepotMappings.ExecuteDeleteAsync(cancellationToken);
+                count = await scopedDb.DbContext.SteamDepotMappings.ExecuteDeleteAsync(cancellationToken);
                 _logger.LogInformation("Successfully cleared {Count} depot mappings from database", count);
             }
         }
@@ -486,8 +485,7 @@ public class PicsDataService
 
             if (progressCallback != null) await progressCallback("Processing depot mappings...", 5);
 
-            using var scope = _scopeFactory.CreateScope();
-            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            using var scopedDb = _scopeFactory.CreateScopedDbContext();
 
             // Phase 2: Build mappings list (5-20%)
             var mappingsToImport = new List<SteamDepotMapping>();
@@ -556,7 +554,7 @@ public class PicsDataService
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var batchDepotIds = depotIds.Skip(i).Take(queryBatchSize).ToList();
-                var batchMappings = await context.SteamDepotMappings
+                var batchMappings = await scopedDb.DbContext.SteamDepotMappings
                     .Where(m => batchDepotIds.Contains(m.DepotId))
                     .ToListAsync(cancellationToken);
 
@@ -633,15 +631,15 @@ public class PicsDataService
 
                 try
                 {
-                    await context.SteamDepotMappings.AddRangeAsync(batch, cancellationToken);
-                    await context.SaveChangesAsync(cancellationToken);
+                    await scopedDb.DbContext.SteamDepotMappings.AddRangeAsync(batch, cancellationToken);
+                    await scopedDb.DbContext.SaveChangesAsync(cancellationToken);
                 }
                 catch (DbUpdateException ex) when (ex.InnerException is SqliteException sqliteEx && sqliteEx.SqliteErrorCode == 19)
                 {
                     // UNIQUE constraint violation - duplicates already exist
                     // This can happen if the same data is imported multiple times
                     // Just clear the context and continue - the data is already there
-                    context.ChangeTracker.Clear();
+                    scopedDb.DbContext.ChangeTracker.Clear();
                     _logger.LogDebug("Skipped batch with duplicate mappings - data already exists");
                 }
 
@@ -663,14 +661,14 @@ public class PicsDataService
             {
                 try
                 {
-                    await context.SaveChangesAsync(cancellationToken);
+                    await scopedDb.DbContext.SaveChangesAsync(cancellationToken);
                 }
                 catch (DbUpdateConcurrencyException)
                 {
                     // Concurrency error - mappings may have been deleted during import
                     // This can happen if depot mappings were cleared while import was running
                     _logger.LogWarning("Concurrency conflict when saving updates - mappings may have been deleted. Clearing change tracker.");
-                    context.ChangeTracker.Clear();
+                    scopedDb.DbContext.ChangeTracker.Clear();
                     updated = 0; // Reset count since updates failed
                 }
             }

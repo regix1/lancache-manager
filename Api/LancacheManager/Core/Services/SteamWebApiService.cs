@@ -161,6 +161,17 @@ public class SteamWebApiService
     }
 
     /// <summary>
+    /// Shared helper that creates an HttpClient, sets the timeout, and performs a GET request.
+    /// Callers are responsible for disposing the returned HttpResponseMessage.
+    /// </summary>
+    private async Task<HttpResponseMessage> FetchAsync(string url, TimeSpan timeout, CancellationToken ct = default)
+    {
+        using var client = _httpClientFactory.CreateClient();
+        client.Timeout = timeout;
+        return await client.GetAsync(url, ct);
+    }
+
+    /// <summary>
     /// Test Steam Web API V2 availability (no API key required)
     /// Tests the ISteamApps/GetAppList/v2 endpoint which should work without authentication
     /// </summary>
@@ -168,13 +179,10 @@ public class SteamWebApiService
     {
         try
         {
-            using var client = _httpClientFactory.CreateClient();
-            client.Timeout = TimeSpan.FromSeconds(10);
-
             // V2 endpoint for getting app list (no key required)
             var url = "https://api.steampowered.com/ISteamApps/GetAppList/v2/";
 
-            var response = await client.GetAsync(url);
+            using var response = await FetchAsync(url, TimeSpan.FromSeconds(10));
 
             if (response.IsSuccessStatusCode)
             {
@@ -205,13 +213,10 @@ public class SteamWebApiService
     {
         try
         {
-            using var client = _httpClientFactory.CreateClient();
-            client.Timeout = TimeSpan.FromSeconds(10);
-
             // V1 endpoint that validates API key
             var url = $"https://api.steampowered.com/IStoreService/GetAppList/v1/?key={apiKey}&max_results=1";
 
-            var response = await client.GetAsync(url);
+            using var response = await FetchAsync(url, TimeSpan.FromSeconds(10));
 
             // Check if response is successful (200 OK means valid key)
             if (response.IsSuccessStatusCode)
@@ -366,9 +371,6 @@ public class SteamWebApiService
             return null;
         }
 
-        using var client = _httpClientFactory.CreateClient();
-        client.Timeout = TimeSpan.FromSeconds(30);
-
         var allApps = new List<SteamApp>();
         uint lastAppId = 0;
         int pageCount = 0;
@@ -381,7 +383,7 @@ public class SteamWebApiService
             pageCount++;
             var url = $"https://api.steampowered.com/IStoreService/GetAppList/v1/?key={apiKey}&max_results=50000&last_appid={lastAppId}";
 
-            var response = await client.GetAsync(url);
+            using var response = await FetchAsync(url, TimeSpan.FromSeconds(30));
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogError("Failed to get V1 app list page {Page}: HTTP {StatusCode}", pageCount, response.StatusCode);
@@ -417,11 +419,8 @@ public class SteamWebApiService
     {
         try
         {
-            using var client = _httpClientFactory.CreateClient();
-            client.Timeout = TimeSpan.FromSeconds(30);
-
             var url = "https://api.steampowered.com/ISteamApps/GetAppList/v2/";
-            var response = await client.GetAsync(url);
+            using var response = await FetchAsync(url, TimeSpan.FromSeconds(30));
 
             if (!response.IsSuccessStatusCode)
             {

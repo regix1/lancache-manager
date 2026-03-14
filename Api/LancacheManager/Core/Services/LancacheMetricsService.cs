@@ -126,7 +126,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
             ?? Assembly.GetExecutingAssembly().GetName().Version?.ToString()
             ?? "unknown";
 
-        Logger.LogInformation("Initializing LancacheMetricsService v{Version}", _version);
+        _logger.LogInformation("Initializing LancacheMetricsService v{Version}", _version);
 
         _meter = new Meter("LancacheManager", "1.0.0");
 
@@ -368,7 +368,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
             description: "Total downloads per client (top 10)"
         );
 
-        Logger.LogInformation("LancacheMetricsService initialization complete");
+        _logger.LogInformation("LancacheMetricsService initialization complete");
     }
 
     // Service metrics measurement providers
@@ -507,7 +507,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         {
             if (_updateIntervalSeconds != seconds)
             {
-                Logger.LogInformation("Metrics update interval changed from {Old}s to {New}s", _updateIntervalSeconds, seconds);
+                _logger.LogInformation("Metrics update interval changed from {Old}s to {New}s", _updateIntervalSeconds, seconds);
                 _updateIntervalSeconds = seconds;
             }
         }
@@ -527,7 +527,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         int logFrequency = Math.Max(1, 600 / _updateIntervalSeconds); // Log roughly every 10 minutes
         if (_updateCount % logFrequency == 0)
         {
-            Logger.LogDebug(
+            _logger.LogDebug(
                 "Metrics updated - Downloads: {Downloads}, Services: {Services}, ActiveDownloads: {Active}",
                 _totalDownloads, _serviceMetrics.Count, _activeDownloads
             );
@@ -556,7 +556,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         }
         catch (Exception ex)
         {
-            Logger.LogDebug(ex, "Failed to get cache storage info");
+            _logger.LogDebug(ex, "Failed to get cache storage info");
         }
 
         // ============================================

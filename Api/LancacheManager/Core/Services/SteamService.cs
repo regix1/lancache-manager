@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
-using LancacheManager.Infrastructure.Data;
+using LancacheManager.Extensions;
 using LancacheManager.Models;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -150,11 +150,10 @@ public class SteamService : IHostedService, IDisposable
     {
         try
         {
-            using var scope = _scopeFactory.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            using var scopedDb = _scopeFactory.CreateScopedDbContext();
 
             // Load depot mappings from database and bucket by depot
-            var depotMappings = await dbContext.SteamDepotMappings.AsNoTracking().ToListAsync();
+            var depotMappings = await scopedDb.DbContext.SteamDepotMappings.AsNoTracking().ToListAsync();
 
             var grouped = new Dictionary<uint, HashSet<uint>>();
             foreach (var mapping in depotMappings)
@@ -200,11 +199,10 @@ public class SteamService : IHostedService, IDisposable
     {
         try
         {
-            using var scope = _scopeFactory.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            using var scopedDb = _scopeFactory.CreateScopedDbContext();
 
             // Save depot mappings (if new entries were discovered)
-            var existingMappings = await dbContext.SteamDepotMappings
+            var existingMappings = await scopedDb.DbContext.SteamDepotMappings
                 .AsNoTracking()
                 .ToDictionaryAsync(m => (m.DepotId, m.AppId));
 
@@ -227,7 +225,7 @@ public class SteamService : IHostedService, IDisposable
                         DiscoveredAt = DateTime.UtcNow
                     };
 
-                    dbContext.SteamDepotMappings.Add(newMapping);
+                    scopedDb.DbContext.SteamDepotMappings.Add(newMapping);
                     existingMappings[(depotId, appId)] = newMapping;
                     added++;
                 }
@@ -237,7 +235,7 @@ public class SteamService : IHostedService, IDisposable
             {
                 try
                 {
-                    await dbContext.SaveChangesAsync();
+                    await scopedDb.DbContext.SaveChangesAsync();
                     _logger.LogInformation("Saved {Count} depot mappings to database", added);
                 }
                 catch (DbUpdateException ex) when (ex.InnerException is SqliteException sqliteEx && sqliteEx.SqliteErrorCode == 19)
@@ -296,11 +294,10 @@ public class SteamService : IHostedService, IDisposable
     {
         try
         {
-            using var scope = _scopeFactory.CreateScope();
-            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            using var scopedDb = _scopeFactory.CreateScopedDbContext();
 
             // Only return owner apps - no fallback/guessing
-            var appIds = context.SteamDepotMappings
+            var appIds = scopedDb.DbContext.SteamDepotMappings
                 .Where(m => m.DepotId == depotId && m.IsOwner)  // Owner apps only
                 .Select(m => m.AppId)
                 .ToList();

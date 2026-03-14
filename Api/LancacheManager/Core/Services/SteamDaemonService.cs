@@ -17,18 +17,6 @@ public partial class SteamDaemonService : PrefillDaemonServiceBase
 
     private readonly ISteamAuthStorageService _steamAuthStorage;
 
-    /// <summary>
-    /// Event raised when any prefill daemon session becomes authenticated.
-    /// SteamKit2Service subscribes to this to yield its session.
-    /// </summary>
-    public event Func<Task>? OnDaemonAuthenticated;
-
-    /// <summary>
-    /// Event raised when all prefill daemon sessions are no longer authenticated.
-    /// SteamKit2Service subscribes to this to resume its session.
-    /// </summary>
-    public event Func<Task>? OnAllDaemonsLoggedOut;
-
     public SteamDaemonService(
         ILogger<SteamDaemonService> logger,
         ISignalRNotificationService notifications,
@@ -71,46 +59,6 @@ public partial class SteamDaemonService : PrefillDaemonServiceBase
     protected override string EventPrefillProgress => SignalREvents.PrefillProgress;
     protected override string EventPrefillHistoryUpdated => SignalREvents.PrefillHistoryUpdated;
     protected override string EventSessionEnded => SignalREvents.SessionEnded;
-
-    // === Virtual hook overrides for Steam-specific behavior ===
-
-    /// <summary>
-    /// Called when a session becomes authenticated.
-    /// Fires the OnDaemonAuthenticated C# event so SteamKit2Service can yield its session.
-    /// </summary>
-    protected override async Task OnSessionAuthenticatedAsync()
-    {
-        if (OnDaemonAuthenticated != null)
-        {
-            try
-            {
-                await OnDaemonAuthenticated.Invoke();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error in OnDaemonAuthenticated handler");
-            }
-        }
-    }
-
-    /// <summary>
-    /// Called when all sessions are no longer authenticated.
-    /// Fires the OnAllDaemonsLoggedOut C# event so SteamKit2Service can resume its session.
-    /// </summary>
-    protected override async Task OnAllSessionsLoggedOutAsync()
-    {
-        if (OnAllDaemonsLoggedOut != null)
-        {
-            try
-            {
-                await OnAllDaemonsLoggedOut.Invoke();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error in OnAllDaemonsLoggedOut handler");
-            }
-        }
-    }
 
     // === Steam-specific credential handling (ban checking) ===
 

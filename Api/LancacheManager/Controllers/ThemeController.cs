@@ -21,7 +21,7 @@ public class ThemeController : ControllerBase
     private readonly ISignalRNotificationService _notifications;
 
     // System theme IDs that cannot be deleted
-    private static readonly string[] SYSTEM_THEMES = { "dark-default", "light-default" };
+    private static readonly string[] _systemThemes = { "dark-default", "light-default" };
 
     public ThemeController(
         IConfiguration configuration,
@@ -46,6 +46,31 @@ public class ThemeController : ControllerBase
         // Frontend theme service handles built-in themes, backend only manages custom uploaded themes
     }
 
+    /// <summary>
+    /// Validates and sanitizes a theme ID from a request.
+    /// Returns null with the sanitized themeId if valid, or an IActionResult error if invalid.
+    /// </summary>
+    private (string? themeId, IActionResult? error) ValidateAndSanitizeThemeId(ThemePreferenceRequest? request)
+    {
+        if (request == null || string.IsNullOrWhiteSpace(request.ThemeId))
+        {
+            return (null, BadRequest(new ErrorResponse { Error = "Theme ID is required" }));
+        }
+
+        var themeId = Regex.Replace(request.ThemeId, @"[^a-zA-Z0-9-_]", "").ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(themeId))
+        {
+            return (null, BadRequest(new ErrorResponse { Error = "Theme ID is required" }));
+        }
+
+        if (!ThemeExists(themeId))
+        {
+            return (null, NotFound(new ErrorResponse { Error = "Theme not found" }));
+        }
+
+        return (themeId, null);
+    }
+
     private bool ThemeExists(string themeId)
     {
         if (string.IsNullOrWhiteSpace(themeId))
@@ -53,7 +78,7 @@ public class ThemeController : ControllerBase
             return false;
         }
 
-        if (SYSTEM_THEMES.Contains(themeId))
+        if (_systemThemes.Contains(themeId))
         {
             return true;
         }
@@ -80,7 +105,7 @@ public class ThemeController : ControllerBase
         var themeFiles = jsonFiles.Concat(tomlFiles).ToArray();
 
         // System themes are provided by frontend but marked as protected
-        var systemThemes = SYSTEM_THEMES;
+        var systemThemes = _systemThemes;
 
         foreach (var file in themeFiles)
         {
@@ -280,7 +305,7 @@ public class ThemeController : ControllerBase
         }
 
         // Prevent deletion of system themes
-        if (SYSTEM_THEMES.Contains(id))
+        if (_systemThemes.Contains(id))
         {
             _logger.LogWarning($"Attempted to delete system theme: {id}");
             return BadRequest(new ErrorResponse
@@ -421,7 +446,7 @@ public class ThemeController : ControllerBase
             var fileName = Path.GetFileNameWithoutExtension(file);
 
             // Skip system themes
-            if (SYSTEM_THEMES.Contains(fileName))
+            if (_systemThemes.Contains(fileName))
             {
                 _logger.LogInformation($"Skipping system theme: {fileName}");
                 continue;
@@ -448,7 +473,7 @@ public class ThemeController : ControllerBase
             Message = $"Cleanup complete. Deleted {deletedThemes.Count} theme(s)",
             DeletedThemes = deletedThemes,
             Errors = errors,
-            RemainingThemes = SYSTEM_THEMES
+            RemainingThemes = _systemThemes
         });
     }
 
@@ -468,24 +493,10 @@ public class ThemeController : ControllerBase
     [HttpPut("preference")]
     public IActionResult SetThemePreference([FromBody] ThemePreferenceRequest request)
     {
-        if (request == null || string.IsNullOrWhiteSpace(request.ThemeId))
-        {
-            return BadRequest(new ErrorResponse { Error = "Theme ID is required" });
-        }
+        var (themeId, error) = ValidateAndSanitizeThemeId(request);
+        if (error != null) return error;
 
-        // Sanitize theme ID
-        var themeId = Regex.Replace(request.ThemeId, @"[^a-zA-Z0-9-_]", "").ToLowerInvariant();
-        if (string.IsNullOrWhiteSpace(themeId))
-        {
-            return BadRequest(new ErrorResponse { Error = "Theme ID is required" });
-        }
-
-        if (!ThemeExists(themeId))
-        {
-            return NotFound(new ErrorResponse { Error = "Theme not found" });
-        }
-
-        _stateRepository.SetSelectedTheme(themeId);
+        _stateRepository.SetSelectedTheme(themeId!);
         _logger.LogInformation($"Updated theme preference to: {themeId}");
 
         return Ok(new ThemePreferenceResponse
@@ -512,24 +523,10 @@ public class ThemeController : ControllerBase
     [HttpPut("preferences/guest")]
     public async Task<IActionResult> SetDefaultGuestTheme([FromBody] ThemePreferenceRequest request)
     {
-        if (request == null || string.IsNullOrWhiteSpace(request.ThemeId))
-        {
-            return BadRequest(new ErrorResponse { Error = "Theme ID is required" });
-        }
+        var (themeId, error) = ValidateAndSanitizeThemeId(request);
+        if (error != null) return error;
 
-        // Sanitize theme ID
-        var themeId = Regex.Replace(request.ThemeId, @"[^a-zA-Z0-9-_]", "").ToLowerInvariant();
-        if (string.IsNullOrWhiteSpace(themeId))
-        {
-            return BadRequest(new ErrorResponse { Error = "Theme ID is required" });
-        }
-
-        if (!ThemeExists(themeId))
-        {
-            return NotFound(new ErrorResponse { Error = "Theme not found" });
-        }
-
-        _stateRepository.SetDefaultGuestTheme(themeId);
+        _stateRepository.SetDefaultGuestTheme(themeId!);
         _logger.LogInformation($"Updated default guest theme to: {themeId}");
 
         // Broadcast theme change to all connected clients

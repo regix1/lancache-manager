@@ -13,7 +13,6 @@ namespace LancacheManager.Core.Services;
 /// </summary>
 public class RustSpeedTrackerService : ScheduledBackgroundService
 {
-    private readonly ILogger<RustSpeedTrackerService> _logger;
     private readonly IPathResolver _pathResolver;
     private readonly DatasourceService _datasourceService;
     private readonly ISignalRNotificationService _notifications;
@@ -37,7 +36,6 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
         ISignalRNotificationService notifications)
         : base(logger, configuration)
     {
-        _logger = logger;
         _pathResolver = pathResolver;
         _datasourceService = datasourceService;
         _notifications = notifications;

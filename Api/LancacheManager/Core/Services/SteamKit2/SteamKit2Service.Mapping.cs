@@ -1,3 +1,4 @@
+using LancacheManager.Extensions;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
@@ -15,12 +16,11 @@ public partial class SteamKit2Service
     {
         try
         {
-            using var scope = _scopeFactory.CreateScope();
-            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            using var scopedDb = _scopeFactory.CreateScopedDbContext();
 
             _logger.LogInformation("Clearing game information from Downloads table (GameName, GameImageUrl, GameAppId)");
 
-            await context.Downloads
+            await scopedDb.DbContext.Downloads
                 .ExecuteUpdateAsync(s => s
                     .SetProperty(d => d.GameName, (string?)null)
                     .SetProperty(d => d.GameImageUrl, (string?)null)
@@ -52,9 +52,8 @@ public partial class SteamKit2Service
 
         await UpdateDownloadsWithDepotMappings();
 
-        using var scope = _scopeFactory.CreateScope();
-        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        var unmappedCount = await context.Downloads
+        using var scopedDb = _scopeFactory.CreateScopedDbContext();
+        var unmappedCount = await scopedDb.DbContext.Downloads
             .Where(d => d.DepotId.HasValue && d.GameAppId == null)
             .Select(d => d.DepotId!.Value)
             .Distinct()
@@ -129,11 +128,10 @@ public partial class SteamKit2Service
                 return new List<uint>();
             }
 
-            using var scope = _scopeFactory.CreateScope();
-            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            using var scopedDb = _scopeFactory.CreateScopedDbContext();
 
             // Find depot IDs that have no GameAppId, are not in _depotOwners, and have no DB mapping with IsOwner=true
-            var unmappedDepotIds = await context.Downloads
+            var unmappedDepotIds = await scopedDb.DbContext.Downloads
                 .Where(d => d.DepotId.HasValue && d.GameAppId == null)
                 .Select(d => d.DepotId!.Value)
                 .Distinct()
@@ -146,7 +144,7 @@ public partial class SteamKit2Service
             }
 
             // Filter out depots that are already mapped in memory or database
-            var dbMappedDepotsList = await context.SteamDepotMappings
+            var dbMappedDepotsList = await scopedDb.DbContext.SteamDepotMappings
                 .Where(m => unmappedDepotIds.Contains(m.DepotId) && m.IsOwner)
                 .Select(m => m.DepotId)
                 .ToListAsync(ct);
@@ -233,20 +231,7 @@ public partial class SteamKit2Service
 
             try
             {
-                var tokensJob = _steamApps!.PICSGetAccessTokens(batch, Enumerable.Empty<uint>());
-                var tokens = await WaitForCallbackAsync(tokensJob, ct);
-
-                var appRequests = new List<SteamApps.PICSRequest>(batch.Length);
-                foreach (var appId in batch)
-                {
-                    var request = new SteamApps.PICSRequest(appId);
-                    if (tokens.AppTokens.TryGetValue(appId, out var token))
-                        request.AccessToken = token;
-                    appRequests.Add(request);
-                }
-
-                var productJob = _steamApps.PICSGetProductInfo(appRequests, Enumerable.Empty<SteamApps.PICSRequest>());
-                var productCallbacks = await WaitForAllProductInfoAsync(productJob, ct);
+                var productCallbacks = await FetchProductInfoBatchAsync(batch, ct);
 
                 foreach (var cb in productCallbacks)
                 {
@@ -299,11 +284,10 @@ public partial class SteamKit2Service
     {
         try
         {
-            using var scope = _scopeFactory.CreateScope();
-            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            using var scopedDb = _scopeFactory.CreateScopedDbContext();
 
             var depotIdSet = newMappings.Select(m => m.DepotId).Distinct().ToList();
-            var existingDepotIds = await context.SteamDepotMappings
+            var existingDepotIds = await scopedDb.DbContext.SteamDepotMappings
                 .Where(m => depotIdSet.Contains(m.DepotId) && m.IsOwner)
                 .Select(m => m.DepotId)
                 .ToHashSetAsync(ct);
@@ -314,8 +298,8 @@ public partial class SteamKit2Service
 
             if (toInsert.Count > 0)
             {
-                await context.SteamDepotMappings.AddRangeAsync(toInsert, ct);
-                await context.SaveChangesAsync(ct);
+                await scopedDb.DbContext.SteamDepotMappings.AddRangeAsync(toInsert, ct);
+                await scopedDb.DbContext.SaveChangesAsync(ct);
                 _logger.LogInformation("Saved {Count} new orphan depot mapping(s) to database", toInsert.Count);
             }
         }
@@ -333,13 +317,12 @@ public partial class SteamKit2Service
     {
         try
         {
-            using var scope = _scopeFactory.CreateScope();
-            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            using var scopedDb = _scopeFactory.CreateScopedDbContext();
 
             // Get downloads that have depot IDs but no game info, missing image, or placeholder names
             // The placeholder name check (e.g. "Steam App 12345") ensures downloads get re-resolved
             // when the Steam API later returns the real name
-            var downloadsNeedingGameInfo = await context.Downloads
+            var downloadsNeedingGameInfo = await scopedDb.DbContext.Downloads
                 .Where(d => d.DepotId.HasValue && (
                     d.GameAppId == null ||
                     string.IsNullOrEmpty(d.GameImageUrl) ||
@@ -356,7 +339,7 @@ public partial class SteamKit2Service
                 .Distinct()
                 .ToList();
 
-            var depotMappingsFromDb = await context.SteamDepotMappings
+            var depotMappingsFromDb = await scopedDb.DbContext.SteamDepotMappings
                 .Where(m => depotIds.Contains(m.DepotId) && m.IsOwner)
                 .ToDictionaryAsync(m => m.DepotId, m => new { m.AppId, m.AppName });
 
@@ -494,7 +477,7 @@ public partial class SteamKit2Service
 
             if (updated > 0)
             {
-                await context.SaveChangesAsync();
+                await scopedDb.DbContext.SaveChangesAsync();
                 _logger.LogInformation($"Updated {updated} downloads with game information, {notFound} not found");
             }
             else

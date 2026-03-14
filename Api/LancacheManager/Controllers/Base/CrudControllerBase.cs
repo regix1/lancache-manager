@@ -20,9 +20,9 @@ public abstract class CrudControllerBase<TEntity, TDto, TCreateRequest, TUpdateR
     where TCreateRequest : class
     where TUpdateRequest : class
 {
-    protected readonly ICrudRepository<TEntity, TKey> Repository;
-    protected readonly ISignalRNotificationService Notifications;
-    protected readonly ILogger Logger;
+    protected readonly ICrudRepository<TEntity, TKey> _repository;
+    protected readonly ISignalRNotificationService _notifications;
+    protected readonly ILogger _logger;
 
     /// <summary>
     /// The display name for this resource type (e.g., "Client group", "Event")
@@ -34,9 +34,9 @@ public abstract class CrudControllerBase<TEntity, TDto, TCreateRequest, TUpdateR
         ISignalRNotificationService notifications,
         ILogger logger)
     {
-        Repository = repository;
-        Notifications = notifications;
-        Logger = logger;
+        _repository = repository;
+        _notifications = notifications;
+        _logger = logger;
     }
 
     // ===== Abstract Methods - Must be implemented by child controllers =====
@@ -85,7 +85,7 @@ public abstract class CrudControllerBase<TEntity, TDto, TCreateRequest, TUpdateR
     [HttpGet]
     public virtual async Task<IActionResult> GetAll(CancellationToken ct = default)
     {
-        var entities = await Repository.GetAllAsync(ct);
+        var entities = await _repository.GetAllAsync(ct);
         var dtos = entities.Select(ToDto).ToList();
         return Ok(dtos);
     }
@@ -94,7 +94,7 @@ public abstract class CrudControllerBase<TEntity, TDto, TCreateRequest, TUpdateR
     [HttpGet("{id}")]
     public virtual async Task<IActionResult> GetById(TKey id, CancellationToken ct = default)
     {
-        var entity = await Repository.GetByIdOrThrowAsync(id, ResourceName, ct);
+        var entity = await _repository.GetByIdOrThrowAsync(id, ResourceName, ct);
         return Ok(ToDto(entity));
     }
 
@@ -105,7 +105,7 @@ public abstract class CrudControllerBase<TEntity, TDto, TCreateRequest, TUpdateR
         await ValidateCreateRequestAsync(request, ct);
 
         var entity = FromCreateRequest(request);
-        var created = await Repository.CreateAsync(entity, ct);
+        var created = await _repository.CreateAsync(entity, ct);
         
         // Allow subclasses to perform post-creation operations
         created = await PostCreateAsync(created, request, ct);
@@ -113,7 +113,7 @@ public abstract class CrudControllerBase<TEntity, TDto, TCreateRequest, TUpdateR
         var dto = ToDto(created);
         await OnCreatedAsync(created, dto);
 
-        Logger.LogInformation("Created {Resource}: {Id}", ResourceName, GetEntityId(created));
+        _logger.LogInformation("Created {Resource}: {Id}", ResourceName, GetEntityId(created));
         return Created(GetLocationUri(created), dto);
     }
 
@@ -121,17 +121,17 @@ public abstract class CrudControllerBase<TEntity, TDto, TCreateRequest, TUpdateR
     [HttpPut("{id}")]
     public virtual async Task<IActionResult> Update(TKey id, [FromBody] TUpdateRequest request, CancellationToken ct = default)
     {
-        var entity = await Repository.GetByIdOrThrowAsync(id, ResourceName, ct);
+        var entity = await _repository.GetByIdOrThrowAsync(id, ResourceName, ct);
 
         await ValidateUpdateRequestAsync(id, request, entity, ct);
 
         ApplyUpdate(entity, request);
-        var updated = await Repository.UpdateAsync(entity, ct);
+        var updated = await _repository.UpdateAsync(entity, ct);
         var dto = ToDto(updated);
 
         await OnUpdatedAsync(updated, dto);
 
-        Logger.LogInformation("Updated {Resource}: {Id}", ResourceName, id);
+        _logger.LogInformation("Updated {Resource}: {Id}", ResourceName, id);
         return Ok(dto);
     }
 
@@ -139,12 +139,12 @@ public abstract class CrudControllerBase<TEntity, TDto, TCreateRequest, TUpdateR
     [HttpDelete("{id}")]
     public virtual async Task<IActionResult> Delete(TKey id, CancellationToken ct = default)
     {
-        var entity = await Repository.GetByIdOrThrowAsync(id, ResourceName, ct);
+        var entity = await _repository.GetByIdOrThrowAsync(id, ResourceName, ct);
 
-        await Repository.DeleteAsync(entity, ct);
+        await _repository.DeleteAsync(entity, ct);
         await OnDeletedAsync(id);
 
-        Logger.LogInformation("Deleted {Resource}: {Id}", ResourceName, id);
+        _logger.LogInformation("Deleted {Resource}: {Id}", ResourceName, id);
         return NoContent();
     }
 

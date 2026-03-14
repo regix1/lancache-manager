@@ -1,6 +1,7 @@
 using LancacheManager.Models;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Controllers.Filters;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
@@ -11,36 +12,25 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/gc")]
+[RequiresGcManagement]
 public class GcController : ControllerBase
 {
     private readonly SettingsService _gcSettingsService;
     private readonly IMemoryManager _memoryManager;
     private readonly ILogger<GcController> _logger;
-    private readonly IConfiguration _configuration;
     private static DateTime _lastGcTriggerTime = DateTime.MinValue;
     private static readonly object _gcTriggerLock = new object();
 
-    public GcController(SettingsService gcSettingsService, IMemoryManager memoryManager, ILogger<GcController> logger, IConfiguration configuration)
+    public GcController(SettingsService gcSettingsService, IMemoryManager memoryManager, ILogger<GcController> logger)
     {
         _gcSettingsService = gcSettingsService;
         _memoryManager = memoryManager;
         _logger = logger;
-        _configuration = configuration;
-    }
-
-    private bool IsGcManagementEnabled()
-    {
-        return _configuration.GetValue<bool>("Optimizations:EnableGarbageCollectionManagement", false);
     }
 
     [HttpGet("settings")]
     public IActionResult GetSettings()
     {
-        if (!IsGcManagementEnabled())
-        {
-            return NotFound(new ErrorResponse { Error = "Garbage collection management is disabled" });
-        }
-
         var settings = _gcSettingsService.GetSettings();
         return Ok(new GcSettingsResponse
         {
@@ -52,11 +42,6 @@ public class GcController : ControllerBase
     [HttpPut("settings")]
     public async Task<IActionResult> UpdateSettings([FromBody] UpdateGcSettingsRequest request)
     {
-        if (!IsGcManagementEnabled())
-        {
-            return NotFound(new ErrorResponse { Error = "Garbage collection management is disabled" });
-        }
-
         if (!Enum.TryParse<GcAggressiveness>(request.Aggressiveness, true, out var aggressiveness))
         {
             return BadRequest(new ErrorResponse { Error = "Invalid aggressiveness level" });
@@ -86,11 +71,6 @@ public class GcController : ControllerBase
     [HttpPost("trigger")]
     public IActionResult TriggerGarbageCollection()
     {
-        if (!IsGcManagementEnabled())
-        {
-            return NotFound(new ErrorResponse { Error = "Garbage collection management is disabled" });
-        }
-
         var now = DateTime.UtcNow;
         var cooldownPeriod = TimeSpan.FromSeconds(5);
 

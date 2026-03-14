@@ -1,6 +1,3 @@
-using LancacheManager.Core.Services.SteamPrefill;
-
-using Microsoft.Extensions.DependencyInjection;
 using SteamKit2;
 using SteamKit2.Authentication;
 
@@ -20,7 +17,7 @@ public partial class SteamKit2Service
             {
                 _connectedTcs = new TaskCompletionSource();
                 _steamClient!.Connect();
-                await WaitForTaskWithTimeout(_connectedTcs.Task, TimeSpan.FromSeconds(30), CancellationToken.None);
+                await WaitForTaskWithTimeoutAsync(_connectedTcs.Task, TimeSpan.FromSeconds(30), CancellationToken.None);
             }
 
             // Create authenticator that returns provided codes
@@ -115,7 +112,7 @@ public partial class SteamKit2Service
             _logger.LogInformation("SteamKit2 auth-flow login with LoginID: {LoginID} (0x{LoginIDHex:X8}) for user: {Username}", _steamLoginId, _steamLoginId, pollResponse.AccountName);
 
             // Use longer timeout for authentication (Steam servers can be slow)
-            await WaitForTaskWithTimeout(_loggedOnTcs.Task, TimeSpan.FromMinutes(2), CancellationToken.None);
+            await WaitForTaskWithTimeoutAsync(_loggedOnTcs.Task, TimeSpan.FromMinutes(2), CancellationToken.None);
 
             return new AuthenticationResult
             {
@@ -179,9 +176,7 @@ public partial class SteamKit2Service
             }
 
             // Clear stored credentials and reset to anonymous mode
-            _stateService.SetSteamRefreshToken(null);
-            _stateService.SetSteamAuthMode("anonymous");
-            _stateService.SetSteamUsername(null);
+            ClearSteamCredentials();
 
             // Disconnect from Steam
             _intentionalDisconnect = true;

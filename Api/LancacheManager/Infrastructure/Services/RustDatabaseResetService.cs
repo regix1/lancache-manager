@@ -353,30 +353,13 @@ public class RustDatabaseResetService
         }
     }
 
-    private async Task MonitorProgressAsync(string progressPath, CancellationToken cancellationToken)
+    private Task MonitorProgressAsync(string progressPath, CancellationToken cancellationToken)
     {
-        try
+        var monitor = new RustProgressMonitor<ProgressData>(_rustProcessHelper, _logger);
+        return monitor.MonitorAsync(progressPath, async (ProgressData progress) =>
         {
-            while (!cancellationToken.IsCancellationRequested)
-            {
-                await Task.Delay(500, cancellationToken); // Poll every 500ms for faster updates
-
-                var progress = await ReadProgressFileAsync(progressPath);
-                if (progress != null)
-                {
-                    // Send progress update via SignalR
-                    await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, progress);
-                }
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // Expected when cancellation is requested
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error monitoring rust database reset progress");
-        }
+            await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, progress);
+        }, cancellationToken);
     }
 
     private async Task<ProgressData?> ReadProgressFileAsync(string progressPath)

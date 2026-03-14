@@ -38,25 +38,36 @@ public partial class SteamKit2Service
         _steamClient!.Connect();
 
         // Wait for connected (increased timeout to handle Steam server delays)
-        await WaitForTaskWithTimeout(_connectedTcs.Task, TimeSpan.FromSeconds(60), ct, "Connecting to Steam");
+        await WaitForTaskWithTimeoutAsync(_connectedTcs.Task, TimeSpan.FromSeconds(60), ct, "Connecting to Steam");
 
-        // Check if Steam daemon is active - if so, use anonymous mode to avoid session conflicts
-        var isSteamDaemonActive = IsSteamDaemonActive();
+        PerformLogin();
 
-        // Check if we have a saved refresh token for authenticated login
-        var refreshToken = _stateService.GetSteamRefreshToken();
-        var authMode = _stateService.GetSteamAuthMode();
+        // Wait for logged on (increased timeout to handle Steam server delays)
+        await WaitForTaskWithTimeoutAsync(_loggedOnTcs.Task, TimeSpan.FromSeconds(60), ct, "Logging into Steam");
+    }
 
-        if (isSteamDaemonActive)
+    /// <summary>
+    /// Determines which login mode to use and fires the appropriate SteamUser logon call.
+    /// Synchronous (void) by design — the SteamKit2 reconnect callback (OnConnected) fires this
+    /// synchronously, and ConnectAndLoginAsync awaits the logon result separately via _loggedOnTcs.
+    /// Never use .Result or .Wait() here; SteamKit2 callbacks must not block the event loop thread.
+    /// </summary>
+    private void PerformLogin()
+    {
+        if (IsSteamDaemonActive())
         {
             _logger.LogInformation("Steam daemon is active - using anonymous mode for depot mapping to avoid session conflicts");
             _steamUser!.LogOnAnonymous();
+            return;
         }
-        else if (!string.IsNullOrEmpty(refreshToken) && authMode == "authenticated")
+
+        var refreshToken = _stateService.GetSteamRefreshToken();
+        var authMode = _stateService.GetSteamAuthMode();
+
+        if (!string.IsNullOrEmpty(refreshToken) && authMode == "authenticated")
         {
             var username = _stateService.GetSteamUsername();
             _logger.LogInformation("Logging in with saved refresh token for user: {Username}", username);
-
             _steamUser!.LogOn(new SteamUser.LogOnDetails
             {
                 Username = username,
@@ -65,19 +76,15 @@ public partial class SteamKit2Service
                 LoginID = _steamLoginId
             });
             _logger.LogInformation("SteamKit2 authenticated login with LoginID: {LoginID} (0x{LoginIDHex:X8}) for user: {Username}", _steamLoginId, _steamLoginId, username);
-        }
-        else
-        {
-            _logger.LogInformation("Logging in anonymously...");
-            _steamUser!.LogOnAnonymous();
-            _logger.LogInformation("SteamKit2 anonymous login (no LoginID)");
+            return;
         }
 
-        // Wait for logged on (increased timeout to handle Steam server delays)
-        await WaitForTaskWithTimeout(_loggedOnTcs.Task, TimeSpan.FromSeconds(60), ct, "Logging into Steam");
+        _logger.LogInformation("Logging in anonymously...");
+        _steamUser!.LogOnAnonymous();
+        _logger.LogInformation("SteamKit2 anonymous login (no LoginID)");
     }
 
-    private async Task WaitForTaskWithTimeout(Task task, TimeSpan timeout, CancellationToken ct, string operationName = "Steam operation")
+    private async Task WaitForTaskWithTimeoutAsync(Task task, TimeSpan timeout, CancellationToken ct, string operationName = "Steam operation")
     {
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(timeout);
@@ -109,39 +116,7 @@ public partial class SteamKit2Service
             // Steam often fires OnDisconnected WITHOUT a preceding OnLoggedOff callback,
             // so we can't rely on tracking session replacement flags. Checking the daemon
             // status directly is reliable and avoids the authenticated reconnection loop.
-            if (IsSteamDaemonActive())
-            {
-                _logger.LogInformation("Steam daemon is active - using anonymous mode for reconnection to avoid session conflicts");
-                _steamUser!.LogOnAnonymous();
-                _logger.LogInformation("SteamKit2 reconnect anonymous login (no LoginID)");
-            }
-            else
-            {
-                // Check if we have a saved refresh token for authenticated login
-                var refreshToken = _stateService.GetSteamRefreshToken();
-                var authMode = _stateService.GetSteamAuthMode();
-
-                if (!string.IsNullOrEmpty(refreshToken) && authMode == "authenticated")
-                {
-                    var username = _stateService.GetSteamUsername();
-                    _logger.LogInformation("Re-logging in with saved refresh token for user: {Username}", username);
-
-                    _steamUser!.LogOn(new SteamUser.LogOnDetails
-                    {
-                        Username = username,
-                        AccessToken = refreshToken,
-                        ShouldRememberPassword = true,
-                        LoginID = _steamLoginId
-                    });
-                    _logger.LogInformation("SteamKit2 reconnect login with LoginID: {LoginID} (0x{LoginIDHex:X8}) for user: {Username}", _steamLoginId, _steamLoginId, username);
-                }
-                else
-                {
-                    _logger.LogInformation("Re-logging in anonymously...");
-                    _steamUser!.LogOnAnonymous();
-                    _logger.LogInformation("SteamKit2 reconnect anonymous login (no LoginID)");
-                }
-            }
+            PerformLogin();
         }
     }
 
@@ -173,8 +148,7 @@ public partial class SteamKit2Service
                 _lastErrorMessage = errorMessage;
 
                 // Fail any pending connection/login tasks
-                _connectedTcs?.TrySetException(new Exception(errorMessage));
-                _loggedOnTcs?.TrySetException(new Exception(errorMessage));
+                FailPendingConnectionTasks(new Exception(errorMessage));
 
                 // Cancel the rebuild
                 _currentRebuildCts?.Cancel();
@@ -190,14 +164,7 @@ public partial class SteamKit2Service
                 });
 
                 // Send failure completion event
-                _notifications.NotifyAllFireAndForget(SignalREvents.DepotMappingComplete, new
-                {
-                    success = false,
-                    error = errorMessage,
-                    errorType = "ConnectionFailed",
-                    depotMappingsFound = _depotToAppMappings.Count,
-                    timestamp = DateTime.UtcNow
-                });
+                SendDepotMappingFailure(errorMessage, "ConnectionFailed");
 
                 _reconnectAttempt = 0; // Reset for next time
                 return;
@@ -232,7 +199,7 @@ public partial class SteamKit2Service
             // Fail pending tasks if not reconnecting
             if (!_connectedTcs?.Task.IsCompleted ?? false)
             {
-                _connectedTcs?.TrySetException(new Exception("Disconnected from Steam"));
+                FailPendingConnectionTasks(new Exception("Disconnected from Steam"));
             }
             _reconnectAttempt = 0; // Reset when not actively rebuilding
         }
@@ -300,15 +267,7 @@ public partial class SteamKit2Service
             // If a rebuild was in progress, send failure completion
             if (IsRebuildRunning)
             {
-                _notifications.NotifyAllFireAndForget(SignalREvents.DepotMappingComplete, new
-                {
-                    success = false,
-                    error = errorMessage,
-                    errorType,
-                    depotMappingsFound = _depotToAppMappings.Count,
-                    timestamp = DateTime.UtcNow
-                });
-
+                SendDepotMappingFailure(errorMessage, errorType);
                 _currentRebuildCts?.Cancel();
             }
         }
@@ -365,36 +324,20 @@ public partial class SteamKit2Service
             _logger.LogWarning("Steam session was replaced by another login. Our LoginID: {LoginID} (0x{LoginIDHex:X8}). Switching to anonymous mode and failing the operation.", _steamLoginId, _steamLoginId);
 
             // Switch user to anonymous mode and clear stored credentials
-            _stateService.SetSteamAuthMode("anonymous");
-            _stateService.SetSteamRefreshToken(null);
-            _stateService.SetSteamUsername(null);
+            ClearSteamCredentials();
 
             // Notify frontend to update auth state (so the UI reflects anonymous mode)
-            _notifications.NotifyAllFireAndForget(SignalREvents.SteamAutoLogout, new
-            {
-                message = errorMessage,
-                reason = errorType,
-                replacementCount = 0,
-                timestamp = DateTime.UtcNow
-            });
+            SendAutoLogoutNotification(errorMessage, errorType);
         }
 
         // For credential-invalidating errors, clear stored credentials and notify frontend
         if (errorType is "InvalidCredentials" or "AuthenticationRequired" or "SessionExpired")
         {
             _logger.LogWarning("Steam credentials are no longer valid ({ErrorType}). Clearing stored credentials.", errorType);
-            _stateService.SetSteamRefreshToken(null);
-            _stateService.SetSteamUsername(null);
-            _stateService.SetSteamAuthMode("anonymous");
+            ClearSteamCredentials();
 
             // Notify frontend to update auth state
-            _notifications.NotifyAllFireAndForget(SignalREvents.SteamAutoLogout, new
-            {
-                message = errorMessage,
-                reason = errorType,
-                replacementCount = 0,
-                timestamp = DateTime.UtcNow
-            });
+            SendAutoLogoutNotification(errorMessage, errorType);
         }
 
         // Send SignalR notification for significant errors
@@ -421,14 +364,7 @@ public partial class SteamKit2Service
                 _logger.LogError("Steam session error during active rebuild: {ErrorType} - {Message}", errorType, errorMessage);
 
                 // Send a failure completion event
-                _notifications.NotifyAllFireAndForget(SignalREvents.DepotMappingComplete, new
-                {
-                    success = false,
-                    error = errorMessage,
-                    errorType,
-                    depotMappingsFound = _depotToAppMappings.Count,
-                    timestamp = DateTime.UtcNow
-                });
+                SendDepotMappingFailure(errorMessage, errorType);
 
                 // Cancel the rebuild
                 _currentRebuildCts?.Cancel();

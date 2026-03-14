@@ -70,39 +70,15 @@ public class LogsController : ControllerBase
 
         foreach (var ds in datasources)
         {
-            if (!Directory.Exists(ds.LogPath))
-            {
-                _logger.LogWarning("Log directory not found for datasource '{Name}': {Path}", ds.Name, ds.LogPath);
-                continue;
-            }
+            var counts = await GetServiceCountsForDatasourceAsync(ds);
+            if (counts == null) continue;
 
-            var result = await _rustProcessHelper.RunLogManagerAsync(
-                "count",
-                ds.LogPath,
-                progressFile: null
-            );
-
-            if (!result.Success)
+            foreach (var kvp in counts)
             {
-                _logger.LogWarning("Failed to count logs for datasource '{Name}': {Error}", ds.Name, result.Error);
-                continue;
-            }
-
-            // Extract service_counts from the result
-            if (result.Data is JsonElement jsonElement &&
-                jsonElement.TryGetProperty("service_counts", out var serviceCountsElement))
-            {
-                var serviceCounts = JsonSerializer.Deserialize<Dictionary<string, ulong>>(serviceCountsElement.GetRawText());
-                if (serviceCounts != null)
-                {
-                    foreach (var kvp in serviceCounts)
-                    {
-                        if (aggregatedCounts.ContainsKey(kvp.Key))
-                            aggregatedCounts[kvp.Key] += kvp.Value;
-                        else
-                            aggregatedCounts[kvp.Key] = kvp.Value;
-                    }
-                }
+                if (aggregatedCounts.ContainsKey(kvp.Key))
+                    aggregatedCounts[kvp.Key] += kvp.Value;
+                else
+                    aggregatedCounts[kvp.Key] = kvp.Value;
             }
         }
 
@@ -120,56 +96,51 @@ public class LogsController : ControllerBase
 
         foreach (var ds in datasources)
         {
-            var dsEntry = new
+            var counts = await GetServiceCountsForDatasourceAsync(ds);
+            result.Add(new
             {
                 datasource = ds.Name,
                 logsPath = ds.LogPath,
                 logsWritable = _pathResolver.IsDirectoryWritable(ds.LogPath),
                 enabled = ds.Enabled,
-                serviceCounts = new Dictionary<string, ulong>()
-            };
-
-            if (!Directory.Exists(ds.LogPath))
-            {
-                _logger.LogWarning("Log directory not found for datasource '{Name}': {Path}", ds.Name, ds.LogPath);
-                result.Add(dsEntry);
-                continue;
-            }
-
-            var countResult = await _rustProcessHelper.RunLogManagerAsync(
-                "count",
-                ds.LogPath,
-                progressFile: null
-            );
-
-            if (!countResult.Success)
-            {
-                _logger.LogWarning("Failed to count logs for datasource '{Name}': {Error}", ds.Name, countResult.Error);
-                result.Add(dsEntry);
-                continue;
-            }
-
-            // Extract service_counts from the result
-            if (countResult.Data is JsonElement jsonElement &&
-                jsonElement.TryGetProperty("service_counts", out var serviceCountsElement))
-            {
-                var serviceCounts = JsonSerializer.Deserialize<Dictionary<string, ulong>>(serviceCountsElement.GetRawText());
-                result.Add(new
-                {
-                    datasource = ds.Name,
-                    logsPath = ds.LogPath,
-                    logsWritable = _pathResolver.IsDirectoryWritable(ds.LogPath),
-                    enabled = ds.Enabled,
-                    serviceCounts = serviceCounts ?? new Dictionary<string, ulong>()
-                });
-            }
-            else
-            {
-                result.Add(dsEntry);
-            }
+                serviceCounts = counts ?? new Dictionary<string, ulong>()
+            });
         }
 
         return Ok(result);
+    }
+
+    /// <summary>
+    /// Runs the log-manager count command for a single datasource and returns the deserialized
+    /// service_counts dictionary, or null if the directory is missing or the command fails.
+    /// </summary>
+    private async Task<Dictionary<string, ulong>?> GetServiceCountsForDatasourceAsync(ResolvedDatasource datasource)
+    {
+        if (!Directory.Exists(datasource.LogPath))
+        {
+            _logger.LogWarning("Log directory not found for datasource '{Name}': {Path}", datasource.Name, datasource.LogPath);
+            return null;
+        }
+
+        var result = await _rustProcessHelper.RunLogManagerAsync(
+            "count",
+            datasource.LogPath,
+            progressFile: null
+        );
+
+        if (!result.Success)
+        {
+            _logger.LogWarning("Failed to count logs for datasource '{Name}': {Error}", datasource.Name, result.Error);
+            return null;
+        }
+
+        if (result.Data is JsonElement jsonElement &&
+            jsonElement.TryGetProperty("service_counts", out var serviceCountsElement))
+        {
+            return JsonSerializer.Deserialize<Dictionary<string, ulong>>(serviceCountsElement.GetRawText());
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -190,50 +161,7 @@ public class LogsController : ControllerBase
     [HttpPatch("position")]
     public IActionResult ResetLogPosition([FromBody] UpdateLogPositionRequest? request)
     {
-        var datasources = _datasourceService.GetDatasources();
-
-        // If position is explicitly 0, reset to beginning
-        if (request?.Position == 0)
-        {
-            _rustLogProcessorService.ResetLogPosition();
-            _logger.LogInformation("Log position reset to beginning for all datasources");
-
-            return Ok(new LogPositionResponse
-            {
-                Message = "Log position reset to beginning",
-                Position = 0
-            });
-        }
-
-        // Otherwise (position is null or not specified), reset to end of file
-        // Count lines across ALL log files (access.log, access.log.1, access.log.2.gz, etc.)
-        // This matches the Rust processor behavior which processes all rotated logs
-        long totalLines = 0;
-        foreach (var ds in datasources)
-        {
-            var lineCount = CountLinesInAllLogFiles(ds.LogPath);
-            // Save both position AND totalLines so they stay in sync
-            _stateRepository.SetLogPosition(ds.Name, lineCount);
-            _stateRepository.SetLogTotalLines(ds.Name, lineCount);
-            totalLines += lineCount;
-
-            if (lineCount > 0)
-            {
-                _logger.LogInformation("Datasource '{Name}': Log position set to end (line {LineCount})", ds.Name, lineCount);
-            }
-            else
-            {
-                _logger.LogInformation("Datasource '{Name}': No log files found, position set to 0", ds.Name);
-            }
-        }
-
-        _logger.LogInformation("Log position reset to end for all datasources (total lines: {TotalLines})", totalLines);
-
-        return Ok(new LogPositionResponse
-        {
-            Message = "Log position reset to end of file",
-            Position = totalLines
-        });
+        return ResetPositionCore(datasourceName: null, requestedPosition: request?.Position);
     }
 
     /// <summary>
@@ -373,34 +301,7 @@ public class LogsController : ControllerBase
             return NotFound(new NotFoundResponse { Error = $"Datasource '{datasourceName}' not found" });
         }
 
-        // If position is explicitly 0, reset to beginning
-        if (request?.Position == 0)
-        {
-            _rustLogProcessorService.ResetLogPosition(datasourceName);
-            _logger.LogInformation("Datasource '{Name}': Log position reset to beginning", datasourceName);
-
-            return Ok(new LogPositionResponse
-            {
-                Message = $"Log position reset to beginning for '{datasourceName}'",
-                Position = 0
-            });
-        }
-
-        // Otherwise reset to end of file
-        // Count lines across ALL log files (access.log, access.log.1, access.log.2.gz, etc.)
-        // This matches the Rust processor behavior which processes all rotated logs
-        long lineCount = CountLinesInAllLogFiles(datasource.LogPath);
-
-        // Save both position AND totalLines so they stay in sync
-        _stateRepository.SetLogPosition(datasourceName, lineCount);
-        _stateRepository.SetLogTotalLines(datasourceName, lineCount);
-        _logger.LogInformation("Datasource '{Name}': Log position set to end (line {LineCount})", datasourceName, lineCount);
-
-        return Ok(new LogPositionResponse
-        {
-            Message = $"Log position reset to end of file for '{datasourceName}'",
-            Position = lineCount
-        });
+        return ResetPositionCore(datasourceName: datasourceName, requestedPosition: request?.Position);
     }
 
     /// <summary>
@@ -507,6 +408,104 @@ public class LogsController : ControllerBase
     }
 
     /// <summary>
+    /// Shared position-reset logic for both the all-datasources and single-datasource PATCH endpoints.
+    /// When <paramref name="datasourceName"/> is null, operates across all datasources.
+    /// If <paramref name="requestedPosition"/> is 0, resets to beginning; otherwise resets to end of file.
+    /// </summary>
+    private IActionResult ResetPositionCore(string? datasourceName, long? requestedPosition)
+    {
+        var isSingleDatasource = datasourceName != null;
+
+        // Position == 0 → reset to beginning
+        if (requestedPosition == 0)
+        {
+            if (isSingleDatasource)
+            {
+                _rustLogProcessorService.ResetLogPosition(datasourceName!);
+                _logger.LogInformation("Datasource '{Name}': Log position reset to beginning", datasourceName);
+            }
+            else
+            {
+                _rustLogProcessorService.ResetLogPosition();
+                _logger.LogInformation("Log position reset to beginning for all datasources");
+            }
+
+            return Ok(new LogPositionResponse
+            {
+                Message = isSingleDatasource
+                    ? $"Log position reset to beginning for '{datasourceName}'"
+                    : "Log position reset to beginning",
+                Position = 0
+            });
+        }
+
+        // Otherwise reset to end of file — count lines across ALL log files
+        // This matches the Rust processor behavior which processes all rotated logs
+        IEnumerable<ResolvedDatasource> datasources = isSingleDatasource
+            ? new[] { _datasourceService.GetDatasource(datasourceName!)! }
+            : _datasourceService.GetDatasources();
+
+        long totalLines = 0;
+        foreach (var ds in datasources)
+        {
+            var lineCount = CountLinesInAllLogFiles(ds.LogPath);
+            // Save both position AND totalLines so they stay in sync
+            _stateRepository.SetLogPosition(ds.Name, lineCount);
+            _stateRepository.SetLogTotalLines(ds.Name, lineCount);
+            totalLines += lineCount;
+
+            if (lineCount > 0)
+                _logger.LogInformation("Datasource '{Name}': Log position set to end (line {LineCount})", ds.Name, lineCount);
+            else
+                _logger.LogInformation("Datasource '{Name}': No log files found, position set to 0", ds.Name);
+        }
+
+        if (!isSingleDatasource)
+            _logger.LogInformation("Log position reset to end for all datasources (total lines: {TotalLines})", totalLines);
+
+        return Ok(new LogPositionResponse
+        {
+            Message = isSingleDatasource
+                ? $"Log position reset to end of file for '{datasourceName}'"
+                : "Log position reset to end of file",
+            Position = totalLines
+        });
+    }
+
+    /// <summary>
+    /// Checks that at least one logs directory across all datasources is writable.
+    /// Returns a BadRequest IActionResult with a PUID/PGID error message if none are writable, or null if at least one is writable.
+    /// Also emits a warning if some (but not all) datasources are read-only.
+    /// </summary>
+    private BadRequestObjectResult? EnsureLogsDirectoriesWritable(string operationDescription)
+    {
+        var datasources = _datasourceService.GetDatasources();
+        var writableDatasources = datasources
+            .Where(ds => _pathResolver.IsDirectoryWritable(ds.LogPath))
+            .ToList();
+
+        if (writableDatasources.Count == 0)
+        {
+            var errorMessage = $"Cannot {operationDescription}: all logs directories are read-only. " +
+                "This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. " +
+                "The lancache container usually runs as UID/GID 33:33 (www-data).";
+
+            _logger.LogWarning("[{Operation}] Permission check failed: {Error}", operationDescription, errorMessage);
+            return BadRequest(new ErrorResponse { Error = errorMessage });
+        }
+
+        var readOnlyCount = datasources.Count - writableDatasources.Count;
+        if (readOnlyCount > 0)
+        {
+            _logger.LogWarning(
+                "[{Operation}] {ReadOnlyCount} of {TotalCount} datasources are read-only and will be skipped",
+                operationDescription, readOnlyCount, datasources.Count);
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// DELETE /api/logs/services/{service} - Remove logs for specific service (from all datasources)
     /// RESTful: DELETE is proper method for removing resources, service name in path
     /// </summary>
@@ -520,29 +519,9 @@ public class LogsController : ControllerBase
 
         // CRITICAL: Check write permissions BEFORE starting the operation
         // This removes logs from all datasources, so we need at least one writable datasource
-        var datasources = _datasourceService.GetDatasources();
-        var writableDatasources = datasources
-            .Where(ds => _pathResolver.IsDirectoryWritable(ds.LogPath))
-            .ToList();
-
-        if (writableDatasources.Count == 0)
-        {
-            var errorMessage = "Cannot remove service logs: all logs directories are read-only. " +
-                "This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. " +
-                "The lancache container usually runs as UID/GID 33:33 (www-data).";
-
-            _logger.LogWarning("[RemoveServiceLogs] Permission check failed for service {Service}: {Error}", service, errorMessage);
-            return BadRequest(new ErrorResponse { Error = errorMessage });
-        }
-
-        // Log if some datasources are read-only (partial operation warning)
-        var readOnlyCount = datasources.Count - writableDatasources.Count;
-        if (readOnlyCount > 0)
-        {
-            _logger.LogWarning(
-                "[RemoveServiceLogs] {ReadOnlyCount} of {TotalCount} datasources are read-only and will be skipped for service {Service}",
-                readOnlyCount, datasources.Count, service);
-        }
+        var permissionError = EnsureLogsDirectoriesWritable($"remove service logs for '{service}'");
+        if (permissionError != null)
+            return permissionError;
 
         // StartServiceRemovalAsync returns bool but runs async - operation started if true
         var started = await _rustLogRemovalService.StartServiceRemovalAsync(service);

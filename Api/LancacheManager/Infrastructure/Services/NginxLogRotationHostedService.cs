@@ -11,8 +11,6 @@ namespace LancacheManager.Infrastructure.Services;
 public class NginxLogRotationHostedService : ScheduledBackgroundService
 {
     private readonly NginxLogRotationService _rotationService;
-    private readonly IConfiguration _configuration;
-    private readonly ILogger<NginxLogRotationHostedService> _logger;
     private readonly string _settingsFilePath;
 
     // Status tracking
@@ -36,8 +34,6 @@ public class NginxLogRotationHostedService : ScheduledBackgroundService
         : base(logger, configuration)
     {
         _rotationService = rotationService;
-        _configuration = configuration;
-        _logger = logger;
         _settingsFilePath = pathResolver.GetSettingsPath("log-rotation-settings.json");
         _currentScheduleHours = LoadScheduleHours();
     }

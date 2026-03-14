@@ -1,10 +1,11 @@
-import React, { Suspense, useState } from 'react';
+import React, { Suspense, useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { RefreshCw, Loader2 } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { type AuthMode } from '@services/auth.service';
 import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
+import { ImageCacheContext, ImageCacheInvalidateContext } from '@components/common/GameImage';
 import DatasourcesManager from '../datasources/DatasourcesInfo';
 import LogRemovalManager from '../log-processing/LogRemovalManager';
 import CacheManager from '../cache/CacheManager';
@@ -32,6 +33,10 @@ const StorageSection: React.FC<StorageSectionProps> = ({
   const { t } = useTranslation();
   const { logsReadOnly, cacheReadOnly, reload: reloadPermissions } = useDirectoryPermissions();
   const [isRechecking, setIsRechecking] = useState(false);
+
+  // Image cache busting for GameCacheDetector's GameImage components
+  const [imageCacheVersion, setImageCacheVersion] = useState(() => Date.now());
+  const invalidateImageCache = useCallback(() => setImageCacheVersion(Date.now()), []);
 
   const handleRecheckPermissions = async () => {
     setIsRechecking(true);
@@ -142,12 +147,16 @@ const StorageSection: React.FC<StorageSectionProps> = ({
           <CorruptionManager authMode={authMode} mockMode={mockMode} onError={onError} />
 
           {/* Game Detection */}
-          <GameCacheDetector
-            mockMode={mockMode}
-            isAdmin={isAdmin}
-            onDataRefresh={onDataRefresh}
-            refreshKey={gameCacheRefreshKey}
-          />
+          <ImageCacheContext.Provider value={imageCacheVersion}>
+            <ImageCacheInvalidateContext.Provider value={invalidateImageCache}>
+              <GameCacheDetector
+                mockMode={mockMode}
+                isAdmin={isAdmin}
+                onDataRefresh={onDataRefresh}
+                refreshKey={gameCacheRefreshKey}
+              />
+            </ImageCacheInvalidateContext.Provider>
+          </ImageCacheContext.Provider>
         </div>
       </div>
     </div>

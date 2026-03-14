@@ -4,6 +4,7 @@ using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.EpicMapping;
 using LancacheManager.Core.Services.SteamKit2;
 using LancacheManager.Configuration;
+using LancacheManager.Extensions;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Filters;
 using LancacheManager.Hubs;
@@ -226,8 +227,7 @@ Console.WriteLine($"Data Protection keys will be stored in: {dataProtectionKeyPa
 builder.Services.AddSingleton<SecureStateEncryptionService>();
 
 // Register process manager for tracking and cleaning up spawned processes
-builder.Services.AddSingleton<ProcessManager>();
-builder.Services.AddHostedService(provider => provider.GetRequiredService<ProcessManager>());
+builder.Services.AddSingletonHostedService<ProcessManager>();
 
 // Register Rust process helper for common Rust process operations
 builder.Services.AddSingleton<RustProcessHelper>();
@@ -325,12 +325,10 @@ builder.Services.AddSingleton<LancacheManager.Core.Services.UserPreferencesServi
 builder.Services.AddSingleton<LancacheManager.Core.Services.ConnectionTrackingService>();
 
 // Register SteamKit2Service for real-time Steam depot mapping
-builder.Services.AddSingleton<SteamKit2Service>();
-builder.Services.AddHostedService(provider => provider.GetRequiredService<SteamKit2Service>());
+builder.Services.AddSingletonHostedService<SteamKit2Service>();
 
 // Register SteamService as singleton and hosted service (replaces old SteamDepotMappingService)
-builder.Services.AddSingleton<SteamService>();
-builder.Services.AddHostedService(provider => provider.GetRequiredService<SteamService>());
+builder.Services.AddSingletonHostedService<SteamService>();
 
 // Register SteamWebApiService for V2/V1 fallback
 builder.Services.AddSingleton<SteamWebApiService>();
@@ -344,12 +342,10 @@ builder.Services.AddSingleton<IUnifiedOperationTracker, UnifiedOperationTracker>
 builder.Services.AddSingleton<PicsDataService>();
 
 // Register cache snapshot service for historical cache size tracking
-builder.Services.AddSingleton<CacheSnapshotService>();
-builder.Services.AddHostedService(provider => provider.GetRequiredService<CacheSnapshotService>());
+builder.Services.AddSingletonHostedService<CacheSnapshotService>();
 
 // Register metrics service for Prometheus/Grafana as both singleton and hosted service
-builder.Services.AddSingleton<LancacheMetricsService>();
-builder.Services.AddHostedService(provider => provider.GetRequiredService<LancacheMetricsService>());
+builder.Services.AddSingletonHostedService<LancacheMetricsService>();
 
 // Register Rust log processor service (replaces old C# LogProcessingService and LogWatcherService)
 builder.Services.AddSingleton<RustLogProcessorService>();
@@ -364,12 +360,10 @@ builder.Services.AddSingleton<RustLogRemovalService>();
 builder.Services.AddSingleton<NginxLogRotationService>();
 
 // Register nginx log rotation hosted service (runs at startup and on schedule)
-builder.Services.AddSingleton<NginxLogRotationHostedService>();
-builder.Services.AddHostedService(provider => provider.GetRequiredService<NginxLogRotationHostedService>());
+builder.Services.AddSingletonHostedService<NginxLogRotationHostedService>();
 
 // Register CacheClearingService
-builder.Services.AddSingleton<CacheClearingService>();
-builder.Services.AddHostedService(provider => provider.GetRequiredService<CacheClearingService>());
+builder.Services.AddSingletonHostedService<CacheClearingService>();
 
 // Register GameCacheDetectionService
 builder.Services.AddSingleton<GameCacheDetectionService>();
@@ -384,12 +378,10 @@ builder.Services.AddSingleton<PrefillSessionService>();
 builder.Services.AddSingleton<PrefillCacheService>();
 
 // Register SteamDaemonService for secure daemon-based prefill management
-builder.Services.AddSingleton<SteamDaemonService>();
-builder.Services.AddHostedService(provider => provider.GetRequiredService<SteamDaemonService>());
+builder.Services.AddSingletonHostedService<SteamDaemonService>();
 
 // Register EpicPrefillDaemonService for Epic Games daemon-based prefill management
-builder.Services.AddSingleton<EpicPrefillDaemonService>();
-builder.Services.AddHostedService(provider => provider.GetRequiredService<EpicPrefillDaemonService>());
+builder.Services.AddSingletonHostedService<EpicPrefillDaemonService>();
 
 // Register EpicApiDirectClient for direct HTTP calls to Epic APIs (no Docker needed)
 builder.Services.AddSingleton<EpicApiDirectClient>();
@@ -398,12 +390,10 @@ builder.Services.AddSingleton<EpicApiDirectClient>();
 builder.Services.AddSingleton<EpicAuthStorageService>();
 
 // Register unified EpicMappingService for game discovery, mapping, and scheduling
-builder.Services.AddSingleton<EpicMappingService>();
-builder.Services.AddHostedService(provider => provider.GetRequiredService<EpicMappingService>());
+builder.Services.AddSingletonHostedService<EpicMappingService>();
 
 // Register OperationStateService
-builder.Services.AddSingleton<OperationStateService>();
-builder.Services.AddHostedService(provider => provider.GetRequiredService<OperationStateService>());
+builder.Services.AddSingletonHostedService<OperationStateService>();
 
 // Register background services
 builder.Services.AddHostedService<LiveLogMonitorService>();
@@ -411,8 +401,7 @@ builder.Services.AddHostedService<DownloadCleanupService>();
 builder.Services.AddHostedService<DirectoryPermissionMonitorService>();
 
 // Register RustSpeedTrackerService for real-time per-game download speed monitoring (uses Rust for faster parsing)
-builder.Services.AddSingleton<RustSpeedTrackerService>();
-builder.Services.AddHostedService(provider => provider.GetRequiredService<RustSpeedTrackerService>());
+builder.Services.AddSingletonHostedService<RustSpeedTrackerService>();
 
 // Configure OpenTelemetry Metrics for Prometheus + Grafana
 builder.Services.AddOpenTelemetry()

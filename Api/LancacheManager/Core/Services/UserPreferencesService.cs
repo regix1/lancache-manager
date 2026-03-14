@@ -1,8 +1,7 @@
+using System.Text.Json;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
-using System.Text.Json;
 
 namespace LancacheManager.Core.Services;
 
@@ -34,6 +33,27 @@ public class UserPreferencesService
         public string[]? AllowedTimeFormats { get; set; } // Allowed time formats for this user (null = all formats)
         public int? SteamMaxThreadCount { get; set; } // Per-session Steam max thread count limit (null = use system default)
         public int? EpicMaxThreadCount { get; set; } // Per-session Epic max thread count limit (null = use system default)
+
+        /// <summary>
+        /// Creates a UserPreferencesDto with default values.
+        /// Used when no session exists or no preferences have been saved yet.
+        /// </summary>
+        public static UserPreferencesDto Default() => new()
+        {
+            SelectedTheme = null,
+            SharpCorners = false,
+            DisableFocusOutlines = false,
+            DisableTooltips = false,
+            PicsAlwaysVisible = false,
+            DisableStickyNotifications = false,
+            UseLocalTimezone = false,
+            Use24HourFormat = true,
+            ShowDatasourceLabels = true,
+            ShowYearInDates = false,
+            RefreshRate = null,
+            RefreshRateLocked = null,
+            AllowedTimeFormats = null
+        };
     }
 
     /// <summary>

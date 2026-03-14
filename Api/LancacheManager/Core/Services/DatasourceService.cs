@@ -411,6 +411,14 @@ public class DatasourceService
     }
 
     /// <summary>
+    /// Convenience method: returns the cache path of the default datasource, or null if none configured.
+    /// </summary>
+    public string? ResolvePrimaryCachePath()
+    {
+        return GetDefaultDatasource()?.CachePath;
+    }
+
+    /// <summary>
     /// Check if a specific datasource's cache directory is writable.
     /// </summary>
     public bool IsCacheWritable(string datasourceName)

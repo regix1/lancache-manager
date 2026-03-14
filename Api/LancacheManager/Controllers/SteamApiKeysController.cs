@@ -130,9 +130,6 @@ public class SteamApiKeysController : ControllerBase
 
         _logger.LogInformation("Steam Web API key removed successfully");
 
-        return Ok(new ApiKeyRemoveResponse
-        {
-            Message = "Steam Web API key removed successfully"
-        });
+        return Ok(MessageResponse.Ok("Steam Web API key removed successfully"));
     }
 }

@@ -3,7 +3,6 @@ using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Core.Interfaces;
-using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Middleware;
 using Microsoft.AspNetCore.Mvc;
 using LancacheManager.Core.Services.SteamKit2;
@@ -563,7 +562,7 @@ public class SystemController : ControllerBase
         });
     }
 
-    private UserSession? GetSession() => HttpContext.Items["Session"] as UserSession;
+    private UserSession? GetSession() => HttpContext.GetUserSession();
 
     private int? ResolveEffectiveSteamThreadLimit()
     {

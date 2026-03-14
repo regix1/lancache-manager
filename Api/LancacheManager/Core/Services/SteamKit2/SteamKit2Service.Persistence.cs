@@ -1,4 +1,4 @@
-using LancacheManager.Infrastructure.Data;
+using LancacheManager.Extensions;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
@@ -124,10 +124,9 @@ public partial class SteamKit2Service
     {
         try
         {
-            using var scope = _scopeFactory.CreateScope();
-            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            using var scopedDb = _scopeFactory.CreateScopedDbContext();
 
-            var existingMappings = await context.SteamDepotMappings.AsNoTracking().ToListAsync();
+            var existingMappings = await scopedDb.DbContext.SteamDepotMappings.AsNoTracking().ToListAsync();
 
             foreach (var mapping in existingMappings)
             {

@@ -1,5 +1,6 @@
 using LancacheManager.Core.Models;
 using LancacheManager.Core.Services.SteamPrefill;
+using LancacheManager.Core.Utilities;
 using LancacheManager.Hubs;
 using LancacheManager.Models;
 
@@ -53,7 +54,7 @@ public partial class EpicMappingService
 
             if (games.Count > 0)
             {
-                var sessionHash = ComputeAnonymousHash("mapping-session");
+                var sessionHash = CryptoUtils.ComputeAnonymousHash("mapping-session");
                 var result = await MergeOwnedGamesAsync(games, sessionHash, "mapping-login", authCts.Token);
 
                 _logger.LogInformation(
@@ -217,7 +218,7 @@ public partial class EpicMappingService
 
                 if (games.Count > 0)
                 {
-                    var sessionHash = ComputeAnonymousHash("mapping-session");
+                    var sessionHash = CryptoUtils.ComputeAnonymousHash("mapping-session");
                     var result = await MergeOwnedGamesAsync(games, sessionHash, "mapping-login", ct);
                     _gamesDiscovered = result.TotalGames;
                 }
@@ -295,11 +296,5 @@ public partial class EpicMappingService
         {
             _sessionLock.Release();
         }
-    }
-
-    private static string ComputeAnonymousHash(string userId)
-    {
-        var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(userId));
-        return Convert.ToBase64String(hash)[..12];
     }
 }

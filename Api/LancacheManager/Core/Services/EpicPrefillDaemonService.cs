@@ -2,6 +2,7 @@ using System.Text.Json;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services.EpicMapping;
 using LancacheManager.Core.Services.SteamPrefill;
+using LancacheManager.Core.Utilities;
 using LancacheManager.Hubs;
 
 namespace LancacheManager.Core.Services;
@@ -14,18 +15,6 @@ public class EpicPrefillDaemonService : PrefillDaemonServiceBase
 {
     private const string EpicDockerImage = "ghcr.io/regix1/epic-prefill-daemon:latest";
     private readonly EpicMappingService _mappingService;
-
-    /// <summary>
-    /// Event raised when any Epic prefill daemon session becomes authenticated.
-    /// EpicMappingService subscribes to this to track daemon auth state.
-    /// </summary>
-    public event Func<Task>? OnDaemonAuthenticated;
-
-    /// <summary>
-    /// Event raised when all Epic prefill daemon sessions are no longer authenticated.
-    /// EpicMappingService subscribes to this to track daemon auth state.
-    /// </summary>
-    public event Func<Task>? OnAllDaemonsLoggedOut;
 
     public EpicPrefillDaemonService(
         ILogger<EpicPrefillDaemonService> logger,
@@ -74,22 +63,11 @@ public class EpicPrefillDaemonService : PrefillDaemonServiceBase
     // Epic daemon uses a different HKDF info string for credential encryption
     protected override string CredentialEncryptionHkdfInfo => "EpicPrefill-Credential-Encryption";
 
-    protected override async Task OnSessionAuthenticatedAsync()
+    /// <summary>
+    /// After authentication, collect owned games from all authenticated sessions in the background.
+    /// </summary>
+    protected override Task OnPostAuthenticationAsync()
     {
-        // Fire the OnDaemonAuthenticated event so EpicMappingService can react
-        if (OnDaemonAuthenticated != null)
-        {
-            try
-            {
-                await OnDaemonAuthenticated.Invoke();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error in OnDaemonAuthenticated handler");
-            }
-        }
-
-        // Collect owned games from all authenticated sessions in the background
         _ = Task.Run(async () =>
         {
             try
@@ -101,25 +79,8 @@ public class EpicPrefillDaemonService : PrefillDaemonServiceBase
                 _logger.LogWarning(ex, "Failed to collect Epic game mappings after authentication");
             }
         });
-    }
 
-    /// <summary>
-    /// Called when all sessions are no longer authenticated.
-    /// Fires the OnAllDaemonsLoggedOut C# event so EpicMappingService can react.
-    /// </summary>
-    protected override async Task OnAllSessionsLoggedOutAsync()
-    {
-        if (OnAllDaemonsLoggedOut != null)
-        {
-            try
-            {
-                await OnAllDaemonsLoggedOut.Invoke();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error in OnAllDaemonsLoggedOut handler");
-            }
-        }
+        return Task.CompletedTask;
     }
 
     /// <summary>
@@ -145,7 +106,7 @@ public class EpicPrefillDaemonService : PrefillDaemonServiceBase
                     continue;
                 }
 
-                var sessionHash = ComputeAnonymousHash(session.UserId);
+                var sessionHash = CryptoUtils.ComputeAnonymousHash(session.UserId);
                 var result = await _mappingService.MergeOwnedGamesAsync(games, sessionHash, "prefill-login");
 
                 _logger.LogInformation(
@@ -178,12 +139,6 @@ public class EpicPrefillDaemonService : PrefillDaemonServiceBase
                     session.Id);
             }
         }
-    }
-
-    private static string ComputeAnonymousHash(string userId)
-    {
-        var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(userId));
-        return Convert.ToBase64String(hash)[..12];
     }
 
     /// <summary>

@@ -1,5 +1,6 @@
 using LancacheManager.Core.Models;
 using LancacheManager.Core.Services.SteamPrefill;
+using LancacheManager.Core.Utilities;
 using LancacheManager.Hubs;
 using LancacheManager.Models;
 
@@ -187,7 +188,7 @@ public partial class EpicMappingService
         var games = await _epicApiClient.GetOwnedGamesAsync(_currentTokens.AccessToken, ct);
         if (games.Count > 0)
         {
-            var sessionHash = ComputeAnonymousHash("mapping-session");
+            var sessionHash = CryptoUtils.ComputeAnonymousHash("mapping-session");
             var result = await MergeOwnedGamesAsync(games, sessionHash, "mapping-login", ct);
 
             _gamesDiscovered = result.TotalGames;
@@ -242,7 +243,7 @@ public partial class EpicMappingService
             var freeGames = await _epicApiClient.GetFreeGamesAsync(ct);
             if (freeGames.Count > 0)
             {
-                var sessionHash = ComputeAnonymousHash("free-games-discovery");
+                var sessionHash = CryptoUtils.ComputeAnonymousHash("free-games-discovery");
                 var freeResult = await MergeOwnedGamesAsync(freeGames, sessionHash, "free-games", ct);
                 _logger.LogInformation(
                     "Free games discovery: {New} new, {Updated} updated from {Count} promotions",

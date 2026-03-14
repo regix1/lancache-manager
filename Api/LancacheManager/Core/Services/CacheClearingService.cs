@@ -54,10 +54,10 @@ public class CacheClearingService : IHostedService
         _deleteMode = "preserve";
 
         // Use DatasourceService for default cache path
-        var defaultDatasource = _datasourceService.GetDefaultDatasource();
-        if (defaultDatasource != null)
+        var primaryCachePath = _datasourceService.ResolvePrimaryCachePath();
+        if (primaryCachePath != null)
         {
-            _cachePath = defaultDatasource.CachePath;
+            _cachePath = primaryCachePath;
             _logger.LogInformation("Using cache path from default datasource: {CachePath}", _cachePath);
         }
         else
@@ -217,15 +217,10 @@ public class CacheClearingService : IHostedService
 
                 await NotifyProgress(operationId);
 
-                await _notifications.NotifyAllAsync(SignalREvents.CacheClearingComplete, new
-                {
-                    OperationId = operationId,
-                    Success = false,
-                    Status = OperationStatus.Failed,
-                    Message = errorMessage,
-                    Cancelled = false,
-                    Error = errorMessage
-                });
+                await _notifications.SendOperationCompleteAsync(
+                    SignalREvents.CacheClearingComplete, operationId,
+                    success: false, message: errorMessage, cancelled: false,
+                    new { Error = errorMessage });
 
                 SaveOperationToState(trackerKey, operationId);
 
@@ -321,15 +316,10 @@ public class CacheClearingService : IHostedService
 
                 await NotifyProgress(operationId);
 
-                await _notifications.NotifyAllAsync(SignalREvents.CacheClearingComplete, new
-                {
-                    OperationId = operationId,
-                    Success = false,
-                    Status = OperationStatus.Failed,
-                    Message = error,
-                    Cancelled = false,
-                    Error = error
-                });
+                await _notifications.SendOperationCompleteAsync(
+                    SignalREvents.CacheClearingComplete, operationId,
+                    success: false, message: error, cancelled: false,
+                    new { Error = error });
 
                 SaveOperationToState(trackerKey, operationId);
 
@@ -363,15 +353,10 @@ public class CacheClearingService : IHostedService
                 await NotifyProgress(operationId);
 
                 // Send completion notification
-                await _notifications.NotifyAllAsync(SignalREvents.CacheClearingComplete, new
-                {
-                    OperationId = operationId,
-                    Success = false,
-                    Status = OperationStatus.Failed,
-                    Message = error,
-                    Cancelled = false,
-                    Error = error
-                });
+                await _notifications.SendOperationCompleteAsync(
+                    SignalREvents.CacheClearingComplete, operationId,
+                    success: false, message: error, cancelled: false,
+                    new { Error = error });
 
                 SaveOperationToState(trackerKey, operationId);
 
@@ -600,19 +585,10 @@ public class CacheClearingService : IHostedService
             await NotifyProgress(operationId);
 
             // Send completion notification
-            await _notifications.NotifyAllAsync(SignalREvents.CacheClearingComplete, new
-            {
-                OperationId = operationId,
-                Success = true,
-                Status = OperationStatus.Completed,
-                Message = successMessage,
-                Cancelled = false,
-                DirectoriesProcessed = totalDirsProcessed,
-                FilesDeleted = totalFilesDeleted,
-                BytesDeleted = totalBytesDeleted,
-                DatasourcesCleared = validCachePaths.Count,
-                Duration = duration
-            });
+            await _notifications.SendOperationCompleteAsync(
+                SignalREvents.CacheClearingComplete, operationId,
+                success: true, message: successMessage, cancelled: false,
+                new { DirectoriesProcessed = totalDirsProcessed, FilesDeleted = totalFilesDeleted, BytesDeleted = totalBytesDeleted, DatasourcesCleared = validCachePaths.Count, Duration = duration });
 
             SaveOperationToState(trackerKey, operationId);
         }
@@ -628,14 +604,9 @@ public class CacheClearingService : IHostedService
             await NotifyProgress(operationId);
 
             // Send cancellation notification
-            await _notifications.NotifyAllAsync(SignalREvents.CacheClearingComplete, new
-            {
-                OperationId = operationId,
-                Success = false,
-                Status = OperationStatus.Cancelled,
-                Message = "Cache clear cancelled by user",
-                Cancelled = true
-            });
+            await _notifications.SendOperationCompleteAsync(
+                SignalREvents.CacheClearingComplete, operationId,
+                success: false, message: "Cache clear cancelled by user", cancelled: true);
 
             SaveOperationToState(trackerKey, operationId);
         }
@@ -661,15 +632,10 @@ public class CacheClearingService : IHostedService
             await NotifyProgress(operationId);
 
             // Send failure notification
-            await _notifications.NotifyAllAsync(SignalREvents.CacheClearingComplete, new
-            {
-                OperationId = operationId,
-                Success = false,
-                Status = OperationStatus.Failed,
-                Message = $"Cache clear failed: {ex.Message}",
-                Cancelled = false,
-                Error = ex.Message
-            });
+            await _notifications.SendOperationCompleteAsync(
+                SignalREvents.CacheClearingComplete, operationId,
+                success: false, message: $"Cache clear failed: {ex.Message}", cancelled: false,
+                new { Error = ex.Message });
 
             SaveOperationToState(trackerKey, operationId);
         }
@@ -984,14 +950,9 @@ public class CacheClearingService : IHostedService
                 await Task.Delay(500);
 
                 // Notify via SignalR
-                await _notifications.NotifyAllAsync(SignalREvents.CacheClearingComplete, new
-                {
-                    OperationId = operationId,
-                    Success = false,
-                    Status = OperationStatus.Cancelled,
-                    Message = "Cache clear operation force killed",
-                    Cancelled = true
-                });
+                await _notifications.SendOperationCompleteAsync(
+                    SignalREvents.CacheClearingComplete, operationId,
+                    success: false, message: "Cache clear operation force killed", cancelled: true);
 
                 // Extract tracker key from metadata if available
                 var operation = _operationTracker.GetOperation(operationId);

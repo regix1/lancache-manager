@@ -88,15 +88,7 @@ public class SignalRNotificationService : ISignalRNotificationService
 
     public async Task NotifyPrefillClientAsync(string connectionId, string eventName, object? data = null)
     {
-        try
-        {
-            await _steamHubContext.Clients.Client(connectionId).SendAsync(eventName, data);
-            _logger.LogDebug("SignalR Steam prefill notification sent to client {ConnectionId}: {EventName}", connectionId, eventName);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to send SignalR Steam prefill notification to client {ConnectionId}: {EventName}", connectionId, eventName);
-        }
+        await NotifySpecificClientAsync(_steamHubContext.Clients, connectionId, eventName, data, "Steam prefill");
     }
 
     public async Task SendToPrefillClientRawAsync(string connectionId, string eventName, object? data = null)
@@ -109,21 +101,35 @@ public class SignalRNotificationService : ISignalRNotificationService
 
     public async Task NotifyEpicPrefillClientAsync(string connectionId, string eventName, object? data = null)
     {
-        try
-        {
-            await _epicHubContext.Clients.Client(connectionId).SendAsync(eventName, data);
-            _logger.LogDebug("SignalR Epic prefill notification sent to client {ConnectionId}: {EventName}", connectionId, eventName);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to send SignalR Epic prefill notification to client {ConnectionId}: {EventName}", connectionId, eventName);
-        }
+        await NotifySpecificClientAsync(_epicHubContext.Clients, connectionId, eventName, data, "Epic prefill");
     }
 
     public async Task SendToEpicPrefillClientRawAsync(string connectionId, string eventName, object? data = null)
     {
         // This method throws on failure - caller is responsible for handling exceptions
         await _epicHubContext.Clients.Client(connectionId).SendAsync(eventName, data);
+    }
+
+    /// <summary>
+    /// Shared per-client notification helper. Sends to a specific connection on the provided hub clients,
+    /// with consistent debug logging and error handling. Does not rethrow on failure.
+    /// </summary>
+    private async Task NotifySpecificClientAsync(
+        IHubClients hubClients,
+        string connectionId,
+        string eventName,
+        object? data,
+        string hubLabel)
+    {
+        try
+        {
+            await hubClients.Client(connectionId).SendAsync(eventName, data);
+            _logger.LogDebug("SignalR {HubLabel} notification sent to client {ConnectionId}: {EventName}", hubLabel, connectionId, eventName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send SignalR {HubLabel} notification to client {ConnectionId}: {EventName}", hubLabel, connectionId, eventName);
+        }
     }
 
     public async Task NotifyAllBothHubsAsync(string eventName, object? data = null)

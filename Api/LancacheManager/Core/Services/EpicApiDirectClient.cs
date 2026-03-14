@@ -144,11 +144,7 @@ public class EpicApiDirectClient : IDisposable
         _logger.LogInformation("Fetching Epic owned assets...");
 
         // Step 1: Get owned assets
-        var assetsRequest = new HttpRequestMessage(HttpMethod.Get,
-            $"{LauncherServiceUrl}/launcher/api/public/assets/Windows?label=Live");
-        assetsRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-
-        var assetsResponse = await _httpClient.SendAsync(assetsRequest, ct);
+        var assetsResponse = await FetchLauncherAssetsAsync(accessToken, ct);
         var assetsJson = await assetsResponse.Content.ReadAsStringAsync(ct);
 
         if (!assetsResponse.IsSuccessStatusCode)
@@ -232,11 +228,7 @@ public class EpicApiDirectClient : IDisposable
     {
         _logger.LogInformation("Fetching Epic CDN info from assets...");
 
-        var assetsRequest = new HttpRequestMessage(HttpMethod.Get,
-            $"{LauncherServiceUrl}/launcher/api/public/assets/Windows?label=Live");
-        assetsRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-
-        var assetsResponse = await _httpClient.SendAsync(assetsRequest, ct);
+        var assetsResponse = await FetchLauncherAssetsAsync(accessToken, ct);
         var assetsJson = await assetsResponse.Content.ReadAsStringAsync(ct);
 
         if (!assetsResponse.IsSuccessStatusCode)
@@ -296,6 +288,19 @@ public class EpicApiDirectClient : IDisposable
             "Epic CDN manifest resolution complete: {SuccessCount} succeeded, {FailCount} failed, {TotalCount} total patterns",
             successCount, failCount, cdnInfos.Count);
         return cdnInfos;
+    }
+
+    /// <summary>
+    /// Fetches the raw launcher assets list from Epic's launcher API.
+    /// GET {LauncherServiceUrl}/launcher/api/public/assets/Windows?label=Live
+    /// Shared by GetOwnedGamesAsync and GetCdnInfoAsync.
+    /// </summary>
+    private async Task<HttpResponseMessage> FetchLauncherAssetsAsync(string accessToken, CancellationToken ct)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get,
+            $"{LauncherServiceUrl}/launcher/api/public/assets/Windows?label=Live");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        return await _httpClient.SendAsync(request, ct);
     }
 
     /// <summary>
@@ -377,7 +382,7 @@ public class EpicApiDirectClient : IDisposable
                 && !string.IsNullOrEmpty(img.Url));
             if (match != null)
             {
-                var result = AppendResizeParams(match.Url!);
+                var result = EnsureResizeParams(match.Url!);
                 return result;
             }
         }
@@ -389,7 +394,7 @@ public class EpicApiDirectClient : IDisposable
             && img.Width > 0 && img.Height > 0 && img.Width > img.Height);
         if (dieselGameBox != null)
         {
-            var result = AppendResizeParams(dieselGameBox.Url!);
+            var result = EnsureResizeParams(dieselGameBox.Url!);
             return result;
         }
 
@@ -399,7 +404,7 @@ public class EpicApiDirectClient : IDisposable
             && !string.IsNullOrEmpty(img.Url));
         if (featured != null)
         {
-            var result = AppendResizeParams(featured.Url!);
+            var result = EnsureResizeParams(featured.Url!);
             return result;
         }
 
@@ -411,7 +416,7 @@ public class EpicApiDirectClient : IDisposable
             .FirstOrDefault();
         if (widestLandscape != null)
         {
-            var result = AppendResizeParams(widestLandscape.Url!);
+            var result = EnsureResizeParams(widestLandscape.Url!);
             return result;
         }
 
@@ -419,20 +424,9 @@ public class EpicApiDirectClient : IDisposable
     }
 
     /// <summary>
-    /// Appends Epic CDN resize parameters to request a compact landscape image.
-    /// Uses 640x360 (16:9) which is more than sufficient for card banners and
-    /// avoids downloading massive 2560x1440 originals.
-    /// </summary>
-    private static string AppendResizeParams(string imageUrl)
-    {
-        var separator = imageUrl.Contains('?') ? "&" : "?";
-        return $"{imageUrl}{separator}w=640&h=360&resize=1";
-    }
-
-    /// <summary>
-    /// Idempotent version of AppendResizeParams: ensures an Epic CDN image URL
-    /// includes resize parameters without double-applying them.
-    /// Used by GameImagesController to fix legacy DB entries that lack resize params.
+    /// Ensures an Epic CDN image URL includes resize parameters without double-applying them.
+    /// Appends w=640&amp;h=360&amp;resize=1 (16:9, sufficient for card banners) if not already present.
+    /// Used internally by GetBestImageUrl and externally by GameImagesController for legacy DB entries.
     /// </summary>
     internal static string EnsureResizeParams(string imageUrl)
     {

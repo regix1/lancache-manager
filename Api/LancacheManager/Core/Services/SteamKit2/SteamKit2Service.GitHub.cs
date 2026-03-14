@@ -150,12 +150,7 @@ public partial class SteamKit2Service
             _logger.LogInformation("[GitHub Mode] Pre-created depot data downloaded and imported successfully");
 
             // Clear cached viability check since we just imported fresh data from GitHub
-            var state = _stateService.GetState();
-            state.RequiresFullScan = false;
-            state.LastViabilityCheck = null;
-            state.LastViabilityCheckChangeNumber = 0;
-            state.ViabilityChangeGap = 0;
-            _stateService.SaveState(state);
+            ClearViabilityCache();
             _logger.LogInformation("[GitHub Mode] Cleared cached viability check - system is now up to date with GitHub data");
 
             // Send completion notification via SignalR

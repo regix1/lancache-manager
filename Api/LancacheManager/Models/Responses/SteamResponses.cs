@@ -70,12 +70,4 @@ public class ApiKeySaveResponse
     public bool Encrypted { get; set; }
 }
 
-/// <summary>
-/// Response for API key removal
-/// </summary>
-public class ApiKeyRemoveResponse
-{
-    public string Message { get; set; } = string.Empty;
-}
-
 

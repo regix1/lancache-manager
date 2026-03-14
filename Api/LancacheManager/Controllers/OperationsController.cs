@@ -43,11 +43,8 @@ public class OperationsController : ControllerBase
     [HttpGet("{id}")]
     public ActionResult<OperationInfo> GetOperation(string id)
     {
-        var operation = _operationTracker.GetOperation(id);
-        if (operation == null)
-        {
-            return NotFound(new { error = "Operation not found", operationId = id });
-        }
+        var (operation, notFound) = GetOperationOrNotFound(id);
+        if (notFound != null) return notFound;
 
         return Ok(operation);
     }
@@ -61,11 +58,8 @@ public class OperationsController : ControllerBase
     [HttpPost("{id}/cancel")]
     public IActionResult CancelOperation(string id)
     {
-        var operation = _operationTracker.GetOperation(id);
-        if (operation == null)
-        {
-            return NotFound(new { error = "Operation not found", operationId = id });
-        }
+        var (operation, notFound) = GetOperationOrNotFound(id);
+        if (notFound != null) return notFound;
 
         var cancelled = _operationTracker.CancelOperation(id);
         if (cancelled)
@@ -74,7 +68,7 @@ public class OperationsController : ControllerBase
             {
                 message = "Cancellation requested",
                 operationId = id,
-                status = operation.Status
+                status = operation!.Status
             });
         }
 
@@ -90,11 +84,8 @@ public class OperationsController : ControllerBase
     [HttpPost("{id}/kill")]
     public IActionResult ForceKillOperation(string id)
     {
-        var operation = _operationTracker.GetOperation(id);
-        if (operation == null)
-        {
-            return NotFound(new { error = "Operation not found", operationId = id });
-        }
+        var (_, notFound) = GetOperationOrNotFound(id);
+        if (notFound != null) return notFound;
 
         var killed = _operationTracker.ForceKillOperation(id);
         if (killed)
@@ -107,5 +98,13 @@ public class OperationsController : ControllerBase
         }
 
         return BadRequest(new { error = "No process to kill or operation cannot be force killed", operationId = id });
+    }
+
+    private (OperationInfo? operation, ActionResult? notFound) GetOperationOrNotFound(string id)
+    {
+        var operation = _operationTracker.GetOperation(id);
+        if (operation == null)
+            return (null, NotFound(new { error = "Operation not found", operationId = id }));
+        return (operation, null);
     }
 }

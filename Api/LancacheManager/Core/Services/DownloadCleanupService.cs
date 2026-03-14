@@ -1,4 +1,5 @@
 using System.Data;
+using LancacheManager.Extensions;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services.Base;
 using Microsoft.EntityFrameworkCore;
@@ -29,9 +30,8 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
 
     protected override async Task OnStartupAsync(CancellationToken stoppingToken)
     {
-        using var scope = ServiceProvider.CreateScope();
-        var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        await PerformInitialCleanup(context, stoppingToken);
+        using var scopedDb = _serviceProvider.CreateScopedDbContext();
+        await PerformInitialCleanupAsync(scopedDb.DbContext, stoppingToken);
     }
 
     protected override async Task ExecuteScopedWorkAsync(
@@ -39,10 +39,10 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
         CancellationToken stoppingToken)
     {
         var context = scopedServices.GetRequiredService<AppDbContext>();
-        await CleanupStaleDownloads(context, stoppingToken);
+        await CleanupStaleDownloadsAsync(context, stoppingToken);
     }
 
-    private async Task CleanupStaleDownloads(AppDbContext context, CancellationToken stoppingToken)
+    private async Task CleanupStaleDownloadsAsync(AppDbContext context, CancellationToken stoppingToken)
     {
         // Use 15-second timeout - if no new data in 15 seconds, download is complete
         // Reduced from 30 seconds for faster completion detection
@@ -82,23 +82,23 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
 
         if (totalUpdated > 0)
         {
-            Logger.LogInformation("Marked {Count} downloads as complete (EndTime > 15 seconds old or never updated)", totalUpdated);
+            _logger.LogInformation("Marked {Count} downloads as complete (EndTime > 15 seconds old or never updated)", totalUpdated);
         }
     }
 
-    private async Task PerformInitialCleanup(AppDbContext context, CancellationToken stoppingToken)
+    private async Task PerformInitialCleanupAsync(AppDbContext context, CancellationToken stoppingToken)
     {
-        Logger.LogInformation("Running initial database cleanup...");
+        _logger.LogInformation("Running initial database cleanup...");
 
         try
         {
             // Fix App 0 entries - mark them as inactive so they don't show up
-            Logger.LogInformation("Checking for App 0 downloads...");
+            _logger.LogInformation("Checking for App 0 downloads...");
             var app0Downloads = await context.Downloads
                 .Where(d => d.GameAppId == 0)
                 .ToListAsync(stoppingToken);
 
-            Logger.LogInformation("Found {Count} App 0 downloads", app0Downloads.Count);
+            _logger.LogInformation("Found {Count} App 0 downloads", app0Downloads.Count);
 
             if (app0Downloads.Any())
             {
@@ -107,16 +107,16 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
                     download.IsActive = false;
                 }
                 await context.SaveChangesAsync(stoppingToken);
-                Logger.LogInformation("Marked {Count} 'App 0' downloads as inactive", app0Downloads.Count);
+                _logger.LogInformation("Marked {Count} 'App 0' downloads as inactive", app0Downloads.Count);
             }
             else
             {
-                Logger.LogInformation("No App 0 downloads found to fix");
+                _logger.LogInformation("No App 0 downloads found to fix");
             }
 
             // Mark stale downloads as complete on startup (downloads older than 15 seconds)
             // Also catch downloads that were never updated (EndTimeUtc still default)
-            Logger.LogInformation("Checking for stale active downloads...");
+            _logger.LogInformation("Checking for stale active downloads...");
             var cutoff = DateTime.UtcNow.AddSeconds(-15);
             var staleCutoff = DateTime.UtcNow.AddSeconds(-60);
             var staleDownloads = await context.Downloads
@@ -125,7 +125,7 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
                      (d.EndTimeUtc == default(DateTime) && d.StartTimeUtc < staleCutoff))) // Never updated check
                 .ToListAsync(stoppingToken);
 
-            Logger.LogInformation("Found {Count} stale active downloads", staleDownloads.Count);
+            _logger.LogInformation("Found {Count} stale active downloads", staleDownloads.Count);
 
             if (staleDownloads.Any())
             {
@@ -134,7 +134,7 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
                     download.IsActive = false;
                 }
                 await context.SaveChangesAsync(stoppingToken);
-                Logger.LogInformation("Marked {Count} stale downloads as complete", staleDownloads.Count);
+                _logger.LogInformation("Marked {Count} stale downloads as complete", staleDownloads.Count);
             }
 
             // Note: Image URL backfilling is now handled automatically by PICS during incremental scans
@@ -150,11 +150,11 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
             // Clean up orphaned services (services in DB but not in log files)
             await CleanupOrphanedServicesAsync(context, stoppingToken);
 
-            Logger.LogInformation("Initial database cleanup complete");
+            _logger.LogInformation("Initial database cleanup complete");
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error during initial cleanup");
+            _logger.LogError(ex, "Error during initial cleanup");
         }
     }
 
@@ -183,7 +183,7 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
 
             if (logEntriesUpdated > 0 || downloadsUpdated > 0)
             {
-                Logger.LogInformation("Renamed service '{OldName}' → '{NewName}': {LogEntries} log entries, {Downloads} downloads",
+                _logger.LogInformation("Renamed service '{OldName}' → '{NewName}': {LogEntries} log entries, {Downloads} downloads",
                     oldName, newName, logEntriesUpdated, downloadsUpdated);
             }
         }
@@ -197,20 +197,20 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
     {
         try
         {
-            Logger.LogInformation("Checking for orphaned services in database...");
+            _logger.LogInformation("Checking for orphaned services in database...");
 
             // Get services that exist in log files (from Rust log_manager)
             var logServices = await _cacheManagementService.GetServiceLogCounts(forceRefresh: false, stoppingToken);
             var logServiceNames = logServices.Keys.Select(s => s.ToLowerInvariant()).ToHashSet();
 
-            Logger.LogInformation("Found {Count} services in log files: {Services}",
+            _logger.LogInformation("Found {Count} services in log files: {Services}",
                 logServiceNames.Count, string.Join(", ", logServiceNames.Take(10)));
 
             // SAFETY CHECK: If no services found in logs, don't delete anything
             // This prevents accidentally wiping all data if log scanning fails
             if (logServiceNames.Count == 0)
             {
-                Logger.LogWarning("No services found in log files - skipping orphaned service cleanup to prevent accidental data loss");
+                _logger.LogWarning("No services found in log files - skipping orphaned service cleanup to prevent accidental data loss");
                 return 0;
             }
 
@@ -225,7 +225,7 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
                     .Distinct()
                     .ToListAsync(stoppingToken);
 
-                Logger.LogInformation("Found {Count} services in database: {Services}",
+                _logger.LogInformation("Found {Count} services in database: {Services}",
                     dbServices.Count, string.Join(", ", dbServices.Take(10)));
 
                 // SAFETY CHECK: Don't delete if most services would be removed
@@ -236,19 +236,19 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
 
                 if (dbServices.Count > 0 && orphanedServices.Count >= dbServices.Count)
                 {
-                    Logger.LogWarning("All {Count} database services would be marked as orphaned - this looks like a log scanning issue. Skipping cleanup.", dbServices.Count);
+                    _logger.LogWarning("All {Count} database services would be marked as orphaned - this looks like a log scanning issue. Skipping cleanup.", dbServices.Count);
                     await transaction.RollbackAsync(stoppingToken);
                     return 0;
                 }
 
                 if (!orphanedServices.Any())
                 {
-                    Logger.LogInformation("No orphaned services found");
+                    _logger.LogInformation("No orphaned services found");
                     await transaction.CommitAsync(stoppingToken);
                     return 0;
                 }
 
-                Logger.LogInformation("Found {Count} orphaned services to clean up: {Services}",
+                _logger.LogInformation("Found {Count} orphaned services to clean up: {Services}",
                     orphanedServices.Count, string.Join(", ", orphanedServices));
 
                 var totalDeleted = 0;
@@ -275,13 +275,13 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
                     var serviceTotal = logEntriesDeleted + downloadsDeleted + serviceStatsDeleted;
                     totalDeleted += serviceTotal;
 
-                    Logger.LogInformation("Cleaned up orphaned service '{Service}': {Downloads} downloads, {LogEntries} log entries, {ServiceStats} service stats",
+                    _logger.LogInformation("Cleaned up orphaned service '{Service}': {Downloads} downloads, {LogEntries} log entries, {ServiceStats} service stats",
                         service, downloadsDeleted, logEntriesDeleted, serviceStatsDeleted);
                 }
 
                 await transaction.CommitAsync(stoppingToken);
 
-                Logger.LogInformation("Orphaned service cleanup complete: removed {Total} total records from {Count} services",
+                _logger.LogInformation("Orphaned service cleanup complete: removed {Total} total records from {Count} services",
                     totalDeleted, orphanedServices.Count);
 
                 return orphanedServices.Count;
@@ -294,7 +294,7 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error cleaning up orphaned services");
+            _logger.LogError(ex, "Error cleaning up orphaned services");
             return 0;
         }
     }
@@ -311,7 +311,7 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
     {
         try
         {
-            Logger.LogInformation("Checking for datasource mapping inconsistencies...");
+            _logger.LogInformation("Checking for datasource mapping inconsistencies...");
 
             // Get configured datasources
             var datasources = _datasourceService.GetDatasources();
@@ -319,14 +319,14 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
 
             if (defaultDatasource == null)
             {
-                Logger.LogWarning("No default datasource configured - skipping datasource normalization");
+                _logger.LogWarning("No default datasource configured - skipping datasource normalization");
                 return 0;
             }
 
             var defaultName = defaultDatasource.Name;
             var validNames = datasources.Select(d => d.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-            Logger.LogInformation("Valid datasources: {Datasources}, Default: {Default}",
+            _logger.LogInformation("Valid datasources: {Datasources}, Default: {Default}",
                 string.Join(", ", validNames), defaultName);
 
             // Get all unique datasource values currently in the database
@@ -335,7 +335,7 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
                 .Distinct()
                 .ToListAsync(stoppingToken);
 
-            Logger.LogInformation("Current datasource values in database: {Values}",
+            _logger.LogInformation("Current datasource values in database: {Values}",
                 string.Join(", ", currentDatasources.Select(d => d ?? "(null)")));
 
             var totalUpdated = 0;
@@ -379,7 +379,7 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
                         normalizedName = defaultName;
                     }
 
-                    Logger.LogInformation("Normalizing datasource '{Old}' -> '{New}' (reason: {Reason})",
+                    _logger.LogInformation("Normalizing datasource '{Old}' -> '{New}' (reason: {Reason})",
                         datasourceValue ?? "(null)", normalizedName, reason);
 
                     // Update all downloads with this datasource value
@@ -402,25 +402,25 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
                     }
 
                     totalUpdated += updated;
-                    Logger.LogInformation("Updated {Count} downloads from '{Old}' to '{New}'",
+                    _logger.LogInformation("Updated {Count} downloads from '{Old}' to '{New}'",
                         updated, datasourceValue ?? "(null)", normalizedName);
                 }
             }
 
             if (totalUpdated > 0)
             {
-                Logger.LogInformation("Datasource normalization complete: updated {Total} downloads", totalUpdated);
+                _logger.LogInformation("Datasource normalization complete: updated {Total} downloads", totalUpdated);
             }
             else
             {
-                Logger.LogInformation("No datasource normalization needed - all mappings are valid");
+                _logger.LogInformation("No datasource normalization needed - all mappings are valid");
             }
 
             return totalUpdated;
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error normalizing datasource mappings");
+            _logger.LogError(ex, "Error normalizing datasource mappings");
             return 0;
         }
     }

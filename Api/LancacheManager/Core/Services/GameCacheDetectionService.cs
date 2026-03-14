@@ -174,9 +174,7 @@ public class GameCacheDetectionService : IDisposable
             await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
 
             // Get unknown games from cache (depot IDs stored as game_app_id for unknowns)
-            var unknownGames = await dbContext.CachedGameDetections
-                .Where(g => g.GameName.StartsWith("Unknown Game (Depot"))
-                .ToListAsync();
+            var unknownGames = await GetUnknownGamesCachedAsync(dbContext);
 
             if (unknownGames.Count == 0)
             {
@@ -645,98 +643,23 @@ public class GameCacheDetectionService : IDisposable
                 _logger.LogInformation("[GameDetection] Services saved to database - {Count} services total", aggregatedServices.Count);
             }
 
-            // Update persisted state with complete status
-            _operationStateService.SaveState($"gameDetection_{operationId}", new OperationState
-            {
-                Key = $"gameDetection_{operationId}",
-                Type = "gameDetection",
-                Status = OperationStatus.Completed,
-                Message = completionMessage,
-                Data = JsonSerializer.SerializeToElement(new { operationId, totalGamesDetected })
-            });
-
             _logger.LogInformation("[GameDetection] Completed: {Count} games detected across {DatasourceCount} datasource(s)",
                 totalGamesDetected, datasources.Count);
 
-            // Mark operation as complete in unified tracker
-            _operationTracker.CompleteOperation(operationId, success: true);
-            _currentTrackerOperationId = null;
-
-            // Send SignalR notification that detection completed successfully
-            await _notifications.NotifyAllAsync(SignalREvents.GameDetectionComplete, new
-            {
-                OperationId = operationId,
-                Success = true,
-                Status = OperationStatus.Completed,
-                Message = completionMessage,
-                Cancelled = false,
-                totalGamesDetected,
-                totalServicesDetected = finalServices.Count,
-                timestamp = DateTime.UtcNow
-            });
-
-            // Clean up temporary files
-            foreach (var outputJson in outputJsonFiles)
-            {
-                await _rustProcessHelper.DeleteTemporaryFileAsync(outputJson);
-            }
-            if (!string.IsNullOrEmpty(excludedIdsPath))
-            {
-                await _rustProcessHelper.DeleteTemporaryFileAsync(excludedIdsPath);
-            }
-            if (!string.IsNullOrEmpty(progressFilePath))
-            {
-                await _rustProcessHelper.DeleteTemporaryFileAsync(progressFilePath);
-            }
+            await FinalizeDetectionAsync(operationId, success: true,
+                status: OperationStatus.Completed, message: completionMessage, cancelled: false,
+                gamesDetected: totalGamesDetected, servicesDetected: finalServices.Count);
         }
         catch (OperationCanceledException)
         {
             _logger.LogInformation("[GameDetection] Operation {OperationId} was cancelled", operationId);
-            var cancelMessage = "Detection cancelled by user";
 
-            // Mark operation as complete (cancelled) in unified tracker
-            _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
-            _currentTrackerOperationId = null;
-
-            // Update persisted state with cancelled status
-            _operationStateService.SaveState($"gameDetection_{operationId}", new OperationState
-            {
-                Key = $"gameDetection_{operationId}",
-                Type = "gameDetection",
-                Status = "cancelled",
-                Message = cancelMessage,
-                Data = JsonSerializer.SerializeToElement(new { operationId, cancelled = true })
-            });
-
-            // Send SignalR notification that detection was cancelled
-            await _notifications.NotifyAllAsync(SignalREvents.GameDetectionComplete, new
-            {
-                OperationId = operationId,
-                Success = false,
-                Status = OperationStatus.Cancelled,
-                Message = cancelMessage,
-                Cancelled = true,
-                timestamp = DateTime.UtcNow
-            });
-
-            // Clean up temporary files
-            foreach (var outputJson in outputJsonFiles)
-            {
-                await _rustProcessHelper.DeleteTemporaryFileAsync(outputJson);
-            }
-            if (!string.IsNullOrEmpty(excludedIdsPath))
-            {
-                await _rustProcessHelper.DeleteTemporaryFileAsync(excludedIdsPath);
-            }
-            if (!string.IsNullOrEmpty(progressFilePath))
-            {
-                await _rustProcessHelper.DeleteTemporaryFileAsync(progressFilePath);
-            }
+            await FinalizeDetectionAsync(operationId, success: false,
+                status: OperationStatus.Cancelled, message: "Detection cancelled by user", cancelled: true);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[GameDetection] Operation {OperationId} failed", operationId);
-            var errorMessage = $"Detection failed: {ex.Message}";
 
             // Update metadata with error before completing
             _operationTracker.UpdateMetadata(operationId, m =>
@@ -745,32 +668,12 @@ public class GameCacheDetectionService : IDisposable
                 metrics.Error = ex.Message;
             });
 
-            // Mark operation as complete (failed) in unified tracker
-            _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
-            _currentTrackerOperationId = null;
-
-            // Update persisted state with failed status
-            _operationStateService.SaveState($"gameDetection_{operationId}", new OperationState
-            {
-                Key = $"gameDetection_{operationId}",
-                Type = "gameDetection",
-                Status = "failed",
-                Message = errorMessage,
-                Data = JsonSerializer.SerializeToElement(new { operationId, error = ex.Message })
-            });
-
-            // Send SignalR notification that detection failed
-            await _notifications.NotifyAllAsync(SignalREvents.GameDetectionComplete, new
-            {
-                OperationId = operationId,
-                Success = false,
-                Status = OperationStatus.Failed,
-                Message = errorMessage,
-                Cancelled = false,
-                timestamp = DateTime.UtcNow
-            });
-
-            // Clean up temporary files in error path too
+            await FinalizeDetectionAsync(operationId, success: false,
+                status: OperationStatus.Failed, message: $"Detection failed: {ex.Message}", cancelled: false);
+        }
+        finally
+        {
+            // Clean up temporary files in all paths (success, cancel, error)
             foreach (var outputJson in outputJsonFiles)
             {
                 await _rustProcessHelper.DeleteTemporaryFileAsync(outputJson);
@@ -784,6 +687,52 @@ public class GameCacheDetectionService : IDisposable
                 await _rustProcessHelper.DeleteTemporaryFileAsync(progressFilePath);
             }
         }
+    }
+
+    /// <summary>
+    /// Finalizes a detection operation by updating the tracker, persisted state, and sending SignalR notification.
+    /// Consolidates the common teardown logic shared across success, cancel, and error paths.
+    /// </summary>
+    private async Task FinalizeDetectionAsync(
+        string operationId, bool success, string status, string message, bool cancelled,
+        int? gamesDetected = null, int? servicesDetected = null)
+    {
+        // Determine error string for tracker (cancelled = "Cancelled by user", failed = message, success = null)
+        var trackerError = success ? null : (cancelled ? "Cancelled by user" : message);
+
+        // Mark operation as complete in unified tracker
+        _operationTracker.CompleteOperation(operationId, success: success, error: trackerError);
+        _currentTrackerOperationId = null;
+
+        // Build persisted state data
+        var stateData = cancelled
+            ? JsonSerializer.SerializeToElement(new { operationId, cancelled = true })
+            : success
+                ? JsonSerializer.SerializeToElement(new { operationId, totalGamesDetected = gamesDetected ?? 0 })
+                : JsonSerializer.SerializeToElement(new { operationId, error = message });
+
+        // Update persisted state
+        _operationStateService.SaveState($"gameDetection_{operationId}", new OperationState
+        {
+            Key = $"gameDetection_{operationId}",
+            Type = "gameDetection",
+            Status = status,
+            Message = message,
+            Data = stateData
+        });
+
+        // Build and send SignalR completion notification
+        await _notifications.NotifyAllAsync(SignalREvents.GameDetectionComplete, new
+        {
+            OperationId = operationId,
+            Success = success,
+            Status = status,
+            Message = message,
+            Cancelled = cancelled,
+            totalGamesDetected = gamesDetected,
+            totalServicesDetected = servicesDetected,
+            timestamp = DateTime.UtcNow
+        });
     }
 
     public DetectionOperationResponse? GetOperationStatus(string operationId)
@@ -959,44 +908,32 @@ public class GameCacheDetectionService : IDisposable
             await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
 
             // Get unknown games from cache
-            var unknownGames = await dbContext.CachedGameDetections
-                .Where(g => g.GameName.StartsWith("Unknown Game (Depot"))
-                .ToListAsync();
+            var unknownGames = await GetUnknownGamesCachedAsync(dbContext);
 
             if (unknownGames.Count == 0)
             {
                 return 0;
             }
 
-            // Get previously failed depots from state service
-            var failedDepotsState = _operationStateService.GetState(FailedDepotsStateKey);
-            var previouslyFailedDepots = new HashSet<uint>();
-            if (failedDepotsState?.Data != null)
+            _logger.LogInformation("[GameDetection] Found {Count} unknown games in cache, attempting to resolve", unknownGames.Count);
+
+            // First tier: Build a lookup from Downloads table (already has correct names from Rust processor)
+            var unknownDepotIds = unknownGames.Select(g => (int)g.GameAppId).ToHashSet();
+            var downloadsLookup = await dbContext.Downloads
+                .Where(d => d.GameName != null && d.GameAppId != null && d.GameAppId > 0 && d.DepotId != null)
+                .Select(d => new { d.GameAppId, d.GameName, d.DepotId })
+                .Distinct()
+                .ToListAsync();
+
+            var depotToGameFromDownloads = downloadsLookup
+                .Where(d => d.DepotId.HasValue && unknownDepotIds.Contains((int)d.DepotId.Value))
+                .GroupBy(d => (int)d.DepotId!.Value)
+                .ToDictionary(g => g.Key, g => g.First());
+
+            if (depotToGameFromDownloads.Count > 0)
             {
-                var dataDict = failedDepotsState.GetDataAsDictionary();
-                if (dataDict.TryGetValue("depotIds", out var depotIdsObj) && depotIdsObj is List<object> depotIdsList)
-                {
-                    foreach (var id in depotIdsList)
-                    {
-                        if (id is long longId)
-                            previouslyFailedDepots.Add((uint)longId);
-                        else if (id is int intId)
-                            previouslyFailedDepots.Add((uint)intId);
-                        else if (uint.TryParse(id?.ToString(), out var parsedId))
-                            previouslyFailedDepots.Add(parsedId);
-                    }
-                }
+                _logger.LogInformation("[GameDetection] Downloads table pre-lookup found {Count} depot(s) with resolved names", depotToGameFromDownloads.Count);
             }
-
-            // Filter out games we've already failed to resolve
-            var gamesToResolve = unknownGames.Where(g => !previouslyFailedDepots.Contains(g.GameAppId)).ToList();
-
-            if (gamesToResolve.Count == 0)
-            {
-                return 0;
-            }
-
-            _logger.LogInformation("[GameDetection] Found {Count} unknown games in cache, attempting to resolve", gamesToResolve.Count);
 
             int resolvedCount = 0;
             var newlyFailedDepots = new List<uint>();
@@ -1006,116 +943,56 @@ public class GameCacheDetectionService : IDisposable
             // Key: AppId, Value: the CachedGameDetection entity that will have this AppId after save
             var pendingAppIdAssignments = new Dictionary<uint, CachedGameDetection>();
 
-            foreach (var unknownGame in gamesToResolve)
+            foreach (var unknownGame in unknownGames)
             {
                 // For unknown games, the depot ID is stored as GameAppId
                 var depotId = unknownGame.GameAppId;
 
-                // Look up the depot in SteamDepotMappings
-                var mapping = await dbContext.SteamDepotMappings
-                    .Where(m => m.DepotId == depotId && m.IsOwner)
-                    .FirstOrDefaultAsync();
-
-                if (mapping != null)
+                // First tier: Try to resolve from Downloads table (has correct names from Rust processor)
+                if (depotToGameFromDownloads.TryGetValue((int)depotId, out var downloadsMatch))
                 {
-                    // Found a mapping! Determine the best name to use
-                    var resolvedName = !string.IsNullOrEmpty(mapping.AppName)
-                        ? mapping.AppName
-                        : !string.IsNullOrEmpty(mapping.DepotName)
-                            ? mapping.DepotName
-                            : $"App {mapping.AppId}";
+                    var resolvedAppId = downloadsMatch.GameAppId!.Value;
+                    var resolvedName = downloadsMatch.GameName!;
 
-                    _logger.LogInformation("[GameDetection] Resolved depot {DepotId} -> {AppId} ({Name})",
-                        depotId, mapping.AppId, resolvedName);
+                    _logger.LogInformation("[GameDetection] Resolved depot {DepotId} -> {AppId} ({Name}) via Downloads table",
+                        depotId, resolvedAppId, resolvedName);
 
                     // Check if we've already assigned this AppId in this batch
-                    if (pendingAppIdAssignments.TryGetValue(mapping.AppId, out var pendingGame))
+                    if (pendingAppIdAssignments.TryGetValue(resolvedAppId, out var pendingGame))
                     {
-                        // Another unknown game in this batch already resolved to this AppId - merge into it
-                        pendingGame.CacheFilesFound += unknownGame.CacheFilesFound;
-                        pendingGame.TotalSizeBytes += unknownGame.TotalSizeBytes;
-                        pendingGame.LastDetectedUtc = pendingGame.LastDetectedUtc > unknownGame.LastDetectedUtc
-                            ? pendingGame.LastDetectedUtc : unknownGame.LastDetectedUtc;
-
-                        // Merge depot IDs
-                        var pendingDepots = JsonSerializer.Deserialize<List<uint>>(pendingGame.DepotIdsJson) ?? new List<uint>();
-                        var unknownDepots = JsonSerializer.Deserialize<List<uint>>(unknownGame.DepotIdsJson) ?? new List<uint>();
-                        pendingDepots.AddRange(unknownDepots);
-                        pendingDepots = pendingDepots.Distinct().ToList();
-                        pendingGame.DepotIdsJson = JsonSerializer.Serialize(pendingDepots);
-
-                        // Merge cache file paths
-                        var pendingPaths = JsonSerializer.Deserialize<List<string>>(pendingGame.CacheFilePathsJson) ?? new List<string>();
-                        var unknownPaths = JsonSerializer.Deserialize<List<string>>(unknownGame.CacheFilePathsJson) ?? new List<string>();
-                        pendingPaths.AddRange(unknownPaths);
-                        pendingPaths = pendingPaths.Distinct().ToList();
-                        pendingGame.CacheFilePathsJson = JsonSerializer.Serialize(pendingPaths);
-
-                        // Mark unknown game for removal
+                        MergeUnknownGameIntoTarget(pendingGame, unknownGame);
                         entriesToRemove.Add(unknownGame);
-                        _logger.LogInformation("[GameDetection] Merged depot {DepotId} into pending game {AppId} ({Name})",
-                            depotId, mapping.AppId, resolvedName);
-
+                        _logger.LogInformation("[GameDetection] Merged depot {DepotId} into pending game {AppId} ({Name}) via Downloads table",
+                            depotId, resolvedAppId, resolvedName);
                         resolvedCount++;
-                        previouslyFailedDepots.Remove(depotId);
                         continue;
                     }
 
-                    // Check if a record with this AppId already exists in database (unique constraint protection)
+                    // Check if a record with this AppId already exists in database
                     var existingGame = await dbContext.CachedGameDetections
-                        .FirstOrDefaultAsync(g => g.GameAppId == mapping.AppId);
+                        .FirstOrDefaultAsync(g => g.GameAppId == resolvedAppId);
 
                     if (existingGame != null && existingGame.Id != unknownGame.Id)
                     {
-                        // Merge data into existing record - this depot is another depot for the same game
-                        existingGame.CacheFilesFound += unknownGame.CacheFilesFound;
-                        existingGame.TotalSizeBytes += unknownGame.TotalSizeBytes;
-                        existingGame.LastDetectedUtc = existingGame.LastDetectedUtc > unknownGame.LastDetectedUtc
-                            ? existingGame.LastDetectedUtc : unknownGame.LastDetectedUtc;
-
-                        // Merge depot IDs
-                        var existingDepots = JsonSerializer.Deserialize<List<uint>>(existingGame.DepotIdsJson) ?? new List<uint>();
-                        var unknownDepots = JsonSerializer.Deserialize<List<uint>>(unknownGame.DepotIdsJson) ?? new List<uint>();
-                        existingDepots.AddRange(unknownDepots);
-                        existingDepots = existingDepots.Distinct().ToList();
-                        existingGame.DepotIdsJson = JsonSerializer.Serialize(existingDepots);
-
-                        // Merge cache file paths
-                        var existingPaths = JsonSerializer.Deserialize<List<string>>(existingGame.CacheFilePathsJson) ?? new List<string>();
-                        var unknownPaths = JsonSerializer.Deserialize<List<string>>(unknownGame.CacheFilePathsJson) ?? new List<string>();
-                        existingPaths.AddRange(unknownPaths);
-                        existingPaths = existingPaths.Distinct().ToList();
-                        existingGame.CacheFilePathsJson = JsonSerializer.Serialize(existingPaths);
-
-                        // Mark unknown game for removal
+                        MergeUnknownGameIntoTarget(existingGame, unknownGame);
                         entriesToRemove.Add(unknownGame);
-
-                        // Track this existing game so future unknowns in this batch merge into it
-                        pendingAppIdAssignments[mapping.AppId] = existingGame;
-
-                        _logger.LogInformation("[GameDetection] Merged depot {DepotId} into existing game {AppId} ({Name})",
-                            depotId, mapping.AppId, resolvedName);
+                        pendingAppIdAssignments[resolvedAppId] = existingGame;
+                        _logger.LogInformation("[GameDetection] Merged depot {DepotId} into existing game {AppId} ({Name}) via Downloads table",
+                            depotId, resolvedAppId, resolvedName);
                     }
                     else
                     {
-                        // No existing record, update the unknown game directly
                         unknownGame.GameName = resolvedName;
-                        unknownGame.GameAppId = mapping.AppId;
-
-                        // Track this assignment so other unknowns in this batch can merge
-                        pendingAppIdAssignments[mapping.AppId] = unknownGame;
+                        unknownGame.GameAppId = resolvedAppId;
+                        pendingAppIdAssignments[resolvedAppId] = unknownGame;
                     }
 
                     resolvedCount++;
+                    continue;
+                }
 
-                    // If this depot was previously in failed list, it's now resolved - remove it
-                    previouslyFailedDepots.Remove(depotId);
-                }
-                else
-                {
-                    // Failed to resolve - track this depot so we don't spam logs
-                    newlyFailedDepots.Add(depotId);
-                }
+                // Not found in Downloads DB — will remain as "Unknown Game" until download activity creates a mapping
+                newlyFailedDepots.Add(depotId);
             }
 
             // Remove merged entries
@@ -1131,53 +1008,11 @@ public class GameCacheDetectionService : IDisposable
                 _logger.LogInformation("[GameDetection] Resolved {Count} unknown games in cache", resolvedCount);
             }
 
-            // Log and persist failed resolutions to state.json
+            // Log unresolved depots (Downloads DB is the only resolution source for Game Cache Detection)
             if (newlyFailedDepots.Count > 0)
             {
-                _logger.LogInformation("[GameDetection] Failed to resolve {Count} depot(s): {DepotIds}. Triggering PICS resolution in background.",
+                _logger.LogInformation("[GameDetection] Could not resolve {Count} depot(s) from Downloads DB: {DepotIds}",
                     newlyFailedDepots.Count, string.Join(", ", newlyFailedDepots));
-
-                // Fire-and-forget: ask SteamKit2Service to resolve these depot IDs via PICS.
-                // This is non-blocking - the next call to GetCachedDetectionAsync will pick up the results.
-                var depotsToResolve = newlyFailedDepots.ToList();
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        var resolved = await _steamKit2Service.TryResolveSpecificDepotsAsync(depotsToResolve, CancellationToken.None);
-                        if (resolved.Count > 0)
-                        {
-                            _logger.LogInformation("[GameDetection] Background PICS resolution resolved {Count} depot(s): {DepotIds}. Will be applied on next cache load.",
-                                resolved.Count, string.Join(", ", resolved));
-                        }
-                        else
-                        {
-                            _logger.LogDebug("[GameDetection] Background PICS resolution found no new mappings for {Count} depot(s).", depotsToResolve.Count);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "[GameDetection] Background PICS resolution encountered an error (non-fatal)");
-                    }
-                });
-            }
-
-            // Update state with all failed depots (previous + new, minus any resolved)
-            var allFailedDepots = previouslyFailedDepots.Union(newlyFailedDepots.Select(d => d)).ToList();
-            if (allFailedDepots.Count > 0 || failedDepotsState != null)
-            {
-                _operationStateService.SaveState(FailedDepotsStateKey, new OperationState
-                {
-                    Key = FailedDepotsStateKey,
-                    Type = "failedDepotResolutions",
-                    Status = "tracked",
-                    Message = $"{allFailedDepots.Count} depot(s) could not be resolved",
-                    Data = JsonSerializer.SerializeToElement(new Dictionary<string, object>
-                    {
-                        { "depotIds", allFailedDepots },
-                        { "lastAttempt", DateTime.UtcNow.ToString("o") }
-                    })
-                });
             }
 
             return resolvedCount;
@@ -1366,6 +1201,20 @@ public class GameCacheDetectionService : IDisposable
         await dbContext.SaveChangesAsync();
     }
 
+    private static async Task<List<CachedGameDetection>> GetUnknownGamesCachedAsync(AppDbContext dbContext)
+    {
+        return await dbContext.CachedGameDetections
+            .Where(g => g.GameName.StartsWith("Unknown Game (Depot"))
+            .ToListAsync();
+    }
+
+    private static List<string> DeserializeStringList(string? json)
+    {
+        if (string.IsNullOrEmpty(json)) return new List<string>();
+        try { return JsonSerializer.Deserialize<List<string>>(json) ?? new List<string>(); }
+        catch { return new List<string>(); }
+    }
+
     private static GameCacheInfo ConvertToGameCacheInfo(CachedGameDetection cached)
     {
         var datasourcesJson = string.IsNullOrWhiteSpace(cached.DatasourcesJson) ? "[]" : cached.DatasourcesJson;
@@ -1376,9 +1225,9 @@ public class GameCacheDetectionService : IDisposable
             CacheFilesFound = cached.CacheFilesFound,
             TotalSizeBytes = cached.TotalSizeBytes,
             DepotIds = JsonSerializer.Deserialize<List<uint>>(cached.DepotIdsJson) ?? new List<uint>(),
-            SampleUrls = JsonSerializer.Deserialize<List<string>>(cached.SampleUrlsJson) ?? new List<string>(),
-            CacheFilePaths = JsonSerializer.Deserialize<List<string>>(cached.CacheFilePathsJson) ?? new List<string>(),
-            Datasources = JsonSerializer.Deserialize<List<string>>(datasourcesJson) ?? new List<string>(),
+            SampleUrls = DeserializeStringList(cached.SampleUrlsJson),
+            CacheFilePaths = DeserializeStringList(cached.CacheFilePathsJson),
+            Datasources = DeserializeStringList(datasourcesJson),
             ImageUrl = null
         };
     }
@@ -1391,9 +1240,9 @@ public class GameCacheDetectionService : IDisposable
             ServiceName = cached.ServiceName,
             CacheFilesFound = cached.CacheFilesFound,
             TotalSizeBytes = cached.TotalSizeBytes,
-            SampleUrls = JsonSerializer.Deserialize<List<string>>(cached.SampleUrlsJson) ?? new List<string>(),
-            CacheFilePaths = JsonSerializer.Deserialize<List<string>>(cached.CacheFilePathsJson) ?? new List<string>(),
-            Datasources = JsonSerializer.Deserialize<List<string>>(datasourcesJson) ?? new List<string>()
+            SampleUrls = DeserializeStringList(cached.SampleUrlsJson),
+            CacheFilePaths = DeserializeStringList(cached.CacheFilePathsJson),
+            Datasources = DeserializeStringList(datasourcesJson)
         };
     }
 
@@ -1441,6 +1290,30 @@ public class GameCacheDetectionService : IDisposable
             _logger.LogWarning(ex, "Failed to get Epic games from downloads");
             return new List<GameCacheInfo>();
         }
+    }
+
+    /// <summary>
+    /// Merges cache file counts, size, depot IDs, and cache file paths from source into target.
+    /// Used when multiple unknown games resolve to the same AppId during game detection.
+    /// </summary>
+    private static void MergeUnknownGameIntoTarget(CachedGameDetection target, CachedGameDetection source)
+    {
+        target.CacheFilesFound += source.CacheFilesFound;
+        target.TotalSizeBytes += source.TotalSizeBytes;
+        target.LastDetectedUtc = target.LastDetectedUtc > source.LastDetectedUtc
+            ? target.LastDetectedUtc : source.LastDetectedUtc;
+
+        // Merge depot IDs
+        var targetDepots = JsonSerializer.Deserialize<List<uint>>(target.DepotIdsJson) ?? new List<uint>();
+        var sourceDepots = JsonSerializer.Deserialize<List<uint>>(source.DepotIdsJson) ?? new List<uint>();
+        targetDepots.AddRange(sourceDepots);
+        target.DepotIdsJson = JsonSerializer.Serialize(targetDepots.Distinct().ToList());
+
+        // Merge cache file paths
+        var targetPaths = DeserializeStringList(target.CacheFilePathsJson);
+        var sourcePaths = DeserializeStringList(source.CacheFilePathsJson);
+        targetPaths.AddRange(sourcePaths);
+        target.CacheFilePathsJson = JsonSerializer.Serialize(targetPaths.Distinct().ToList());
     }
 
     /// <summary>

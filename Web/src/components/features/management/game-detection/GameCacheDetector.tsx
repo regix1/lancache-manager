@@ -12,6 +12,7 @@ import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDr
 import { useNotifications, NOTIFICATION_IDS } from '@contexts/notifications';
 import { useDockerSocket } from '@contexts/DockerSocketContext';
 import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
+import { useInvalidateImageCache } from '@components/common/GameImage';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import {
   ManagerCardHeader,
@@ -42,6 +43,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     useNotifications();
   const { isDockerAvailable } = useDockerSocket();
   const { cacheReadOnly, checkingPermissions } = useDirectoryPermissions();
+  const invalidateImageCache = useInvalidateImageCache();
 
   // Derive game detection state from notifications (standardized pattern)
   const activeGameDetectionNotification = notifications.find(
@@ -273,14 +275,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         (n) => n.type === 'game_detection' && n.status === 'completed'
       );
       if (gameDetectionNotifs.length > 0) {
-        setIsStartingDetection(false);
-        setScanType(null);
-        // Reset ref to allow future detection calls
-        detectionInFlightRef.current = false;
-
-        // Note: Operation state now handled by NotificationsContext
-
-        // Load fresh results from the database (backend already saved them)
+        // Load results BEFORE clearing loading state so the UI transitions
+        // directly from "loading" to "results" without an empty-games flash.
         const loadResults = async () => {
           try {
             const result = await ApiService.getCachedGameDetection();
@@ -297,8 +293,17 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                 setLastDetectionTime(result.lastDetectionTime);
               }
             }
+            // Bust the image cache so newly-discovered game banners load fresh
+            invalidateImageCache?.();
           } catch (err) {
             console.error('[GameCacheDetector] Failed to load detection results:', err);
+          } finally {
+            // Clear loading state AFTER results are applied so there is no
+            // intermediate render with games=[] and loading=false.
+            setIsStartingDetection(false);
+            setScanType(null);
+            // Reset ref to allow future detection calls
+            detectionInFlightRef.current = false;
           }
         };
         loadResults();
@@ -317,7 +322,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         // Note: Operation state now handled by NotificationsContext
       }
     }
-  }, [notifications, isStartingDetection]);
+  }, [notifications, isStartingDetection, invalidateImageCache]);
 
   const startDetection = useCallback(
     async (forceRefresh: boolean, scanTypeLabel: 'full' | 'incremental') => {

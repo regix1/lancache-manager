@@ -48,7 +48,7 @@ public class DirectoryPermissionMonitorService : ScheduledBackgroundService
             );
         }
 
-        Logger.LogInformation("DirectoryPermissionMonitor initialized with {Count} datasource(s)", datasources.Count);
+        _logger.LogInformation("DirectoryPermissionMonitor initialized with {Count} datasource(s)", datasources.Count);
         await Task.CompletedTask;
     }
 
@@ -68,7 +68,7 @@ public class DirectoryPermissionMonitorService : ScheduledBackgroundService
                 {
                     hasChanges = true;
 
-                    Logger.LogInformation(
+                    _logger.LogInformation(
                         "Datasource '{Name}': Permissions changed - Cache: {OldCache} -> {NewCache}, Logs: {OldLogs} -> {NewLogs}",
                         ds.Name,
                         lastState.CacheWritable ? "writable" : "read-only",

@@ -30,7 +30,7 @@ public class CorruptionDetectionService
 
     private readonly SemaphoreSlim _startLock = new(1, 1);
     private readonly ConcurrentDictionary<string, DateTime> _recentlyRemovedServices = new();
-    private static readonly TimeSpan RemovalGracePeriod = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan _removalGracePeriod = TimeSpan.FromMinutes(5);
 
     private const string OperationStateKey = "corruptionDetection";
 
@@ -164,7 +164,7 @@ public class CorruptionDetectionService
             }
 
             // Filter out services within grace period after removal
-            var expiredKeys = _recentlyRemovedServices.Where(kvp => DateTime.UtcNow - kvp.Value > RemovalGracePeriod).Select(kvp => kvp.Key).ToList();
+            var expiredKeys = _recentlyRemovedServices.Where(kvp => DateTime.UtcNow - kvp.Value > _removalGracePeriod).Select(kvp => kvp.Key).ToList();
             foreach (var key in expiredKeys)
             {
                 _recentlyRemovedServices.TryRemove(key, out _);
@@ -441,7 +441,7 @@ public class CorruptionDetectionService
         _recentlyRemovedServices[serviceName.ToLowerInvariant()] = DateTime.UtcNow;
 
         _logger.LogInformation("[CorruptionDetection] Removed cached corruption entry for service: {Service} ({Deleted} rows). Grace period active for {Minutes} minutes.",
-            serviceName, deleted, RemovalGracePeriod.TotalMinutes);
+            serviceName, deleted, _removalGracePeriod.TotalMinutes);
     }
 
     /// <summary>

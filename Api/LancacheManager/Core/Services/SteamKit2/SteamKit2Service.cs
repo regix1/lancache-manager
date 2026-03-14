@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using LancacheManager.Extensions;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
@@ -337,6 +338,109 @@ public partial class SteamKit2Service : IHostedService, IDisposable
         }
     }
 
+    // ===== Consolidated Helper Methods =====
+
+    /// <summary>
+    /// Clears stored Steam credentials and resets to anonymous mode.
+    /// Used during logout, session replacement, and credential invalidation.
+    /// </summary>
+    private void ClearSteamCredentials()
+    {
+        _stateService.SetSteamRefreshToken(null);
+        _stateService.SetSteamUsername(null);
+        _stateService.SetSteamAuthMode("anonymous");
+    }
+
+    /// <summary>
+    /// Clears cached viability check state so the next check queries Steam for fresh data.
+    /// Called after completing a PICS scan or importing GitHub data.
+    /// </summary>
+    private void ClearViabilityCache()
+    {
+        var state = _stateService.GetState();
+        state.RequiresFullScan = false;
+        state.LastViabilityCheck = null;
+        state.LastViabilityCheckChangeNumber = 0;
+        state.ViabilityChangeGap = 0;
+        _stateService.SaveState(state);
+    }
+
+    /// <summary>
+    /// Sends a SteamAutoLogout notification to the frontend.
+    /// Used when credentials are invalidated or session is replaced.
+    /// </summary>
+    private void SendAutoLogoutNotification(string message, string reason)
+    {
+        _notifications.NotifyAllFireAndForget(SignalREvents.SteamAutoLogout, new
+        {
+            message,
+            reason,
+            replacementCount = 0,
+            timestamp = DateTime.UtcNow
+        });
+    }
+
+    /// <summary>
+    /// Fails any pending connection/login TaskCompletionSources with the given exception.
+    /// Used during disconnection, cancellation, and error handling to unblock waiting code.
+    /// </summary>
+    private void FailPendingConnectionTasks(Exception exception)
+    {
+        _connectedTcs?.TrySetException(exception);
+        _loggedOnTcs?.TrySetException(exception);
+    }
+
+    /// <summary>
+    /// Sends a DepotMappingComplete failure notification via SignalR.
+    /// Used in error paths when a rebuild fails due to connection, login, or session errors.
+    /// </summary>
+    private void SendDepotMappingFailure(string errorMessage, string errorType)
+    {
+        _notifications.NotifyAllFireAndForget(SignalREvents.DepotMappingComplete, new
+        {
+            success = false,
+            error = errorMessage,
+            errorType,
+            depotMappingsFound = _depotToAppMappings.Count,
+            timestamp = DateTime.UtcNow
+        });
+    }
+
+    /// <summary>
+    /// Fetches product info for a batch of app IDs from Steam PICS.
+    /// Handles token acquisition, request building, and product info retrieval.
+    /// Returns the list of product info callbacks for the caller to process.
+    /// </summary>
+    private async Task<IReadOnlyList<SteamApps.PICSProductInfoCallback>> FetchProductInfoBatchAsync(
+        IReadOnlyList<uint> appIds, CancellationToken ct)
+    {
+        var tokensJob = _steamApps!.PICSGetAccessTokens(appIds, Enumerable.Empty<uint>());
+        var tokens = await WaitForCallbackAsync(tokensJob, ct);
+
+        var appRequests = new List<SteamApps.PICSRequest>(appIds.Count);
+        foreach (var appId in appIds)
+        {
+            var request = new SteamApps.PICSRequest(appId);
+            if (tokens.AppTokens.TryGetValue(appId, out var token))
+                request.AccessToken = token;
+            appRequests.Add(request);
+        }
+
+        var productJob = _steamApps.PICSGetProductInfo(appRequests, Enumerable.Empty<SteamApps.PICSRequest>());
+        return await WaitForAllProductInfoAsync(productJob, ct);
+    }
+
+    /// <summary>
+    /// Gets the current PICS change number from Steam.
+    /// Requires an active connection (_steamApps must be non-null).
+    /// </summary>
+    private async Task<uint> GetCurrentPicsChangeNumberAsync(CancellationToken ct)
+    {
+        var job = _steamApps!.PICSGetChangesSince(0, false, false);
+        var changes = await WaitForCallbackAsync(job, ct);
+        return changes.CurrentChangeNumber;
+    }
+
     /// <summary>
     /// Subscribes to OnDaemonAuthenticated and OnAllDaemonsLoggedOut events
     /// from SteamDaemonService so we know when daemon auth state changes.
@@ -565,10 +669,9 @@ public partial class SteamKit2Service : IHostedService, IDisposable
     {
         try
         {
-            using var scope = _scopeFactory.CreateScope();
-            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            using var scopedDb = _scopeFactory.CreateScopedDbContext();
 
-            return context.SteamDepotMappings.Count();
+            return scopedDb.DbContext.SteamDepotMappings.Count();
         }
         catch (Exception ex)
         {

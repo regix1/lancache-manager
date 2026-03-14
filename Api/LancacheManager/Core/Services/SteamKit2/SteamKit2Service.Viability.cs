@@ -63,9 +63,7 @@ public partial class SteamKit2Service
             try
             {
                 // Get current change number from Steam
-                var job = _steamApps!.PICSGetChangesSince(0, false, false);
-                var changes = await WaitForCallbackAsync(job, ct);
-                var currentChangeNumber = changes.CurrentChangeNumber;
+                var currentChangeNumber = await GetCurrentPicsChangeNumberAsync(ct);
 
                 uint changeGap = changeNumberToCheck > 0
                     ? currentChangeNumber - changeNumberToCheck
@@ -127,14 +125,7 @@ public partial class SteamKit2Service
             }
             _isLoggedOn = false;
 
-            // Try to get the change number from JSON for error reporting
-            uint changeNumberForError = 0;
-            try
-            {
-                var picsData = await _picsDataService.LoadPicsDataFromJsonAsync();
-                changeNumberForError = picsData?.Metadata?.LastChangeNumber ?? 0;
-            }
-            catch { }
+            var changeNumberForError = await TryGetLastChangeNumberAsync() ?? 0;
 
             // If we can't check viability, assume full scan is required for safety
             return new IncrementalViabilityCheck
@@ -161,14 +152,7 @@ public partial class SteamKit2Service
             }
             _isLoggedOn = false;
 
-            // Try to get the change number from JSON for error reporting
-            uint changeNumberForError = 0;
-            try
-            {
-                var picsData = await _picsDataService.LoadPicsDataFromJsonAsync();
-                changeNumberForError = picsData?.Metadata?.LastChangeNumber ?? 0;
-            }
-            catch { }
+            var changeNumberForError = await TryGetLastChangeNumberAsync() ?? 0;
 
             // Return viability check with error - caller will handle as connection failure
             return new IncrementalViabilityCheck
@@ -182,6 +166,25 @@ public partial class SteamKit2Service
                 EstimatedAppsToScan = 0,
                 Error = $"Connection failed: {ex.Message}"
             };
+        }
+    }
+
+    /// <summary>
+    /// Reads the last known PICS change number from the cached JSON file.
+    /// Returns null if the file is unavailable or contains no valid change number.
+    /// Used in error paths to populate LastChangeNumber for informational reporting.
+    /// </summary>
+    private async Task<uint?> TryGetLastChangeNumberAsync()
+    {
+        try
+        {
+            var picsData = await _picsDataService.LoadPicsDataFromJsonAsync();
+            var changeNumber = picsData?.Metadata?.LastChangeNumber;
+            return changeNumber > 0 ? changeNumber : null;
+        }
+        catch
+        {
+            return null;
         }
     }
 
@@ -201,10 +204,7 @@ public partial class SteamKit2Service
 
             try
             {
-                // Get current change number from Steam
-                var job = _steamApps!.PICSGetChangesSince(0, false, false);
-                var changes = await WaitForCallbackAsync(job, ct);
-                return changes.CurrentChangeNumber;
+                return await GetCurrentPicsChangeNumberAsync(ct);
             }
             finally
             {

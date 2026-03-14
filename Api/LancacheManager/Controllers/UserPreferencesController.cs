@@ -1,6 +1,7 @@
 using LancacheManager.Models;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Middleware;
 using LancacheManager.Hubs;
 using Microsoft.AspNetCore.Mvc;
 using static LancacheManager.Core.Services.UserPreferencesService;
@@ -37,44 +38,14 @@ public class UserPreferencesController : ControllerBase
         if (sessionId == null)
         {
             _logger.LogInformation("No session found, returning default preferences");
-            return Ok(new UserPreferencesDto
-            {
-                SelectedTheme = null,
-                SharpCorners = false,
-                DisableFocusOutlines = false,
-                DisableTooltips = false,
-                PicsAlwaysVisible = false,
-                DisableStickyNotifications = false,
-                UseLocalTimezone = false,
-                Use24HourFormat = true,
-                ShowDatasourceLabels = true,
-                ShowYearInDates = false,
-                RefreshRate = null,
-                RefreshRateLocked = null,
-                AllowedTimeFormats = null
-            });
+            return Ok(UserPreferencesDto.Default());
         }
 
         var preferences = _preferencesService.GetPreferences(sessionId.Value);
         if (preferences == null)
         {
             _logger.LogInformation("No preferences found for session {SessionId}, returning defaults", sessionId);
-            return Ok(new UserPreferencesDto
-            {
-                SelectedTheme = null,
-                SharpCorners = false,
-                DisableFocusOutlines = false,
-                DisableTooltips = false,
-                PicsAlwaysVisible = false,
-                DisableStickyNotifications = false,
-                UseLocalTimezone = false,
-                Use24HourFormat = true,
-                ShowDatasourceLabels = true,
-                ShowYearInDates = false,
-                RefreshRate = null,
-                RefreshRateLocked = null,
-                AllowedTimeFormats = null
-            });
+            return Ok(UserPreferencesDto.Default());
         }
 
         return Ok(preferences);
@@ -86,17 +57,17 @@ public class UserPreferencesController : ControllerBase
         var sessionId = GetSessionId();
         if (sessionId == null)
         {
-            return BadRequest(new PreferencesUpdateResponse { Message = "No session found" });
+            return BadRequest(new MessageResponse { Success = false, Message = "No session found" });
         }
 
         var success = _preferencesService.SavePreferences(sessionId.Value, preferences);
         if (success)
         {
             await _notifications.NotifyAllAsync(SignalREvents.UserPreferencesUpdated, new { sessionId, preferences });
-            return Ok(new PreferencesUpdateResponse { Message = "Preferences saved successfully" });
+            return Ok(MessageResponse.Ok("Preferences saved successfully"));
         }
 
-        return StatusCode(500, new PreferencesUpdateResponse { Message = "Error saving preferences" });
+        return StatusCode(500, new MessageResponse { Success = false, Message = "Error saving preferences" });
     }
 
     [HttpPatch("{key}")]
@@ -105,7 +76,7 @@ public class UserPreferencesController : ControllerBase
         var sessionId = GetSessionId();
         if (sessionId == null)
         {
-            return BadRequest(new PreferencesUpdateResponse { Message = "No session found" });
+            return BadRequest(new MessageResponse { Success = false, Message = "No session found" });
         }
 
         var preferences = _preferencesService.UpdatePreferenceAndGet(sessionId.Value, key, value);
@@ -113,10 +84,10 @@ public class UserPreferencesController : ControllerBase
         if (preferences != null)
         {
             await _notifications.NotifyAllAsync(SignalREvents.UserPreferencesUpdated, new { sessionId, preferences });
-            return Ok(new PreferencesUpdateResponse { Message = "Preference updated successfully" });
+            return Ok(MessageResponse.Ok("Preference updated successfully"));
         }
 
-        return BadRequest(new PreferencesUpdateResponse { Message = "Invalid preference key" });
+        return BadRequest(new MessageResponse { Success = false, Message = "Invalid preference key" });
     }
 
     [HttpGet("session/{sessionId}")]
@@ -125,22 +96,7 @@ public class UserPreferencesController : ControllerBase
         var preferences = _preferencesService.GetPreferences(sessionId);
         if (preferences == null)
         {
-            return Ok(new UserPreferencesDto
-            {
-                SelectedTheme = null,
-                SharpCorners = false,
-                DisableFocusOutlines = false,
-                DisableTooltips = false,
-                PicsAlwaysVisible = false,
-                DisableStickyNotifications = false,
-                UseLocalTimezone = false,
-                Use24HourFormat = true,
-                ShowDatasourceLabels = true,
-                ShowYearInDates = false,
-                RefreshRate = null,
-                RefreshRateLocked = null,
-                AllowedTimeFormats = null
-            });
+            return Ok(UserPreferencesDto.Default());
         }
 
         return Ok(preferences);
@@ -153,12 +109,12 @@ public class UserPreferencesController : ControllerBase
         if (success)
         {
             await _notifications.NotifyAllAsync(SignalREvents.UserPreferencesUpdated, new { sessionId, preferences });
-            return Ok(new PreferencesUpdateResponse { Message = "Preferences saved successfully" });
+            return Ok(MessageResponse.Ok("Preferences saved successfully"));
         }
 
-        return StatusCode(500, new PreferencesUpdateResponse { Message = "Error saving preferences" });
+        return StatusCode(500, new MessageResponse { Success = false, Message = "Error saving preferences" });
     }
 
-    private UserSession? GetSession() => HttpContext.Items["Session"] as UserSession;
+    private UserSession? GetSession() => HttpContext.GetUserSession();
     private Guid? GetSessionId() => GetSession()?.Id;
 }

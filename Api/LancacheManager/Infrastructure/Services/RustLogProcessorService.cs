@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text.Json;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.EpicMapping;
+using LancacheManager.Extensions;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Hubs;
 using LancacheManager.Core.Interfaces;
@@ -107,14 +108,9 @@ public class RustLogProcessorService
             IsCancelling = false;
 
             // Send cancellation notification
-            await _notifications.NotifyAllAsync(SignalREvents.LogProcessingComplete, new
-            {
-                OperationId = _currentOperationId,
-                Success = false,
-                Status = OperationStatus.Cancelled,
-                Message = "Log processing was cancelled",
-                Cancelled = true
-            });
+            await _notifications.SendOperationCompleteAsync(
+                SignalREvents.LogProcessingComplete, _currentOperationId,
+                success: false, message: "Log processing was cancelled", cancelled: true);
 
             return true;
         }
@@ -384,9 +380,8 @@ public class RustLogProcessorService
             {
                 try
                 {
-                    using var scope = _serviceProvider.CreateScope();
-                    var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                    var depotCount = await context.SteamDepotMappings.CountAsync();
+                    using var scopedDb = _serviceProvider.CreateScopedDbContext();
+                    var depotCount = await scopedDb.DbContext.SteamDepotMappings.CountAsync();
                     _logger.LogInformation("Starting log processing with {DepotCount} depot mappings available", depotCount);
                 }
                 catch (Exception ex)
@@ -491,16 +486,10 @@ public class RustLogProcessorService
                 // Send cancellation notification so frontend doesn't get stuck in "Cancelling..." state
                 if (!silentMode)
                 {
-                    await _notifications.NotifyAllAsync(SignalREvents.LogProcessingComplete, new
-                    {
-                        OperationId = _currentOperationId,
-                        Success = false,
-                        Status = OperationStatus.Cancelled,
-                        Message = "Log processing was cancelled",
-                        Cancelled = true,
-                        EntriesProcessed = finalProgress?.EntriesSaved ?? 0,
-                        LinesProcessed = finalProgress?.LinesParsed ?? 0
-                    });
+                    await _notifications.SendOperationCompleteAsync(
+                        SignalREvents.LogProcessingComplete, _currentOperationId,
+                        success: false, message: "Log processing was cancelled", cancelled: true,
+                        new { EntriesProcessed = finalProgress?.EntriesSaved ?? 0, LinesProcessed = finalProgress?.LinesParsed ?? 0 });
                 }
 
                 return false;
@@ -534,9 +523,9 @@ public class RustLogProcessorService
                             PercentComplete = 100.0,
                             Status = OperationStatus.Completed,
                             Message = "Processing complete",
-                            TotalLines = finalProgress.TotalLines,
-                            LinesParsed = finalProgress.LinesParsed,
-                            EntriesSaved = finalProgress.EntriesSaved,
+                            finalProgress.TotalLines,
+                            finalProgress.LinesParsed,
+                            finalProgress.EntriesSaved,
                             MbProcessed = Math.Round(mbTotal, 1),
                             MbTotal = Math.Round(mbTotal, 1)
                         });
@@ -625,17 +614,10 @@ public class RustLogProcessorService
                     var finalElapsed = DateTime.UtcNow - startTime;
 
                     // Now send completion signal after the delay
-                    await _notifications.NotifyAllAsync(SignalREvents.LogProcessingComplete, new
-                    {
-                        OperationId = _currentOperationId,
-                        Success = true,
-                        Status = OperationStatus.Completed,
-                        Message = "Log processing completed successfully",
-                        Cancelled = false,
-                        EntriesProcessed = finalProgress?.EntriesSaved ?? 0,
-                        LinesProcessed = finalProgress?.LinesParsed ?? 0,
-                        Elapsed = Math.Round(finalElapsed.TotalMinutes, 1)
-                    });
+                    await _notifications.SendOperationCompleteAsync(
+                        SignalREvents.LogProcessingComplete, _currentOperationId,
+                        success: true, message: "Log processing completed successfully", cancelled: false,
+                        new { EntriesProcessed = finalProgress?.EntriesSaved ?? 0, LinesProcessed = finalProgress?.LinesParsed ?? 0, Elapsed = Math.Round(finalElapsed.TotalMinutes, 1) });
                 }
                 else
                 {
@@ -667,16 +649,10 @@ public class RustLogProcessorService
                 if (!silentMode)
                 {
                     // Send failure notification so frontend doesn't get stuck
-                    await _notifications.NotifyAllAsync(SignalREvents.LogProcessingComplete, new
-                    {
-                        OperationId = _currentOperationId,
-                        Success = false,
-                        Status = OperationStatus.Failed,
-                        Message = $"Log processing failed with exit code {exitCode}",
-                        Cancelled = false,
-                        EntriesProcessed = 0,
-                        LinesProcessed = 0
-                    });
+                    await _notifications.SendOperationCompleteAsync(
+                        SignalREvents.LogProcessingComplete, _currentOperationId,
+                        success: false, message: $"Log processing failed with exit code {exitCode}", cancelled: false,
+                        new { EntriesProcessed = 0, LinesProcessed = 0 });
                 }
 
                 // Complete the operation with error
@@ -695,16 +671,10 @@ public class RustLogProcessorService
             if (!silentMode)
             {
                 // Send failure notification so frontend doesn't get stuck
-                await _notifications.NotifyAllAsync(SignalREvents.LogProcessingComplete, new
-                {
-                    OperationId = _currentOperationId,
-                    Success = false,
-                    Status = OperationStatus.Failed,
-                    Message = $"Log processing error: {ex.Message}",
-                    Cancelled = false,
-                    EntriesProcessed = 0,
-                    LinesProcessed = 0
-                });
+                await _notifications.SendOperationCompleteAsync(
+                    SignalREvents.LogProcessingComplete, _currentOperationId,
+                    success: false, message: $"Log processing error: {ex.Message}", cancelled: false,
+                    new { EntriesProcessed = 0, LinesProcessed = 0 });
             }
 
             // Complete the operation with error
@@ -726,80 +696,60 @@ public class RustLogProcessorService
         }
     }
 
-    private async Task MonitorProgressAsync(string progressPath, CancellationToken cancellationToken)
+    private Task MonitorProgressAsync(string progressPath, CancellationToken cancellationToken)
     {
-        try
+        // Get log file size once for MB calculations
+        var logPath = Path.Combine(_pathResolver.GetLogsDirectory(), "access.log");
+        var logFileInfo = new FileInfo(logPath);
+        var mbTotal = logFileInfo.Exists ? logFileInfo.Length / (1024.0 * 1024.0) : 0;
+
+        var loggedWarnings = new HashSet<string>();
+        var loggedErrors = new HashSet<string>();
+
+        var monitor = new RustProgressMonitor<ProgressData>(_rustProcessHelper, _logger);
+        return monitor.MonitorAsync(progressPath, async (ProgressData progress) =>
         {
-            // Get log file size once for MB calculations
-            var logPath = Path.Combine(_pathResolver.GetLogsDirectory(), "access.log");
-            var logFileInfo = new FileInfo(logPath);
-            var mbTotal = logFileInfo.Exists ? logFileInfo.Length / (1024.0 * 1024.0) : 0;
-
-            var loggedWarnings = new HashSet<string>();
-            var loggedErrors = new HashSet<string>();
-
-            while (!cancellationToken.IsCancellationRequested)
+            // Log any new warnings
+            foreach (var warning in progress.Warnings)
             {
-                // Poll for progress updates every 500ms (faster polling for better responsiveness)
-                await Task.Delay(500, cancellationToken);
-
-                var progress = await ReadProgressFileAsync(progressPath);
-                if (progress != null)
+                if (loggedWarnings.Add(warning))
                 {
-                    // Log any new warnings
-                    foreach (var warning in progress.Warnings)
-                    {
-                        if (loggedWarnings.Add(warning))
-                        {
-                            _logger.LogWarning("[Rust] {Warning}", warning);
-                        }
-                    }
-
-                    // Log any new errors
-                    foreach (var error in progress.Errors)
-                    {
-                        if (loggedErrors.Add(error))
-                        {
-                            _logger.LogError("[Rust] {Error}", error);
-                        }
-                    }
-                }
-
-                if (progress != null)
-                {
-                    // Calculate MB processed based on percentage
-                    var mbProcessed = mbTotal * (progress.PercentComplete / 100.0);
-
-                    // Update the unified operation tracker with progress
-                    if (_currentOperationId != null)
-                    {
-                        _operationTracker.UpdateProgress(_currentOperationId, progress.PercentComplete, progress.Message);
-                    }
-
-                    // Send progress update via SignalR with standardized format
-                    await _notifications.NotifyAllAsync(SignalREvents.LogProcessingProgress, new
-                    {
-                        OperationId = _currentOperationId,
-                        PercentComplete = progress.PercentComplete,
-                        Status = OperationStatus.Running,
-                        Message = progress.Message,
-                        TotalLines = progress.TotalLines,
-                        LinesParsed = progress.LinesParsed,
-                        EntriesSaved = progress.EntriesSaved,
-                        MbProcessed = Math.Round(mbProcessed, 1),
-                        MbTotal = Math.Round(mbTotal, 1)
-                    });
+                    _logger.LogWarning("[Rust] {Warning}", warning);
                 }
             }
-        }
-        catch (OperationCanceledException)
-        {
-            // Expected when cancellation is requested
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error monitoring Rust progress");
-        }
+
+            // Log any new errors
+            foreach (var error in progress.Errors)
+            {
+                if (loggedErrors.Add(error))
+                {
+                    _logger.LogError("[Rust] {Error}", error);
+                }
+            }
+
+            // Calculate MB processed based on percentage
+            var mbProcessed = mbTotal * (progress.PercentComplete / 100.0);
+
+            // Update the unified operation tracker with progress
+            if (_currentOperationId != null)
+            {
+                _operationTracker.UpdateProgress(_currentOperationId, progress.PercentComplete, progress.Message);
+            }
+
+            // Send progress update via SignalR with standardized format
+            await _notifications.NotifyAllAsync(SignalREvents.LogProcessingProgress, new
+            {
+                OperationId = _currentOperationId,
+                progress.PercentComplete,
+                Status = OperationStatus.Running,
+                progress.Message,
+                progress.TotalLines,
+                progress.LinesParsed,
+                progress.EntriesSaved,
+                MbProcessed = Math.Round(mbProcessed, 1),
+                MbTotal = Math.Round(mbTotal, 1)
+            });
+        }, cancellationToken);
     }
 
     private async Task<ProgressData?> ReadProgressFileAsync(string progressPath)
@@ -906,11 +856,10 @@ public class RustLogProcessorService
     {
         try
         {
-            using var scope = _serviceProvider.CreateScope();
-            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            using var scopedDb = _serviceProvider.CreateScopedDbContext();
 
             // Find Epic downloads that have EpicAppId but missing GameImageUrl
-            var downloadsNeedingImages = await context.Downloads
+            var downloadsNeedingImages = await scopedDb.DbContext.Downloads
                 .Where(d => d.EpicAppId != null && string.IsNullOrEmpty(d.GameImageUrl))
                 .Take(100)
                 .ToListAsync();
@@ -919,7 +868,7 @@ public class RustLogProcessorService
                 return;
 
             // Load all Epic game mappings with image URLs for lookup
-            var imageLookup = await context.EpicGameMappings
+            var imageLookup = await scopedDb.DbContext.EpicGameMappings
                 .Where(m => m.ImageUrl != null)
                 .ToDictionaryAsync(m => m.AppId, m => m.ImageUrl);
 
@@ -935,7 +884,7 @@ public class RustLogProcessorService
 
             if (updated > 0)
             {
-                await context.SaveChangesAsync();
+                await scopedDb.DbContext.SaveChangesAsync();
                 _logger.LogInformation("Updated {Count} Epic downloads with game images", updated);
             }
         }

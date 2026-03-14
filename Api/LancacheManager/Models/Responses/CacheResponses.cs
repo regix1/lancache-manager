@@ -24,12 +24,20 @@ public class CacheOperationResponse
 }
 
 /// <summary>
-/// Response for active cache operations
+/// Generic response wrapper for active operations with IsProcessing flag.
+/// Use typed variants (ActiveGameRemovalsResponse, etc.) for strongly-typed Operations.
 /// </summary>
-public class ActiveOperationsResponse
+public class ActiveOperationsResponse<T>
 {
     public bool IsProcessing { get; set; }
-    public IEnumerable<object>? Operations { get; set; }
+    public IEnumerable<T>? Operations { get; set; }
+}
+
+/// <summary>
+/// Response for active cache operations (untyped, for backward compatibility)
+/// </summary>
+public class ActiveOperationsResponse : ActiveOperationsResponse<object>
+{
 }
 
 /// <summary>
@@ -121,10 +129,8 @@ public class CorruptionRemovalStartResponse
 /// <summary>
 /// Response for active corruption removals
 /// </summary>
-public class ActiveCorruptionRemovalsResponse
+public class ActiveCorruptionRemovalsResponse : ActiveOperationsResponse<CorruptionRemovalInfo>
 {
-    public bool IsProcessing { get; set; }
-    public IEnumerable<CorruptionRemovalInfo>? Operations { get; set; }
 }
 
 public class CorruptionRemovalInfo
@@ -139,10 +145,8 @@ public class CorruptionRemovalInfo
 /// <summary>
 /// Response for active service removals
 /// </summary>
-public class ActiveServiceRemovalsResponse
+public class ActiveServiceRemovalsResponse : ActiveOperationsResponse<ServiceRemovalInfo>
 {
-    public bool IsProcessing { get; set; }
-    public IEnumerable<ServiceRemovalInfo>? Operations { get; set; }
 }
 
 public class ServiceRemovalInfo
@@ -158,10 +162,8 @@ public class ServiceRemovalInfo
 /// <summary>
 /// Response for active game removals
 /// </summary>
-public class ActiveGameRemovalsResponse
+public class ActiveGameRemovalsResponse : ActiveOperationsResponse<GameRemovalInfo>
 {
-    public bool IsProcessing { get; set; }
-    public IEnumerable<GameRemovalInfo>? Operations { get; set; }
 }
 
 public class GameRemovalInfo

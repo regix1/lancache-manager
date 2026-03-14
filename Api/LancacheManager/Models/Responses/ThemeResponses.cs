@@ -53,10 +53,3 @@ public class ThemePreferenceResponse
     public string? Message { get; set; }
 }
 
-/// <summary>
-/// Response for preferences update
-/// </summary>
-public class PreferencesUpdateResponse
-{
-    public string Message { get; set; } = string.Empty;
-}

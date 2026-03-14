@@ -1,4 +1,5 @@
 using LancacheManager.Core.Services.SteamPrefill;
+using LancacheManager.Core.Utilities;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
@@ -259,7 +260,7 @@ public partial class EpicMappingService
         }
 
         // Merge into DB (updates ImageUrl where changed)
-        var sessionHash = ComputeAnonymousHash("image-refresh");
+        var sessionHash = CryptoUtils.ComputeAnonymousHash("image-refresh");
         var result = await MergeOwnedGamesAsync(games, sessionHash, "image-refresh", ct);
         _logger.LogInformation("Merge result: {New} new, {Updated} updated, {Unchanged} unchanged",
             result.NewGames, result.UpdatedGames, result.UnchangedGames);

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using LancacheManager.Extensions;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Utilities;
@@ -133,9 +134,7 @@ public partial class SteamKit2Service
             _logger.LogInformation("Cancelling active PICS rebuild (operationId: {OperationId})", operationId);
 
             // Fail any pending connection/login tasks to unblock waiting code
-            var cancelException = new OperationCanceledException("PICS rebuild cancelled by user");
-            _connectedTcs?.TrySetException(cancelException);
-            _loggedOnTcs?.TrySetException(cancelException);
+            FailPendingConnectionTasks(new OperationCanceledException("PICS rebuild cancelled by user"));
 
             _currentRebuildCts.Cancel();
 
@@ -234,9 +233,8 @@ public partial class SteamKit2Service
             {
                 try
                 {
-                    using var scope = _scopeFactory.CreateScope();
-                    var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                    var dbCount = await context.SteamDepotMappings.CountAsync();
+                    using var scopedDb = _scopeFactory.CreateScopedDbContext();
+                    var dbCount = await scopedDb.DbContext.SteamDepotMappings.CountAsync();
                     _logger.LogInformation("Database has {Count} depot mappings", dbCount);
                 }
                 catch (Exception ex)
@@ -335,29 +333,8 @@ public partial class SteamKit2Service
                 _logger.LogTrace("Processing batch {BatchNum}/{TotalBatches} with {AppCount} apps",
                     _processedBatches + 1, allBatches.Count, batch.Length);
 
-                // Acquire access tokens for protected appinfo entries when available
-                var tokensJob = _steamApps!.PICSGetAccessTokens(batch, Enumerable.Empty<uint>());
-                var tokens = await WaitForCallbackAsync(tokensJob, ct);
-
-                _logger.LogTrace("Received {GrantedTokens} granted tokens and {DeniedTokens} denied tokens for batch",
-                    tokens.AppTokens.Count, tokens.AppTokensDenied.Count);
-
-                // Prepare the product info request with tokens attached when needed
-                var appRequests = new List<SteamApps.PICSRequest>(batch.Length);
-                foreach (var appId in batch)
-                {
-                    var request = new SteamApps.PICSRequest(appId);
-                    if (tokens.AppTokens.TryGetValue(appId, out var token))
-                    {
-                        request.AccessToken = token;
-                        _logger.LogTrace("Using access token for app {AppId}", appId);
-                    }
-
-                    appRequests.Add(request);
-                }
-
-                var productJob = _steamApps.PICSGetProductInfo(appRequests, Enumerable.Empty<SteamApps.PICSRequest>());
-                var productCallbacks = await WaitForAllProductInfoAsync(productJob, ct);
+                // Fetch product info (tokens + requests + product info) in one call
+                var productCallbacks = await FetchProductInfoBatchAsync(batch, ct);
 
                 int appsInThisBatch = 0, unknownInThisBatch = 0;
                 var dlcAppsToScan = new List<uint>();
@@ -386,22 +363,7 @@ public partial class SteamKit2Service
                     {
                         try
                         {
-                            var dlcTokensJob = _steamApps.PICSGetAccessTokens(dlcBatch, Enumerable.Empty<uint>());
-                            var dlcTokens = await WaitForCallbackAsync(dlcTokensJob, ct);
-
-                            var dlcAppRequests = new List<SteamApps.PICSRequest>();
-                            foreach (var dlcAppId in dlcBatch)
-                            {
-                                var request = new SteamApps.PICSRequest(dlcAppId);
-                                if (dlcTokens.AppTokens.TryGetValue(dlcAppId, out var token))
-                                {
-                                    request.AccessToken = token;
-                                }
-                                dlcAppRequests.Add(request);
-                            }
-
-                            var dlcProductJob = _steamApps.PICSGetProductInfo(dlcAppRequests, Enumerable.Empty<SteamApps.PICSRequest>());
-                            var dlcProductCallbacks = await WaitForAllProductInfoAsync(dlcProductJob, ct);
+                            var dlcProductCallbacks = await FetchProductInfoBatchAsync(dlcBatch, ct);
 
                             foreach (var dlcCb in dlcProductCallbacks)
                             {
@@ -516,9 +478,8 @@ public partial class SteamKit2Service
                 await ImportJsonToDatabase();
 
                 // Mark orphan-resolved mappings with distinct source so GitHub import preserves them
-                using var scope = _scopeFactory.CreateScope();
-                var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                await context.SteamDepotMappings
+                using var scopedDb = _scopeFactory.CreateScopedDbContext();
+                await scopedDb.DbContext.SteamDepotMappings
                     .Where(m => orphanDepotIds.Contains(m.DepotId))
                     .ExecuteUpdateAsync(s => s.SetProperty(m => m.Source, "orphan-resolved"), ct);
                 _logger.LogInformation("Tagged {Count} orphan depot mapping(s) with source 'orphan-resolved'", orphanDepotIds.Count);
@@ -543,12 +504,7 @@ public partial class SteamKit2Service
 
         // Clear cached viability check since we just completed a scan
         // Next check will get fresh data from Steam
-        var state = _stateService.GetState();
-        state.RequiresFullScan = false;
-        state.LastViabilityCheck = null;
-        state.LastViabilityCheckChangeNumber = 0;
-        state.ViabilityChangeGap = 0;
-        _stateService.SaveState(state);
+        ClearViabilityCache();
         _logger.LogInformation("Cleared cached viability check - next check will query Steam for fresh data");
 
         // Send completion notification
@@ -693,9 +649,7 @@ public partial class SteamKit2Service
 
                 // IMPORTANT: Get and save current change number for future incremental updates
                 // Even though we're using Web API for app enumeration, we still need the PICS change number
-                var changeNumberJob = _steamApps.PICSGetChangesSince(0, false, false);
-                var changeNumberResult = await WaitForCallbackAsync(changeNumberJob, ct);
-                var latestChangeNumber = changeNumberResult.CurrentChangeNumber;
+                var latestChangeNumber = await GetCurrentPicsChangeNumberAsync(ct);
 
                 if (latestChangeNumber > _lastChangeNumberSeen)
                 {
@@ -726,9 +680,7 @@ public partial class SteamKit2Service
         uint since = 0;
 
         // Get current change number
-        var initialJob = _steamApps.PICSGetChangesSince(0, false, false);
-        var initialChanges = await WaitForCallbackAsync(initialJob, ct);
-        var currentChangeNumber = initialChanges.CurrentChangeNumber;
+        var currentChangeNumber = await GetCurrentPicsChangeNumberAsync(ct);
 
         // Use saved change number for incremental, or start from recent point if we have existing data
         if (incrementalOnly && _lastChangeNumberSeen > 0)

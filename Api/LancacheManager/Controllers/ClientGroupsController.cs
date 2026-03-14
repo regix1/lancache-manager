@@ -83,17 +83,17 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
 
     protected override async Task OnCreatedAsync(ClientGroup entity, ClientGroupDto dto)
     {
-        await Notifications.NotifyAllAsync(SignalREvents.ClientGroupCreated, dto);
+        await _notifications.NotifyAllAsync(SignalREvents.ClientGroupCreated, dto);
     }
 
     protected override async Task OnUpdatedAsync(ClientGroup entity, ClientGroupDto dto)
     {
-        await Notifications.NotifyAllAsync(SignalREvents.ClientGroupUpdated, dto);
+        await _notifications.NotifyAllAsync(SignalREvents.ClientGroupUpdated, dto);
     }
 
     protected override async Task OnDeletedAsync(int id)
     {
-        await Notifications.NotifyAllAsync(SignalREvents.ClientGroupDeleted, id);
+        await _notifications.NotifyAllAsync(SignalREvents.ClientGroupDeleted, id);
     }
 
     // ===== Post-Create Hook =====
@@ -111,7 +111,7 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
                 }
                 catch (InvalidOperationException ex)
                 {
-                    Logger.LogWarning("Could not add IP {Ip} to group: {Message}", ip, ex.Message);
+                    _logger.LogWarning("Could not add IP {Ip} to group: {Message}", ip, ex.Message);
                 }
             }
             // Refresh to get updated members
@@ -128,13 +128,13 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
         await ValidateCreateRequestAsync(request, ct);
 
         var entity = FromCreateRequest(request);
-        var created = await Repository.CreateAsync(entity, ct);
+        var created = await _repository.CreateAsync(entity, ct);
         created = await PostCreateAsync(created, request, ct);
 
         var dto = ToDto(created);
         await OnCreatedAsync(created, dto);
 
-        Logger.LogInformation("Created {Resource}: {Id}", ResourceName, created.Id);
+        _logger.LogInformation("Created {Resource}: {Id}", ResourceName, created.Id);
         return Created($"/api/client-groups/{created.Id}", dto);
     }
 
@@ -159,7 +159,7 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
         var dto = ToDto(updated!);
 
         // Notify clients via SignalR
-        await Notifications.NotifyAllAsync(SignalREvents.ClientGroupMemberAdded, new ClientGroupMemberAdded(id, request.ClientIp.Trim()));
+        await _notifications.NotifyAllAsync(SignalREvents.ClientGroupMemberAdded, new ClientGroupMemberAdded(id, request.ClientIp.Trim()));
 
         return Ok(dto);
     }
@@ -175,7 +175,7 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
         await _clientGroupsRepository.RemoveMemberAsync(id, ip, ct);
 
         // Notify clients via SignalR
-        await Notifications.NotifyAllAsync(SignalREvents.ClientGroupMemberRemoved, new ClientGroupMemberRemoved(id, ip));
+        await _notifications.NotifyAllAsync(SignalREvents.ClientGroupMemberRemoved, new ClientGroupMemberRemoved(id, ip));
 
         return NoContent();
     }

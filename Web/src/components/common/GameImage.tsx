@@ -9,6 +9,20 @@ const API_BASE = import.meta.env.VITE_API_URL || '/api';
  */
 export const ImageCacheContext = createContext(0);
 
+/**
+ * Context providing a callback to invalidate (bust) the image cache.
+ * Call this after new game detection results are loaded to force
+ * GameImage components to re-fetch images that may now be available.
+ */
+export const ImageCacheInvalidateContext = createContext<(() => void) | null>(null);
+
+/**
+ * Hook to obtain the image cache invalidation function.
+ * Returns null when used outside of an ImageCacheInvalidateContext provider.
+ */
+export const useInvalidateImageCache = (): (() => void) | null =>
+  useContext(ImageCacheInvalidateContext);
+
 interface GameImageProps {
   gameAppId: string | number;
   alt: string;

@@ -1,6 +1,3 @@
-using System;
-using System.Linq;
-using System.Threading.Tasks;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Models;
 
@@ -140,55 +137,46 @@ public abstract partial class PrefillDaemonServiceBase
 
     #endregion
 
-    protected async Task NotifyAuthStateChangeAsync(DaemonSession session)
+    /// <summary>
+    /// Broadcasts a payload to all subscribed connections for a session.
+    /// On error, removes the failing connectionId from the session's subscriptions unless removeOnError is false.
+    /// </summary>
+    private async Task BroadcastToSubscribersAsync(DaemonSession session, string eventName, object payload, bool removeOnError = true)
     {
         foreach (var connectionId in session.SubscribedConnections.ToList())
         {
             try
             {
-                await SendToServiceClientRawAsync(connectionId,
-                    EventAuthStateChanged, new { sessionId = session.Id, authState = session.AuthState.ToString() });
+                await SendToServiceClientRawAsync(connectionId, eventName, payload);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to notify auth state to {ConnectionId}", connectionId);
-                session.SubscribedConnections.Remove(connectionId);
+                if (removeOnError)
+                {
+                    _logger.LogWarning(ex, "Failed to notify {EventName} to {ConnectionId}, removing subscription", eventName, connectionId);
+                    session.SubscribedConnections.Remove(connectionId);
+                }
+                // When removeOnError is false, silently ignore the error
             }
         }
+    }
+
+    protected async Task NotifyAuthStateChangeAsync(DaemonSession session)
+    {
+        await BroadcastToSubscribersAsync(session, EventAuthStateChanged,
+            new { sessionId = session.Id, authState = session.AuthState.ToString() });
     }
 
     private async Task NotifyCredentialChallengeAsync(DaemonSession session, CredentialChallenge challenge)
     {
-        foreach (var connectionId in session.SubscribedConnections.ToList())
-        {
-            try
-            {
-                await SendToServiceClientRawAsync(connectionId,
-                    EventCredentialChallenge, new { sessionId = session.Id, challenge });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to notify credential challenge to {ConnectionId}", connectionId);
-                session.SubscribedConnections.Remove(connectionId);
-            }
-        }
+        await BroadcastToSubscribersAsync(session, EventCredentialChallenge,
+            new { sessionId = session.Id, challenge });
     }
 
     private async Task NotifyStatusChangeAsync(DaemonSession session, DaemonStatus status)
     {
-        foreach (var connectionId in session.SubscribedConnections.ToList())
-        {
-            try
-            {
-                await SendToServiceClientRawAsync(connectionId,
-                    EventStatusChanged, new { sessionId = session.Id, status });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to notify status to {ConnectionId}", connectionId);
-                session.SubscribedConnections.Remove(connectionId);
-            }
-        }
+        await BroadcastToSubscribersAsync(session, EventStatusChanged,
+            new { sessionId = session.Id, status });
     }
 
     private async Task NotifyPrefillStateChangeAsync(DaemonSession session, string state)
@@ -221,19 +209,8 @@ public abstract partial class PrefillDaemonServiceBase
             session.LastPrefillStatus = null;
         }
 
-        foreach (var connectionId in session.SubscribedConnections.ToList())
-        {
-            try
-            {
-                await SendToServiceClientRawAsync(connectionId,
-                    EventPrefillStateChanged, new { sessionId = session.Id, state, durationSeconds });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to notify prefill state to {ConnectionId}", connectionId);
-                session.SubscribedConnections.Remove(connectionId);
-            }
-        }
+        await BroadcastToSubscribersAsync(session, EventPrefillStateChanged,
+            new { sessionId = session.Id, state, durationSeconds });
     }
 
     private async Task NotifyPrefillProgressAsync(DaemonSession session, PrefillProgress progress)
@@ -398,19 +375,8 @@ public abstract partial class PrefillDaemonServiceBase
                     UpdatedApps = progress.UpdatedApps
                 };
 
-                foreach (var connectionId in session.SubscribedConnections.ToList())
-                {
-                    try
-                    {
-                        await SendToServiceClientRawAsync(connectionId,
-                            EventPrefillProgress, new { sessionId = session.Id, progress = frontendProgress });
-                    }
-                    catch (Exception notifyEx)
-                    {
-                        _logger.LogWarning(notifyEx, "Failed to notify app completion to {ConnectionId}", connectionId);
-                        session.SubscribedConnections.Remove(connectionId);
-                    }
-                }
+                await BroadcastToSubscribersAsync(session, EventPrefillProgress,
+                    new { sessionId = session.Id, progress = frontendProgress });
             }
             catch (Exception ex)
             {
@@ -505,19 +471,8 @@ public abstract partial class PrefillDaemonServiceBase
         await NotifyAllDownloadsAndServiceHubAsync(EventSessionUpdated, progressDto);
 
         // Send detailed progress to subscribed connections (the user doing the prefill)
-        foreach (var connectionId in session.SubscribedConnections.ToList())
-        {
-            try
-            {
-                await SendToServiceClientRawAsync(connectionId,
-                    EventPrefillProgress, new { sessionId = session.Id, progress });
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to notify prefill progress to {ConnectionId}", connectionId);
-                session.SubscribedConnections.Remove(connectionId);
-            }
-        }
+        await BroadcastToSubscribersAsync(session, EventPrefillProgress,
+            new { sessionId = session.Id, progress });
     }
 
     private async Task BroadcastPrefillHistoryUpdatedAsync(string sessionId, string appId, string status)
@@ -528,17 +483,8 @@ public abstract partial class PrefillDaemonServiceBase
 
     private async Task NotifySessionEndedAsync(DaemonSession session, string reason)
     {
-        foreach (var connectionId in session.SubscribedConnections.ToList())
-        {
-            try
-            {
-                await SendToServiceClientRawAsync(connectionId,
-                    EventSessionEnded, new { sessionId = session.Id, reason });
-            }
-            catch
-            {
-                // Ignore
-            }
-        }
+        // NotifySessionEndedAsync does NOT remove connectionId on error (session is ending anyway)
+        await BroadcastToSubscribersAsync(session, EventSessionEnded,
+            new { sessionId = session.Id, reason }, removeOnError: false);
     }
 }

@@ -50,7 +50,7 @@ public sealed class TcpDaemonClient : IDaemonClient
     /// </summary>
     public string HkdfInfo { get; set; } = "SteamPrefill-Credential-Encryption";
 
-    private static readonly JsonSerializerOptions JsonOptions = new()
+    private static readonly JsonSerializerOptions _jsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         PropertyNameCaseInsensitive = true,
@@ -272,7 +272,7 @@ public sealed class TcpDaemonClient : IDaemonClient
 
             if (root.TryGetProperty("id", out var idElement))
             {
-                var response = JsonSerializer.Deserialize<CommandResponse>(json, JsonOptions);
+                var response = JsonSerializer.Deserialize<CommandResponse>(json, _jsonOptions);
                 if (response != null && _pendingCommands.TryRemove(response.Id, out var tcs))
                 {
                     tcs.TrySetResult(response);
@@ -294,7 +294,7 @@ public sealed class TcpDaemonClient : IDaemonClient
                 case "credential-challenge":
                     if (root.TryGetProperty("data", out var challengeData))
                     {
-                        var challenge = JsonSerializer.Deserialize<CredentialChallenge>(challengeData.GetRawText(), JsonOptions);
+                        var challenge = JsonSerializer.Deserialize<CredentialChallenge>(challengeData.GetRawText(), _jsonOptions);
                         if (challenge != null)
                         {
                             _logger?.LogInformation("Received credential challenge: {Type}", challenge.CredentialType);
@@ -306,7 +306,7 @@ public sealed class TcpDaemonClient : IDaemonClient
                 case "progress":
                     if (root.TryGetProperty("data", out var progressData))
                     {
-                        var progress = JsonSerializer.Deserialize<SocketPrefillProgress>(progressData.GetRawText(), JsonOptions);
+                        var progress = JsonSerializer.Deserialize<SocketPrefillProgress>(progressData.GetRawText(), _jsonOptions);
                         if (progress != null && OnProgressUpdate != null)
                         {
                             await OnProgressUpdate.Invoke(progress);
@@ -335,7 +335,7 @@ public sealed class TcpDaemonClient : IDaemonClient
                     break;
 
                 case "status-update":
-                    var status = JsonSerializer.Deserialize<DaemonStatus>(root.GetRawText(), JsonOptions);
+                    var status = JsonSerializer.Deserialize<DaemonStatus>(root.GetRawText(), _jsonOptions);
                     if (status != null && OnStatusUpdate != null)
                     {
                         await OnStatusUpdate.Invoke(status);
@@ -416,7 +416,7 @@ public sealed class TcpDaemonClient : IDaemonClient
 
         try
         {
-            var json = JsonSerializer.Serialize(command, JsonOptions);
+            var json = JsonSerializer.Serialize(command, _jsonOptions);
             var bytes = Encoding.UTF8.GetBytes(json);
 
             await _sendLock.WaitAsync(cancellationToken);
@@ -604,7 +604,7 @@ public sealed class TcpDaemonClient : IDaemonClient
 
         if (response.Data is JsonElement element)
         {
-            return JsonSerializer.Deserialize<List<OwnedGame>>(element.GetRawText(), JsonOptions) ?? new List<OwnedGame>();
+            return JsonSerializer.Deserialize<List<OwnedGame>>(element.GetRawText(), _jsonOptions) ?? new List<OwnedGame>();
         }
 
         return new List<OwnedGame>();
@@ -624,7 +624,7 @@ public sealed class TcpDaemonClient : IDaemonClient
 
         if (response.Data is JsonElement element)
         {
-            var result = JsonSerializer.Deserialize<CdnInfoResult>(element.GetRawText(), JsonOptions);
+            var result = JsonSerializer.Deserialize<CdnInfoResult>(element.GetRawText(), _jsonOptions);
             return result?.Apps ?? new List<CdnInfo>();
         }
 
@@ -667,7 +667,7 @@ public sealed class TcpDaemonClient : IDaemonClient
 
         if (cachedDepots != null && cachedDepots.Count > 0)
         {
-            parameters["cachedDepots"] = JsonSerializer.Serialize(cachedDepots, JsonOptions);
+            parameters["cachedDepots"] = JsonSerializer.Serialize(cachedDepots, _jsonOptions);
             _logger?.LogInformation("Sending {Count} cached depot manifests to daemon", cachedDepots.Count);
         }
 
@@ -680,7 +680,7 @@ public sealed class TcpDaemonClient : IDaemonClient
 
         if (response.Data is JsonElement element)
         {
-            return JsonSerializer.Deserialize<PrefillResult>(element.GetRawText(), JsonOptions)
+            return JsonSerializer.Deserialize<PrefillResult>(element.GetRawText(), _jsonOptions)
                    ?? new PrefillResult { Success = false, ErrorMessage = "Failed to parse result" };
         }
 
@@ -693,7 +693,7 @@ public sealed class TcpDaemonClient : IDaemonClient
 
         if (response.Data is JsonElement element)
         {
-            return JsonSerializer.Deserialize<ClearCacheResult>(element.GetRawText(), JsonOptions)
+            return JsonSerializer.Deserialize<ClearCacheResult>(element.GetRawText(), _jsonOptions)
                    ?? new ClearCacheResult { Success = false, Message = "Failed to parse result" };
         }
 
@@ -706,7 +706,7 @@ public sealed class TcpDaemonClient : IDaemonClient
 
         if (response.Data is JsonElement element)
         {
-            return JsonSerializer.Deserialize<ClearCacheResult>(element.GetRawText(), JsonOptions)
+            return JsonSerializer.Deserialize<ClearCacheResult>(element.GetRawText(), _jsonOptions)
                    ?? new ClearCacheResult { Success = false, Message = "Failed to parse result" };
         }
 
@@ -733,7 +733,7 @@ public sealed class TcpDaemonClient : IDaemonClient
 
         if (response.Data is JsonElement element)
         {
-            return JsonSerializer.Deserialize<SelectedAppsStatus>(element.GetRawText(), JsonOptions)
+            return JsonSerializer.Deserialize<SelectedAppsStatus>(element.GetRawText(), _jsonOptions)
                    ?? new SelectedAppsStatus { Message = "Failed to parse result" };
         }
 
@@ -751,7 +751,7 @@ public sealed class TcpDaemonClient : IDaemonClient
 
         var parameters = new Dictionary<string, string>
         {
-            ["cachedDepots"] = JsonSerializer.Serialize(cachedDepots, JsonOptions)
+            ["cachedDepots"] = JsonSerializer.Serialize(cachedDepots, _jsonOptions)
         };
 
         var response = await SendCommandAsync("check-cache-status", parameters,
@@ -763,7 +763,7 @@ public sealed class TcpDaemonClient : IDaemonClient
 
         if (response.Data is JsonElement element)
         {
-            return JsonSerializer.Deserialize<CacheStatusResult>(element.GetRawText(), JsonOptions)
+            return JsonSerializer.Deserialize<CacheStatusResult>(element.GetRawText(), _jsonOptions)
                    ?? new CacheStatusResult { Message = "Failed to parse result" };
         }
 

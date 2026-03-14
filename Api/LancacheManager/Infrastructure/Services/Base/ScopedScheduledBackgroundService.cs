@@ -6,7 +6,7 @@ namespace LancacheManager.Infrastructure.Services.Base;
 /// </summary>
 public abstract class ScopedScheduledBackgroundService : ScheduledBackgroundService
 {
-    protected readonly IServiceProvider ServiceProvider;
+    protected readonly IServiceProvider _serviceProvider;
 
     protected ScopedScheduledBackgroundService(
         IServiceProvider serviceProvider,
@@ -14,12 +14,12 @@ public abstract class ScopedScheduledBackgroundService : ScheduledBackgroundServ
         IConfiguration configuration)
         : base(logger, configuration)
     {
-        ServiceProvider = serviceProvider;
+        _serviceProvider = serviceProvider;
     }
 
     protected override async Task ExecuteWorkAsync(CancellationToken stoppingToken)
     {
-        using var scope = ServiceProvider.CreateScope();
+        using var scope = _serviceProvider.CreateScope();
         await ExecuteScopedWorkAsync(scope.ServiceProvider, stoppingToken);
     }
 

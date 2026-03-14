@@ -41,6 +41,29 @@ public class GamesController : ControllerBase
     }
 
     /// <summary>
+    /// Checks cache and logs directory write permissions.
+    /// Returns a BadRequest IActionResult with PUID/PGID error message if not writable, or null if writable.
+    /// </summary>
+    private BadRequestObjectResult? EnsureDirectoriesWritable(string operationDescription)
+    {
+        var cacheWritable = _pathResolver.IsCacheDirectoryWritable();
+        var logsWritable = _pathResolver.IsLogsDirectoryWritable();
+
+        if (cacheWritable && logsWritable)
+            return null;
+
+        var errors = new List<string>();
+        if (!cacheWritable) errors.Add("cache directory is read-only");
+        if (!logsWritable) errors.Add("logs directory is read-only");
+
+        var errorMessage = $"Cannot {operationDescription}: {string.Join(" and ", errors)}. " +
+            "This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. " +
+            "The lancache container usually runs as UID/GID 33:33 (www-data).";
+
+        return BadRequest(new ErrorResponse { Error = errorMessage });
+    }
+
+    /// <summary>
     /// DELETE /api/games/{appId} - Remove game from cache
     /// RESTful: DELETE is proper method for removing resources
     /// </summary>
@@ -48,22 +71,11 @@ public class GamesController : ControllerBase
     public async Task<IActionResult> RemoveGameFromCache(uint appId)
     {
         // CRITICAL: Check write permissions BEFORE starting the operation
-        // This prevents operations from failing partway through due to permission issues
-        var cacheWritable = _pathResolver.IsCacheDirectoryWritable();
-        var logsWritable = _pathResolver.IsLogsDirectoryWritable();
-
-        if (!cacheWritable || !logsWritable)
+        var permissionError = EnsureDirectoriesWritable("remove game from cache");
+        if (permissionError != null)
         {
-            var errors = new List<string>();
-            if (!cacheWritable) errors.Add("cache directory is read-only");
-            if (!logsWritable) errors.Add("logs directory is read-only");
-
-            var errorMessage = $"Cannot remove game from cache: {string.Join(" and ", errors)}. " +
-                "This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. " +
-                "The lancache container usually runs as UID/GID 33:33 (www-data).";
-
-            _logger.LogWarning("[RemoveGameFromCache] Permission check failed for AppId {AppId}: {Error}", appId, errorMessage);
-            return BadRequest(new ErrorResponse { Error = errorMessage });
+            _logger.LogWarning("[RemoveGameFromCache] Permission check failed for AppId {AppId}", appId);
+            return permissionError;
         }
 
         _logger.LogInformation("Starting background game removal for AppId: {AppId}", appId);
@@ -72,114 +84,15 @@ public class GamesController : ControllerBase
         var cachedResults = await _gameCacheDetectionService.GetCachedDetectionAsync();
         var gameName = cachedResults?.Games?.FirstOrDefault(g => g.GameAppId == appId)?.GameName ?? $"Game {appId}";
 
-        // Create a CancellationTokenSource for cancel support
-        var cancellationTokenSource = new CancellationTokenSource();
-
-        // Register with unified operation tracker for centralized cancellation and tracking
-        var removalMetrics = new RemovalMetrics { EntityKey = appId.ToString(), EntityName = gameName };
-        var operationId = _operationTracker.RegisterOperation(
-            OperationType.GameRemoval,
-            $"Game Removal: {gameName}",
-            cancellationTokenSource,
-            removalMetrics
-        );
-
-        // Send GameRemovalStarted event
-        await _notifications.NotifyAllAsync(SignalREvents.GameRemovalStarted,
-            new GameRemovalStarted(operationId, appId, gameName, $"Starting removal of {gameName}...", DateTime.UtcNow));
-
-        // Fire-and-forget background removal with SignalR notification
-        var cancellationToken = cancellationTokenSource.Token;
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                // Send starting notification
-                await _notifications.NotifyAllAsync(SignalREvents.GameRemovalProgress,
-                    new GameRemovalProgress(operationId, appId, gameName, "starting", $"Starting removal of {gameName}..."));
-                _operationTracker.UpdateProgress(operationId, 0, $"Starting removal of {gameName}...");
-
-                cancellationToken.ThrowIfCancellationRequested();
-
-                // Call with progress callback that sends live SignalR updates
-                var report = await _cacheManagementService.RemoveGameFromCache(appId, cancellationToken,
-                    async (percentComplete, message, filesDeleted, bytesFreed) =>
-                    {
-                        await _notifications.NotifyAllAsync(SignalREvents.GameRemovalProgress,
-                            new GameRemovalProgress(operationId, appId, gameName, "removing_cache", message, percentComplete, filesDeleted, bytesFreed));
-                        _operationTracker.UpdateProgress(operationId, percentComplete, message);
-                        _operationTracker.UpdateMetadata(operationId, m =>
-                        {
-                            var metrics = (RemovalMetrics)m;
-                            metrics.FilesDeleted = filesDeleted;
-                            metrics.BytesFreed = bytesFreed;
-                        });
-                    });
-
-                cancellationToken.ThrowIfCancellationRequested();
-
-                // Send finalizing progress update
-                await _notifications.NotifyAllAsync(SignalREvents.GameRemovalProgress,
-                    new GameRemovalProgress(operationId, appId, gameName, "complete", "Finalizing removal...", 100.0, report.CacheFilesDeleted, (long)report.TotalBytesFreed));
-                _operationTracker.UpdateProgress(operationId, 100.0, "Finalizing removal...");
-                _operationTracker.UpdateMetadata(operationId, m =>
-                {
-                    var metrics = (RemovalMetrics)m;
-                    metrics.FilesDeleted = report.CacheFilesDeleted;
-                    metrics.BytesFreed = (long)report.TotalBytesFreed;
-                });
-
-                // Also remove from detection cache so it doesn't show in UI
-                await _gameCacheDetectionService.RemoveGameFromCacheAsync(appId);
-
-                _logger.LogInformation("Game removal completed for AppId: {AppId} - Deleted {Files} files, freed {Bytes} bytes",
-                    appId, report.CacheFilesDeleted, report.TotalBytesFreed);
-
-                // Mark operation as complete in unified tracker
-                _operationTracker.CompleteOperation(operationId, success: true);
-
-                // Send SignalR notification on success
-                await _notifications.NotifyAllAsync(SignalREvents.GameRemovalComplete,
-                    new GameRemovalComplete(true, operationId, appId, gameName, $"Successfully removed {gameName} from cache", report.CacheFilesDeleted, (long)report.TotalBytesFreed, report.LogEntriesRemoved));
-            }
-            catch (OperationCanceledException)
-            {
-                _logger.LogInformation("Game removal cancelled for AppId: {AppId}", appId);
-
-                // Mark operation as complete (cancelled) in unified tracker
-                _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
-
-                // Send SignalR notification on cancellation
-                await _notifications.NotifyAllAsync(SignalREvents.GameRemovalComplete,
-                    new GameRemovalComplete(false, operationId, appId, gameName, $"Removal of {gameName} was cancelled"));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error during game removal for AppId: {AppId}", appId);
-
-                // Send error status notification
-                await _notifications.NotifyAllAsync(SignalREvents.GameRemovalProgress,
-                    new GameRemovalProgress(operationId, appId, gameName, "error", $"Error removing {gameName}: {ex.Message}", 0.0));
-
-                // Mark operation as complete (failed) in unified tracker
-                _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
-
-                // Send SignalR notification on failure
-                await _notifications.NotifyAllAsync(SignalREvents.GameRemovalComplete,
-                    new GameRemovalComplete(false, operationId, appId, Message: $"Failed to remove game {appId}: {ex.Message}"));
-            }
-        }, cancellationToken);
-
-        return Accepted(new GameRemovalStartResponse
-        {
-            Message = $"Started removal of game {appId} from cache",
-            OperationId = operationId,
-            AppId = appId.ToString(),
-            GameName = gameName,
-            Status = "running"
-        });
+        return await StartRemovalOperationAsync(
+            entityKey: appId.ToString(),
+            displayName: gameName,
+            operationLabel: $"Game Removal: {gameName}",
+            appId: appId,
+            removeFunc: (CancellationToken ct, Func<double, string, int, long, Task> onProgress) =>
+                _cacheManagementService.RemoveGameFromCache(appId, ct, onProgress),
+            onSuccess: async (uint _) => await _gameCacheDetectionService.RemoveGameFromCacheAsync(appId),
+            responseMessage: $"Started removal of game {appId} from cache");
     }
 
     /// <summary>
@@ -191,40 +104,60 @@ public class GamesController : ControllerBase
     public async Task<IActionResult> RemoveEpicGameFromCache(string gameName)
     {
         // Check write permissions before starting
-        var cacheWritable = _pathResolver.IsCacheDirectoryWritable();
-        var logsWritable = _pathResolver.IsLogsDirectoryWritable();
-
-        if (!cacheWritable || !logsWritable)
+        var permissionError = EnsureDirectoriesWritable("remove Epic game from cache");
+        if (permissionError != null)
         {
-            var errors = new List<string>();
-            if (!cacheWritable) errors.Add("cache directory is read-only");
-            if (!logsWritable) errors.Add("logs directory is read-only");
-
-            var errorMessage = $"Cannot remove Epic game from cache: {string.Join(" and ", errors)}. " +
-                "This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. " +
-                "The lancache container usually runs as UID/GID 33:33 (www-data).";
-
-            _logger.LogWarning("[RemoveEpicGame] Permission check failed for '{GameName}': {Error}", gameName, errorMessage);
-            return BadRequest(new ErrorResponse { Error = errorMessage });
+            _logger.LogWarning("[RemoveEpicGame] Permission check failed for '{GameName}'", gameName);
+            return permissionError;
         }
 
         _logger.LogInformation("Starting background Epic game removal for: {GameName}", gameName);
 
-        // Create a CancellationTokenSource for cancel support
+        return await StartRemovalOperationAsync(
+            entityKey: $"epic-{gameName}",
+            displayName: gameName,
+            operationLabel: $"Epic Game Removal: {gameName}",
+            appId: 0,
+            removeFunc: (CancellationToken ct, Func<double, string, int, long, Task> onProgress) =>
+                _cacheManagementService.RemoveEpicGameFromCache(gameName, ct, onProgress),
+            onSuccess: null,
+            responseMessage: $"Started removal of Epic game {gameName} from cache");
+    }
+
+    /// <summary>
+    /// Shared background removal wrapper for both Steam and Epic game removal.
+    /// Handles: tracker registration, Started event, Task.Run with progress/complete/error/cancel.
+    /// </summary>
+    /// <param name="entityKey">Tracker entity key (e.g., "123" for Steam, "epic-GameName" for Epic)</param>
+    /// <param name="displayName">Game display name for notifications</param>
+    /// <param name="operationLabel">Operation label for the tracker (e.g., "Game Removal: Halo")</param>
+    /// <param name="appId">Steam AppId (0 for Epic games)</param>
+    /// <param name="removeFunc">The actual removal function that accepts cancellation token and progress callback</param>
+    /// <param name="onSuccess">Optional callback after successful removal (e.g., Steam removes from detection cache)</param>
+    /// <param name="responseMessage">Message for the HTTP Accepted response</param>
+    private async Task<IActionResult> StartRemovalOperationAsync(
+        string entityKey,
+        string displayName,
+        string operationLabel,
+        uint appId,
+        Func<CancellationToken, Func<double, string, int, long, Task>, Task<CacheManagementService.GameCacheRemovalReport>> removeFunc,
+        Func<uint, Task>? onSuccess,
+        string responseMessage)
+    {
         var cancellationTokenSource = new CancellationTokenSource();
 
         // Register with unified operation tracker for centralized cancellation and tracking
-        var removalMetrics = new RemovalMetrics { EntityKey = $"epic-{gameName}", EntityName = gameName };
+        var removalMetrics = new RemovalMetrics { EntityKey = entityKey, EntityName = displayName };
         var operationId = _operationTracker.RegisterOperation(
             OperationType.GameRemoval,
-            $"Epic Game Removal: {gameName}",
+            operationLabel,
             cancellationTokenSource,
             removalMetrics
         );
 
-        // Send GameRemovalStarted event (reuse same SignalR events as Steam)
+        // Send GameRemovalStarted event
         await _notifications.NotifyAllAsync(SignalREvents.GameRemovalStarted,
-            new GameRemovalStarted(operationId, 0, gameName, $"Starting removal of {gameName}...", DateTime.UtcNow));
+            new GameRemovalStarted(operationId, appId, displayName, $"Starting removal of {displayName}...", DateTime.UtcNow));
 
         // Fire-and-forget background removal with SignalR notification
         var cancellationToken = cancellationTokenSource.Token;
@@ -236,19 +169,19 @@ public class GamesController : ControllerBase
 
                 // Send starting notification
                 await _notifications.NotifyAllAsync(SignalREvents.GameRemovalProgress,
-                    new GameRemovalProgress(operationId, 0, gameName, "starting", $"Starting removal of {gameName}..."));
-                _operationTracker.UpdateProgress(operationId, 0, $"Starting removal of {gameName}...");
+                    new GameRemovalProgress(operationId, appId, displayName, "starting", $"Starting removal of {displayName}..."));
+                _operationTracker.UpdateProgress(operationId, 0, $"Starting removal of {displayName}...");
 
                 cancellationToken.ThrowIfCancellationRequested();
 
                 // Call with progress callback that sends live SignalR updates
-                var report = await _cacheManagementService.RemoveEpicGameFromCache(gameName, cancellationToken,
-                    async (percentComplete, message, filesDeleted, bytesFreed) =>
+                var report = await removeFunc(cancellationToken,
+                    async (double percentComplete, string message, int filesDeleted, long bytesFreed) =>
                     {
                         await _notifications.NotifyAllAsync(SignalREvents.GameRemovalProgress,
-                            new GameRemovalProgress(operationId, 0, gameName, "removing_cache", message, percentComplete, filesDeleted, bytesFreed));
+                            new GameRemovalProgress(operationId, appId, displayName, "removing_cache", message, percentComplete, filesDeleted, bytesFreed));
                         _operationTracker.UpdateProgress(operationId, percentComplete, message);
-                        _operationTracker.UpdateMetadata(operationId, m =>
+                        _operationTracker.UpdateMetadata(operationId, (object m) =>
                         {
                             var metrics = (RemovalMetrics)m;
                             metrics.FilesDeleted = filesDeleted;
@@ -260,54 +193,60 @@ public class GamesController : ControllerBase
 
                 // Send finalizing progress update
                 await _notifications.NotifyAllAsync(SignalREvents.GameRemovalProgress,
-                    new GameRemovalProgress(operationId, 0, gameName, "complete", "Finalizing removal...", 100.0, report.CacheFilesDeleted, (long)report.TotalBytesFreed));
+                    new GameRemovalProgress(operationId, appId, displayName, "complete", "Finalizing removal...", 100.0, report.CacheFilesDeleted, (long)report.TotalBytesFreed));
                 _operationTracker.UpdateProgress(operationId, 100.0, "Finalizing removal...");
-                _operationTracker.UpdateMetadata(operationId, m =>
+                _operationTracker.UpdateMetadata(operationId, (object m) =>
                 {
                     var metrics = (RemovalMetrics)m;
                     metrics.FilesDeleted = report.CacheFilesDeleted;
                     metrics.BytesFreed = (long)report.TotalBytesFreed;
                 });
 
-                _logger.LogInformation("Epic game removal completed for '{GameName}' - Deleted {Files} files, freed {Bytes} bytes",
-                    gameName, report.CacheFilesDeleted, report.TotalBytesFreed);
+                // Run platform-specific success callback (e.g., Steam removes from detection cache)
+                if (onSuccess != null)
+                {
+                    await onSuccess(appId);
+                }
+
+                _logger.LogInformation("Game removal completed for {EntityKey} ({DisplayName}) - Deleted {Files} files, freed {Bytes} bytes",
+                    entityKey, displayName, report.CacheFilesDeleted, report.TotalBytesFreed);
 
                 // Mark operation as complete in unified tracker
                 _operationTracker.CompleteOperation(operationId, success: true);
 
                 // Send SignalR notification on success
                 await _notifications.NotifyAllAsync(SignalREvents.GameRemovalComplete,
-                    new GameRemovalComplete(true, operationId, 0, gameName, $"Successfully removed {gameName} from cache", report.CacheFilesDeleted, (long)report.TotalBytesFreed, report.LogEntriesRemoved));
+                    new GameRemovalComplete(true, operationId, appId, displayName, $"Successfully removed {displayName} from cache", report.CacheFilesDeleted, (long)report.TotalBytesFreed, report.LogEntriesRemoved));
             }
             catch (OperationCanceledException)
             {
-                _logger.LogInformation("Epic game removal cancelled for: {GameName}", gameName);
+                _logger.LogInformation("Game removal cancelled for {EntityKey}", entityKey);
 
                 _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
 
                 await _notifications.NotifyAllAsync(SignalREvents.GameRemovalComplete,
-                    new GameRemovalComplete(false, operationId, 0, gameName, $"Removal of {gameName} was cancelled"));
+                    new GameRemovalComplete(false, operationId, appId, displayName, $"Removal of {displayName} was cancelled"));
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error during Epic game removal for: {GameName}", gameName);
+                _logger.LogError(ex, "Error during game removal for {EntityKey}", entityKey);
 
                 await _notifications.NotifyAllAsync(SignalREvents.GameRemovalProgress,
-                    new GameRemovalProgress(operationId, 0, gameName, "error", $"Error removing {gameName}: {ex.Message}", 0.0));
+                    new GameRemovalProgress(operationId, appId, displayName, "error", $"Error removing {displayName}: {ex.Message}", 0.0));
 
                 _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
 
                 await _notifications.NotifyAllAsync(SignalREvents.GameRemovalComplete,
-                    new GameRemovalComplete(false, operationId, 0, Message: $"Failed to remove Epic game {gameName}: {ex.Message}"));
+                    new GameRemovalComplete(false, operationId, appId, Message: $"Failed to remove {displayName}: {ex.Message}"));
             }
         }, cancellationToken);
 
         return Accepted(new GameRemovalStartResponse
         {
-            Message = $"Started removal of Epic game {gameName} from cache",
+            Message = responseMessage,
             OperationId = operationId,
-            AppId = "0",
-            GameName = gameName,
+            AppId = appId.ToString(),
+            GameName = displayName,
             Status = "running"
         });
     }

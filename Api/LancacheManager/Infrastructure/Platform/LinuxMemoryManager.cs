@@ -14,8 +14,8 @@ public class LinuxMemoryManager : IMemoryManager
     private static readonly object _mallocConfigLock = new object();
 
     // mallopt parameter constants from malloc.h
-    private const int M_TRIM_THRESHOLD = -1;  // Minimum size for top chunk to trigger trimming
-    private const int M_ARENA_MAX = -8;       // Maximum number of arenas
+    private const int _trimThreshold = -1;  // Minimum size for top chunk to trigger trimming
+    private const int _arenaMax = -8;       // Maximum number of arenas
 
     /// <summary>
     /// P/Invoke declaration for malloc_trim from glibc (Linux only)
@@ -55,22 +55,22 @@ public class LinuxMemoryManager : IMemoryManager
 
             try
             {
-                // Set M_TRIM_THRESHOLD to 128KB (131072 bytes)
+                // Set _trimThreshold to 128KB (131072 bytes)
                 // This prevents glibc from dynamically resizing the trim threshold
                 // which causes memory fragmentation. Fixed value ensures consistent behavior.
                 // Without this, memory can grow significantly and not be released.
-                var trimResult = mallopt(M_TRIM_THRESHOLD, 131072);
+                var trimResult = mallopt(_trimThreshold, 131072);
                 _logger.LogInformation(
-                    "Linux malloc M_TRIM_THRESHOLD set to 128KB (131072 bytes). Result: {Result}",
+                    "Linux malloc _trimThreshold set to 128KB (131072 bytes). Result: {Result}",
                     trimResult == 1 ? "Success" : "Failed");
 
-                // Set M_ARENA_MAX to 4
+                // Set _arenaMax to 4
                 // Default is 8 * cores, which can create up to 32 arenas on a quad-core
                 // More arenas = more fragmentation and memory usage
                 // Reducing to 4 balances performance and memory efficiency
-                var arenaResult = mallopt(M_ARENA_MAX, 4);
+                var arenaResult = mallopt(_arenaMax, 4);
                 _logger.LogInformation(
-                    "Linux malloc M_ARENA_MAX set to 4. Result: {Result}",
+                    "Linux malloc _arenaMax set to 4. Result: {Result}",
                     arenaResult == 1 ? "Success" : "Failed");
 
                 _mallocConfigured = true;
@@ -109,7 +109,7 @@ public class LinuxMemoryManager : IMemoryManager
         {
             // malloc_trim(0) tells glibc to return all possible memory to the OS
             // This is critical on Linux where glibc's allocator caches freed memory
-            // Combined with our M_TRIM_THRESHOLD setting, this should be very effective
+            // Combined with our _trimThreshold setting, this should be very effective
             var freedBytes = malloc_trim(0);
             activeLogger?.LogDebug("malloc_trim(0) returned {FreedBytes} on Linux", freedBytes);
         }

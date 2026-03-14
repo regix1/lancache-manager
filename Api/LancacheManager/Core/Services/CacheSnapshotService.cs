@@ -1,4 +1,4 @@
-using LancacheManager.Infrastructure.Data;
+using LancacheManager.Extensions;
 using LancacheManager.Infrastructure.Services.Base;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
@@ -44,7 +44,7 @@ public class CacheSnapshotService : ScopedScheduledBackgroundService
             configuration.GetValue<int>("CacheSnapshots:IntervalMinutes", 60));
         _retentionDays = configuration.GetValue<int>("CacheSnapshots:RetentionDays", 90);
 
-        Logger.LogInformation("Cache snapshot service initialized. Interval: {Interval}, Retention: {Retention} days",
+        _logger.LogInformation("Cache snapshot service initialized. Interval: {Interval}, Retention: {Retention} days",
             _snapshotInterval, _retentionDays);
     }
 
@@ -77,12 +77,11 @@ public class CacheSnapshotService : ScopedScheduledBackgroundService
             // Skip if no valid data (e.g., on Windows development)
             if (cacheInfo.TotalCacheSize == 0 && cacheInfo.UsedCacheSize == 0)
             {
-                Logger.LogDebug("Skipping cache snapshot - no cache info available");
+                _logger.LogDebug("Skipping cache snapshot - no cache info available");
                 return;
             }
 
-            using var scope = _scopeFactory.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            using var scopedDb = _scopeFactory.CreateScopedDbContext();
 
             var snapshot = new CacheSnapshot
             {
@@ -91,15 +90,15 @@ public class CacheSnapshotService : ScopedScheduledBackgroundService
                 TotalCacheSize = cacheInfo.TotalCacheSize
             };
 
-            dbContext.CacheSnapshots.Add(snapshot);
-            await dbContext.SaveChangesAsync();
+            scopedDb.DbContext.CacheSnapshots.Add(snapshot);
+            await scopedDb.DbContext.SaveChangesAsync();
 
-            Logger.LogDebug("Recorded cache snapshot: {UsedSize} / {TotalSize}",
+            _logger.LogDebug("Recorded cache snapshot: {UsedSize} / {TotalSize}",
                 FormatBytes(cacheInfo.UsedCacheSize), FormatBytes(cacheInfo.TotalCacheSize));
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Failed to record cache snapshot");
+            _logger.LogError(ex, "Failed to record cache snapshot");
         }
     }
 
@@ -107,24 +106,23 @@ public class CacheSnapshotService : ScopedScheduledBackgroundService
     {
         try
         {
-            using var scope = _scopeFactory.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            using var scopedDb = _scopeFactory.CreateScopedDbContext();
 
             var cutoffDate = DateTime.UtcNow.AddDays(-_retentionDays);
 
-            var deletedCount = await dbContext.CacheSnapshots
+            var deletedCount = await scopedDb.DbContext.CacheSnapshots
                 .Where(s => s.TimestampUtc < cutoffDate)
                 .ExecuteDeleteAsync();
 
             if (deletedCount > 0)
             {
-                Logger.LogInformation("Cleaned up {Count} old cache snapshots (older than {Days} days)",
+                _logger.LogInformation("Cleaned up {Count} old cache snapshots (older than {Days} days)",
                     deletedCount, _retentionDays);
             }
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Failed to cleanup old cache snapshots");
+            _logger.LogError(ex, "Failed to cleanup old cache snapshots");
         }
     }
 
@@ -134,12 +132,11 @@ public class CacheSnapshotService : ScopedScheduledBackgroundService
     /// </summary>
     public async Task<CacheSnapshot?> GetSnapshotAtTimeAsync(DateTime timestampUtc)
     {
-        using var scope = _scopeFactory.CreateScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        using var scopedDb = _scopeFactory.CreateScopedDbContext();
 
         // Find the closest snapshot to the requested time
         // First try to find the snapshot just before the requested time
-        var snapshot = await dbContext.CacheSnapshots
+        var snapshot = await scopedDb.DbContext.CacheSnapshots
             .Where(s => s.TimestampUtc <= timestampUtc)
             .OrderByDescending(s => s.TimestampUtc)
             .FirstOrDefaultAsync();
@@ -152,10 +149,9 @@ public class CacheSnapshotService : ScopedScheduledBackgroundService
     /// </summary>
     public async Task<CacheSnapshotSummary?> GetSnapshotSummaryAsync(DateTime startUtc, DateTime endUtc)
     {
-        using var scope = _scopeFactory.CreateScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        using var scopedDb = _scopeFactory.CreateScopedDbContext();
 
-        var snapshots = await dbContext.CacheSnapshots
+        var snapshots = await scopedDb.DbContext.CacheSnapshots
             .Where(s => s.TimestampUtc >= startUtc && s.TimestampUtc <= endUtc)
             .OrderBy(s => s.TimestampUtc)
             .ToListAsync();
@@ -163,7 +159,7 @@ public class CacheSnapshotService : ScopedScheduledBackgroundService
         if (snapshots.Count == 0)
         {
             // Try to get the most recent snapshot before the start time
-            var fallbackSnapshot = await dbContext.CacheSnapshots
+            var fallbackSnapshot = await scopedDb.DbContext.CacheSnapshots
                 .Where(s => s.TimestampUtc < startUtc)
                 .OrderByDescending(s => s.TimestampUtc)
                 .FirstOrDefaultAsync();

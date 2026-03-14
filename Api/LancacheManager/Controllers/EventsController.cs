@@ -76,17 +76,17 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
 
     protected override async Task OnCreatedAsync(Event entity, Event dto)
     {
-        await Notifications.NotifyAllAsync(SignalREvents.EventCreated, dto);
+        await _notifications.NotifyAllAsync(SignalREvents.EventCreated, dto);
     }
 
     protected override async Task OnUpdatedAsync(Event entity, Event dto)
     {
-        await Notifications.NotifyAllAsync(SignalREvents.EventUpdated, dto);
+        await _notifications.NotifyAllAsync(SignalREvents.EventUpdated, dto);
     }
 
     protected override async Task OnDeletedAsync(int id)
     {
-        await Notifications.NotifyAllAsync(SignalREvents.EventDeleted, id);
+        await _notifications.NotifyAllAsync(SignalREvents.EventDeleted, id);
     }
 
     // ===== CRUD Endpoints =====
@@ -178,7 +178,7 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
         await _eventsService.TagDownloadAsync(eventId, downloadId, autoTagged: false);
 
         // Notify clients via SignalR
-        await Notifications.NotifyAllAsync(SignalREvents.DownloadTagged, new DownloadTagged(eventId, downloadId));
+        await _notifications.NotifyAllAsync(SignalREvents.DownloadTagged, new DownloadTagged(eventId, downloadId));
 
         return Ok(ApiResponse.Message("Download tagged to event"));
     }

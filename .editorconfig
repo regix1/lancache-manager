@@ -165,7 +165,8 @@ dotnet_diagnostic.CA1303.severity = none        # Localized string literals — 
 dotnet_diagnostic.CA2007.severity = none        # ConfigureAwait — ASP.NET Core doesn't need it
 dotnet_diagnostic.IDE0290.severity = none       # Primary constructors — not adopting yet
 
-# IDE code style — suppress noisy rules
+# IDE code style — enforce naming conventions, suppress noisy rules
+dotnet_diagnostic.IDE1006.severity = warning    # Naming rule violations — enforced in build
 dotnet_diagnostic.IDE0040.severity = suggestion # Accessibility modifiers required
 dotnet_diagnostic.IDE0130.severity = none       # Namespace doesn't match folder — intentional flat namespaces
 dotnet_diagnostic.IDE0161.severity = none       # File-scoped namespace — migrations are auto-generated

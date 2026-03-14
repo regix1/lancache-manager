@@ -227,7 +227,7 @@
   color: var(--theme-text-primary);
   border-top: 1px solid var(--theme-border-secondary);
   border-bottom: 1px solid var(--theme-border-secondary);
-  background: transparent;
+  background: var(--theme-bg-secondary);
 }
 
 .session-table-row td:first-child {
