@@ -48,7 +48,7 @@ public partial class SteamKit2Service
             });
 
             // Phase 1: Connect and download (0-10%)
-            await SendGitHubProgress("Connecting to GitHub...", 2, operationId);
+            await SendGitHubProgressAsync("Connecting to GitHub...", 2, operationId);
 
             const string githubUrl = "https://github.com/regix1/lancache-pics/releases/latest/download/pics_depot_mappings.json";
 
@@ -58,7 +58,7 @@ public partial class SteamKit2Service
 
             _logger.LogInformation("[GitHub Mode] Downloading from: {Url}", githubUrl);
 
-            await SendGitHubProgress("Downloading depot data...", 5, operationId);
+            await SendGitHubProgressAsync("Downloading depot data...", 5, operationId);
             var response = await httpClient.GetAsync(githubUrl, token);
 
             if (!response.IsSuccessStatusCode)
@@ -67,7 +67,7 @@ public partial class SteamKit2Service
                 return false;
             }
 
-            await SendGitHubProgress("Reading response data...", 8, operationId);
+            await SendGitHubProgressAsync("Reading response data...", 8, operationId);
             var jsonContent = await response.Content.ReadAsStringAsync(token);
 
             if (string.IsNullOrWhiteSpace(jsonContent))
@@ -77,7 +77,7 @@ public partial class SteamKit2Service
             }
 
             // Phase 2: Validate JSON (10-15%)
-            await SendGitHubProgress("Validating JSON structure...", 10, operationId);
+            await SendGitHubProgressAsync("Validating JSON structure...", 10, operationId);
 
             PicsJsonData? downloadedData;
             try
@@ -104,7 +104,7 @@ public partial class SteamKit2Service
             }
 
             // Phase 3: Save to local file (15-18%)
-            await SendGitHubProgress("Saving to local file...", 15, operationId);
+            await SendGitHubProgressAsync("Saving to local file...", 15, operationId);
             var localPath = _picsDataService.GetPicsJsonFilePath();
             await System.IO.File.WriteAllTextAsync(localPath, jsonContent, token);
             _logger.LogInformation("[GitHub Mode] Saved pre-created depot data to: {Path}", localPath);
@@ -113,14 +113,14 @@ public partial class SteamKit2Service
             _picsDataService.ClearCache();
 
             // Phase 4: Clear existing mappings (18-22%)
-            await SendGitHubProgress("Clearing existing depot mappings...", 18, operationId);
+            await SendGitHubProgressAsync("Clearing existing depot mappings...", 18, operationId);
 
             // Full replace: Clear existing depot mappings first, then import fresh data
             // This ensures the database always matches GitHub exactly (removes stale/deleted mappings)
             _logger.LogInformation("[GitHub Mode] Clearing existing depot mappings (preserving locally-resolved orphan depots) for GitHub replace...");
             await _picsDataService.ClearDepotMappingsAsync(token, preserveOrphanResolved: true);
 
-            await SendGitHubProgress("Depot mappings cleared", 22, operationId);
+            await SendGitHubProgressAsync("Depot mappings cleared", 22, operationId);
 
             // Phase 5: Import to database (22-90%) - uses progress callback for granular updates
             _logger.LogInformation("[GitHub Mode] Importing {Count} depot mappings to database (full replace mode)",
@@ -131,21 +131,21 @@ public partial class SteamKit2Service
             {
                 // Map 0-100% import progress to 22-90% overall progress
                 var overallPercent = 22 + (int)(0.68 * importPercent);
-                await SendGitHubProgress(message, overallPercent, operationId);
+                await SendGitHubProgressAsync(message, overallPercent, operationId);
             }
 
             await _picsDataService.ImportJsonDataToDatabaseAsync(token, ImportProgressCallback);
 
             // Phase 6: Apply mappings to downloads (90-98%)
-            await SendGitHubProgress("Applying mappings to downloads...", 90, operationId);
+            await SendGitHubProgressAsync("Applying mappings to downloads...", 90, operationId);
 
             // Apply depot mappings to existing downloads
             // This only updates downloads that don't have game info yet (or missing image)
             _logger.LogInformation("[GitHub Mode] Applying depot mappings to downloads without game info");
-            await ManuallyApplyDepotMappings();
+            await ManuallyApplyDepotMappingsAsync();
 
             // Phase 7: Finalize (98-100%)
-            await SendGitHubProgress("Finalizing import...", 98, operationId);
+            await SendGitHubProgressAsync("Finalizing import...", 98, operationId);
 
             _logger.LogInformation("[GitHub Mode] Pre-created depot data downloaded and imported successfully");
 
@@ -175,14 +175,14 @@ public partial class SteamKit2Service
         {
             _logger.LogError(ex, "[GitHub Mode] Network error while downloading pre-created depot data");
             _operationTracker.CompleteOperation(operationId, false, "Network error");
-            await SendGitHubErrorNotification("Network error while downloading depot data", operationId);
+            await SendGitHubErrorNotificationAsync("Network error while downloading depot data", operationId);
             return false;
         }
         catch (TaskCanceledException ex) when (ex.InnerException is TimeoutException)
         {
             _logger.LogError(ex, "[GitHub Mode] Timeout while downloading pre-created depot data");
             _operationTracker.CompleteOperation(operationId, false, "Timeout");
-            await SendGitHubErrorNotification("Timeout while downloading depot data", operationId);
+            await SendGitHubErrorNotificationAsync("Timeout while downloading depot data", operationId);
             return false;
         }
         catch (OperationCanceledException)
@@ -213,7 +213,7 @@ public partial class SteamKit2Service
         {
             _logger.LogError(ex, "[GitHub Mode] Error downloading pre-created depot data");
             _operationTracker.CompleteOperation(operationId, false, ex.Message);
-            await SendGitHubErrorNotification($"Error downloading depot data: {ex.Message}", operationId);
+            await SendGitHubErrorNotificationAsync($"Error downloading depot data: {ex.Message}", operationId);
             return false;
         }
         finally
@@ -224,7 +224,7 @@ public partial class SteamKit2Service
         }
     }
 
-    private async Task SendGitHubErrorNotification(string errorMessage, string? operationId = null)
+    private async Task SendGitHubErrorNotificationAsync(string errorMessage, string? operationId = null)
     {
         await _notifications.NotifyAllAsync(SignalREvents.DepotMappingComplete, new
         {
@@ -238,7 +238,7 @@ public partial class SteamKit2Service
         });
     }
 
-    private async Task SendGitHubProgress(string message, int percentComplete, string? operationId = null)
+    private async Task SendGitHubProgressAsync(string message, int percentComplete, string? operationId = null)
     {
         await _notifications.NotifyAllAsync(SignalREvents.DepotMappingProgress, new
         {

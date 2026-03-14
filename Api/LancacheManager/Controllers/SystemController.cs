@@ -339,7 +339,7 @@ public class SystemController : ControllerBase
     /// Request body: { "refreshRate": "LIVE" | "ULTRA" | "REALTIME" | "STANDARD" | "RELAXED" | "SLOW" }
     /// </summary>
     [HttpPatch("default-guest-refresh-rate")]
-    public async Task<IActionResult> SetDefaultGuestRefreshRate([FromBody] SetRefreshRateRequest request)
+    public async Task<IActionResult> SetDefaultGuestRefreshRateAsync([FromBody] SetRefreshRateRequest request)
     {
         if (request == null || string.IsNullOrWhiteSpace(request.RefreshRate))
         {
@@ -374,7 +374,7 @@ public class SystemController : ControllerBase
     /// Request body: { "locked": true | false }
     /// </summary>
     [HttpPatch("guest-refresh-rate-lock")]
-    public async Task<IActionResult> SetGuestRefreshRateLock([FromBody] GuestRefreshRateLockRequest request)
+    public async Task<IActionResult> SetGuestRefreshRateLockAsync([FromBody] GuestRefreshRateLockRequest request)
     {
         if (request == null)
         {
@@ -415,7 +415,7 @@ public class SystemController : ControllerBase
     /// Update allowed time formats for guests
     /// </summary>
     [HttpPatch("default-guest-preferences/allowed-time-formats")]
-    public async Task<IActionResult> SetAllowedTimeFormats([FromBody] SetAllowedTimeFormatsRequest request)
+    public async Task<IActionResult> SetAllowedTimeFormatsAsync([FromBody] SetAllowedTimeFormatsRequest request)
     {
         var validFormats = new[] { "server-24h", "server-12h", "local-24h", "local-12h" };
 
@@ -453,7 +453,7 @@ public class SystemController : ControllerBase
     /// Update a single default guest preference
     /// </summary>
     [HttpPatch("default-guest-preferences/{key}")]
-    public async Task<IActionResult> SetDefaultGuestPreference(string key, [FromBody] SetBoolPreferenceRequest request)
+    public async Task<IActionResult> SetDefaultGuestPreferenceAsync(string key, [FromBody] SetBoolPreferenceRequest request)
     {
         var validKeys = new[] { "useLocalTimezone", "use24HourFormat", "sharpCorners", "disableTooltips", "showDatasourceLabels", "showYearInDates" };
         if (!validKeys.Contains(key))
@@ -525,7 +525,7 @@ public class SystemController : ControllerBase
     /// Update default prefill panel settings
     /// </summary>
     [HttpPatch("prefill-defaults")]
-    public async Task<IActionResult> SetPrefillDefaults([FromBody] SetPrefillDefaultsRequest request)
+    public async Task<IActionResult> SetPrefillDefaultsAsync([FromBody] SetPrefillDefaultsRequest request)
     {
         if (request.OperatingSystems != null)
         {
@@ -616,7 +616,7 @@ public class SystemController : ControllerBase
     /// POST /api/system/log-rotation/trigger - Force nginx log rotation
     /// </summary>
     [HttpPost("log-rotation/trigger")]
-    public async Task<IActionResult> TriggerLogRotation()
+    public async Task<IActionResult> TriggerLogRotationAsync()
     {
         _logger.LogInformation("Manual log rotation triggered via API");
         var success = await _logRotationService.ForceRotationAsync();
@@ -635,7 +635,7 @@ public class SystemController : ControllerBase
     /// PUT /api/system/log-rotation/schedule - Update log rotation schedule
     /// </summary>
     [HttpPut("log-rotation/schedule")]
-    public async Task<IActionResult> UpdateLogRotationSchedule([FromBody] UpdateLogRotationScheduleRequest request)
+    public async Task<IActionResult> UpdateLogRotationScheduleAsync([FromBody] UpdateLogRotationScheduleRequest request)
     {
         if (request.ScheduleHours < 0 || request.ScheduleHours > 168)
         {

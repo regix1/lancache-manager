@@ -63,7 +63,7 @@ public class LogsController : ControllerBase
     /// GET /api/logs/service-counts - Get log entry counts by service (aggregated from all datasources)
     /// </summary>
     [HttpGet("service-counts")]
-    public async Task<IActionResult> GetServiceCounts()
+    public async Task<IActionResult> GetServiceCountsAsync()
     {
         var datasources = _datasourceService.GetDatasources();
         var aggregatedCounts = new Dictionary<string, ulong>();
@@ -89,7 +89,7 @@ public class LogsController : ControllerBase
     /// GET /api/logs/service-counts/by-datasource - Get log entry counts by service, grouped by datasource
     /// </summary>
     [HttpGet("service-counts/by-datasource")]
-    public async Task<IActionResult> GetServiceCountsByDatasource()
+    public async Task<IActionResult> GetServiceCountsByDatasourceAsync()
     {
         var datasources = _datasourceService.GetDatasources();
         var result = new List<object>();
@@ -319,7 +319,7 @@ public class LogsController : ControllerBase
 
         try
         {
-            _ = _rustLogProcessorService.StartProcessing();
+            _ = _rustLogProcessorService.StartProcessingAsync();
             _logger.LogInformation("Started log processing for all datasources");
 
             return Accepted(new OperationResponse
@@ -340,7 +340,7 @@ public class LogsController : ControllerBase
     /// POST /api/logs/process/{datasourceName} - Start processing logs for a specific datasource
     /// </summary>
     [HttpPost("process/{datasourceName}")]
-    public async Task<IActionResult> ProcessDatasourceLogs(string datasourceName)
+    public async Task<IActionResult> ProcessDatasourceLogsAsync(string datasourceName)
     {
         var datasource = _datasourceService.GetDatasource(datasourceName);
         if (datasource == null)
@@ -397,7 +397,7 @@ public class LogsController : ControllerBase
     /// POST /api/logs/process/kill - Force kill log processing operation
     /// </summary>
     [HttpPost("process/kill")]
-    public async Task<IActionResult> ForceKillLogProcessing()
+    public async Task<IActionResult> ForceKillLogProcessingAsync()
     {
         var killed = await _rustLogProcessorService.ForceKillProcessingAsync();
         if (!killed)
@@ -412,7 +412,7 @@ public class LogsController : ControllerBase
     /// When <paramref name="datasourceName"/> is null, operates across all datasources.
     /// If <paramref name="requestedPosition"/> is 0, resets to beginning; otherwise resets to end of file.
     /// </summary>
-    private IActionResult ResetPositionCore(string? datasourceName, long? requestedPosition)
+    private OkObjectResult ResetPositionCore(string? datasourceName, long? requestedPosition)
     {
         var isSingleDatasource = datasourceName != null;
 
@@ -510,7 +510,7 @@ public class LogsController : ControllerBase
     /// RESTful: DELETE is proper method for removing resources, service name in path
     /// </summary>
     [HttpDelete("services/{service}")]
-    public async Task<IActionResult> RemoveServiceLogs(string service)
+    public async Task<IActionResult> RemoveServiceLogsAsync(string service)
     {
         if (string.IsNullOrWhiteSpace(service))
         {
@@ -545,7 +545,7 @@ public class LogsController : ControllerBase
     /// DELETE /api/logs/datasources/{datasourceName}/services/{service} - Remove logs for specific service from a specific datasource
     /// </summary>
     [HttpDelete("datasources/{datasourceName}/services/{service}")]
-    public async Task<IActionResult> RemoveServiceLogsFromDatasource(string datasourceName, string service)
+    public async Task<IActionResult> RemoveServiceLogsFromDatasourceAsync(string datasourceName, string service)
     {
         if (string.IsNullOrWhiteSpace(service))
         {
@@ -585,7 +585,7 @@ public class LogsController : ControllerBase
     /// This is a destructive operation that removes all log history for the datasource
     /// </summary>
     [HttpDelete("datasources/{datasourceName}/file")]
-    public async Task<IActionResult> DeleteLogFile(string datasourceName)
+    public async Task<IActionResult> DeleteLogFileAsync(string datasourceName)
     {
         var datasource = _datasourceService.GetDatasource(datasourceName);
         if (datasource == null)
@@ -657,9 +657,9 @@ public class LogsController : ControllerBase
     /// Used as fallback when graceful cancellation fails
     /// </summary>
     [HttpPost("remove/kill")]
-    public async Task<IActionResult> ForceKillServiceRemoval()
+    public async Task<IActionResult> ForceKillServiceRemovalAsync()
     {
-        var result = await _rustLogRemovalService.ForceKillOperation();
+        var result = await _rustLogRemovalService.ForceKillOperationAsync();
 
         if (!result)
         {

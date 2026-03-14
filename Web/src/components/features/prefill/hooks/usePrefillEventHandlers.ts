@@ -389,7 +389,7 @@ export function registerPrefillEventHandlers(
     const currentSession = sessionRef.current;
     if (currentSession) {
       try {
-        await connection.invoke('SubscribeToSession', currentSession.id);
+        await connection.invoke('SubscribeToSessionAsync', currentSession.id);
 
         const lastResult = (await connection.invoke('GetLastPrefillResult', currentSession.id)) as {
           status: string;

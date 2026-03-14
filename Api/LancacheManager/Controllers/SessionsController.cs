@@ -30,7 +30,7 @@ public class SessionsController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> GetAllSessions([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
+    public async Task<IActionResult> GetAllSessionsAsync([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
         if (page < 1) page = 1;
         if (pageSize < 1) pageSize = 20;
@@ -90,7 +90,7 @@ public class SessionsController : ControllerBase
     }
 
     [HttpPatch("{id:guid}/revoke")]
-    public async Task<IActionResult> RevokeSession(Guid id)
+    public async Task<IActionResult> RevokeSessionAsync(Guid id)
     {
         var currentSession = HttpContext.GetUserSession();
 
@@ -111,7 +111,7 @@ public class SessionsController : ControllerBase
     }
 
     [HttpDelete("{id:guid}")]
-    public async Task<IActionResult> DeleteSession(Guid id)
+    public async Task<IActionResult> DeleteSessionAsync(Guid id)
     {
         var currentSession = HttpContext.GetUserSession();
 
@@ -132,7 +132,7 @@ public class SessionsController : ControllerBase
     }
 
     [HttpDelete("guests")]
-    public async Task<IActionResult> RevokeAllGuests()
+    public async Task<IActionResult> RevokeAllGuestsAsync()
     {
         var count = await _sessionService.RevokeAllGuestSessionsAsync();
 
@@ -147,7 +147,7 @@ public class SessionsController : ControllerBase
     }
 
     [HttpPatch("{id:guid}/refresh-rate")]
-    public async Task<IActionResult> UpdateRefreshRate(Guid id, [FromBody] RefreshRateRequest request)
+    public async Task<IActionResult> UpdateRefreshRateAsync(Guid id, [FromBody] RefreshRateRequest request)
     {
         using var scope = _scopeFactory.CreateScope();
         var prefsService = scope.ServiceProvider.GetRequiredService<UserPreferencesService>();
@@ -168,7 +168,7 @@ public class SessionsController : ControllerBase
     }
 
     [HttpPost("bulk/reset-to-defaults")]
-    public async Task<IActionResult> BulkResetToDefaults()
+    public async Task<IActionResult> BulkResetToDefaultsAsync()
     {
         using var scope = _scopeFactory.CreateScope();
         var prefsService = scope.ServiceProvider.GetRequiredService<UserPreferencesService>();
@@ -202,7 +202,7 @@ public class SessionsController : ControllerBase
     }
 
     [HttpDelete("bulk/clear-guests")]
-    public async Task<IActionResult> BulkClearGuests()
+    public async Task<IActionResult> BulkClearGuestsAsync()
     {
         var count = await _sessionService.RevokeAllGuestSessionsAsync();
 

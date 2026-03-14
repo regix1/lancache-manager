@@ -29,7 +29,7 @@ public class DownloadHub : Hub
     /// Called by clients to join the AuthenticatedUsersGroup.
     /// Validates session before allowing join.
     /// </summary>
-    public async Task JoinAuthenticatedGroup()
+    public async Task JoinAuthenticatedGroupAsync()
     {
         await Groups.AddToGroupAsync(Context.ConnectionId, AuthenticatedUsersGroup);
         _logger.LogDebug("SignalR client joined AuthenticatedUsersGroup: ConnectionId={ConnectionId}",

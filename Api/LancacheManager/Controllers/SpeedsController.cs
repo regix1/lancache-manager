@@ -73,7 +73,7 @@ public class SpeedsController : ControllerBase
     /// <param name="minutes">Number of minutes to look back (default: 60)</param>
     [HttpGet("history")]
     [ProducesResponseType(typeof(SpeedHistorySnapshot), StatusCodes.Status200OK)]
-    public async Task<ActionResult<SpeedHistorySnapshot>> GetSpeedHistory([FromQuery] int minutes = 60)
+    public async Task<ActionResult<SpeedHistorySnapshot>> GetSpeedHistoryAsync([FromQuery] int minutes = 60)
     {
         // Clamp to reasonable values
         minutes = Math.Clamp(minutes, 5, 1440); // 5 minutes to 24 hours

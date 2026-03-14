@@ -148,7 +148,7 @@ public class RustLogProcessorService
     /// <summary>
     /// Starts log processing for all configured datasources
     /// </summary>
-    public async Task<bool> StartProcessing()
+    public async Task<bool> StartProcessingAsync()
     {
         var datasources = _datasourceService.GetDatasources();
 

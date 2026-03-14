@@ -38,7 +38,7 @@ public partial class SteamKit2Service
     /// <summary>
     /// Manually apply depot mappings to existing downloads (called from UI)
     /// </summary>
-    public async Task ManuallyApplyDepotMappings()
+    public async Task ManuallyApplyDepotMappingsAsync()
     {
         _logger.LogInformation("Manually applying depot mappings to downloads");
 
@@ -48,9 +48,9 @@ public partial class SteamKit2Service
 
         // Reload depot mappings from database to ensure we have latest data
         _logger.LogInformation("Reloading depot mappings from database...");
-        await LoadExistingDepotMappings();
+        await LoadExistingDepotMappingsAsync();
 
-        await UpdateDownloadsWithDepotMappings();
+        await UpdateDownloadsWithDepotMappingsAsync();
 
         using var scopedDb = _scopeFactory.CreateScopedDbContext();
         var unmappedCount = await scopedDb.DbContext.Downloads
@@ -313,7 +313,7 @@ public partial class SteamKit2Service
     /// <summary>
     /// Update downloads that have depot IDs but no game information
     /// </summary>
-    private async Task<(int updated, int notFound)> UpdateDownloadsWithDepotMappings()
+    private async Task<(int updated, int notFound)> UpdateDownloadsWithDepotMappingsAsync()
     {
         try
         {

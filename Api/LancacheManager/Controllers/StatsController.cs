@@ -230,7 +230,7 @@ public class StatsController : ControllerBase
 
 
     [HttpGet("clients")]
-    public async Task<IActionResult> GetClients(
+    public async Task<IActionResult> GetClientsAsync(
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null,
         [FromQuery] int? limit = null,
@@ -383,7 +383,7 @@ public class StatsController : ControllerBase
     }
 
     [HttpPut("exclusions")]
-    public async Task<IActionResult> UpdateExcludedClients([FromBody] UpdateStatsExclusionsRequest request)
+    public async Task<IActionResult> UpdateExcludedClientsAsync([FromBody] UpdateStatsExclusionsRequest request)
     {
         var normalizedIps = NormalizeClientIps(request.Ips, out var invalidIps);
         if (invalidIps.Count > 0)
@@ -449,7 +449,7 @@ public class StatsController : ControllerBase
     }
 
     [HttpGet("services")]
-    public async Task<IActionResult> GetServices([FromQuery] string? since = null, [FromQuery] long? startTime = null, [FromQuery] long? endTime = null, [FromQuery] int? eventId = null)
+    public async Task<IActionResult> GetServicesAsync([FromQuery] string? since = null, [FromQuery] long? startTime = null, [FromQuery] long? endTime = null, [FromQuery] int? eventId = null)
     {
         // Parse event IDs
         var eventIdList = ParseEventId(eventId);
@@ -510,7 +510,7 @@ public class StatsController : ControllerBase
     }
 
     [HttpGet("dashboard")]
-    public async Task<IActionResult> GetDashboardStats(
+    public async Task<IActionResult> GetDashboardStatsAsync(
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null,
         [FromQuery] int? eventId = null)
@@ -716,7 +716,7 @@ public class StatsController : ControllerBase
     /// Groups downloads by hour of day to show activity patterns
     /// </summary>
     [HttpGet("hourly-activity")]
-    public async Task<IActionResult> GetHourlyActivity(
+    public async Task<IActionResult> GetHourlyActivityAsync(
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null,
         [FromQuery] int? eventId = null)
@@ -835,7 +835,7 @@ public class StatsController : ControllerBase
     /// Pass actualCacheSize to detect deletions and calculate net growth
     /// </summary>
     [HttpGet("cache-growth")]
-    public async Task<IActionResult> GetCacheGrowth(
+    public async Task<IActionResult> GetCacheGrowthAsync(
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null,
         [FromQuery] string interval = "daily",
@@ -1061,7 +1061,7 @@ public class StatsController : ControllerBase
     /// Returns daily aggregated data for bandwidth saved, cache hit ratio, total served, and added to cache
     /// </summary>
     [HttpGet("sparklines")]
-    public async Task<IActionResult> GetSparklineData(
+    public async Task<IActionResult> GetSparklineDataAsync(
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null,
         [FromQuery] int? eventId = null)
@@ -1214,7 +1214,7 @@ public class StatsController : ControllerBase
     /// Returns estimated used space based on periodic snapshots.
     /// </summary>
     [HttpGet("cache-snapshot")]
-    public async Task<IActionResult> GetCacheSnapshot(
+    public async Task<IActionResult> GetCacheSnapshotAsync(
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null)
     {

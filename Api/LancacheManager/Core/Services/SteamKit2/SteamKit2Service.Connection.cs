@@ -176,7 +176,7 @@ public partial class SteamKit2Service
                 delaySeconds, _reconnectAttempt, MaxReconnectAttempts);
 
             // Send progress update so UI knows we're reconnecting
-            SendDepotMappingProgress(
+            SendDepotMappingProgressAsync(
                 $"Reconnecting to Steam (attempt {_reconnectAttempt}/{MaxReconnectAttempts})...",
                 $"Connection lost. Reconnecting in {delaySeconds} seconds...",
                 isReconnecting: true,

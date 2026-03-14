@@ -44,7 +44,7 @@ public class DepotsController : ControllerBase
     /// RESTful: Proper resource status endpoint
     /// </summary>
     [HttpGet("status")]
-    public async Task<IActionResult> GetDepotStatus()
+    public async Task<IActionResult> GetDepotStatusAsync()
     {
         var picsData = await _picsDataService.LoadPicsDataFromJsonAsync();
         var needsUpdate = await _picsDataService.NeedsUpdateAsync();
@@ -83,7 +83,7 @@ public class DepotsController : ControllerBase
     /// - If incremental=false: Skips viability check and proceeds directly to full scan
     /// </summary>
     [HttpPost("rebuild")]
-    public async Task<IActionResult> StartDepotRebuild(CancellationToken cancellationToken, [FromQuery] bool incremental = false)
+    public async Task<IActionResult> StartDepotRebuildAsync(CancellationToken cancellationToken, [FromQuery] bool incremental = false)
     {
         // PRE-FLIGHT CHECK: Only check viability if user requested incremental scan
         if (incremental)
@@ -147,7 +147,7 @@ public class DepotsController : ControllerBase
     /// RESTful: DELETE is proper method for cancelling/removing operations
     /// </summary>
     [HttpDelete("rebuild")]
-    public async Task<IActionResult> CancelRebuild()
+    public async Task<IActionResult> CancelRebuildAsync()
     {
         var cancelled = await _steamKit2Service.CancelRebuildAsync();
 
@@ -166,7 +166,7 @@ public class DepotsController : ControllerBase
     /// RESTful: This is a query/check operation on the rebuild resource
     /// </summary>
     [HttpGet("rebuild/check-incremental")]
-    public async Task<IActionResult> CheckIncrementalViability(CancellationToken cancellationToken)
+    public async Task<IActionResult> CheckIncrementalViabilityAsync(CancellationToken cancellationToken)
     {
         var result = await _steamKit2Service.CheckIncrementalViabilityAsync(cancellationToken);
         return Ok(result);
@@ -178,7 +178,7 @@ public class DepotsController : ControllerBase
     /// Query param 'source' determines import source: 'github' or 'local'
     /// </summary>
     [HttpPost("import")]
-    public async Task<IActionResult> ImportDepotMappings([FromQuery] string source, CancellationToken cancellationToken)
+    public async Task<IActionResult> ImportDepotMappingsAsync([FromQuery] string source, CancellationToken cancellationToken)
     {
         if (source == "github")
         {
@@ -230,11 +230,11 @@ public class DepotsController : ControllerBase
     /// RESTful: PATCH is proper method for applying updates to a resource collection
     /// </summary>
     [HttpPatch]
-    public async Task<IActionResult> ApplyDepotMappings(CancellationToken cancellationToken)
+    public async Task<IActionResult> ApplyDepotMappingsAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("Starting manual depot mapping application");
 
-        await _steamKit2Service.ManuallyApplyDepotMappings();
+        await _steamKit2Service.ManuallyApplyDepotMappingsAsync();
 
         _logger.LogInformation("Manual depot mapping completed successfully");
 

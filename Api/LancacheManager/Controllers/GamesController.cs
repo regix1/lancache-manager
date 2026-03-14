@@ -68,7 +68,7 @@ public class GamesController : ControllerBase
     /// RESTful: DELETE is proper method for removing resources
     /// </summary>
     [HttpDelete("{appId}")]
-    public async Task<IActionResult> RemoveGameFromCache(uint appId)
+    public async Task<IActionResult> RemoveGameFromCacheAsync(uint appId)
     {
         // CRITICAL: Check write permissions BEFORE starting the operation
         var permissionError = EnsureDirectoriesWritable("remove game from cache");
@@ -90,7 +90,7 @@ public class GamesController : ControllerBase
             operationLabel: $"Game Removal: {gameName}",
             appId: appId,
             removeFunc: (CancellationToken ct, Func<double, string, int, long, Task> onProgress) =>
-                _cacheManagementService.RemoveGameFromCache(appId, ct, onProgress),
+                _cacheManagementService.RemoveGameFromCacheAsync(appId, ct, onProgress),
             onSuccess: async (uint _) => await _gameCacheDetectionService.RemoveGameFromCacheAsync(appId),
             responseMessage: $"Started removal of game {appId} from cache");
     }
@@ -101,7 +101,7 @@ public class GamesController : ControllerBase
     /// and database records - same three-step process as Steam game removal.
     /// </summary>
     [HttpDelete("epic/{gameName}")]
-    public async Task<IActionResult> RemoveEpicGameFromCache(string gameName)
+    public async Task<IActionResult> RemoveEpicGameFromCacheAsync(string gameName)
     {
         // Check write permissions before starting
         var permissionError = EnsureDirectoriesWritable("remove Epic game from cache");
@@ -119,7 +119,7 @@ public class GamesController : ControllerBase
             operationLabel: $"Epic Game Removal: {gameName}",
             appId: 0,
             removeFunc: (CancellationToken ct, Func<double, string, int, long, Task> onProgress) =>
-                _cacheManagementService.RemoveEpicGameFromCache(gameName, ct, onProgress),
+                _cacheManagementService.RemoveEpicGameFromCacheAsync(gameName, ct, onProgress),
             onSuccess: null,
             responseMessage: $"Started removal of Epic game {gameName} from cache");
     }
@@ -311,7 +311,7 @@ public class GamesController : ControllerBase
     /// Note: POST is acceptable as this starts an asynchronous operation
     /// </summary>
     [HttpPost("detect")]
-    public async Task<IActionResult> DetectGames([FromQuery] bool forceRefresh = false)
+    public async Task<IActionResult> DetectGamesAsync([FromQuery] bool forceRefresh = false)
     {
         try
         {
@@ -379,7 +379,7 @@ public class GamesController : ControllerBase
     /// GET /api/games/detect/cached - Get cached detection results
     /// </summary>
     [HttpGet("detect/cached")]
-    public async Task<IActionResult> GetCachedDetectionResults()
+    public async Task<IActionResult> GetCachedDetectionResultsAsync()
     {
         var cachedResults = await _gameCacheDetectionService.GetCachedDetectionAsync();
 

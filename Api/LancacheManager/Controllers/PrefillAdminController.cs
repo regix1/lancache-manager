@@ -81,7 +81,7 @@ public class PrefillAdminController : ControllerBase
     /// Gets all prefill sessions (paginated).
     /// </summary>
     [HttpGet("sessions")]
-    public async Task<ActionResult<PrefillSessionsResponse>> GetSessions(
+    public async Task<ActionResult<PrefillSessionsResponse>> GetSessionsAsync(
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
         [FromQuery] string? status = null,
@@ -146,7 +146,7 @@ public class PrefillAdminController : ControllerBase
     /// Gets prefill history for a specific session.
     /// </summary>
     [HttpGet("sessions/{sessionId}/history")]
-    public async Task<ActionResult<List<PrefillHistoryEntryDto>>> GetSessionHistory(string sessionId)
+    public async Task<ActionResult<List<PrefillHistoryEntryDto>>> GetSessionHistoryAsync(string sessionId)
     {
         var history = await _sessionService.GetPrefillHistoryAsync(sessionId);
 
@@ -169,7 +169,7 @@ public class PrefillAdminController : ControllerBase
     /// Terminates a specific session.
     /// </summary>
     [HttpPost("sessions/{sessionId}/terminate")]
-    public async Task<ActionResult> TerminateSession(
+    public async Task<ActionResult> TerminateSessionAsync(
         string sessionId,
         [FromBody] TerminateSessionRequest? request = null)
     {
@@ -191,7 +191,7 @@ public class PrefillAdminController : ControllerBase
     /// Terminates all active sessions.
     /// </summary>
     [HttpPost("sessions/terminate-all")]
-    public async Task<ActionResult> TerminateAllSessions([FromBody] TerminateSessionRequest? request = null)
+    public async Task<ActionResult> TerminateAllSessionsAsync([FromBody] TerminateSessionRequest? request = null)
     {
         var adminSessionId = GetSessionId();
         var reason = request?.Reason ?? "All sessions terminated by admin";
@@ -226,7 +226,7 @@ public class PrefillAdminController : ControllerBase
     /// Gets all active bans.
     /// </summary>
     [HttpGet("bans")]
-    public async Task<ActionResult<List<BannedSteamUserDto>>> GetBans([FromQuery] bool includeLifted = false)
+    public async Task<ActionResult<List<BannedSteamUserDto>>> GetBansAsync([FromQuery] bool includeLifted = false)
     {
         var bans = includeLifted
             ? await _sessionService.GetAllBansAsync()
@@ -253,7 +253,7 @@ public class PrefillAdminController : ControllerBase
     /// Looks up the username from the session.
     /// </summary>
     [HttpPost("bans/by-session/{sessionId}")]
-    public async Task<ActionResult<BannedSteamUserDto>> BanBySession(
+    public async Task<ActionResult<BannedSteamUserDto>> BanBySessionAsync(
         string sessionId,
         [FromBody] BanRequest request)
     {
@@ -285,7 +285,7 @@ public class PrefillAdminController : ControllerBase
     /// Bans a Steam user by username.
     /// </summary>
     [HttpPost("bans")]
-    public async Task<ActionResult<BannedSteamUserDto>> BanByUsername([FromBody] BanByUsernameRequest request)
+    public async Task<ActionResult<BannedSteamUserDto>> BanByUsernameAsync([FromBody] BanByUsernameRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Username))
         {
@@ -313,7 +313,7 @@ public class PrefillAdminController : ControllerBase
     /// Lifts a ban.
     /// </summary>
     [HttpPost("bans/{banId}/lift")]
-    public async Task<ActionResult> LiftBan(int banId)
+    public async Task<ActionResult> LiftBanAsync(int banId)
     {
         var adminSessionId = GetSessionId();
 
@@ -347,7 +347,7 @@ public class PrefillAdminController : ControllerBase
     /// Gets all cached apps with their cache timestamps.
     /// </summary>
     [HttpGet("cache")]
-    public async Task<ActionResult<List<CachedAppDto>>> GetCachedApps()
+    public async Task<ActionResult<List<CachedAppDto>>> GetCachedAppsAsync()
     {
         var apps = await _cacheService.GetCachedAppsAsync();
 
@@ -366,7 +366,7 @@ public class PrefillAdminController : ControllerBase
     /// Checks if specific apps are cached. Returns which ones are cached.
     /// </summary>
     [HttpPost("cache/check")]
-    public async Task<ActionResult<CacheCheckResponse>> CheckAppsCached([FromBody] List<uint> appIds)
+    public async Task<ActionResult<CacheCheckResponse>> CheckAppsCachedAsync([FromBody] List<uint> appIds)
     {
         if (appIds == null || appIds.Count == 0)
         {
@@ -401,7 +401,7 @@ public class PrefillAdminController : ControllerBase
     /// Clears cache for a specific app (for force re-download).
     /// </summary>
     [HttpDelete("cache/{appId}")]
-    public async Task<ActionResult> ClearAppCache(uint appId)
+    public async Task<ActionResult> ClearAppCacheAsync(uint appId)
     {
         await _cacheService.ClearAppCacheAsync(appId);
         _logger.LogInformation("Cache cleared for app {AppId} by session {SessionId}", appId, GetSessionId());
@@ -412,7 +412,7 @@ public class PrefillAdminController : ControllerBase
     /// Clears the entire prefill cache.
     /// </summary>
     [HttpDelete("cache")]
-    public async Task<ActionResult> ClearAllCache()
+    public async Task<ActionResult> ClearAllCacheAsync()
     {
         await _cacheService.ClearAllCacheAsync();
         _logger.LogInformation("Entire prefill cache cleared by session {SessionId}", GetSessionId());

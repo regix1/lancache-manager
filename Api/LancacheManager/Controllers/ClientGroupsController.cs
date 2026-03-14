@@ -123,7 +123,7 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
     // ===== Override Create to return Created with location =====
 
     [HttpPost]
-    public override async Task<IActionResult> Create([FromBody] CreateClientGroupRequest request, CancellationToken ct = default)
+    public override async Task<IActionResult> CreateAsync([FromBody] CreateClientGroupRequest request, CancellationToken ct = default)
     {
         await ValidateCreateRequestAsync(request, ct);
 
@@ -147,7 +147,7 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
     /// Validation is handled automatically by FluentValidation (see AddMemberRequestValidator)
     /// </remarks>
     [HttpPost("{id:int}/members")]
-    public async Task<IActionResult> AddMember(int id, [FromBody] AddMemberRequest request, CancellationToken ct = default)
+    public async Task<IActionResult> AddMemberAsync(int id, [FromBody] AddMemberRequest request, CancellationToken ct = default)
     {
         // Validation is handled automatically by FluentValidation
         var group = await _clientGroupsRepository.GetByIdOrThrowAsync(id, "Client group", ct);
@@ -168,7 +168,7 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
     /// Remove an IP from a client group
     /// </summary>
     [HttpDelete("{id:int}/members/{ip}")]
-    public async Task<IActionResult> RemoveMember(int id, string ip, CancellationToken ct = default)
+    public async Task<IActionResult> RemoveMemberAsync(int id, string ip, CancellationToken ct = default)
     {
         var group = await _clientGroupsRepository.GetByIdOrThrowAsync(id, "Client group", ct);
 
@@ -184,7 +184,7 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
     /// Get the IP to group mapping for efficient lookups
     /// </summary>
     [HttpGet("mapping")]
-    public async Task<IActionResult> GetMapping(CancellationToken ct = default)
+    public async Task<IActionResult> GetMappingAsync(CancellationToken ct = default)
     {
         var mapping = await _clientGroupsRepository.GetIpToGroupMappingAsync(ct);
         var result = mapping.ToDictionary(

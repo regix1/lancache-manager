@@ -90,7 +90,7 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
     /// <summary>
     /// Creates a new daemon session and returns session info.
     /// </summary>
-    public async Task<DaemonSessionDto> CreateSession()
+    public async Task<DaemonSessionDto> CreateSessionAsync()
     {
         var authSessionId = GetSessionId();
         if (string.IsNullOrEmpty(authSessionId))
@@ -129,7 +129,7 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
     /// <summary>
     /// Subscribes to an existing session's events.
     /// </summary>
-    public async Task SubscribeToSession(string sessionId)
+    public async Task SubscribeToSessionAsync(string sessionId)
     {
         var authSessionId = GetSessionId();
 
@@ -152,7 +152,7 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
     /// <summary>
     /// Starts the login process.
     /// </summary>
-    public async Task<CredentialChallenge?> StartLogin(string sessionId)
+    public async Task<CredentialChallenge?> StartLoginAsync(string sessionId)
     {
         ValidateSessionAccess(sessionId, out _);
 
@@ -163,7 +163,7 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
     /// <summary>
     /// Provides an encrypted credential in response to a challenge.
     /// </summary>
-    public async Task ProvideCredential(string sessionId, CredentialChallenge challenge, string credential)
+    public async Task ProvideCredentialAsync(string sessionId, CredentialChallenge challenge, string credential)
     {
         ValidateSessionAccess(sessionId, out _);
 
@@ -176,7 +176,7 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
     /// <summary>
     /// Waits for the next credential challenge.
     /// </summary>
-    public async Task<CredentialChallenge?> WaitForChallenge(string sessionId, int timeoutSeconds = 30)
+    public async Task<CredentialChallenge?> WaitForChallengeAsync(string sessionId, int timeoutSeconds = 30)
     {
         ValidateSessionAccess(sessionId, out _);
 
@@ -186,7 +186,7 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
     /// <summary>
     /// Cancels a pending login attempt and resets auth state.
     /// </summary>
-    public async Task CancelLogin(string sessionId)
+    public async Task CancelLoginAsync(string sessionId)
     {
         ValidateSessionAccess(sessionId, out _);
 
@@ -197,7 +197,7 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
     /// <summary>
     /// Cancels a running prefill operation.
     /// </summary>
-    public async Task CancelPrefill(string sessionId)
+    public async Task CancelPrefillAsync(string sessionId)
     {
         ValidateSessionAccess(sessionId, out _);
 
@@ -208,7 +208,7 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
     /// <summary>
     /// Gets owned games for a logged-in session.
     /// </summary>
-    public async Task<List<OwnedGame>> GetOwnedGames(string sessionId)
+    public async Task<List<OwnedGame>> GetOwnedGamesAsync(string sessionId)
     {
         ValidateSessionAccess(sessionId, out _);
 
@@ -218,7 +218,7 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
     /// <summary>
     /// Sets selected apps for prefill.
     /// </summary>
-    public async Task SetSelectedApps(string sessionId, List<string> appIds)
+    public async Task SetSelectedAppsAsync(string sessionId, List<string> appIds)
     {
         ValidateSessionAccess(sessionId, out _);
 
@@ -231,7 +231,7 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
     /// <summary>
     /// Starts a prefill operation.
     /// </summary>
-    public async Task<PrefillResult> StartPrefill(string sessionId, bool all = false, bool recent = false, bool force = false, string? operatingSystems = null)
+    public async Task<PrefillResult> StartPrefillAsync(string sessionId, bool all = false, bool recent = false, bool force = false, string? operatingSystems = null)
     {
         try
         {
@@ -258,7 +258,7 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
     /// <summary>
     /// Clears the temporary cache.
     /// </summary>
-    public async Task<ClearCacheResult> ClearCache(string sessionId)
+    public async Task<ClearCacheResult> ClearCacheAsync(string sessionId)
     {
         ValidateSessionAccess(sessionId, out _);
 
@@ -270,7 +270,7 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
     /// <summary>
     /// Gets selected apps status with download sizes.
     /// </summary>
-    public async Task<SelectedAppsStatus> GetSelectedAppsStatus(string sessionId, List<string>? operatingSystems = null)
+    public async Task<SelectedAppsStatus> GetSelectedAppsStatusAsync(string sessionId, List<string>? operatingSystems = null)
     {
         ValidateSessionAccess(sessionId, out _);
 
@@ -280,7 +280,7 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
     /// <summary>
     /// Terminates a session immediately (force kill).
     /// </summary>
-    public async Task EndSession(string sessionId)
+    public async Task EndSessionAsync(string sessionId)
     {
         ValidateSessionAccess(sessionId, out _);
 

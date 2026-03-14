@@ -331,7 +331,7 @@ public class SteamWebApiService
 
                 await GetApiStatusAsync(forceRefresh: true);
 
-                var fallbackApps = await GetV1AppListWithPagination();
+                var fallbackApps = await GetV1AppListWithPaginationAsync();
                 if (fallbackApps == null || fallbackApps.Count == 0)
                 {
                     _logger.LogError("Steam Web API V1 fallback failed to return any apps");
@@ -342,7 +342,7 @@ public class SteamWebApiService
             else if (status.Version == SteamApiVersion.V1WithKey)
             {
                 // V1 requires pagination - fetch all pages
-                return await GetV1AppListWithPagination();
+                return await GetV1AppListWithPaginationAsync();
             }
             else
             {
@@ -360,7 +360,7 @@ public class SteamWebApiService
     /// <summary>
     /// Get all apps from V1 API with pagination (V1 limits to 50k per request)
     /// </summary>
-    private async Task<List<SteamApp>?> GetV1AppListWithPagination()
+    private async Task<List<SteamApp>?> GetV1AppListWithPaginationAsync()
     {
         var authData = _steamAuthRepository.GetSteamAuthData();
         var apiKey = authData.SteamApiKey;

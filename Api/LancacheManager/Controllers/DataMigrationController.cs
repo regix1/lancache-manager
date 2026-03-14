@@ -46,7 +46,7 @@ public class DataMigrationController : ControllerBase
     /// Request body: { "connectionString": "Data Source=path/to/develancache.db", "batchSize": 1000, "overwriteExisting": false }
     /// </summary>
     [HttpPost("import-develancache")]
-    public async Task<IActionResult> ImportFromDeveLanCache([FromBody] DataMigrationImportRequest request)
+    public async Task<IActionResult> ImportFromDeveLanCacheAsync([FromBody] DataMigrationImportRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.ConnectionString))
         {
@@ -222,7 +222,7 @@ public class DataMigrationController : ControllerBase
     /// Request body: { "connectionString": "Data Source=path/to/lancachemanager.db", "batchSize": 1000, "overwriteExisting": false }
     /// </summary>
     [HttpPost("import-lancache-manager")]
-    public async Task<IActionResult> ImportFromLancacheManager([FromBody] DataMigrationImportRequest request)
+    public async Task<IActionResult> ImportFromLancacheManagerAsync([FromBody] DataMigrationImportRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.ConnectionString))
         {
@@ -568,7 +568,7 @@ public class DataMigrationController : ControllerBase
     /// Query params: connectionString (supports raw path or "Data Source=..." format), importType (develancache or lancache-manager)
     /// </summary>
     [HttpGet("validate-connection")]
-    public async Task<IActionResult> ValidateConnection([FromQuery] string connectionString, [FromQuery] string importType = "develancache")
+    public async Task<IActionResult> ValidateConnectionAsync([FromQuery] string connectionString, [FromQuery] string importType = "develancache")
     {
         if (string.IsNullOrWhiteSpace(connectionString))
         {

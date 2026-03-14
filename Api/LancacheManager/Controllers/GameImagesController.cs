@@ -54,7 +54,7 @@ public class GameImagesController : ControllerBase
     /// 2. Capsule: Steam CDN capsule -> DB GameImageUrl fallback -> 404
     /// </summary>
     [HttpGet("{appId}/header")]
-    public async Task<IActionResult> GetGameHeaderImage(
+    public async Task<IActionResult> GetGameHeaderImageAsync(
         uint appId,
         [FromQuery] string? type = null,
         CancellationToken cancellationToken = default)
@@ -139,7 +139,7 @@ public class GameImagesController : ControllerBase
     /// Falls back to 404 if no image URL is stored.
     /// </summary>
     [HttpGet("epic/{epicAppId}/header")]
-    public async Task<IActionResult> GetEpicGameHeaderImage(
+    public async Task<IActionResult> GetEpicGameHeaderImageAsync(
         string epicAppId,
         CancellationToken cancellationToken = default)
     {
@@ -213,7 +213,7 @@ public class GameImagesController : ControllerBase
     /// then immediately triggers an Epic image URL refresh so landscape URLs are repopulated.
     /// </summary>
     [HttpDelete("cache")]
-    public async Task<IActionResult> ClearImageCache(CancellationToken cancellationToken = default)
+    public async Task<IActionResult> ClearImageCacheAsync(CancellationToken cancellationToken = default)
     {
         _logger.LogInformation("=== ClearImageCache START ===");
 
@@ -307,7 +307,7 @@ public class GameImagesController : ControllerBase
     /// </summary>
     private IActionResult ReturnImageWithCaching(byte[] imageBytes, string contentType, string etagPrefix)
     {
-        var hash = Convert.ToHexString(MD5.HashData(imageBytes)).ToLowerInvariant();
+        var hash = Convert.ToHexString(SHA256.HashData(imageBytes)).ToLowerInvariant();
         var etag = $"\"{etagPrefix}-{hash}\"";
 
         Response.Headers["Cache-Control"] = "public, no-cache";

@@ -77,7 +77,7 @@ public class CacheController : ControllerBase
     /// GET /api/cache/size - Calculate cache size with deletion time estimates
     /// </summary>
     [HttpGet("size")]
-    public async Task<IActionResult> GetCacheSize([FromQuery] string? datasource = null)
+    public async Task<IActionResult> GetCacheSizeAsync([FromQuery] string? datasource = null)
     {
         var rustBinaryPath = _pathResolver.GetRustCacheSizePath();
 
@@ -270,7 +270,7 @@ public class CacheController : ControllerBase
     /// RESTful: DELETE is proper method for clearing/removing resources
     /// </summary>
     [HttpDelete]
-    public async Task<IActionResult> ClearAllCache()
+    public async Task<IActionResult> ClearAllCacheAsync()
     {
         // CRITICAL: Check write permissions BEFORE starting the operation
         // This prevents operations from failing partway through due to permission issues
@@ -308,7 +308,7 @@ public class CacheController : ControllerBase
     /// RESTful: DELETE is proper method for clearing/removing resources
     /// </summary>
     [HttpDelete("datasources/{name}")]
-    public async Task<IActionResult> ClearDatasourceCache(string name)
+    public async Task<IActionResult> ClearDatasourceCacheAsync(string name)
     {
         // Get the datasource to check its specific permissions
         var datasourceService = HttpContext.RequestServices.GetRequiredService<DatasourceService>();
@@ -400,9 +400,9 @@ public class CacheController : ControllerBase
     /// Used as fallback when graceful cancellation fails
     /// </summary>
     [HttpPost("operations/{id}/kill")]
-    public async Task<IActionResult> ForceKillCacheClear(string id)
+    public async Task<IActionResult> ForceKillCacheClearAsync(string id)
     {
-        var result = await _cacheClearingService.ForceKillOperation(id);
+        var result = await _cacheClearingService.ForceKillOperationAsync(id);
 
         if (!result)
         {
@@ -417,7 +417,7 @@ public class CacheController : ControllerBase
     /// Returns immediately with cached results (if available) without running a new scan.
     /// </summary>
     [HttpGet("corruption/cached")]
-    public async Task<IActionResult> GetCachedCorruptionDetection()
+    public async Task<IActionResult> GetCachedCorruptionDetectionAsync()
     {
         var cachedResults = await _corruptionDetectionService.GetCachedDetectionAsync();
 
@@ -443,7 +443,7 @@ public class CacheController : ControllerBase
     /// Returns immediately with an operation ID. Results sent via SignalR when complete.
     /// </summary>
     [HttpPost("corruption/detect")]
-    public async Task<IActionResult> StartCorruptionDetection([FromQuery] int threshold = 3, [FromQuery] bool compareToCacheLogs = true)
+    public async Task<IActionResult> StartCorruptionDetectionAsync([FromQuery] int threshold = 3, [FromQuery] bool compareToCacheLogs = true)
     {
         var operationId = await _corruptionDetectionService.StartDetectionAsync(threshold, compareToCacheLogs);
         return Accepted(new { operationId, message = "Corruption detection started", status = "running" });
@@ -476,9 +476,9 @@ public class CacheController : ControllerBase
     /// Returns array of corrupted chunks with URLs, miss counts, and cache file paths
     /// </summary>
     [HttpGet("services/{service}/corruption")]
-    public async Task<IActionResult> GetCorruptionDetails(string service, [FromQuery] bool forceRefresh = false, [FromQuery] int threshold = 3, [FromQuery] bool compareToCacheLogs = true)
+    public async Task<IActionResult> GetCorruptionDetailsAsync(string service, [FromQuery] bool forceRefresh = false, [FromQuery] int threshold = 3, [FromQuery] bool compareToCacheLogs = true)
     {
-        var details = await _cacheService.GetCorruptionDetails(service, forceRefresh, threshold, compareToCacheLogs);
+        var details = await _cacheService.GetCorruptionDetailsAsync(service, forceRefresh, threshold, compareToCacheLogs);
         return Ok(details);
     }
 
@@ -670,7 +670,7 @@ public class CacheController : ControllerBase
                         await _corruptionDetectionService.RemoveCachedServiceAsync(service);
 
                         // Invalidate service count cache since corruption removal affects counts
-                        await _cacheService.InvalidateServiceCountsCache();
+                        await _cacheService.InvalidateServiceCountsCacheAsync();
 
                         _operationTracker.CompleteOperation(operationId, success: true);
                         await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
@@ -822,7 +822,7 @@ public class CacheController : ControllerBase
                 _operationTracker.UpdateProgress(operationId, 0, $"Starting removal of {name}...");
 
                 // Use CacheManagementService which actually deletes files via Rust binary
-                var report = await _cacheService.RemoveServiceFromCache(name, cts.Token,
+                var report = await _cacheService.RemoveServiceFromCacheAsync(name, cts.Token,
                     async (percentComplete, message, filesDeleted, bytesFreed) =>
                     {
                         await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalProgress,

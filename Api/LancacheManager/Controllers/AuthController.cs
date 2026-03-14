@@ -35,7 +35,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpGet("status")]
-    public async Task<IActionResult> CheckAuthStatus()
+    public async Task<IActionResult> CheckAuthStatusAsync()
     {
         Response.Headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0";
         Response.Headers["Pragma"] = "no-cache";
@@ -113,7 +113,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("login")]
-    public async Task<IActionResult> Login([FromBody] LoginRequest request)
+    public async Task<IActionResult> LoginAsync([FromBody] LoginRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.ApiKey))
         {
@@ -159,7 +159,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("guest")]
-    public async Task<IActionResult> StartGuest()
+    public async Task<IActionResult> StartGuestAsync()
     {
         if (!_sessionService.IsGuestAccessEnabled())
         {
@@ -203,7 +203,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("logout")]
-    public async Task<IActionResult> Logout()
+    public async Task<IActionResult> LogoutAsync()
     {
         var rawToken = SessionService.GetSessionTokenFromCookie(HttpContext);
         if (!string.IsNullOrEmpty(rawToken))
@@ -250,7 +250,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("guest/config/duration")]
-    public async Task<IActionResult> SetGuestDuration([FromBody] GuestDurationRequest request)
+    public async Task<IActionResult> SetGuestDurationAsync([FromBody] GuestDurationRequest request)
     {
         if (request.DurationHours < 1 || request.DurationHours > 720)
         {
@@ -270,7 +270,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("guest/config/lock")]
-    public async Task<IActionResult> SetGuestLock([FromBody] GuestLockRequest request)
+    public async Task<IActionResult> SetGuestLockAsync([FromBody] GuestLockRequest request)
     {
         _sessionService.SetGuestModeLocked(request.IsLocked);
 
@@ -299,7 +299,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("guest/prefill/config")]
-    public async Task<IActionResult> SetGuestPrefillConfig([FromBody] GuestPrefillConfigRequest request)
+    public async Task<IActionResult> SetGuestPrefillConfigAsync([FromBody] GuestPrefillConfigRequest request)
     {
         if (request.DurationHours != 1 && request.DurationHours != 2)
         {
@@ -342,7 +342,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("guest/epic-prefill/config")]
-    public async Task<IActionResult> SetEpicGuestPrefillConfig([FromBody] EpicGuestPrefillConfigRequest request)
+    public async Task<IActionResult> SetEpicGuestPrefillConfigAsync([FromBody] EpicGuestPrefillConfigRequest request)
     {
         if (request.DurationHours != 1 && request.DurationHours != 2)
         {
@@ -372,7 +372,7 @@ public class AuthController : ControllerBase
     }
 
     [HttpPost("guest/prefill/toggle/{sessionId:guid}")]
-    public async Task<IActionResult> ToggleGuestPrefill(Guid sessionId, [FromBody] GuestPrefillToggleRequest request, [FromQuery] string service = "steam")
+    public async Task<IActionResult> ToggleGuestPrefillAsync(Guid sessionId, [FromBody] GuestPrefillToggleRequest request, [FromQuery] string service = "steam")
     {
         var normalizedService = service.Trim().ToLowerInvariant();
 

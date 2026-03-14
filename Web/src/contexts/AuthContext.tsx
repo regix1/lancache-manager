@@ -239,7 +239,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   // Join the AuthenticatedUsersGroup when SignalR is connected and has a session (admin or guest)
   useEffect(() => {
     if (signalR.isConnected && hasSession) {
-      signalR.invoke('JoinAuthenticatedGroup').catch((err: unknown) => {
+      signalR.invoke('JoinAuthenticatedGroupAsync').catch((err: unknown) => {
         console.error('[Auth] Failed to join AuthenticatedUsersGroup:', err);
       });
     }

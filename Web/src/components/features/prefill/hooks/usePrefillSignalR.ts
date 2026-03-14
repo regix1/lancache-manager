@@ -278,7 +278,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
           t('prefill.log.reconnectingExistingSession'),
           t('prefill.log.sessionDetail', { id: activeSession.id })
         );
-        await connection.invoke('SubscribeToSession', activeSession.id);
+        await connection.invoke('SubscribeToSessionAsync', activeSession.id);
 
         setSession(activeSession);
         setTimeRemaining(activeSession.timeRemainingSeconds);
@@ -421,7 +421,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
 
         addLog('info', t('prefill.log.creatingSession'));
 
-        const sessionDto = await connection.invoke<PrefillSessionDto>('CreateSession');
+        const sessionDto = await connection.invoke<PrefillSessionDto>('CreateSessionAsync');
         setSession(sessionDto);
         setTimeRemaining(sessionDto.timeRemainingSeconds);
 
@@ -458,7 +458,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
           })
         );
 
-        await connection.invoke('SubscribeToSession', sessionDto.id);
+        await connection.invoke('SubscribeToSessionAsync', sessionDto.id);
         setIsCreating(false);
       } catch (err) {
         const errorMessage =

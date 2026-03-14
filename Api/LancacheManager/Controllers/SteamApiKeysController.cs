@@ -29,7 +29,7 @@ public class SteamApiKeysController : ControllerBase
     /// RESTful: Status endpoint for the API keys resource
     /// </summary>
     [HttpGet("status")]
-    public async Task<IActionResult> GetStatus([FromQuery] bool forceRefresh = false)
+    public async Task<IActionResult> GetStatusAsync([FromQuery] bool forceRefresh = false)
     {
         var status = await _steamWebApiService.GetApiStatusAsync(forceRefresh);
 
@@ -60,7 +60,7 @@ public class SteamApiKeysController : ControllerBase
     /// Both endpoints are actively used by the frontend setup wizard and settings modal.
     /// </remarks>
     [HttpPost("test")]
-    public async Task<IActionResult> TestApiKey([FromBody] TestApiKeyRequest request)
+    public async Task<IActionResult> TestApiKeyAsync([FromBody] TestApiKeyRequest request)
     {
         // Validation is handled automatically by FluentValidation
         var isValid = await _steamWebApiService.TestApiKeyAsync(request.ApiKey);
@@ -92,7 +92,7 @@ public class SteamApiKeysController : ControllerBase
     /// Validation is handled automatically by FluentValidation (see SaveApiKeyRequestValidator)
     /// </remarks>
     [HttpPost]
-    public async Task<IActionResult> SaveApiKey([FromBody] SaveApiKeyRequest request)
+    public async Task<IActionResult> SaveApiKeyAsync([FromBody] SaveApiKeyRequest request)
     {
         // Validation is handled automatically by FluentValidation
         // Test the key first

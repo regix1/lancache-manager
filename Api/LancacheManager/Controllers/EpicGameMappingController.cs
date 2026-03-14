@@ -31,7 +31,7 @@ public class EpicGameMappingController : ControllerBase
     /// Gets all Epic game mappings, optionally paginated and sorted.
     /// </summary>
     [HttpGet]
-    public async Task<ActionResult<List<EpicGameMappingDto>>> GetAllMappings(
+    public async Task<ActionResult<List<EpicGameMappingDto>>> GetAllMappingsAsync(
         [FromQuery] int? skip = null,
         [FromQuery] int? take = null,
         CancellationToken ct = default)
@@ -60,7 +60,7 @@ public class EpicGameMappingController : ControllerBase
     /// Gets mapping statistics (total games, last updated, etc.)
     /// </summary>
     [HttpGet("stats")]
-    public async Task<ActionResult<EpicMappingStats>> GetStats(CancellationToken ct = default)
+    public async Task<ActionResult<EpicMappingStats>> GetStatsAsync(CancellationToken ct = default)
     {
         return Ok(await _epicMappingService.GetStatsAsync(ct));
     }
@@ -97,7 +97,7 @@ public class EpicGameMappingController : ControllerBase
     /// Logs out mapping session and clears saved credentials.
     /// </summary>
     [HttpDelete("auth")]
-    public async Task<ActionResult> LogoutMapping()
+    public async Task<ActionResult> LogoutMappingAsync()
     {
         await _epicMappingService.LogoutAsync();
         return Ok(ApiResponse.Message("Epic mapping logged out"));
@@ -108,7 +108,7 @@ public class EpicGameMappingController : ControllerBase
     /// exchanges it for tokens, fetches games, and saves credentials.
     /// </summary>
     [HttpPost("auth/complete")]
-    public async Task<ActionResult> CompleteMappingAuth([FromBody] EpicAuthCompleteRequest request)
+    public async Task<ActionResult> CompleteMappingAuthAsync([FromBody] EpicAuthCompleteRequest request)
     {
         if (string.IsNullOrWhiteSpace(request?.AuthorizationCode))
         {
@@ -143,7 +143,7 @@ public class EpicGameMappingController : ControllerBase
     /// Maps download URLs to game names using the EpicCdnPatterns table.
     /// </summary>
     [HttpPost("resolve")]
-    public async Task<ActionResult> ResolveDownloads(CancellationToken ct = default)
+    public async Task<ActionResult> ResolveDownloadsAsync(CancellationToken ct = default)
     {
         try
         {
@@ -202,7 +202,7 @@ public class EpicGameMappingController : ControllerBase
     /// Search games by name (case-insensitive partial match).
     /// </summary>
     [HttpGet("search")]
-    public async Task<ActionResult<List<EpicGameMappingDto>>> SearchGames(
+    public async Task<ActionResult<List<EpicGameMappingDto>>> SearchGamesAsync(
         [FromQuery] string q,
         CancellationToken ct = default)
     {

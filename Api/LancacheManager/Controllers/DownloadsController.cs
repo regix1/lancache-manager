@@ -37,7 +37,7 @@ public class DownloadsController : ControllerBase
     }
 
     [HttpGet("latest")]
-    public async Task<IActionResult> GetLatest([FromQuery] int count = int.MaxValue, [FromQuery] long? startTime = null, [FromQuery] long? endTime = null, [FromQuery] int? eventId = null)
+    public async Task<IActionResult> GetLatestAsync([FromQuery] int count = int.MaxValue, [FromQuery] long? startTime = null, [FromQuery] long? endTime = null, [FromQuery] int? eventId = null)
     {
         const int maxRetries = 3;
 
@@ -139,7 +139,7 @@ public class DownloadsController : ControllerBase
     /// Get a download by ID with its tags and events
     /// </summary>
     [HttpGet("{id:int}")]
-    public async Task<IActionResult> GetById(int id)
+    public async Task<IActionResult> GetByIdAsync(int id)
     {
         var download = await _context.Downloads
             .AsNoTracking()
@@ -189,7 +189,7 @@ public class DownloadsController : ControllerBase
     /// Get events for multiple download IDs in a single batch request
     /// </summary>
     [HttpPost("batch-download-events")]
-    public async Task<IActionResult> GetBatchDownloadEvents([FromBody] BatchDownloadEventsRequest request)
+    public async Task<IActionResult> GetBatchDownloadEventsAsync([FromBody] BatchDownloadEventsRequest request)
     {
         if (request.DownloadIds == null || request.DownloadIds.Count == 0)
         {
@@ -232,7 +232,7 @@ public class DownloadsController : ControllerBase
     /// Get downloads with their tags and events for a time range
     /// </summary>
     [HttpGet("with-associations")]
-    public async Task<IActionResult> GetWithAssociations(
+    public async Task<IActionResult> GetWithAssociationsAsync(
         [FromQuery] int count = 100,
         [FromQuery] long? startTime = null,
         [FromQuery] long? endTime = null)

@@ -272,7 +272,7 @@ public partial class SteamKit2Service
             _logger.LogInformation("Incremental update mode - loading existing data");
 
             // Load existing mappings from database first
-            await LoadExistingDepotMappings();
+            await LoadExistingDepotMappingsAsync();
             _logger.LogInformation("Loaded {Count} mappings from database into memory", _depotToAppMappings.Count);
 
             // Load change number from JSON if available
@@ -399,7 +399,7 @@ public partial class SteamKit2Service
                 double percentComplete = (_processedBatches * 100.0 / allBatches.Count);
 
                 // Send progress via SignalR
-                await SendDepotMappingProgress(
+                await SendDepotMappingProgressAsync(
                     "Scanning Steam PICS data",
                     $"Scanning Steam PICS: {_processedBatches}/{allBatches.Count} batches"
                 );
@@ -444,18 +444,18 @@ public partial class SteamKit2Service
         _logger.LogInformation("Depot index built. Total depot mappings: {Count}", _depotToAppMappings.Count);
 
         // Send progress update for post-processing phase
-        await SendPostProcessingProgress("Saving depot mappings to JSON...", 100, _depotToAppMappings.Count);
+        await SendPostProcessingProgressAsync("Saving depot mappings to JSON...", 100, _depotToAppMappings.Count);
 
         // Final save - use merge for incremental, full save for complete rebuild
         await SaveAllMappingsToJsonAsync(incrementalOnly);
 
         _currentStatus = "Importing to database";
-        await SendPostProcessingProgress("Importing to database...", 100, _depotToAppMappings.Count);
+        await SendPostProcessingProgressAsync("Importing to database...", 100, _depotToAppMappings.Count);
 
         // Import to database BEFORE updating downloads so mappings are available
         try
         {
-            await ImportJsonToDatabase();
+            await ImportJsonToDatabaseAsync();
             _logger.LogInformation("Database import completed successfully");
         }
         catch (Exception ex)
@@ -467,7 +467,7 @@ public partial class SteamKit2Service
         // This handles delisted/removed games whose depots are still served by the lancache
         // Must run while Steam connection is still active (before disconnect in RunAsync.finally)
         _currentStatus = "Resolving orphan depots";
-        await SendPostProcessingProgress("Resolving orphan depots...", 100, _depotToAppMappings.Count);
+        await SendPostProcessingProgressAsync("Resolving orphan depots...", 100, _depotToAppMappings.Count);
         try
         {
             var orphanDepotIds = await ResolveOrphanDepotsAsync(ct);
@@ -475,7 +475,7 @@ public partial class SteamKit2Service
             {
                 _logger.LogInformation("Resolved {Count} orphan depots - saving updated mappings", orphanDepotIds.Count);
                 await SaveAllMappingsToJsonAsync(incrementalOnly);
-                await ImportJsonToDatabase();
+                await ImportJsonToDatabaseAsync();
 
                 // Mark orphan-resolved mappings with distinct source so GitHub import preserves them
                 using var scopedDb = _scopeFactory.CreateScopedDbContext();
@@ -493,10 +493,10 @@ public partial class SteamKit2Service
 
         // Auto-apply depot mappings to downloads after PICS data is ready
         _currentStatus = "Applying depot mappings";
-        await SendPostProcessingProgress("Applying mappings to downloads...", 100, _depotToAppMappings.Count);
+        await SendPostProcessingProgressAsync("Applying mappings to downloads...", 100, _depotToAppMappings.Count);
         _logger.LogInformation("Automatically applying depot mappings after PICS completion");
 
-        var (downloadsUpdated, downloadsNotFound) = await UpdateDownloadsWithDepotMappings();
+        var (downloadsUpdated, downloadsNotFound) = await UpdateDownloadsWithDepotMappingsAsync();
 
         _currentStatus = "completed";
         _lastCrawlTime = DateTime.UtcNow;
@@ -954,7 +954,7 @@ public partial class SteamKit2Service
     /// Send SignalR progress update for depot mapping operations.
     /// Centralizes the progress notification pattern used across Pics.cs, Mapping.cs, and Connection.cs.
     /// </summary>
-    private async Task SendDepotMappingProgress(string status, string? message = null, bool isReconnecting = false, int? reconnectAttempt = null)
+    private async Task SendDepotMappingProgressAsync(string status, string? message = null, bool isReconnecting = false, int? reconnectAttempt = null)
     {
         await _notifications.NotifyAllAsync(SignalREvents.DepotMappingProgress, new
         {
@@ -975,7 +975,7 @@ public partial class SteamKit2Service
     /// <summary>
     /// Send SignalR progress update during post-processing phases (after batch loop)
     /// </summary>
-    private async Task SendPostProcessingProgress(string message, double percentComplete, int depotMappingsFound)
+    private async Task SendPostProcessingProgressAsync(string message, double percentComplete, int depotMappingsFound)
     {
         await _notifications.NotifyAllAsync(SignalREvents.DepotMappingProgress, new
         {

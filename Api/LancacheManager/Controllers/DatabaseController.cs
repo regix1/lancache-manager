@@ -32,7 +32,7 @@ public class DatabaseController : ControllerBase
     /// RESTful: DELETE is proper method for clearing/resetting resources
     /// </summary>
     [HttpDelete]
-    public async Task<IActionResult> ResetDatabase()
+    public async Task<IActionResult> ResetDatabaseAsync()
     {
         var started = await _rustDatabaseResetService.StartDatabaseResetAsync();
         if (!started)
@@ -106,7 +106,7 @@ public class DatabaseController : ControllerBase
     /// GET /api/database/log-entries-count - Get count of log entries in database
     /// </summary>
     [HttpGet("log-entries-count")]
-    public async Task<IActionResult> GetLogEntriesCount()
+    public async Task<IActionResult> GetLogEntriesCountAsync()
     {
         var count = await _dbService.GetLogEntriesCountAsync();
         return Ok(new LogEntriesCountResponse { Count = count });

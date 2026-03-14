@@ -200,7 +200,7 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
             _logger.LogInformation("Checking for orphaned services in database...");
 
             // Get services that exist in log files (from Rust log_manager)
-            var logServices = await _cacheManagementService.GetServiceLogCounts(forceRefresh: false, stoppingToken);
+            var logServices = await _cacheManagementService.GetServiceLogCountsAsync(forceRefresh: false, stoppingToken);
             var logServiceNames = logServices.Keys.Select(s => s.ToLowerInvariant()).ToHashSet();
 
             _logger.LogInformation("Found {Count} services in log files: {Services}",

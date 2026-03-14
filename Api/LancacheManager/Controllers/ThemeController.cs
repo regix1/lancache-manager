@@ -89,7 +89,7 @@ public class ThemeController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> GetThemes()
+    public async Task<IActionResult> GetThemesAsync()
     {
         var themes = new List<ThemeInfo>();
 
@@ -166,7 +166,7 @@ public class ThemeController : ControllerBase
     }
 
     [HttpGet("{id}")]
-    public async Task<IActionResult> GetTheme(string id)
+    public async Task<IActionResult> GetThemeAsync(string id)
     {
         // Sanitize ID to prevent path traversal
         id = Regex.Replace(id, @"[^a-zA-Z0-9-_]", "");
@@ -195,7 +195,7 @@ public class ThemeController : ControllerBase
     }
 
     [HttpPost("upload")]
-    public async Task<IActionResult> UploadTheme(IFormFile file)
+    public async Task<IActionResult> UploadThemeAsync(IFormFile file)
     {
         if (file == null || file.Length == 0)
         {
@@ -502,7 +502,7 @@ public class ThemeController : ControllerBase
         return Ok(new ThemePreferenceResponse
         {
             Success = true,
-            ThemeId = themeId,
+            ThemeId = themeId!,
             Message = "Theme preference saved successfully"
         });
     }
@@ -521,7 +521,7 @@ public class ThemeController : ControllerBase
     }
 
     [HttpPut("preferences/guest")]
-    public async Task<IActionResult> SetDefaultGuestTheme([FromBody] ThemePreferenceRequest request)
+    public async Task<IActionResult> SetDefaultGuestThemeAsync([FromBody] ThemePreferenceRequest request)
     {
         var (themeId, error) = ValidateAndSanitizeThemeId(request);
         if (error != null) return error;
@@ -541,7 +541,7 @@ public class ThemeController : ControllerBase
         return Ok(new ThemePreferenceResponse
         {
             Success = true,
-            ThemeId = themeId,
+            ThemeId = themeId!,
             Message = "Default guest theme saved successfully"
         });
     }

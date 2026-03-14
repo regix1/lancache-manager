@@ -362,7 +362,7 @@ public class RustLogRemovalService
             if (allSuccess && datasourcesProcessed > 0)
             {
                 // Invalidate service counts cache so UI refreshes
-                await _cacheManagementService.InvalidateServiceCountsCache();
+                await _cacheManagementService.InvalidateServiceCountsCacheAsync();
 
                 // Signal nginx to reopen log files (prevents monolithic container from losing log access)
                 await _nginxLogRotationService.ReopenNginxLogsAsync();
@@ -599,7 +599,7 @@ public class RustLogRemovalService
 
                 if (exitCode == 0)
                 {
-                    await _cacheManagementService.InvalidateServiceCountsCache();
+                    await _cacheManagementService.InvalidateServiceCountsCacheAsync();
                     await _nginxLogRotationService.ReopenNginxLogsAsync();
 
                     // Note: Database cleanup is not datasource-specific, so we skip it for per-datasource removal
@@ -759,7 +759,7 @@ public class RustLogRemovalService
     /// Force kills the Rust process for service removal.
     /// Used as fallback when graceful cancellation fails.
     /// </summary>
-    public async Task<bool> ForceKillOperation()
+    public async Task<bool> ForceKillOperationAsync()
     {
         if (!IsProcessing)
         {

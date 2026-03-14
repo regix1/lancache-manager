@@ -166,7 +166,7 @@ public class CacheClearingService : IHostedService
                 (datasourceName != null ? $" for datasource: {datasourceName}" : " for all datasources"));
 
             // Start the clear operation on a background thread
-            _ = Task.Run(async () => await ExecuteCacheClear(trackerKey, operationId, datasourceName), cts.Token);
+            _ = Task.Run(async () => await ExecuteCacheClearAsync(trackerKey, operationId, datasourceName), cts.Token);
 
             return operationId;
         }
@@ -176,7 +176,7 @@ public class CacheClearingService : IHostedService
         }
     }
 
-    private async Task ExecuteCacheClear(string trackerKey, string operationId, string? datasourceName)
+    private async Task ExecuteCacheClearAsync(string trackerKey, string operationId, string? datasourceName)
     {
         try
         {
@@ -190,7 +190,7 @@ public class CacheClearingService : IHostedService
             });
 
             _operationTracker.UpdateProgress(operationId, 0, "Checking permissions...");
-            await NotifyProgress(operationId);
+            await NotifyProgressAsync(operationId);
 
             // Get datasources to clear (filtered by name if specified)
             var allDatasources = _datasourceService.GetDatasources()
@@ -215,7 +215,7 @@ public class CacheClearingService : IHostedService
                 _operationTracker.CompleteOperation(operationId, success: false, error: errorMessage);
                 _currentTrackerOperationId = null;
 
-                await NotifyProgress(operationId);
+                await NotifyProgressAsync(operationId);
 
                 await _notifications.SendOperationCompleteAsync(
                     SignalREvents.CacheClearingComplete, operationId,
@@ -252,7 +252,7 @@ public class CacheClearingService : IHostedService
                     _operationTracker.CompleteOperation(operationId, success: false, error: errorMessage);
                     _currentTrackerOperationId = null;
 
-                    await NotifyProgress(operationId);
+                    await NotifyProgressAsync(operationId);
                     SaveOperationToState(trackerKey, operationId);
 
                     return;
@@ -314,7 +314,7 @@ public class CacheClearingService : IHostedService
                 _operationTracker.CompleteOperation(operationId, success: false, error: error);
                 _currentTrackerOperationId = null;
 
-                await NotifyProgress(operationId);
+                await NotifyProgressAsync(operationId);
 
                 await _notifications.SendOperationCompleteAsync(
                     SignalREvents.CacheClearingComplete, operationId,
@@ -350,7 +350,7 @@ public class CacheClearingService : IHostedService
                 _operationTracker.CompleteOperation(operationId, success: false, error: error);
                 _currentTrackerOperationId = null;
 
-                await NotifyProgress(operationId);
+                await NotifyProgressAsync(operationId);
 
                 // Send completion notification
                 await _notifications.SendOperationCompleteAsync(
@@ -366,7 +366,7 @@ public class CacheClearingService : IHostedService
             _logger.LogInformation($"Using Rust cache cleaner: {rustBinaryPath}");
 
             _operationTracker.UpdateProgress(operationId, 0, "Starting cache clear...");
-            await NotifyProgress(operationId);
+            await NotifyProgressAsync(operationId);
             SaveOperationToState(trackerKey, operationId);
 
             // Track aggregate totals across all datasources
@@ -388,7 +388,7 @@ public class CacheClearingService : IHostedService
                 _logger.LogInformation($"Clearing cache for datasource {dsName} ({dsIndex + 1}/{validCachePaths.Count}): {cachePath}");
                 var percentSoFar = (double)dsIndex / validCachePaths.Count * 100;
                 _operationTracker.UpdateProgress(operationId, percentSoFar, $"Clearing {dsName} cache ({dsIndex + 1}/{validCachePaths.Count})...");
-                await NotifyProgress(operationId);
+                await NotifyProgressAsync(operationId);
 
                 // Check for cancellation before starting each datasource
                 operation = _operationTracker.GetOperation(operationId);
@@ -398,7 +398,7 @@ public class CacheClearingService : IHostedService
                     _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
                     _currentTrackerOperationId = null;
 
-                    await NotifyProgress(operationId);
+                    await NotifyProgressAsync(operationId);
                     SaveOperationToState(trackerKey, operationId);
 
                     return;
@@ -445,7 +445,7 @@ public class CacheClearingService : IHostedService
                                 _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
                                 _currentTrackerOperationId = null;
 
-                                await NotifyProgress(operationId);
+                                await NotifyProgressAsync(operationId);
                                 SaveOperationToState(trackerKey, operationId);
 
                                 return;
@@ -473,7 +473,7 @@ public class CacheClearingService : IHostedService
 
                                 _operationTracker.UpdateProgress(operationId, percentComplete, statusMessage);
 
-                                await NotifyProgress(operationId);
+                                await NotifyProgressAsync(operationId);
 
                                 // Log progress to console when:
                                 // 1. Every 5 directories, OR
@@ -582,7 +582,7 @@ public class CacheClearingService : IHostedService
             _logger.LogInformation("[CacheClearing] Cleared cached detection results: {Games} games, {Services} services, {Corruption} corruption entries",
                 gamesDeleted, servicesDeleted, corruptionDeleted);
 
-            await NotifyProgress(operationId);
+            await NotifyProgressAsync(operationId);
 
             // Send completion notification
             await _notifications.SendOperationCompleteAsync(
@@ -601,7 +601,7 @@ public class CacheClearingService : IHostedService
             _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
             _currentTrackerOperationId = null;
 
-            await NotifyProgress(operationId);
+            await NotifyProgressAsync(operationId);
 
             // Send cancellation notification
             await _notifications.SendOperationCompleteAsync(
@@ -629,7 +629,7 @@ public class CacheClearingService : IHostedService
             _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
             _currentTrackerOperationId = null;
 
-            await NotifyProgress(operationId);
+            await NotifyProgressAsync(operationId);
 
             // Send failure notification
             await _notifications.SendOperationCompleteAsync(
@@ -661,7 +661,7 @@ public class CacheClearingService : IHostedService
         return value.All(c => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'));
     }
 
-    private async Task NotifyProgress(string operationId)
+    private async Task NotifyProgressAsync(string operationId)
     {
         try
         {
@@ -935,7 +935,7 @@ public class CacheClearingService : IHostedService
     /// Force kills the Rust process for a cache clear operation.
     /// Used as fallback when graceful cancellation fails.
     /// </summary>
-    public async Task<bool> ForceKillOperation(string operationId)
+    public async Task<bool> ForceKillOperationAsync(string operationId)
     {
         _logger.LogWarning($"Force killing cache clear operation {operationId}");
 

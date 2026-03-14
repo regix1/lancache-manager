@@ -292,7 +292,7 @@ public class DatabaseService : IDatabaseService
             });
 
             // Start background task with cancellation token
-            _ = Task.Run(async () => await ResetSelectedTablesInternal(operationId, tableNames, cts.Token));
+            _ = Task.Run(async () => await ResetSelectedTablesInternalAsync(operationId, tableNames, cts.Token));
         }
         else
         {
@@ -305,7 +305,7 @@ public class DatabaseService : IDatabaseService
     /// <summary>
     /// Internal method that performs the actual reset operation
     /// </summary>
-    private async Task ResetSelectedTablesInternal(string operationId, List<string> tableNames, CancellationToken cancellationToken)
+    private async Task ResetSelectedTablesInternalAsync(string operationId, List<string> tableNames, CancellationToken cancellationToken)
     {
         // Use a new DbContext from factory for background operation (don't use injected context)
         await using var context = await _dbContextFactory.CreateDbContextAsync(cancellationToken);

@@ -83,7 +83,7 @@ public abstract class CrudControllerBase<TEntity, TDto, TCreateRequest, TUpdateR
 
     /// <summary>Get all entities</summary>
     [HttpGet]
-    public virtual async Task<IActionResult> GetAll(CancellationToken ct = default)
+    public virtual async Task<IActionResult> GetAllAsync(CancellationToken ct = default)
     {
         var entities = await _repository.GetAllAsync(ct);
         var dtos = entities.Select(ToDto).ToList();
@@ -92,7 +92,7 @@ public abstract class CrudControllerBase<TEntity, TDto, TCreateRequest, TUpdateR
 
     /// <summary>Get entity by ID</summary>
     [HttpGet("{id}")]
-    public virtual async Task<IActionResult> GetById(TKey id, CancellationToken ct = default)
+    public virtual async Task<IActionResult> GetByIdAsync(TKey id, CancellationToken ct = default)
     {
         var entity = await _repository.GetByIdOrThrowAsync(id, ResourceName, ct);
         return Ok(ToDto(entity));
@@ -100,7 +100,7 @@ public abstract class CrudControllerBase<TEntity, TDto, TCreateRequest, TUpdateR
 
     /// <summary>Create new entity</summary>
     [HttpPost]
-    public virtual async Task<IActionResult> Create([FromBody] TCreateRequest request, CancellationToken ct = default)
+    public virtual async Task<IActionResult> CreateAsync([FromBody] TCreateRequest request, CancellationToken ct = default)
     {
         await ValidateCreateRequestAsync(request, ct);
 
@@ -119,7 +119,7 @@ public abstract class CrudControllerBase<TEntity, TDto, TCreateRequest, TUpdateR
 
     /// <summary>Update existing entity</summary>
     [HttpPut("{id}")]
-    public virtual async Task<IActionResult> Update(TKey id, [FromBody] TUpdateRequest request, CancellationToken ct = default)
+    public virtual async Task<IActionResult> UpdateAsync(TKey id, [FromBody] TUpdateRequest request, CancellationToken ct = default)
     {
         var entity = await _repository.GetByIdOrThrowAsync(id, ResourceName, ct);
 
@@ -137,7 +137,7 @@ public abstract class CrudControllerBase<TEntity, TDto, TCreateRequest, TUpdateR
 
     /// <summary>Delete entity by ID</summary>
     [HttpDelete("{id}")]
-    public virtual async Task<IActionResult> Delete(TKey id, CancellationToken ct = default)
+    public virtual async Task<IActionResult> DeleteAsync(TKey id, CancellationToken ct = default)
     {
         var entity = await _repository.GetByIdOrThrowAsync(id, ResourceName, ct);
 

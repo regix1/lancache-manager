@@ -577,7 +577,7 @@ function ServicePrefillPanel({
           case 'clear-temp': {
             addLog('info', t('prefill.log.clearingTempCache'));
             try {
-              await signalR.hubConnection.current.invoke('ClearCache', signalR.session.id);
+              await signalR.hubConnection.current.invoke('ClearCacheAsync', signalR.session.id);
               addLog('success', t('prefill.log.tempCacheCleared'));
             } catch (err) {
               const errorMessage =
@@ -625,7 +625,7 @@ function ServicePrefillPanel({
     if (!signalR.session || !signalR.hubConnection.current) return;
 
     try {
-      await signalR.hubConnection.current.invoke('EndSession', signalR.session.id);
+      await signalR.hubConnection.current.invoke('EndSessionAsync', signalR.session.id);
     } catch {
       // Session end failed - will be cleaned up by timeout
     }
@@ -635,7 +635,7 @@ function ServicePrefillPanel({
     if (!signalR.session || !signalR.hubConnection.current) return;
 
     try {
-      await signalR.hubConnection.current.invoke('CancelLogin', signalR.session.id);
+      await signalR.hubConnection.current.invoke('CancelLoginAsync', signalR.session.id);
       setShowAuthModal(false);
       authActions.resetAuthForm();
     } catch {
@@ -650,7 +650,7 @@ function ServicePrefillPanel({
     addLog('info', t('prefill.log.cancellingPrefill'));
 
     try {
-      await signalR.hubConnection.current.invoke('CancelPrefill', signalR.session.id);
+      await signalR.hubConnection.current.invoke('CancelPrefillAsync', signalR.session.id);
     } catch (_err) {
       signalR.isCancelling.current = false;
       addLog('error', t('prefill.log.failedCancelPrefill'));
@@ -700,7 +700,7 @@ function ServicePrefillPanel({
 
     try {
       const status = (await signalR.hubConnection.current.invoke(
-        'GetSelectedAppsStatus',
+        'GetSelectedAppsStatusAsync',
         signalR.session.id,
         selectedOS
       )) as {

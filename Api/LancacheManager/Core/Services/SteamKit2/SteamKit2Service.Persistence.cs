@@ -40,7 +40,7 @@ public partial class SteamKit2Service
     /// <summary>
     /// Import JSON data to database after PICS crawl
     /// </summary>
-    private async Task ImportJsonToDatabase()
+    private async Task ImportJsonToDatabaseAsync()
     {
         try
         {
@@ -120,7 +120,7 @@ public partial class SteamKit2Service
     /// <summary>
     /// Load existing depot mappings from database on startup
     /// </summary>
-    private async Task LoadExistingDepotMappings()
+    private async Task LoadExistingDepotMappingsAsync()
     {
         try
         {

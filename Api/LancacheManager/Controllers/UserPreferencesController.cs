@@ -52,7 +52,7 @@ public class UserPreferencesController : ControllerBase
     }
 
     [HttpPut]
-    public async Task<IActionResult> SavePreferences([FromBody] UserPreferencesDto preferences)
+    public async Task<IActionResult> SavePreferencesAsync([FromBody] UserPreferencesDto preferences)
     {
         var sessionId = GetSessionId();
         if (sessionId == null)
@@ -71,7 +71,7 @@ public class UserPreferencesController : ControllerBase
     }
 
     [HttpPatch("{key}")]
-    public async Task<IActionResult> UpdatePreference(string key, [FromBody] object value)
+    public async Task<IActionResult> UpdatePreferenceAsync(string key, [FromBody] object value)
     {
         var sessionId = GetSessionId();
         if (sessionId == null)
@@ -103,7 +103,7 @@ public class UserPreferencesController : ControllerBase
     }
 
     [HttpPut("session/{sessionId}")]
-    public async Task<IActionResult> SavePreferencesForSession(Guid sessionId, [FromBody] UserPreferencesDto preferences)
+    public async Task<IActionResult> SavePreferencesForSessionAsync(Guid sessionId, [FromBody] UserPreferencesDto preferences)
     {
         var success = _preferencesService.SavePreferences(sessionId, preferences);
         if (success)

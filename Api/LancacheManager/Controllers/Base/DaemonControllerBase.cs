@@ -93,7 +93,7 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
     /// Creates a new daemon session
     /// </summary>
     [HttpPost("sessions")]
-    public async Task<ActionResult<DaemonSessionDto>> CreateSession()
+    public async Task<ActionResult<DaemonSessionDto>> CreateSessionAsync()
     {
         var sessionId = GetSessionId();
 
@@ -106,7 +106,7 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
     /// Gets the daemon status for a session
     /// </summary>
     [HttpGet("sessions/{sessionId}/status")]
-    public async Task<ActionResult<DaemonStatus>> GetSessionStatus(string sessionId)
+    public async Task<ActionResult<DaemonStatus>> GetSessionStatusAsync(string sessionId)
     {
         var ownershipResult = ValidateSessionOwnership(sessionId);
         if (ownershipResult != null)
@@ -128,7 +128,7 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
     /// Returns a credential challenge if credentials are needed.
     /// </summary>
     [HttpPost("sessions/{sessionId}/login")]
-    public async Task<ActionResult<CredentialChallenge>> StartLogin(string sessionId)
+    public async Task<ActionResult<CredentialChallenge>> StartLoginAsync(string sessionId)
     {
         var ownershipResult = ValidateSessionOwnership(sessionId);
         if (ownershipResult != null)
@@ -157,7 +157,7 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
     /// Provides an encrypted credential in response to a challenge
     /// </summary>
     [HttpPost("sessions/{sessionId}/credential")]
-    public async Task<ActionResult> ProvideCredential(string sessionId, [FromBody] ProvideCredentialRequest request)
+    public async Task<ActionResult> ProvideCredentialAsync(string sessionId, [FromBody] ProvideCredentialRequest request)
     {
         var ownershipResult = ValidateSessionOwnership(sessionId);
         if (ownershipResult != null)
@@ -182,7 +182,7 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
     /// Waits for the next credential challenge (polling endpoint)
     /// </summary>
     [HttpGet("sessions/{sessionId}/challenge")]
-    public async Task<ActionResult<CredentialChallenge>> WaitForChallenge(string sessionId, [FromQuery] int timeoutSeconds = 30)
+    public async Task<ActionResult<CredentialChallenge>> WaitForChallengeAsync(string sessionId, [FromQuery] int timeoutSeconds = 30)
     {
         var ownershipResult = ValidateSessionOwnership(sessionId);
         if (ownershipResult != null)
@@ -210,7 +210,7 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
     /// Gets owned games for a logged-in session
     /// </summary>
     [HttpGet("sessions/{sessionId}/games")]
-    public async Task<ActionResult<List<OwnedGame>>> GetOwnedGames(string sessionId)
+    public async Task<ActionResult<List<OwnedGame>>> GetOwnedGamesAsync(string sessionId)
     {
         var ownershipResult = ValidateSessionOwnership(sessionId);
         if (ownershipResult != null)
@@ -226,7 +226,7 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
     /// Checks cache status for cached apps.
     /// </summary>
     [HttpPost("sessions/{sessionId}/cache-status")]
-    public async Task<ActionResult<PrefillCacheStatusResponse>> GetCacheStatus(string sessionId, [FromBody] PrefillCacheStatusRequest request)
+    public async Task<ActionResult<PrefillCacheStatusResponse>> GetCacheStatusAsync(string sessionId, [FromBody] PrefillCacheStatusRequest request)
     {
         var ownershipResult = ValidateSessionOwnership(sessionId);
         if (ownershipResult != null)
@@ -255,7 +255,7 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
     /// Sets selected apps for prefill
     /// </summary>
     [HttpPost("sessions/{sessionId}/selected-apps")]
-    public async Task<ActionResult> SetSelectedApps(string sessionId, [FromBody] SetSelectedAppsRequest request)
+    public async Task<ActionResult> SetSelectedAppsAsync(string sessionId, [FromBody] SetSelectedAppsRequest request)
     {
         var ownershipResult = ValidateSessionOwnership(sessionId);
         if (ownershipResult != null)
@@ -276,7 +276,7 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
     /// Starts a prefill operation
     /// </summary>
     [HttpPost("sessions/{sessionId}/prefill")]
-    public async Task<ActionResult<PrefillResult>> StartPrefill(string sessionId, [FromBody] StartPrefillRequest? request)
+    public async Task<ActionResult<PrefillResult>> StartPrefillAsync(string sessionId, [FromBody] StartPrefillRequest? request)
     {
         var ownershipResult = ValidateSessionOwnership(sessionId);
         if (ownershipResult != null)
@@ -314,7 +314,7 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
     /// Terminates a daemon session
     /// </summary>
     [HttpDelete("sessions/{sessionId}")]
-    public async Task<ActionResult> TerminateSession(string sessionId)
+    public async Task<ActionResult> TerminateSessionAsync(string sessionId)
     {
         var ownershipResult = ValidateSessionOwnership(sessionId);
         if (ownershipResult != null)

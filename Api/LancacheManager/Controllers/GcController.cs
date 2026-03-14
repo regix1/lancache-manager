@@ -40,7 +40,7 @@ public class GcController : ControllerBase
     }
 
     [HttpPut("settings")]
-    public async Task<IActionResult> UpdateSettings([FromBody] UpdateGcSettingsRequest request)
+    public async Task<IActionResult> UpdateSettingsAsync([FromBody] UpdateGcSettingsRequest request)
     {
         if (!Enum.TryParse<GcAggressiveness>(request.Aggressiveness, true, out var aggressiveness))
         {

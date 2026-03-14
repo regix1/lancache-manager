@@ -78,7 +78,7 @@ public class ApiKeysController : ControllerBase
     /// SECURITY: This logs out all Steam sessions and revokes all device registrations
     /// </summary>
     [HttpPost("regenerate")]
-    public async Task<IActionResult> RegenerateApiKey()
+    public async Task<IActionResult> RegenerateApiKeyAsync()
     {
         // SECURITY: Clear ALL Steam-related data when API key is regenerated
         var steamWasAuthenticated = _stateService.GetSteamAuthMode() == "authenticated";

@@ -473,7 +473,7 @@ public class CacheManagementService
     /// <summary>
     /// Invalidate the service counts cache - call this after modifying logs
     /// </summary>
-    public async Task InvalidateServiceCountsCache()
+    public async Task InvalidateServiceCountsCacheAsync()
     {
         // Delete the Rust cache file to force rescan
         var operationsDir = _pathResolver.GetOperationsDirectory();
@@ -502,7 +502,7 @@ public class CacheManagementService
         }
     }
 
-    public async Task<Dictionary<string, long>> GetServiceLogCounts(bool forceRefresh = false, CancellationToken cancellationToken = default)
+    public async Task<Dictionary<string, long>> GetServiceLogCountsAsync(bool forceRefresh = false, CancellationToken cancellationToken = default)
     {
         // Use semaphore to ensure only one Rust process runs at a time
         await _cacheLock.WaitAsync();
@@ -514,7 +514,7 @@ public class CacheManagementService
             // Process each datasource and aggregate counts
             foreach (var datasource in datasources)
             {
-                var dsCounts = await GetServiceLogCountsForDatasource(datasource.Name, datasource.LogPath, forceRefresh, cancellationToken);
+                var dsCounts = await GetServiceLogCountsForDatasourceAsync(datasource.Name, datasource.LogPath, forceRefresh, cancellationToken);
 
                 // Aggregate counts
                 foreach (var kvp in dsCounts)
@@ -541,7 +541,7 @@ public class CacheManagementService
     /// <summary>
     /// Get service log counts for a specific datasource.
     /// </summary>
-    private async Task<Dictionary<string, long>> GetServiceLogCountsForDatasource(string datasourceName, string logDir, bool forceRefresh, CancellationToken cancellationToken)
+    private async Task<Dictionary<string, long>> GetServiceLogCountsForDatasourceAsync(string datasourceName, string logDir, bool forceRefresh, CancellationToken cancellationToken)
     {
         var counts = new Dictionary<string, long>();
 
@@ -686,7 +686,7 @@ public class CacheManagementService
     /// <summary>
     /// Get detailed corruption information for a specific service
     /// </summary>
-    public async Task<List<CorruptedChunkDetail>> GetCorruptionDetails(string service, bool forceRefresh = false, int threshold = 3, bool compareToCacheLogs = true, CancellationToken cancellationToken = default)
+    public async Task<List<CorruptedChunkDetail>> GetCorruptionDetailsAsync(string service, bool forceRefresh = false, int threshold = 3, bool compareToCacheLogs = true, CancellationToken cancellationToken = default)
     {
         // Use semaphore to ensure only one Rust process runs at a time
         await _cacheLock.WaitAsync();
@@ -855,7 +855,7 @@ public class CacheManagementService
     /// <summary>
     /// Remove all cache files for a specific game across all datasources
     /// </summary>
-    public async Task<GameCacheRemovalReport> RemoveGameFromCache(uint gameAppId, CancellationToken cancellationToken = default, Func<double, string, int, long, Task>? onProgress = null)
+    public async Task<GameCacheRemovalReport> RemoveGameFromCacheAsync(uint gameAppId, CancellationToken cancellationToken = default, Func<double, string, int, long, Task>? onProgress = null)
     {
         await _cacheLock.WaitAsync();
         try
@@ -1046,7 +1046,7 @@ public class CacheManagementService
             _logger.LogInformation("[GameRemoval] Removed cached game detection entry for AppID: {AppId}", gameAppId);
 
             // Invalidate service counts cache since logs were modified
-            await InvalidateServiceCountsCache();
+            await InvalidateServiceCountsCacheAsync();
 
             // Signal nginx to reopen log files (prevents monolithic container from losing log access)
             await _nginxLogRotationService.ReopenNginxLogsAsync();
@@ -1066,7 +1066,7 @@ public class CacheManagementService
     /// 2. Removes matching lines from access log text files
     /// 3. Deletes LogEntry and Download records from the database
     /// </summary>
-    public async Task<GameCacheRemovalReport> RemoveEpicGameFromCache(string gameName, CancellationToken cancellationToken = default, Func<double, string, int, long, Task>? onProgress = null)
+    public async Task<GameCacheRemovalReport> RemoveEpicGameFromCacheAsync(string gameName, CancellationToken cancellationToken = default, Func<double, string, int, long, Task>? onProgress = null)
     {
         await _cacheLock.WaitAsync(cancellationToken);
         try
@@ -1237,7 +1237,7 @@ public class CacheManagementService
                 aggregatedReport.CacheFilesDeleted, aggregatedReport.TotalBytesFreed);
 
             // Invalidate service counts cache since logs were modified
-            await InvalidateServiceCountsCache();
+            await InvalidateServiceCountsCacheAsync();
 
             // Signal nginx to reopen log files
             await _nginxLogRotationService.ReopenNginxLogsAsync();
@@ -1253,7 +1253,7 @@ public class CacheManagementService
     /// <summary>
     /// Remove all cache files for a specific service across all datasources
     /// </summary>
-    public async Task<ServiceCacheRemovalReport> RemoveServiceFromCache(string serviceName, CancellationToken cancellationToken = default, Func<double, string, int, long, Task>? onProgress = null)
+    public async Task<ServiceCacheRemovalReport> RemoveServiceFromCacheAsync(string serviceName, CancellationToken cancellationToken = default, Func<double, string, int, long, Task>? onProgress = null)
     {
         await _cacheLock.WaitAsync();
         try
@@ -1450,7 +1450,7 @@ public class CacheManagementService
             _logger.LogInformation("[ServiceRemoval] Removed cached service detection entry for: {Service}", serviceName);
 
             // Invalidate service counts cache since logs were modified
-            await InvalidateServiceCountsCache();
+            await InvalidateServiceCountsCacheAsync();
 
             // Signal nginx to reopen log files (prevents monolithic container from losing log access)
             await _nginxLogRotationService.ReopenNginxLogsAsync();

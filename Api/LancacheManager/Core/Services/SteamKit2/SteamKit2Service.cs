@@ -164,7 +164,7 @@ public partial class SteamKit2Service : IHostedService, IDisposable
         try
         {
             // Load existing depot mappings from database first
-            await LoadExistingDepotMappings();
+            await LoadExistingDepotMappingsAsync();
 
             // Initialize session tracking to current count (so session shows 0 when idle)
             _sessionStartDepotCount = _depotToAppMappings.Count;
@@ -215,7 +215,7 @@ public partial class SteamKit2Service : IHostedService, IDisposable
             _isRunning = true;
 
             // Start callback handling loop
-            _ = Task.Run(() => HandleCallbacks(_cancellationTokenSource.Token), CancellationToken.None);
+            _ = Task.Run(() => HandleCallbacksAsync(_cancellationTokenSource.Token), CancellationToken.None);
 
             // Enable periodic crawls if interval is configured (not 0)
             if (_crawlInterval.TotalHours > 0)
@@ -282,7 +282,7 @@ public partial class SteamKit2Service : IHostedService, IDisposable
         _logger.LogInformation("SteamKit2Service stopped");
     }
 
-    private async Task HandleCallbacks(CancellationToken cancellationToken)
+    private async Task HandleCallbacksAsync(CancellationToken cancellationToken)
     {
         while (_isRunning && !cancellationToken.IsCancellationRequested)
         {
@@ -412,12 +412,12 @@ public partial class SteamKit2Service : IHostedService, IDisposable
     /// Returns the list of product info callbacks for the caller to process.
     /// </summary>
     private async Task<IReadOnlyList<SteamApps.PICSProductInfoCallback>> FetchProductInfoBatchAsync(
-        IReadOnlyList<uint> appIds, CancellationToken ct)
+        uint[] appIds, CancellationToken ct)
     {
         var tokensJob = _steamApps!.PICSGetAccessTokens(appIds, Enumerable.Empty<uint>());
         var tokens = await WaitForCallbackAsync(tokensJob, ct);
 
-        var appRequests = new List<SteamApps.PICSRequest>(appIds.Count);
+        var appRequests = new List<SteamApps.PICSRequest>(appIds.Length);
         foreach (var appId in appIds)
         {
             var request = new SteamApps.PICSRequest(appId);

@@ -145,7 +145,7 @@ public class CorruptionDetectionService
                 // Check for cancellation before each datasource
                 cancellationToken.ThrowIfCancellationRequested();
 
-                var dsCounts = await GetCorruptionSummaryForDatasource(
+                var dsCounts = await GetCorruptionSummaryForDatasourceAsync(
                     datasource.LogPath, datasource.CachePath, timezone, rustBinaryPath,
                     operationId, datasource.Name, threshold, compareToCacheLogs, cancellationToken);
 
@@ -257,7 +257,7 @@ public class CorruptionDetectionService
     /// <summary>
     /// Get corruption summary for a specific datasource with progress tracking.
     /// </summary>
-    private async Task<Dictionary<string, long>> GetCorruptionSummaryForDatasource(
+    private async Task<Dictionary<string, long>> GetCorruptionSummaryForDatasourceAsync(
         string logDir, string cacheDir, string timezone, string rustBinaryPath,
         string operationId, string datasourceName, int threshold, bool compareToCacheLogs, CancellationToken cancellationToken)
     {

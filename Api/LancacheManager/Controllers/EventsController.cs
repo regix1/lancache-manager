@@ -95,14 +95,14 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// Get all events
     /// </summary>
     [HttpGet]
-    public override Task<IActionResult> GetAll(CancellationToken ct = default)
-        => base.GetAll(ct);
+    public override Task<IActionResult> GetAllAsync(CancellationToken ct = default)
+        => base.GetAllAsync(ct);
 
     /// <summary>
     /// Get currently active events
     /// </summary>
     [HttpGet("active")]
-    public async Task<IActionResult> GetActive()
+    public async Task<IActionResult> GetActiveAsync()
     {
         var events = await _eventsService.GetActiveEventsAsync();
         return Ok(events);
@@ -112,7 +112,7 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// Get events for calendar view (by date range)
     /// </summary>
     [HttpGet("calendar")]
-    public async Task<IActionResult> GetCalendarEvents([FromQuery] long start, [FromQuery] long end)
+    public async Task<IActionResult> GetCalendarEventsAsync([FromQuery] long start, [FromQuery] long end)
     {
         var startUtc = start.FromUnixSeconds();
         var endUtc = end.FromUnixSeconds();
@@ -125,8 +125,8 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// Get a single event by ID
     /// </summary>
     [HttpGet("{id:int}")]
-    public override Task<IActionResult> GetById(int id, CancellationToken ct = default)
-        => base.GetById(id, ct);
+    public override Task<IActionResult> GetByIdAsync(int id, CancellationToken ct = default)
+        => base.GetByIdAsync(id, ct);
 
     /// <summary>
     /// Create a new event
@@ -135,8 +135,8 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// Validation is handled automatically by FluentValidation (see CreateEventRequestValidator)
     /// </remarks>
     [HttpPost]
-    public override Task<IActionResult> Create([FromBody] CreateEventRequest request, CancellationToken ct = default)
-        => base.Create(request, ct);
+    public override Task<IActionResult> CreateAsync([FromBody] CreateEventRequest request, CancellationToken ct = default)
+        => base.CreateAsync(request, ct);
 
     /// <summary>
     /// Update an existing event
@@ -145,21 +145,21 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// Validation is handled automatically by FluentValidation (see UpdateEventRequestValidator)
     /// </remarks>
     [HttpPut("{id:int}")]
-    public override Task<IActionResult> Update(int id, [FromBody] UpdateEventRequest request, CancellationToken ct = default)
-        => base.Update(id, request, ct);
+    public override Task<IActionResult> UpdateAsync(int id, [FromBody] UpdateEventRequest request, CancellationToken ct = default)
+        => base.UpdateAsync(id, request, ct);
 
     /// <summary>
     /// Delete an event
     /// </summary>
     [HttpDelete("{id:int}")]
-    public override Task<IActionResult> Delete(int id, CancellationToken ct = default)
-        => base.Delete(id, ct);
+    public override Task<IActionResult> DeleteAsync(int id, CancellationToken ct = default)
+        => base.DeleteAsync(id, ct);
 
     /// <summary>
     /// Get downloads for an event
     /// </summary>
     [HttpGet("{id:int}/downloads")]
-    public async Task<IActionResult> GetDownloads(int id, [FromQuery] bool taggedOnly = false)
+    public async Task<IActionResult> GetDownloadsAsync(int id, [FromQuery] bool taggedOnly = false)
     {
         var evt = await _eventsService.GetByIdOrThrowAsync(id, "Event");
 
@@ -171,7 +171,7 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// Manually tag a download to an event
     /// </summary>
     [HttpPost("{eventId:int}/downloads/{downloadId:int}")]
-    public async Task<IActionResult> TagDownload(int eventId, int downloadId)
+    public async Task<IActionResult> TagDownloadAsync(int eventId, int downloadId)
     {
         var evt = await _eventsService.GetByIdOrThrowAsync(eventId, "Event");
 
@@ -187,7 +187,7 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// Remove a download tag from an event
     /// </summary>
     [HttpDelete("{eventId:int}/downloads/{downloadId:int}")]
-    public async Task<IActionResult> UntagDownload(int eventId, int downloadId)
+    public async Task<IActionResult> UntagDownloadAsync(int eventId, int downloadId)
     {
         await _eventsService.UntagDownloadAsync(eventId, downloadId);
         return NoContent();

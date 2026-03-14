@@ -193,7 +193,7 @@ public class LiveLogMonitorService : BackgroundService
                     foreach (var ds in datasources)
                     {
                         if (!ds.Enabled) continue;
-                        await MonitorAndProcessDatasource(ds, stoppingToken);
+                        await MonitorAndProcessDatasourceAsync(ds, stoppingToken);
                     }
                 }
             }
@@ -221,7 +221,7 @@ public class LiveLogMonitorService : BackgroundService
         _logger.LogInformation("LiveLogMonitorService stopped");
     }
 
-    private async Task MonitorAndProcessDatasource(ResolvedDatasource datasource, CancellationToken stoppingToken)
+    private async Task MonitorAndProcessDatasourceAsync(ResolvedDatasource datasource, CancellationToken stoppingToken)
     {
         // Skip if already processing
         if (_isProcessing)
