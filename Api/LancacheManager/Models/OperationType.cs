@@ -1,4 +1,4 @@
-namespace LancacheManager.Core.Models;
+namespace LancacheManager.Models;
 
 public enum OperationType
 {

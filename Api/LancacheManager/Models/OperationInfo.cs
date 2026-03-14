@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace LancacheManager.Core.Models;
+namespace LancacheManager.Models;
 
 public class OperationInfo
 {

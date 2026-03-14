@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using LancacheManager.Models;
 
 namespace LancacheManager.Core.Services.SteamPrefill;
 

@@ -1,4 +1,3 @@
-using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Core.Utilities;
 using LancacheManager.Hubs;
 using LancacheManager.Models;
@@ -87,14 +86,6 @@ public partial class EpicMappingService
             await db.SaveChangesAsync(ct);
 
             result.TotalGames = existingMappings.Count;
-
-            await _notifications.NotifyAllAsync(SignalREvents.EpicGameMappingsUpdated, new
-            {
-                totalGames = result.TotalGames,
-                newGames = result.NewGames,
-                updatedGames = result.UpdatedGames,
-                lastUpdatedUtc = now.ToString("o")
-            });
 
             return result;
         }
@@ -277,6 +268,14 @@ public partial class EpicMappingService
         }
 
         var totalUpdated = result.NewGames + result.UpdatedGames;
+
+        // Notify frontend of image updates
+        await _notifications.NotifyAllAsync(SignalREvents.EpicGameMappingsUpdated, new
+        {
+            totalGames = result.TotalGames,
+            source = "image-refresh"
+        });
+
         _logger.LogInformation("=== RefreshImageUrlsAsync END === Updated {Count} games", totalUpdated);
 
         return totalUpdated;

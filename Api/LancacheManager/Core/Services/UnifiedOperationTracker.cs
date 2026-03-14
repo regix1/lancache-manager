@@ -1,6 +1,5 @@
 using System.Collections.Concurrent;
 using LancacheManager.Core.Interfaces;
-using LancacheManager.Core.Models;
 using LancacheManager.Models;
 
 namespace LancacheManager.Core.Services;

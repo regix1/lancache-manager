@@ -1,5 +1,5 @@
 using LancacheManager.Core.Interfaces;
-using LancacheManager.Core.Models;
+using LancacheManager.Models;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;

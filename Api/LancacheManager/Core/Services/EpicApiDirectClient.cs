@@ -1,7 +1,7 @@
 using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using LancacheManager.Core.Services.SteamPrefill;
+using LancacheManager.Models;
 
 namespace LancacheManager.Core.Services;
 

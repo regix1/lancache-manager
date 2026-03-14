@@ -1,5 +1,5 @@
 using System.Text.Json;
-using LancacheManager.Core.Models;
+using LancacheManager.Models;
 using LancacheManager.Hubs;
 
 namespace LancacheManager.Core.Services.SteamKit2;

@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using Docker.DotNet;
 using Docker.DotNet.Models;
+using LancacheManager.Models;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;

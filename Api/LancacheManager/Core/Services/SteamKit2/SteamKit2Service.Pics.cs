@@ -1,6 +1,6 @@
 using LancacheManager.Extensions;
 using LancacheManager.Hubs;
-using LancacheManager.Core.Models;
+using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 using SteamKit2;
 

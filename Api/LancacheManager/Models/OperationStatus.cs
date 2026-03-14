@@ -1,4 +1,4 @@
-namespace LancacheManager.Core.Models;
+namespace LancacheManager.Models;
 
 /// <summary>
 /// Standardized operation status values for SignalR events.

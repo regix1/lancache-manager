@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
-using LancacheManager.Core.Models;
+using LancacheManager.Models;
 using LancacheManager.Infrastructure.Services;
 using ModelOperationState = LancacheManager.Models.OperationState;
 

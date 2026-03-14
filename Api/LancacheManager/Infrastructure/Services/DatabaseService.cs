@@ -1,5 +1,5 @@
 using LancacheManager.Core.Services;
-using LancacheManager.Core.Models;
+using LancacheManager.Models;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Hubs;
 using LancacheManager.Core.Interfaces;

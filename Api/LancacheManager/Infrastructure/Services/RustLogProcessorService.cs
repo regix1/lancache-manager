@@ -5,7 +5,7 @@ using LancacheManager.Extensions;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Hubs;
 using LancacheManager.Core.Interfaces;
-using LancacheManager.Core.Models;
+using LancacheManager.Models;
 using LancacheManager.Infrastructure.Utilities;
 using Microsoft.EntityFrameworkCore;
 

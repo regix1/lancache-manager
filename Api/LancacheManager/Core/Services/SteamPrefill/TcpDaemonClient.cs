@@ -3,6 +3,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using LancacheManager.Models;
 
 namespace LancacheManager.Core.Services.SteamPrefill;
 

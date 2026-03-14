@@ -3,7 +3,6 @@ using LancacheManager.Models;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Core.Interfaces;
-using LancacheManager.Core.Models;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Hubs;
 using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;

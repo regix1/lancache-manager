@@ -1,6 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
-using LancacheManager.Core.Models;
+using LancacheManager.Models;
 using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
 using LancacheManager.Core.Interfaces;

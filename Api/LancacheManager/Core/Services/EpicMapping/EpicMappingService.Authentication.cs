@@ -1,4 +1,3 @@
-using LancacheManager.Core.Models;
 using LancacheManager.Core.Utilities;
 using LancacheManager.Hubs;
 using LancacheManager.Models;
@@ -188,7 +187,7 @@ public partial class EpicMappingService
 
     /// <summary>
     /// Attempts to reconnect using saved refresh token on startup.
-    /// No Docker needed - calls Epic's token refresh API directly.
+    /// Handles authentication only, then delegates catalog refresh to RefreshCatalogAsync.
     /// </summary>
     private async Task TryAutoReconnectAsync()
     {
@@ -210,17 +209,6 @@ public partial class EpicMappingService
                 // Refresh the token directly via HTTP
                 var tokens = await _epicApiClient.RefreshTokenAsync(authData.RefreshToken, ct);
                 _currentTokens = tokens;
-                _logger.LogDebug("Epic token refresh succeeded, new expiry: {ExpiresAt}", tokens.ExpiresAt);
-
-                // Fetch fresh game data
-                var games = await _epicApiClient.GetOwnedGamesAsync(tokens.AccessToken, ct);
-
-                if (games.Count > 0)
-                {
-                    var sessionHash = CryptoUtils.ComputeAnonymousHash("mapping-session");
-                    var result = await MergeOwnedGamesAsync(games, sessionHash, "mapping-login", ct);
-                    _gamesDiscovered = result.TotalGames;
-                }
 
                 // Update saved credentials with new refresh token
                 var updatedAuthData = new EpicAuthData
@@ -229,52 +217,14 @@ public partial class EpicMappingService
                     DisplayName = tokens.DisplayName,
                     AccountId = tokens.AccountId,
                     LastAuthenticated = DateTime.UtcNow,
-                    GamesDiscovered = _gamesDiscovered
+                    GamesDiscovered = authData.GamesDiscovered
                 };
                 _authStorage.SaveEpicAuthData(updatedAuthData);
 
-                // Refresh CDN patterns (paths may change with game updates)
-                try
-                {
-                    var cdnInfos = await _epicApiClient.GetCdnInfoAsync(tokens.AccessToken, ct);
-                    if (cdnInfos.Count > 0)
-                    {
-                        await MergeCdnPatternsAsync(cdnInfos, ct);
-                    }
-                }
-                catch (Exception cdnEx)
-                {
-                    _logger.LogWarning(cdnEx, "Failed to refresh CDN patterns during auto-reconnect");
-                }
-
                 _isAuthenticated = true;
                 _displayName = tokens.DisplayName;
-                _lastCollectionUtc = DateTime.UtcNow;
-                _lastRefreshTime = DateTime.UtcNow;
 
-                // Resolve any unresolved Epic downloads against stored CDN patterns
-                try
-                {
-                    var resolved = await ResolveEpicDownloadsAsync(ct);
-                    if (resolved > 0)
-                    {
-                        _logger.LogInformation("Resolved {Count} Epic downloads to game names during auto-reconnect", resolved);
-                    }
-                }
-                catch (Exception resolveEx)
-                {
-                    _logger.LogWarning(resolveEx, "Failed to resolve Epic downloads during auto-reconnect");
-                }
-
-                // Notify frontend that mapping data is now available
-                await _notifications.NotifyAllAsync(SignalREvents.EpicGameMappingsUpdated, new
-                {
-                    totalGames = _gamesDiscovered,
-                    source = "auto-reconnect"
-                });
-
-                _logger.LogInformation("Epic mapping auto-reconnect successful: {DisplayName}, {Games} games",
-                    tokens.DisplayName, _gamesDiscovered);
+                _logger.LogInformation("Epic auto-reconnect authenticated: {DisplayName}", tokens.DisplayName);
             }
             catch (Exception ex)
             {
@@ -284,16 +234,41 @@ public partial class EpicMappingService
                 _isAuthenticated = false;
                 _displayName = null;
                 _gamesDiscovered = 0;
+                return;
             }
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to auto-reconnect Epic mapping session");
             _isAuthenticated = false;
+            return;
         }
         finally
         {
             _sessionLock.Release();
+        }
+
+        // Run the shared catalog refresh path (games, CDN patterns, images, free games)
+        if (Interlocked.CompareExchange(ref _isProcessingInt, 1, 0) != 0) return;
+
+        try
+        {
+            _currentStatus = "Refreshing catalog";
+            await RefreshCatalogAsync(ct);
+            _lastRefreshTime = DateTime.UtcNow;
+            _currentStatus = "Idle";
+
+            _logger.LogInformation("Epic mapping auto-reconnect successful: {DisplayName}, {Games} games",
+                _displayName, _gamesDiscovered);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Epic catalog refresh failed during auto-reconnect");
+            _currentStatus = "Idle";
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _isProcessingInt, 0);
         }
     }
 }

@@ -1,5 +1,5 @@
 using LancacheManager.Core.Interfaces;
-using LancacheManager.Core.Models;
+using LancacheManager.Models;
 
 namespace LancacheManager.Infrastructure.Utilities;
 
