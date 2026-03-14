@@ -34,8 +34,4 @@ public interface IImageCacheService
     /// </summary>
     Task ClearCacheAsync();
 
-    /// <summary>
-    /// Gets the size of the cache directory in bytes
-    /// </summary>
-    Task<long> GetCacheSizeAsync();
 }

@@ -1,5 +1,3 @@
-using Microsoft.Extensions.Hosting;
-
 namespace LancacheManager.Infrastructure.Services.Base;
 
 /// <summary>

@@ -158,6 +158,7 @@ public class SessionService
     {
         var now = DateTime.UtcNow;
         return await _dbContext.UserSessions
+            .AsNoTracking()
             .Where(s => !s.IsRevoked && s.ExpiresAtUtc > now)
             .OrderByDescending(s => s.LastSeenAtUtc)
             .ToListAsync();
@@ -169,6 +170,7 @@ public class SessionService
     public async Task<(List<UserSession> Sessions, int TotalCount)> GetAllSessionsPagedAsync(int page, int pageSize)
     {
         var query = _dbContext.UserSessions
+            .AsNoTracking()
             .OrderByDescending(s => s.LastSeenAtUtc);
 
         var totalCount = await query.CountAsync();

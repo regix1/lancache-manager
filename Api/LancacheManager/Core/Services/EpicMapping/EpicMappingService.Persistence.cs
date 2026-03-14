@@ -1,7 +1,6 @@
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Core.Utilities;
 using LancacheManager.Hubs;
-using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -112,6 +111,7 @@ public partial class EpicMappingService
     {
         using var db = _dbContextFactory.CreateDbContext();
         return await db.EpicGameMappings
+            .AsNoTracking()
             .OrderBy(m => m.Name)
             .ToListAsync(ct);
     }
@@ -290,6 +290,7 @@ public partial class EpicMappingService
         using var db = _dbContextFactory.CreateDbContext();
         var lowerQuery = query.ToLowerInvariant();
         return await db.EpicGameMappings
+            .AsNoTracking()
             .Where(m => m.Name.ToLower().Contains(lowerQuery) || m.AppId.ToLower().Contains(lowerQuery))
             .OrderBy(m => m.Name)
             .ToListAsync(ct);

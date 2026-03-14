@@ -1,7 +1,6 @@
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Hubs;
-using LancacheManager.Models;
 
 
 namespace LancacheManager.Core.Services;

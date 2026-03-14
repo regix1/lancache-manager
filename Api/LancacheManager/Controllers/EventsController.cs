@@ -3,7 +3,6 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Extensions;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Hubs;
-using LancacheManager.Middleware;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.Mvc;
 using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;

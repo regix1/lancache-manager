@@ -28,22 +28,6 @@ public class MetricsController : ControllerBase
     }
 
     /// <summary>
-    /// Get metrics endpoint security status
-    /// </summary>
-    [HttpGet("status")]
-    public IActionResult GetStatus()
-    {
-        var requiresAuth = _configuration.GetValue<bool>("Security:RequireAuthForMetrics", false);
-
-        return Ok(new MetricsStatusResponse
-        {
-            RequiresAuthentication = requiresAuth,
-            Endpoint = "/metrics",
-            AuthMethod = requiresAuth ? "X-Api-Key header required" : "Public access"
-        });
-    }
-
-    /// <summary>
     /// Get the current metrics update interval
     /// </summary>
     [HttpGet("interval")]

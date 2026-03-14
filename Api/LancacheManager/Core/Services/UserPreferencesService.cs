@@ -65,6 +65,7 @@ public class UserPreferencesService
         {
             using var context = _contextFactory.CreateDbContext();
             var preferences = context.UserPreferences
+                .AsNoTracking()
                 .FirstOrDefault(p => p.SessionId == sessionId);
 
             return preferences != null ? ToDto(preferences) : null;

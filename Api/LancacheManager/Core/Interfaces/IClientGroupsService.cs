@@ -12,7 +12,6 @@ public interface IClientGroupsService : ICrudRepository<ClientGroup, int>
     Task<List<ClientGroup>> GetAllGroupsAsync(CancellationToken cancellationToken = default);
     Task<ClientGroup?> GetGroupByIdAsync(int id, CancellationToken cancellationToken = default);
     Task<ClientGroup?> GetGroupByNicknameAsync(string nickname, CancellationToken cancellationToken = default);
-    Task<ClientGroup?> GetGroupByClientIpAsync(string clientIp, CancellationToken cancellationToken = default);
     Task<ClientGroup> CreateGroupAsync(ClientGroup group, CancellationToken cancellationToken = default);
     Task<ClientGroup> UpdateGroupAsync(ClientGroup group, CancellationToken cancellationToken = default);
     Task DeleteGroupAsync(int id, CancellationToken cancellationToken = default);

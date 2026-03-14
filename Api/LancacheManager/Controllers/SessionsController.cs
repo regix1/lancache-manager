@@ -131,21 +131,6 @@ public class SessionsController : ControllerBase
         return Ok(new { success = true, message = "Session permanently deleted" });
     }
 
-    [HttpDelete("guests")]
-    public async Task<IActionResult> RevokeAllGuestsAsync()
-    {
-        var count = await _sessionService.RevokeAllGuestSessionsAsync();
-
-        // Broadcast sessions cleared
-        await _signalR.NotifyAllAsync(SignalREvents.UserSessionsCleared, new
-        {
-            clearedCount = count,
-            sessionType = "guest"
-        });
-
-        return Ok(new { success = true, revokedCount = count, message = $"Revoked {count} guest sessions" });
-    }
-
     [HttpPatch("{id:guid}/refresh-rate")]
     public async Task<IActionResult> UpdateRefreshRateAsync(Guid id, [FromBody] RefreshRateRequest request)
     {

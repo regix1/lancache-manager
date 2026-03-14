@@ -218,16 +218,6 @@ public class MemoryStatsResponse
 }
 
 /// <summary>
-/// Response for metrics endpoint status
-/// </summary>
-public class MetricsStatusResponse
-{
-    public bool RequiresAuthentication { get; set; }
-    public string Endpoint { get; set; } = string.Empty;
-    public string AuthMethod { get; set; } = string.Empty;
-}
-
-/// <summary>
 /// Response for metrics security settings
 /// </summary>
 public class MetricsSecurityResponse

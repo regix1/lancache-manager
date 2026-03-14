@@ -1,7 +1,6 @@
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 
 namespace LancacheManager.Core.Services;
 
@@ -170,6 +169,7 @@ public class PrefillCacheService
 
         // Get all cached depots for this app
         var cachedDepots = await context.PrefillCachedDepots
+            .AsNoTracking()
             .Where(d => depotIds.Contains(d.DepotId))
             .ToDictionaryAsync(d => d.DepotId, d => d.ManifestId);
 
@@ -206,6 +206,7 @@ public class PrefillCacheService
 
         // Fetch all cached depots in one query
         var cachedDepots = await context.PrefillCachedDepots
+            .AsNoTracking()
             .Where(d => allDepotIds.Contains(d.DepotId))
             .ToListAsync();
 
@@ -244,6 +245,7 @@ public class PrefillCacheService
         await using var context = await _contextFactory.CreateDbContextAsync();
 
         var cachedApps = await context.PrefillCachedDepots
+            .AsNoTracking()
             .GroupBy(d => d.AppId)
             .Select(g => new CachedAppInfo
             {
@@ -300,6 +302,7 @@ public class PrefillCacheService
         await using var context = await _contextFactory.CreateDbContextAsync();
 
         var cachedDepots = await context.PrefillCachedDepots
+            .AsNoTracking()
             .Select(d => new { d.AppId, d.DepotId, d.ManifestId })
             .ToListAsync();
 
@@ -322,6 +325,7 @@ public class PrefillCacheService
         await using var context = await _contextFactory.CreateDbContextAsync();
 
         var cachedDepots = await context.PrefillCachedDepots
+            .AsNoTracking()
             .Where(d => appIdList.Contains(d.AppId))
             .Select(d => new { d.AppId, d.DepotId, d.ManifestId })
             .ToListAsync();

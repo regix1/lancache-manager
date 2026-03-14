@@ -1,9 +1,7 @@
 using LancacheManager.Extensions;
 using LancacheManager.Hubs;
-using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
-using SteamKit2;
 
 namespace LancacheManager.Core.Services.SteamKit2;
 

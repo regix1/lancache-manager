@@ -1,5 +1,4 @@
 using LancacheManager.Models;
-using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Services;
 using Microsoft.AspNetCore.Mvc;
 

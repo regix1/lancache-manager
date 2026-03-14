@@ -298,6 +298,7 @@ public class SteamService : IHostedService, IDisposable
 
             // Only return owner apps - no fallback/guessing
             var appIds = scopedDb.DbContext.SteamDepotMappings
+                .AsNoTracking()
                 .Where(m => m.DepotId == depotId && m.IsOwner)  // Owner apps only
                 .Select(m => m.AppId)
                 .ToList();

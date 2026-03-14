@@ -37,6 +37,7 @@ public class PrefillSessionService
         await using var context = await _contextFactory.CreateDbContextAsync();
 
         var ban = await context.BannedSteamUsers
+            .AsNoTracking()
             .Where(b => b.Username == normalizedUsername && !b.IsLifted)
             .Where(b => b.ExpiresAtUtc == null || b.ExpiresAtUtc > DateTime.UtcNow)
             .FirstOrDefaultAsync();
@@ -121,6 +122,7 @@ public class PrefillSessionService
         await using var context = await _contextFactory.CreateDbContextAsync();
 
         return await context.BannedSteamUsers
+            .AsNoTracking()
             .Where(b => !b.IsLifted)
             .Where(b => b.ExpiresAtUtc == null || b.ExpiresAtUtc > DateTime.UtcNow)
             .OrderByDescending(b => b.BannedAtUtc)
@@ -135,6 +137,7 @@ public class PrefillSessionService
         await using var context = await _contextFactory.CreateDbContextAsync();
 
         return await context.BannedSteamUsers
+            .AsNoTracking()
             .OrderByDescending(b => b.BannedAtUtc)
             .ToListAsync();
     }
@@ -264,6 +267,7 @@ public class PrefillSessionService
         await using var context = await _contextFactory.CreateDbContextAsync();
 
         return await context.PrefillSessions
+            .AsNoTracking()
             .Where(s => s.Status == "Active")
             .OrderByDescending(s => s.CreatedAtUtc)
             .ToListAsync();
@@ -280,7 +284,7 @@ public class PrefillSessionService
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
 
-        var query = context.PrefillSessions.AsQueryable();
+        var query = context.PrefillSessions.AsNoTracking().AsQueryable();
 
         if (!string.IsNullOrEmpty(statusFilter))
         {
@@ -311,6 +315,7 @@ public class PrefillSessionService
         await using var context = await _contextFactory.CreateDbContextAsync();
 
         return await context.PrefillSessions
+            .AsNoTracking()
             .FirstOrDefaultAsync(s => s.SessionId == sessionId);
     }
 
@@ -350,6 +355,7 @@ public class PrefillSessionService
         await using var context = await _contextFactory.CreateDbContextAsync();
 
         return await context.PrefillSessions
+            .AsNoTracking()
             .Where(s => s.Status == "Orphaned" && s.ContainerId != null)
             .Select(s => s.ContainerId!)
             .ToListAsync();
@@ -484,6 +490,7 @@ public class PrefillSessionService
         await using var context = await _contextFactory.CreateDbContextAsync();
 
         return await context.PrefillHistoryEntries
+            .AsNoTracking()
             .Where(e => e.SessionId == sessionId)
             .OrderByDescending(e => e.StartedAtUtc)
             .ToListAsync();
@@ -497,6 +504,7 @@ public class PrefillSessionService
         await using var context = await _contextFactory.CreateDbContextAsync();
 
         return await context.PrefillHistoryEntries
+            .AsNoTracking()
             .Where(e => e.SessionId == sessionId && e.Status == "InProgress")
             .OrderByDescending(e => e.StartedAtUtc)
             .FirstOrDefaultAsync();
@@ -543,6 +551,7 @@ public class PrefillSessionService
         await using var context = await _contextFactory.CreateDbContextAsync();
 
         var session = await context.PrefillSessions
+            .AsNoTracking()
             .FirstOrDefaultAsync(s => s.SessionId == sessionId);
 
         if (string.IsNullOrEmpty(session?.SteamUsername))

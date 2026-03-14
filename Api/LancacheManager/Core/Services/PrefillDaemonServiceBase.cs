@@ -2,13 +2,11 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
-using System.Text.Json;
 using Docker.DotNet;
 using Docker.DotNet.Models;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
-using LancacheManager.Models;
 
 
 namespace LancacheManager.Core.Services;
@@ -176,17 +174,19 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     /// </summary>
     protected void FireCallbackAsync(Func<Task> callback, string callbackName)
     {
-        _ = Task.Run(async () =>
+        _ = ExecuteCallbackAsync(callback, callbackName);
+    }
+
+    private async Task ExecuteCallbackAsync(Func<Task> callback, string callbackName)
+    {
+        try
         {
-            try
-            {
-                await callback.Invoke();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error notifying {CallbackName}", callbackName);
-            }
-        });
+            await callback.Invoke();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error notifying {CallbackName}", callbackName);
+        }
     }
 
     protected PrefillDaemonServiceBase(

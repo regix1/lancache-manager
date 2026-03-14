@@ -319,23 +319,6 @@ public class StateService : IStateService
     }
 
     /// <summary>
-    /// Gets all datasource log positions.
-    /// </summary>
-    public Dictionary<string, long> GetAllLogPositions()
-    {
-        var state = GetState();
-        var positions = new Dictionary<string, long>(state.LogProcessing.DatasourcePositions);
-
-        // Include legacy position as "default" if not already in dictionary
-        if (!positions.ContainsKey("default") && state.LogProcessing.Position > 0)
-        {
-            positions["default"] = state.LogProcessing.Position;
-        }
-
-        return positions;
-    }
-
-    /// <summary>
     /// Gets the total line count for a specific datasource.
     /// Returns 0 if not set (caller should count files as fallback).
     /// </summary>
@@ -362,15 +345,6 @@ public class StateService : IStateService
             state.LogProcessing.DatasourceTotalLines[datasourceName] = totalLines;
             state.LogProcessing.LastUpdated = DateTime.UtcNow;
         });
-    }
-
-    /// <summary>
-    /// Gets all datasource total line counts.
-    /// </summary>
-    public Dictionary<string, long> GetAllLogTotalLines()
-    {
-        var state = GetState();
-        return new Dictionary<string, long>(state.LogProcessing.DatasourceTotalLines);
     }
 
     // Cache Clear Operations Methods - now use separate file (data/operations/cache_operations.json)

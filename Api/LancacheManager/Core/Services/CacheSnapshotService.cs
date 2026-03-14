@@ -72,7 +72,7 @@ public class CacheSnapshotService : ScopedScheduledBackgroundService
     {
         try
         {
-            var cacheInfo = _cacheService.GetCacheInfo();
+            var cacheInfo = await _cacheService.GetCacheInfoAsync();
 
             // Skip if no valid data (e.g., on Windows development)
             if (cacheInfo.TotalCacheSize == 0 && cacheInfo.UsedCacheSize == 0)
@@ -137,6 +137,7 @@ public class CacheSnapshotService : ScopedScheduledBackgroundService
         // Find the closest snapshot to the requested time
         // First try to find the snapshot just before the requested time
         var snapshot = await scopedDb.DbContext.CacheSnapshots
+            .AsNoTracking()
             .Where(s => s.TimestampUtc <= timestampUtc)
             .OrderByDescending(s => s.TimestampUtc)
             .FirstOrDefaultAsync();
@@ -152,6 +153,7 @@ public class CacheSnapshotService : ScopedScheduledBackgroundService
         using var scopedDb = _scopeFactory.CreateScopedDbContext();
 
         var snapshots = await scopedDb.DbContext.CacheSnapshots
+            .AsNoTracking()
             .Where(s => s.TimestampUtc >= startUtc && s.TimestampUtc <= endUtc)
             .OrderBy(s => s.TimestampUtc)
             .ToListAsync();
@@ -160,6 +162,7 @@ public class CacheSnapshotService : ScopedScheduledBackgroundService
         {
             // Try to get the most recent snapshot before the start time
             var fallbackSnapshot = await scopedDb.DbContext.CacheSnapshots
+                .AsNoTracking()
                 .Where(s => s.TimestampUtc < startUtc)
                 .OrderByDescending(s => s.TimestampUtc)
                 .FirstOrDefaultAsync();

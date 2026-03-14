@@ -265,7 +265,7 @@ public class OperationStateService : IHostedService
                 }
             }
 
-            _logger.LogInformation($"Loaded {_states.Count} operation states from StateService");
+            _logger.LogInformation("Loaded {Count} operation states from StateService", _states.Count);
 
             // Check for interrupted log processing operations and mark them for resume
             CheckAndMarkInterruptedOperationsForResume();

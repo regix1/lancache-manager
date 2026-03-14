@@ -45,17 +45,6 @@ public class ClientGroupsService : IClientGroupsService
             ?.WithUtcMarking();
     }
 
-    public async Task<ClientGroup?> GetGroupByClientIpAsync(string clientIp, CancellationToken cancellationToken = default)
-    {
-        var member = await _context.ClientGroupMembers
-            .AsNoTracking()
-            .Include(m => m.ClientGroup)
-            .ThenInclude(g => g.Members)
-            .FirstOrDefaultAsync(m => m.ClientIp == clientIp, cancellationToken);
-
-        return member?.ClientGroup?.WithUtcMarking();
-    }
-
     public async Task<ClientGroup> CreateGroupAsync(ClientGroup group, CancellationToken cancellationToken = default)
     {
         group.CreatedAtUtc = DateTime.UtcNow;

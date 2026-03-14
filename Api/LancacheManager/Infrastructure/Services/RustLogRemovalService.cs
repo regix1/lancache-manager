@@ -134,6 +134,9 @@ public class RustLogRemovalService
 
     public async Task<bool> StartRemovalAsync(string service)
     {
+        // Sanitize user-provided service name to prevent process argument injection
+        service = RustProcessHelper.SanitizeProcessArgument(service);
+
         await _startLock.WaitAsync();
         try
         {
@@ -461,7 +464,7 @@ public class RustLogRemovalService
                     success: false, message: $"Error during log removal: {ex.Message}", cancelled: false,
                     new { Service = service });
             }
-            catch { }
+            catch (Exception notifyEx) { _logger.LogWarning(notifyEx, "Failed to send operation complete notification"); }
 
             // Mark operation as failed in unified tracker
             if (!string.IsNullOrEmpty(_currentTrackerOperationId))
@@ -487,6 +490,10 @@ public class RustLogRemovalService
     /// </summary>
     public async Task<bool> StartRemovalForDatasourceAsync(string service, string datasourceName)
     {
+        // Sanitize user-provided inputs to prevent process argument injection
+        service = RustProcessHelper.SanitizeProcessArgument(service);
+        datasourceName = RustProcessHelper.SanitizeProcessArgument(datasourceName);
+
         string logDir;
 
         await _startLock.WaitAsync();
@@ -668,7 +675,7 @@ public class RustLogRemovalService
                     success: false, message: $"Error during log removal: {ex.Message}", cancelled: false,
                     new { Service = service, Datasource = datasourceName });
             }
-            catch { }
+            catch (Exception notifyEx) { _logger.LogWarning(notifyEx, "Failed to send operation complete notification"); }
 
             // Mark operation as failed in unified tracker
             if (!string.IsNullOrEmpty(_currentTrackerOperationId))

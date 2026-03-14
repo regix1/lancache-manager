@@ -175,13 +175,13 @@ public partial class SteamKit2Service
             _logger.LogInformation("Unexpected disconnection during active rebuild - attempting to reconnect in {Delay} seconds (attempt {Attempt}/{MaxAttempts})...",
                 delaySeconds, _reconnectAttempt, MaxReconnectAttempts);
 
-            // Send progress update so UI knows we're reconnecting
-            SendDepotMappingProgressAsync(
+            // Send progress update so UI knows we're reconnecting (fire-and-forget)
+            _ = SendDepotMappingProgressAsync(
                 $"Reconnecting to Steam (attempt {_reconnectAttempt}/{MaxReconnectAttempts})...",
                 $"Connection lost. Reconnecting in {delaySeconds} seconds...",
                 isReconnecting: true,
                 reconnectAttempt: _reconnectAttempt
-            ).Wait(); // Fire-and-forget equivalent for synchronous context
+            );
 
             Task.Delay(delaySeconds * 1000, _cancellationTokenSource.Token).ContinueWith(_ =>
             {

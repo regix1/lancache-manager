@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Text.Json;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.EpicMapping;
 using LancacheManager.Extensions;
@@ -178,14 +177,6 @@ public class RustLogProcessorService
     }
 
     /// <summary>
-    /// Starts log processing (wrapper for StartProcessingAsync)
-    /// </summary>
-    public Task<bool> StartProcessing(string logFilePath, long startPosition = 0, bool silentMode = false, string? datasourceName = null)
-    {
-        return StartProcessingAsync(logFilePath, startPosition, silentMode, datasourceName);
-    }
-
-    /// <summary>
     /// Gets the current processing status including progress data from Rust
     /// </summary>
     public object GetStatus()
@@ -358,10 +349,10 @@ public class RustLogProcessorService
             }
 
             _logger.LogInformation("Starting Rust log processor");
-            _logger.LogInformation($"Database: {dbPath}");
-            _logger.LogInformation($"Log directory: {logDirectory}");
-            _logger.LogInformation($"Progress file: {progressPath}");
-            _logger.LogInformation($"Start position: {startPosition}");
+            _logger.LogInformation("Database: {DatabasePath}", dbPath);
+            _logger.LogInformation("Log directory: {LogDirectory}", logDirectory);
+            _logger.LogInformation("Progress file: {ProgressPath}", progressPath);
+            _logger.LogInformation("Start position: {StartPosition}", startPosition);
 
             // Send started event
             if (!silentMode)
@@ -407,7 +398,7 @@ public class RustLogProcessorService
             if (!string.IsNullOrEmpty(tz))
             {
                 startInfo.EnvironmentVariables["TZ"] = tz;
-                _logger.LogInformation($"Passing TZ={tz} to Rust processor");
+                _logger.LogInformation("Passing TZ={TimeZone} to Rust processor", tz);
             }
 
             _rustProcess = Process.Start(startInfo);
@@ -447,7 +438,7 @@ public class RustLogProcessorService
             await _processManager.WaitForProcessAsync(_rustProcess, _cancellationTokenSource.Token);
 
             var exitCode = _rustProcess.ExitCode;
-            _logger.LogInformation($"Rust processor exited with code {exitCode}");
+            _logger.LogInformation("Rust processor exited with code {ExitCode}", exitCode);
 
             // Wait for stdout/stderr reading tasks to complete
             await _rustProcessHelper.WaitForOutputTasksAsync(stdoutTask, stderrTask, TimeSpan.FromSeconds(5));

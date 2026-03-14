@@ -14,22 +14,6 @@ public interface ISignalRNotificationService
     Task NotifyAllAsync(string eventName, object? data = null);
 
     /// <summary>
-    /// Send a notification to a specific SignalR group.
-    /// </summary>
-    /// <param name="groupName">The SignalR group name</param>
-    /// <param name="eventName">Use SignalREvents constants</param>
-    /// <param name="data">Optional payload data</param>
-    Task NotifyGroupAsync(string groupName, string eventName, object? data = null);
-
-    /// <summary>
-    /// Send a notification to a specific client by connection ID on the primary hub (DownloadHub).
-    /// </summary>
-    /// <param name="connectionId">The SignalR connection ID</param>
-    /// <param name="eventName">Use SignalREvents constants</param>
-    /// <param name="data">Optional payload data</param>
-    Task NotifyClientAsync(string connectionId, string eventName, object? data = null);
-
-    /// <summary>
     /// Fire-and-forget notification to all clients (does not await).
     /// Use for notifications where you don't need to wait for completion.
     /// </summary>

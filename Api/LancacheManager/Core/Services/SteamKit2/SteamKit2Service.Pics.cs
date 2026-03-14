@@ -1,10 +1,6 @@
-using System.Text.Json;
 using LancacheManager.Extensions;
 using LancacheManager.Hubs;
-using LancacheManager.Infrastructure.Data;
-using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Core.Models;
-using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 using SteamKit2;
 

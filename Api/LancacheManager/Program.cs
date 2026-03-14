@@ -1,5 +1,4 @@
 using FluentValidation;
-using FluentValidation.AspNetCore;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.EpicMapping;
 using LancacheManager.Core.Services.SteamKit2;
@@ -19,7 +18,6 @@ using Microsoft.AspNetCore.DataProtection;
 
 using Microsoft.AspNetCore.Routing.Constraints;
 using Microsoft.EntityFrameworkCore;
-using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.RateLimiting;
 using OpenTelemetry.Metrics;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -56,8 +54,7 @@ builder.Services.AddControllers(options =>
 });
 builder.Services.AddEndpointsApiExplorer();
 
-// Configure FluentValidation for automatic request validation
-builder.Services.AddFluentValidationAutoValidation();
+// Configure FluentValidation for request validation (manual via ValidationFilter)
 builder.Services.AddValidatorsFromAssemblyContaining<CreateClientGroupRequestValidator>();
 
 builder.Services.AddSwaggerGen();
@@ -174,38 +171,7 @@ var securityDir = Path.Combine(dataRoot, "security");
 var dataProtectionKeyPath = Path.Combine(securityDir, "DataProtection-Keys");
 
 // Migrate legacy key path if present
-try
-{
-    if (Directory.Exists(legacyKeyPath))
-    {
-        Directory.CreateDirectory(securityDir);
-        if (!Directory.Exists(dataProtectionKeyPath))
-        {
-            Directory.Move(legacyKeyPath, dataProtectionKeyPath);
-            Console.WriteLine($"Migrated Data Protection keys to: {dataProtectionKeyPath}");
-        }
-        else
-        {
-            foreach (var file in Directory.GetFiles(legacyKeyPath))
-            {
-                var destFile = Path.Combine(dataProtectionKeyPath, Path.GetFileName(file));
-                if (!File.Exists(destFile))
-                {
-                    File.Move(file, destFile);
-                }
-            }
-
-            if (Directory.GetFileSystemEntries(legacyKeyPath).Length == 0)
-            {
-                Directory.Delete(legacyKeyPath);
-            }
-        }
-    }
-}
-catch (Exception ex)
-{
-    Console.WriteLine($"Failed to migrate Data Protection keys: {ex.Message}");
-}
+MigrateDataProtectionKeys(legacyKeyPath, securityDir, dataProtectionKeyPath);
 
 // Ensure the directory exists
 Directory.CreateDirectory(dataProtectionKeyPath);
@@ -384,7 +350,7 @@ builder.Services.AddSingletonHostedService<SteamDaemonService>();
 builder.Services.AddSingletonHostedService<EpicPrefillDaemonService>();
 
 // Register EpicApiDirectClient for direct HTTP calls to Epic APIs (no Docker needed)
-builder.Services.AddSingleton<EpicApiDirectClient>();
+builder.Services.AddHttpClient<EpicApiDirectClient>();
 
 // Register EpicAuthStorageService for Epic credential persistence
 builder.Services.AddSingleton<EpicAuthStorageService>();
@@ -681,6 +647,44 @@ static string FindProjectRootForDataProtection()
     }
 
     throw new DirectoryNotFoundException($"Could not find project root from: {currentDir}");
+}
+
+// Helper function to migrate Data Protection keys from legacy path to new security directory
+static void MigrateDataProtectionKeys(string legacyKeyPath, string securityDir, string dataProtectionKeyPath)
+{
+    try
+    {
+        if (!Directory.Exists(legacyKeyPath))
+            return;
+
+        Directory.CreateDirectory(securityDir);
+
+        if (!Directory.Exists(dataProtectionKeyPath))
+        {
+            Directory.Move(legacyKeyPath, dataProtectionKeyPath);
+            Console.WriteLine($"Migrated Data Protection keys to: {dataProtectionKeyPath}");
+            return;
+        }
+
+        // Target directory already exists - merge files individually
+        foreach (var file in Directory.GetFiles(legacyKeyPath))
+        {
+            var destFile = Path.Combine(dataProtectionKeyPath, Path.GetFileName(file));
+            if (!File.Exists(destFile))
+            {
+                File.Move(file, destFile);
+            }
+        }
+
+        if (Directory.GetFileSystemEntries(legacyKeyPath).Length == 0)
+        {
+            Directory.Delete(legacyKeyPath);
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"Failed to migrate Data Protection keys: {ex.Message}");
+    }
 }
 
 // Custom DbContext factory implementation for singleton services

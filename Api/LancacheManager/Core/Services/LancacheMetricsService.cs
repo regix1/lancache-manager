@@ -4,7 +4,6 @@ using System.Diagnostics.Metrics;
 using System.Reflection;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services.Base;
-using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Core.Services;
@@ -544,7 +543,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
         // ============================================
         try
         {
-            var cacheInfo = cacheService.GetCacheInfo();
+            var cacheInfo = await cacheService.GetCacheInfoAsync();
             Interlocked.Exchange(ref _cacheCapacityBytes, cacheInfo.TotalCacheSize);
             Interlocked.Exchange(ref _cacheUsedBytes, cacheInfo.UsedCacheSize);
             Interlocked.Exchange(ref _cacheFreeBytes, cacheInfo.FreeCacheSize);

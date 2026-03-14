@@ -1,3 +1,4 @@
+using FluentValidation;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 using LancacheManager.Models;
@@ -5,13 +6,35 @@ using LancacheManager.Models;
 namespace LancacheManager.Infrastructure.Filters;
 
 /// <summary>
-/// Action filter that intercepts invalid model state from FluentValidation
-/// and returns a consistent ValidationErrorResponse
+/// Action filter that runs FluentValidation validators on action arguments
+/// and returns a consistent ValidationErrorResponse.
+/// Replaces the deprecated FluentValidation.AspNetCore auto-validation pipeline.
 /// </summary>
-public class ValidationFilter : IActionFilter
+public class ValidationFilter : IAsyncActionFilter
 {
-    public void OnActionExecuting(ActionExecutingContext context)
+    public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
     {
+        // Run FluentValidation validators against each action argument
+        foreach (var (_, value) in context.ActionArguments)
+        {
+            if (value is null) continue;
+
+            var validatorType = typeof(IValidator<>).MakeGenericType(value.GetType());
+            if (context.HttpContext.RequestServices.GetService(validatorType) is IValidator validator)
+            {
+                var validationContext = new ValidationContext<object>(value);
+                var result = await validator.ValidateAsync(validationContext, context.HttpContext.RequestAborted);
+
+                if (!result.IsValid)
+                {
+                    foreach (var error in result.Errors)
+                    {
+                        context.ModelState.AddModelError(error.PropertyName, error.ErrorMessage);
+                    }
+                }
+            }
+        }
+
         if (!context.ModelState.IsValid)
         {
             var errors = context.ModelState
@@ -30,11 +53,9 @@ public class ValidationFilter : IActionFilter
             };
 
             context.Result = new BadRequestObjectResult(response);
+            return;
         }
-    }
 
-    public void OnActionExecuted(ActionExecutedContext context)
-    {
-        // No action needed after execution
+        await next();
     }
 }

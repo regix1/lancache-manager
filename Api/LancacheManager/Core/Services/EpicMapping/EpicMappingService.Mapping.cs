@@ -1,5 +1,4 @@
 using LancacheManager.Hubs;
-using LancacheManager.Infrastructure.Data;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -142,6 +141,7 @@ public partial class EpicMappingService
         using var db = _dbContextFactory.CreateDbContext();
 
         var patterns = await db.EpicCdnPatterns
+            .AsNoTracking()
             .OrderByDescending(p => p.ChunkBaseUrl.Length)
             .ToListAsync(ct);
         var matchingPattern = patterns.FirstOrDefault(p => url.Contains(p.ChunkBaseUrl.TrimEnd('/')));
@@ -149,6 +149,7 @@ public partial class EpicMappingService
         if (matchingPattern == null) return null;
 
         return await db.EpicGameMappings
+            .AsNoTracking()
             .FirstOrDefaultAsync(m => m.AppId == matchingPattern.AppId, ct);
     }
 }

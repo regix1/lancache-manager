@@ -166,6 +166,7 @@ dotnet_diagnostic.CA2007.severity = none        # ConfigureAwait — ASP.NET Cor
 dotnet_diagnostic.IDE0290.severity = none       # Primary constructors — not adopting yet
 
 # IDE code style — enforce naming conventions, suppress noisy rules
+dotnet_diagnostic.IDE0005.severity = warning     # Remove unnecessary usings
 dotnet_diagnostic.IDE1006.severity = warning    # Naming rule violations — enforced in build
 dotnet_diagnostic.IDE0040.severity = suggestion # Accessibility modifiers required
 dotnet_diagnostic.IDE0130.severity = none       # Namespace doesn't match folder — intentional flat namespaces

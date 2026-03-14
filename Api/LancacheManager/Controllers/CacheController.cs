@@ -67,9 +67,9 @@ public class CacheController : ControllerBase
     /// GET /api/cache - Get cache information (size, path, etc.)
     /// </summary>
     [HttpGet]
-    public IActionResult GetCacheInfo()
+    public async Task<IActionResult> GetCacheInfoAsync()
     {
-        var info = _cacheService.GetCacheInfo();
+        var info = await _cacheService.GetCacheInfoAsync();
         return Ok(info);
     }
 
@@ -655,7 +655,7 @@ public class CacheController : ControllerBase
                         finally
                         {
                             // Clean up progress file for this datasource
-                            try { if (System.IO.File.Exists(progressFilePath)) System.IO.File.Delete(progressFilePath); } catch { }
+                            try { if (System.IO.File.Exists(progressFilePath)) System.IO.File.Delete(progressFilePath); } catch (Exception ex) { _logger.LogDebug(ex, "Failed to clean up progress file"); }
                         }
                     }
 

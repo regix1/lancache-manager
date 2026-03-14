@@ -15,12 +15,9 @@ public interface IStateService
     // Per-datasource log position methods (for multi-datasource support)
     long GetLogPosition(string datasourceName);
     void SetLogPosition(string datasourceName, long position);
-    Dictionary<string, long> GetAllLogPositions();
-
     // Per-datasource total line count methods
     long GetLogTotalLines(string datasourceName);
     void SetLogTotalLines(string datasourceName, long totalLines);
-    Dictionary<string, long> GetAllLogTotalLines();
 
     // Cache Clear Operations Methods (stored in data/operations/cache_operations.json)
     List<CacheClearOperation> GetCacheClearOperations();

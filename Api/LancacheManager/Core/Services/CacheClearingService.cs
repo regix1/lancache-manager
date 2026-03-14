@@ -62,38 +62,7 @@ public class CacheClearingService : IHostedService
         }
         else
         {
-            // Fallback to legacy configuration
-            var possiblePaths = new List<string> { _pathResolver.GetCacheDirectory() };
-
-            var configPath = configuration["LanCache:CachePath"];
-            if (!string.IsNullOrEmpty(configPath) && !possiblePaths.Contains(configPath))
-            {
-                possiblePaths.Insert(0, configPath);
-            }
-
-            foreach (var path in possiblePaths)
-            {
-                if (Directory.Exists(path))
-                {
-                    var dirs = Directory.GetDirectories(path);
-                    if (dirs.Any(d =>
-                    {
-                        var name = Path.GetFileName(d);
-                        return name.Length == 2 && IsHex(name);
-                    }))
-                    {
-                        _cachePath = path;
-                        _logger.LogInformation("Detected cache path: {CachePath}", _cachePath);
-                        break;
-                    }
-                }
-            }
-
-            if (string.IsNullOrEmpty(_cachePath))
-            {
-                _cachePath = _pathResolver.GetCacheDirectory();
-                _logger.LogWarning("No cache detected, using configured path: {CachePath}", _cachePath);
-            }
+            _cachePath = DetectLegacyCachePath(configuration);
         }
 
         _logger.LogInformation("CacheClearingService initialized with {Count} datasource(s)", _datasourceService.DatasourceCount);
@@ -654,6 +623,44 @@ public class CacheClearingService : IHostedService
         public ulong FilesDeleted { get; set; }
         public List<string> ActiveDirectories { get; set; } = new();
         public int ActiveCount { get; set; }
+    }
+
+    /// <summary>
+    /// Detects the cache path using legacy configuration when no datasource is available.
+    /// Checks configured paths for directories containing two-character hex-named subdirectories.
+    /// </summary>
+    private string DetectLegacyCachePath(IConfiguration configuration)
+    {
+        var possiblePaths = new List<string> { _pathResolver.GetCacheDirectory() };
+
+        var configPath = configuration["LanCache:CachePath"];
+        if (!string.IsNullOrEmpty(configPath) && !possiblePaths.Contains(configPath))
+        {
+            possiblePaths.Insert(0, configPath);
+        }
+
+        foreach (var path in possiblePaths)
+        {
+            if (!Directory.Exists(path))
+                continue;
+
+            var dirs = Directory.GetDirectories(path);
+            var hasHexDirs = dirs.Any(d =>
+            {
+                var name = Path.GetFileName(d);
+                return name.Length == 2 && IsHex(name);
+            });
+
+            if (!hasHexDirs)
+                continue;
+
+            _logger.LogInformation("Detected cache path: {CachePath}", path);
+            return path;
+        }
+
+        var fallback = _pathResolver.GetCacheDirectory();
+        _logger.LogWarning("No cache detected, using configured path: {CachePath}", fallback);
+        return fallback;
     }
 
     private bool IsHex(string value)

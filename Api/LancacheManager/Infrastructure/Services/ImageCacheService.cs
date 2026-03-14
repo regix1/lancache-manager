@@ -272,39 +272,6 @@ public class ImageCacheService : IImageCacheService
         }
     }
 
-    public async Task<long> GetCacheSizeAsync()
-    {
-        try
-        {
-            var cacheDir = _pathResolver.GetCachedImagesDirectory();
-            if (!Directory.Exists(cacheDir))
-            {
-                return 0;
-            }
-
-            var files = Directory.GetFiles(cacheDir, "*.jpg");
-            long totalSize = 0;
-            foreach (var file in files)
-            {
-                try
-                {
-                    var fileInfo = new FileInfo(file);
-                    totalSize += fileInfo.Length;
-                }
-                catch
-                {
-                    // Skip files we can't read
-                }
-            }
-            return await Task.FromResult(totalSize);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error calculating cache size");
-            return 0;
-        }
-    }
-
     private void EnsureCacheDirectoryExists()
     {
         try

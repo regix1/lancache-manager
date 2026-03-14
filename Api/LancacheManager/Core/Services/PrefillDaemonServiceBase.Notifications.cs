@@ -1,5 +1,4 @@
 using LancacheManager.Core.Services.SteamPrefill;
-using LancacheManager.Models;
 
 namespace LancacheManager.Core.Services;
 

@@ -1,8 +1,6 @@
 using System.Diagnostics;
-using System.Text.Json;
 using Docker.DotNet;
 using Docker.DotNet.Models;
-using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Core.Interfaces;
@@ -136,7 +134,7 @@ public class CacheManagementService
         _logger.LogInformation("CacheManagementService initialized with {Count} datasource(s)", _datasourceService.DatasourceCount);
     }
 
-    public CacheInfo GetCacheInfo()
+    public async Task<CacheInfo> GetCacheInfoAsync()
     {
         var info = new CacheInfo();
 
@@ -156,15 +154,15 @@ public class CacheManagementService
                 var driveInfo = new DriveInfo(mountPoint);
                 info.DriveCapacity = driveInfo.TotalSize;
                 info.FreeCacheSize = driveInfo.AvailableFreeSpace;
-                
+
                 // Try to read configured cache size from lancache .env file
-                info.ConfiguredCacheSize = GetConfiguredCacheSize();
-                
+                info.ConfiguredCacheSize = await GetConfiguredCacheSizeAsync();
+
                 // Use configured size if available, otherwise use drive capacity
-                info.TotalCacheSize = info.ConfiguredCacheSize > 0 
-                    ? info.ConfiguredCacheSize 
+                info.TotalCacheSize = info.ConfiguredCacheSize > 0
+                    ? info.ConfiguredCacheSize
                     : info.DriveCapacity;
-                
+
                 // Calculate used space - this is always based on actual drive usage
                 info.UsedCacheSize = info.DriveCapacity - info.FreeCacheSize;
             }
@@ -186,71 +184,71 @@ public class CacheManagementService
     /// then falling back to .env file. Caches result for 5 minutes.
     /// Supports formats like "4000g", "500G", "2t", "1.5T", etc.
     /// </summary>
-    private long GetConfiguredCacheSize()
+    private async Task<long> GetConfiguredCacheSizeAsync()
     {
         // Return cached value if still valid
-        if (_cachedConfiguredCacheSize.HasValue && 
+        if (_cachedConfiguredCacheSize.HasValue &&
             DateTime.UtcNow - _configuredCacheSizeLastChecked < _configuredCacheSizeCacheTime)
         {
             return _cachedConfiguredCacheSize.Value;
         }
-        
+
         long configuredSize = 0;
-        
+
         // Method 1: Try to read from Docker container environment
-        configuredSize = GetConfiguredCacheSizeFromDocker();
-        
+        configuredSize = await GetConfiguredCacheSizeFromDockerAsync();
+
         // Method 2: Fall back to .env file
         if (configuredSize == 0)
         {
             configuredSize = GetConfiguredCacheSizeFromEnvFile();
         }
-        
+
         // Cache the result
         _cachedConfiguredCacheSize = configuredSize;
         _configuredCacheSizeLastChecked = DateTime.UtcNow;
-        
+
         return configuredSize;
     }
     
     /// <summary>
     /// Reads CACHE_DISK_SIZE from the lancache-monolithic container environment variables.
     /// </summary>
-    private long GetConfiguredCacheSizeFromDocker()
+    private async Task<long> GetConfiguredCacheSizeFromDockerAsync()
     {
         if (_dockerClient == null)
             return 0;
-            
+
         try
         {
             // Get running containers
-            var containers = _dockerClient.Containers.ListContainersAsync(
-                new ContainersListParameters { All = false }).GetAwaiter().GetResult();
-            
+            var containers = await _dockerClient.Containers.ListContainersAsync(
+                new ContainersListParameters { All = false });
+
             // Priority 1: Find by lancachenet/monolithic image (most reliable)
             var lancacheContainer = containers.FirstOrDefault(c =>
                 c.Image?.Contains("lancachenet/monolithic", StringComparison.OrdinalIgnoreCase) ?? false);
-            
+
             // Priority 2: Find by "monolithic" in container name
             lancacheContainer ??= containers.FirstOrDefault(c =>
                 c.Names.Any(n => n.Contains("monolithic", StringComparison.OrdinalIgnoreCase)));
-            
+
             // Priority 3: Scan all containers with "lancache" in name (but not dns/sniproxy)
             // and find one that has CACHE_DISK_SIZE set
             if (lancacheContainer == null)
             {
                 var lancacheContainers = containers.Where(c =>
-                    c.Names.Any(n => 
+                    c.Names.Any(n =>
                         n.Contains("lancache", StringComparison.OrdinalIgnoreCase) &&
                         !n.Contains("dns", StringComparison.OrdinalIgnoreCase) &&
                         !n.Contains("sniproxy", StringComparison.OrdinalIgnoreCase)));
-                
+
                 foreach (var container in lancacheContainers)
                 {
-                    var inspect = _dockerClient.Containers.InspectContainerAsync(container.ID).GetAwaiter().GetResult();
+                    var inspect = await _dockerClient.Containers.InspectContainerAsync(container.ID);
                     var envVar = inspect.Config.Env?
                         .FirstOrDefault(e => e.StartsWith("CACHE_DISK_SIZE=", StringComparison.OrdinalIgnoreCase));
-                    
+
                     if (!string.IsNullOrEmpty(envVar))
                     {
                         lancacheContainer = container;
@@ -258,15 +256,15 @@ public class CacheManagementService
                     }
                 }
             }
-            
+
             if (lancacheContainer != null)
             {
                 // Inspect the container to get environment variables
-                var inspect = _dockerClient.Containers.InspectContainerAsync(lancacheContainer.ID).GetAwaiter().GetResult();
-                
+                var inspect = await _dockerClient.Containers.InspectContainerAsync(lancacheContainer.ID);
+
                 var cacheDiskSizeEnv = inspect.Config.Env?
                     .FirstOrDefault(e => e.StartsWith("CACHE_DISK_SIZE=", StringComparison.OrdinalIgnoreCase));
-                
+
                 if (!string.IsNullOrEmpty(cacheDiskSizeEnv))
                 {
                     var value = cacheDiskSizeEnv.Substring("CACHE_DISK_SIZE=".Length);
@@ -296,7 +294,7 @@ public class CacheManagementService
         {
             _logger.LogDebug(ex, "Error reading CACHE_DISK_SIZE from Docker container");
         }
-        
+
         return 0;
     }
     
@@ -1068,6 +1066,9 @@ public class CacheManagementService
     /// </summary>
     public async Task<GameCacheRemovalReport> RemoveEpicGameFromCacheAsync(string gameName, CancellationToken cancellationToken = default, Func<double, string, int, long, Task>? onProgress = null)
     {
+        // Sanitize user-provided game name to prevent process argument injection
+        gameName = RustProcessHelper.SanitizeProcessArgument(gameName);
+
         await _cacheLock.WaitAsync(cancellationToken);
         try
         {
@@ -1255,6 +1256,9 @@ public class CacheManagementService
     /// </summary>
     public async Task<ServiceCacheRemovalReport> RemoveServiceFromCacheAsync(string serviceName, CancellationToken cancellationToken = default, Func<double, string, int, long, Task>? onProgress = null)
     {
+        // Sanitize user-provided service name to prevent process argument injection
+        serviceName = RustProcessHelper.SanitizeProcessArgument(serviceName);
+
         await _cacheLock.WaitAsync();
         try
         {

@@ -42,32 +42,6 @@ public class SignalRNotificationService : ISignalRNotificationService
         }
     }
 
-    public async Task NotifyGroupAsync(string groupName, string eventName, object? data = null)
-    {
-        try
-        {
-            await _downloadHubContext.Clients.Group(groupName).SendAsync(eventName, data);
-            _logger.LogDebug("SignalR notification sent to group {GroupName}: {EventName}", groupName, eventName);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to send SignalR notification to group {GroupName}: {EventName}", groupName, eventName);
-        }
-    }
-
-    public async Task NotifyClientAsync(string connectionId, string eventName, object? data = null)
-    {
-        try
-        {
-            await _downloadHubContext.Clients.Client(connectionId).SendAsync(eventName, data);
-            _logger.LogDebug("SignalR notification sent to client {ConnectionId}: {EventName}", connectionId, eventName);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to send SignalR notification to client {ConnectionId}: {EventName}", connectionId, eventName);
-        }
-    }
-
     public void NotifyAllFireAndForget(string eventName, object? data = null)
     {
         _ = Task.Run(async () =>

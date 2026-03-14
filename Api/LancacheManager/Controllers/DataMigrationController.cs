@@ -6,7 +6,6 @@ using LancacheManager.Infrastructure.Utilities;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.Sqlite;
 using System.Diagnostics;
-using System.Text.Json.Serialization;
 
 namespace LancacheManager.Controllers;
 
@@ -95,9 +94,11 @@ public class DataMigrationController : ControllerBase
         try
         {
             // Build arguments for data_migrator
+            // Sanitize the user-provided database path to prevent process argument injection
+            var sanitizedSourcePath = RustProcessHelper.SanitizeProcessArgument(sourceDatabasePath);
             var batchSize = request.BatchSize ?? 1000;
             var overwriteFlag = request.OverwriteExisting ? "1" : "0";
-            var arguments = $"\"{sourceDatabasePath}\" \"{targetDatabasePath}\" \"{progressPath}\" {overwriteFlag} {batchSize}";
+            var arguments = $"\"{sanitizedSourcePath}\" \"{targetDatabasePath}\" \"{progressPath}\" {overwriteFlag} {batchSize}";
 
             _logger.LogInformation("[data_migrator] Executing: {Binary} {Args}", dataMigratorPath, arguments);
 

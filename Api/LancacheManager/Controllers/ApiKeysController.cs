@@ -1,9 +1,7 @@
 using LancacheManager.Models;
-using LancacheManager.Core.Services;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Security;
 using LancacheManager.Infrastructure.Services;
-using LancacheManager.Hubs;
 using Microsoft.AspNetCore.Mvc;
 using LancacheManager.Core.Services.SteamKit2;
 

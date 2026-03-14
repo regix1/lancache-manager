@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using LancacheManager.Core.Interfaces;
 
 namespace LancacheManager.Infrastructure.Utilities;
@@ -7,17 +8,33 @@ namespace LancacheManager.Infrastructure.Utilities;
 /// <summary>
 /// Helper class for common Rust process operations to eliminate code duplication
 /// </summary>
-public class RustProcessHelper
+public partial class RustProcessHelper
 {
     private readonly ILogger<RustProcessHelper> _logger;
     private readonly ProcessManager _processManager;
     private readonly IPathResolver _pathResolver;
+
+    // Matches characters that could be used for argument injection or shell escaping
+    [GeneratedRegex(@"[""'`$\\!;|&<>(){}\[\]\r\n\0]")]
+    private static partial Regex DangerousArgumentCharsRegex();
 
     public RustProcessHelper(ILogger<RustProcessHelper> logger, ProcessManager processManager, IPathResolver pathResolver)
     {
         _logger = logger;
         _processManager = processManager;
         _pathResolver = pathResolver;
+    }
+
+    /// <summary>
+    /// Sanitizes a user-provided string for safe use as a process argument.
+    /// Strips characters that could break quoted argument boundaries or enable injection.
+    /// </summary>
+    public static string SanitizeProcessArgument(string input)
+    {
+        if (string.IsNullOrEmpty(input))
+            return input;
+
+        return DangerousArgumentCharsRegex().Replace(input, "");
     }
 
     /// <summary>
@@ -267,6 +284,10 @@ public class RustProcessHelper
     {
         try
         {
+            // Sanitize user-provided service name to prevent process argument injection
+            if (service != null)
+                service = SanitizeProcessArgument(service);
+
             // Use path resolver to get the correct Rust binary path for the current platform
             var rustBinaryPath = _pathResolver.GetRustLogManagerPath();
             ValidateRustBinaryExists(rustBinaryPath, "log_manager");
@@ -362,6 +383,10 @@ public class RustProcessHelper
     {
         try
         {
+            // Sanitize user-provided service name to prevent process argument injection
+            if (service != null)
+                service = SanitizeProcessArgument(service);
+
             // Use path resolver to get the correct Rust binary path for the current platform
             var rustBinaryPath = _pathResolver.GetRustCorruptionManagerPath();
             ValidateRustBinaryExists(rustBinaryPath, "corruption_manager");

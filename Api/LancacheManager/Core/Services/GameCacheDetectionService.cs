@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -807,8 +806,8 @@ public class GameCacheDetectionService : IDisposable
             _logger.LogInformation("[GameDetection] Cleaned up {Count} legacy GameAppId=0 entries from cache", legacyZeroEntries.Count);
         }
 
-        var cachedGames = await dbContext.CachedGameDetections.ToListAsync();
-        var cachedServices = await dbContext.CachedServiceDetections.ToListAsync();
+        var cachedGames = await dbContext.CachedGameDetections.AsNoTracking().ToListAsync();
+        var cachedServices = await dbContext.CachedServiceDetections.AsNoTracking().ToListAsync();
 
         var games = cachedGames.Select(ConvertToGameCacheInfo).ToList();
         var services = cachedServices.Select(ConvertToServiceCacheInfo).ToList();

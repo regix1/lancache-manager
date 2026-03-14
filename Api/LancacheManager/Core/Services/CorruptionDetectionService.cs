@@ -3,7 +3,6 @@ using System.Diagnostics;
 using System.Text.Json;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Hubs;
-using LancacheManager.Infrastructure.Services;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Models;
 using LancacheManager.Infrastructure.Utilities;
@@ -404,7 +403,7 @@ public class CorruptionDetectionService
     public async Task<CachedCorruptionResult?> GetCachedDetectionAsync()
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
-        var cachedCorruption = await dbContext.CachedCorruptionDetections.ToListAsync();
+        var cachedCorruption = await dbContext.CachedCorruptionDetections.AsNoTracking().ToListAsync();
 
         if (cachedCorruption.Count == 0)
         {

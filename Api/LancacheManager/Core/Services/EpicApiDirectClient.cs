@@ -10,7 +10,7 @@ namespace LancacheManager.Core.Services;
 /// without needing a Docker container. Used by EpicMappingService for the
 /// Integrations page login flow and periodic catalog refresh.
 /// </summary>
-public class EpicApiDirectClient : IDisposable
+public class EpicApiDirectClient
 {
     private readonly HttpClient _httpClient;
     private readonly ILogger<EpicApiDirectClient> _logger;
@@ -24,10 +24,10 @@ public class EpicApiDirectClient : IDisposable
     private const string LauncherServiceUrl = "https://launcher-public-service-prod06.ol.epicgames.com";
     private const string CatalogServiceUrl = "https://catalog-public-service-prod06.ol.epicgames.com";
 
-    public EpicApiDirectClient(ILogger<EpicApiDirectClient> logger)
+    public EpicApiDirectClient(HttpClient httpClient, ILogger<EpicApiDirectClient> logger)
     {
         _logger = logger;
-        _httpClient = new HttpClient();
+        _httpClient = httpClient;
         _httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
     }
 
@@ -496,10 +496,6 @@ public class EpicApiDirectClient : IDisposable
         }
     }
 
-    public void Dispose()
-    {
-        _httpClient.Dispose();
-    }
 }
 
 #region Epic API Response Models
