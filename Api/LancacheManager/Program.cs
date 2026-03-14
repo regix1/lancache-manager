@@ -69,6 +69,7 @@ builder.Services.AddSignalR(options =>
 {
     // Use camelCase for SignalR JSON serialization to match frontend expectations
     options.PayloadSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
+    options.PayloadSerializerOptions.DictionaryKeyPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
 });
 
 // Configure CORS
