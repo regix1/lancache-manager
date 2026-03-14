@@ -429,6 +429,7 @@
   padding: 0.875rem;
   border-top: 1px solid var(--theme-border-primary);
   background-color: color-mix(in srgb, var(--theme-bg-tertiary) 30%, transparent);
+  border-radius: 0 0 var(--theme-border-radius, 0.5rem) var(--theme-border-radius, 0.5rem);
 }
 
 .prefill-history-header {
