@@ -1,5 +1,8 @@
-// Main context and hook
-export { NotificationsProvider, useNotifications } from './NotificationsContext';
+// Main context provider
+export { NotificationsProvider } from './NotificationsContext';
+
+// Hook (re-exported for backward compatibility)
+export { useNotifications } from './useNotifications';
 
 // Types (only exporting what's used externally)
 export type { UnifiedNotification } from './types';

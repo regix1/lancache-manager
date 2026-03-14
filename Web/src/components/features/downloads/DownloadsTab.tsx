@@ -13,7 +13,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { useDownloads } from '@contexts/DashboardDataContext/hooks';
-import { useTimeFilter } from '@contexts/TimeFilterContext';
+import { useTimeFilter } from '@contexts/useTimeFilter';
 import { useClientGroups } from '@contexts/useClientGroups';
 import { storage } from '@utils/storage';
 import ApiService from '@services/api.service';

@@ -5,7 +5,7 @@ import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { CacheInfoTooltip, Tooltip } from '@components/ui/Tooltip';
 import { Card } from '@components/ui/Card';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
-import { useTimezone } from '@contexts/TimezoneContext';
+import { useTimezone } from '@contexts/useTimezone';
 import { getEffectiveTimezone, formatShortDate } from '@utils/timezone';
 import { Users } from 'lucide-react';
 import type { ClientStat } from '@/types';

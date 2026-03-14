@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import ApiService from '@services/api.service';
 import { useAuth } from '@contexts/useAuth';
-import { useSignalR } from '@contexts/SignalRContext';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { ClientGroupContext } from './ClientGroupContext.types';
 import type { ClientGroup, CreateClientGroupRequest, UpdateClientGroupRequest } from '../types';
 

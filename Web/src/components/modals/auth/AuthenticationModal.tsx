@@ -4,7 +4,7 @@ import { Button } from '@components/ui/Button';
 import authService from '@services/auth.service';
 import { useAuth } from '@contexts/useAuth';
 import { useGuestConfig } from '@contexts/useGuestConfig';
-import { useSignalR } from '@contexts/SignalRContext';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useTranslation } from 'react-i18next';
 
 interface DatabaseResetStatus {

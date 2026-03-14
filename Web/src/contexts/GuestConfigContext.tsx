@@ -1,5 +1,5 @@
 import React, { useEffect, useState, type ReactNode } from 'react';
-import { useSignalR } from '@contexts/SignalRContext';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { GuestConfigContext } from './GuestConfigContext.types';
 
 export const GuestConfigProvider: React.FC<{ children: ReactNode }> = ({ children }) => {

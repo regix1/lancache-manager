@@ -4,7 +4,7 @@ import { useStats } from '@contexts/DashboardDataContext/hooks';
 import { useNotifications } from '@contexts/notifications';
 import { useMockMode } from '@contexts/useMockMode';
 import { useAuth } from '@contexts/useAuth';
-import { useSteamAuth } from '@contexts/SteamAuthContext';
+import { useSteamAuth } from '@contexts/useSteamAuth';
 import operationStateService from '@services/operationState.service';
 import ApiService from '@services/api.service';
 import { Card } from '@components/ui/Card';

@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { getServerTimezone } from '@utils/timezone';
-import { useTimezone } from '@contexts/TimezoneContext';
+import { useTimezone } from '@contexts/useTimezone';
 import { getGlobalAlwaysShowYearPreference } from '@utils/yearDisplayPreference';
 
 /**

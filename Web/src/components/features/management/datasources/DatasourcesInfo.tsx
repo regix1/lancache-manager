@@ -7,7 +7,7 @@ import { Button } from '@components/ui/Button';
 import { Modal } from '@components/ui/Modal';
 import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
 import { DatasourceListItem } from '@components/ui/DatasourceListItem';
-import { useSignalR } from '@contexts/SignalRContext';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import type { LogProcessingCompleteEvent } from '@contexts/SignalRContext/types';
 import { useNotifications } from '@contexts/notifications';
 import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';

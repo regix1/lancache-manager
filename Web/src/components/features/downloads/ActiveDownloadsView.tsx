@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Activity, HardDrive, Users, Loader2, RefreshCw } from 'lucide-react';
-import { useSpeed } from '@contexts/SpeedContext';
+import { useSpeed } from '@contexts/SpeedContext/useSpeed';
 import { formatBytes, formatSpeed } from '@utils/formatters';
 import { getServiceBadgeStyles } from '@utils/serviceColors';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';

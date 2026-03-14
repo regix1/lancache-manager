@@ -1,26 +1,6 @@
-import React, { createContext, useContext, type ReactNode } from 'react';
-import {
-  useSteamWebApiStatus as useHook,
-  type SteamWebApiStatus
-} from '@hooks/useSteamWebApiStatus';
-
-interface SteamWebApiStatusContextType {
-  status: SteamWebApiStatus | null;
-  loading: boolean;
-  error: string | null;
-  refresh: () => void;
-  updateStatus: (updater: (prev: SteamWebApiStatus | null) => SteamWebApiStatus | null) => void;
-}
-
-const SteamWebApiStatusContext = createContext<SteamWebApiStatusContextType | undefined>(undefined);
-
-export const useSteamWebApiStatus = () => {
-  const context = useContext(SteamWebApiStatusContext);
-  if (!context) {
-    throw new Error('useSteamWebApiStatus must be used within SteamWebApiStatusProvider');
-  }
-  return context;
-};
+import React, { type ReactNode } from 'react';
+import { useSteamWebApiStatus as useHook } from '@hooks/useSteamWebApiStatus';
+import { SteamWebApiStatusContext } from './SteamWebApiStatusContext.types';
 
 interface SteamWebApiStatusProviderProps {
   children: ReactNode;

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { useSignalR } from './SignalRContext';
+import { useSignalR } from './SignalRContext/useSignalR';
 import { useAuth } from './useAuth';
 import ApiService from '@services/api.service';
 import type { UserPreferencesUpdatedEvent } from './SignalRContext/types';

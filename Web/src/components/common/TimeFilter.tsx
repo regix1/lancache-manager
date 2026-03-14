@@ -12,7 +12,8 @@ import {
   ChevronRight,
   Filter
 } from 'lucide-react';
-import { useTimeFilter, type TimeRange } from '@contexts/TimeFilterContext';
+import { useTimeFilter } from '@contexts/useTimeFilter';
+import type { TimeRange } from '@contexts/TimeFilterContext.types';
 import { useEvents } from '@contexts/useEvents';
 import DateRangePicker from './DateRangePicker';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';

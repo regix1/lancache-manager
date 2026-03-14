@@ -4,7 +4,7 @@ import { Download } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import ApiService from '@services/api.service';
 import { getErrorMessage } from '@utils/error';
-import { useSignalR } from '@contexts/SignalRContext';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useAuth } from '@contexts/useAuth';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { EpicIcon } from '@components/ui/EpicIcon';

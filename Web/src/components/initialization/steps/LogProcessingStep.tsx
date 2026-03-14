@@ -12,7 +12,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { Tooltip } from '@components/ui/Tooltip';
-import { useSignalR } from '@contexts/SignalRContext';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import type {
   ProcessingProgressEvent,
   LogProcessingCompleteEvent

@@ -10,7 +10,8 @@ import { CalendarSettingsProvider } from '@contexts/CalendarSettingsContext';
 import { ClientGroupProvider } from '@contexts/ClientGroupContext';
 import { DownloadAssociationsProvider } from '@contexts/DownloadAssociationsContext';
 import { RefreshRateProvider } from '@contexts/RefreshRateContext';
-import { SignalRProvider, useSignalR } from '@contexts/SignalRContext';
+import { SignalRProvider } from '@contexts/SignalRContext';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { SpeedProvider } from '@contexts/SpeedContext';
 import { MockModeProvider } from '@contexts/MockModeContext';
 import { useMockMode } from '@contexts/useMockMode';
@@ -18,14 +19,13 @@ import { GuestConfigProvider } from '@contexts/GuestConfigContext';
 import { PicsProgressProvider } from '@contexts/PicsProgressContext';
 import { SetupStatusProvider } from '@contexts/SetupStatusContext';
 import { useSetupStatus } from '@contexts/useSetupStatus';
-import { SteamAuthProvider, useSteamAuth } from '@contexts/SteamAuthContext';
+import { SteamAuthProvider } from '@contexts/SteamAuthContext';
+import { useSteamAuth } from '@contexts/useSteamAuth';
 import { PrefillProvider } from '@contexts/PrefillContext';
 import { AuthProvider } from '@contexts/AuthContext';
 import { useAuth } from '@contexts/useAuth';
-import {
-  SteamWebApiStatusProvider,
-  useSteamWebApiStatus
-} from '@contexts/SteamWebApiStatusContext';
+import { SteamWebApiStatusProvider } from '@contexts/SteamWebApiStatusContext';
+import { useSteamWebApiStatus } from '@contexts/useSteamWebApiStatus';
 import { TimezoneProvider } from '@contexts/TimezoneContext';
 import { SessionPreferencesProvider } from '@contexts/SessionPreferencesContext';
 import { DockerSocketProvider } from '@contexts/DockerSocketContext';

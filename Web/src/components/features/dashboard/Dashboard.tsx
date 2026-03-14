@@ -20,9 +20,9 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useStats, useDownloads } from '@contexts/DashboardDataContext/hooks';
-import { useTimeFilter } from '@contexts/TimeFilterContext';
+import { useTimeFilter } from '@contexts/useTimeFilter';
 import { useEvents } from '@contexts/useEvents';
-import { useSpeed } from '@contexts/SpeedContext';
+import { useSpeed } from '@contexts/SpeedContext/useSpeed';
 import { useDraggableCards } from '@hooks/useDraggableCards';
 import { formatBytes, formatPercent } from '@utils/formatters';
 import { STORAGE_KEYS } from '@utils/constants';

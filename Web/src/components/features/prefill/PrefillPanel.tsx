@@ -11,7 +11,7 @@ import { NetworkStatusSection } from './NetworkStatusSection';
 import ApiService from '@services/api.service';
 import { usePrefillContext } from '@contexts/usePrefillContext';
 import { useAuth } from '@contexts/useAuth';
-import { useSignalR } from '@contexts/SignalRContext';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { EpicIcon } from '@components/ui/EpicIcon';
 import { API_BASE } from '@utils/constants';

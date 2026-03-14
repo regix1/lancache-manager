@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
-import { useTimezone } from '@contexts/TimezoneContext';
+import { useTimezone } from '@contexts/useTimezone';
 import { useCalendarSettings } from '@contexts/useCalendarSettings';
 import { getEffectiveTimezone, getDateInTimezone } from '@utils/timezone';
 import { getEventColorVar } from '@utils/eventColors';

@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useRef, useEffect, type ReactNode } from 'react';
 import ApiService from '@services/api.service';
-import { useSignalR } from '@contexts/SignalRContext';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useAuth } from '@contexts/useAuth';
 import type { EventSummary } from '../types';
 import { DownloadAssociationsContext } from './DownloadAssociationsContext.types';

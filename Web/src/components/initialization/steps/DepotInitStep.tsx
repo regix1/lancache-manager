@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Cloud, Database, Loader2, AlertTriangle, ArrowLeft, CheckCircle } from 'lucide-react';
 import { Button } from '@components/ui/Button';
-import { useSignalR } from '@contexts/SignalRContext';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import type {
   DepotMappingStartedEvent,
   DepotMappingProgressEvent,

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, type ReactNode } from 
 import { storage } from '@utils/storage';
 import ApiService from '@services/api.service';
 import { useAuth } from '@contexts/useAuth';
-import { useSignalR } from '@contexts/SignalRContext';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import type {
   Event,
   CreateEventRequest,

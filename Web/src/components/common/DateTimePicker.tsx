@@ -4,7 +4,7 @@ import { ChevronLeft, ChevronRight, Calendar, ChevronDown, Clock } from 'lucide-
 import { Button } from '@components/ui/Button';
 import { Modal } from '@components/ui/Modal';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
-import { useTimezone } from '@contexts/TimezoneContext';
+import { useTimezone } from '@contexts/useTimezone';
 import { getEffectiveTimezone, getDateInTimezone } from '@utils/timezone';
 
 interface DateTimePickerProps {

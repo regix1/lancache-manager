@@ -1,13 +1,5 @@
-import React, {
-  createContext,
-  useContext,
-  useState,
-  useCallback,
-  useRef,
-  useMemo,
-  type ReactNode
-} from 'react';
-import { useSignalR } from '../SignalRContext';
+import React, { useState, useCallback, useRef, useMemo, type ReactNode } from 'react';
+import { useSignalR } from '../SignalRContext/useSignalR';
 import { useAuth } from '../useAuth';
 import themeService from '@services/theme.service';
 import type {
@@ -48,7 +40,7 @@ import type {
   EpicMappingProgressEvent
 } from '../SignalRContext/types';
 
-import type { UnifiedNotification, NotificationsContextType } from './types';
+import type { UnifiedNotification } from './types';
 import {
   AUTO_DISMISS_DELAY_MS,
   NOTIFICATION_ANIMATION_DURATION_MS,
@@ -98,15 +90,7 @@ import {
   formatEpicGameMappingsUpdatedMessage
 } from './detailMessageFormatters';
 
-const NotificationsContext = createContext<NotificationsContextType | undefined>(undefined);
-
-export const useNotifications = () => {
-  const context = useContext(NotificationsContext);
-  if (!context) {
-    throw new Error('useNotifications must be used within NotificationsProvider');
-  }
-  return context;
-};
+import { NotificationsContext } from './NotificationsContext.types';
 
 interface NotificationsProviderProps {
   children: ReactNode;

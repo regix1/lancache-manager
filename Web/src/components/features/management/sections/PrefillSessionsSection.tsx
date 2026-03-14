@@ -38,7 +38,7 @@ import ApiService, {
 import { getErrorMessage } from '@utils/error';
 import { formatBytes } from '@utils/formatters';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
-import { useSignalR } from '@contexts/SignalRContext';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { cleanIpAddress } from '@components/features/user/types';
 import type {
   DaemonSessionCreatedEvent,

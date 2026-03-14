@@ -9,7 +9,7 @@ import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
 import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
 import { useSteamAuthentication } from '@hooks/useSteamAuthentication';
-import { useSteamAuth } from '@contexts/SteamAuthContext';
+import { useSteamAuth } from '@contexts/useSteamAuth';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { storage } from '@utils/storage';

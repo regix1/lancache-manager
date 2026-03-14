@@ -46,7 +46,7 @@ import authService from '@services/auth.service';
 import { getErrorMessage } from '@utils/error';
 import { useAuth } from '@contexts/useAuth';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
-import { useSignalR } from '@contexts/SignalRContext';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useSessionPreferences } from '@contexts/useSessionPreferences';
 import { useDefaultGuestPreferences } from '@hooks/useDefaultGuestPreferences';
 import { useActivityTracker } from '@hooks/useActivityTracker';

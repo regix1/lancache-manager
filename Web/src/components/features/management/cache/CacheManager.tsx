@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Server, AlertTriangle, FolderOpen, Clock, Loader2, RefreshCw } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
-import { useSignalR } from '@contexts/SignalRContext';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useCacheSize } from '@contexts/useCacheSize';
 import { useNotifications } from '@contexts/notifications';
 import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';

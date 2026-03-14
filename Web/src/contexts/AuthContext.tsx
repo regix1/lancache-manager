@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef, type ReactNode } from 'react';
 import authService, { type AuthMode, type SessionType } from '@services/auth.service';
-import { useSignalR } from './SignalRContext';
+import { useSignalR } from './SignalRContext/useSignalR';
 import { AuthContext } from './AuthContext.types';
 
 interface AuthProviderProps {

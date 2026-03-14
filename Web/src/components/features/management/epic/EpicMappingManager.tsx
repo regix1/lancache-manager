@@ -8,7 +8,7 @@ import { Button } from '@components/ui/Button';
 import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { ManagerCardHeader } from '@components/ui/ManagerCard';
-import { useSignalR } from '@contexts/SignalRContext';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import ApiService from '@services/api.service';
 import type {

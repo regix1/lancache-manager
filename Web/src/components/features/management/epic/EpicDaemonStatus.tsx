@@ -7,7 +7,7 @@ import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
 import { EpicIcon } from '@components/ui/EpicIcon';
 
 import { EpicAuthModal } from '@components/modals/auth/EpicAuthModal';
-import { useSignalR } from '@contexts/SignalRContext';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useEpicMappingAuth } from '@hooks/useEpicMappingAuth';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';

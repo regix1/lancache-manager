@@ -1,12 +1,4 @@
-import React, {
-  createContext,
-  useContext,
-  useState,
-  useEffect,
-  useSyncExternalStore,
-  useCallback,
-  useMemo
-} from 'react';
+import React, { useState, useEffect, useSyncExternalStore, useCallback, useMemo } from 'react';
 import { useSessionPreferences } from './useSessionPreferences';
 import { setGlobalTimezonePreference } from '@utils/timezonePreference';
 import { setGlobal24HourPreference } from '@utils/timeFormatPreference';
@@ -19,30 +11,9 @@ import {
   subscribe as subscribeToPending,
   getPendingValue
 } from '@utils/pendingPreferences';
+import { TimezoneContext } from './TimezoneContext.types';
 
 type TimeSettingValue = 'server-24h' | 'server-12h' | 'local-24h' | 'local-12h';
-
-interface TimezoneContextType {
-  useLocalTimezone: boolean;
-  use24HourFormat: boolean;
-  refreshKey: number;
-  setPendingTimeSetting: (value: TimeSettingValue | null) => void;
-  forceRefresh: () => void;
-}
-
-const TimezoneContext = createContext<TimezoneContextType>({
-  useLocalTimezone: false,
-  use24HourFormat: true,
-  refreshKey: 0,
-  setPendingTimeSetting: () => {
-    /* noop */
-  },
-  forceRefresh: () => {
-    /* noop */
-  }
-});
-
-export const useTimezone = () => useContext(TimezoneContext);
 
 export const TimezoneProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { currentPreferences } = useSessionPreferences();

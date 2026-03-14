@@ -1,28 +1,11 @@
-import React, {
-  createContext,
-  useContext,
-  useEffect,
-  useState,
-  useCallback,
-  useMemo,
-  useRef
-} from 'react';
-import { useSignalR } from '@contexts/SignalRContext';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useRefreshRate } from '@contexts/useRefreshRate';
 import { useAuth } from '@contexts/useAuth';
 import ApiService from '@services/api.service';
 import type { DownloadSpeedSnapshot, GameSpeedInfo, ClientSpeedInfo } from '../../types';
 import type { SpeedContextType, SpeedProviderProps } from './types';
-
-const SpeedContext = createContext<SpeedContextType | undefined>(undefined);
-
-export const useSpeed = (): SpeedContextType => {
-  const context = useContext(SpeedContext);
-  if (!context) {
-    throw new Error('useSpeed must be used within SpeedProvider');
-  }
-  return context;
-};
+import { SpeedContext } from './SpeedContext.types';
 
 export const SpeedProvider: React.FC<SpeedProviderProps> = ({ children }: SpeedProviderProps) => {
   const signalR = useSignalR();

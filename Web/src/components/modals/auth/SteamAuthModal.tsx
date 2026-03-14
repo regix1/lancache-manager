@@ -3,7 +3,7 @@ import { Key, Lock, Loader2, Shield, Mail, Smartphone } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
 import { type SteamLoginFlowState, type SteamAuthActions } from '@hooks/useSteamAuthentication';
-import { useSignalR } from '@contexts/SignalRContext';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useTranslation } from 'react-i18next';
 
 interface SteamAuthModalProps {

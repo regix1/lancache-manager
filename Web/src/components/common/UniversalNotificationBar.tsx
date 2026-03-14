@@ -18,7 +18,7 @@ import {
   type UnifiedNotification,
   NOTIFICATION_ANIMATION_DURATION_MS
 } from '@contexts/notifications';
-import { useSteamWebApiStatus } from '@contexts/SteamWebApiStatusContext';
+import { useSteamWebApiStatus } from '@contexts/useSteamWebApiStatus';
 import themeService from '@services/theme.service';
 import { Tooltip } from '@components/ui/Tooltip';
 import { formatBytes } from '@utils/formatters';

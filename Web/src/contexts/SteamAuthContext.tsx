@@ -1,15 +1,9 @@
-import React, {
-  createContext,
-  useContext,
-  useEffect,
-  useState,
-  useCallback,
-  type ReactNode
-} from 'react';
+import React, { useEffect, useState, useCallback, type ReactNode } from 'react';
 import ApiService from '@services/api.service';
-import { useSignalR } from '@contexts/SignalRContext';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useAuth } from '@contexts/useAuth';
 import type { SteamAutoLogoutEvent, SteamSessionErrorEvent } from '@contexts/SignalRContext/types';
+import { SteamAuthContext } from './SteamAuthContext.types';
 
 type SteamAuthMode = 'anonymous' | 'authenticated';
 
@@ -18,27 +12,6 @@ interface SteamAuthenticationState {
   username?: string;
   isAuthenticated: boolean;
 }
-
-interface SteamAuthContextType {
-  steamAuthMode: SteamAuthMode;
-  username: string;
-  isLoading: boolean;
-  autoLogoutMessage: string | null;
-  refreshSteamAuth: () => Promise<void>;
-  setSteamAuthMode: (mode: SteamAuthMode) => void;
-  setUsername: (username: string) => void;
-  clearAutoLogoutMessage: () => void;
-}
-
-const SteamAuthContext = createContext<SteamAuthContextType | undefined>(undefined);
-
-export const useSteamAuth = () => {
-  const context = useContext(SteamAuthContext);
-  if (!context) {
-    throw new Error('useSteamAuth must be used within SteamAuthProvider');
-  }
-  return context;
-};
 
 interface SteamAuthProviderProps {
   children: ReactNode;

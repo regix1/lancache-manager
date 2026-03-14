@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, type ReactNode } from 'react';
-import { useSignalR } from '@contexts/SignalRContext';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useAuth } from '@contexts/useAuth';
 import type {
   DepotMappingStartedEvent,

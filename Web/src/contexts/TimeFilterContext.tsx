@@ -1,48 +1,6 @@
-import React, {
-  createContext,
-  useContext,
-  useState,
-  useEffect,
-  useCallback,
-  useMemo,
-  type ReactNode
-} from 'react';
+import React, { useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
 import { storage } from '@utils/storage';
-
-// Time range controls WHEN to look at data
-// Event filter (selectedEventId) controls WHAT data to show (all or only tagged to event)
-export type TimeRange = '1h' | '6h' | '12h' | '24h' | '7d' | '30d' | 'live' | 'custom';
-
-interface TimeFilterContextType {
-  timeRange: TimeRange;
-  setTimeRange: (range: TimeRange) => void;
-  customStartDate: Date | null;
-  customEndDate: Date | null;
-  setCustomStartDate: (date: Date | null) => void;
-  setCustomEndDate: (date: Date | null) => void;
-  getTimeRangeInHours: () => number;
-  getTimeRangeParams: () => { startTime?: number; endTime?: number };
-  // Anchor time for rolling time ranges - prevents time drift between fetches
-  rangeAnchorTime: number | null;
-  // Extends the anchor forward by re-anchoring to current time (for SignalR updates)
-  extendTimeAnchor: () => void;
-  // Event filter: optional filter to show only downloads tagged to specific events
-  // This is independent of time range - you can combine any time range with an event filter
-  selectedEventIds: number[];
-  setSelectedEventIds: (ids: number[]) => void;
-  toggleEventId: (id: number) => void;
-  clearEventFilter: () => void;
-}
-
-const TimeFilterContext = createContext<TimeFilterContextType | undefined>(undefined);
-
-export const useTimeFilter = () => {
-  const context = useContext(TimeFilterContext);
-  if (!context) {
-    throw new Error('useTimeFilter must be used within a TimeFilterProvider');
-  }
-  return context;
-};
+import { TimeFilterContext, type TimeRange } from './TimeFilterContext.types';
 
 interface TimeFilterProviderProps {
   children: ReactNode;

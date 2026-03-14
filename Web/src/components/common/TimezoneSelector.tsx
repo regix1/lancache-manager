@@ -4,7 +4,7 @@ import { Clock, Globe, MapPin } from 'lucide-react';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import preferencesService from '@services/preferences.service';
 import { useSessionPreferences } from '@contexts/useSessionPreferences';
-import { useTimezone } from '@contexts/TimezoneContext';
+import { useTimezone } from '@contexts/useTimezone';
 import { useAuth } from '@contexts/useAuth';
 import { useDefaultGuestPreferences } from '@hooks/useDefaultGuestPreferences';
 import { getEffectiveTimezone, getTimeInTimezone } from '@utils/timezone';

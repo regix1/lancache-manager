@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import ApiService from '@services/api.service';
-import { useSignalR } from '@contexts/SignalRContext';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 
 interface DirectoryPermissions {
   logsReadOnly: boolean;

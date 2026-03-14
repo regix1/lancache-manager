@@ -4,7 +4,7 @@ import { Users, Settings2 } from 'lucide-react';
 import ApiService from '@services/api.service';
 import themeService from '@services/theme.service';
 import { getErrorMessage } from '@utils/error';
-import { useSignalR } from '@contexts/SignalRContext';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import ActiveSessions from './ActiveSessions';
 import GuestConfiguration from './GuestConfiguration';

@@ -4,7 +4,7 @@ import { Gamepad2, Search } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { DataTable, type DataTableColumn } from '@components/ui/DataTable';
 import { Tooltip } from '@components/ui/Tooltip';
-import { useSignalR } from '@contexts/SignalRContext';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import ApiService from '@services/api.service';
 import type { EpicGameMappingDto, EpicMappingStats } from '../../../../types';

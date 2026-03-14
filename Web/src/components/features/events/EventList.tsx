@@ -11,8 +11,8 @@ import {
   Pencil,
   BarChart3
 } from 'lucide-react';
-import { useTimezone } from '@contexts/TimezoneContext';
-import { useTimeFilter } from '@contexts/TimeFilterContext';
+import { useTimezone } from '@contexts/useTimezone';
+import { useTimeFilter } from '@contexts/useTimeFilter';
 import { Tooltip } from '@components/ui/Tooltip';
 import { formatBytes } from '@utils/formatters';
 import { getEventColorStyles, getEventColorVar } from '@utils/eventColors';

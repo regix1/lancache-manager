@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { REFRESH_RATES, type RefreshRate } from '@utils/constants';
-import { useSignalR } from '@contexts/SignalRContext';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useAuth } from '@contexts/useAuth';
 import { useSessionPreferences } from '@contexts/useSessionPreferences';
 import type {

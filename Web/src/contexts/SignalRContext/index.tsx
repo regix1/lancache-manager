@@ -1,28 +1,11 @@
-import React, {
-  createContext,
-  useContext,
-  useEffect,
-  useRef,
-  useState,
-  useCallback,
-  useMemo
-} from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import * as signalR from '@microsoft/signalr';
 import { SIGNALR_BASE } from '@utils/constants';
 import type { SignalRContextType, SignalRProviderProps, EventHandler } from './types';
 // eslint-disable-next-line no-duplicate-imports
 import { SIGNALR_EVENTS } from './types';
 import authService from '@services/auth.service';
-
-const SignalRContext = createContext<SignalRContextType | undefined>(undefined);
-
-export const useSignalR = () => {
-  const context = useContext(SignalRContext);
-  if (!context) {
-    throw new Error('useSignalR must be used within SignalRProvider');
-  }
-  return context;
-};
+import { SignalRContext } from './SignalRContext.types';
 
 export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mockMode = false }) => {
   const [isConnected, setIsConnected] = useState(false);
