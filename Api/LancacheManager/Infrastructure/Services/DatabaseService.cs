@@ -1096,32 +1096,6 @@ public class DatabaseService : IDatabaseService
         await _context.SaveChangesAsync();
     }
 
-    public async Task<List<Download>> GetDownloadsWithBadImageUrls()
-    {
-        return await _context.Downloads
-            .Where(d => d.GameImageUrl != null && d.GameImageUrl.Contains("cdn.akamai.steamstatic.com"))
-            .ToListAsync();
-    }
-
-    public async Task<int> FixBadImageUrls()
-    {
-        var badImageUrls = await GetDownloadsWithBadImageUrls();
-
-        if (badImageUrls.Any())
-        {
-            // Clear bad image URLs - they will be backfilled from Steam API
-            foreach (var download in badImageUrls)
-            {
-                download.GameImageUrl = null;
-            }
-
-            await _context.SaveChangesAsync();
-            return badImageUrls.Count;
-        }
-
-        return 0;
-    }
-
     public async Task<int> ClearDepotMappings()
     {
         try

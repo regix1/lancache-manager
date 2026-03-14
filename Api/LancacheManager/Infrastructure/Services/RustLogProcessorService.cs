@@ -875,9 +875,9 @@ public class RustLogProcessorService
             var updated = 0;
             foreach (var download in downloadsNeedingImages)
             {
-                if (download.EpicAppId != null && imageLookup.TryGetValue(download.EpicAppId, out var imageUrl))
+                if (download.EpicAppId != null && imageLookup.TryGetValue(download.EpicAppId, out var imageUrl) && imageUrl != null)
                 {
-                    download.GameImageUrl = imageUrl;
+                    download.GameImageUrl = EpicApiDirectClient.EnsureResizeParams(imageUrl);
                     updated++;
                 }
             }
