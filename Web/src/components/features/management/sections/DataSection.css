@@ -1,9 +1,7 @@
-@layer components {
-  .db-table-item {
-    border: 1px solid var(--theme-border-primary);
-  }
+.db-table-item {
+  border: 1px solid var(--theme-border-primary);
+}
 
-  .db-table-item-selected {
-    border-color: var(--theme-primary);
-  }
+.db-table-item-selected {
+  border-color: var(--theme-primary);
 }
