@@ -21,7 +21,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { useStats, useDownloads } from '@contexts/DashboardDataContext/hooks';
 import { useTimeFilter } from '@contexts/TimeFilterContext';
-import { useEvents } from '@contexts/EventContext';
+import { useEvents } from '@contexts/useEvents';
 import { useSpeed } from '@contexts/SpeedContext';
 import { useDraggableCards } from '@hooks/useDraggableCards';
 import { formatBytes, formatPercent } from '@utils/formatters';

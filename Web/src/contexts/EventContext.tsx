@@ -1,12 +1,4 @@
-import React, {
-  createContext,
-  useContext,
-  useState,
-  useEffect,
-  useCallback,
-  useRef,
-  type ReactNode
-} from 'react';
+import React, { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { storage } from '@utils/storage';
 import ApiService from '@services/api.service';
 import { useAuth } from '@contexts/useAuth';
@@ -18,43 +10,7 @@ import type {
   EventFilterMode,
   EventDataStackMode
 } from '../types';
-
-interface EventContextType {
-  // Event data
-  events: Event[];
-  activeEvents: Event[];
-  selectedEventId: number | null;
-  selectedEvent: Event | null;
-
-  // Filter settings
-  filterMode: EventFilterMode;
-  dataStackMode: EventDataStackMode;
-
-  // Loading/error states
-  loading: boolean;
-  error: string | null;
-
-  // Actions
-  setSelectedEventId: (id: number | null) => void;
-  setFilterMode: (mode: EventFilterMode) => void;
-  setDataStackMode: (mode: EventDataStackMode) => void;
-
-  // CRUD operations
-  createEvent: (data: CreateEventRequest) => Promise<Event>;
-  updateEvent: (id: number, data: UpdateEventRequest) => Promise<Event>;
-  deleteEvent: (id: number) => Promise<void>;
-  refreshEvents: () => Promise<void>;
-}
-
-const EventContext = createContext<EventContextType | undefined>(undefined);
-
-export const useEvents = () => {
-  const context = useContext(EventContext);
-  if (!context) {
-    throw new Error('useEvents must be used within an EventProvider');
-  }
-  return context;
-};
+import { EventContext } from './EventContext.types';
 
 interface EventProviderProps {
   children: ReactNode;

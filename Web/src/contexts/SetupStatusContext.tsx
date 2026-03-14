@@ -1,30 +1,14 @@
-import React, { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import React, { useEffect, useState, type ReactNode } from 'react';
 import { useAuth } from '@contexts/useAuth';
 import ApiService from '@services/api.service';
 import { API_BASE } from '@utils/constants';
+import { SetupStatusContext } from './SetupStatusContext.types';
 
 interface SetupStatus {
   isCompleted: boolean;
   hasProcessedLogs: boolean;
   isSetupCompleted: boolean;
 }
-
-interface SetupStatusContextType {
-  setupStatus: SetupStatus | null;
-  isLoading: boolean;
-  refreshSetupStatus: () => Promise<void>;
-  markSetupCompleted: () => void;
-}
-
-const SetupStatusContext = createContext<SetupStatusContextType | undefined>(undefined);
-
-export const useSetupStatus = () => {
-  const context = useContext(SetupStatusContext);
-  if (!context) {
-    throw new Error('useSetupStatus must be used within SetupStatusProvider');
-  }
-  return context;
-};
 
 interface SetupStatusProviderProps {
   children: ReactNode;

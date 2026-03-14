@@ -4,7 +4,7 @@ import ApiService from '@services/api.service';
 import { isAbortError } from '@utils/error';
 import MockDataService from '../../test/mockData.service';
 import { useTimeFilter } from '../TimeFilterContext';
-import { useRefreshRate } from '../RefreshRateContext';
+import { useRefreshRate } from '../useRefreshRate';
 import { useSignalR } from '../SignalRContext';
 import { useAuth } from '../useAuth';
 import { SIGNALR_REFRESH_EVENTS } from '../SignalRContext/types';

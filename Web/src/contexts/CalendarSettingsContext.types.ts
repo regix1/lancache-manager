@@ -19,7 +19,7 @@ interface CalendarSettings {
   compactMode: boolean;
 }
 
-export interface CalendarSettingsContextType {
+interface CalendarSettingsContextType {
   settings: CalendarSettings;
   updateSettings: (updates: Partial<CalendarSettings>) => void;
   resetSettings: () => void;

@@ -1,7 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Lightbulb, Gauge, Zap, Lock } from 'lucide-react';
-import { useRefreshRate } from '@contexts/RefreshRateContext';
+import { useRefreshRate } from '@contexts/useRefreshRate';
 import { type RefreshRate } from '@utils/constants';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { Tooltip } from '@components/ui/Tooltip';

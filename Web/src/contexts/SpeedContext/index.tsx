@@ -8,7 +8,7 @@ import React, {
   useRef
 } from 'react';
 import { useSignalR } from '@contexts/SignalRContext';
-import { useRefreshRate } from '@contexts/RefreshRateContext';
+import { useRefreshRate } from '@contexts/useRefreshRate';
 import { useAuth } from '@contexts/useAuth';
 import ApiService from '@services/api.service';
 import type { DownloadSpeedSnapshot, GameSpeedInfo, ClientSpeedInfo } from '../../types';

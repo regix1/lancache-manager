@@ -8,7 +8,7 @@ import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
 import { FullScanRequiredModal } from '@components/modals/setup/FullScanRequiredModal';
 import { useNotifications } from '@contexts/notifications';
-import { usePicsProgress } from '@contexts/PicsProgressContext';
+import { usePicsProgress } from '@contexts/usePicsProgress';
 import { useSteamWebApiStatus } from '@contexts/SteamWebApiStatusContext';
 import { formatNextCrawlTime, toTotalSeconds } from '@utils/timeFormatters';
 import { storage } from '@utils/storage';

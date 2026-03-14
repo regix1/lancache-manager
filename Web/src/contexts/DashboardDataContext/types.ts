@@ -1,7 +1,7 @@
 import { createContext, type ReactNode } from 'react';
 import type { CacheInfo, ClientStat, ServiceStat, DashboardStats, Download } from '../../types';
 
-export interface DashboardDataContextType {
+interface DashboardDataContextType {
   // Cache info
   cacheInfo: CacheInfo | null;
 

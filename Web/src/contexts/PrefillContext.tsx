@@ -1,47 +1,17 @@
-import React, {
-  createContext,
-  useContext,
-  useState,
-  useCallback,
-  useRef,
-  type ReactNode
-} from 'react';
+import React, { useState, useCallback, useRef, type ReactNode } from 'react';
 import {
   createLogEntry,
   type LogEntry,
   type LogEntryType
 } from '@components/features/prefill/ActivityLog.utils';
 import type { BackgroundCompletion } from '@components/features/prefill/hooks/prefillTypes';
+import { PrefillContext } from './PrefillContext.types';
 
 const STORAGE_KEY = 'prefill_activity_log';
 const BACKGROUND_COMPLETION_KEY = 'prefill_background_completion';
 const DISMISSED_COMPLETION_KEY = 'prefill_dismissed_completion_at';
 const MAX_LOG_ENTRIES = 500; // Limit stored entries to prevent storage bloat
 const LOG_DEDUPE_WINDOW_MS = 2000; // Deduplicate identical logs within 2 seconds
-
-interface PrefillContextType {
-  logEntries: LogEntry[];
-  addLog: (type: LogEntryType, message: string, details?: string) => void;
-  clearLogs: () => void;
-  // Background completion notification
-  backgroundCompletion: BackgroundCompletion | null;
-  setBackgroundCompletion: (completion: BackgroundCompletion | null) => void;
-  clearBackgroundCompletion: () => void;
-  // Track dismissed completion to prevent re-showing
-  isCompletionDismissed: (completedAt: string) => boolean;
-  // Clear all prefill-related storage (for session end/cleanup)
-  clearAllPrefillStorage: () => void;
-}
-
-const PrefillContext = createContext<PrefillContextType | undefined>(undefined);
-
-export const usePrefillContext = () => {
-  const context = useContext(PrefillContext);
-  if (!context) {
-    throw new Error('usePrefillContext must be used within PrefillProvider');
-  }
-  return context;
-};
 
 interface PrefillProviderProps {
   children: ReactNode;

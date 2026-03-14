@@ -4,7 +4,7 @@ import { Brush, Bell, Database, Calendar } from 'lucide-react';
 import { Checkbox } from '@components/ui/Checkbox';
 import preferencesService from '@services/preferences.service';
 import themeService from '@services/theme.service';
-import { useSessionPreferences } from '@contexts/SessionPreferencesContext';
+import { useSessionPreferences } from '@contexts/useSessionPreferences';
 import { useTimezone } from '@contexts/TimezoneContext';
 import { setGlobalAlwaysShowYearPreference } from '@utils/yearDisplayPreference';
 

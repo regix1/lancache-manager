@@ -18,7 +18,7 @@ import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
 
 import SteamWebApiKeyModal from '@components/modals/setup/SteamWebApiKeyModal';
 import { useSteamWebApiStatus } from '@contexts/SteamWebApiStatusContext';
-import { usePicsProgress } from '@contexts/PicsProgressContext';
+import { usePicsProgress } from '@contexts/usePicsProgress';
 import ApiService from '@services/api.service';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 

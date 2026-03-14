@@ -33,7 +33,7 @@ import { XboxIcon } from '@components/ui/XboxIcon';
 import { UnknownServiceIcon } from '@components/ui/UnknownServiceIcon';
 import { GameImage } from '@components/common/GameImage';
 import { HardDrive, Download, Zap } from 'lucide-react';
-import { useDownloadAssociations } from '@contexts/DownloadAssociationsContext';
+import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import DownloadBadges from './DownloadBadges';
 import type { Download as DownloadType, DownloadGroup, EventSummary } from '../../../types';
 

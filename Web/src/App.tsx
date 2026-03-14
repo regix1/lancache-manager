@@ -12,10 +12,12 @@ import { DownloadAssociationsProvider } from '@contexts/DownloadAssociationsCont
 import { RefreshRateProvider } from '@contexts/RefreshRateContext';
 import { SignalRProvider, useSignalR } from '@contexts/SignalRContext';
 import { SpeedProvider } from '@contexts/SpeedContext';
-import { MockModeProvider, useMockMode } from '@contexts/MockModeContext';
+import { MockModeProvider } from '@contexts/MockModeContext';
+import { useMockMode } from '@contexts/useMockMode';
 import { GuestConfigProvider } from '@contexts/GuestConfigContext';
 import { PicsProgressProvider } from '@contexts/PicsProgressContext';
-import { SetupStatusProvider, useSetupStatus } from '@contexts/SetupStatusContext';
+import { SetupStatusProvider } from '@contexts/SetupStatusContext';
+import { useSetupStatus } from '@contexts/useSetupStatus';
 import { SteamAuthProvider, useSteamAuth } from '@contexts/SteamAuthContext';
 import { PrefillProvider } from '@contexts/PrefillContext';
 import { AuthProvider } from '@contexts/AuthContext';

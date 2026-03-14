@@ -19,7 +19,7 @@ import { useTranslation } from 'react-i18next';
 import themeService from '@services/theme.service';
 import preferencesService from '@services/preferences.service';
 import authService from '@services/auth.service';
-import { useSessionPreferences } from '@contexts/SessionPreferencesContext';
+import { useSessionPreferences } from '@contexts/useSessionPreferences';
 import ApiService from '@services/api.service';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';

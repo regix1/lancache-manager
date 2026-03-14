@@ -7,7 +7,7 @@ import Sparkline from '../components/Sparkline';
 import ApiService from '@services/api.service';
 import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
 import { useTimeFilter } from '@contexts/TimeFilterContext';
-import { useMockMode } from '@contexts/MockModeContext';
+import { useMockMode } from '@contexts/useMockMode';
 import MockDataService from '../../../../test/mockData.service';
 
 interface CacheGrowthTrendProps {

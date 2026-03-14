@@ -8,7 +8,7 @@ import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { useDownloads } from '@contexts/DashboardDataContext/hooks';
-import { useDownloadAssociations } from '@contexts/DownloadAssociationsContext';
+import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import { useClientGroups } from '@contexts/useClientGroups';
 import { useSpeed } from '@contexts/SpeedContext';
 import { useTimeFilter } from '@contexts/TimeFilterContext';

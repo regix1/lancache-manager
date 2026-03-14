@@ -1,19 +1,5 @@
-import React, { createContext, useContext, useState, type ReactNode } from 'react';
-
-interface MockModeContextType {
-  mockMode: boolean;
-  setMockMode: (mode: boolean) => void;
-}
-
-const MockModeContext = createContext<MockModeContextType | undefined>(undefined);
-
-export const useMockMode = () => {
-  const context = useContext(MockModeContext);
-  if (!context) {
-    throw new Error('useMockMode must be used within MockModeProvider');
-  }
-  return context;
-};
+import React, { useState, type ReactNode } from 'react';
+import { MockModeContext } from './MockModeContext.types';
 
 interface MockModeProviderProps {
   children: ReactNode;

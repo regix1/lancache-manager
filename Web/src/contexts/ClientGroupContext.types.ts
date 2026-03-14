@@ -1,7 +1,7 @@
 import { createContext } from 'react';
 import type { ClientGroup, CreateClientGroupRequest, UpdateClientGroupRequest } from '../types';
 
-export interface ClientGroupContextType {
+interface ClientGroupContextType {
   // Client group data
   clientGroups: ClientGroup[];
 

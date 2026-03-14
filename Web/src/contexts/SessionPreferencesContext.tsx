@@ -1,12 +1,4 @@
-import React, {
-  createContext,
-  useContext,
-  useState,
-  useEffect,
-  useCallback,
-  useMemo,
-  useRef
-} from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useSignalR } from './SignalRContext';
 import { useAuth } from './useAuth';
 import ApiService from '@services/api.service';
@@ -16,6 +8,7 @@ import {
   getCorrectedValue,
   hasPendingPreference
 } from '@utils/pendingPreferences';
+import { SessionPreferencesContext } from './SessionPreferencesContext.types';
 
 interface UserPreferences {
   selectedTheme: string | null;
@@ -47,33 +40,6 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   refreshRate: null,
   refreshRateLocked: null,
   allowedTimeFormats: null
-};
-
-interface SessionPreferencesContextType {
-  getSessionPreferences: (sessionId: string) => UserPreferences | null;
-  currentPreferences: UserPreferences | null;
-  isLoaded: (sessionId: string) => boolean;
-  isLoading: (sessionId: string) => boolean;
-  loadSessionPreferences: (sessionId: string) => Promise<void>;
-  setOptimisticPreference: <K extends keyof UserPreferences>(
-    key: K,
-    value: UserPreferences[K]
-  ) => void;
-  updateSessionPreference: <K extends keyof UserPreferences>(
-    sessionId: string,
-    key: K,
-    value: UserPreferences[K]
-  ) => void;
-}
-
-const SessionPreferencesContext = createContext<SessionPreferencesContextType | null>(null);
-
-export const useSessionPreferences = () => {
-  const context = useContext(SessionPreferencesContext);
-  if (!context) {
-    throw new Error('useSessionPreferences must be used within a SessionPreferencesProvider');
-  }
-  return context;
 };
 
 export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }> = ({
@@ -350,7 +316,7 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
     return sessionId ? preferences[sessionId] || null : null;
   }, [preferences, getCurrentSessionId]);
 
-  const contextValue = useMemo<SessionPreferencesContextType>(
+  const contextValue = useMemo(
     () => ({
       getSessionPreferences,
       currentPreferences,

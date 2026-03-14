@@ -1,21 +1,6 @@
-import React, { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import React, { useEffect, useState, type ReactNode } from 'react';
 import { useSignalR } from '@contexts/SignalRContext';
-
-interface GuestConfigContextType {
-  guestDurationHours: number;
-  guestModeLocked: boolean;
-  isLoading: boolean;
-}
-
-const GuestConfigContext = createContext<GuestConfigContextType | undefined>(undefined);
-
-export const useGuestConfig = () => {
-  const context = useContext(GuestConfigContext);
-  if (!context) {
-    throw new Error('useGuestConfig must be used within GuestConfigProvider');
-  }
-  return context;
-};
+import { GuestConfigContext } from './GuestConfigContext.types';
 
 export const GuestConfigProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const signalR = useSignalR();

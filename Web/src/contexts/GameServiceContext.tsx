@@ -1,23 +1,8 @@
-import React, { createContext, useContext, useState, useCallback, type ReactNode } from 'react';
+import React, { useState, useCallback, type ReactNode } from 'react';
 import { GAME_SERVICES, type GameServiceConfig, type GameServiceId } from '@/types/gameService';
+import { GameServiceContext } from './GameServiceContext.types';
 
 const STORAGE_KEY = 'lancache-selected-service';
-
-interface GameServiceContextType {
-  selectedService: GameServiceId;
-  setSelectedService: (id: GameServiceId) => void;
-  availableServices: GameServiceConfig[];
-}
-
-const GameServiceContext = createContext<GameServiceContextType | undefined>(undefined);
-
-export const useGameService = (): GameServiceContextType => {
-  const context = useContext(GameServiceContext);
-  if (!context) {
-    throw new Error('useGameService must be used within GameServiceProvider');
-  }
-  return context;
-};
 
 function loadPersistedService(): GameServiceId {
   try {

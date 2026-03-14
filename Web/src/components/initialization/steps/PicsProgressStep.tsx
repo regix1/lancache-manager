@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Database, CheckCircle, Loader2 } from 'lucide-react';
 import { Button } from '@components/ui/Button';
-import { usePicsProgress } from '@contexts/PicsProgressContext';
+import { usePicsProgress } from '@contexts/usePicsProgress';
 import ApiService from '@services/api.service';
 
 interface PicsProgressStepProps {

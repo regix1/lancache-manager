@@ -17,7 +17,7 @@ import { useTimeFilter } from '@contexts/TimeFilterContext';
 import { useClientGroups } from '@contexts/useClientGroups';
 import { storage } from '@utils/storage';
 import ApiService from '@services/api.service';
-import { useSessionPreferences } from '@contexts/SessionPreferencesContext';
+import { useSessionPreferences } from '@contexts/useSessionPreferences';
 import { formatDateTime } from '@utils/formatters';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';

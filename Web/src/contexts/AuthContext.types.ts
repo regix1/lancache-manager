@@ -1,7 +1,7 @@
 import { createContext } from 'react';
 import type { AuthMode, SessionType } from '@services/auth.service';
 
-export interface AuthContextType {
+interface AuthContextType {
   isAdmin: boolean;
   hasSession: boolean;
   authMode: AuthMode;

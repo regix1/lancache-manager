@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { CalendarDays, Plus, List, LayoutGrid, Loader2, Sparkles } from 'lucide-react';
-import { useEvents } from '@contexts/EventContext';
+import { useEvents } from '@contexts/useEvents';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { SegmentedControl } from '@components/ui/SegmentedControl';

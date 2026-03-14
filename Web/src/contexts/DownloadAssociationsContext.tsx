@@ -1,36 +1,15 @@
-import React, {
-  createContext,
-  useContext,
-  useState,
-  useCallback,
-  useRef,
-  useEffect,
-  type ReactNode
-} from 'react';
+import React, { useState, useCallback, useRef, useEffect, type ReactNode } from 'react';
 import ApiService from '@services/api.service';
 import { useSignalR } from '@contexts/SignalRContext';
 import { useAuth } from '@contexts/useAuth';
 import type { EventSummary } from '../types';
+import { DownloadAssociationsContext } from './DownloadAssociationsContext.types';
 
 interface DownloadAssociations {
   events: EventSummary[];
 }
 
 type AssociationsCache = Record<number, DownloadAssociations>;
-
-interface DownloadAssociationsContextType {
-  associations: AssociationsCache;
-  loading: boolean;
-  fetchAssociations: (downloadIds: number[]) => Promise<void>;
-  getAssociations: (downloadId: number) => DownloadAssociations;
-  clearCache: () => void;
-  /** Increments when cache is invalidated - include in useEffect deps to trigger re-fetch */
-  refreshVersion: number;
-}
-
-const DownloadAssociationsContext = createContext<DownloadAssociationsContextType | undefined>(
-  undefined
-);
 
 interface DownloadAssociationsProviderProps {
   children: ReactNode;
@@ -229,12 +208,4 @@ export const DownloadAssociationsProvider: React.FC<DownloadAssociationsProvider
       {children}
     </DownloadAssociationsContext.Provider>
   );
-};
-
-export const useDownloadAssociations = (): DownloadAssociationsContextType => {
-  const context = useContext(DownloadAssociationsContext);
-  if (context === undefined) {
-    throw new Error('useDownloadAssociations must be used within a DownloadAssociationsProvider');
-  }
-  return context;
 };

@@ -1,7 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import EventFrame from '@components/ui/EventFrame';
-import { useEvents } from '@contexts/EventContext';
+import { useEvents } from '@contexts/useEvents';
 import { getEventColorVar } from '@utils/eventColors';
 
 interface ActiveEventBorderProps {

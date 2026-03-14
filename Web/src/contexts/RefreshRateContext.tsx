@@ -1,38 +1,14 @@
-import React, {
-  createContext,
-  useContext,
-  useState,
-  useEffect,
-  useCallback,
-  useRef,
-  type ReactNode
-} from 'react';
+import React, { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { REFRESH_RATES, type RefreshRate } from '@utils/constants';
 import { useSignalR } from '@contexts/SignalRContext';
 import { useAuth } from '@contexts/useAuth';
-import { useSessionPreferences } from '@contexts/SessionPreferencesContext';
+import { useSessionPreferences } from '@contexts/useSessionPreferences';
 import type {
   GuestRefreshRateUpdatedEvent,
   DefaultGuestRefreshRateChangedEvent,
   GuestRefreshRateLockChangedEvent
 } from '@contexts/SignalRContext/types';
-
-interface RefreshRateContextType {
-  refreshRate: RefreshRate;
-  setRefreshRate: (rate: RefreshRate) => void;
-  getRefreshInterval: () => number;
-  isControlledByAdmin: boolean; // True for guests - they can't change their refresh rate
-}
-
-const RefreshRateContext = createContext<RefreshRateContextType | undefined>(undefined);
-
-export const useRefreshRate = () => {
-  const context = useContext(RefreshRateContext);
-  if (!context) {
-    throw new Error('useRefreshRate must be used within RefreshRateProvider');
-  }
-  return context;
-};
+import { RefreshRateContext } from './RefreshRateContext.types';
 
 export const RefreshRateProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   // Default to STANDARD (10s) until we fetch from API
@@ -224,7 +200,7 @@ export const RefreshRateProvider: React.FC<{ children: ReactNode }> = ({ childre
     return REFRESH_RATES[refreshRate];
   }, [refreshRate]);
 
-  const value: RefreshRateContextType = {
+  const value = {
     refreshRate,
     setRefreshRate,
     getRefreshInterval,

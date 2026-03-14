@@ -7,7 +7,7 @@ import { Tooltip } from '@components/ui/Tooltip';
 import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
 import { useTimezone } from '@contexts/TimezoneContext';
 import { useTimeFilter } from '@contexts/TimeFilterContext';
-import { useMockMode } from '@contexts/MockModeContext';
+import { useMockMode } from '@contexts/useMockMode';
 import { getCurrentHour } from '@utils/timezone';
 import ApiService from '@services/api.service';
 import MockDataService from '../../../../test/mockData.service';

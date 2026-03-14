@@ -5,7 +5,7 @@ import { Button } from '@components/ui/Button';
 import ApiService from '@services/api.service';
 import { isAbortError } from '@utils/error';
 import { FullScanRequiredModal } from '@components/modals/setup/FullScanRequiredModal';
-import { usePicsProgress } from '@contexts/PicsProgressContext';
+import { usePicsProgress } from '@contexts/usePicsProgress';
 import { useSteamWebApiStatus } from '@contexts/SteamWebApiStatusContext';
 
 interface DepotMappingStepProps {

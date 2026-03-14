@@ -13,7 +13,7 @@ import {
   Filter
 } from 'lucide-react';
 import { useTimeFilter, type TimeRange } from '@contexts/TimeFilterContext';
-import { useEvents } from '@contexts/EventContext';
+import { useEvents } from '@contexts/useEvents';
 import DateRangePicker from './DateRangePicker';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import { getEventColorVar } from '@utils/eventColors';

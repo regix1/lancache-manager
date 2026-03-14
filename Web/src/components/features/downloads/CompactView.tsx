@@ -8,7 +8,7 @@ import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { GameImage } from '@components/common/GameImage';
 import { useHoldTimer } from '@hooks/useHoldTimer';
-import { useDownloadAssociations } from '@contexts/DownloadAssociationsContext';
+import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import DownloadBadges from './DownloadBadges';
 import type { Download, DownloadGroup } from '../../../types';
 

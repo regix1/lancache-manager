@@ -2,7 +2,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Key, Eye, Loader2, Shield } from 'lucide-react';
 import { Button } from '@components/ui/Button';
-import { useGuestConfig } from '@contexts/GuestConfigContext';
+import { useGuestConfig } from '@contexts/useGuestConfig';
 
 interface ApiKeyStepProps {
   apiKey: string;

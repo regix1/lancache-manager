@@ -9,7 +9,7 @@ import { ActivityLog } from './ActivityLog';
 import { GameSelectionModal, type OwnedGame } from './GameSelectionModal';
 import { NetworkStatusSection } from './NetworkStatusSection';
 import ApiService from '@services/api.service';
-import { usePrefillContext } from '@contexts/PrefillContext';
+import { usePrefillContext } from '@contexts/usePrefillContext';
 import { useAuth } from '@contexts/useAuth';
 import { useSignalR } from '@contexts/SignalRContext';
 import { SteamIcon } from '@components/ui/SteamIcon';
@@ -18,7 +18,7 @@ import { API_BASE } from '@utils/constants';
 
 import { ScrollText, X, Timer, LogIn, CheckCircle2, AlertCircle } from 'lucide-react';
 
-import { useGameService } from '@contexts/GameServiceContext';
+import { useGameService } from '@contexts/useGameService';
 import type { GameServiceId } from '@/types/gameService';
 
 // Import extracted components

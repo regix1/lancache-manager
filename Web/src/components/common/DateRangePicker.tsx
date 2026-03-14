@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { ChevronLeft, ChevronRight, Calendar, ChevronDown } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
-import { useEvents } from '@contexts/EventContext';
+import { useEvents } from '@contexts/useEvents';
 import { getEventColorVar } from '@utils/eventColors';
 
 interface DateRangePickerProps {

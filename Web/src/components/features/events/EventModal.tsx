@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { CalendarDays, Trash2, Calendar, Check, BarChart3 } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
-import { useEvents } from '@contexts/EventContext';
+import { useEvents } from '@contexts/useEvents';
 import { useTimezone } from '@contexts/TimezoneContext';
 import { useTimeFilter } from '@contexts/TimeFilterContext';
 import { getEffectiveTimezone, getDateInTimezone } from '@utils/timezone';

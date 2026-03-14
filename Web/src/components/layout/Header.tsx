@@ -7,7 +7,7 @@ import LanguageSelector from '../common/LanguageSelector';
 import GitHubProjectsDropdown from '../common/GitHubProjectsDropdown';
 import { Tooltip } from '@components/ui/Tooltip';
 import LancacheIcon from '../ui/LancacheIcon';
-import { useMockMode } from '@contexts/MockModeContext';
+import { useMockMode } from '@contexts/useMockMode';
 import { useAuth } from '@contexts/useAuth';
 
 interface HeaderProps {

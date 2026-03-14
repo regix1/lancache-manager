@@ -1,11 +1,4 @@
-import React, {
-  createContext,
-  useContext,
-  useEffect,
-  useState,
-  useCallback,
-  type ReactNode
-} from 'react';
+import React, { useEffect, useState, useCallback, type ReactNode } from 'react';
 import { useSignalR } from '@contexts/SignalRContext';
 import { useAuth } from '@contexts/useAuth';
 import type {
@@ -13,6 +6,7 @@ import type {
   DepotMappingProgressEvent,
   DepotMappingCompleteEvent
 } from '@contexts/SignalRContext/types';
+import { PicsProgressContext } from './PicsProgressContext.types';
 
 /**
  * PICS Progress Interface
@@ -61,23 +55,6 @@ interface PicsProgress {
   // Error handling
   errorMessage?: string | null;
 }
-
-interface PicsProgressContextType {
-  progress: PicsProgress | null;
-  isLoading: boolean;
-  refreshProgress: () => Promise<void>;
-  updateProgress: (updater: (prev: PicsProgress | null) => PicsProgress | null) => void;
-}
-
-const PicsProgressContext = createContext<PicsProgressContextType | undefined>(undefined);
-
-export const usePicsProgress = () => {
-  const context = useContext(PicsProgressContext);
-  if (!context) {
-    throw new Error('usePicsProgress must be used within PicsProgressProvider');
-  }
-  return context;
-};
 
 interface PicsProgressProviderProps {
   children: ReactNode;

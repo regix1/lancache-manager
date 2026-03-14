@@ -7,7 +7,7 @@ import React, {
   useCallback,
   useMemo
 } from 'react';
-import { useSessionPreferences } from './SessionPreferencesContext';
+import { useSessionPreferences } from './useSessionPreferences';
 import { setGlobalTimezonePreference } from '@utils/timezonePreference';
 import { setGlobal24HourPreference } from '@utils/timeFormatPreference';
 import {

@@ -1,6 +1,6 @@
 import { createContext } from 'react';
 
-export interface DockerSocketContextType {
+interface DockerSocketContextType {
   isDockerAvailable: boolean;
   isLoading: boolean;
   refreshDockerStatus: () => Promise<void>;
