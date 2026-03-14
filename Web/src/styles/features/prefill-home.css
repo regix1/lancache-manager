@@ -22,11 +22,7 @@
     transform: translateX(-50%);
     width: 36rem;
     height: 16rem;
-    background: radial-gradient(
-      ellipse at center,
-      color-mix(in srgb, var(--theme-primary) 5%, transparent) 0%,
-      transparent 70%
-    );
+    background: radial-gradient(ellipse at center, var(--theme-primary-faint) 0%, transparent 70%);
     pointer-events: none;
     z-index: 0;
   }
@@ -81,7 +77,10 @@
     background: var(--theme-card-bg);
     border: 1px solid var(--theme-card-border);
     overflow: hidden;
-    transition: border-color 0.3s ease, box-shadow 0.3s ease, transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition:
+      border-color 0.3s ease,
+      box-shadow 0.3s ease,
+      transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     animation: fadeInUp 0.4s ease-out both;
   }
 
@@ -114,11 +113,7 @@
     left: 0;
     right: 0;
     height: 8rem;
-    background: linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--service-accent) 4%, transparent) 0%,
-      transparent 100%
-    );
+    background: linear-gradient(180deg, var(--service-accent-faint) 0%, transparent 100%);
     opacity: 0;
     transition: opacity 0.4s ease;
     pointer-events: none;
@@ -130,10 +125,10 @@
   }
 
   .prefill-service-card:hover {
-    border-color: color-mix(in srgb, var(--service-accent) 25%, var(--theme-card-border));
+    border-color: var(--service-accent-on-border);
     transform: translateY(-2px);
     box-shadow:
-      0 4px 16px color-mix(in srgb, var(--service-accent) 6%, transparent),
+      0 4px 16px var(--service-accent-faint),
       0 1px 3px rgba(0, 0, 0, 0.08);
   }
 
@@ -168,7 +163,7 @@
     border-radius: 0.75rem;
     background: var(--service-accent);
     flex-shrink: 0;
-    box-shadow: 0 2px 8px color-mix(in srgb, var(--service-accent) 30%, transparent);
+    box-shadow: 0 2px 8px var(--service-accent-strong);
   }
 
   .prefill-service-meta {
@@ -206,7 +201,7 @@
 
   .prefill-service-status-dot--ready {
     background: var(--theme-success);
-    box-shadow: 0 0 4px color-mix(in srgb, var(--theme-success) 50%, transparent);
+    box-shadow: 0 0 4px var(--theme-success-strong);
   }
 
   /* --- Description --- */
@@ -253,7 +248,7 @@
     padding: 0.625rem 0.875rem;
     border-radius: var(--theme-border-radius);
     background: var(--theme-error-bg);
-    border: 1px solid color-mix(in srgb, var(--theme-error) 25%, transparent);
+    border: 1px solid var(--theme-error-muted);
     font-size: 0.8125rem;
     color: var(--theme-error-text);
   }
@@ -301,7 +296,7 @@
 
   [data-theme='light'] .prefill-service-card:hover {
     box-shadow:
-      0 4px 16px color-mix(in srgb, var(--service-accent) 10%, transparent),
+      0 4px 16px var(--service-accent-subtle),
       0 2px 4px rgba(0, 0, 0, 0.06);
   }
 

@@ -190,10 +190,11 @@
 
 /* Highlight glow animation - used to draw attention to a component */
 @keyframes highlightGlowPulse {
-  0%, 100% {
-    box-shadow: 0 0 2px 0 color-mix(in srgb, var(--glow-color, var(--theme-primary)) 30%, transparent);
+  0%,
+  100% {
+    box-shadow: 0 0 2px 0 var(--glow-color-soft, var(--theme-primary-strong));
   }
   50% {
-    box-shadow: 0 0 16px 4px color-mix(in srgb, var(--glow-color, var(--theme-primary)) 70%, transparent);
+    box-shadow: 0 0 16px 4px var(--glow-color-intense, var(--theme-glow-intense));
   }
 }

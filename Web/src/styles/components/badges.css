@@ -79,7 +79,7 @@
     font-weight: 700;
     line-height: 1;
     text-align: center;
-    background: color-mix(in srgb, var(--theme-primary) 20%, transparent);
+    background: var(--theme-primary-muted);
     color: var(--theme-primary);
   }
 

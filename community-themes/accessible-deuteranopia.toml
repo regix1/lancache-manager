@@ -3,7 +3,7 @@ name = "Accessible - Deuteranopia"
 id = "accessible-deuteranopia"
 description = "Deuteranopia-accessible theme with neutral dark backgrounds and vibrant orange-blue contrast"
 author = "System"
-version = "2.1.0"
+version = "2.2.0"
 isDark = true
 sharpCorners = false
 basedOn = "dark-default"
@@ -39,6 +39,7 @@ navTabActive = "#ea580c"        # Active tab orange
 navTabInactive = "#808080"      # Muted inactive tabs
 navTabHover = "#e0e0e0"         # Light grey hover
 navTabActiveBorder = "#ea580c"  # Active tab border orange
+floatingIconColor = "#ea580c"   # Header icon matches primary
 navMobileMenuBg = "#1b1b1b"    # Mobile menu background
 navMobileItemHover = "#2d2d2d"  # Mobile item hover
 

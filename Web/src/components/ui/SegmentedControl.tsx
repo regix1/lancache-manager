@@ -62,7 +62,7 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
               fullWidth ? 'flex-1' : ''
             } ${isDisabled && !isActive ? 'opacity-50 cursor-default' : ''} ${
               isActive
-                ? 'bg-[var(--theme-primary)] text-themed-button shadow-[0_2px_4px_color-mix(in_srgb,var(--theme-primary)_25%,transparent)]'
+                ? 'bg-[var(--theme-primary)] text-themed-button shadow-[0_2px_4px_var(--theme-primary-muted)]'
                 : 'bg-transparent text-themed-muted'
             } ${isDisabled ? 'cursor-default' : 'cursor-pointer'}`}
           >

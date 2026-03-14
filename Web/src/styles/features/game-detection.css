@@ -19,13 +19,13 @@
 
 /* Steam service badge */
 .game-card-service-badge--steam {
-  background-color: color-mix(in srgb, var(--theme-steam) 15%, transparent);
+  background-color: var(--theme-steam-subtle);
   color: var(--theme-steam);
 }
 
 /* Epic Games service badge */
 .game-card-service-badge--epic {
-  background-color: color-mix(in srgb, var(--theme-epic) 15%, transparent);
+  background-color: var(--theme-epic-subtle);
   color: var(--theme-epic);
 }
 

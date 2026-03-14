@@ -493,7 +493,7 @@ const AppContent: React.FC = () => {
       <>
         {activeTab === 'prefill' && !isDockerAvailable ? (
           <div className="container mx-auto px-3 sm:px-4 py-4 sm:py-6 animate-fadeIn">
-            <div className="rounded-lg p-6 bg-[color-mix(in_srgb,var(--theme-warning)_15%,transparent)] border border-[color-mix(in_srgb,var(--theme-warning)_30%,transparent)]">
+            <div className="rounded-lg p-6 bg-[var(--theme-warning-subtle)] border border-[var(--theme-warning-strong)]">
               <div className="min-w-0">
                 <p className="font-medium text-[var(--theme-warning-text)] mb-2">
                   {t('app.prefill.dockerNotAvailable.title')}

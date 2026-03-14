@@ -19,7 +19,7 @@ const LancacheIcon: React.FC<LancacheIconProps> = ({ className = '', size = 24, 
       {/* Main controller body */}
       <path
         d="m42.059 40c-3.252 0-7.162-3.224-10.812-9h-14.494c-4.237 6.706-8.824 9.973-12.323 8.75a5.5 5.5 0 0 1 -3.077-3.056c-2.215-4.646-1.653-13.749 1.373-22.137a10.049 10.049 0 0 1 15.443-4.557h11.662a10.049 10.049 0 0 1 15.443 4.557c3.024 8.388 3.588 17.491 1.373 22.137a5.5 5.5 0 0 1 -3.077 3.056 4.555 4.555 0 0 1 -1.511.25z"
-        fill="var(--theme-primary)"
+        fill="var(--theme-floating-icon, var(--theme-primary))"
       />
 
       {/* Shadow/depth */}

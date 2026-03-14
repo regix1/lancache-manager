@@ -925,7 +925,7 @@ function ServicePrefillPanel({
 
       {/* Session Expired Notice */}
       {isSessionExpired && (
-        <div className="p-4 rounded-lg flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-[color-mix(in_srgb,var(--theme-warning)_15%,transparent)] border border-[color-mix(in_srgb,var(--theme-warning)_30%,transparent)]">
+        <div className="p-4 rounded-lg flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-[var(--theme-warning-subtle)] border border-[var(--theme-warning-strong)]">
           <div className="flex items-start gap-3">
             <AlertCircle className="h-5 w-5 flex-shrink-0 text-[var(--theme-warning)]" />
             <div>
@@ -971,7 +971,7 @@ function ServicePrefillPanel({
           <div
             className={`flex items-center gap-2 px-4 py-2 rounded-lg flex-1 sm:flex-initial justify-center border ${
               signalR.timeRemaining < 600
-                ? 'bg-[color-mix(in_srgb,var(--theme-warning)_15%,transparent)] border-[color-mix(in_srgb,var(--theme-warning)_30%,transparent)]'
+                ? 'bg-[var(--theme-warning-subtle)] border-[var(--theme-warning-strong)]'
                 : 'bg-[var(--theme-bg-tertiary)] border-[var(--theme-border-secondary)]'
             }`}
           >
@@ -1011,7 +1011,7 @@ function ServicePrefillPanel({
 
       {/* Error Banner */}
       {signalR.error && (
-        <div className="p-4 rounded-lg flex items-center gap-3 bg-[var(--theme-error-bg)] border border-[color-mix(in_srgb,var(--theme-error)_30%,transparent)]">
+        <div className="p-4 rounded-lg flex items-center gap-3 bg-[var(--theme-error-bg)] border border-[var(--theme-error-strong)]">
           <AlertCircle className="h-5 w-5 flex-shrink-0 text-[var(--theme-error)]" />
           <span className="text-[var(--theme-error-text)]">{signalR.error}</span>
         </div>
@@ -1028,8 +1028,8 @@ function ServicePrefillPanel({
                 <div
                   className={`w-10 h-10 rounded-lg flex items-center justify-center ${
                     signalR.isLoggedIn
-                      ? 'bg-[color-mix(in_srgb,var(--theme-success)_15%,transparent)]'
-                      : 'bg-[color-mix(in_srgb,var(--theme-warning)_15%,transparent)]'
+                      ? 'bg-[var(--theme-success-subtle)]'
+                      : 'bg-[var(--theme-warning-subtle)]'
                   }`}
                 >
                   {signalR.isLoggedIn ? (
@@ -1111,7 +1111,7 @@ function ServicePrefillPanel({
         <div className="xl:col-span-1">
           <Card padding="none" className="overflow-hidden">
             <div className="px-4 pt-4 pb-3 flex items-center gap-3 border-b border-[var(--theme-border-primary)]">
-              <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 bg-[color-mix(in_srgb,var(--theme-accent)_15%,transparent)]">
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 bg-[var(--theme-accent-subtle)]">
                 <ScrollText className="h-4 w-4 text-[var(--theme-accent)]" />
               </div>
               <div>

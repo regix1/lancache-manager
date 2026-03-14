@@ -92,7 +92,7 @@ const Header: React.FC<HeaderProps> = ({ title, subtitle, connectionStatus = 'co
                     className="absolute bottom-0 left-1 w-7 h-1.5 rounded-full pointer-events-none z-0"
                     style={{
                       background:
-                        'radial-gradient(ellipse at center, color-mix(in srgb, var(--theme-text-primary) 60%, transparent) 0%, color-mix(in srgb, var(--theme-text-primary) 30%, transparent) 40%, transparent 70%)',
+                        'radial-gradient(ellipse at center, var(--theme-text-primary-emphasis) 0%, var(--theme-text-primary-strong) 40%, transparent 70%)',
                       animation: 'shadow-pulse 2.5s ease-in-out infinite'
                     }}
                   />
@@ -171,7 +171,7 @@ const Header: React.FC<HeaderProps> = ({ title, subtitle, connectionStatus = 'co
                       className="absolute bottom-0 left-1 w-7 h-1.5 rounded-full pointer-events-none z-0"
                       style={{
                         background:
-                          'radial-gradient(ellipse at center, color-mix(in srgb, var(--theme-text-primary) 60%, transparent) 0%, color-mix(in srgb, var(--theme-text-primary) 30%, transparent) 40%, transparent 70%)',
+                          'radial-gradient(ellipse at center, var(--theme-text-primary-emphasis) 0%, var(--theme-text-primary-strong) 40%, transparent 70%)',
                         animation: 'shadow-pulse 2.5s ease-in-out infinite'
                       }}
                     />

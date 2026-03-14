@@ -201,7 +201,7 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Error */}
           {error && (
-            <div className="p-3 rounded-lg bg-[color-mix(in_srgb,var(--theme-status-error)_10%,transparent)] border border-[color-mix(in_srgb,var(--theme-status-error)_30%,transparent)]">
+            <div className="p-3 rounded-lg bg-[var(--theme-error-faint)] border border-[var(--theme-error-strong)]">
               <p className="text-sm text-[var(--theme-status-error)]">{error}</p>
             </div>
           )}

@@ -15,11 +15,11 @@ export function CompletionBanner({ completion, onDismiss }: CompletionBannerProp
   return (
     <Card
       padding="md"
-      className="overflow-hidden border-[color-mix(in_srgb,var(--theme-success)_50%,transparent)] animate-fade-in"
+      className="overflow-hidden border-[var(--theme-success-strong)] animate-fade-in"
     >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-[color-mix(in_srgb,var(--theme-success)_15%,transparent)]">
+          <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-[var(--theme-success-subtle)]">
             <CheckCircle2 className="h-5 w-5 text-[var(--theme-success)]" />
           </div>
           <div>

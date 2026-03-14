@@ -738,7 +738,7 @@ const Dashboard: React.FC = () => {
           <div
             className="flex items-center justify-between py-3 px-4 themed-border-radius text-sm"
             style={{
-              backgroundColor: 'color-mix(in srgb, var(--theme-primary) 15%, transparent)',
+              backgroundColor: 'var(--theme-primary-subtle)',
               borderLeft: '3px solid var(--theme-primary)'
             }}
           >
@@ -831,7 +831,7 @@ const Dashboard: React.FC = () => {
                       backgroundColor:
                         draggedCard === card.key
                           ? 'var(--theme-primary)'
-                          : 'color-mix(in srgb, var(--theme-bg-primary) 80%, transparent)',
+                          : 'var(--theme-bg-primary-emphasis)',
                       backdropFilter: 'blur(4px)'
                     }}
                   >

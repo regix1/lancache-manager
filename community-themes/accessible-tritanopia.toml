@@ -3,7 +3,7 @@ name = "Accessible - Tritanopia"
 id = "accessible-tritanopia"
 description = "Tritanopia-accessible theme with neutral dark backgrounds and crimson-green contrast"
 author = "System"
-version = "2.1.0"
+version = "2.2.0"
 isDark = true
 sharpCorners = false
 basedOn = "dark-default"
@@ -44,6 +44,7 @@ navTabActive = "#dc2626"
 navTabInactive = "#808080"
 navTabHover = "#e0e0e0"
 navTabActiveBorder = "#dc2626"
+floatingIconColor = "#dc2626"  # Header icon matches primary
 navMobileMenuBg = "#1b1b1b"
 navMobileItemHover = "#2d2d2d"
 

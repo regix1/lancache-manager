@@ -271,7 +271,7 @@ export const HelpNote: React.FC<{
     },
     tip: {
       border: 'var(--theme-icon-purple)',
-      bg: 'color-mix(in srgb, var(--theme-icon-purple) 10%, transparent)',
+      bg: 'var(--theme-icon-purple-faint)',
       icon: Info,
       iconColor: 'var(--theme-icon-purple)'
     }

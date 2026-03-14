@@ -3,7 +3,7 @@ name = "Accessible - Protanopia"
 id = "accessible-protanopia"
 description = "Protanopia-accessible theme with neutral dark backgrounds and sapphire-amber accents"
 author = "System"
-version = "2.1.0"
+version = "2.2.0"
 isDark = true
 sharpCorners = false
 basedOn = "dark-default"
@@ -43,6 +43,7 @@ navTabActive = "#2563eb"       # Sapphire active tab
 navTabInactive = "#808080"     # Muted inactive
 navTabHover = "#e0e0e0"        # Light grey hover
 navTabActiveBorder = "#2563eb" # Sapphire border
+floatingIconColor = "#2563eb"  # Header icon matches primary
 navMobileMenuBg = "#1b1b1b"   # Match nav bg
 navMobileItemHover = "#2d2d2d" # Grey hover
 

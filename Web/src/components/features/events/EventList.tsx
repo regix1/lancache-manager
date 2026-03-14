@@ -117,7 +117,7 @@ const EventCard = React.memo(
           <div
             className="h-1"
             style={{
-              background: `linear-gradient(90deg, ${colorVar}, color-mix(in srgb, ${colorVar} 80%, transparent))`
+              background: `linear-gradient(90deg, ${colorVar}, ${colorVar.replace(')', '-intense)')})`
             }}
           />
         )}
@@ -417,7 +417,7 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
     <div className="flex items-center gap-2 mb-3">
       <div
         className="w-6 h-6 rounded-md flex items-center justify-center"
-        style={{ backgroundColor: `color-mix(in srgb, ${color} 15%, transparent)` }}
+        style={{ backgroundColor: color.replace(')', '-subtle)') }}
       >
         {icon}
       </div>
@@ -429,7 +429,7 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
         <span
           className="inline-flex items-center justify-center min-w-[1.25rem] h-[1.25rem] px-1.5 text-[10px] rounded-full font-medium"
           style={{
-            backgroundColor: `color-mix(in srgb, ${color} 12%, transparent)`,
+            backgroundColor: color.replace(')', '-subtle)'),
             color
           }}
         >

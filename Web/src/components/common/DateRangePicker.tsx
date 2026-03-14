@@ -614,8 +614,7 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
                       <span
                         className="px-1 py-0.5 text-[9px] rounded font-medium"
                         style={{
-                          backgroundColor:
-                            'color-mix(in srgb, var(--theme-success) 20%, transparent)',
+                          backgroundColor: 'var(--theme-success-muted)',
                           color: 'var(--theme-success)'
                         }}
                       >

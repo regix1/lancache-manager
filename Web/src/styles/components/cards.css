@@ -40,22 +40,22 @@
 
   /* Glass card base - works with both dark and light themes */
   .glass-card {
-    background: color-mix(in srgb, var(--theme-card-bg) 85%, transparent);
+    background: var(--theme-card-bg-emphasis);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--theme-card-border);
     box-shadow:
       0 8px 32px rgba(0, 0, 0, 0.2),
-      inset 0 1px 0 color-mix(in srgb, var(--theme-text-primary) 5%, transparent);
+      inset 0 1px 0 var(--theme-text-primary-faint);
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .glass-card:hover {
-    background: color-mix(in srgb, var(--theme-card-bg) 95%, transparent);
+    background: var(--theme-card-bg-full);
     border-color: var(--theme-border-secondary);
     box-shadow:
       0 12px 40px rgba(0, 0, 0, 0.3),
-      inset 0 1px 0 color-mix(in srgb, var(--theme-text-primary) 8%, transparent);
+      inset 0 1px 0 var(--theme-text-primary-faint);
     transform: translateY(-2px);
   }
 
@@ -68,22 +68,22 @@
   }
 
   .widget-card.glass {
-    background: color-mix(in srgb, var(--theme-card-bg) 85%, transparent);
+    background: var(--theme-card-bg-emphasis);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border: 1px solid var(--theme-card-border);
     box-shadow:
       0 8px 32px rgba(0, 0, 0, 0.2),
-      inset 0 1px 0 color-mix(in srgb, var(--theme-text-primary) 5%, transparent);
+      inset 0 1px 0 var(--theme-text-primary-faint);
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .widget-card.glass:hover {
-    background: color-mix(in srgb, var(--theme-card-bg) 95%, transparent);
+    background: var(--theme-card-bg-full);
     border-color: var(--theme-border-secondary);
     box-shadow:
       0 12px 40px rgba(0, 0, 0, 0.3),
-      inset 0 1px 0 color-mix(in srgb, var(--theme-text-primary) 8%, transparent);
+      inset 0 1px 0 var(--theme-text-primary-faint);
     transform: translateY(-2px);
   }
 

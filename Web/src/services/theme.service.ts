@@ -107,6 +107,9 @@ interface ThemeColors {
   actionDeleteBg?: string;
   actionDeleteHover?: string;
 
+  // Floating icon (header logo)
+  floatingIconColor?: string;
+
   // Icon backgrounds
   iconBgBlue?: string;
   iconBgGreen?: string;
@@ -838,6 +841,199 @@ class ThemeService {
     }
   }
 
+  private hexToRgba(hex: string, opacity: number): string {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    if (!result) return `rgba(0, 0, 0, ${opacity})`;
+    return `rgba(${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}, ${opacity})`;
+  }
+
+  /**
+   * Generate computed color tier CSS variables from base theme colors.
+   * Uses hexToRgba for opacity tiers — simple "base color + transparency".
+   * Blend variables use explicit defaults — theme creators override directly.
+   */
+  private generateComputedColorVars(colors: Record<string, string | undefined>): string {
+    const rgba = (hex: string, opacity: number): string => this.hexToRgba(hex, opacity);
+
+    // Resolve base colors with fallbacks
+    const primary = colors.primaryColor || '#3b82f6';
+    const secondary = colors.secondaryColor || '#8b5cf6';
+    const accent = colors.accentColor || '#06b6d4';
+    const success = colors.success || '#10b981';
+    const warning = colors.warning || '#fb923c';
+    const error = colors.error || '#ef4444';
+    const info = colors.info || '#3b82f6';
+    const steam = colors.steamColor || '#10b981';
+    const epic = colors.epicColor || '#8b5cf6';
+    const buttonBg = colors.buttonBg || '#3b82f6';
+    const actionDelete = colors.actionDeleteBg || '#ef4444';
+    const actionProcess = colors.actionProcessBg || '#10b981';
+    const actionReset = colors.actionResetBg || '#f59e0b';
+    const bgPrimary = colors.bgPrimary || '#111827';
+    const bgSecondary = colors.bgSecondary || '#283649';
+    const bgTertiary = colors.bgTertiary || '#313e52';
+    const cardBg = colors.cardBg || '#1e2938';
+    const textPrimary = colors.textPrimary || '#ffffff';
+    const textSecondary = colors.textSecondary || '#d1d5db';
+    const textMuted = colors.textMuted || '#9ca3af';
+    const iconBlue = colors.iconBgBlue || '#3b82f6';
+    const iconGreen = colors.iconBgGreen || '#10b981';
+    const iconEmerald = colors.iconBgEmerald || '#10b981';
+    const iconPurple = colors.iconBgPurple || '#8b5cf6';
+    const iconIndigo = colors.iconBgIndigo || '#6366f1';
+    const iconOrange = colors.iconBgOrange || '#f97316';
+    const iconYellow = colors.iconBgYellow || '#eab308';
+    const iconCyan = colors.iconBgCyan || '#06b6d4';
+    const iconRed = colors.iconBgRed || '#ef4444';
+    const iconGray = colors.textMuted || '#6b7280';
+    const chartColor1 = colors.chartColor1 || '#3b82f6';
+    const chartCacheHit = colors.chartCacheHitColor || '#10b981';
+    // Event colors
+    const ev = [
+      colors.eventColor1 || primary,
+      colors.eventColor2 || success,
+      colors.eventColor3 || warning,
+      colors.eventColor4 || error,
+      colors.eventColor5 || secondary,
+      colors.eventColor6 || '#ec4899',
+      colors.eventColor7 || accent,
+      colors.eventColor8 || iconOrange
+    ];
+
+    // Helper: use theme override if provided, else computed value
+    const v = (key: string, computed: string): string => colors[key] || computed;
+
+    // Generate event tier vars for all 8 event colors
+    const eventVars = ev
+      .map((ec, i) => {
+        const n = i + 1;
+        return `
+      --theme-event-${n}-subtle: ${v(`eventColor${n}Subtle`, rgba(ec, 0.15))};
+      --theme-event-${n}-muted: ${v(`eventColor${n}Muted`, rgba(ec, 0.25))};
+      --theme-event-${n}-strong: ${v(`eventColor${n}Strong`, rgba(ec, 0.4))};
+      --theme-event-${n}-emphasis: ${v(`eventColor${n}Emphasis`, rgba(ec, 0.6))};
+      --theme-event-${n}-intense: ${v(`eventColor${n}Intense`, rgba(ec, 0.8))};
+      --theme-event-${n}-on-bg: ${v(`eventColor${n}OnBg`, rgba(ec, 0.5))};
+      --theme-event-${n}-on-bg-strong: ${v(`eventColor${n}OnBgStrong`, rgba(ec, 0.65))};
+      --theme-event-${n}-on-bg-soft: ${v(`eventColor${n}OnBgSoft`, rgba(ec, 0.35))};`;
+      })
+      .join('\n');
+
+    return `
+      /* ===== Opacity Tiers (base color + transparency) ===== */
+
+      /* Primary */
+      --theme-primary-faint: ${v('primaryFaint', rgba(primary, 0.08))};
+      --theme-primary-subtle: ${v('primarySubtle', rgba(primary, 0.15))};
+      --theme-primary-muted: ${v('primaryMuted', rgba(primary, 0.25))};
+      --theme-primary-strong: ${v('primaryStrong', rgba(primary, 0.4))};
+      --theme-primary-bg: var(--theme-primary-subtle);
+
+      /* Success */
+      --theme-success-faint: ${v('successFaint', rgba(success, 0.08))};
+      --theme-success-subtle: ${v('successSubtle', rgba(success, 0.15))};
+      --theme-success-muted: ${v('successMuted', rgba(success, 0.2))};
+      --theme-success-strong: ${v('successStrong', rgba(success, 0.4))};
+
+      /* Warning */
+      --theme-warning-faint: ${v('warningFaint', rgba(warning, 0.08))};
+      --theme-warning-subtle: ${v('warningSubtle', rgba(warning, 0.15))};
+      --theme-warning-muted: ${v('warningMuted', rgba(warning, 0.2))};
+      --theme-warning-strong: ${v('warningStrong', rgba(warning, 0.3))};
+
+      /* Error */
+      --theme-error-faint: ${v('errorFaint', rgba(error, 0.1))};
+      --theme-error-subtle: ${v('errorSubtle', rgba(error, 0.15))};
+      --theme-error-muted: ${v('errorMuted', rgba(error, 0.2))};
+      --theme-error-strong: ${v('errorStrong', rgba(error, 0.3))};
+
+      /* Info */
+      --theme-info-subtle: ${v('infoSubtle', rgba(info, 0.15))};
+      --theme-info-muted: ${v('infoMuted', rgba(info, 0.2))};
+
+      /* Accent */
+      --theme-accent-faint: ${v('accentFaint', rgba(accent, 0.06))};
+      --theme-accent-subtle: ${v('accentSubtle', rgba(accent, 0.15))};
+      --theme-accent-muted: ${v('accentMuted', rgba(accent, 0.2))};
+
+      /* Platform */
+      --theme-steam-subtle: ${v('steamSubtle', rgba(steam, 0.15))};
+      --theme-epic-subtle: ${v('epicSubtle', rgba(epic, 0.15))};
+      --theme-epic-muted: ${v('epicMuted', rgba(epic, 0.25))};
+
+      /* Icon Backgrounds */
+      --theme-icon-blue-subtle: ${v('iconBlueSubtle', rgba(iconBlue, 0.15))};
+      --theme-icon-green-subtle: ${v('iconGreenSubtle', rgba(iconGreen, 0.15))};
+      --theme-icon-emerald-subtle: ${v('iconEmeraldSubtle', rgba(iconEmerald, 0.15))};
+      --theme-icon-purple-subtle: ${v('iconPurpleSubtle', rgba(iconPurple, 0.15))};
+      --theme-icon-indigo-subtle: ${v('iconIndigoSubtle', rgba(iconIndigo, 0.15))};
+      --theme-icon-orange-subtle: ${v('iconOrangeSubtle', rgba(iconOrange, 0.15))};
+      --theme-icon-yellow-subtle: ${v('iconYellowSubtle', rgba(iconYellow, 0.15))};
+      --theme-icon-cyan-subtle: ${v('iconCyanSubtle', rgba(iconCyan, 0.15))};
+      --theme-icon-red-subtle: ${v('iconRedSubtle', rgba(iconRed, 0.15))};
+      --theme-icon-gray-subtle: ${v('iconGraySubtle', rgba(iconGray, 0.15))};
+      --theme-icon-red-muted: ${v('iconRedMuted', rgba(iconRed, 0.2))};
+      --theme-icon-purple-faint: ${v('iconPurpleFaint', rgba(iconPurple, 0.1))};
+
+      /* Button/Action */
+      --theme-button-bg-subtle: ${v('buttonBgSubtle', rgba(buttonBg, 0.1))};
+      --theme-action-delete-subtle: ${v('actionDeleteSubtle', rgba(actionDelete, 0.1))};
+      --theme-action-process-subtle: ${v('actionProcessSubtle', rgba(actionProcess, 0.12))};
+      --theme-action-process-muted: ${v('actionProcessMuted', rgba(actionProcess, 0.25))};
+      --theme-action-process-strong: ${v('actionProcessStrong', rgba(actionProcess, 0.4))};
+      --theme-action-reset-subtle: ${v('actionResetSubtle', rgba(actionReset, 0.1))};
+
+      /* Background Alpha */
+      --theme-bg-tertiary-muted: ${v('bgTertiaryMuted', rgba(bgTertiary, 0.3))};
+      --theme-bg-tertiary-strong: ${v('bgTertiaryStrong', rgba(bgTertiary, 0.5))};
+      --theme-bg-tertiary-emphasis: ${v('bgTertiaryEmphasis', rgba(bgTertiary, 0.8))};
+      --theme-bg-secondary-strong: ${v('bgSecondaryStrong', rgba(bgSecondary, 0.5))};
+      --theme-bg-secondary-emphasis: ${v('bgSecondaryEmphasis', rgba(bgSecondary, 0.6))};
+      --theme-bg-primary-emphasis: ${v('bgPrimaryEmphasis', rgba(bgPrimary, 0.8))};
+      --theme-card-bg-emphasis: ${v('cardBgEmphasis', rgba(cardBg, 0.85))};
+      --theme-card-bg-full: ${v('cardBgFull', rgba(cardBg, 0.95))};
+
+      /* Text Alpha */
+      --theme-text-primary-faint: ${v('textPrimaryFaint', rgba(textPrimary, 0.06))};
+      --theme-text-primary-strong: ${v('textPrimaryStrong', rgba(textPrimary, 0.3))};
+      --theme-text-primary-emphasis: ${v('textPrimaryEmphasis', rgba(textPrimary, 0.6))};
+      --theme-text-secondary-subtle: ${v('textSecondarySubtle', rgba(textSecondary, 0.1))};
+      --theme-text-secondary-muted: ${v('textSecondaryMuted', rgba(textSecondary, 0.2))};
+      --theme-text-muted-faint: ${v('textMutedFaint', rgba(textMuted, 0.08))};
+      --theme-text-muted-subtle: ${v('textMutedSubtle', rgba(textMuted, 0.1))};
+      --theme-text-muted-muted: ${v('textMutedMuted', rgba(textMuted, 0.2))};
+
+      /* Fixed Colors */
+      --theme-shadow-black: ${v('shadowBlack', 'rgba(0, 0, 0, 0.08)')};
+      --theme-badge-white-subtle: ${v('badgeWhiteSubtle', 'rgba(255, 255, 255, 0.20)')};
+      --theme-glint-white: ${v('glintWhite', 'rgba(255, 255, 255, 0.05)')};
+
+      /* Blend Variables — use rgba opacity (adapts to any theme's colors) */
+      --theme-primary-on-bg: ${v('primaryOnBg', rgba(primary, 0.12))};
+      --theme-primary-on-bg-hover: ${v('primaryOnBgHover', rgba(primary, 0.18))};
+      --theme-primary-on-border: ${v('primaryOnBorder', rgba(primary, 0.25))};
+      --theme-success-on-bg: ${v('successOnBg', rgba(success, 0.08))};
+      --theme-success-on-border: ${v('successOnBorder', rgba(success, 0.3))};
+      --theme-warning-on-error: ${v('warningOnError', rgba(warning, 0.8))};
+      --theme-bg-secondary-on-tertiary: ${v('bgSecondaryOnTertiary', rgba(bgSecondary, 0.8))};
+      --theme-danger-gradient-start: ${v('dangerGradientStart', 'rgba(255, 107, 107, 0.10)')};
+      --theme-danger-gradient-end: ${v('dangerGradientEnd', 'rgba(238, 90, 90, 0.10)')};
+      --theme-danger-border: ${v('dangerBorder', 'rgba(255, 107, 107, 0.30)')};
+      --theme-chart-hit-highlight: ${v('chartHitHighlight', rgba(chartCacheHit, 0.8))};
+      --theme-chart-miss-deep: ${v('chartMissDeep', rgba(error, 0.8))};
+      --theme-chart-1-muted: ${v('chartColor1Muted', rgba(chartColor1, 0.3))};
+      --theme-chart-1-strong: ${v('chartColor1Strong', rgba(chartColor1, 0.5))};
+      --theme-chart-1-emphasis: ${v('chartColor1Emphasis', rgba(chartColor1, 0.75))};
+
+      /* Event Color Tiers */
+      ${eventVars}
+
+      /* Glow */
+      --theme-glow-soft: ${v('glowSoft', rgba(primary, 0.3))};
+      --theme-glow-intense: ${v('glowIntense', rgba(primary, 0.7))};
+    `;
+  }
+
   private applyDefaultVariables(): void {
     const sharpCorners = this.getSharpCornersSync();
     const borderRadius = sharpCorners ? '0px' : '0.5rem';
@@ -926,7 +1122,7 @@ class ThemeService {
         --theme-button-primary: #3b82f6;
         --theme-primary-hover: #2563eb;
         --theme-primary-text: #ffffff;
-        --theme-primary-subtle: rgba(59, 130, 246, 0.1);
+
         --theme-secondary-bg: #283649;
 
         /* Inputs */
@@ -967,6 +1163,9 @@ class ThemeService {
         --theme-action-process-hover: #059669;
         --theme-action-delete-bg: #ef4444;
         --theme-action-delete-hover: #dc2626;
+
+        /* Floating Icon */
+        --theme-floating-icon: #3b82f6;
 
         /* Icon Colors */
         --theme-icon-blue: #3b82f6;
@@ -1041,6 +1240,8 @@ class ThemeService {
         /* Muted aliases */
         --theme-muted: #9ca3af;
         --theme-muted-bg: #313e52;
+
+        ${this.generateComputedColorVars(this.getBuiltInThemes()[0].colors)}
       }
     `;
 
@@ -1207,9 +1408,6 @@ class ThemeService {
       --theme-button-primary: ${colors.buttonBg};
       --theme-primary-hover: ${colors.buttonHover};
       --theme-primary-text: ${colors.buttonText};
-      --theme-primary-subtle: rgba(${primaryRgb}, 0.1);
-      --theme-primary-muted: rgba(${primaryRgb}, 0.15);
-      --theme-primary-bg: rgba(${primaryRgb}, 0.15);
       --theme-secondary-bg: ${colors.bgSecondary};
 
       /* Inputs */
@@ -1247,6 +1445,9 @@ class ThemeService {
       --theme-action-delete-bg: ${colors.actionDeleteBg};
       --theme-action-delete-hover: ${colors.actionDeleteHover};
       
+      /* Floating Icon */
+      --theme-floating-icon: ${colors.floatingIconColor || colors.primaryColor};
+
       /* Icon Colors */
       --theme-icon-blue: ${colors.iconBgBlue};
       --theme-icon-green: ${colors.iconBgGreen};
@@ -1321,6 +1522,8 @@ class ThemeService {
       --theme-muted: ${colors.textMuted};
       --theme-muted-bg: ${colors.bgTertiary};
       --theme-icon-gray: ${colors.textMuted};
+
+      ${this.generateComputedColorVars(colors)}
     }
 
     /* Global Transitions */

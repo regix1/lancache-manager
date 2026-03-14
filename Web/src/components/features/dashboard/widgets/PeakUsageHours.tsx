@@ -202,11 +202,11 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(
       if (intensity > 0.75) {
         return 'var(--theme-chart-1)';
       } else if (intensity > 0.5) {
-        return 'color-mix(in srgb, var(--theme-chart-1) 75%, var(--theme-bg-tertiary))';
+        return 'var(--theme-chart-1-emphasis)';
       } else if (intensity > 0.25) {
-        return 'color-mix(in srgb, var(--theme-chart-1) 50%, var(--theme-bg-tertiary))';
+        return 'var(--theme-chart-1-strong)';
       } else {
-        return 'color-mix(in srgb, var(--theme-chart-1) 30%, var(--theme-bg-tertiary))';
+        return 'var(--theme-chart-1-muted)';
       }
     };
 
@@ -351,7 +351,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(
           <div
             className="p-3 flex flex-col justify-between min-h-[72px] themed-border-radius"
             style={{
-              backgroundColor: 'color-mix(in srgb, var(--theme-warning) 10%, transparent)'
+              backgroundColor: 'var(--theme-warning-faint)'
             }}
           >
             <div className="flex items-center justify-between mb-1">
@@ -365,7 +365,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(
                 <span
                   className="text-[10px] px-1.5 py-0.5 rounded text-themed-warning"
                   style={{
-                    backgroundColor: 'color-mix(in srgb, var(--theme-warning) 15%, transparent)'
+                    backgroundColor: 'var(--theme-warning-subtle)'
                   }}
                 >
                   {t('widgets.peakUsageHours.dailyAvg')}
@@ -394,7 +394,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(
             <div
               className="hidden sm:flex p-3 flex-col justify-between min-h-[72px] themed-border-radius"
               style={{
-                backgroundColor: 'color-mix(in srgb, var(--theme-primary) 10%, transparent)'
+                backgroundColor: 'var(--theme-primary-faint)'
               }}
             >
               <div className="flex items-center justify-between mb-1">
@@ -415,7 +415,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(
                     <span
                       className="text-[10px] px-1.5 py-0.5 rounded text-themed-accent"
                       style={{
-                        backgroundColor: 'color-mix(in srgb, var(--theme-primary) 15%, transparent)'
+                        backgroundColor: 'var(--theme-primary-subtle)'
                       }}
                     >
                       {t('widgets.peakUsageHours.ofPeak', {
@@ -434,7 +434,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(
                   <span
                     className="text-[10px] px-1.5 py-0.5 rounded text-themed-accent"
                     style={{
-                      backgroundColor: 'color-mix(in srgb, var(--theme-primary) 15%, transparent)'
+                      backgroundColor: 'var(--theme-primary-subtle)'
                     }}
                   >
                     {t('widgets.peakUsageHours.dailyAvg')}
@@ -571,22 +571,19 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(
               <div
                 className="w-2.5 h-2.5 rounded-sm"
                 style={{
-                  backgroundColor:
-                    'color-mix(in srgb, var(--theme-chart-1) 30%, var(--theme-bg-tertiary))'
+                  backgroundColor: 'var(--theme-chart-1-muted)'
                 }}
               />
               <div
                 className="w-2.5 h-2.5 rounded-sm"
                 style={{
-                  backgroundColor:
-                    'color-mix(in srgb, var(--theme-chart-1) 50%, var(--theme-bg-tertiary))'
+                  backgroundColor: 'var(--theme-chart-1-strong)'
                 }}
               />
               <div
                 className="w-2.5 h-2.5 rounded-sm"
                 style={{
-                  backgroundColor:
-                    'color-mix(in srgb, var(--theme-chart-1) 75%, var(--theme-bg-tertiary))'
+                  backgroundColor: 'var(--theme-chart-1-emphasis)'
                 }}
               />
               <div

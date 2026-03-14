@@ -3,7 +3,7 @@ name = "LANCache Unofficial"
 id = "lancache-unofficial"
 description = "Lava-inspired theme - bold reds and warm ambers on deep charcoal"
 author = "Regix"
-version = "2.2.0"
+version = "2.3.0"
 isDark = true
 sharpCorners = false
 
@@ -38,6 +38,7 @@ navTabActive = "#dc3545"
 navTabInactive = "#999999"
 navTabHover = "#f5f5f5"
 navTabActiveBorder = "#dc3545"
+floatingIconColor = "#dc3545"
 navMobileMenuBg = "#1f1f21"
 navMobileItemHover = "#2e2e30"
 

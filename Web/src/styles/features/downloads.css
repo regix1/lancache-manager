@@ -165,8 +165,8 @@
   }
 
   .downloads-header .speed-indicator.active {
-    border-color: color-mix(in srgb, var(--theme-success) 50%, var(--theme-border-secondary));
-    background: color-mix(in srgb, var(--theme-success) 8%, var(--theme-bg-tertiary));
+    border-color: var(--theme-success-on-border);
+    background: var(--theme-success-on-bg);
   }
 
   .downloads-header .speed-ring {
@@ -282,8 +282,8 @@
   }
 
   .downloads-header .stat-chip.highlight {
-    background: color-mix(in srgb, var(--theme-primary) 15%, var(--theme-bg-tertiary));
-    border-color: color-mix(in srgb, var(--theme-primary) 30%, var(--theme-border-secondary));
+    background: var(--theme-primary-on-bg-hover);
+    border-color: var(--theme-primary-on-border);
     color: var(--theme-primary);
   }
 
@@ -326,13 +326,13 @@
 
   .downloads-header .tab-button:hover:not(.active) {
     color: var(--theme-text-secondary);
-    background: color-mix(in srgb, var(--theme-bg-secondary) 50%, transparent);
+    background: var(--theme-bg-secondary-strong);
   }
 
   .downloads-header .tab-button.active {
     color: var(--theme-button-text);
     background: var(--theme-primary);
-    box-shadow: 0 2px 8px color-mix(in srgb, var(--theme-primary) 30%, transparent);
+    box-shadow: 0 2px 8px var(--theme-primary-strong);
   }
 
   .downloads-header .tab-button.disabled {
@@ -362,12 +362,12 @@
     line-height: 1;
     text-align: center;
     border-radius: var(--theme-border-radius);
-    background: color-mix(in srgb, var(--theme-text-muted) 20%, transparent);
+    background: var(--theme-text-muted-muted);
     color: inherit;
   }
 
   .downloads-header .tab-button.active .tab-badge {
-    background: color-mix(in srgb, white 20%, transparent);
+    background: var(--theme-badge-white-subtle);
   }
 
   .downloads-header .tab-button:not(.active) .tab-badge.has-active {
@@ -392,7 +392,7 @@
     gap: 0.5rem;
     padding: 0.5rem 0.75rem;
     border-radius: var(--theme-border-radius);
-    background: color-mix(in srgb, var(--theme-bg-tertiary) 60%, transparent);
+    background: var(--theme-bg-tertiary-emphasis);
     border: 1px solid var(--theme-border-secondary);
   }
 
@@ -429,11 +429,11 @@
     0%,
     100% {
       opacity: 1;
-      box-shadow: 0 0 0 0 color-mix(in srgb, var(--theme-success) 40%, transparent);
+      box-shadow: 0 0 0 0 var(--theme-success-strong);
     }
     50% {
       opacity: 0.8;
-      box-shadow: 0 0 0 4px color-mix(in srgb, var(--theme-success) 0%, transparent);
+      box-shadow: 0 0 0 4px transparent;
     }
   }
 
@@ -583,13 +583,13 @@
 
   .active-downloads-view .view-toggle-btn:hover:not(.active) {
     color: var(--theme-text-secondary);
-    background: color-mix(in srgb, var(--theme-bg-secondary) 50%, transparent);
+    background: var(--theme-bg-secondary-strong);
   }
 
   .active-downloads-view .view-toggle-btn.active {
     color: var(--theme-button-text);
     background: var(--theme-primary);
-    box-shadow: 0 2px 4px color-mix(in srgb, var(--theme-primary) 25%, transparent);
+    box-shadow: 0 2px 4px var(--theme-primary-muted);
   }
 
   .active-downloads-view .view-toggle-btn svg {
@@ -642,16 +642,16 @@
 
   .active-downloads-view .download-item:hover {
     border-color: var(--theme-border-primary);
-    box-shadow: 0 2px 8px color-mix(in srgb, black 8%, transparent);
+    box-shadow: 0 2px 8px var(--theme-shadow-black);
   }
 
   .active-downloads-view .download-item.top {
     background: linear-gradient(
       135deg,
-      color-mix(in srgb, var(--theme-success) 8%, var(--theme-bg-secondary)) 0%,
+      var(--theme-success-on-bg) 0%,
       var(--theme-bg-secondary) 100%
     );
-    border-color: color-mix(in srgb, var(--theme-success) 30%, var(--theme-border-secondary));
+    border-color: var(--theme-success-on-border);
   }
 
   .active-downloads-view .download-avatar {
@@ -692,10 +692,10 @@
   @keyframes active-pulse-dot {
     0%,
     100% {
-      box-shadow: 0 0 0 0 color-mix(in srgb, var(--theme-success) 40%, transparent);
+      box-shadow: 0 0 0 0 var(--theme-success-strong);
     }
     50% {
-      box-shadow: 0 0 0 4px color-mix(in srgb, var(--theme-success) 0%, transparent);
+      box-shadow: 0 0 0 4px transparent;
     }
   }
 

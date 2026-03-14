@@ -481,7 +481,7 @@ const CombinedProgressBar: React.FC<{
             width: `${hitPercent}%`,
             background:
               hitPercent > 0
-                ? 'linear-gradient(90deg, var(--theme-chart-cache-hit), color-mix(in srgb, var(--theme-chart-cache-hit) 80%, white))'
+                ? 'linear-gradient(90deg, var(--theme-chart-cache-hit), var(--theme-chart-hit-highlight))'
                 : 'transparent'
           }}
         />
@@ -492,7 +492,7 @@ const CombinedProgressBar: React.FC<{
             width: `${missPercent}%`,
             background:
               missPercent > 0
-                ? 'linear-gradient(90deg, var(--theme-error), color-mix(in srgb, var(--theme-error) 80%, black))'
+                ? 'linear-gradient(90deg, var(--theme-error), var(--theme-chart-miss-deep))'
                 : 'transparent'
           }}
         />

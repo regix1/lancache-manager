@@ -6,7 +6,8 @@
 
 /* Wiggle animation - iOS-style home screen editing (gentle, slow) */
 @keyframes cardWiggle {
-  0%, 100% {
+  0%,
+  100% {
     transform: rotate(-0.3deg);
   }
   50% {
@@ -16,11 +17,12 @@
 
 /* Subtle pulse for selected card */
 @keyframes selectedPulse {
-  0%, 100% {
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--theme-primary) 40%, transparent);
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px var(--theme-primary-strong);
   }
   50% {
-    box-shadow: 0 0 0 5px color-mix(in srgb, var(--theme-primary) 25%, transparent);
+    box-shadow: 0 0 0 5px var(--theme-primary-muted);
   }
 }
 
@@ -58,7 +60,9 @@
 
 /* Selected card in edit mode */
 .edit-mode-card.card-selected {
-  animation: cardWiggle 0.5s ease-in-out infinite, selectedPulse 1.5s ease-in-out infinite;
+  animation:
+    cardWiggle 0.5s ease-in-out infinite,
+    selectedPulse 1.5s ease-in-out infinite;
   z-index: 10;
   transform-origin: center center;
   border-radius: var(--theme-border-radius-lg);
@@ -81,7 +85,7 @@
 .edit-mode-toggle.active {
   background-color: var(--theme-primary);
   color: var(--theme-button-text);
-  box-shadow: 0 4px 12px color-mix(in srgb, var(--theme-primary) 40%, transparent);
+  box-shadow: 0 4px 12px var(--theme-primary-strong);
 }
 
 /* Done button - prominent when in edit mode */
@@ -89,14 +93,14 @@
   background: var(--theme-primary);
   color: var(--theme-button-text);
   font-weight: 600;
-  box-shadow: 0 4px 12px color-mix(in srgb, var(--theme-primary) 40%, transparent);
+  box-shadow: 0 4px 12px var(--theme-primary-strong);
   transition: all 0.2s ease;
 }
 
 .edit-mode-done:hover {
   background: var(--theme-button-hover);
   transform: translateY(-1px);
-  box-shadow: 0 6px 16px color-mix(in srgb, var(--theme-primary) 50%, transparent);
+  box-shadow: 0 6px 16px var(--theme-primary-strong);
 }
 
 .edit-mode-done:active {

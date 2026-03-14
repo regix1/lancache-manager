@@ -720,6 +720,23 @@ export const colorGroups: ColorGroup[] = [
         description: 'Mobile menu item hover',
         affects: ['Mobile hovers', 'Dropdown hovers'],
         supportsAlpha: true
+      },
+      {
+        key: 'floatingIconColor',
+        label: 'Floating Icon Color',
+        description: 'Header floating controller icon body color (defaults to primary)',
+        affects: ['Header logo icon'],
+        supportsAlpha: true,
+        pages: [
+          'dashboard',
+          'downloads',
+          'clients',
+          'services',
+          'users',
+          'events',
+          'prefill',
+          'management'
+        ]
       }
     ]
   },

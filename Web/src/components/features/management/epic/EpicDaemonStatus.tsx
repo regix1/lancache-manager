@@ -114,7 +114,7 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({
       <Card>
         {/* Header: Epic icon + Title + HelpPopover */}
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-[color-mix(in_srgb,var(--theme-epic)_15%,transparent)] text-[var(--theme-epic)]">
+          <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-[var(--theme-epic-subtle)] text-[var(--theme-epic)]">
             <EpicIcon size={20} />
           </div>
           <h3 className="text-lg font-semibold text-themed-primary">

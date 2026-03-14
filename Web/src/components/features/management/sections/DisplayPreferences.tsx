@@ -57,7 +57,7 @@ const PreferenceSection: React.FC<PreferenceSectionProps> = ({
     <div className="flex items-center gap-2 mb-3 pb-2 border-b border-themed-secondary">
       <div
         className="w-6 h-6 rounded flex items-center justify-center"
-        style={{ backgroundColor: `color-mix(in srgb, var(${iconBgVar}) 15%, transparent)` }}
+        style={{ backgroundColor: `var(${iconBgVar}-subtle)` }}
       >
         <Icon className="w-3.5 h-3.5" style={{ color: `var(${iconColorVar})` }} />
       </div>

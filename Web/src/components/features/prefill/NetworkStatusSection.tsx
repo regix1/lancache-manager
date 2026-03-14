@@ -65,10 +65,10 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
       : 'var(--theme-success)';
 
   const statusBgColor = hasRealIssue
-    ? 'color-mix(in srgb, var(--theme-warning) 15%, transparent)'
+    ? 'var(--theme-warning-subtle)'
     : showInfoState
-      ? 'color-mix(in srgb, var(--theme-info) 15%, transparent)'
-      : 'color-mix(in srgb, var(--theme-success) 15%, transparent)';
+      ? 'var(--theme-info-subtle)'
+      : 'var(--theme-success-subtle)';
 
   return (
     <Card padding="md">

@@ -153,6 +153,18 @@ const Sparkline: React.FC<SparklineProps> = memo(
         chart.data.labels = labels;
         chart.data.datasets[0].data = data;
 
+        // Update colors for theme changes
+        chart.data.datasets[0].borderColor = gradientColor.solid;
+        if (showArea && canvasRef.current) {
+          const updateCtx = canvasRef.current.getContext('2d');
+          if (updateCtx) {
+            const updatedGradient = updateCtx.createLinearGradient(0, 0, 0, height);
+            updatedGradient.addColorStop(0, gradientColor.fill);
+            updatedGradient.addColorStop(1, gradientColor.transparent);
+            chart.data.datasets[0].backgroundColor = updatedGradient;
+          }
+        }
+
         // Update Y axis bounds
         if (chart.options.scales?.y) {
           chart.options.scales.y.min = yMin;

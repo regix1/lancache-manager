@@ -42,7 +42,7 @@
   }
 
   .outline-delete:hover {
-    background-color: color-mix(in srgb, var(--theme-action-delete-bg) 10%, transparent);
+    background-color: var(--theme-action-delete-subtle);
   }
 
   .outline-process {
@@ -52,7 +52,7 @@
   }
 
   .outline-process:hover {
-    background-color: color-mix(in srgb, var(--theme-action-process-bg) 10%, transparent);
+    background-color: var(--theme-action-process-subtle);
   }
 
   .outline-primary {
@@ -62,7 +62,7 @@
   }
 
   .outline-primary:hover {
-    background-color: color-mix(in srgb, var(--theme-button-bg) 10%, transparent);
+    background-color: var(--theme-button-bg-subtle);
   }
 
   .outline-reset {
@@ -72,7 +72,7 @@
   }
 
   .outline-reset:hover {
-    background-color: color-mix(in srgb, var(--theme-action-reset-bg) 10%, transparent);
+    background-color: var(--theme-action-reset-subtle);
   }
 
   /* Subtle delete hover for icon buttons */
@@ -82,7 +82,7 @@
       color 0.2s;
   }
   .delete-hover:hover {
-    background-color: color-mix(in srgb, var(--theme-icon-red) 15%, transparent);
+    background-color: var(--theme-icon-red-subtle);
     color: var(--theme-icon-red);
   }
 

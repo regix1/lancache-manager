@@ -527,8 +527,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
                                       <span
                                         className="px-1.5 py-0.5 text-[10px] rounded-full font-medium"
                                         style={{
-                                          backgroundColor:
-                                            'color-mix(in srgb, var(--theme-success) 20%, transparent)',
+                                          backgroundColor: 'var(--theme-success-muted)',
                                           color: 'var(--theme-success)'
                                         }}
                                       >

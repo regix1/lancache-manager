@@ -129,7 +129,7 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
           {needsAuthorizationCode && (
             <div className="space-y-4">
               <div className="flex flex-col items-center text-center py-2">
-                <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-[color-mix(in_srgb,var(--theme-epic)_15%,transparent)]">
+                <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-[var(--theme-epic-subtle)]">
                   <KeyRound className="w-7 h-7 text-[var(--theme-epic)]" />
                 </div>
                 <h3 className="text-base font-semibold text-themed-primary mb-1">

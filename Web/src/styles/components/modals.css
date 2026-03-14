@@ -127,8 +127,8 @@
   }
 
   .full-scan-modal-option-primary {
-    background-color: color-mix(in srgb, var(--theme-primary) 8%, var(--theme-bg-secondary));
-    border-color: color-mix(in srgb, var(--theme-primary) 25%, var(--theme-border-primary));
+    background-color: var(--theme-primary-on-bg);
+    border-color: var(--theme-primary-on-border);
   }
 
   .full-scan-modal-option-secondary {

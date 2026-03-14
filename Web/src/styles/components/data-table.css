@@ -153,7 +153,7 @@
   }
 
   .data-table-row:hover {
-    background-color: color-mix(in srgb, var(--theme-bg-tertiary) 50%, transparent);
+    background-color: var(--theme-bg-tertiary-strong);
   }
 
   .data-table-row-clickable {
@@ -201,11 +201,11 @@
 
   /* Striped rows */
   .data-table-striped .data-table-row:nth-child(even) {
-    background-color: color-mix(in srgb, var(--theme-bg-tertiary) 25%, transparent);
+    background-color: var(--theme-bg-tertiary-muted);
   }
 
   .data-table-striped .data-table-row:nth-child(even):hover {
-    background-color: color-mix(in srgb, var(--theme-bg-tertiary) 50%, transparent);
+    background-color: var(--theme-bg-tertiary-strong);
   }
 
   /* Compact mode */

@@ -489,13 +489,13 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
 
         .tab-btn:hover:not(.active) {
           color: var(--theme-text-secondary);
-          background: color-mix(in srgb, var(--theme-bg-secondary) 50%, transparent);
+          background: var(--theme-bg-secondary-strong);
         }
 
         .tab-btn.active {
           color: var(--theme-button-text);
           background: var(--theme-primary);
-          box-shadow: 0 2px 4px color-mix(in srgb, var(--theme-primary) 25%, transparent);
+          box-shadow: 0 2px 4px var(--theme-primary-muted);
         }
 
         .tab-btn svg {
@@ -519,8 +519,8 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
         }
 
         @keyframes badge-glow {
-          0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--theme-success) 40%, transparent); }
-          50% { box-shadow: 0 0 8px 2px color-mix(in srgb, var(--theme-success) 30%, transparent); }
+          0%, 100% { box-shadow: 0 0 0 0 var(--theme-success-strong); }
+          50% { box-shadow: 0 0 8px 2px var(--theme-success-strong); }
         }
 
         .header-stats {
@@ -644,16 +644,16 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
 
         .download-item:hover {
           border-color: var(--theme-border-primary);
-          background: color-mix(in srgb, var(--theme-bg-secondary) 80%, var(--theme-bg-tertiary));
+          background: var(--theme-bg-secondary-on-tertiary);
         }
 
         .download-item.active-item {
           background: linear-gradient(
             135deg,
-            color-mix(in srgb, var(--theme-success) 8%, var(--theme-bg-secondary)) 0%,
+            var(--theme-success-on-bg) 0%,
             var(--theme-bg-secondary) 100%
           );
-          border-color: color-mix(in srgb, var(--theme-success) 25%, var(--theme-border-secondary));
+          border-color: var(--theme-success-on-border);
         }
 
         .item-left {
@@ -744,7 +744,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
         .service-badge {
           padding: 0.15rem 0.4rem;
           border-radius: 4px;
-          background: color-mix(in srgb, var(--theme-primary) 15%, transparent);
+          background: var(--theme-primary-subtle);
           color: var(--theme-primary);
           font-weight: 600;
           font-size: 0.65rem;
@@ -820,22 +820,22 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
         }
 
         .hit-badge.high {
-          background: color-mix(in srgb, var(--theme-success) 15%, transparent);
+          background: var(--theme-success-subtle);
           color: var(--theme-success);
         }
 
         .hit-badge.medium {
-          background: color-mix(in srgb, var(--theme-warning) 15%, transparent);
+          background: var(--theme-warning-subtle);
           color: var(--theme-warning);
         }
 
         .hit-badge.low {
-          background: color-mix(in srgb, var(--theme-warning) 10%, transparent);
-          color: color-mix(in srgb, var(--theme-warning) 80%, var(--theme-error));
+          background: var(--theme-warning-faint);
+          color: var(--theme-warning-on-error);
         }
 
         .hit-badge.critical {
-          background: color-mix(in srgb, var(--theme-error) 15%, transparent);
+          background: var(--theme-error-subtle);
           color: var(--theme-error);
         }
 

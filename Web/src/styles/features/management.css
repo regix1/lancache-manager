@@ -124,65 +124,65 @@
 
 /* Mapping-Login: user logged in, library scanned (green/success) */
 .source-badge-mapping-login {
-  background-color: color-mix(in srgb, var(--theme-success) 15%, transparent);
+  background-color: var(--theme-success-subtle);
   color: var(--theme-success);
-  border: 1px solid color-mix(in srgb, var(--theme-success) 25%, transparent);
+  border: 1px solid var(--theme-success-muted);
 }
 
 /* Prefill-Login: prefill daemon authenticated (blue/primary) */
 .source-badge-prefill-login {
-  background-color: color-mix(in srgb, var(--theme-primary) 15%, transparent);
+  background-color: var(--theme-primary-subtle);
   color: var(--theme-primary);
-  border: 1px solid color-mix(in srgb, var(--theme-primary) 25%, transparent);
+  border: 1px solid var(--theme-primary-muted);
 }
 
 /* Free-Games: Epic free games catalog (purple/epic) */
 .source-badge-free-games {
-  background-color: color-mix(in srgb, var(--theme-epic) 15%, transparent);
+  background-color: var(--theme-epic-subtle);
   color: var(--theme-epic);
-  border: 1px solid color-mix(in srgb, var(--theme-epic) 25%, transparent);
+  border: 1px solid var(--theme-epic-muted);
 }
 
 /* Library: user's owned games */
 .source-badge-library {
-  background-color: color-mix(in srgb, var(--theme-success) 15%, transparent);
+  background-color: var(--theme-success-subtle);
   color: var(--theme-success);
-  border: 1px solid color-mix(in srgb, var(--theme-success) 25%, transparent);
+  border: 1px solid var(--theme-success-muted);
 }
 
 /* Wishlist */
 .source-badge-wishlist {
-  background-color: color-mix(in srgb, var(--theme-epic) 15%, transparent);
+  background-color: var(--theme-epic-subtle);
   color: var(--theme-epic);
-  border: 1px solid color-mix(in srgb, var(--theme-epic) 25%, transparent);
+  border: 1px solid var(--theme-epic-muted);
 }
 
 /* Store catalog (orange/warning) */
 .source-badge-store {
-  background-color: color-mix(in srgb, var(--theme-warning) 15%, transparent);
+  background-color: var(--theme-warning-subtle);
   color: var(--theme-warning);
-  border: 1px solid color-mix(in srgb, var(--theme-warning) 25%, transparent);
+  border: 1px solid var(--theme-warning-muted);
 }
 
 /* Manual entry (gray) */
 .source-badge-manual {
-  background-color: color-mix(in srgb, var(--theme-text-secondary) 10%, transparent);
+  background-color: var(--theme-text-secondary-subtle);
   color: var(--theme-text-secondary);
-  border: 1px solid color-mix(in srgb, var(--theme-text-secondary) 20%, transparent);
+  border: 1px solid var(--theme-text-secondary-muted);
 }
 
 /* Daemon discovered */
 .source-badge-daemon {
-  background-color: color-mix(in srgb, var(--theme-primary) 15%, transparent);
+  background-color: var(--theme-primary-subtle);
   color: var(--theme-primary);
-  border: 1px solid color-mix(in srgb, var(--theme-primary) 25%, transparent);
+  border: 1px solid var(--theme-primary-muted);
 }
 
 /* Default/unknown */
 .source-badge-default {
-  background-color: color-mix(in srgb, var(--theme-text-secondary) 10%, transparent);
+  background-color: var(--theme-text-secondary-subtle);
   color: var(--theme-text-secondary);
-  border: 1px solid color-mix(in srgb, var(--theme-text-secondary) 20%, transparent);
+  border: 1px solid var(--theme-text-secondary-muted);
 }
 
 /* Mobile tab scrollbar styling - thin and subtle */

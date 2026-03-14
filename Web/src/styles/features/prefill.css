@@ -31,11 +31,11 @@
 
   /* Loading State - Service-specific icon variants */
   .prefill-loading-icon--steam {
-    background-color: color-mix(in srgb, var(--theme-steam) 15%, transparent);
+    background-color: var(--theme-steam-subtle);
   }
 
   .prefill-loading-icon--epic {
-    background-color: color-mix(in srgb, var(--theme-epic) 15%, transparent);
+    background-color: var(--theme-epic-subtle);
   }
 
   .prefill-loading-spinner--steam {
@@ -146,13 +146,13 @@
 
   /* Primary command tile - elevated, prominent look */
   .cmd-tile--primary {
-    background: color-mix(in srgb, var(--theme-action-process-bg) 12%, transparent);
-    border-color: color-mix(in srgb, var(--theme-action-process-bg) 25%, transparent);
+    background: var(--theme-action-process-subtle);
+    border-color: var(--theme-action-process-muted);
   }
 
   .cmd-tile--primary:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--theme-action-process-bg) 20%, transparent);
-    border-color: color-mix(in srgb, var(--theme-action-process-bg) 40%, transparent);
+    background: var(--theme-action-process-muted);
+    border-color: var(--theme-action-process-strong);
   }
 
   /* Destructive command tile */
@@ -161,8 +161,8 @@
   }
 
   .cmd-tile--destructive:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--theme-icon-red) 8%, transparent);
-    border-color: color-mix(in srgb, var(--theme-icon-red) 20%, transparent);
+    background: var(--theme-error-faint);
+    border-color: var(--theme-icon-red-muted);
   }
 
   /* Command tile icon container */
@@ -198,8 +198,8 @@
 
   /* Login notice bar */
   .cmd-login-notice {
-    background: color-mix(in srgb, var(--theme-warning) 8%, transparent);
-    border: 1px solid color-mix(in srgb, var(--theme-warning) 20%, transparent);
+    background: var(--theme-warning-faint);
+    border: 1px solid var(--theme-warning-muted);
     border-radius: var(--theme-border-radius-lg);
   }
 

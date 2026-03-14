@@ -159,17 +159,17 @@
 }
 
 .prefill-indicator-active {
-  background-color: color-mix(in srgb, var(--theme-icon-green) 15%, transparent);
+  background-color: var(--theme-icon-green-subtle);
   color: var(--theme-icon-green);
 }
 
 .prefill-indicator-downloading {
-  background-color: color-mix(in srgb, var(--theme-primary) 15%, transparent);
+  background-color: var(--theme-primary-subtle);
   color: var(--theme-primary);
 }
 
 .prefill-indicator-terminated {
-  background-color: color-mix(in srgb, var(--theme-icon-red) 15%, transparent);
+  background-color: var(--theme-icon-red-subtle);
   color: var(--theme-icon-red);
 }
 
@@ -299,12 +299,12 @@
 }
 
 .prefill-stat-games {
-  background-color: color-mix(in srgb, var(--theme-primary) 15%, transparent);
+  background-color: var(--theme-primary-subtle);
   color: var(--theme-primary);
 }
 
 .prefill-stat-bytes {
-  background-color: color-mix(in srgb, var(--theme-icon-green) 15%, transparent);
+  background-color: var(--theme-icon-green-subtle);
   color: var(--theme-icon-green);
 }
 
@@ -364,7 +364,7 @@
   border-radius: var(--theme-border-radius, 0.5rem);
   font-size: 0.6875rem;
   font-weight: 500;
-  background-color: color-mix(in srgb, var(--theme-icon-green) 15%, transparent);
+  background-color: var(--theme-icon-green-subtle);
   color: var(--theme-icon-green);
 }
 
@@ -428,7 +428,7 @@
 .prefill-history-section {
   padding: 0.875rem;
   border-top: 1px solid var(--theme-border-primary);
-  background-color: color-mix(in srgb, var(--theme-bg-tertiary) 30%, transparent);
+  background-color: var(--theme-bg-tertiary-muted);
   border-radius: 0 0 var(--theme-border-radius, 0.5rem) var(--theme-border-radius, 0.5rem);
 }
 
@@ -568,7 +568,7 @@
 }
 
 .prefill-ban-active {
-  background-color: color-mix(in srgb, var(--theme-icon-red) 20%, transparent);
+  background-color: var(--theme-icon-red-muted);
   color: var(--theme-icon-red);
 }
 
@@ -716,12 +716,12 @@
 }
 
 .prefill-platform-steam {
-  background-color: color-mix(in srgb, var(--theme-steam) 15%, transparent);
+  background-color: var(--theme-steam-subtle);
   color: var(--theme-steam);
 }
 
 .prefill-platform-epic {
-  background-color: color-mix(in srgb, var(--theme-epic) 15%, transparent);
+  background-color: var(--theme-epic-subtle);
   color: var(--theme-epic);
 }
 

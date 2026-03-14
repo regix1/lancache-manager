@@ -59,7 +59,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
       className={`group themed-border-radius overflow-hidden transition-all duration-300 border ${
         isExpanded
           ? 'bg-themed-secondary border-themed-primary shadow-[0_4px_16px_rgba(0,0,0,0.2),0_1px_4px_rgba(0,0,0,0.12)]'
-          : 'bg-[color-mix(in_srgb,var(--theme-bg-secondary)_60%,transparent)] border-themed-secondary shadow-[0_1px_3px_rgba(0,0,0,0.1)]'
+          : 'bg-[var(--theme-bg-secondary-emphasis)] border-themed-secondary shadow-[0_1px_3px_rgba(0,0,0,0.1)]'
       }`}
     >
       {/* Header - using div with role="button" to allow nested interactive elements */}
@@ -79,10 +79,8 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
                 isExpanded ? 'scale-105' : 'scale-100'
               }`}
               style={{
-                backgroundColor: `color-mix(in srgb, ${iconColor} 15%, transparent)`,
-                boxShadow: isExpanded
-                  ? `0 2px 8px color-mix(in srgb, ${iconColor} 25%, transparent)`
-                  : 'none'
+                backgroundColor: `${iconColor.replace(')', '-subtle)')}`,
+                boxShadow: isExpanded ? `0 2px 8px ${iconColor.replace(')', '-muted)')}` : 'none'
               }}
             >
               <Icon
@@ -112,7 +110,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
               style={
                 isExpanded
                   ? {
-                      backgroundColor: `color-mix(in srgb, ${iconColor} 20%, transparent)`,
+                      backgroundColor: `${iconColor.replace(')', '-muted)')}`,
                       color: iconColor
                     }
                   : undefined
@@ -136,7 +134,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
             }}
             className={`flex items-center justify-center w-10 h-10 themed-border-radius transition-all duration-300 ${
               isExpanded
-                ? 'bg-[color-mix(in_srgb,var(--theme-accent)_10%,transparent)]'
+                ? 'bg-[var(--theme-accent-subtle)]'
                 : 'bg-transparent hover:bg-themed-tertiary'
             }`}
             aria-label={isExpanded ? 'Collapse section' : 'Expand section'}

@@ -33,19 +33,19 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
 
     const colorMap = {
       success: {
-        backgroundColor: 'color-mix(in srgb, var(--theme-success) 20%, transparent)',
+        backgroundColor: 'var(--theme-success-muted)',
         color: 'var(--theme-success-text)'
       },
       error: {
-        backgroundColor: 'color-mix(in srgb, var(--theme-error) 20%, transparent)',
+        backgroundColor: 'var(--theme-error-muted)',
         color: 'var(--theme-error-text)'
       },
       warning: {
-        backgroundColor: 'color-mix(in srgb, var(--theme-warning) 20%, transparent)',
+        backgroundColor: 'var(--theme-warning-muted)',
         color: 'var(--theme-warning-text)'
       },
       info: {
-        backgroundColor: 'color-mix(in srgb, var(--theme-info) 20%, transparent)',
+        backgroundColor: 'var(--theme-info-muted)',
         color: 'var(--theme-info-text)'
       },
       default: {

@@ -63,45 +63,45 @@
     color: var(--theme-icon-gray, var(--theme-text-muted));
   }
 
-  /* Icon Background Colors - for icon containers (using color-mix for theme support) */
+  /* Icon Background Colors - for icon containers */
   .icon-bg-blue {
-    background-color: color-mix(in srgb, var(--theme-icon-blue) 15%, transparent);
+    background-color: var(--theme-icon-blue-subtle);
   }
 
   .icon-bg-green {
-    background-color: color-mix(in srgb, var(--theme-icon-green) 15%, transparent);
+    background-color: var(--theme-icon-green-subtle);
   }
 
   .icon-bg-emerald {
-    background-color: color-mix(in srgb, var(--theme-icon-emerald) 15%, transparent);
+    background-color: var(--theme-icon-emerald-subtle);
   }
 
   .icon-bg-purple {
-    background-color: color-mix(in srgb, var(--theme-icon-purple) 15%, transparent);
+    background-color: var(--theme-icon-purple-subtle);
   }
 
   .icon-bg-indigo {
-    background-color: color-mix(in srgb, var(--theme-icon-indigo) 15%, transparent);
+    background-color: var(--theme-icon-indigo-subtle);
   }
 
   .icon-bg-orange {
-    background-color: color-mix(in srgb, var(--theme-icon-orange) 15%, transparent);
+    background-color: var(--theme-icon-orange-subtle);
   }
 
   .icon-bg-yellow {
-    background-color: color-mix(in srgb, var(--theme-icon-yellow) 15%, transparent);
+    background-color: var(--theme-icon-yellow-subtle);
   }
 
   .icon-bg-cyan {
-    background-color: color-mix(in srgb, var(--theme-icon-cyan) 15%, transparent);
+    background-color: var(--theme-icon-cyan-subtle);
   }
 
   .icon-bg-red {
-    background-color: color-mix(in srgb, var(--theme-icon-red) 15%, transparent);
+    background-color: var(--theme-icon-red-subtle);
   }
 
   .icon-bg-gray {
-    background-color: color-mix(in srgb, var(--theme-icon-gray, var(--theme-text-muted)) 15%, transparent);
+    background-color: var(--theme-icon-gray-subtle);
   }
 
   /* Text Utility Classes */
@@ -187,11 +187,11 @@
   }
 
   .bg-themed-accent-subtle {
-    background-color: color-mix(in srgb, var(--theme-accent) 15%, transparent);
+    background-color: var(--theme-accent-subtle);
   }
 
   .bg-themed-primary-subtle {
-    background-color: var(--theme-primary-bg, color-mix(in srgb, var(--theme-primary) 15%, transparent));
+    background-color: var(--theme-primary-subtle);
   }
 
   /* Semantic state backgrounds */
@@ -366,7 +366,12 @@
 
   /* Dashed divider line */
   .divider-dashed {
-    background: repeating-linear-gradient(90deg, var(--theme-border-secondary) 0px, var(--theme-border-secondary) 4px, transparent 4px, transparent 8px);
+    background: repeating-linear-gradient(
+      90deg,
+      var(--theme-border-secondary) 0px,
+      var(--theme-border-secondary) 4px,
+      transparent 4px,
+      transparent 8px
+    );
   }
-
 }

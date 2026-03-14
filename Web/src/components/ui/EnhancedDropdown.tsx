@@ -504,7 +504,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                                               style={{
                                                 backgroundColor: isSubSelected
                                                   ? 'rgba(255,255,255,0.2)'
-                                                  : `color-mix(in srgb, ${subItem.badgeColor || 'var(--theme-status-success)'} 20%, transparent)`,
+                                                  : `${(subItem.badgeColor || 'var(--theme-status-success)').replace(')', '-muted)')}`,
                                                 color: isSubSelected
                                                   ? 'var(--theme-button-text)'
                                                   : subItem.badgeColor ||

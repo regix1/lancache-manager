@@ -51,13 +51,13 @@
 
 .tab-btn:hover:not(.active) {
   color: var(--theme-text-secondary);
-  background: color-mix(in srgb, var(--theme-bg-secondary) 50%, transparent);
+  background: var(--theme-bg-secondary-strong);
 }
 
 .tab-btn.active {
   color: var(--theme-button-text);
   background: var(--theme-primary);
-  box-shadow: 0 2px 4px color-mix(in srgb, var(--theme-primary) 25%, transparent);
+  box-shadow: 0 2px 4px var(--theme-primary-muted);
 }
 
 .tab-btn svg {
@@ -259,8 +259,8 @@
 }
 
 .stat-box.primary {
-  background: color-mix(in srgb, var(--theme-primary) 12%, var(--theme-bg-secondary));
-  border: 1px solid color-mix(in srgb, var(--theme-primary) 25%, transparent);
+  background: var(--theme-primary-on-bg);
+  border: 1px solid var(--theme-primary-muted);
 }
 
 .stat-box-value {
@@ -311,8 +311,12 @@
 }
 
 @keyframes rotate-slow {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .empty-icon svg {

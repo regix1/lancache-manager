@@ -21,46 +21,46 @@ interface ActivityLogProps {
   className?: string;
 }
 
-// Type-to-style mapping using theme-aware color-mix for backgrounds
+// Type-to-style mapping using theme-aware CSS custom properties for backgrounds
 const typeStyles: Record<LogEntryType, { color: string; bgColor: string; icon: typeof Info }> = {
   success: {
     color: 'var(--theme-success)',
-    bgColor: 'color-mix(in srgb, var(--theme-success) 12%, transparent)',
+    bgColor: 'var(--theme-success-subtle)',
     icon: CheckCircle2
   },
   error: {
     color: 'var(--theme-error)',
-    bgColor: 'color-mix(in srgb, var(--theme-error) 12%, transparent)',
+    bgColor: 'var(--theme-error-subtle)',
     icon: XCircle
   },
   warning: {
     color: 'var(--theme-warning)',
-    bgColor: 'color-mix(in srgb, var(--theme-warning) 12%, transparent)',
+    bgColor: 'var(--theme-warning-subtle)',
     icon: AlertCircle
   },
   download: {
     color: 'var(--theme-primary)',
-    bgColor: 'color-mix(in srgb, var(--theme-primary) 12%, transparent)',
+    bgColor: 'var(--theme-primary-subtle)',
     icon: Download
   },
   auth: {
     color: 'var(--theme-steam)',
-    bgColor: 'color-mix(in srgb, var(--theme-steam) 12%, transparent)',
+    bgColor: 'var(--theme-steam-subtle)',
     icon: LogIn
   },
   progress: {
     color: 'var(--theme-primary)',
-    bgColor: 'color-mix(in srgb, var(--theme-primary) 12%, transparent)',
+    bgColor: 'var(--theme-primary-subtle)',
     icon: Loader2
   },
   command: {
     color: 'var(--theme-accent)',
-    bgColor: 'color-mix(in srgb, var(--theme-accent) 12%, transparent)',
+    bgColor: 'var(--theme-accent-subtle)',
     icon: Terminal
   },
   info: {
     color: 'var(--theme-text-muted)',
-    bgColor: 'color-mix(in srgb, var(--theme-text-muted) 8%, transparent)',
+    bgColor: 'var(--theme-text-muted-faint)',
     icon: Info
   }
 };

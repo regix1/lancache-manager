@@ -98,7 +98,7 @@
   }
 
   .calendar-nav .ed-trigger:not(:disabled):hover {
-    background-color: color-mix(in srgb, var(--theme-button-bg) 10%, transparent);
+    background-color: var(--theme-button-bg-subtle);
   }
 
   .ed-dropdown {
@@ -159,19 +159,11 @@
   }
 
   .msd-option-selected {
-    background-color: color-mix(
-      in srgb,
-      var(--theme-primary) 8%,
-      var(--theme-bg-secondary)
-    ) !important;
+    background-color: var(--theme-primary-on-bg) !important;
   }
 
   .msd-option-selected:not(:disabled):hover {
-    background-color: color-mix(
-      in srgb,
-      var(--theme-primary) 12%,
-      var(--theme-bg-secondary)
-    ) !important;
+    background-color: var(--theme-primary-on-bg-hover) !important;
   }
 
   .msd-checkbox {
@@ -337,12 +329,12 @@
 
   .github-section-label.installable {
     color: var(--theme-success-text, var(--theme-icon-green));
-    background-color: color-mix(in srgb, var(--theme-icon-green) 15%, transparent);
+    background-color: var(--theme-icon-green-subtle);
   }
 
   .github-section-label.dependency {
     color: var(--theme-text-muted);
-    background-color: color-mix(in srgb, var(--theme-text-muted) 10%, transparent);
+    background-color: var(--theme-text-muted-subtle);
   }
 
   .github-section-hint {
@@ -570,10 +562,10 @@
     text-decoration: none;
     background: linear-gradient(
       135deg,
-      color-mix(in srgb, #ff6b6b 10%, var(--theme-bg-tertiary)) 0%,
-      color-mix(in srgb, #ee5a5a 10%, var(--theme-bg-tertiary)) 100%
+      var(--theme-danger-gradient-start) 0%,
+      var(--theme-danger-gradient-end) 100%
     );
-    border: 1px solid color-mix(in srgb, #ff6b6b 30%, var(--theme-border-primary));
+    border: 1px solid var(--theme-danger-border);
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     position: relative;
     overflow: hidden;
@@ -692,7 +684,7 @@
     margin: 0.25rem 0.5rem;
     border: 1px solid var(--theme-border-secondary);
     border-radius: var(--theme-border-radius, 0.375rem);
-    background-color: color-mix(in srgb, var(--theme-bg-tertiary) 40%, transparent);
+    background-color: var(--theme-bg-tertiary-strong);
   }
 
   .github-dropdown-section:last-of-type {
@@ -756,7 +748,7 @@
     inset: -4px;
     border-radius: 50%;
     background: transparent;
-    box-shadow: 0 0 12px 6px color-mix(in srgb, var(--theme-primary) 40%, transparent);
+    box-shadow: 0 0 12px 6px var(--theme-primary-strong);
     animation: githubIconGlow 0.5s ease-out forwards;
     pointer-events: none;
   }

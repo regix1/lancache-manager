@@ -53,14 +53,11 @@ export function PrefillProgressCard({ progress, onCancel }: PrefillProgressCardP
   const isReconnecting = progress.state === 'reconnecting';
 
   return (
-    <Card
-      padding="md"
-      className="overflow-hidden border-[color-mix(in_srgb,var(--theme-primary)_50%,transparent)]"
-    >
+    <Card padding="md" className="overflow-hidden border-[var(--theme-primary-strong)]">
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-[color-mix(in_srgb,var(--theme-primary)_15%,transparent)]">
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-[var(--theme-primary-subtle)]">
               {isReconnecting ? (
                 <Loader2 className="h-5 w-5 animate-spin text-[var(--theme-primary)]" />
               ) : (

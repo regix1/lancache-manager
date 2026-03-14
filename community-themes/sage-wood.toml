@@ -3,7 +3,7 @@ name = "Sage & Wood"
 id = "sage-wood"
 description = "Earthy sage green with warm wood browns on charcoal"
 author = "Nature"
-version = "2.2.0"
+version = "2.3.0"
 isDark = true
 sharpCorners = false
 
@@ -29,6 +29,7 @@ navTabActive = "#8AA968"
 navTabInactive = "#9a9590"
 navTabHover = "#c4beb4"
 navTabActiveBorder = "#8AA968"
+floatingIconColor = "#8AA968"
 navMobileMenuBg = "#323232"
 navMobileItemHover = "#404040"
 success = "#7a9960"

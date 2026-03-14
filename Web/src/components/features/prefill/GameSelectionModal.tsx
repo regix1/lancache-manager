@@ -390,7 +390,7 @@ export function GameSelectionModal({
                       : 'flex-1 min-h-0'
                   }`}
                 >
-                  <div className="px-4 py-2 text-xs font-semibold uppercase tracking-wider flex-shrink-0 bg-[color-mix(in_srgb,var(--theme-primary)_15%,var(--theme-bg-tertiary))] text-[var(--theme-primary)] border-b border-[var(--theme-border-secondary)]">
+                  <div className="px-4 py-2 text-xs font-semibold uppercase tracking-wider flex-shrink-0 bg-[var(--theme-primary-on-bg-hover)] text-[var(--theme-primary)] border-b border-[var(--theme-border-secondary)]">
                     {t('prefill.gameSelection.selected')}
                     {localSelected.size > 0 && (
                       <span className="count-badge">{localSelected.size}</span>
@@ -410,7 +410,7 @@ export function GameSelectionModal({
                             <button
                               key={game.appId}
                               onClick={() => toggleGame(game.appId)}
-                              className="w-full flex items-center gap-3 px-4 py-3 text-left smooth-transition bg-[color-mix(in_srgb,var(--theme-primary)_10%,transparent)] border-b border-[var(--theme-border-secondary)] hover:bg-[color-mix(in_srgb,var(--theme-primary)_15%,transparent)]"
+                              className="w-full flex items-center gap-3 px-4 py-3 text-left smooth-transition bg-[var(--theme-primary-faint)] border-b border-[var(--theme-border-secondary)] hover:bg-[var(--theme-primary-subtle)]"
                             >
                               <div className="flex-shrink-0 w-5 h-5 rounded flex items-center justify-center bg-[var(--theme-primary)] border-2 border-[var(--theme-primary)]">
                                 <Check className="h-3 w-3 text-white" />

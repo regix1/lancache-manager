@@ -19,12 +19,12 @@
 }
 
 .stat-pill--active {
-  background: color-mix(in srgb, var(--theme-accent) 12%, transparent);
+  background: var(--theme-accent-subtle);
   border-color: var(--theme-accent);
 }
 
 .stat-pill--active:hover {
-  background: color-mix(in srgb, var(--theme-accent) 18%, transparent);
+  background: var(--theme-accent-muted);
   border-color: var(--theme-accent);
 }
 
@@ -71,12 +71,12 @@
   100% {
     box-shadow:
       0 0 0 2px var(--theme-bg-secondary),
-      0 0 0 4px color-mix(in srgb, var(--theme-success) 30%, transparent);
+      0 0 0 4px var(--theme-success-strong);
   }
   50% {
     box-shadow:
       0 0 0 2px var(--theme-bg-secondary),
-      0 0 0 6px color-mix(in srgb, var(--theme-success) 10%, transparent);
+      0 0 0 6px var(--theme-success-faint);
   }
 }
 
@@ -85,12 +85,12 @@
   100% {
     box-shadow:
       0 0 0 2px var(--theme-bg-secondary),
-      0 0 0 4px color-mix(in srgb, var(--theme-warning) 30%, transparent);
+      0 0 0 4px var(--theme-warning-strong);
   }
   50% {
     box-shadow:
       0 0 0 2px var(--theme-bg-secondary),
-      0 0 0 6px color-mix(in srgb, var(--theme-warning) 10%, transparent);
+      0 0 0 6px var(--theme-warning-faint);
   }
 }
 
@@ -393,13 +393,13 @@
 }
 
 .filter-chip--active {
-  background: color-mix(in srgb, var(--theme-accent) 12%, transparent);
+  background: var(--theme-accent-subtle);
   border-color: var(--theme-accent);
   color: var(--theme-accent);
 }
 
 .filter-chip--active:hover {
-  background: color-mix(in srgb, var(--theme-accent) 18%, transparent);
+  background: var(--theme-accent-muted);
   border-color: var(--theme-accent);
   color: var(--theme-accent);
 }

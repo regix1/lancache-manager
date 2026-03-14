@@ -26,8 +26,8 @@ export function getEventColorVar(colorIndex: number): string {
 export function getEventColorStyles(colorIndex: number): React.CSSProperties {
   const colorVar = getEventColorVar(colorIndex);
   return {
-    backgroundColor: `color-mix(in srgb, ${colorVar} 20%, transparent)`,
+    backgroundColor: colorVar.replace(')', '-muted)'),
     color: colorVar,
-    border: `1px solid color-mix(in srgb, ${colorVar} 40%, transparent)`
+    border: `1px solid ${colorVar.replace(')', '-strong)')}`
   };
 }

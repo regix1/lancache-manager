@@ -455,7 +455,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
                 {/* Week number cell */}
                 {settings.showWeekNumbers && (
                   <div
-                    className={`${settings.compactMode ? 'min-h-[90px] sm:min-h-[100px]' : 'min-h-[130px] sm:min-h-[150px]'} rounded-lg flex items-start justify-center pt-2 bg-[color-mix(in_srgb,var(--theme-bg-tertiary)_50%,transparent)]`}
+                    className={`${settings.compactMode ? 'min-h-[90px] sm:min-h-[100px]' : 'min-h-[130px] sm:min-h-[150px]'} rounded-lg flex items-start justify-center pt-2 bg-[var(--theme-bg-tertiary-strong)]`}
                   >
                     <span className="text-xs font-semibold px-1.5 py-0.5 rounded text-[var(--theme-text-muted)] bg-[var(--theme-bg-tertiary)]">
                       {weekNumber}
@@ -489,7 +489,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
                       return (
                         <div
                           key={`adjacent-${week.weekIndex}-${colIndex}`}
-                          className={`${settings.compactMode ? 'min-h-[90px] sm:min-h-[100px]' : 'min-h-[130px] sm:min-h-[150px]'} p-1.5 sm:p-2 rounded-lg bg-[color-mix(in_srgb,var(--theme-bg-tertiary)_30%,transparent)]`}
+                          className={`${settings.compactMode ? 'min-h-[90px] sm:min-h-[100px]' : 'min-h-[130px] sm:min-h-[150px]'} p-1.5 sm:p-2 rounded-lg bg-[var(--theme-bg-tertiary-muted)]`}
                         >
                           <span className="text-sm font-medium w-6 h-6 flex items-center justify-center rounded-full text-[var(--theme-text-muted)] opacity-50">
                             {adjacentDay}
@@ -501,7 +501,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
                     return (
                       <div
                         key={`empty-${week.weekIndex}-${colIndex}`}
-                        className={`${settings.compactMode ? 'min-h-[90px] sm:min-h-[100px]' : 'min-h-[130px] sm:min-h-[150px]'} rounded-lg bg-[color-mix(in_srgb,var(--theme-bg-tertiary)_30%,transparent)]`}
+                        className={`${settings.compactMode ? 'min-h-[90px] sm:min-h-[100px]' : 'min-h-[130px] sm:min-h-[150px]'} rounded-lg bg-[var(--theme-bg-tertiary-muted)]`}
                       />
                     );
                   }
@@ -523,7 +523,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
                       className={`${settings.compactMode ? 'min-h-[90px] sm:min-h-[100px]' : 'min-h-[130px] sm:min-h-[150px]'} p-1.5 sm:p-2 rounded-lg border transition-all duration-200 ${pastDay ? 'cursor-not-allowed opacity-60' : 'cursor-pointer group'}`}
                       style={{
                         backgroundColor: today
-                          ? 'color-mix(in srgb, var(--theme-primary) 8%, transparent)'
+                          ? 'var(--theme-primary-faint)'
                           : 'var(--theme-bg-secondary)',
                         borderColor: today
                           ? 'var(--theme-primary)'
@@ -555,9 +555,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
                               : pastDay
                                 ? 'var(--theme-text-muted)'
                                 : 'var(--theme-text-primary)',
-                            backgroundColor: today
-                              ? 'color-mix(in srgb, var(--theme-primary) 15%, transparent)'
-                              : 'transparent'
+                            backgroundColor: today ? 'var(--theme-primary-subtle)' : 'transparent'
                           }}
                         >
                           {day}
@@ -645,15 +643,20 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
 
                 // Get event background style based on opacity setting
                 const getEventBackground = (colorVar: string, isEnded: boolean) => {
+                  const onBgSoft = colorVar.replace(')', '-on-bg-soft)');
+                  const onBg = colorVar.replace(')', '-on-bg)');
+                  const onBgStrong = colorVar.replace(')', '-on-bg-strong)');
+                  const subtleV = colorVar.replace(')', '-subtle)');
+                  const mutedV = colorVar.replace(')', '-muted)');
                   if (settings.eventOpacity === 'solid') {
                     // Solid mode: more vibrant, less transparent
                     if (isEnded) {
-                      return `linear-gradient(90deg, color-mix(in srgb, ${colorVar} 45%, var(--theme-bg-secondary)) 0%, color-mix(in srgb, ${colorVar} 35%, var(--theme-bg-secondary)) 100%)`;
+                      return `linear-gradient(90deg, ${onBgSoft} 0%, ${onBgSoft} 100%)`;
                     }
-                    return `linear-gradient(90deg, color-mix(in srgb, ${colorVar} 65%, var(--theme-bg-secondary)) 0%, color-mix(in srgb, ${colorVar} 50%, var(--theme-bg-secondary)) 100%)`;
+                    return `linear-gradient(90deg, ${onBgStrong} 0%, ${onBg} 100%)`;
                   }
                   // Transparent mode (default): subtle, transparent
-                  return `linear-gradient(90deg, color-mix(in srgb, ${colorVar} ${isEnded ? '20%' : '30%'}, transparent) 0%, color-mix(in srgb, ${colorVar} ${isEnded ? '12%' : '20%'}, transparent) 100%)`;
+                  return `linear-gradient(90deg, ${isEnded ? subtleV : mutedV} 0%, ${isEnded ? subtleV : subtleV} 100%)`;
                 };
 
                 return (
@@ -668,6 +671,9 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
                   >
                     {visibleEvents.map((spanEvent, eventIndex) => {
                       const colorVar = getEventColorVar(spanEvent.event.colorIndex);
+                      const mutedVar = colorVar.replace(')', '-muted)');
+                      const strongVar = colorVar.replace(')', '-strong)');
+                      const emphasisVar = colorVar.replace(')', '-emphasis)');
                       const isEnded = hasEventEnded(spanEvent.event);
                       const isSingleDayMobile =
                         isMobile && !settings.compactMode && spanEvent.span === 1;
@@ -724,24 +730,24 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
                                   background: settings.compactMode
                                     ? settings.eventOpacity === 'solid'
                                       ? isEnded
-                                        ? `color-mix(in srgb, ${colorVar} 60%, transparent)`
+                                        ? emphasisVar
                                         : colorVar
                                       : isEnded
-                                        ? `color-mix(in srgb, ${colorVar} 35%, transparent)`
-                                        : `color-mix(in srgb, ${colorVar} 55%, transparent)`
+                                        ? strongVar
+                                        : emphasisVar
                                     : getEventBackground(colorVar, isEnded),
                                   borderLeft: settings.compactMode
                                     ? 'none'
-                                    : `3px solid ${isEnded ? `color-mix(in srgb, ${colorVar} 60%, transparent)` : colorVar}`,
+                                    : `3px solid ${isEnded ? emphasisVar : colorVar}`,
                                   borderTop: settings.compactMode
                                     ? 'none'
-                                    : `1px solid color-mix(in srgb, ${colorVar} ${isEnded ? '25%' : '40%'}, transparent)`,
+                                    : `1px solid ${isEnded ? mutedVar : strongVar}`,
                                   borderBottom: settings.compactMode
                                     ? 'none'
-                                    : `1px solid color-mix(in srgb, ${colorVar} ${isEnded ? '25%' : '40%'}, transparent)`,
+                                    : `1px solid ${isEnded ? mutedVar : strongVar}`,
                                   borderRight: settings.compactMode
                                     ? 'none'
-                                    : `1px solid color-mix(in srgb, ${colorVar} ${isEnded ? '25%' : '40%'}, transparent)`,
+                                    : `1px solid ${isEnded ? mutedVar : strongVar}`,
                                   color: settings.compactMode
                                     ? 'transparent'
                                     : isEnded
@@ -828,27 +834,27 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
                               background: settings.compactMode
                                 ? settings.eventOpacity === 'solid'
                                   ? isEnded
-                                    ? `color-mix(in srgb, ${colorVar} 60%, transparent)`
+                                    ? emphasisVar
                                     : colorVar
                                   : isEnded
-                                    ? `color-mix(in srgb, ${colorVar} 35%, transparent)`
-                                    : `color-mix(in srgb, ${colorVar} 55%, transparent)`
+                                    ? strongVar
+                                    : emphasisVar
                                 : getEventBackground(colorVar, isEnded),
                               borderLeft: settings.compactMode
                                 ? 'none'
                                 : spanEvent.isStart
-                                  ? `3px solid ${isEnded ? `color-mix(in srgb, ${colorVar} 60%, transparent)` : colorVar}`
+                                  ? `3px solid ${isEnded ? emphasisVar : colorVar}`
                                   : 'none',
                               borderTop: settings.compactMode
                                 ? 'none'
-                                : `1px solid color-mix(in srgb, ${colorVar} ${isEnded ? '25%' : '40%'}, transparent)`,
+                                : `1px solid ${isEnded ? mutedVar : strongVar}`,
                               borderBottom: settings.compactMode
                                 ? 'none'
-                                : `1px solid color-mix(in srgb, ${colorVar} ${isEnded ? '25%' : '40%'}, transparent)`,
+                                : `1px solid ${isEnded ? mutedVar : strongVar}`,
                               borderRight: settings.compactMode
                                 ? 'none'
                                 : spanEvent.isEnd
-                                  ? `1px solid color-mix(in srgb, ${colorVar} ${isEnded ? '25%' : '40%'}, transparent)`
+                                  ? `1px solid ${isEnded ? mutedVar : strongVar}`
                                   : 'none',
                               color: settings.compactMode
                                 ? 'transparent'
@@ -942,6 +948,10 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
                         <div className="space-y-1.5">
                           {dayEvents.map((event) => {
                             const colorVar = getEventColorVar(event.colorIndex);
+                            const subtleVar = colorVar.replace(')', '-subtle)');
+                            const mutedVar = colorVar.replace(')', '-muted)');
+                            const emphasisVar = colorVar.replace(')', '-emphasis)');
+                            const intenseVar = colorVar.replace(')', '-intense)');
                             const isEnded = hasEventEnded(event);
                             return (
                               <button
@@ -953,20 +963,22 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
                                 }}
                                 className="w-full text-left px-3 py-2.5 text-xs font-medium truncate transition-all rounded-lg flex items-center gap-2"
                                 style={{
-                                  backgroundColor: `color-mix(in srgb, ${colorVar} ${isEnded ? '12%' : '20%'}, transparent)`,
-                                  borderLeft: `3px solid ${isEnded ? `color-mix(in srgb, ${colorVar} 60%, transparent)` : colorVar}`,
-                                  color: isEnded
-                                    ? `color-mix(in srgb, ${colorVar} 70%, transparent)`
-                                    : colorVar,
+                                  backgroundColor: isEnded ? subtleVar : mutedVar,
+                                  borderLeft: `3px solid ${isEnded ? emphasisVar : colorVar}`,
+                                  color: isEnded ? intenseVar : colorVar,
                                   opacity: isEnded ? 0.8 : 1
                                 }}
                                 onMouseEnter={(e) => {
                                   e.currentTarget.style.transform = 'translateX(3px)';
-                                  e.currentTarget.style.backgroundColor = `color-mix(in srgb, ${colorVar} ${isEnded ? '18%' : '30%'}, transparent)`;
+                                  e.currentTarget.style.backgroundColor = isEnded
+                                    ? subtleVar
+                                    : mutedVar;
                                 }}
                                 onMouseLeave={(e) => {
                                   e.currentTarget.style.transform = 'translateX(0)';
-                                  e.currentTarget.style.backgroundColor = `color-mix(in srgb, ${colorVar} ${isEnded ? '12%' : '20%'}, transparent)`;
+                                  e.currentTarget.style.backgroundColor = isEnded
+                                    ? subtleVar
+                                    : mutedVar;
                                 }}
                                 title={
                                   isEnded
@@ -1001,7 +1013,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
 
       {/* Empty month message */}
       {!hasEventsThisMonth && (
-        <div className="mt-6 py-6 text-center rounded-lg border border-dashed border-[var(--theme-border-secondary)] bg-[color-mix(in_srgb,var(--theme-bg-tertiary)_50%,transparent)]">
+        <div className="mt-6 py-6 text-center rounded-lg border border-dashed border-[var(--theme-border-secondary)] bg-[var(--theme-bg-tertiary-strong)]">
           <p className="text-sm font-medium mb-1 text-[var(--theme-text-secondary)]">
             {t('events.calendar.emptyMonth', { month: monthNames[currentMonth.getMonth()] })}
           </p>

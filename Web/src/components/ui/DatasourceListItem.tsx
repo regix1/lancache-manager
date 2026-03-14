@@ -30,14 +30,14 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
       className={`group themed-border-radius overflow-hidden transition-all duration-300 border ${
         isExpanded
           ? `bg-themed-secondary ${enabled ? 'border-themed-primary' : 'border-themed-secondary'} shadow-[0_4px_16px_rgba(0,0,0,0.25),0_1px_4px_rgba(0,0,0,0.15)]`
-          : 'bg-[color-mix(in_srgb,var(--theme-bg-secondary)_60%,transparent)] border-themed-secondary shadow-[0_1px_3px_rgba(0,0,0,0.12)]'
+          : 'bg-[var(--theme-bg-secondary-emphasis)] border-themed-secondary shadow-[0_1px_3px_rgba(0,0,0,0.12)]'
       } ${enabled ? 'opacity-100' : 'opacity-65'}`}
     >
       {/* Header - clickable to expand */}
       <button
         className={`w-full p-3 text-left cursor-pointer transition-all duration-200 ${
           isExpanded
-            ? 'bg-[linear-gradient(135deg,color-mix(in_srgb,var(--theme-accent)_6%,transparent)_0%,transparent_100%)]'
+            ? 'bg-[linear-gradient(135deg,var(--theme-accent-faint)_0%,transparent_100%)]'
             : 'bg-transparent'
         }`}
         onClick={onToggle}
@@ -49,7 +49,7 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
             <div
               className={`w-7 h-7 flex items-center justify-center transition-all duration-300 ${
                 isExpanded
-                  ? 'bg-[color-mix(in_srgb,var(--theme-icon-blue)_15%,transparent)] scale-105'
+                  ? 'bg-[var(--theme-icon-blue-subtle)] scale-105'
                   : 'bg-themed-tertiary scale-100'
               }`}
               style={{ borderRadius: 'var(--theme-border-radius)' }}
@@ -84,7 +84,7 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
               <span
                 className={`text-xs hidden sm:inline px-2.5 py-1 rounded-full transition-all duration-300 tabular-nums ${
                   isExpanded
-                    ? 'bg-[color-mix(in_srgb,var(--theme-accent)_12%,transparent)] text-themed-accent'
+                    ? 'bg-[var(--theme-accent-subtle)] text-themed-accent'
                     : 'bg-themed-tertiary text-themed-muted'
                 }`}
               >
@@ -97,9 +97,7 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
             {/* Chevron with rotation animation */}
             <div
               className={`flex items-center justify-center w-7 h-7 transition-all duration-300 ${
-                isExpanded
-                  ? 'bg-[color-mix(in_srgb,var(--theme-accent)_10%,transparent)]'
-                  : 'bg-transparent'
+                isExpanded ? 'bg-[var(--theme-accent-subtle)]' : 'bg-transparent'
               }`}
               style={{ borderRadius: 'var(--theme-border-radius)' }}
             >
@@ -121,7 +119,7 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
           <code
             className={`text-xs px-2 py-1 rounded truncate transition-all duration-300 max-w-full ${
               isExpanded
-                ? 'bg-[color-mix(in_srgb,var(--theme-bg-tertiary)_80%,transparent)] text-themed-secondary'
+                ? 'bg-[var(--theme-bg-tertiary-emphasis)] text-themed-secondary'
                 : 'bg-themed-tertiary text-themed-muted'
             }`}
           >
@@ -139,7 +137,7 @@ export const DatasourceListItem: React.FC<DatasourceListItemProps> = ({
               : 'max-h-0 opacity-0 -translate-y-2'
           }`}
         >
-          <div className="px-3 pb-3 border-t border-themed-secondary bg-[linear-gradient(180deg,color-mix(in_srgb,var(--theme-bg-tertiary)_25%,transparent)_0%,transparent_100%)]">
+          <div className="px-3 pb-3 border-t border-themed-secondary bg-[linear-gradient(180deg,var(--theme-bg-tertiary-muted)_0%,transparent_100%)]">
             {children}
           </div>
         </div>

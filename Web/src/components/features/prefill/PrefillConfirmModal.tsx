@@ -47,7 +47,7 @@ export function PrefillConfirmModal({
       onClose={onCancel}
       title={
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-[color-mix(in_srgb,var(--theme-warning)_15%,transparent)]">
+          <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 bg-[var(--theme-warning-subtle)]">
             <AlertCircle className="h-5 w-5 text-[var(--theme-warning)]" />
           </div>
           <span>{title}</span>
