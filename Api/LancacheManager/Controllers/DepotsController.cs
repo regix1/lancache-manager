@@ -3,7 +3,6 @@ using LancacheManager.Models;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 using LancacheManager.Core.Services.SteamKit2;
 
 

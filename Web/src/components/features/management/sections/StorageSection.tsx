@@ -5,7 +5,10 @@ import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { type AuthMode } from '@services/auth.service';
 import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
-import { ImageCacheContext, ImageCacheInvalidateContext } from '@components/common/GameImage';
+import {
+  ImageCacheContext,
+  ImageCacheInvalidateContext
+} from '@components/common/ImageCacheContext';
 import DatasourcesManager from '../datasources/DatasourcesInfo';
 import LogRemovalManager from '../log-processing/LogRemovalManager';
 import CacheManager from '../cache/CacheManager';

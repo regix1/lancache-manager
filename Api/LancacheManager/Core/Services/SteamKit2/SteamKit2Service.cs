@@ -5,7 +5,6 @@ using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Models;
-using Microsoft.EntityFrameworkCore;
 using SteamKit2;
 
 

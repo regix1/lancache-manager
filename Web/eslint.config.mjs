@@ -92,8 +92,10 @@ export default tseslint.config(
       'no-restricted-syntax': [
         'error',
         {
-          selector: "BinaryExpression[operator='==='][right.value='complete'][left.property.name='status']",
-          message: "Use 'completed' instead of 'complete' for status checks. The backend sends 'completed' for all completion states."
+          selector:
+            "BinaryExpression[operator='==='][right.value='complete'][left.property.name='status']",
+          message:
+            "Use 'completed' instead of 'complete' for status checks. The backend sends 'completed' for all completion states."
         }
       ]
     }
@@ -101,17 +103,24 @@ export default tseslint.config(
 
   // SignalR status string rules - scoped to notification/SignalR files
   {
-    files: ['src/contexts/notifications/**/*.{ts,tsx}', 'src/contexts/SignalRContext/**/*.{ts,tsx}'],
+    files: [
+      'src/contexts/notifications/**/*.{ts,tsx}',
+      'src/contexts/SignalRContext/**/*.{ts,tsx}'
+    ],
     rules: {
       'no-restricted-syntax': [
         'error',
         {
-          selector: "BinaryExpression[operator='==='][right.value='error'][left.property.name='status']",
-          message: "Use 'failed' instead of 'error' for SignalR status checks. The backend sends 'failed' for all failure states."
+          selector:
+            "BinaryExpression[operator='==='][right.value='error'][left.property.name='status']",
+          message:
+            "Use 'failed' instead of 'error' for SignalR status checks. The backend sends 'failed' for all failure states."
         },
         {
-          selector: "BinaryExpression[operator='==='][right.value='complete'][left.property.name='status']",
-          message: "Use 'completed' instead of 'complete' for SignalR status checks. The backend sends 'completed' for all completion states."
+          selector:
+            "BinaryExpression[operator='==='][right.value='complete'][left.property.name='status']",
+          message:
+            "Use 'completed' instead of 'complete' for SignalR status checks. The backend sends 'completed' for all completion states."
         }
       ]
     }

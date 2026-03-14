@@ -6,7 +6,6 @@ using LancacheManager.Middleware;
 using LancacheManager.Models;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Controllers;
 

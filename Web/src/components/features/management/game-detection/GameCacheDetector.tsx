@@ -12,7 +12,7 @@ import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDr
 import { useNotifications, NOTIFICATION_IDS } from '@contexts/notifications';
 import { useDockerSocket } from '@contexts/DockerSocketContext';
 import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
-import { useInvalidateImageCache } from '@components/common/GameImage';
+import { useInvalidateImageCache } from '@components/common/ImageCacheContext';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import {
   ManagerCardHeader,

@@ -28,7 +28,7 @@ import { ActionMenu, ActionMenuItem } from '@components/ui/ActionMenu';
 import { Pagination } from '@components/ui/Pagination';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { Tooltip } from '@components/ui/Tooltip';
-import { ImageCacheContext } from '@components/common/GameImage';
+import { ImageCacheContext } from '@components/common/ImageCacheContext';
 
 // Import view components
 import CompactView from './CompactView';
