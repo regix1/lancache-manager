@@ -2322,10 +2322,12 @@
         "nextRun": "Next run:",
         "lastRun": "Last run:",
         "disabled": "Disabled",
-        "calculating": "Calculating..."
+        "calculating": "Calculating...",
+        "notifyOn": "Notify"
       },
       "intervals": {
         "disabled": "Disabled",
+        "every1Hour": "Every 1 hour",
         "every6Hours": "Every 6 hours",
         "every12Hours": "Every 12 hours",
         "every24Hours": "Every 24 hours",

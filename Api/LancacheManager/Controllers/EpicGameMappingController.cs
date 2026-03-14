@@ -167,19 +167,18 @@ public class EpicGameMappingController : ControllerBase
     }
 
     /// <summary>
-    /// Cancels the current Epic mapping operation if one is running.
+    /// Cancels the current Epic catalog refresh if one is running.
+    /// Mirrors Steam's DELETE /api/depots/rebuild pattern.
     /// </summary>
-    [HttpPost("schedule/cancel")]
-    public ActionResult CancelOperation()
+    [HttpDelete("schedule/refresh")]
+    public async Task<ActionResult> CancelRefreshAsync()
     {
-        var status = _epicMappingService.GetScheduleStatus();
-        if (string.IsNullOrEmpty(status.OperationId))
+        var cancelled = await _epicMappingService.CancelRefreshAsync();
+        if (cancelled)
         {
-            return Ok(new { cancelled = false, message = "No operation in progress" });
+            return Ok(new { cancelled = true, message = "Epic catalog refresh cancelled" });
         }
-
-        var cancelled = _operationTracker.CancelOperation(status.OperationId);
-        return Ok(new { cancelled, message = cancelled ? "Cancel requested" : "Failed to cancel operation" });
+        return NotFound(new { cancelled = false, message = "No active refresh to cancel" });
     }
 
     /// <summary>

@@ -65,8 +65,6 @@ const EpicMappingManager: React.FC<EpicMappingManagerProps> = ({
       });
       setStats(null);
       setSchedule(null);
-    } finally {
-      // data loaded
     }
   }, []);
 
@@ -313,6 +311,7 @@ const EpicMappingManager: React.FC<EpicMappingManagerProps> = ({
               <EnhancedDropdown
                 options={[
                   { value: '0', label: t('management.epicMapping.intervals.disabled') },
+                  { value: '1', label: t('management.epicMapping.intervals.every1Hour') },
                   { value: '6', label: t('management.epicMapping.intervals.every6Hours') },
                   { value: '12', label: t('management.epicMapping.intervals.every12Hours') },
                   { value: '24', label: t('management.epicMapping.intervals.every24Hours') },

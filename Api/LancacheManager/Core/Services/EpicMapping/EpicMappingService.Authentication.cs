@@ -100,7 +100,6 @@ public partial class EpicMappingService
             _isAuthenticated = true;
             _displayName = tokens.DisplayName;
             _lastCollectionUtc = DateTime.UtcNow;
-            _lastRefreshTime = DateTime.UtcNow;
 
             // Resolve existing Epic downloads against the freshly collected CDN patterns
             try
@@ -187,7 +186,7 @@ public partial class EpicMappingService
 
     /// <summary>
     /// Attempts to reconnect using saved refresh token on startup.
-    /// Handles authentication only, then delegates catalog refresh to RefreshCatalogAsync.
+    /// Auth only - no scanning. Mirrors Steam's startup behavior.
     /// </summary>
     private async Task TryAutoReconnectAsync()
     {
@@ -223,8 +222,11 @@ public partial class EpicMappingService
 
                 _isAuthenticated = true;
                 _displayName = tokens.DisplayName;
+                _gamesDiscovered = authData.GamesDiscovered;
+                _lastCollectionUtc = authData.LastAuthenticated;
 
-                _logger.LogInformation("Epic auto-reconnect authenticated: {DisplayName}", tokens.DisplayName);
+                _logger.LogInformation("Epic auto-reconnect authenticated: {DisplayName}, {Games} cached games",
+                    tokens.DisplayName, _gamesDiscovered);
             }
             catch (Exception ex)
             {
@@ -234,41 +236,16 @@ public partial class EpicMappingService
                 _isAuthenticated = false;
                 _displayName = null;
                 _gamesDiscovered = 0;
-                return;
             }
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to auto-reconnect Epic mapping session");
             _isAuthenticated = false;
-            return;
         }
         finally
         {
             _sessionLock.Release();
-        }
-
-        // Run the shared catalog refresh path (games, CDN patterns, images, free games)
-        if (Interlocked.CompareExchange(ref _isProcessingInt, 1, 0) != 0) return;
-
-        try
-        {
-            _currentStatus = "Refreshing catalog";
-            await RefreshCatalogAsync(ct);
-            _lastRefreshTime = DateTime.UtcNow;
-            _currentStatus = "Idle";
-
-            _logger.LogInformation("Epic mapping auto-reconnect successful: {DisplayName}, {Games} games",
-                _displayName, _gamesDiscovered);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Epic catalog refresh failed during auto-reconnect");
-            _currentStatus = "Idle";
-        }
-        finally
-        {
-            Interlocked.Exchange(ref _isProcessingInt, 0);
         }
     }
 }

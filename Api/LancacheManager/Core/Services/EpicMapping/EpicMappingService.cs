@@ -7,7 +7,7 @@ namespace LancacheManager.Core.Services.EpicMapping;
 
 /// <summary>
 /// Unified Epic Games mapping service for game discovery and download resolution.
-/// Mirrors SteamKit2Service architecture with partial classes for different concerns.
+/// Mirrors SteamKit2Service pattern: auth-only on startup, periodic scheduled refresh.
 /// </summary>
 public partial class EpicMappingService : IHostedService, IDisposable
 {
@@ -34,6 +34,7 @@ public partial class EpicMappingService : IHostedService, IDisposable
     private Timer? _periodicTimer;
     private DateTime _lastRefreshTime = DateTime.MinValue;
     private TimeSpan _refreshInterval = TimeSpan.FromHours(12);
+    private CancellationTokenSource? _currentRefreshCts;
     private readonly CancellationTokenSource _cancellationTokenSource = new();
     private bool _isRunning;
     private bool _disposed;
@@ -71,7 +72,7 @@ public partial class EpicMappingService : IHostedService, IDisposable
         _logger.LogInformation("EpicMappingService starting...");
         _isRunning = true;
 
-        // Try auto-reconnect if we have saved credentials
+        // Try auto-reconnect if we have saved credentials (auth only, no scanning)
         if (_authStorage.HasSavedCredentials())
         {
             _ = Task.Run(async () =>
@@ -81,7 +82,7 @@ public partial class EpicMappingService : IHostedService, IDisposable
             }, CancellationToken.None);
         }
 
-        // Setup periodic catalog refresh
+        // Setup periodic catalog refresh (does not trigger on startup, same as Steam)
         SetupPeriodicRefresh();
 
         // Subscribe to Epic prefill daemon auth state change events
@@ -187,6 +188,8 @@ public partial class EpicMappingService : IHostedService, IDisposable
 
         _periodicTimer?.Dispose();
         _periodicTimer = null;
+        _currentRefreshCts?.Dispose();
+        _currentRefreshCts = null;
 
         try
         {
@@ -210,8 +213,6 @@ public partial class EpicMappingService : IHostedService, IDisposable
     {
         try
         {
-            // EpicPrefillDaemonService is a singleton, so we don't need a scoped scope.
-            // Using a scope and disposing it is fragile since the singleton outlives the scope.
             var scope = _scopeFactory.CreateScope();
             _epicDaemonService = scope.ServiceProvider.GetService<EpicPrefillDaemonService>();
             if (_epicDaemonService != null)
@@ -231,9 +232,6 @@ public partial class EpicMappingService : IHostedService, IDisposable
         }
     }
 
-    /// <summary>
-    /// Unsubscribes from Epic daemon events to prevent memory leaks.
-    /// </summary>
     private void UnsubscribeFromDaemonEvents()
     {
         if (_epicDaemonService != null)
@@ -245,20 +243,12 @@ public partial class EpicMappingService : IHostedService, IDisposable
         }
     }
 
-    /// <summary>
-    /// Handler for when an Epic daemon becomes authenticated.
-    /// Logs the state change for awareness.
-    /// </summary>
     private Task HandleDaemonAuthenticated()
     {
         _logger.LogInformation("Epic daemon authenticated - daemon session is now active");
         return Task.CompletedTask;
     }
 
-    /// <summary>
-    /// Handler for when all Epic daemons have logged out.
-    /// Logs the state change for awareness.
-    /// </summary>
     private Task HandleAllDaemonsLoggedOut()
     {
         _logger.LogInformation("All Epic daemons logged out - no daemons are active");
