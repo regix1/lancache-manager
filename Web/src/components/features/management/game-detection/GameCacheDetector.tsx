@@ -10,7 +10,7 @@ import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { useNotifications, NOTIFICATION_IDS } from '@contexts/notifications';
-import { useDockerSocket } from '@contexts/DockerSocketContext';
+import { useDockerSocket } from '@contexts/useDockerSocket';
 import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
 import { useInvalidateImageCache } from '@components/common/ImageCacheContext';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';

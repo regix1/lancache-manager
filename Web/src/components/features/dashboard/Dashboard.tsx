@@ -19,7 +19,7 @@ import {
   Check
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useStats, useDownloads } from '@contexts/DashboardDataContext';
+import { useStats, useDownloads } from '@contexts/DashboardDataContext/hooks';
 import { useTimeFilter } from '@contexts/TimeFilterContext';
 import { useEvents } from '@contexts/EventContext';
 import { useSpeed } from '@contexts/SpeedContext';

@@ -7,7 +7,7 @@ import React, {
   type ReactNode
 } from 'react';
 import { useSignalR } from '@contexts/SignalRContext';
-import { useAuth } from '@contexts/AuthContext';
+import { useAuth } from '@contexts/useAuth';
 import type {
   DepotMappingStartedEvent,
   DepotMappingProgressEvent,

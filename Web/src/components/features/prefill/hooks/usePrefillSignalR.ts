@@ -7,7 +7,7 @@ import {
   type SteamAuthState,
   type PrefillSessionDto
 } from '../types';
-import type { LogEntryType } from '../ActivityLog';
+import type { LogEntryType } from '../ActivityLog.utils';
 import i18n from '../../../../i18n';
 import { usePrefillAnimation } from './usePrefillAnimation';
 import { registerPrefillEventHandlers } from './usePrefillEventHandlers';

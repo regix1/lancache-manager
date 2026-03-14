@@ -2,7 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { NotificationsProvider } from '@contexts/notifications';
 import { CacheSizeProvider } from '@contexts/CacheSizeContext';
-import { DashboardDataProvider, useStats } from '@contexts/DashboardDataContext';
+import { DashboardDataProvider } from '@contexts/DashboardDataContext';
+import { useStats } from '@contexts/DashboardDataContext/hooks';
 import { TimeFilterProvider } from '@contexts/TimeFilterContext';
 import { EventProvider } from '@contexts/EventContext';
 import { CalendarSettingsProvider } from '@contexts/CalendarSettingsContext';
@@ -17,14 +18,16 @@ import { PicsProgressProvider } from '@contexts/PicsProgressContext';
 import { SetupStatusProvider, useSetupStatus } from '@contexts/SetupStatusContext';
 import { SteamAuthProvider, useSteamAuth } from '@contexts/SteamAuthContext';
 import { PrefillProvider } from '@contexts/PrefillContext';
-import { AuthProvider, useAuth } from '@contexts/AuthContext';
+import { AuthProvider } from '@contexts/AuthContext';
+import { useAuth } from '@contexts/useAuth';
 import {
   SteamWebApiStatusProvider,
   useSteamWebApiStatus
 } from '@contexts/SteamWebApiStatusContext';
 import { TimezoneProvider } from '@contexts/TimezoneContext';
 import { SessionPreferencesProvider } from '@contexts/SessionPreferencesContext';
-import { DockerSocketProvider, useDockerSocket } from '@contexts/DockerSocketContext';
+import { DockerSocketProvider } from '@contexts/DockerSocketContext';
+import { useDockerSocket } from '@contexts/useDockerSocket';
 import { GameServiceProvider } from '@contexts/GameServiceContext';
 import Header from '@components/layout/Header';
 import Navigation from '@components/layout/Navigation';

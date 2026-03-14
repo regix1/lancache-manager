@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useStats } from '@contexts/DashboardDataContext';
+import { useStats } from '@contexts/DashboardDataContext/hooks';
 import { useNotifications } from '@contexts/notifications';
 import { useMockMode } from '@contexts/MockModeContext';
-import { useAuth } from '@contexts/AuthContext';
+import { useAuth } from '@contexts/useAuth';
 import { useSteamAuth } from '@contexts/SteamAuthContext';
 import operationStateService from '@services/operationState.service';
 import ApiService from '@services/api.service';

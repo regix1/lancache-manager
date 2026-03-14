@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { createContext, type ReactNode } from 'react';
 import type { CacheInfo, ClientStat, ServiceStat, DashboardStats, Download } from '../../types';
 
 export interface DashboardDataContextType {
@@ -33,3 +33,5 @@ export interface DashboardDataProviderProps {
   children: ReactNode;
   mockMode?: boolean;
 }
+
+export const DashboardDataContext = createContext<DashboardDataContextType | undefined>(undefined);

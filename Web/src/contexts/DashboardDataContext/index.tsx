@@ -1,12 +1,4 @@
-import React, {
-  createContext,
-  useContext,
-  useState,
-  useEffect,
-  useRef,
-  useCallback,
-  useMemo
-} from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { unstable_batchedUpdates } from 'react-dom';
 import ApiService from '@services/api.service';
 import { isAbortError } from '@utils/error';
@@ -14,53 +6,10 @@ import MockDataService from '../../test/mockData.service';
 import { useTimeFilter } from '../TimeFilterContext';
 import { useRefreshRate } from '../RefreshRateContext';
 import { useSignalR } from '../SignalRContext';
-import { useAuth } from '../AuthContext';
+import { useAuth } from '../useAuth';
 import { SIGNALR_REFRESH_EVENTS } from '../SignalRContext/types';
 import type { CacheInfo, ClientStat, ServiceStat, DashboardStats, Download } from '../../types';
-import type { DashboardDataContextType, DashboardDataProviderProps } from './types';
-
-const DashboardDataContext = createContext<DashboardDataContextType | undefined>(undefined);
-
-const useDashboardData = () => {
-  const context = useContext(DashboardDataContext);
-  if (!context) {
-    throw new Error('useDashboardData must be used within DashboardDataProvider');
-  }
-  return context;
-};
-
-// Compatibility exports for gradual migration
-export const useStats = () => {
-  const context = useDashboardData();
-  return {
-    cacheInfo: context.cacheInfo,
-    clientStats: context.clientStats,
-    serviceStats: context.serviceStats,
-    dashboardStats: context.dashboardStats,
-    loading: context.loading,
-    error: context.error,
-    connectionStatus: context.connectionStatus,
-    refreshStats: context.refreshData,
-    updateStats: (updater: {
-      cacheInfo?: (prev: CacheInfo | null) => CacheInfo | null;
-      clientStats?: (prev: ClientStat[]) => ClientStat[];
-      serviceStats?: (prev: ServiceStat[]) => ServiceStat[];
-      dashboardStats?: (prev: DashboardStats | null) => DashboardStats | null;
-    }) => context.updateData(updater)
-  };
-};
-
-export const useDownloads = () => {
-  const context = useDashboardData();
-  return {
-    latestDownloads: context.latestDownloads,
-    loading: context.loading,
-    error: context.error,
-    refreshDownloads: async () => context.refreshData(true),
-    updateDownloads: (updater: { latestDownloads?: (prev: Download[]) => Download[] }) =>
-      context.updateData(updater)
-  };
-};
+import { DashboardDataContext, type DashboardDataProviderProps } from './types';
 
 export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   children,

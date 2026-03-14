@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import ApiService from '@services/api.service';
-import { useAuth } from '@contexts/AuthContext';
+import { useAuth } from '@contexts/useAuth';
 
 export interface SteamWebApiStatus {
   version: string;

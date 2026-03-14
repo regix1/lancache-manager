@@ -44,7 +44,7 @@ import ApiService from '@services/api.service';
 import themeService from '@services/theme.service';
 import authService from '@services/auth.service';
 import { getErrorMessage } from '@utils/error';
-import { useAuth } from '@contexts/AuthContext';
+import { useAuth } from '@contexts/useAuth';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { useSignalR } from '@contexts/SignalRContext';
 import { useSessionPreferences } from '@contexts/SessionPreferencesContext';

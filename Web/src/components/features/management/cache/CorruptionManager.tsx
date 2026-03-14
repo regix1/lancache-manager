@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { AlertTriangle, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
-import { useDockerSocket } from '@contexts/DockerSocketContext';
+import { useDockerSocket } from '@contexts/useDockerSocket';
 import { useNotifications } from '@contexts/notifications';
 import { Card } from '@components/ui/Card';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';

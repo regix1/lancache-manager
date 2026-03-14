@@ -10,7 +10,7 @@ import { GameSelectionModal, type OwnedGame } from './GameSelectionModal';
 import { NetworkStatusSection } from './NetworkStatusSection';
 import ApiService from '@services/api.service';
 import { usePrefillContext } from '@contexts/PrefillContext';
-import { useAuth } from '@contexts/AuthContext';
+import { useAuth } from '@contexts/useAuth';
 import { useSignalR } from '@contexts/SignalRContext';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { EpicIcon } from '@components/ui/EpicIcon';

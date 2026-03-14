@@ -5,7 +5,7 @@ import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import preferencesService from '@services/preferences.service';
 import { useSessionPreferences } from '@contexts/SessionPreferencesContext';
 import { useTimezone } from '@contexts/TimezoneContext';
-import { useAuth } from '@contexts/AuthContext';
+import { useAuth } from '@contexts/useAuth';
 import { useDefaultGuestPreferences } from '@hooks/useDefaultGuestPreferences';
 import { getEffectiveTimezone, getTimeInTimezone } from '@utils/timezone';
 

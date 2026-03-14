@@ -7,7 +7,7 @@ import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
 import { useGuestConfig } from '@contexts/GuestConfigContext';
-import { useAuth } from '@contexts/AuthContext';
+import { useAuth } from '@contexts/useAuth';
 import { useSteamAuth } from '@contexts/SteamAuthContext';
 import { useSteamWebApiStatus } from '@contexts/SteamWebApiStatusContext';
 

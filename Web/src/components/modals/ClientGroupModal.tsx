@@ -3,7 +3,7 @@ import { Plus, X, Loader2, AlertTriangle } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
 import { Pagination } from '@components/ui/Pagination';
-import { useClientGroups } from '@contexts/ClientGroupContext';
+import { useClientGroups } from '@contexts/useClientGroups';
 import { useTranslation } from 'react-i18next';
 import type { ClientGroup } from '../../types';
 

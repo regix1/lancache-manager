@@ -1,29 +1,7 @@
-import React, {
-  createContext,
-  useContext,
-  useEffect,
-  useState,
-  useCallback,
-  type ReactNode
-} from 'react';
+import React, { useEffect, useState, useCallback, type ReactNode } from 'react';
 import ApiService from '@services/api.service';
-import { useAuth } from '@contexts/AuthContext';
-
-interface DockerSocketContextType {
-  isDockerAvailable: boolean;
-  isLoading: boolean;
-  refreshDockerStatus: () => Promise<void>;
-}
-
-const DockerSocketContext = createContext<DockerSocketContextType | undefined>(undefined);
-
-export const useDockerSocket = () => {
-  const context = useContext(DockerSocketContext);
-  if (!context) {
-    throw new Error('useDockerSocket must be used within DockerSocketProvider');
-  }
-  return context;
-};
+import { useAuth } from '@contexts/useAuth';
+import { DockerSocketContext } from './DockerSocketContext.types';
 
 interface DockerSocketProviderProps {
   children: ReactNode;

@@ -1,32 +1,7 @@
-import React, {
-  createContext,
-  useContext,
-  useState,
-  useCallback,
-  useRef,
-  useEffect,
-  type ReactNode
-} from 'react';
+import React, { useState, useCallback, useRef, useEffect, type ReactNode } from 'react';
 import ApiService from '@services/api.service';
 import type { CacheSizeInfo } from '@/types';
-
-interface CacheSizeContextType {
-  cacheSize: CacheSizeInfo | null;
-  isLoading: boolean;
-  error: string | null;
-  fetchCacheSize: () => Promise<void>;
-  clearCacheSize: () => void;
-}
-
-const CacheSizeContext = createContext<CacheSizeContextType | undefined>(undefined);
-
-export const useCacheSize = () => {
-  const context = useContext(CacheSizeContext);
-  if (!context) {
-    throw new Error('useCacheSize must be used within CacheSizeProvider');
-  }
-  return context;
-};
+import { CacheSizeContext, type CacheSizeContextType } from './CacheSizeContext.types';
 
 interface CacheSizeProviderProps {
   children: ReactNode;

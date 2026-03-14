@@ -9,7 +9,7 @@ import React, {
 } from 'react';
 import { REFRESH_RATES, type RefreshRate } from '@utils/constants';
 import { useSignalR } from '@contexts/SignalRContext';
-import { useAuth } from '@contexts/AuthContext';
+import { useAuth } from '@contexts/useAuth';
 import { useSessionPreferences } from '@contexts/SessionPreferencesContext';
 import type {
   GuestRefreshRateUpdatedEvent,

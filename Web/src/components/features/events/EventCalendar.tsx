@@ -4,7 +4,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { useTimezone } from '@contexts/TimezoneContext';
-import { useCalendarSettings } from '@contexts/CalendarSettingsContext';
+import { useCalendarSettings } from '@contexts/useCalendarSettings';
 import { getEffectiveTimezone, getDateInTimezone } from '@utils/timezone';
 import { getEventColorVar } from '@utils/eventColors';
 import { Tooltip } from '@components/ui/Tooltip';

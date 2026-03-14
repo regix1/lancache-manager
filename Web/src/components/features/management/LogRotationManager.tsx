@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useDockerSocket } from '@contexts/DockerSocketContext';
+import { useDockerSocket } from '@contexts/useDockerSocket';
 import { useNotifications } from '@contexts/notifications';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';

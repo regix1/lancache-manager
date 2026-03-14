@@ -8,7 +8,7 @@ import React, {
   useRef
 } from 'react';
 import { useSignalR } from './SignalRContext';
-import { useAuth } from './AuthContext';
+import { useAuth } from './useAuth';
 import ApiService from '@services/api.service';
 import type { UserPreferencesUpdatedEvent } from './SignalRContext/types';
 import {

@@ -12,9 +12,9 @@ import {
   Maximize2,
   RefreshCw
 } from 'lucide-react';
-import { useDownloads } from '@contexts/DashboardDataContext';
+import { useDownloads } from '@contexts/DashboardDataContext/hooks';
 import { useTimeFilter } from '@contexts/TimeFilterContext';
-import { useClientGroups } from '@contexts/ClientGroupContext';
+import { useClientGroups } from '@contexts/useClientGroups';
 import { storage } from '@utils/storage';
 import ApiService from '@services/api.service';
 import { useSessionPreferences } from '@contexts/SessionPreferencesContext';
@@ -1107,7 +1107,7 @@ const DownloadsTab: React.FC = () => {
       // If Epic URLs weren't refreshed (auth may still be in progress),
       // do a delayed second bump to catch URLs populated by auto-reconnect
       if (result.epicImageUrlsRefreshed === 0) {
-        console.log(
+        console.warn(
           '[handleClearImageCache] Epic URLs not refreshed yet - scheduling delayed retry'
         );
         setTimeout(() => {

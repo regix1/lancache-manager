@@ -1,7 +1,7 @@
 import type { HubConnection } from '@microsoft/signalr';
 import { formatBytes } from '@utils/formatters';
 import { formatDuration, type SteamAuthState, type PrefillSessionDto } from '../types';
-import type { LogEntryType } from '../ActivityLog';
+import type { LogEntryType } from '../ActivityLog.utils';
 import i18n from '../../../../i18n';
 import { COMPLETION_NOTIFICATION_WINDOW_MS, getEventName } from './prefillConstants';
 import type { PrefillProgress, BackgroundCompletion, CachedAnimationItem } from './prefillTypes';

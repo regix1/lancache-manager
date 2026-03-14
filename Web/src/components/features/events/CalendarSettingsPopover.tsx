@@ -12,12 +12,12 @@ import {
   LayoutGrid,
   CalendarRange
 } from 'lucide-react';
-import {
-  useCalendarSettings,
-  type WeekStartDay,
-  type EventOpacity,
-  type EventDisplayStyle
-} from '@contexts/CalendarSettingsContext';
+import { useCalendarSettings } from '@contexts/useCalendarSettings';
+import type {
+  WeekStartDay,
+  EventOpacity,
+  EventDisplayStyle
+} from '@contexts/CalendarSettingsContext.types';
 
 interface CalendarSettingsPopoverProps {
   position?: 'left' | 'right';

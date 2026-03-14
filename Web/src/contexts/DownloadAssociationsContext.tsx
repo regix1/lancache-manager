@@ -9,7 +9,7 @@ import React, {
 } from 'react';
 import ApiService from '@services/api.service';
 import { useSignalR } from '@contexts/SignalRContext';
-import { useAuth } from '@contexts/AuthContext';
+import { useAuth } from '@contexts/useAuth';
 import type { EventSummary } from '../types';
 
 interface DownloadAssociations {

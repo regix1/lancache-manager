@@ -9,7 +9,7 @@ import React, {
 } from 'react';
 import { storage } from '@utils/storage';
 import ApiService from '@services/api.service';
-import { useAuth } from '@contexts/AuthContext';
+import { useAuth } from '@contexts/useAuth';
 import { useSignalR } from '@contexts/SignalRContext';
 import type {
   Event,

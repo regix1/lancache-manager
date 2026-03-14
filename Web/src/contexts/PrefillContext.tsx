@@ -10,7 +10,7 @@ import {
   createLogEntry,
   type LogEntry,
   type LogEntryType
-} from '@components/features/prefill/ActivityLog';
+} from '@components/features/prefill/ActivityLog.utils';
 import type { BackgroundCompletion } from '@components/features/prefill/hooks/prefillTypes';
 
 const STORAGE_KEY = 'prefill_activity_log';

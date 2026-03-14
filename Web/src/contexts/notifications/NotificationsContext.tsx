@@ -8,7 +8,7 @@ import React, {
   type ReactNode
 } from 'react';
 import { useSignalR } from '../SignalRContext';
-import { useAuth } from '../AuthContext';
+import { useAuth } from '../useAuth';
 import themeService from '@services/theme.service';
 import type {
   ProcessingProgressEvent,

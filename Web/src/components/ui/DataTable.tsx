@@ -150,7 +150,7 @@ function fitToContainer<T>(
 
   const mins: Record<string, number> = {};
   const defaults: Record<string, number> = {};
-  let totalDefault = 0;
+  let _totalDefault = 0;
   let totalMin = 0;
 
   for (const col of columns) {
@@ -158,7 +158,7 @@ function fitToContainer<T>(
     const def = col.defaultWidth ?? 150;
     mins[col.key] = min;
     defaults[col.key] = def;
-    totalDefault += def;
+    _totalDefault += def;
     totalMin += min;
   }
 

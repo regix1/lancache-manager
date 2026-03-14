@@ -8,7 +8,7 @@ import GitHubProjectsDropdown from '../common/GitHubProjectsDropdown';
 import { Tooltip } from '@components/ui/Tooltip';
 import LancacheIcon from '../ui/LancacheIcon';
 import { useMockMode } from '@contexts/MockModeContext';
-import { useAuth } from '@contexts/AuthContext';
+import { useAuth } from '@contexts/useAuth';
 
 interface HeaderProps {
   title?: string;

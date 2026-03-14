@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Zap, Clock, HardDrive, Users, TrendingUp } from 'lucide-react';
-import { useDownloads } from '@contexts/DashboardDataContext';
+import { useDownloads } from '@contexts/DashboardDataContext/hooks';
 import { useSignalR } from '@contexts/SignalRContext';
 import { useSpeed } from '@contexts/SpeedContext';
 import { useTimeFilter } from '@contexts/TimeFilterContext';

@@ -5,7 +5,7 @@ import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { Alert } from '@components/ui/Alert';
 import authService from '@services/auth.service';
-import { useAuth } from '@contexts/AuthContext';
+import { useAuth } from '@contexts/useAuth';
 
 const AuthenticateTab: React.FC = () => {
   const { t } = useTranslation();

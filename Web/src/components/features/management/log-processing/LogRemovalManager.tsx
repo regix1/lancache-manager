@@ -4,7 +4,7 @@ import { FileText, AlertTriangle, Loader2, Trash2 } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { useNotifications } from '@contexts/notifications';
-import { useDockerSocket } from '@contexts/DockerSocketContext';
+import { useDockerSocket } from '@contexts/useDockerSocket';
 import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
 import { useManagerLoading } from '@/hooks/useManagerLoading';
 import { Card } from '@components/ui/Card';

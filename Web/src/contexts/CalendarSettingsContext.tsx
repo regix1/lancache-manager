@@ -1,9 +1,11 @@
-import React, { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import React, { useState, useEffect, type ReactNode } from 'react';
 import { storage } from '@utils/storage';
-
-export type WeekStartDay = 'sunday' | 'monday';
-export type EventOpacity = 'transparent' | 'solid';
-export type EventDisplayStyle = 'spanning' | 'daily';
+import {
+  CalendarSettingsContext,
+  type EventOpacity,
+  type EventDisplayStyle,
+  type WeekStartDay
+} from './CalendarSettingsContext.types';
 
 interface CalendarSettings {
   // Event appearance
@@ -31,22 +33,6 @@ const DEFAULT_SETTINGS: CalendarSettings = {
 };
 
 const STORAGE_KEY = 'lancache_calendar_settings';
-
-interface CalendarSettingsContextType {
-  settings: CalendarSettings;
-  updateSettings: (updates: Partial<CalendarSettings>) => void;
-  resetSettings: () => void;
-}
-
-const CalendarSettingsContext = createContext<CalendarSettingsContextType | undefined>(undefined);
-
-export const useCalendarSettings = () => {
-  const context = useContext(CalendarSettingsContext);
-  if (!context) {
-    throw new Error('useCalendarSettings must be used within a CalendarSettingsProvider');
-  }
-  return context;
-};
 
 interface CalendarSettingsProviderProps {
   children: ReactNode;

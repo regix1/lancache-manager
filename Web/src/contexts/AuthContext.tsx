@@ -1,44 +1,7 @@
-import React, {
-  createContext,
-  useContext,
-  useEffect,
-  useState,
-  useCallback,
-  useRef,
-  type ReactNode
-} from 'react';
+import React, { useEffect, useState, useCallback, useRef, type ReactNode } from 'react';
 import authService, { type AuthMode, type SessionType } from '@services/auth.service';
 import { useSignalR } from './SignalRContext';
-
-interface AuthContextType {
-  isAdmin: boolean;
-  hasSession: boolean;
-  authMode: AuthMode;
-  sessionType: SessionType | null;
-  sessionId: string | null;
-  sessionExpiresAt: string | null;
-  isLoading: boolean;
-  login: (apiKey: string) => Promise<{ success: boolean; message?: string }>;
-  startGuestSession: () => Promise<{ success: boolean; message?: string }>;
-  logout: () => Promise<void>;
-  refreshAuth: () => Promise<void>;
-  setAuthMode: (mode: AuthMode) => void;
-  prefillEnabled: boolean;
-  prefillTimeRemaining: number | null;
-  steamPrefillEnabled: boolean;
-  epicPrefillEnabled: boolean;
-  isBanned: boolean;
-}
-
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within AuthProvider');
-  }
-  return context;
-};
+import { AuthContext } from './AuthContext.types';
 
 interface AuthProviderProps {
   children: ReactNode;

@@ -4,7 +4,7 @@ import { Server, AlertTriangle, FolderOpen, Clock, Loader2, RefreshCw } from 'lu
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { useSignalR } from '@contexts/SignalRContext';
-import { useCacheSize } from '@contexts/CacheSizeContext';
+import { useCacheSize } from '@contexts/useCacheSize';
 import { useNotifications } from '@contexts/notifications';
 import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
 import { Alert } from '@components/ui/Alert';

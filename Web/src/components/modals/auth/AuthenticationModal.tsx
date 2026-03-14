@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Key, Eye, Loader2, Shield, Database, CheckCircle } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import authService from '@services/auth.service';
-import { useAuth } from '@contexts/AuthContext';
+import { useAuth } from '@contexts/useAuth';
 import { useGuestConfig } from '@contexts/GuestConfigContext';
 import { useSignalR } from '@contexts/SignalRContext';
 import { useTranslation } from 'react-i18next';

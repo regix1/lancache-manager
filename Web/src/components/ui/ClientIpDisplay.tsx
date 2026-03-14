@@ -1,7 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { Tooltip } from './Tooltip';
-import { useClientGroups } from '@contexts/ClientGroupContext';
+import { useClientGroups } from '@contexts/useClientGroups';
 
 interface ClientIpDisplayProps {
   clientIp: string;
