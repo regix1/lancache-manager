@@ -5,4 +5,4 @@ export { NotificationsProvider, useNotifications } from './NotificationsContext'
 export type { UnifiedNotification } from './types';
 
 // Constants (only exporting what's used externally)
-export { NOTIFICATION_ANIMATION_DURATION_MS } from './constants';
+export { NOTIFICATION_ANIMATION_DURATION_MS, NOTIFICATION_IDS } from './constants';

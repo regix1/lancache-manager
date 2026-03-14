@@ -1041,6 +1041,25 @@ class ApiService {
     }
   }
 
+  // Remove all cache files for a specific Epic game by name (fire-and-forget, requires auth)
+  static async removeEpicGameFromCache(
+    gameName: string
+  ): Promise<{ message: string; gameName: string; status: string }> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/games/epic/${encodeURIComponent(gameName)}`,
+        this.getFetchOptions({
+          method: 'DELETE'
+          // Returns immediately with 202 Accepted - removal happens in background
+        })
+      );
+      return await this.handleResponse<{ message: string; gameName: string; status: string }>(res);
+    } catch (error) {
+      console.error('removeEpicGameFromCache error:', error);
+      throw error;
+    }
+  }
+
   // Remove all cache files for a specific service (fire-and-forget, requires auth)
   static async removeServiceFromCache(
     serviceName: string

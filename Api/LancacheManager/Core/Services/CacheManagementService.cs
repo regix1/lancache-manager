@@ -1060,6 +1060,93 @@ public class CacheManagementService
     }
 
     /// <summary>
+    /// Remove all cache files for an Epic game by name.
+    /// Unlike Steam games (which use a Rust binary + depot IDs), Epic games are identified
+    /// by name and their cache file paths are stored in CachedGameDetections.
+    /// </summary>
+    public async Task<GameCacheRemovalReport> RemoveEpicGameFromCache(string gameName, CancellationToken cancellationToken = default, Func<double, string, int, long, Task>? onProgress = null)
+    {
+        await _cacheLock.WaitAsync(cancellationToken);
+        try
+        {
+            _logger.LogInformation("[EpicGameRemoval] Starting removal for '{GameName}'", gameName);
+
+            // Look up the cached detection entry to get file paths
+            await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
+            var cachedGame = await dbContext.CachedGameDetections
+                .FirstOrDefaultAsync(g => g.GameName == gameName && g.GameAppId == 0, cancellationToken);
+
+            if (cachedGame == null)
+            {
+                throw new InvalidOperationException($"Epic game '{gameName}' not found in cached detections");
+            }
+
+            var cacheFilePaths = JsonSerializer.Deserialize<List<string>>(cachedGame.CacheFilePathsJson) ?? new List<string>();
+
+            var report = new GameCacheRemovalReport
+            {
+                GameAppId = 0,
+                GameName = gameName
+            };
+
+            int totalFiles = cacheFilePaths.Count;
+            int filesDeleted = 0;
+            long bytesFreed = 0;
+
+            foreach (string filePath in cacheFilePaths)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                try
+                {
+                    if (File.Exists(filePath))
+                    {
+                        var fileInfo = new FileInfo(filePath);
+                        long fileSize = fileInfo.Length;
+                        File.Delete(filePath);
+                        bytesFreed += fileSize;
+                        filesDeleted++;
+                    }
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    _logger.LogWarning(ex, "[EpicGameRemoval] Failed to delete file: {FilePath}", filePath);
+                }
+
+                if (onProgress != null && totalFiles > 0)
+                {
+                    double percent = (double)filesDeleted / totalFiles * 100;
+                    await onProgress(percent, $"Deleting files... ({filesDeleted}/{totalFiles})", filesDeleted, bytesFreed);
+                }
+            }
+
+            report.CacheFilesDeleted = filesDeleted;
+            report.TotalBytesFreed = (ulong)bytesFreed;
+
+            // Remove the cached detection entry
+            dbContext.CachedGameDetections.Remove(cachedGame);
+            await dbContext.SaveChangesAsync(cancellationToken);
+            _logger.LogInformation("[EpicGameRemoval] Removed cached game detection entry for: {GameName}", gameName);
+
+            // Invalidate service counts cache since cache files were modified
+            await InvalidateServiceCountsCache();
+
+            // Signal nginx to reopen log files
+            await _nginxLogRotationService.ReopenNginxLogsAsync();
+
+            _logger.LogInformation(
+                "[EpicGameRemoval] Completed for '{GameName}': {Files} files deleted, {Bytes} bytes freed",
+                gameName, filesDeleted, bytesFreed);
+
+            return report;
+        }
+        finally
+        {
+            _cacheLock.Release();
+        }
+    }
+
+    /// <summary>
     /// Remove all cache files for a specific service across all datasources
     /// </summary>
     public async Task<ServiceCacheRemovalReport> RemoveServiceFromCache(string serviceName, CancellationToken cancellationToken = default, Func<double, string, int, long, Task>? onProgress = null)

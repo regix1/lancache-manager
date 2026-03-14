@@ -9,7 +9,7 @@ import { Tooltip } from '@components/ui/Tooltip';
 import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
-import { useNotifications } from '@contexts/notifications';
+import { useNotifications, NOTIFICATION_IDS } from '@contexts/notifications';
 import { useDockerSocket } from '@contexts/DockerSocketContext';
 import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
@@ -225,10 +225,16 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     );
     gameRemovalNotifs.forEach((notif) => {
       const gameAppId = notif.details?.gameAppId;
-      if (!gameAppId) return;
+      const gameName = notif.details?.gameName;
 
       // Remove from UI (backend already removed from database)
-      setGames((prev) => prev.filter((g) => g.game_app_id !== gameAppId));
+      if (gameAppId) {
+        // Steam game: match by appId
+        setGames((prev) => prev.filter((g) => g.game_app_id !== gameAppId));
+      } else if (gameName) {
+        // Epic game: match by name (gameAppId is 0)
+        setGames((prev) => prev.filter((g) => g.game_name !== gameName));
+      }
     });
 
     // Handle completed service removals
@@ -465,16 +471,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       });
       return;
     }
-    // Epic games cannot be removed by AppId (game_app_id is 0)
-    if (game.service === 'epicgames') {
-      addNotification({
-        type: 'generic',
-        status: 'failed',
-        message: t('management.gameDetection.epicRemovalNotSupported'),
-        details: { notificationType: 'info' }
-      });
-      return;
-    }
     setGameToRemove(game);
   };
 
@@ -483,9 +479,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
     const gameAppId = gameToRemove.game_app_id;
     const gameName = gameToRemove.game_name;
+    const isEpic = gameToRemove.service === 'epicgames';
 
     // Add notification for tracking (shows in notification bar and on Remove button)
-    // Note: ID will be "game_removal-{gameAppId}" for SignalR handler to find it
     addNotification({
       type: 'game_removal',
       status: 'running',
@@ -500,7 +496,11 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     setGameToRemove(null);
 
     try {
-      await ApiService.removeGameFromCache(gameAppId);
+      if (isEpic) {
+        await ApiService.removeEpicGameFromCache(gameName);
+      } else {
+        await ApiService.removeGameFromCache(gameAppId);
+      }
 
       // Fire-and-forget: API returned 202 Accepted, removal is happening in background
       // Game will be removed from list when SignalR GameRemovalComplete event arrives
@@ -514,9 +514,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         (err instanceof Error ? err.message : String(err)) ||
         t('management.gameDetection.failedToRemoveGame');
 
-      // Update notification to failed (ID is "game_removal-{gameAppId}")
-      const notifId = `game_removal-${gameAppId}`;
-      updateNotification(notifId, {
+      // Update the game_removal notification to failed
+      updateNotification(NOTIFICATION_IDS.GAME_REMOVAL, {
         status: 'failed',
         error: errorMsg
       });

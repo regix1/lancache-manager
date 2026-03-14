@@ -144,8 +144,10 @@ const GamesList: React.FC<GamesListProps> = ({
                   isRemoving={notifications.some(
                     (n) =>
                       n.type === 'game_removal' &&
-                      n.details?.gameAppId === game.game_app_id &&
-                      n.status === 'running'
+                      n.status === 'running' &&
+                      (game.service === 'epicgames'
+                        ? n.details?.gameName === game.game_name
+                        : n.details?.gameAppId === game.game_app_id)
                   )}
                   isAnyRemovalRunning={isAnyRemovalRunning}
                   isAdmin={isAdmin}

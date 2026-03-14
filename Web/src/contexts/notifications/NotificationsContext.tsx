@@ -419,7 +419,11 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         storageKey: NOTIFICATION_STORAGE_KEYS.GAME_REMOVAL,
         defaultMessage: 'Starting game removal...',
         getMessage: (e) => e.message || 'Starting game removal...',
-        getDetails: (e) => ({ operationId: e.operationId })
+        getDetails: (e) => ({
+          operationId: e.operationId,
+          gameAppId: e.gameAppId,
+          gameName: e.gameName
+        })
       },
       setNotifications,
       cancelAutoDismissTimer
@@ -440,7 +444,11 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
               : undefined,
         getCompletedMessage: (e) => e.message || 'Game removal completed',
         getErrorMessage: (e) => e.message || 'Game removal failed',
-        getDetails: (e) => ({ operationId: e.operationId })
+        getDetails: (e) => ({
+          operationId: e.operationId,
+          gameAppId: e.gameAppId,
+          gameName: e.gameName
+        })
       },
       setNotifications,
       scheduleAutoDismiss,
@@ -454,6 +462,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         storageKey: NOTIFICATION_STORAGE_KEYS.GAME_REMOVAL,
         getSuccessDetails: (e, existing) => ({
           ...existing?.details,
+          gameAppId: e.gameAppId,
+          gameName: e.gameName,
           filesDeleted: e.filesDeleted,
           bytesFreed: e.bytesFreed,
           logEntriesRemoved: e.logEntriesRemoved

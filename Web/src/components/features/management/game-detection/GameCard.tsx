@@ -87,10 +87,7 @@ const GameCard: React.FC<GameCardProps> = ({
     </span>
   );
 
-  // Epic games cannot be removed by AppId (game_app_id is 0)
-  const removeTooltip = isEpic
-    ? t('management.gameDetection.epicRemovalNotSupported')
-    : t('management.gameDetection.removeGameCache');
+  const removeTooltip = t('management.gameDetection.removeGameCache');
 
   return (
     <ExpandableItemCard
@@ -103,7 +100,7 @@ const GameCard: React.FC<GameCardProps> = ({
       isExpanded={isExpanded}
       isExpanding={isExpanding}
       isRemoving={isRemoving}
-      isAnyRemovalRunning={isAnyRemovalRunning || isEpic}
+      isAnyRemovalRunning={isAnyRemovalRunning}
       isAdmin={isAdmin}
       cacheReadOnly={cacheReadOnly}
       dockerSocketAvailable={dockerSocketAvailable}

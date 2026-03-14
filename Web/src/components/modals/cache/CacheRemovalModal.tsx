@@ -63,7 +63,7 @@ const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({ target, onClose, 
               <li>
                 {t('modals.cacheRemoval.actions.freeSpace', { size: formatBytes(totalSize) })}
               </li>
-              {isGame && (
+              {isGame && depotCount > 0 && (
                 <li>{t('modals.cacheRemoval.actions.removeDepots', { count: depotCount })}</li>
               )}
               {!isGame && (
