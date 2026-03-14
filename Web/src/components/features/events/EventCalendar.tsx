@@ -373,7 +373,7 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
       {/* Header Navigation */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         {/* Left: Month/Year Selection */}
-        <div className="flex items-center gap-2">
+        <div className="calendar-nav flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => changeMonth(-1)} className="!p-2">
             <ChevronLeft className="w-4 h-4" />
           </Button>

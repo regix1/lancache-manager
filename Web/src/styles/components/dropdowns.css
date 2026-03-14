@@ -92,6 +92,15 @@
     border-color: var(--theme-border-focus) !important;
   }
 
+  .calendar-nav .ed-trigger {
+    border-color: var(--theme-button-bg);
+    color: var(--theme-button-bg);
+  }
+
+  .calendar-nav .ed-trigger:not(:disabled):hover {
+    background-color: color-mix(in srgb, var(--theme-button-bg) 10%, transparent);
+  }
+
   .ed-dropdown {
     contain: layout style;
   }
