@@ -282,6 +282,7 @@ const DownloadsTab: React.FC = () => {
   const [retroTotalItems, setRetroTotalItems] = useState(0);
   const contentRef = useRef<HTMLDivElement>(null);
   const paginationRef = useRef<HTMLDivElement>(null);
+  const scrollAnchorRef = useRef<HTMLDivElement>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
   const retroViewRef = useRef<RetroViewHandle>(null);
 
@@ -984,8 +985,8 @@ const DownloadsTab: React.FC = () => {
   useEffect(() => {
     if (currentPage !== 1) {
       setCurrentPage(1);
-      if (paginationRef.current) {
-        paginationRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (scrollAnchorRef.current) {
+        scrollAnchorRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1032,8 +1033,8 @@ const DownloadsTab: React.FC = () => {
     if (newPage === currentPage) return;
 
     setCurrentPage(newPage);
-    if (paginationRef.current) {
-      paginationRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (scrollAnchorRef.current) {
+      scrollAnchorRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   };
 
@@ -1709,6 +1710,9 @@ const DownloadsTab: React.FC = () => {
               </div>
             </Alert>
           )}
+
+          {/* Scroll anchor for pagination (non-sticky, so scrollIntoView works reliably) */}
+          <div ref={scrollAnchorRef} />
 
           {/* Sticky Pagination Controls (above content) */}
           {settings.itemsPerPage !== 'unlimited' &&
