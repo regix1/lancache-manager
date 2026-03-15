@@ -4724,6 +4724,62 @@
       "errors": "Errors: {{formattedCount}}",
       "importFailed": "Import failed: {{error}}"
     },
+    "platformSetup": {
+      "title": "Platform Setup",
+      "subtitle": "Choose which gaming platform to configure for game identification",
+      "selectLabel": "Select a platform to configure",
+      "selectPlaceholder": "Choose an option...",
+      "github": {
+        "label": "Download from GitHub (Recommended)",
+        "description": "Quick setup — downloads pre-created Steam depot-to-game mappings from GitHub. No API key or authentication required.",
+        "note": "Best for most users. Data is updated regularly."
+      },
+      "steam": {
+        "label": "Steam PICS (Advanced)",
+        "description": "Generate fresh depot mappings directly from Steam's Package Info Cache System. Provides the most up-to-date data but requires a Steam Web API key and authentication.",
+        "note": "Recommended for advanced users who need real-time data."
+      },
+      "epic": {
+        "label": "Epic Games",
+        "description": "Connect your Epic Games account to identify Epic game downloads in your cache. Uses OAuth to securely access your Epic Games library.",
+        "note": "Requires an Epic Games account."
+      },
+      "skip": {
+        "label": "Skip Platform Setup",
+        "description": "Skip platform configuration for now. You can set up Steam or Epic game mapping anytime from the Management tab.",
+        "note": "You can always configure this later."
+      },
+      "continue": "Continue",
+      "infoBox": "Game mapping links cached downloads to specific games. Choose a platform to set up, or skip and configure later.",
+      "steamGroup": "Steam Game Mapping",
+      "steamGroupNote": "Choose one option",
+      "epicGroup": "Epic Game Mapping",
+      "completed": "Completed",
+      "setUp": "Set Up",
+      "finishSetup": "Continue",
+      "override": "This will replace your current Steam setup"
+    },
+    "epicAuth": {
+      "title": "Epic Games Authentication",
+      "subtitle": "Connect your Epic Games account to enable game identification for cached downloads",
+      "connectButton": "Connect Epic Account",
+      "securityNote": "Your Epic credentials are handled securely through Epic's official OAuth flow. No passwords are stored — only a temporary authorization token is used.",
+      "enterCodeTitle": "Enter Authorization Code",
+      "enterCodeSubtitle": "Complete the login in your browser, then paste the authorization code below",
+      "openEpicLogin": "Open Epic Login Page",
+      "codeLabel": "Authorization Code",
+      "codePlaceholder": "Paste authorization code here...",
+      "submitCode": "Complete Authentication",
+      "authenticating": "Authenticating with Epic Games...",
+      "success": "Epic Games account connected successfully!",
+      "successSubtitle": "Your Epic game library will now be used to identify cached downloads",
+      "skipNote": "You can also set this up later from the Management tab",
+      "skip": "Skip Epic Setup",
+      "error": "Authentication failed. Please try again.",
+      "retry": "Try Again",
+      "back": "Back",
+      "connecting": "Connecting..."
+    },
     "modal": {
       "setupWizard": "Setup Wizard",
       "stepProgress": "{{current}} / {{total}}",
@@ -4739,7 +4795,9 @@
         "depotInitialization": "Depot Initialization",
         "picsDataProgress": "PICS Data Progress",
         "logProcessing": "Log Processing",
-        "depotMapping": "Depot Mapping"
+        "depotMapping": "Depot Mapping",
+        "platformSetup": "Platform Setup",
+        "epicAuthentication": "Epic Authentication"
       }
     }
   },

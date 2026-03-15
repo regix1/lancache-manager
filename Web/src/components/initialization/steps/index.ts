@@ -1,7 +1,8 @@
 export { ApiKeyStep } from './ApiKeyStep';
 export { PermissionsCheckStep } from './PermissionsCheckStep';
 export { ImportHistoricalDataStep } from './ImportHistoricalDataStep';
-export { DataSourceChoiceStep } from './DataSourceChoiceStep';
+export { PlatformSetupStep } from './PlatformSetupStep';
+export { EpicAuthStep } from './EpicAuthStep';
 export { SteamApiKeyStep } from './SteamApiKeyStep';
 export { SteamPicsAuthStep } from './SteamPicsAuthStep';
 export { DepotInitStep } from './DepotInitStep';

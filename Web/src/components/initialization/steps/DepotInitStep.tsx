@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Cloud, Database, Loader2, AlertTriangle, ArrowLeft, CheckCircle } from 'lucide-react';
 import { Button } from '@components/ui/Button';
@@ -9,28 +9,13 @@ import type {
   DepotMappingCompleteEvent
 } from '@contexts/SignalRContext/types';
 import ApiService from '@services/api.service';
-import { isAbortError } from '@utils/error';
-
-/** PICS data status from the API */
-interface PicsStatus {
-  jsonFile?: {
-    exists: boolean;
-    totalMappings?: number;
-  };
-  database?: {
-    totalMappings?: number;
-  };
-  steamKit2?: {
-    isReady: boolean;
-    isRebuildRunning?: boolean;
-  };
-}
+import { isAbortError, getErrorMessage } from '@utils/error';
+import type { PicsStatus } from '@/types';
 
 interface DepotInitStepProps {
   picsData: PicsStatus | null;
   usingSteamAuth?: boolean;
   hideOptions?: boolean;
-  onDownloadPrecreated: () => void;
   onGenerateOwn: () => void;
   onContinue: () => void;
   onBackToSteamAuth?: () => void;
@@ -41,7 +26,6 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
   picsData,
   usingSteamAuth = false,
   hideOptions = false,
-  onDownloadPrecreated: _onDownloadPrecreated,
   onGenerateOwn,
   onContinue,
   onBackToSteamAuth,
@@ -56,6 +40,15 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
   const [downloadStatus, setDownloadStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
+  const completeTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const delayTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  useEffect(() => {
+    return () => {
+      if (completeTimeoutRef.current) clearTimeout(completeTimeoutRef.current);
+      if (delayTimeoutRef.current) clearTimeout(delayTimeoutRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     const handleDepotMappingStarted = (event: DepotMappingStartedEvent) => {
@@ -80,7 +73,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
           setDownloadStatus(t('initialization.depotInit.mappingsImportedSuccess'));
           setProgress(100);
           setInitializing(false);
-          setTimeout(() => {
+          completeTimeoutRef.current = setTimeout(() => {
             setSelectedMethod(null);
             setDownloadStatus(null);
             onComplete();
@@ -145,10 +138,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
     } catch (err: unknown) {
       // Don't show error for user-initiated cancellation
       if (!isAbortError(err)) {
-        setError(
-          (err instanceof Error ? err.message : String(err)) ||
-            t('initialization.depotInit.failedToDownload')
-        );
+        setError(getErrorMessage(err) || t('initialization.depotInit.failedToDownload'));
       }
       setInitializing(false);
       setSelectedMethod(null);
@@ -171,10 +161,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
       }
       onGenerateOwn();
     } catch (err: unknown) {
-      setError(
-        (err instanceof Error ? err.message : String(err)) ||
-          t('initialization.depotInit.failedToGenerate')
-      );
+      setError(getErrorMessage(err) || t('initialization.depotInit.failedToGenerate'));
       setInitializing(false);
       setSelectedMethod(null);
     }
@@ -190,7 +177,9 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
       const response = await ApiService.triggerSteamKitRebuild(true);
       if (response.requiresFullScan) {
         setDownloadStatus(t('initialization.depotInit.changeGapLarge'));
-        await new Promise((resolve) => setTimeout(resolve, 1000));
+        await new Promise<void>((resolve) => {
+          delayTimeoutRef.current = setTimeout(resolve, 1000);
+        });
         const fullScanResponse = await ApiService.triggerSteamKitRebuild(false);
         if (fullScanResponse.requiresFullScan) {
           setError(t('initialization.depotInit.unableToStartScan'));
@@ -202,10 +191,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
       }
       onContinue();
     } catch (err: unknown) {
-      setError(
-        (err instanceof Error ? err.message : String(err)) ||
-          t('initialization.depotInit.failedIncremental')
-      );
+      setError(getErrorMessage(err) || t('initialization.depotInit.failedIncremental'));
       setInitializing(false);
       setSelectedMethod(null);
       setDownloadStatus(null);
@@ -408,12 +394,10 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
             color="blue"
             size="sm"
             onClick={handleDownload}
+            loading={initializing && selectedMethod === 'cloud'}
             disabled={initializing || usingSteamAuth}
             fullWidth
           >
-            {initializing && selectedMethod === 'cloud' && (
-              <Loader2 className="w-3 h-3 animate-spin mr-1" />
-            )}
             {usingSteamAuth
               ? t('initialization.depotInit.unavailable')
               : initializing && selectedMethod === 'cloud'
@@ -444,12 +428,10 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
             color="green"
             size="sm"
             onClick={handleGenerate}
+            loading={initializing && selectedMethod === 'generate'}
             disabled={initializing}
             fullWidth
           >
-            {initializing && selectedMethod === 'generate' && (
-              <Loader2 className="w-3 h-3 animate-spin mr-1" />
-            )}
             {initializing && selectedMethod === 'generate'
               ? t('initialization.depotInit.processing')
               : t('initialization.depotInit.generate')}
@@ -479,12 +461,10 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
               color="orange"
               size="sm"
               onClick={handleContinueUpdate}
+              loading={initializing && selectedMethod === 'continue'}
               disabled={initializing}
               fullWidth
             >
-              {initializing && selectedMethod === 'continue' && (
-                <Loader2 className="w-3 h-3 animate-spin mr-1" />
-              )}
               {initializing && selectedMethod === 'continue'
                 ? t('initialization.depotInit.updating')
                 : t('initialization.depotInit.update')}

@@ -1,6 +1,6 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { Key, Eye, Loader2, Shield } from 'lucide-react';
+import { Key, Eye, Shield } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { useGuestConfig } from '@contexts/useGuestConfig';
 
@@ -133,10 +133,10 @@ export const ApiKeyStep: React.FC<ApiKeyStepProps> = ({
           variant="filled"
           color="blue"
           onClick={onAuthenticate}
+          loading={authenticating}
           disabled={authenticating || !apiKey.trim()}
           fullWidth
         >
-          {authenticating && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
           {authenticating
             ? t('initialization.apiKey.authenticating')
             : t('initialization.apiKey.authenticate')}

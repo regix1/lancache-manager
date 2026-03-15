@@ -18,6 +18,7 @@ import type {
   LogProcessingCompleteEvent
 } from '@contexts/SignalRContext/types';
 import ApiService from '@services/api.service';
+import { getErrorMessage } from '@utils/error';
 import type { Config, DatasourceInfo } from '../../../types';
 
 interface LogProcessingStepProps {
@@ -188,10 +189,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
       await ApiService.resetLogPosition('top');
       await ApiService.processAllLogs();
     } catch (err: unknown) {
-      setError(
-        (err instanceof Error ? err.message : String(err)) ||
-          t('initialization.logProcessing.failedToProcess')
-      );
+      setError(getErrorMessage(err) || t('initialization.logProcessing.failedToProcess'));
       setProcessing(false);
     } finally {
       setActionLoading(null);
@@ -212,10 +210,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
       await ApiService.resetDatasourceLogPosition(datasourceName, 'top');
       await ApiService.processDatasourceLogs(datasourceName);
     } catch (err: unknown) {
-      setError(
-        (err instanceof Error ? err.message : String(err)) ||
-          t('initialization.logProcessing.failedToProcessDatasource')
-      );
+      setError(getErrorMessage(err) || t('initialization.logProcessing.failedToProcessDatasource'));
       setProcessing(false);
     } finally {
       setActionLoading(null);

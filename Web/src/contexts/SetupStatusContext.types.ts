@@ -3,7 +3,6 @@ import { createContext } from 'react';
 interface SetupStatus {
   isCompleted: boolean;
   hasProcessedLogs: boolean;
-  isSetupCompleted: boolean;
 }
 
 interface SetupStatusContextType {

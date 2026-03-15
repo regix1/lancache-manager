@@ -1,10 +1,23 @@
 import { useState, useCallback } from 'react';
-import { type SteamLoginFlowState, type SteamAuthActions } from './useSteamAuthentication';
 import ApiService from '@services/api.service';
 
 interface UseEpicMappingAuthOptions {
   onSuccess?: () => void;
   onError?: (message: string) => void;
+}
+
+export interface EpicAuthState {
+  loading: boolean;
+  needsAuthorizationCode: boolean;
+  authorizationUrl: string;
+  authorizationCode: string;
+}
+
+export interface EpicAuthActions {
+  setAuthorizationCode: (code: string) => void;
+  handleAuthenticate: () => Promise<boolean>;
+  resetAuthForm: () => void;
+  cancelPendingRequest: () => void;
 }
 
 export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
@@ -63,38 +76,14 @@ export function useEpicMappingAuth(options: UseEpicMappingAuthOptions = {}) {
     }
   }, [resetAuthForm, onError]);
 
-  // Build SteamLoginFlowState-compatible state
-  const state: SteamLoginFlowState = {
+  const state: EpicAuthState = {
     loading,
-    needsTwoFactor: false,
-    needsEmailCode: false,
-    waitingForMobileConfirmation: false,
-    useManualCode: false,
-    username: '',
-    password: '',
-    twoFactorCode: '',
-    emailCode: '',
     needsAuthorizationCode,
     authorizationUrl,
     authorizationCode
   };
 
-  // Build SteamAuthActions-compatible actions
-  const actions: SteamAuthActions = {
-    // eslint-disable-next-line @typescript-eslint/no-empty-function
-    setUsername: () => {},
-    // eslint-disable-next-line @typescript-eslint/no-empty-function
-    setPassword: () => {},
-    // eslint-disable-next-line @typescript-eslint/no-empty-function
-    setTwoFactorCode: () => {},
-    // eslint-disable-next-line @typescript-eslint/no-empty-function
-    setEmailCode: () => {},
-    // eslint-disable-next-line @typescript-eslint/no-empty-function
-    setUseManualCode: () => {},
-    // eslint-disable-next-line @typescript-eslint/no-empty-function
-    setNeedsTwoFactor: () => {},
-    // eslint-disable-next-line @typescript-eslint/no-empty-function
-    setWaitingForMobileConfirmation: () => {},
+  const actions: EpicAuthActions = {
     setAuthorizationCode,
     handleAuthenticate,
     resetAuthForm,

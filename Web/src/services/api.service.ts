@@ -33,7 +33,8 @@ import type {
   EpicMappingStats,
   EpicDaemonStatusDto,
   EpicMappingAuthStatus,
-  EpicScheduleStatus
+  EpicScheduleStatus,
+  PicsStatus
 } from '../types';
 
 // Response types for API operations
@@ -60,19 +61,6 @@ interface OperationResponse {
   requiresFullScan?: boolean;
   changeGap?: number;
   estimatedApps?: number;
-}
-
-interface PicsStatus {
-  isScanning: boolean;
-  scanProgress?: number;
-  totalDepots?: number;
-  lastScanTime?: string;
-  nextScanIn?: number | string | { totalSeconds?: number; totalHours?: number };
-  // Additional status properties
-  jsonFile?: { exists: boolean; totalMappings?: number };
-  database?: { totalMappings?: number };
-  steamKit2?: { isReady: boolean; isRebuildRunning?: boolean };
-  rebuildInProgress?: boolean;
 }
 
 class ApiService {
@@ -728,6 +716,89 @@ class ApiService {
   }> {
     const res = await fetch(`${API_BASE}/system/permissions`, this.getFetchOptions());
     return await this.handleResponse(res);
+  }
+
+  // ==================== Steam API Key Management ====================
+
+  // Test a Steam Web API key without saving it
+  static async testSteamApiKey(apiKey: string): Promise<{ valid: boolean; message: string }> {
+    const response = await fetch(
+      `${API_BASE}/steam-api-keys/test`,
+      this.getFetchOptions({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey })
+      })
+    );
+    return this.handleResponse<{ valid: boolean; message: string }>(response);
+  }
+
+  // Save a Steam Web API key
+  static async saveSteamApiKey(apiKey: string): Promise<void> {
+    const response = await fetch(
+      `${API_BASE}/steam-api-keys`,
+      this.getFetchOptions({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey })
+      })
+    );
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => null);
+      throw new Error(errorData?.message || `Failed to save API key (${response.status})`);
+    }
+  }
+
+  // ==================== Steam Auth Mode ====================
+
+  // Set Steam authentication mode (anonymous or authenticated)
+  static async setSteamAuthMode(mode: 'anonymous' | 'authenticated'): Promise<void> {
+    const response = await fetch(
+      `${API_BASE}/steam-auth/mode`,
+      this.getFetchOptions({
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode })
+      })
+    );
+    if (!response.ok) {
+      throw new Error(`Failed to set auth mode (${response.status})`);
+    }
+  }
+
+  // ==================== Setup Status ====================
+
+  // Get setup status (public endpoint, no auth needed)
+  static async getSetupStatus(): Promise<{
+    isCompleted: boolean;
+    hasProcessedLogs: boolean;
+    setupCompleted: boolean;
+  }> {
+    const response = await fetch(
+      `${API_BASE}/system/setup`,
+      this.getFetchOptions({ cache: 'no-store' })
+    );
+    return this.handleResponse<{
+      isCompleted: boolean;
+      hasProcessedLogs: boolean;
+      setupCompleted: boolean;
+    }>(response);
+  }
+
+  // Mark setup as completed
+  static async markSetupComplete(): Promise<void> {
+    const response = await fetch(
+      `${API_BASE}/system/setup`,
+      this.getFetchOptions({
+        cache: 'no-store',
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ completed: true })
+      })
+    );
+    if (!response.ok) {
+      throw new Error(`Failed to mark setup complete (${response.status})`);
+    }
   }
 
   // PICS/Depot related endpoints (consolidated from GameInfoController)
@@ -1633,6 +1704,65 @@ class ApiService {
   }
 
   // =====================================================
+  // Migration / Import APIs
+  // =====================================================
+
+  // Search filesystem for previous install databases
+  static async searchForDatabases(): Promise<{ results: MigrationFileSystemItem[] }> {
+    const res = await fetch(
+      `${API_BASE}/filebrowser/search?searchPath=/`,
+      this.getFetchOptions({ method: 'GET' })
+    );
+    return this.handleResponse<{ results: MigrationFileSystemItem[] }>(res);
+  }
+
+  // Validate a connection string for migration
+  static async validateMigrationConnection(
+    connectionString: string,
+    importType: 'develancache' | 'lancache-manager'
+  ): Promise<MigrationValidationResult> {
+    const res = await fetch(
+      `${API_BASE}/migration/validate-connection?connectionString=${encodeURIComponent(connectionString)}&importType=${importType}`,
+      this.getFetchOptions({ method: 'GET' })
+    );
+    return this.handleResponse<MigrationValidationResult>(res);
+  }
+
+  // Import from DeveLanCacheUI_Backend database
+  static async importFromDevelancache(
+    connectionString: string,
+    batchSize: number,
+    overwriteExisting: boolean
+  ): Promise<MigrationImportResult> {
+    const res = await fetch(
+      `${API_BASE}/migration/import-develancache`,
+      this.getFetchOptions({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ connectionString, batchSize, overwriteExisting })
+      })
+    );
+    return this.handleResponse<MigrationImportResult>(res);
+  }
+
+  // Import from LancacheManager database
+  static async importFromLancacheManager(
+    connectionString: string,
+    batchSize: number,
+    overwriteExisting: boolean
+  ): Promise<MigrationImportResult> {
+    const res = await fetch(
+      `${API_BASE}/migration/import-lancache-manager`,
+      this.getFetchOptions({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ connectionString, batchSize, overwriteExisting })
+      })
+    );
+    return this.handleResponse<MigrationImportResult>(res);
+  }
+
+  // =====================================================
   // Epic Game Mappings API
   // =====================================================
 
@@ -1853,6 +1983,30 @@ interface PrefillCacheStatusDto {
   upToDateAppIds: string[];
   outdatedAppIds: string[];
   message?: string;
+}
+
+interface MigrationFileSystemItem {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  size: number;
+  lastModified: string;
+  isAccessible: boolean;
+}
+
+interface MigrationValidationResult {
+  valid: boolean;
+  message: string;
+  recordCount?: number;
+}
+
+interface MigrationImportResult {
+  message: string;
+  totalRecords: number;
+  imported: number;
+  skipped: number;
+  errors: number;
+  backupPath?: string;
 }
 
 export default ApiService;

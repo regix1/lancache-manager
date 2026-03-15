@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Database,
   Loader2,
@@ -20,6 +20,7 @@ import ApiService from '@services/api.service';
 import { formatBytes } from '@utils/formatters';
 import FileBrowser from '@components/features/management/file-browser/FileBrowser';
 import { storage } from '@utils/storage';
+import { getErrorMessage } from '@utils/error';
 
 type ImportType = 'develancache' | 'lancache-manager';
 
@@ -59,6 +60,13 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
   onSkip
 }) => {
   const { t } = useTranslation();
+  const completeTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  useEffect(() => {
+    return () => {
+      if (completeTimeoutRef.current) clearTimeout(completeTimeoutRef.current);
+    };
+  }, []);
 
   const importTypeOptions: DropdownOption[] = [
     {
@@ -119,11 +127,7 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
   const searchForDatabases = useCallback(async () => {
     setAutoSearching(true);
     try {
-      const res = await fetch(
-        '/api/filebrowser/search?searchPath=/',
-        ApiService.getFetchOptions({ method: 'GET' })
-      );
-      const result = await ApiService.handleResponse<{ results: FileSystemItem[] }>(res);
+      const result = await ApiService.searchForDatabases();
       setFoundDatabases(result.results);
     } catch (error) {
       console.error('Failed to search for databases:', error);
@@ -152,18 +156,12 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
     setValidationResult(null);
 
     try {
-      const res = await fetch(
-        `/api/migration/validate-connection?connectionString=${encodeURIComponent(connectionString)}&importType=${importType}`,
-        ApiService.getFetchOptions({ method: 'GET' })
-      );
-      const result = await ApiService.handleResponse<ValidationResult>(res);
+      const result = await ApiService.validateMigrationConnection(connectionString, importType);
       setValidationResult(result);
     } catch (error: unknown) {
       setValidationResult({
         valid: false,
-        message:
-          (error instanceof Error ? error.message : String(error)) ||
-          t('initialization.importHistorical.failedToValidate')
+        message: getErrorMessage(error) || t('initialization.importHistorical.failedToValidate')
       });
     } finally {
       setValidating(false);
@@ -176,28 +174,22 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
     setImporting(true);
     setImportResult(null);
 
-    const endpoint =
-      importType === 'lancache-manager'
-        ? '/api/migration/import-lancache-manager'
-        : '/api/migration/import-develancache';
-
     try {
-      const res = await fetch(
-        endpoint,
-        ApiService.getFetchOptions({
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ connectionString, batchSize, overwriteExisting })
-        })
-      );
-      const result = await ApiService.handleResponse<ImportResult>(res);
+      const result =
+        importType === 'lancache-manager'
+          ? await ApiService.importFromLancacheManager(
+              connectionString,
+              batchSize,
+              overwriteExisting
+            )
+          : await ApiService.importFromDevelancache(connectionString, batchSize, overwriteExisting);
       setImportResult(result);
-      setTimeout(() => onComplete(), 2000);
+      completeTimeoutRef.current = setTimeout(() => onComplete(), 2000);
     } catch (error: unknown) {
       setValidationResult({
         valid: false,
         message: t('initialization.importHistorical.importFailed', {
-          error: error instanceof Error ? error.message : String(error)
+          error: getErrorMessage(error)
         })
       });
     } finally {
@@ -510,10 +502,10 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
           <Button
             variant="default"
             onClick={handleValidate}
+            loading={validating}
             disabled={validating || !connectionString.trim() || importing}
             className="flex-1"
           >
-            {validating && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
             {validating
               ? t('initialization.importHistorical.validating')
               : t('initialization.importHistorical.validate')}
@@ -523,10 +515,10 @@ export const ImportHistoricalDataStep: React.FC<ImportHistoricalDataStepProps> =
             variant="filled"
             color="green"
             onClick={handleImport}
+            loading={importing}
             disabled={!validationResult?.valid || importing}
             className="flex-1"
           >
-            {importing && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
             {importing
               ? t('initialization.importHistorical.importing')
               : t('initialization.importHistorical.import')}

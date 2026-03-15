@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Key, ExternalLink, CheckCircle, XCircle, Loader2, Shield } from 'lucide-react';
+import { Key, ExternalLink, CheckCircle, XCircle, Shield } from 'lucide-react';
 import { Button } from '@components/ui/Button';
-import ApiService from '@services/api.service';
 import { storage } from '@utils/storage';
+import { useSteamApiKey } from '@hooks/useSteamApiKey';
 
 interface SteamApiKeyStepProps {
   onComplete: () => void;
@@ -11,12 +11,20 @@ interface SteamApiKeyStepProps {
 
 export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) => {
   const { t } = useTranslation();
-  const [apiKey, setApiKey] = useState(() => {
-    return storage.getItem('steamApiKey') || '';
+
+  const {
+    apiKey,
+    setApiKey,
+    testing,
+    saving,
+    testResult,
+    handleTest,
+    handleSave,
+    resetTestResult
+  } = useSteamApiKey({
+    initialApiKey: storage.getItem('steamApiKey') || '',
+    onSaveSuccess: onComplete
   });
-  const [testing, setTesting] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [testResult, setTestResult] = useState<{ valid: boolean; message: string } | null>(null);
 
   useEffect(() => {
     if (apiKey) {
@@ -25,94 +33,6 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
       storage.removeItem('steamApiKey');
     }
   }, [apiKey]);
-
-  const handleTest = async () => {
-    if (!apiKey.trim()) {
-      setTestResult({ valid: false, message: t('initialization.steamWebApiKey.pleaseEnter') });
-      return;
-    }
-
-    setTesting(true);
-    setTestResult(null);
-
-    try {
-      const response = await fetch(
-        '/api/steam-api-keys/test',
-        ApiService.getFetchOptions({
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ apiKey: apiKey.trim() })
-        })
-      );
-
-      const data = await response.json();
-
-      if (response.ok) {
-        setTestResult({
-          valid: data.valid,
-          message: data.message
-        });
-      } else {
-        setTestResult({
-          valid: false,
-          message: data.error || t('initialization.steamWebApiKey.failedToTest')
-        });
-      }
-    } catch (error: unknown) {
-      setTestResult({
-        valid: false,
-        message:
-          (error instanceof Error ? error.message : String(error)) ||
-          t('initialization.steamWebApiKey.networkError')
-      });
-    } finally {
-      setTesting(false);
-    }
-  };
-
-  const handleSave = async () => {
-    if (!apiKey.trim()) {
-      setTestResult({ valid: false, message: t('initialization.steamWebApiKey.pleaseEnter') });
-      return;
-    }
-
-    setSaving(true);
-
-    try {
-      const response = await fetch(
-        '/api/steam-api-keys',
-        ApiService.getFetchOptions({
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ apiKey: apiKey.trim() })
-        })
-      );
-
-      const data = await response.json();
-
-      if (response.ok) {
-        onComplete();
-      } else {
-        setTestResult({
-          valid: false,
-          message: data.error || data.message || t('initialization.steamWebApiKey.failedToSave')
-        });
-      }
-    } catch (error: unknown) {
-      setTestResult({
-        valid: false,
-        message:
-          (error instanceof Error ? error.message : String(error)) ||
-          t('initialization.steamWebApiKey.networkErrorSave')
-      });
-    } finally {
-      setSaving(false);
-    }
-  };
 
   return (
     <div className="space-y-5">
@@ -163,7 +83,7 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
           value={apiKey}
           onChange={(e) => {
             setApiKey(e.target.value);
-            setTestResult(null);
+            resetTestResult();
           }}
           placeholder={t('initialization.steamWebApiKey.placeholder')}
           className="w-full px-3 py-2.5 themed-input"
@@ -201,11 +121,16 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
       <div className="flex gap-3 pt-2">
         <Button
           variant="default"
-          onClick={handleTest}
+          onClick={() =>
+            handleTest(
+              t('initialization.steamWebApiKey.pleaseEnter'),
+              t('initialization.steamWebApiKey.networkError')
+            )
+          }
+          loading={testing}
           disabled={!apiKey.trim() || testing || saving}
           className="flex-1"
         >
-          {testing && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
           {testing
             ? t('initialization.steamWebApiKey.testing')
             : t('initialization.steamWebApiKey.testConnection')}
@@ -214,11 +139,16 @@ export const SteamApiKeyStep: React.FC<SteamApiKeyStepProps> = ({ onComplete }) 
         <Button
           variant="filled"
           color="green"
-          onClick={handleSave}
+          onClick={() =>
+            handleSave(
+              t('initialization.steamWebApiKey.pleaseEnter'),
+              t('initialization.steamWebApiKey.networkErrorSave')
+            )
+          }
+          loading={saving}
           disabled={!apiKey.trim() || testing || saving || !testResult?.valid}
           className="flex-1"
         >
-          {saving && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
           {saving
             ? t('initialization.steamWebApiKey.saving')
             : t('initialization.steamWebApiKey.saveAndContinue')}

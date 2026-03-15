@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Shield, CheckCircle, Users, User, Loader2 } from 'lucide-react';
+import { Shield, CheckCircle, Users, User } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
 import { useSteamAuthentication } from '@hooks/useSteamAuthentication';
 import ApiService from '@services/api.service';
+import { getErrorMessage } from '@utils/error';
 
 interface SteamPicsAuthStepProps {
   onComplete: (usingSteamAuth: boolean) => void;
@@ -44,29 +45,10 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
     setError(null);
 
     try {
-      // Save anonymous mode to backend
-      const response = await fetch(
-        '/api/steam-auth/mode',
-        ApiService.getFetchOptions({
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({ mode: 'anonymous' })
-        })
-      );
-
-      if (response.ok) {
-        onComplete(false);
-      } else {
-        const data = await response.json();
-        setError(data.error || t('initialization.steamPicsAuth.failedToSave'));
-      }
+      await ApiService.setSteamAuthMode('anonymous');
+      onComplete(false);
     } catch (err: unknown) {
-      setError(
-        (err instanceof Error ? err.message : String(err)) ||
-          t('initialization.steamPicsAuth.networkError')
-      );
+      setError(getErrorMessage(err) || t('initialization.steamPicsAuth.networkError'));
     } finally {
       setSaving(false);
     }
@@ -176,10 +158,10 @@ export const SteamPicsAuthStep: React.FC<SteamPicsAuthStepProps> = ({ onComplete
             variant="filled"
             color="blue"
             onClick={handleContinueAnonymous}
+            loading={saving}
             disabled={saving}
             fullWidth
           >
-            {saving && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
             {saving
               ? t('initialization.steamPicsAuth.saving')
               : t('initialization.steamPicsAuth.continueAnonymous')}

@@ -3,14 +3,14 @@ import { Loader2, Shield, ExternalLink, KeyRound } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
 import { EpicIcon } from '@components/ui/EpicIcon';
-import { type SteamLoginFlowState, type SteamAuthActions } from '@hooks/useSteamAuthentication';
+import { type EpicAuthState, type EpicAuthActions } from '@hooks/useEpicMappingAuth';
 import { useTranslation } from 'react-i18next';
 
 interface EpicAuthModalProps {
   opened: boolean;
   onClose: () => void;
-  state: SteamLoginFlowState;
-  actions: SteamAuthActions;
+  state: EpicAuthState;
+  actions: EpicAuthActions;
   onCancelLogin?: () => void;
 }
 

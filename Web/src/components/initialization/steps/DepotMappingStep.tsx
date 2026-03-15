@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Map, Loader2, CheckCircle, Home } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import ApiService from '@services/api.service';
-import { isAbortError } from '@utils/error';
+import { isAbortError, getErrorMessage } from '@utils/error';
 import { FullScanRequiredModal } from '@components/modals/setup/FullScanRequiredModal';
 import { usePicsProgress } from '@contexts/usePicsProgress';
 import { useSteamWebApiStatus } from '@contexts/useSteamWebApiStatus';
@@ -27,6 +27,15 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
   } | null>(null);
   const [phase, setPhase] = useState<'scanning' | 'applying' | null>(null);
   const [applyingMappings, setApplyingMappings] = useState(false);
+  const applyMappingsTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const downloadTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  useEffect(() => {
+    return () => {
+      if (applyMappingsTimeoutRef.current) clearTimeout(applyMappingsTimeoutRef.current);
+      if (downloadTimeoutRef.current) clearTimeout(downloadTimeoutRef.current);
+    };
+  }, []);
 
   const progress = picsProgress?.progressPercent || 0;
   const statusMessage = picsProgress?.status || '';
@@ -47,7 +56,7 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
           setPhase('applying');
           setApplyingMappings(true);
           await ApiService.applyDepotMappings();
-          setTimeout(() => {
+          applyMappingsTimeoutRef.current = setTimeout(() => {
             setComplete(true);
             setMapping(false);
             setApplyingMappings(false);
@@ -55,10 +64,7 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
           }, 1000);
         } catch (err: unknown) {
           console.error('[DepotMapping] Error applying mappings:', err);
-          setError(
-            (err instanceof Error ? err.message : String(err)) ||
-              t('initialization.depotMapping.failedToApply')
-          );
+          setError(getErrorMessage(err) || t('initialization.depotMapping.failedToApply'));
           setMapping(false);
           setApplyingMappings(false);
           setPhase(null);
@@ -93,10 +99,7 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
       }
     } catch (err: unknown) {
       console.error('[DepotMapping] Error:', err);
-      setError(
-        (err instanceof Error ? err.message : String(err)) ||
-          t('initialization.depotMapping.failedToStart')
-      );
+      setError(getErrorMessage(err) || t('initialization.depotMapping.failedToStart'));
       setMapping(false);
       setPhase(null);
     }
@@ -108,7 +111,7 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
 
     try {
       await ApiService.downloadPrecreatedDepotData();
-      setTimeout(() => {
+      downloadTimeoutRef.current = setTimeout(() => {
         setComplete(true);
         setMapping(false);
       }, 2000);
@@ -116,10 +119,7 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
       // Don't show error for user-initiated cancellation
       if (!isAbortError(err)) {
         console.error('[DepotMapping] Error downloading from GitHub:', err);
-        setError(
-          (err instanceof Error ? err.message : String(err)) ||
-            t('initialization.depotMapping.failedToDownload')
-        );
+        setError(getErrorMessage(err) || t('initialization.depotMapping.failedToDownload'));
       }
       setMapping(false);
     }

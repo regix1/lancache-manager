@@ -462,3 +462,16 @@ export interface EpicScheduleStatus {
   status: string;
   progressPercent: number;
 }
+
+/** PICS data status returned by the /depots/status API endpoint */
+export interface PicsStatus {
+  isScanning: boolean;
+  scanProgress?: number;
+  totalDepots?: number;
+  lastScanTime?: string;
+  nextScanIn?: number | string | { totalSeconds?: number; totalHours?: number };
+  jsonFile?: { exists: boolean; totalMappings?: number };
+  database?: { totalMappings?: number };
+  steamKit2?: { isReady: boolean; isRebuildRunning?: boolean };
+  rebuildInProgress?: boolean;
+}

@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import authService from '@services/auth.service';
 import ApiService from '@services/api.service';
+import { getErrorMessage } from '@utils/error';
 
 type AuthMode = 'apiKey' | 'guest' | 'admin';
 
@@ -53,10 +54,7 @@ export const useInitializationAuth = ({
               setAuthError(result.message || null);
             }
           } catch (error: unknown) {
-            setAuthError(
-              (error instanceof Error ? error.message : String(error)) ||
-                t('modals.auth.errors.authenticationFailed')
-            );
+            setAuthError(getErrorMessage(error) || t('modals.auth.errors.authenticationFailed'));
           } finally {
             setAuthenticating(false);
           }
@@ -78,7 +76,7 @@ export const useInitializationAuth = ({
           );
           const setupData = await setupResponse.json();
 
-          if (setupData.isSetupCompleted) {
+          if (setupData.isCompleted || setupData.setupCompleted) {
             onInitializationComplete();
           } else {
             // Set step BEFORE onAuthChanged to prevent race condition

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import {
   Shield,
   CheckCircle,
@@ -12,16 +12,10 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
-import ApiService from '@services/api.service';
+import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
 
 interface PermissionsCheckStepProps {
   onComplete: () => void;
-}
-
-interface PermissionsData {
-  cache: { path: string; exists: boolean; writable: boolean; readOnly: boolean };
-  logs: { path: string; exists: boolean; writable: boolean; readOnly: boolean };
-  dockerSocket: { available: boolean };
 }
 
 type CheckStatus = 'loading' | 'success' | 'warning' | 'error';
@@ -37,104 +31,110 @@ interface PermissionCheck {
 
 export const PermissionsCheckStep: React.FC<PermissionsCheckStepProps> = ({ onComplete }) => {
   const { t } = useTranslation();
-  const [error, setError] = useState<string | null>(null);
-  const [checks, setChecks] = useState<PermissionCheck[]>([]);
+  const {
+    cacheExist,
+    cacheWritable,
+    cacheReadOnly,
+    cachePath,
+    logsExist,
+    logsWritable,
+    logsReadOnly,
+    logsPath,
+    dockerSocketAvailable,
+    checkingPermissions,
+    error,
+    reload
+  } = useDirectoryPermissions();
 
-  const checkPermissions = async () => {
-    setError(null);
-
-    setChecks([
-      {
-        id: 'cache',
-        label: t('initialization.permissionsCheck.cacheDirectory'),
-        status: 'loading',
-        message: t('initialization.permissionsCheck.checking')
-      },
-      {
-        id: 'logs',
-        label: t('initialization.permissionsCheck.logsDirectory'),
-        status: 'loading',
-        message: t('initialization.permissionsCheck.checking')
-      },
-      {
-        id: 'docker',
-        label: t('initialization.permissionsCheck.dockerSocket'),
-        status: 'loading',
-        message: t('initialization.permissionsCheck.checking')
-      }
-    ]);
-
-    try {
-      const data: PermissionsData = await ApiService.getDirectoryPermissions();
-
-      const getDirectoryStatus = (
-        dir: { exists: boolean; writable: boolean; readOnly: boolean },
-        impactKey: string
-      ): Pick<PermissionCheck, 'status' | 'message' | 'impact'> => {
-        if (!dir.exists) {
-          return {
-            status: 'warning',
-            message: t('initialization.permissionsCheck.notFound'),
-            impact: t(`initialization.permissionsCheck.${impactKey}NotFound`)
-          };
-        }
-        if (dir.writable) {
-          return { status: 'success', message: t('initialization.permissionsCheck.writable') };
-        }
-        if (dir.readOnly) {
-          return {
-            status: 'warning',
-            message: t('initialization.permissionsCheck.readOnly'),
-            impact: t(`initialization.permissionsCheck.${impactKey}Impact`)
-          };
-        }
-        return {
-          status: 'error',
-          message: t('initialization.permissionsCheck.notAccessible'),
-          impact: t(`initialization.permissionsCheck.${impactKey}Impact`)
-        };
+  const getDirectoryStatus = (
+    dir: { exists: boolean; writable: boolean; readOnly: boolean },
+    impactKey: string
+  ): Pick<PermissionCheck, 'status' | 'message' | 'impact'> => {
+    if (!dir.exists) {
+      return {
+        status: 'warning',
+        message: t('initialization.permissionsCheck.notFound'),
+        impact: t(`initialization.permissionsCheck.${impactKey}NotFound`)
       };
+    }
+    if (dir.writable) {
+      return { status: 'success', message: t('initialization.permissionsCheck.writable') };
+    }
+    if (dir.readOnly) {
+      return {
+        status: 'warning',
+        message: t('initialization.permissionsCheck.readOnly'),
+        impact: t(`initialization.permissionsCheck.${impactKey}Impact`)
+      };
+    }
+    return {
+      status: 'error',
+      message: t('initialization.permissionsCheck.notAccessible'),
+      impact: t(`initialization.permissionsCheck.${impactKey}Impact`)
+    };
+  };
 
-      const cacheStatus = getDirectoryStatus(data.cache, 'cache');
-      const logsStatus = getDirectoryStatus(data.logs, 'logs');
-
-      const newChecks: PermissionCheck[] = [
+  const buildChecks = (): PermissionCheck[] => {
+    if (checkingPermissions) {
+      return [
         {
           id: 'cache',
           label: t('initialization.permissionsCheck.cacheDirectory'),
-          path: data.cache.path,
-          ...cacheStatus
+          status: 'loading',
+          message: t('initialization.permissionsCheck.checking')
         },
         {
           id: 'logs',
           label: t('initialization.permissionsCheck.logsDirectory'),
-          path: data.logs.path,
-          ...logsStatus
+          status: 'loading',
+          message: t('initialization.permissionsCheck.checking')
         },
         {
           id: 'docker',
           label: t('initialization.permissionsCheck.dockerSocket'),
-          status: data.dockerSocket.available ? 'success' : 'warning',
-          message: data.dockerSocket.available
-            ? t('initialization.permissionsCheck.available')
-            : t('initialization.permissionsCheck.notAvailable'),
-          impact: data.dockerSocket.available
-            ? undefined
-            : t('initialization.permissionsCheck.dockerImpact')
+          status: 'loading',
+          message: t('initialization.permissionsCheck.checking')
         }
       ];
-
-      setChecks(newChecks);
-    } catch (err) {
-      console.error('Failed to check permissions:', err);
-      setError(t('initialization.permissionsCheck.failedToCheck'));
     }
+
+    const cacheStatus = getDirectoryStatus(
+      { exists: cacheExist, writable: cacheWritable, readOnly: cacheReadOnly },
+      'cache'
+    );
+    const logsStatus = getDirectoryStatus(
+      { exists: logsExist, writable: logsWritable, readOnly: logsReadOnly },
+      'logs'
+    );
+
+    return [
+      {
+        id: 'cache',
+        label: t('initialization.permissionsCheck.cacheDirectory'),
+        path: cachePath || undefined,
+        ...cacheStatus
+      },
+      {
+        id: 'logs',
+        label: t('initialization.permissionsCheck.logsDirectory'),
+        path: logsPath || undefined,
+        ...logsStatus
+      },
+      {
+        id: 'docker',
+        label: t('initialization.permissionsCheck.dockerSocket'),
+        status: dockerSocketAvailable ? 'success' : 'warning',
+        message: dockerSocketAvailable
+          ? t('initialization.permissionsCheck.available')
+          : t('initialization.permissionsCheck.notAvailable'),
+        impact: dockerSocketAvailable
+          ? undefined
+          : t('initialization.permissionsCheck.dockerImpact')
+      }
+    ];
   };
 
-  useEffect(() => {
-    checkPermissions();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const checks = buildChecks();
 
   const getStatusIcon = (status: CheckStatus) => {
     switch (status) {
@@ -164,7 +164,7 @@ export const PermissionsCheckStep: React.FC<PermissionsCheckStepProps> = ({ onCo
 
   const hasErrors = checks.some((c) => c.status === 'error');
   const allSuccess = checks.every((c) => c.status === 'success');
-  const isChecking = checks.some((c) => c.status === 'loading');
+  const isChecking = checkingPermissions;
 
   return (
     <div className="space-y-4">
@@ -286,7 +286,7 @@ export const PermissionsCheckStep: React.FC<PermissionsCheckStepProps> = ({ onCo
         {!isChecking && (
           <Button
             variant="outline"
-            onClick={checkPermissions}
+            onClick={reload}
             className="sm:w-auto"
             leftSection={<RefreshCw className="w-4 h-4" />}
           >

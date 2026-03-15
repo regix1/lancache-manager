@@ -7,7 +7,6 @@ import { SetupStatusContext } from './SetupStatusContext.types';
 interface SetupStatus {
   isCompleted: boolean;
   hasProcessedLogs: boolean;
-  isSetupCompleted: boolean;
 }
 
 interface SetupStatusProviderProps {
@@ -33,21 +32,16 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
       );
       if (response.ok) {
         const data = await response.json();
-        const isCompleted =
-          data.isCompleted === true ||
-          data.setupCompleted === true ||
-          data.isSetupCompleted === true;
+        const isCompleted = data.isCompleted === true || data.setupCompleted === true;
         setSetupStatus({
           isCompleted,
-          hasProcessedLogs: data.hasProcessedLogs === true,
-          isSetupCompleted: isCompleted
+          hasProcessedLogs: data.hasProcessedLogs === true
         });
       } else {
         // Non-OK response: set reasonable defaults
         setSetupStatus({
           isCompleted: false,
-          hasProcessedLogs: false,
-          isSetupCompleted: false
+          hasProcessedLogs: false
         });
       }
     } catch (error) {
@@ -59,8 +53,7 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
       // On error/timeout: set reasonable defaults
       setSetupStatus({
         isCompleted: false,
-        hasProcessedLogs: false,
-        isSetupCompleted: false
+        hasProcessedLogs: false
       });
     } finally {
       clearTimeout(timeoutId);
@@ -77,8 +70,7 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
       prev
         ? {
             ...prev,
-            isCompleted: true,
-            isSetupCompleted: true
+            isCompleted: true
           }
         : null
     );
