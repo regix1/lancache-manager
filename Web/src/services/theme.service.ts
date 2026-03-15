@@ -485,7 +485,13 @@ class ThemeService {
 
           // Service colors
           steamColor: '#10b981', // Green
+          steamFaint: 'rgba(16, 185, 129, 0.1)',
+          steamOnBorder: 'rgba(16, 185, 129, 0.5)',
+          steamStrong: 'rgba(16, 185, 129, 0.3)',
           epicColor: '#8b5cf6', // Purple
+          epicFaint: 'rgba(139, 92, 246, 0.1)',
+          epicOnBorder: 'rgba(139, 92, 246, 0.5)',
+          epicStrong: 'rgba(139, 92, 246, 0.3)',
           originColor: '#fb923c', // Bright Orange
           blizzardColor: '#3b82f6', // Blue
           wsusColor: '#06b6d4', // Cyan
@@ -673,7 +679,13 @@ class ThemeService {
 
           // Service colors - Vibrant
           steamColor: '#059669',
+          steamFaint: 'rgba(5, 150, 105, 0.1)',
+          steamOnBorder: 'rgba(5, 150, 105, 0.5)',
+          steamStrong: 'rgba(5, 150, 105, 0.3)',
           epicColor: '#7c3aed',
+          epicFaint: 'rgba(124, 58, 237, 0.1)',
+          epicOnBorder: 'rgba(124, 58, 237, 0.5)',
+          epicStrong: 'rgba(124, 58, 237, 0.3)',
           originColor: '#ea580c',
           blizzardColor: '#2563eb',
           wsusColor: '#0891b2',

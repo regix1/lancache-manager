@@ -161,7 +161,7 @@ export const ThemeCard: React.FC<ThemeCardProps> = ({
               {t('management.themes.actions.applyTheme')}
             </ActionMenuItem>
           )}
-          {!isGuest && (
+          {!isGuest && !isActive && (
             <ActionMenuItem
               onClick={() => {
                 onPreview(currentMenuId);
