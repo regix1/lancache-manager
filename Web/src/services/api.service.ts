@@ -860,11 +860,13 @@ class ApiService {
   }
 
   // Get cache size with deletion time estimates
-  static async getCacheSize(datasource?: string): Promise<CacheSizeInfo> {
+  static async getCacheSize(datasource?: string, force?: boolean): Promise<CacheSizeInfo> {
     try {
-      const url = datasource
-        ? `${API_BASE}/cache/size?datasource=${encodeURIComponent(datasource)}`
-        : `${API_BASE}/cache/size`;
+      const params = new URLSearchParams();
+      if (datasource) params.set('datasource', datasource);
+      if (force) params.set('force', 'true');
+      const queryString = params.toString();
+      const url = queryString ? `${API_BASE}/cache/size?${queryString}` : `${API_BASE}/cache/size`;
       // No timeout - cache size calculation can take a very long time for large caches
       const res = await fetch(url, this.getFetchOptions());
       return await this.handleResponse<CacheSizeInfo>(res);

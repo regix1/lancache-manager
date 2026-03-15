@@ -21,6 +21,7 @@ export interface CacheSizeInfo {
   scanDurationMs: number;
   formattedSize: string;
   timestamp: string;
+  isCached: boolean;
   estimatedDeletionTimes: {
     preserveSeconds: number;
     fullSeconds: number;

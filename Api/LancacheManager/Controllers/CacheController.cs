@@ -1,4 +1,3 @@
-using System.Text.Json.Serialization;
 using LancacheManager.Models;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Services;
@@ -76,175 +75,14 @@ public class CacheController : ControllerBase
     /// GET /api/cache/size - Calculate cache size with deletion time estimates
     /// </summary>
     [HttpGet("size")]
-    public async Task<IActionResult> GetCacheSizeAsync([FromQuery] string? datasource = null)
+    public async Task<IActionResult> GetCacheSizeAsync([FromQuery] string? datasource = null, [FromQuery] bool force = false)
     {
-        var rustBinaryPath = _pathResolver.GetRustCacheSizePath();
-
-            if (!System.IO.File.Exists(rustBinaryPath))
-            {
-                return StatusCode(500, new ErrorResponse
-                {
-                    Error = "Cache size calculator not available",
-                    Details = $"Rust binary not found at {rustBinaryPath}"
-                });
-            }
-
-            // Determine cache path
-            string cachePath;
-            if (!string.IsNullOrEmpty(datasource))
-            {
-                // Get specific datasource's cache path
-                var datasourceService = HttpContext.RequestServices.GetRequiredService<DatasourceService>();
-                var ds = datasourceService.GetDatasources()
-                    .FirstOrDefault(d => d.Name.Equals(datasource, StringComparison.OrdinalIgnoreCase));
-
-                if (ds == null)
-                {
-                    return NotFound(new NotFoundResponse { Error = $"Datasource '{datasource}' not found" });
-                }
-
-                cachePath = ds.CachePath;
-            }
-            else
-            {
-                cachePath = _pathResolver.GetCacheDirectory();
-            }
-
-            if (!Directory.Exists(cachePath))
-            {
-                return Ok(new CacheSizeResponse
-                {
-                    TotalBytes = 0,
-                    TotalFiles = 0,
-                    TotalDirectories = 0,
-                    HexDirectories = 0,
-                    ScanDurationMs = 0,
-                    FormattedSize = "0 bytes",
-                    Timestamp = DateTime.UtcNow,
-                    EstimatedDeletionTimes = new EstimatedDeletionTimes
-                    {
-                        PreserveSeconds = 0,
-                        FullSeconds = 0,
-                        RsyncSeconds = 0,
-                        PreserveFormatted = "< 1 second",
-                        FullFormatted = "< 1 second",
-                        RsyncFormatted = "< 1 second"
-                    }
-                });
-            }
-
-            var operationsDir = _pathResolver.GetOperationsDirectory();
-            var outputFile = Path.Combine(operationsDir, $"cache_size_{Guid.NewGuid()}.json");
-
-            var startInfo = _rustProcessHelper.CreateProcessStartInfo(rustBinaryPath, $"\"{cachePath}\" \"{outputFile}\"");
-
-            using var process = System.Diagnostics.Process.Start(startInfo);
-            if (process == null)
-            {
-                return StatusCode(500, new ErrorResponse { Error = "Failed to start cache size calculation" });
-            }
-
-            // Read stdout and stderr while process runs
-            var stdoutTask = process.StandardOutput.ReadToEndAsync();
-            var stderrTask = process.StandardError.ReadToEndAsync();
-
-            await process.WaitForExitAsync();
-
-            var stdout = await stdoutTask;
-            var stderr = await stderrTask;
-
-            // Log the Rust binary output (includes filesystem detection and calibration info)
-            if (!string.IsNullOrWhiteSpace(stderr))
-            {
-                _logger.LogInformation("Cache size calculation output:\n{Output}", stderr);
-            }
-            if (!string.IsNullOrWhiteSpace(stdout))
-            {
-                _logger.LogInformation("Cache size result JSON:\n{Json}", stdout);
-            }
-
-            if (process.ExitCode != 0)
-            {
-                _logger.LogError("Cache size calculation failed with exit code {ExitCode}: {Error}", process.ExitCode, stderr);
-                return StatusCode(500, new ErrorResponse { Error = "Cache size calculation failed", Details = stderr });
-            }
-
-            // Read result
-            var result = await _rustProcessHelper.ReadProgressFileAsync<CacheSizeResult>(outputFile);
-
-            // Clean up temp file
-            await _rustProcessHelper.DeleteTemporaryFileAsync(outputFile);
-
-            if (result == null)
-            {
-                return StatusCode(500, new ErrorResponse { Error = "Failed to read cache size result" });
-            }
-
-            return Ok(new CacheSizeResponse
-            {
-                TotalBytes = (long)result.TotalBytes,
-                TotalFiles = (long)result.TotalFiles,
-                TotalDirectories = (long)result.TotalDirectories,
-                HexDirectories = result.HexDirectories,
-                ScanDurationMs = (long)result.ScanDurationMs,
-                FormattedSize = result.FormattedSize,
-                Timestamp = DateTime.UtcNow,
-                EstimatedDeletionTimes = new EstimatedDeletionTimes
-                {
-                    PreserveSeconds = result.EstimatedDeletionTimes.PreserveSeconds,
-                    FullSeconds = result.EstimatedDeletionTimes.FullSeconds,
-                    RsyncSeconds = result.EstimatedDeletionTimes.RsyncSeconds,
-                    PreserveFormatted = result.EstimatedDeletionTimes.PreserveFormatted,
-                    FullFormatted = result.EstimatedDeletionTimes.FullFormatted,
-                    RsyncFormatted = result.EstimatedDeletionTimes.RsyncFormatted
-                }
-            });
-    }
-
-    // Helper class for deserializing Rust cache size result
-    private class CacheSizeResult
-    {
-        [JsonPropertyName("totalBytes")]
-        public ulong TotalBytes { get; set; }
-
-        [JsonPropertyName("totalFiles")]
-        public ulong TotalFiles { get; set; }
-
-        [JsonPropertyName("totalDirectories")]
-        public ulong TotalDirectories { get; set; }
-
-        [JsonPropertyName("hexDirectories")]
-        public int HexDirectories { get; set; }
-
-        [JsonPropertyName("scanDurationMs")]
-        public ulong ScanDurationMs { get; set; }
-
-        [JsonPropertyName("estimatedDeletionTimes")]
-        public CacheSizeEstimates EstimatedDeletionTimes { get; set; } = new();
-
-        [JsonPropertyName("formattedSize")]
-        public string FormattedSize { get; set; } = string.Empty;
-    }
-
-    private class CacheSizeEstimates
-    {
-        [JsonPropertyName("preserveSeconds")]
-        public double PreserveSeconds { get; set; }
-
-        [JsonPropertyName("fullSeconds")]
-        public double FullSeconds { get; set; }
-
-        [JsonPropertyName("rsyncSeconds")]
-        public double RsyncSeconds { get; set; }
-
-        [JsonPropertyName("preserveFormatted")]
-        public string PreserveFormatted { get; set; } = string.Empty;
-
-        [JsonPropertyName("fullFormatted")]
-        public string FullFormatted { get; set; } = string.Empty;
-
-        [JsonPropertyName("rsyncFormatted")]
-        public string RsyncFormatted { get; set; } = string.Empty;
+        var result = await _cacheService.GetCachedCacheSizeAsync(force, datasource);
+        if (result == null)
+        {
+            return StatusCode(500, new ErrorResponse { Error = "Failed to calculate cache size" });
+        }
+        return Ok(result);
     }
 
     /// <summary>
@@ -284,6 +122,8 @@ public class CacheController : ControllerBase
             _logger.LogWarning("[ClearAllCache] Permission check failed: {Error}", errorMessage);
             return BadRequest(new ErrorResponse { Error = errorMessage });
         }
+
+        _cacheService.InvalidateCachedScan();
 
         var operationId = await _cacheClearingService.StartCacheClearAsync();
 
@@ -332,6 +172,8 @@ public class CacheController : ControllerBase
             _logger.LogWarning("[ClearDatasourceCache] Permission check failed for {Datasource}: {Error}", name, errorMessage);
             return BadRequest(new ErrorResponse { Error = errorMessage });
         }
+
+        _cacheService.InvalidateCachedScan();
 
         var operationId = await _cacheClearingService.StartCacheClearAsync(name);
 
@@ -500,6 +342,8 @@ public class CacheController : ControllerBase
             _logger.LogWarning("[CorruptionRemoval] Blocked - another {Type} removal is already in progress", activeType);
             return Conflict(new ErrorResponse { Error = $"Another removal operation ({activeType}) is already in progress. Please wait for it to complete." });
         }
+
+        _cacheService.InvalidateCachedScan();
 
         var datasources = _datasourceService.GetDatasources();
         var dbPath = _pathResolver.GetDatabasePath();
@@ -794,6 +638,8 @@ public class CacheController : ControllerBase
             _logger.LogWarning("[ClearServiceCache] Permission check failed for service {Service}: {Error}", name, errorMessage);
             return BadRequest(new ErrorResponse { Error = errorMessage });
         }
+
+        _cacheService.InvalidateCachedScan();
 
         _logger.LogInformation("Starting background service removal for: {Service}", name);
 

@@ -71,6 +71,7 @@ public class CacheSizeResponse
     public EstimatedDeletionTimes EstimatedDeletionTimes { get; set; } = new();
     public string FormattedSize { get; set; } = string.Empty;
     public DateTime Timestamp { get; set; }
+    public bool IsCached { get; set; }
 }
 
 /// <summary>

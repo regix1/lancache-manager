@@ -281,6 +281,7 @@ const DownloadsTab: React.FC = () => {
   const [retroTotalPages, setRetroTotalPages] = useState(1);
   const [retroTotalItems, setRetroTotalItems] = useState(0);
   const contentRef = useRef<HTMLDivElement>(null);
+  const paginationRef = useRef<HTMLDivElement>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
   const retroViewRef = useRef<RetroViewHandle>(null);
 
@@ -983,8 +984,8 @@ const DownloadsTab: React.FC = () => {
   useEffect(() => {
     if (currentPage !== 1) {
       setCurrentPage(1);
-      if (contentRef.current) {
-        contentRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (paginationRef.current) {
+        paginationRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1026,13 +1027,13 @@ const DownloadsTab: React.FC = () => {
     }
   }, [settingsOpened]);
 
-  // Handle page changes with smooth scroll
+  // Handle page changes with smooth scroll to pagination bar
   const handlePageChange = (newPage: number) => {
     if (newPage === currentPage) return;
 
     setCurrentPage(newPage);
-    if (contentRef.current) {
-      contentRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (paginationRef.current) {
+      paginationRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
   };
 
@@ -1709,6 +1710,26 @@ const DownloadsTab: React.FC = () => {
             </Alert>
           )}
 
+          {/* Sticky Pagination Controls (above content) */}
+          {settings.itemsPerPage !== 'unlimited' &&
+            (settings.viewMode === 'retro' ? retroTotalPages : totalPages) > 1 && (
+              <div ref={paginationRef} className="pagination-sticky">
+                <Pagination
+                  currentPage={currentPage}
+                  totalPages={settings.viewMode === 'retro' ? retroTotalPages : totalPages}
+                  totalItems={
+                    settings.viewMode === 'retro' ? retroTotalItems : allItemsSorted.length
+                  }
+                  itemsPerPage={
+                    typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 20
+                  }
+                  onPageChange={handlePageChange}
+                  itemLabel={settings.viewMode === 'retro' ? 'depot groups' : 'items'}
+                  showCard={false}
+                />
+              </div>
+            )}
+
           {/* Downloads list */}
           <div className="relative overflow-x-hidden" ref={contentRef}>
             {/* Content based on view mode with fade transition */}
@@ -1784,19 +1805,6 @@ const DownloadsTab: React.FC = () => {
               </div>
             </ImageCacheContext.Provider>
           </div>
-
-          {/* Pagination Controls */}
-          {settings.itemsPerPage !== 'unlimited' && (
-            <Pagination
-              currentPage={currentPage}
-              totalPages={settings.viewMode === 'retro' ? retroTotalPages : totalPages}
-              totalItems={settings.viewMode === 'retro' ? retroTotalItems : allItemsSorted.length}
-              itemsPerPage={typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 20}
-              onPageChange={handlePageChange}
-              itemLabel={settings.viewMode === 'retro' ? 'depot groups' : 'items'}
-              showCard={false}
-            />
-          )}
 
           {/* Performance warning */}
           {settings.itemsPerPage === 'unlimited' && itemsToDisplay.length > 500 && (

@@ -3,6 +3,7 @@ import { Activity, Clock, Loader2, HardDrive, TrendingUp, RefreshCw } from 'luci
 import { type TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { formatBytes, formatPercent, formatSpeed } from '@utils/formatters';
+import { getServiceColorClass } from '@utils/serviceColors';
 import { Card } from '@components/ui/Card';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
@@ -60,7 +61,9 @@ const ActiveDownloadItem: React.FC<{ game: GameSpeedInfo; index: number; t: TFun
               : game.gameName || `Depot ${game.depotId}`}
           </div>
           <div className="item-meta">
-            <span className="service-badge">{game.service}</span>
+            <span className={`service-badge service-badge--${getServiceColorClass(game.service)}`}>
+              {game.service}
+            </span>
             <span className="meta-separator">•</span>
             <span className="meta-text">{formatBytes(game.totalBytes)}</span>
             <span className="meta-separator">•</span>
@@ -146,7 +149,11 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({ item, events = 
             {isGroup && display.count > 1 && <span className="count-badge">{display.count}×</span>}
           </div>
           <div className="item-meta">
-            <span className="service-badge">{display.service}</span>
+            <span
+              className={`service-badge service-badge--${getServiceColorClass(display.service)}`}
+            >
+              {display.service}
+            </span>
             <span className="meta-separator">•</span>
             <span className="meta-text">
               {display.clientIp ? (
@@ -744,13 +751,20 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
         .service-badge {
           padding: 0.15rem 0.4rem;
           border-radius: 4px;
-          background: var(--theme-primary-subtle);
-          color: var(--theme-primary);
+          background: var(--theme-bg-tertiary);
+          color: var(--theme-text-secondary);
           font-weight: 600;
           font-size: 0.65rem;
           text-transform: uppercase;
           letter-spacing: 0.02em;
         }
+        .service-badge--service-steam { color: var(--theme-steam); }
+        .service-badge--service-epic { color: var(--theme-epic); }
+        .service-badge--service-origin { color: var(--theme-origin); }
+        .service-badge--service-blizzard { color: var(--theme-blizzard); }
+        .service-badge--service-wsus { color: var(--theme-wsus); }
+        .service-badge--service-riot { color: var(--theme-riot); }
+        .service-badge--service-xbox { color: var(--theme-xbox); }
 
         .meta-separator {
           color: var(--theme-border-secondary);

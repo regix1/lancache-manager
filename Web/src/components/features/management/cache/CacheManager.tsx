@@ -17,6 +17,24 @@ import { Tooltip } from '@components/ui/Tooltip';
 import { ManagerCardHeader, ReadOnlyBadge } from '@components/ui/ManagerCard';
 import type { Config, DatasourceInfo } from '../../../../types';
 
+const formatScanTime = (timestamp: string): string => {
+  try {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return 'just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    return `${diffDays}d ago`;
+  } catch {
+    return '';
+  }
+};
+
 // Fetch initial cache configuration data
 const fetchCacheConfig = async (): Promise<Config> => {
   return await ApiService.getConfig();
@@ -296,7 +314,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
     <div className="flex items-center gap-2">
       <Tooltip content={t('management.cache.refreshCacheSize')} position="top">
         <Button
-          onClick={fetchCacheSize}
+          onClick={() => fetchCacheSize(true)}
           disabled={cacheSizeLoading || isAnyRemovalRunning}
           variant="subtle"
           size="sm"
@@ -424,7 +442,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                   <Button
                     variant="subtle"
                     size="sm"
-                    onClick={fetchCacheSize}
+                    onClick={() => fetchCacheSize(true)}
                     disabled={cacheSizeLoading || isAnyRemovalRunning}
                   >
                     {cacheSizeLoading ? (
@@ -476,6 +494,16 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                       <span className="text-sm text-themed-secondary">{getEstimatedTime()}</span>
                     </div>
                   )}
+                  <div className="flex items-center justify-between pt-2 border-t border-themed-secondary">
+                    <span className="text-xs text-themed-muted">
+                      {cacheSize.isCached
+                        ? t('management.cache.cachedScan', 'Cached scan')
+                        : t('management.cache.freshScan', 'Fresh scan')}
+                    </span>
+                    <span className="text-xs text-themed-muted">
+                      {formatScanTime(cacheSize.timestamp)}
+                    </span>
+                  </div>
                 </div>
               ) : (
                 <p className="text-xs text-themed-muted">

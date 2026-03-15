@@ -5,7 +5,7 @@ export interface CacheSizeContextType {
   cacheSize: CacheSizeInfo | null;
   isLoading: boolean;
   error: string | null;
-  fetchCacheSize: () => Promise<void>;
+  fetchCacheSize: (force?: boolean) => Promise<void>;
   clearCacheSize: () => void;
 }
 

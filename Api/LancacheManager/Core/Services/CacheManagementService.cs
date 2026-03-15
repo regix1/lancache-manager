@@ -40,6 +40,12 @@ public class CacheManagementService
     private readonly TimeSpan _configuredCacheSizeCacheTime = TimeSpan.FromMinutes(5);
     private bool _hasLoggedConfiguredCacheSize = false;
 
+    // Cache the Rust binary scan result to avoid re-scanning on every page visit
+    private CachedCacheScan? _cachedCacheScan;
+    private readonly string _cachedScanFilePath;
+    private readonly SemaphoreSlim _scanCacheLock = new SemaphoreSlim(1, 1);
+    private const long CacheScanThresholdBytes = 50L * 1024 * 1024 * 1024; // 50 GB
+
     public CacheManagementService(
         IConfiguration configuration,
         ILogger<CacheManagementService> logger,
@@ -130,6 +136,8 @@ public class CacheManagementService
         {
             _logger.LogDebug(ex, "Docker client not available - will fall back to .env file for cache size configuration");
         }
+
+        _cachedScanFilePath = Path.Combine(_pathResolver.GetStateDirectory(), "cached_cache_scan.json");
 
         _logger.LogInformation("CacheManagementService initialized with {Count} datasource(s)", _datasourceService.DatasourceCount);
     }
@@ -1500,5 +1508,349 @@ public class CacheManagementService
         {
             report.DatabaseEntriesDeleted = dbEntries;
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Cache Scan Caching
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Loads the persisted cache scan from the JSON file into _cachedCacheScan.
+    /// Safe to call multiple times — subsequent calls are no-ops if already loaded.
+    /// </summary>
+    private async Task LoadCachedScanAsync()
+    {
+        if (_cachedCacheScan != null)
+            return;
+
+        try
+        {
+            if (!File.Exists(_cachedScanFilePath))
+                return;
+
+            var json = await File.ReadAllTextAsync(_cachedScanFilePath);
+            var options = new System.Text.Json.JsonSerializerOptions
+            {
+                PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
+            };
+            _cachedCacheScan = System.Text.Json.JsonSerializer.Deserialize<CachedCacheScan>(json, options);
+            if (_cachedCacheScan != null)
+            {
+                _logger.LogInformation("Loaded cached cache scan from disk (scanned {ScannedAt:u}, usedBytes={UsedBytes})",
+                    _cachedCacheScan.ScannedAtUtc, _cachedCacheScan.UsedCacheSizeAtScan);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load cached cache scan from {FilePath} — will rescan", _cachedScanFilePath);
+            _cachedCacheScan = null;
+        }
+    }
+
+    /// <summary>
+    /// Persists the scan result to the JSON file and updates the in-memory cache.
+    /// </summary>
+    private async Task SaveCachedScanAsync(CacheSizeResponse scanResult, long usedCacheSizeAtScan)
+    {
+        var entry = new CachedCacheScan
+        {
+            ScanResult = scanResult,
+            UsedCacheSizeAtScan = usedCacheSizeAtScan,
+            ScannedAtUtc = DateTime.UtcNow
+        };
+
+        try
+        {
+            var options = new System.Text.Json.JsonSerializerOptions
+            {
+                PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
+                WriteIndented = true
+            };
+            var json = System.Text.Json.JsonSerializer.Serialize(entry, options);
+            var dir = Path.GetDirectoryName(_cachedScanFilePath);
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                Directory.CreateDirectory(dir);
+            await File.WriteAllTextAsync(_cachedScanFilePath, json);
+            _cachedCacheScan = entry;
+            _logger.LogInformation("Saved cache scan result to {FilePath}", _cachedScanFilePath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to persist cache scan to {FilePath}", _cachedScanFilePath);
+            // Still update in-memory even if file write fails
+            _cachedCacheScan = entry;
+        }
+    }
+
+    /// <summary>
+    /// Clears the in-memory cached scan and deletes the JSON file.
+    /// Call this after cache-clear or removal operations so the next request rescans.
+    /// </summary>
+    public void InvalidateCachedScan()
+    {
+        _cachedCacheScan = null;
+        try
+        {
+            if (File.Exists(_cachedScanFilePath))
+            {
+                File.Delete(_cachedScanFilePath);
+                _logger.LogInformation("Invalidated cached cache scan (deleted {FilePath})", _cachedScanFilePath);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to delete cached cache scan file {FilePath}", _cachedScanFilePath);
+        }
+    }
+
+    /// <summary>
+    /// Runs the Rust cache-size binary against the given cache path and returns the parsed result,
+    /// or null if the binary is not found or the scan fails.
+    /// </summary>
+    private async Task<CacheSizeResponse?> RunCacheSizeScanAsync(string cachePath)
+    {
+        var rustBinaryPath = _pathResolver.GetRustCacheSizePath();
+
+        if (!File.Exists(rustBinaryPath))
+        {
+            _logger.LogError("Rust cache-size binary not found at {Path}", rustBinaryPath);
+            return null;
+        }
+
+        if (!Directory.Exists(cachePath))
+        {
+            _logger.LogWarning("Cache path does not exist: {CachePath}", cachePath);
+            return new CacheSizeResponse
+            {
+                TotalBytes = 0,
+                TotalFiles = 0,
+                TotalDirectories = 0,
+                HexDirectories = 0,
+                ScanDurationMs = 0,
+                FormattedSize = "0 bytes",
+                Timestamp = DateTime.UtcNow,
+                EstimatedDeletionTimes = new EstimatedDeletionTimes
+                {
+                    PreserveSeconds = 0,
+                    FullSeconds = 0,
+                    RsyncSeconds = 0,
+                    PreserveFormatted = "< 1 second",
+                    FullFormatted = "< 1 second",
+                    RsyncFormatted = "< 1 second"
+                }
+            };
+        }
+
+        await _cacheLock.WaitAsync();
+        try
+        {
+            var operationsDir = _pathResolver.GetOperationsDirectory();
+            var outputFile = Path.Combine(operationsDir, $"cache_size_{Guid.NewGuid()}.json");
+
+            var startInfo = _rustProcessHelper.CreateProcessStartInfo(rustBinaryPath, $"\"{cachePath}\" \"{outputFile}\"");
+
+            using var process = Process.Start(startInfo);
+            if (process == null)
+            {
+                _logger.LogError("Failed to start Rust cache-size process");
+                return null;
+            }
+
+            var stdoutTask = process.StandardOutput.ReadToEndAsync();
+            var stderrTask = process.StandardError.ReadToEndAsync();
+
+            await process.WaitForExitAsync();
+
+            var stdout = await stdoutTask;
+            var stderr = await stderrTask;
+
+            if (!string.IsNullOrWhiteSpace(stderr))
+                _logger.LogInformation("Cache size calculation output:\n{Output}", stderr);
+            if (!string.IsNullOrWhiteSpace(stdout))
+                _logger.LogInformation("Cache size result JSON:\n{Json}", stdout);
+
+            if (process.ExitCode != 0)
+            {
+                _logger.LogError("Cache size calculation failed with exit code {ExitCode}: {Error}", process.ExitCode, stderr);
+                await _rustProcessHelper.DeleteTemporaryFileAsync(outputFile);
+                return null;
+            }
+
+            var result = await _rustProcessHelper.ReadProgressFileAsync<CacheSizeResult>(outputFile);
+            await _rustProcessHelper.DeleteTemporaryFileAsync(outputFile);
+
+            if (result == null)
+            {
+                _logger.LogError("Failed to read cache size result from {OutputFile}", outputFile);
+                return null;
+            }
+
+            return new CacheSizeResponse
+            {
+                TotalBytes = (long)result.TotalBytes,
+                TotalFiles = (long)result.TotalFiles,
+                TotalDirectories = (long)result.TotalDirectories,
+                HexDirectories = result.HexDirectories,
+                ScanDurationMs = (long)result.ScanDurationMs,
+                FormattedSize = result.FormattedSize,
+                Timestamp = DateTime.UtcNow,
+                EstimatedDeletionTimes = new EstimatedDeletionTimes
+                {
+                    PreserveSeconds = result.EstimatedDeletionTimes.PreserveSeconds,
+                    FullSeconds = result.EstimatedDeletionTimes.FullSeconds,
+                    RsyncSeconds = result.EstimatedDeletionTimes.RsyncSeconds,
+                    PreserveFormatted = result.EstimatedDeletionTimes.PreserveFormatted,
+                    FullFormatted = result.EstimatedDeletionTimes.FullFormatted,
+                    RsyncFormatted = result.EstimatedDeletionTimes.RsyncFormatted
+                }
+            };
+        }
+        finally
+        {
+            _cacheLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Returns a cache size result, using the server-side cache when possible.
+    /// Per-datasource scans are always live (not cached).
+    /// The "all datasources" scan is cached and only re-run when:
+    ///   - force is true
+    ///   - no cached scan exists
+    ///   - the drive's used space has changed by >= 50 GB since the last scan
+    /// </summary>
+    public async Task<CacheSizeResponse?> GetCachedCacheSizeAsync(bool force = false, string? datasource = null)
+    {
+        // Per-datasource scans are always live — no caching
+        if (!string.IsNullOrEmpty(datasource))
+        {
+            var ds = _datasourceService.GetDatasources()
+                .FirstOrDefault(d => d.Name.Equals(datasource, StringComparison.OrdinalIgnoreCase));
+            if (ds == null)
+                return null;
+            return await RunCacheSizeScanAsync(ds.CachePath);
+        }
+
+        var allCachePath = _pathResolver.GetCacheDirectory();
+
+        await _scanCacheLock.WaitAsync();
+        try
+        {
+            // Force rescan — bypass cache entirely
+            if (force)
+            {
+                _logger.LogInformation("Force rescan requested — running fresh cache size scan");
+                var freshResult = await RunCacheSizeScanAsync(allCachePath);
+                if (freshResult != null)
+                {
+                    var cacheInfo = await GetCacheInfoAsync();
+                    await SaveCachedScanAsync(freshResult, cacheInfo.UsedCacheSize);
+                    freshResult.IsCached = false;
+                }
+                return freshResult;
+            }
+
+            // Load cached scan from disk if not in memory
+            await LoadCachedScanAsync();
+
+            // No cached scan — run fresh
+            if (_cachedCacheScan == null)
+            {
+                _logger.LogInformation("No cached cache scan found — running fresh scan");
+                var freshResult = await RunCacheSizeScanAsync(allCachePath);
+                if (freshResult != null)
+                {
+                    var cacheInfo = await GetCacheInfoAsync();
+                    await SaveCachedScanAsync(freshResult, cacheInfo.UsedCacheSize);
+                    freshResult.IsCached = false;
+                }
+                return freshResult;
+            }
+
+            // Cached scan exists — check if drive usage has shifted by >= 50 GB
+            var currentInfo = await GetCacheInfoAsync();
+            var delta = Math.Abs(currentInfo.UsedCacheSize - _cachedCacheScan.UsedCacheSizeAtScan);
+
+            if (delta >= CacheScanThresholdBytes)
+            {
+                _logger.LogInformation(
+                    "Cache usage changed by {DeltaGb:F1} GB since last scan — running fresh scan",
+                    delta / (1024.0 * 1024.0 * 1024.0));
+                var freshResult = await RunCacheSizeScanAsync(allCachePath);
+                if (freshResult != null)
+                {
+                    await SaveCachedScanAsync(freshResult, currentInfo.UsedCacheSize);
+                    freshResult.IsCached = false;
+                }
+                return freshResult;
+            }
+
+            // Return cached result
+            _logger.LogDebug("Returning cached cache scan (scanned {ScannedAt:u}, delta={DeltaGb:F2} GB)",
+                _cachedCacheScan.ScannedAtUtc, delta / (1024.0 * 1024.0 * 1024.0));
+            var cachedResult = _cachedCacheScan.ScanResult;
+            cachedResult.IsCached = true;
+            return cachedResult;
+        }
+        finally
+        {
+            _scanCacheLock.Release();
+        }
+    }
+
+    // Helper class for deserializing the Rust cache-size binary output
+    private class CacheSizeResult
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("totalBytes")]
+        public ulong TotalBytes { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("totalFiles")]
+        public ulong TotalFiles { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("totalDirectories")]
+        public ulong TotalDirectories { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("hexDirectories")]
+        public int HexDirectories { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("scanDurationMs")]
+        public ulong ScanDurationMs { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("estimatedDeletionTimes")]
+        public CacheSizeEstimates EstimatedDeletionTimes { get; set; } = new();
+
+        [System.Text.Json.Serialization.JsonPropertyName("formattedSize")]
+        public string FormattedSize { get; set; } = string.Empty;
+    }
+
+    private class CacheSizeEstimates
+    {
+        [System.Text.Json.Serialization.JsonPropertyName("preserveSeconds")]
+        public double PreserveSeconds { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("fullSeconds")]
+        public double FullSeconds { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("rsyncSeconds")]
+        public double RsyncSeconds { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("preserveFormatted")]
+        public string PreserveFormatted { get; set; } = string.Empty;
+
+        [System.Text.Json.Serialization.JsonPropertyName("fullFormatted")]
+        public string FullFormatted { get; set; } = string.Empty;
+
+        [System.Text.Json.Serialization.JsonPropertyName("rsyncFormatted")]
+        public string RsyncFormatted { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// Persisted model for the cached Rust cache-size scan.
+    /// </summary>
+    public class CachedCacheScan
+    {
+        public CacheSizeResponse ScanResult { get; set; } = new();
+        public long UsedCacheSizeAtScan { get; set; }
+        public DateTime ScannedAtUtc { get; set; }
     }
 }

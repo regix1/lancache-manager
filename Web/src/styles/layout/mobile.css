@@ -18,6 +18,28 @@
     }
   }
 
+  /* ===== PAGINATION - Sticky Top ===== */
+  /*
+   * Pagination bar sticks below mobile nav (same logic as notification bar).
+   * Uses lower z-index so notification bar overlays it when both are visible.
+   */
+  .pagination-sticky {
+    position: sticky;
+    z-index: 30; /* Below notification bar's z-40 and nav's z-50 */
+    top: 3rem; /* Below mobile nav (h-12 = 3rem = 48px) */
+    background: var(--theme-bg-primary);
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--theme-border-primary);
+  }
+
+  @media (min-width: 768px) {
+    .pagination-sticky {
+      top: 0; /* On desktop, nav is relative, so stick to viewport top */
+      z-index: 30;
+    }
+  }
+
   /* ===== MOBILE RESPONSIVE UTILITIES ===== */
 
   /* Extra small screens (below 480px) */
@@ -49,5 +71,4 @@
       @apply pr-4;
     }
   }
-
 }
