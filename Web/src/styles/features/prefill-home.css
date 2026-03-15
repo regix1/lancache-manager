@@ -135,18 +135,18 @@
   /* Service accent colors */
   .prefill-service-card--steam {
     --service-accent: var(--theme-steam);
-    --service-accent-on-border: rgba(16, 185, 129, 0.5);
-    --service-accent-faint: rgba(16, 185, 129, 0.1);
-    --service-accent-strong: rgba(16, 185, 129, 0.3);
-    --service-accent-subtle: rgba(16, 185, 129, 0.15);
+    --service-accent-on-border: var(--theme-steam-on-border);
+    --service-accent-faint: var(--theme-steam-faint);
+    --service-accent-strong: var(--theme-steam-strong);
+    --service-accent-subtle: var(--theme-steam-subtle);
   }
 
   .prefill-service-card--epic {
     --service-accent: var(--theme-epic);
-    --service-accent-on-border: rgba(139, 92, 246, 0.5);
-    --service-accent-faint: rgba(139, 92, 246, 0.1);
-    --service-accent-strong: rgba(139, 92, 246, 0.3);
-    --service-accent-subtle: rgba(139, 92, 246, 0.15);
+    --service-accent-on-border: var(--theme-epic-on-border);
+    --service-accent-faint: var(--theme-epic-faint);
+    --service-accent-strong: var(--theme-epic-strong);
+    --service-accent-subtle: var(--theme-epic-subtle);
   }
 
   /* Z-index for card content above glow */

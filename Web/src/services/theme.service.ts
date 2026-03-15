@@ -958,7 +958,13 @@ class ThemeService {
 
       /* Platform */
       --theme-steam-subtle: ${v('steamSubtle', rgba(steam, 0.15))};
+      --theme-steam-faint: ${v('steamFaint', rgba(steam, 0.1))};
+      --theme-steam-on-border: ${v('steamOnBorder', rgba(steam, 0.5))};
+      --theme-steam-strong: ${v('steamStrong', rgba(steam, 0.3))};
       --theme-epic-subtle: ${v('epicSubtle', rgba(epic, 0.15))};
+      --theme-epic-faint: ${v('epicFaint', rgba(epic, 0.1))};
+      --theme-epic-on-border: ${v('epicOnBorder', rgba(epic, 0.5))};
+      --theme-epic-strong: ${v('epicStrong', rgba(epic, 0.3))};
       --theme-epic-muted: ${v('epicMuted', rgba(epic, 0.25))};
 
       /* Icon Backgrounds */
