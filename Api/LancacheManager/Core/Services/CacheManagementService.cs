@@ -1627,7 +1627,7 @@ public class CacheManagementService
                 TotalDirectories = 0,
                 HexDirectories = 0,
                 ScanDurationMs = 0,
-                FormattedSize = "0 bytes",
+                FormattedSize = FormatBytes(0),
                 Timestamp = DateTime.UtcNow,
                 EstimatedDeletionTimes = new EstimatedDeletionTimes
                 {

@@ -27,7 +27,7 @@ const parseFormattedValue = (
     // Remove commas and parse the number
     const numStr = match[1].replace(/,/g, '');
     const num = parseFloat(numStr);
-    const suffix = match[2] ? ` ${match[2]}` : '';
+    const suffix = match[2] ? `\u00A0${match[2]}` : '';
 
     // Count decimal places
     const decimalIndex = numStr.indexOf('.');

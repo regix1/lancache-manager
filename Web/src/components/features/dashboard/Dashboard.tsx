@@ -33,7 +33,7 @@ import {
 } from '../../../types';
 import { storage } from '@utils/storage';
 import ApiService from '@services/api.service';
-import StatCard from '@components/common/StatCard';
+import StatCard, { statCardColorMap } from '@components/common/StatCard';
 import { Tooltip } from '@components/ui/Tooltip';
 import { HelpSection } from '@components/ui/HelpPopover';
 import ServiceAnalyticsChart from './ServiceAnalyticsChart';
@@ -570,23 +570,6 @@ const Dashboard: React.FC = () => {
       (card.subtitle && card.subtitle.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
-  const getIconStyle = (color: string): React.CSSProperties => {
-    const iconColors: Record<string, string> = {
-      blue: 'var(--theme-icon-blue)',
-      green: 'var(--theme-icon-green)',
-      emerald: 'var(--theme-icon-emerald)',
-      purple: 'var(--theme-icon-purple)',
-      indigo: 'var(--theme-icon-indigo)',
-      orange: 'var(--theme-icon-orange)',
-      yellow: 'var(--theme-icon-yellow)',
-      cyan: 'var(--theme-icon-cyan)'
-    };
-
-    return {
-      backgroundColor: iconColors[color] || 'var(--theme-icon-gray)'
-    };
-  };
-
   return (
     <div className={`space-y-4 ${isEditMode ? 'edit-mode-active' : ''}`}>
       {/* Dashboard Header */}
@@ -695,7 +678,11 @@ const Dashboard: React.FC = () => {
                           >
                             <div
                               className="p-1.5 themed-border-radius group-hover:scale-105 transition-transform"
-                              style={getIconStyle(card.color)}
+                              style={{
+                                backgroundColor:
+                                  statCardColorMap[card.color as keyof typeof statCardColorMap] ||
+                                  'var(--theme-icon-gray)'
+                              }}
                             >
                               <Icon className="w-4 h-4 text-[var(--theme-button-text)]" />
                             </div>

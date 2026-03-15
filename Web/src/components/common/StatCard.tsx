@@ -36,8 +36,8 @@ interface StatCardProps {
   staggerIndex?: number;
 }
 
-// Color to sparkline color mapping using theme variables
-const colorToSparklineColor: Record<StatCardColor, string> = {
+// Unified color → CSS variable mapping used for icon backgrounds and sparkline colors
+export const statCardColorMap: Record<StatCardColor, string> = {
   blue: 'var(--theme-icon-blue)',
   green: 'var(--theme-icon-green)',
   emerald: 'var(--theme-icon-emerald)',
@@ -63,24 +63,8 @@ const StatCard: React.FC<StatCardProps> = ({
   staggerIndex
 }) => {
   const { t } = useTranslation();
-  // Map color names to CSS variables
-  const getIconBackground = (color: string): string => {
-    const colorMap: Record<string, string> = {
-      blue: 'var(--theme-icon-blue)',
-      green: 'var(--theme-icon-green)',
-      emerald: 'var(--theme-icon-emerald)',
-      purple: 'var(--theme-icon-purple)',
-      indigo: 'var(--theme-icon-indigo)',
-      orange: 'var(--theme-icon-orange)',
-      yellow: 'var(--theme-icon-yellow)',
-      cyan: 'var(--theme-icon-cyan)',
-      red: 'var(--theme-icon-red)'
-    };
-    return colorMap[color] || colorMap.blue;
-  };
-
   // Determine sparkline color
-  const resolvedSparklineColor = sparklineColor || colorToSparklineColor[color];
+  const resolvedSparklineColor = sparklineColor || statCardColorMap[color];
 
   // Build class names - animation classes only added when staggerIndex is provided
   const cardClasses = useMemo(() => {
@@ -149,7 +133,7 @@ const StatCard: React.FC<StatCardProps> = ({
         <div
           className="p-3 rounded-lg flex-shrink-0"
           style={{
-            backgroundColor: getIconBackground(color)
+            backgroundColor: statCardColorMap[color] || statCardColorMap.blue
           }}
         >
           <Icon className="w-6 h-6 text-[var(--theme-button-text)]" />

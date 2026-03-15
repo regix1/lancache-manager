@@ -2,8 +2,8 @@ import { useTranslation } from 'react-i18next';
 import { Card } from '../../ui/Card';
 import { Button } from '../../ui/Button';
 import { Download, XCircle, Loader2 } from 'lucide-react';
-import { formatSpeed } from '@utils/formatters';
-import { formatBytes, formatTimeRemaining } from './types';
+import { formatBytes, formatSpeed } from '@utils/formatters';
+import { formatTimeRemaining } from './types';
 
 interface PrefillProgressState {
   state: string;

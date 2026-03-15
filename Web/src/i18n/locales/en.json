@@ -1225,8 +1225,7 @@
           "store": "Store",
           "storeTitle": "View in Steam Store",
           "sessions": "Sessions ({{count}})",
-          "excluded": "{{count}} excluded",
-          "zeroBytes": "0 B"
+          "excluded": "{{count}} excluded"
         },
         "pagination": {
           "previous": "Previous page (hold to skip)",
