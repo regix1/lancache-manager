@@ -50,8 +50,12 @@
 }
 
 @keyframes widgetSpin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @media (max-width: 767px) {
@@ -59,4 +63,112 @@
     width: 1.25rem;
     height: 1.25rem;
   }
+}
+
+/* ===== STAT CARD ICON BACKGROUNDS ===== */
+/* Base fallback for unknown colors (must come before attribute selectors) */
+.stat-card-icon {
+  background-color: var(--theme-icon-blue);
+}
+
+/* Solid icon background colors using data-color attribute */
+.stat-card-icon[data-color='blue'] {
+  background-color: var(--theme-icon-blue);
+}
+
+.stat-card-icon[data-color='green'] {
+  background-color: var(--theme-icon-green);
+}
+
+.stat-card-icon[data-color='emerald'] {
+  background-color: var(--theme-icon-emerald);
+}
+
+.stat-card-icon[data-color='purple'] {
+  background-color: var(--theme-icon-purple);
+}
+
+.stat-card-icon[data-color='indigo'] {
+  background-color: var(--theme-icon-indigo);
+}
+
+.stat-card-icon[data-color='orange'] {
+  background-color: var(--theme-icon-orange);
+}
+
+.stat-card-icon[data-color='yellow'] {
+  background-color: var(--theme-icon-yellow);
+}
+
+.stat-card-icon[data-color='cyan'] {
+  background-color: var(--theme-icon-cyan);
+}
+
+.stat-card-icon[data-color='red'] {
+  background-color: var(--theme-icon-red);
+}
+
+/* ===== DASHBOARD EDIT MODE BANNER ===== */
+.edit-mode-instruction-banner {
+  background-color: var(--theme-primary-subtle);
+  border-left: 3px solid var(--theme-primary);
+}
+
+.edit-mode-instruction-text {
+  color: var(--theme-text-primary);
+}
+
+/* ===== DASHBOARD CARD STATES ===== */
+/* Card drag-over highlight */
+.edit-mode-card.drag-over {
+  box-shadow: 0 0 0 2px var(--theme-primary);
+  border-radius: var(--theme-border-radius-lg);
+}
+
+/* Card disabled (live-only in historical view) */
+.edit-mode-card.card-disabled {
+  opacity: 0.5;
+}
+
+/* Card being dragged */
+.edit-mode-card.card-dragging {
+  opacity: 0.9;
+}
+
+/* Cursor states */
+.edit-mode-card.cursor-edit {
+  cursor: pointer;
+}
+
+.edit-mode-card.cursor-grabbing {
+  cursor: grabbing;
+}
+
+/* ===== EDIT MODE HANDLE STATES ===== */
+.edit-mode-handle-inner {
+  background-color: var(--theme-bg-primary-emphasis);
+  backdrop-filter: blur(4px);
+}
+
+.edit-mode-handle-inner.handle-active {
+  background-color: var(--theme-primary);
+}
+
+.edit-mode-handle-icon {
+  color: var(--theme-text-secondary);
+}
+
+.edit-mode-handle-icon.handle-icon-active {
+  color: var(--theme-button-text);
+}
+
+/* ===== EDIT MODE SELECTED OVERLAY ===== */
+.edit-mode-selected-overlay {
+  box-shadow: inset 0 0 0 2px var(--theme-primary);
+  z-index: 5;
+}
+
+/* ===== DISABLED CARD OVERLAY ===== */
+.card-disabled-overlay {
+  background: transparent;
 }

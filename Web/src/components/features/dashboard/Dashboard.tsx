@@ -33,7 +33,7 @@ import {
 } from '../../../types';
 import { storage } from '@utils/storage';
 import ApiService from '@services/api.service';
-import StatCard, { statCardColorMap } from '@components/common/StatCard';
+import StatCard from '@components/common/StatCard';
 import { Tooltip } from '@components/ui/Tooltip';
 import { HelpSection } from '@components/ui/HelpPopover';
 import ServiceAnalyticsChart from './ServiceAnalyticsChart';
@@ -677,12 +677,8 @@ const Dashboard: React.FC = () => {
                             className="hover-btn w-full p-2.5 themed-border-radius flex items-center gap-3 group"
                           >
                             <div
-                              className="p-1.5 themed-border-radius group-hover:scale-105 transition-transform"
-                              style={{
-                                backgroundColor:
-                                  statCardColorMap[card.color as keyof typeof statCardColorMap] ||
-                                  'var(--theme-icon-gray)'
-                              }}
+                              className="stat-card-icon p-1.5 themed-border-radius group-hover:scale-105 transition-transform"
+                              data-color={card.color}
                             >
                               <Icon className="w-4 h-4 text-[var(--theme-button-text)]" />
                             </div>
@@ -722,14 +718,8 @@ const Dashboard: React.FC = () => {
       {/* Edit mode instruction banner for mobile */}
       {isEditMode && (
         <div className="md:hidden edit-mode-banner">
-          <div
-            className="flex items-center justify-between py-3 px-4 themed-border-radius text-sm"
-            style={{
-              backgroundColor: 'var(--theme-primary-subtle)',
-              borderLeft: '3px solid var(--theme-primary)'
-            }}
-          >
-            <div className="flex items-center gap-2" style={{ color: 'var(--theme-text-primary)' }}>
+          <div className="edit-mode-instruction-banner flex items-center justify-between py-3 px-4 themed-border-radius text-sm">
+            <div className="edit-mode-instruction-text flex items-center gap-2">
               {draggedCard ? (
                 <>
                   <span className="text-base">👆</span>
@@ -779,14 +769,15 @@ const Dashboard: React.FC = () => {
               data-card-key={card.key}
               className={`relative group h-full edit-mode-card ${
                 isDragMode && draggedCard === card.key ? 'scale-105 shadow-lg card-selected' : ''
-              } ${isDragMode && dragOverCard === card.key ? 'translate-y-1' : ''}`}
-              style={{
-                boxShadow: dragOverCard === card.key ? `0 0 0 2px var(--theme-primary)` : 'none',
-                borderRadius:
-                  dragOverCard === card.key ? 'var(--theme-border-radius-lg)' : undefined,
-                cursor: isEditMode ? 'pointer' : draggedCard === card.key ? 'grabbing' : 'default',
-                opacity: isCardDisabled ? 0.5 : isDragMode && draggedCard === card.key ? 0.9 : 1
-              }}
+              } ${isDragMode && dragOverCard === card.key ? 'translate-y-1' : ''} ${
+                dragOverCard === card.key ? 'drag-over' : ''
+              } ${isEditMode ? 'cursor-edit' : draggedCard === card.key ? 'cursor-grabbing' : ''} ${
+                isCardDisabled
+                  ? 'card-disabled'
+                  : isDragMode && draggedCard === card.key
+                    ? 'card-dragging'
+                    : ''
+              }`}
               draggable={!isDragMode && !isEditMode}
               onDragStart={(e) => dragHandlers.onDragStart(e, card.key)}
               onDragEnd={dragHandlers.onDragEnd}
@@ -813,23 +804,14 @@ const Dashboard: React.FC = () => {
               {isEditMode && (
                 <div className="absolute top-2 left-2 transition-all md:hidden z-[5] edit-mode-handle">
                   <div
-                    className="p-1.5 themed-border-radius"
-                    style={{
-                      backgroundColor:
-                        draggedCard === card.key
-                          ? 'var(--theme-primary)'
-                          : 'var(--theme-bg-primary-emphasis)',
-                      backdropFilter: 'blur(4px)'
-                    }}
+                    className={`edit-mode-handle-inner p-1.5 themed-border-radius ${
+                      draggedCard === card.key ? 'handle-active' : ''
+                    }`}
                   >
                     <GripVertical
-                      className="w-4 h-4 transition-colors"
-                      style={{
-                        color:
-                          draggedCard === card.key
-                            ? 'var(--theme-button-text)'
-                            : 'var(--theme-text-secondary)'
-                      }}
+                      className={`edit-mode-handle-icon w-4 h-4 transition-colors ${
+                        draggedCard === card.key ? 'handle-icon-active' : ''
+                      }`}
                     />
                   </div>
                 </div>
@@ -837,13 +819,7 @@ const Dashboard: React.FC = () => {
 
               {/* Selected card overlay in edit mode */}
               {isEditMode && draggedCard === card.key && (
-                <div
-                  className="absolute inset-0 themed-border-radius md:hidden pointer-events-none"
-                  style={{
-                    boxShadow: 'inset 0 0 0 2px var(--theme-primary)',
-                    zIndex: 5
-                  }}
-                />
+                <div className="edit-mode-selected-overlay absolute inset-0 themed-border-radius md:hidden pointer-events-none" />
               )}
 
               <StatCard
@@ -885,10 +861,7 @@ const Dashboard: React.FC = () => {
               {/* Disabled overlay with tooltip for active cards in historical view */}
               {isCardDisabled && (
                 <Tooltip content={t('tooltips.liveDataOnly')} strategy="overlay">
-                  <div
-                    className="absolute inset-0 z-10 cursor-not-allowed themed-border-radius"
-                    style={{ background: 'transparent' }}
-                  />
+                  <div className="card-disabled-overlay absolute inset-0 z-10 cursor-not-allowed themed-border-radius" />
                 </Tooltip>
               )}
             </div>

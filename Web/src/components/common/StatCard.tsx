@@ -36,7 +36,7 @@ interface StatCardProps {
   staggerIndex?: number;
 }
 
-// Unified color → CSS variable mapping used for icon backgrounds and sparkline colors
+// Color → CSS variable mapping used for sparkline colors (icon backgrounds use CSS data-color selectors)
 export const statCardColorMap: Record<StatCardColor, string> = {
   blue: 'var(--theme-icon-blue)',
   green: 'var(--theme-icon-green)',
@@ -130,12 +130,7 @@ const StatCard: React.FC<StatCardProps> = ({
             <p className="text-xs mt-1 text-[var(--theme-text-secondary)]">{subtitle}</p>
           )}
         </div>
-        <div
-          className="p-3 rounded-lg flex-shrink-0"
-          style={{
-            backgroundColor: statCardColorMap[color] || statCardColorMap.blue
-          }}
-        >
+        <div className="stat-card-icon p-3 rounded-lg flex-shrink-0" data-color={color}>
           <Icon className="w-6 h-6 text-[var(--theme-button-text)]" />
         </div>
       </div>
