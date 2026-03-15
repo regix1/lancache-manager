@@ -3796,7 +3796,7 @@
         },
         "platforms": {
           "title": "Platforms",
-          "description": "Steam, Epic, Origin, Blizzard, WSUS, Riot, Xbox - Platform-specific colors for badges and charts"
+          "description": "Steam, Epic, Origin, Blizzard, WSUS, Riot, Xbox, Ubisoft - Platform-specific colors for badges and charts"
         },
         "performance": {
           "title": "Performance",
@@ -4197,6 +4197,11 @@
           "description": "Chart labels and legends",
           "affects": ["Axis labels", "Legends"]
         },
+        "chartBorderColor": {
+          "label": "Chart Border",
+          "description": "Border color for chart elements",
+          "affects": ["Chart borders", "Chart separators"]
+        },
         "publicAccessBg": {
           "label": "Public Access Background",
           "description": "Public/open access indicator",
@@ -4246,6 +4251,16 @@
           "label": "Guest User Background",
           "description": "Background color for guest user badges",
           "affects": ["GUEST badge background", "Guest icon background"]
+        },
+        "activeSessionColor": {
+          "label": "Active Session Color",
+          "description": "Icon and text color for active sessions",
+          "affects": ["Active session badge text", "Active session icon"]
+        },
+        "activeSessionBg": {
+          "label": "Active Session Background",
+          "description": "Background color for active session badges",
+          "affects": ["Active session badge background"]
         },
         "eventColor1": {
           "label": "Event Color 1",
@@ -4351,6 +4366,11 @@
           "label": "Xbox Live",
           "description": "Xbox Live platform color",
           "affects": ["Xbox badges", "Xbox charts"]
+        },
+        "ubisoftColor": {
+          "label": "Ubisoft",
+          "description": "Ubisoft platform color",
+          "affects": ["Ubisoft badges", "Ubisoft charts"]
         },
         "hitRateHighBg": {
           "label": "High Hit Rate Background",

@@ -35,7 +35,6 @@ export interface Theme {
     basedOn?: string; // Original theme ID if this is a custom version
   };
   colors: ThemeColors;
-  custom?: Record<string, string>;
   css?: { content?: string };
 }
 
@@ -47,7 +46,6 @@ export interface ColorGroup {
 
 export interface ColorDefinition {
   key: string;
-  value?: string;
   supportsAlpha?: boolean;
   pages?: string[];
 }

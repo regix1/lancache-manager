@@ -55,14 +55,8 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
   } | null>(null);
   const [showCleanupModal, setShowCleanupModal] = useState(false);
   const [editingTheme, setEditingTheme] = useState<Theme | null>(null);
-  const [expandedGroups, setExpandedGroups] = useState<string[]>(['foundation']);
   const [activeTab, setActiveTab] = useState<'themes' | 'customize'>('themes');
   const [themeActionMenu, setThemeActionMenu] = useState<string | null>(null);
-  const [copiedColor, setCopiedColor] = useState<string | null>(null);
-  const [organizationMode, setOrganizationMode] = useState<'category' | 'page'>('category');
-  const [selectedPage, setSelectedPage] = useState<string>('all');
-  const [editOrganizationMode, setEditOrganizationMode] = useState<'category' | 'page'>('category');
-  const [editSelectedPage, setEditSelectedPage] = useState<string>('all');
 
   const [editedTheme, setEditedTheme] = useState<EditableTheme>({
     name: '',
@@ -519,18 +513,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
   };
 
   // Utility Functions
-  const toggleGroup = (groupName: string) => {
-    setExpandedGroups((prev) =>
-      prev.includes(groupName) ? prev.filter((g) => g !== groupName) : [...prev, groupName]
-    );
-  };
-
-  const copyColor = (color: string) => {
-    navigator.clipboard.writeText(color);
-    setCopiedColor(color);
-    setTimeout(() => setCopiedColor(null), 2000);
-  };
-
   const isSystemTheme = (themeId: string) => ['dark-default', 'light-default'].includes(themeId);
 
   // Open Create Modal with current theme colors as defaults
@@ -933,14 +915,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
         isAdmin={isAdmin}
         newTheme={newTheme}
         setNewTheme={setNewTheme}
-        organizationMode={organizationMode}
-        setOrganizationMode={setOrganizationMode}
-        selectedPage={selectedPage}
-        setSelectedPage={setSelectedPage}
-        expandedGroups={expandedGroups}
-        toggleGroup={toggleGroup}
-        copiedColor={copiedColor}
-        copyColor={copyColor}
         loading={loading}
       />
 
@@ -955,14 +929,6 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
         editingTheme={editingTheme}
         editedTheme={editedTheme}
         setEditedTheme={setEditedTheme}
-        editOrganizationMode={editOrganizationMode}
-        setEditOrganizationMode={setEditOrganizationMode}
-        editSelectedPage={editSelectedPage}
-        setEditSelectedPage={setEditSelectedPage}
-        expandedGroups={expandedGroups}
-        toggleGroup={toggleGroup}
-        copiedColor={copiedColor}
-        copyColor={copyColor}
         loading={loading}
       />
 

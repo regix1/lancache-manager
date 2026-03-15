@@ -15,6 +15,15 @@ import type { DoughnutChartProps } from './types';
 // Register only what we need (tree shaking)
 ChartJS.register(ArcElement, Tooltip, Legend);
 
+/**
+ * Reads a CSS custom property from the document root element.
+ * Returns the trimmed value, or the provided fallback if the property is empty.
+ */
+function getCssVar(name: string, fallback: string): string {
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value || fallback;
+}
+
 const DoughnutChart: React.FC<DoughnutChartProps> = React.memo(
   ({ labels, datasets, total, centerLabel }) => {
     // Prepare chart data with stable reference
@@ -35,8 +44,14 @@ const DoughnutChart: React.FC<DoughnutChartProps> = React.memo(
     );
 
     // Chart options with total baked in for tooltip callback
-    const options: ChartOptions<'doughnut'> = useMemo(
-      () => ({
+    const options: ChartOptions<'doughnut'> = useMemo(() => {
+      // Resolve tooltip colors from CSS custom properties (re-resolves on theme change)
+      const tooltipBg = getCssVar('--theme-card-bg', '#1e2938');
+      const tooltipTitle = getCssVar('--theme-text-primary', '#ffffff');
+      const tooltipBody = getCssVar('--theme-text-muted', '#9ca3af');
+      const tooltipBorder = getCssVar('--theme-border-secondary', '#374151');
+
+      return {
         responsive: true,
         maintainAspectRatio: true,
         aspectRatio: 1,
@@ -61,10 +76,10 @@ const DoughnutChart: React.FC<DoughnutChartProps> = React.memo(
         plugins: {
           legend: { display: false },
           tooltip: {
-            backgroundColor: 'rgba(0, 0, 0, 0.9)',
-            titleColor: '#ffffff',
-            bodyColor: '#a0aec0',
-            borderColor: 'rgba(255, 255, 255, 0.1)',
+            backgroundColor: tooltipBg,
+            titleColor: tooltipTitle,
+            bodyColor: tooltipBody,
+            borderColor: tooltipBorder,
             borderWidth: 1,
             cornerRadius: 10,
             padding: 14,
@@ -80,9 +95,8 @@ const DoughnutChart: React.FC<DoughnutChartProps> = React.memo(
             }
           }
         }
-      }),
-      [total]
-    );
+      };
+    }, [total]);
 
     return (
       <div className="chart-wrapper">

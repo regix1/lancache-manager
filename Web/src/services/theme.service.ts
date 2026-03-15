@@ -3,185 +3,7 @@ import authService from './auth.service';
 import preferencesService from './preferences.service';
 import * as TOML from 'toml';
 import { storage } from '@utils/storage';
-
-interface ThemeColors {
-  // Core colors
-  primaryColor?: string;
-  secondaryColor?: string;
-  accentColor?: string;
-
-  // Background colors
-  bgPrimary?: string;
-  bgSecondary?: string;
-  bgTertiary?: string;
-  bgHover?: string;
-
-  // Text colors
-  textPrimary?: string;
-  textSecondary?: string;
-  textMuted?: string;
-  textAccent?: string;
-  textPlaceholder?: string;
-
-  // Drag handle colors
-  dragHandleColor?: string;
-  dragHandleHover?: string;
-
-  // Border colors
-  borderPrimary?: string;
-  borderSecondary?: string;
-  borderFocus?: string;
-
-  // Navigation specific colors
-  navBg?: string;
-  navBorder?: string;
-  navTabActive?: string;
-  navTabInactive?: string;
-  navTabHover?: string;
-  navTabActiveBorder?: string;
-  navMobileMenuBg?: string;
-  navMobileItemHover?: string;
-
-  // Status colors
-  success?: string;
-  successBg?: string;
-  successText?: string;
-  warning?: string;
-  warningBg?: string;
-  warningText?: string;
-  error?: string;
-  errorBg?: string;
-  errorText?: string;
-  info?: string;
-  infoBg?: string;
-  infoText?: string;
-
-  // Service colors
-  steamColor?: string;
-  epicColor?: string;
-  originColor?: string;
-  blizzardColor?: string;
-  wsusColor?: string;
-  riotColor?: string;
-  xboxColor?: string;
-  ubisoftColor?: string;
-
-  // Component colors
-  cardBg?: string;
-  cardBorder?: string;
-  cardOutline?: string;
-  buttonBg?: string;
-  buttonHover?: string;
-  buttonText?: string;
-  inputBg?: string;
-  inputBorder?: string;
-  inputFocus?: string;
-  checkboxAccent?: string;
-  checkboxBorder?: string;
-  checkboxBg?: string;
-  checkboxCheckmark?: string;
-  checkboxShadow?: string;
-  checkboxHoverShadow?: string;
-  checkboxHoverBg?: string;
-  checkboxFocus?: string;
-  sliderAccent?: string;
-  sliderThumb?: string;
-  sliderTrack?: string;
-  progressBg?: string;
-
-  // Hit rate specific colors
-  hitRateHighBg?: string;
-  hitRateHighText?: string;
-  hitRateMediumBg?: string;
-  hitRateMediumText?: string;
-  hitRateLowBg?: string;
-  hitRateLowText?: string;
-  hitRateWarningBg?: string;
-  hitRateWarningText?: string;
-
-  // Action button colors
-  actionResetBg?: string;
-  actionResetHover?: string;
-  actionProcessBg?: string;
-  actionProcessHover?: string;
-  actionDeleteBg?: string;
-  actionDeleteHover?: string;
-
-  // Floating icon (header logo)
-  floatingIconColor?: string;
-
-  // Icon backgrounds
-  iconBgBlue?: string;
-  iconBgGreen?: string;
-  iconBgEmerald?: string;
-  iconBgPurple?: string;
-  iconBgIndigo?: string;
-  iconBgOrange?: string;
-  iconBgYellow?: string;
-  iconBgCyan?: string;
-  iconBgRed?: string;
-
-  // Chart colors
-  chartColor1?: string;
-  chartColor2?: string;
-  chartColor3?: string;
-  chartColor4?: string;
-  chartColor5?: string;
-  chartColor6?: string;
-  chartColor7?: string;
-  chartColor8?: string;
-  chartBorderColor?: string;
-  chartGridColor?: string;
-  chartTextColor?: string;
-  chartCacheHitColor?: string;
-  chartCacheMissColor?: string;
-
-  // Scrollbar colors
-  scrollbarTrack?: string;
-  scrollbarThumb?: string;
-  scrollbarHover?: string;
-
-  // Access indicator colors
-  publicAccessBg?: string;
-  publicAccessText?: string;
-  publicAccessBorder?: string;
-  securedAccessBg?: string;
-  securedAccessText?: string;
-  securedAccessBorder?: string;
-
-  // Session colors (for Users tab)
-  userSessionColor?: string;
-  userSessionBg?: string;
-  guestSessionColor?: string;
-  guestSessionBg?: string;
-  activeSessionColor?: string;
-  activeSessionBg?: string;
-
-  // Event colors (for Events tab)
-  eventColor1?: string;
-  eventColor2?: string;
-  eventColor3?: string;
-  eventColor4?: string;
-  eventColor5?: string;
-  eventColor6?: string;
-  eventColor7?: string;
-  eventColor8?: string;
-
-  // Firework/celebration colors
-  fireworkColor1?: string; // Primary firework particle color
-  fireworkColor2?: string; // Secondary firework particle color
-  fireworkColor3?: string; // Tertiary firework particle color
-  fireworkColor4?: string; // Quaternary firework particle color
-  fireworkColor5?: string; // Fifth firework particle color
-  fireworkColor6?: string; // Sixth firework particle color
-  fireworkColor7?: string; // Seventh firework particle color
-  fireworkColor8?: string; // Eighth firework particle color
-  fireworkRocketColor?: string; // Main rocket/firecracker body color
-  fireworkGlowColor?: string; // Glow effect color for rocket trail
-
-  // Index signature for dynamic color access
-  [key: string]: string | undefined;
-}
+import { parseThemeColors, hexToRgba as schemaHexToRgba } from './themeSchema';
 
 interface ThemeMeta {
   id: string;
@@ -199,7 +21,7 @@ interface ThemeMeta {
 
 interface Theme {
   meta: ThemeMeta;
-  colors: ThemeColors;
+  colors: Record<string, string | undefined>;
   custom?: Record<string, string>;
   css?: { content?: string };
 }
@@ -417,8 +239,18 @@ class ThemeService {
     return allThemes;
   }
 
-  private getBuiltInThemes(): Theme[] {
-    return [
+  private _builtInThemesCache: Theme[] | null = null;
+
+  getBuiltInThemes(): Theme[] {
+    if (this._builtInThemesCache) return this._builtInThemesCache;
+
+    // Run colors through schema to ensure all keys are present (including derived colors)
+    const complete = (
+      colors: Record<string, string | undefined>
+    ): Record<string, string | undefined> =>
+      parseThemeColors(colors as Record<string, unknown>) as Record<string, string | undefined>;
+
+    this._builtInThemesCache = [
       {
         meta: {
           id: 'dark-default',
@@ -431,184 +263,7 @@ class ThemeService {
           disableFocusOutlines: true,
           disableTooltips: false
         },
-        colors: {
-          // Core colors
-          primaryColor: '#3b82f6',
-          secondaryColor: '#8b5cf6',
-          accentColor: '#06b6d4',
-
-          // Backgrounds
-          bgPrimary: '#111827',
-          bgSecondary: '#283649',
-          bgTertiary: '#313e52',
-          bgHover: '#4b5563',
-
-          // Text
-          textPrimary: '#ffffff',
-          textSecondary: '#d1d5db',
-          textMuted: '#9ca3af',
-          textAccent: '#60a5fa',
-          textPlaceholder: '#6b7280',
-
-          // Drag handle
-          dragHandleColor: '#6b7280',
-          dragHandleHover: '#60a5fa',
-
-          // Borders
-          borderPrimary: '#374151',
-          borderSecondary: '#4b5563',
-          borderFocus: '#3b82f6', // Uses primaryColor
-
-          // Navigation
-          navBg: '#1f2937',
-          navBorder: '#374151',
-          navTabActive: '#3b82f6',
-          navTabInactive: '#9ca3af',
-          navTabHover: '#ffffff',
-          navTabActiveBorder: '#3b82f6',
-          navMobileMenuBg: '#1f2937',
-          navMobileItemHover: '#374151',
-
-          // Status colors
-          success: '#10b981',
-          successBg: '#064e3b',
-          successText: '#34d399',
-          warning: '#fb923c',
-          warningBg: '#44403c', // Softer warm grey-brown
-          warningText: '#fcd34d', // Bright golden yellow
-          error: '#ef4444',
-          errorBg: '#7f1d1d',
-          errorText: '#fca5a5',
-          info: '#3b82f6',
-          infoBg: '#1e3a8a',
-          infoText: '#93c5fd',
-
-          // Service colors
-          steamColor: '#10b981', // Green
-          steamFaint: 'rgba(16, 185, 129, 0.1)',
-          steamOnBorder: 'rgba(16, 185, 129, 0.5)',
-          steamStrong: 'rgba(16, 185, 129, 0.3)',
-          epicColor: '#8b5cf6', // Purple
-          epicFaint: 'rgba(139, 92, 246, 0.1)',
-          epicOnBorder: 'rgba(139, 92, 246, 0.5)',
-          epicStrong: 'rgba(139, 92, 246, 0.3)',
-          originColor: '#fb923c', // Bright Orange
-          blizzardColor: '#3b82f6', // Blue
-          wsusColor: '#06b6d4', // Cyan
-          riotColor: '#ef4444', // Red
-          xboxColor: '#107C10', // Xbox Green
-          ubisoftColor: '#ec4899', // Pink
-
-          // Components
-          cardBg: '#1e2938',
-          cardBorder: '#374151',
-          cardOutline: '#3b82f6',
-          buttonBg: '#3b82f6',
-          buttonHover: '#2563eb',
-          buttonText: '#ffffff',
-          inputBg: '#374151',
-          inputBorder: '#4b5563',
-          inputFocus: '#3b82f6',
-          checkboxAccent: '#3b82f6',
-          checkboxBorder: '#4b5563',
-          checkboxBg: '#1f2937',
-          checkboxCheckmark: '#ffffff',
-          checkboxShadow: 'none',
-          checkboxHoverShadow: '0 0 0 3px rgba(59, 130, 246, 0.1)',
-          checkboxHoverBg: '#374151',
-          checkboxFocus: '#3b82f6',
-          sliderAccent: '#3b82f6',
-          sliderThumb: '#3b82f6',
-          sliderTrack: '#374151',
-          progressBg: '#374151',
-
-          // Hit rate specific - MUCH PRETTIER COLORS
-          hitRateHighBg: '#064e3b',
-          hitRateHighText: '#34d399',
-          hitRateMediumBg: '#1e3a8a',
-          hitRateMediumText: '#93c5fd',
-          hitRateLowBg: '#44403c', // Warm neutral grey-brown
-          hitRateLowText: '#fbbf24', // Bright amber
-          hitRateWarningBg: '#44403c', // Same warm neutral background
-          hitRateWarningText: '#fcd34d', // Golden yellow (prettier!)
-
-          // Action buttons
-          actionResetBg: '#f59e0b',
-          actionResetHover: '#d97706',
-          actionProcessBg: '#10b981',
-          actionProcessHover: '#059669',
-          actionDeleteBg: '#ef4444',
-          actionDeleteHover: '#dc2626',
-
-          // Icon backgrounds
-          iconBgBlue: '#3b82f6',
-          iconBgGreen: '#10b981',
-          iconBgEmerald: '#10b981',
-          iconBgPurple: '#8b5cf6',
-          iconBgIndigo: '#6366f1',
-          iconBgOrange: '#f97316',
-          iconBgYellow: '#eab308',
-          iconBgCyan: '#06b6d4',
-          iconBgRed: '#ef4444',
-
-          // Chart colors
-          chartColor1: '#3b82f6',
-          chartColor2: '#10b981',
-          chartColor3: '#f59e0b',
-          chartColor4: '#ef4444',
-          chartColor5: '#8b5cf6',
-          chartColor6: '#06b6d4',
-          chartColor7: '#f97316',
-          chartColor8: '#ec4899',
-          chartBorderColor: '#1f2937',
-          chartGridColor: '#374151',
-          chartTextColor: '#9ca3af',
-          chartCacheHitColor: '#10b981',
-          chartCacheMissColor: '#f59e0b',
-
-          // Scrollbar colors
-          scrollbarTrack: '#374151',
-          scrollbarThumb: '#6B7280',
-          scrollbarHover: '#9CA3AF',
-
-          // Access indicator colors
-          publicAccessBg: 'rgba(16, 185, 129, 0.2)', // green-500 with 20% opacity
-          publicAccessText: '#34d399', // green-400
-          publicAccessBorder: 'rgba(16, 185, 129, 0.3)', // green-500 with 30% opacity
-          securedAccessBg: 'rgba(245, 158, 11, 0.2)', // yellow-500 with 20% opacity
-          securedAccessText: '#fbbf24', // yellow-400
-          securedAccessBorder: 'rgba(245, 158, 11, 0.3)', // yellow-500 with 30% opacity
-
-          // Session colors
-          userSessionColor: '#3b82f6', // Primary blue for authenticated users
-          userSessionBg: 'rgba(59, 130, 246, 0.15)', // Primary blue with 15% opacity
-          guestSessionColor: '#06b6d4', // Cyan for guest users
-          guestSessionBg: 'rgba(6, 182, 212, 0.15)', // Cyan with 15% opacity
-          activeSessionColor: '#f97316', // Orange for active sessions
-          activeSessionBg: 'rgba(249, 115, 22, 0.15)', // Orange with 15% opacity
-
-          // Event colors (for calendar events)
-          eventColor1: '#3b82f6', // Blue
-          eventColor2: '#10b981', // Green
-          eventColor3: '#f59e0b', // Amber
-          eventColor4: '#ef4444', // Red
-          eventColor5: '#8b5cf6', // Purple
-          eventColor6: '#ec4899', // Pink
-          eventColor7: '#06b6d4', // Cyan
-          eventColor8: '#f97316', // Orange
-
-          // Firework/celebration colors - Blue theme (primary blue with cyan/purple accents)
-          fireworkColor1: '#3b82f6', // Primary blue
-          fireworkColor2: '#60a5fa', // Light blue
-          fireworkColor3: '#06b6d4', // Cyan
-          fireworkColor4: '#8b5cf6', // Purple
-          fireworkColor5: '#22d3ee', // Bright cyan
-          fireworkColor6: '#a78bfa', // Light purple
-          fireworkColor7: '#38bdf8', // Sky blue
-          fireworkColor8: '#ffffff', // White
-          fireworkRocketColor: '#3b82f6', // Blue (uses primaryColor)
-          fireworkGlowColor: '#60a5fa' // Light blue glow
-        }
+        colors: complete({})
       },
       // Modern, clean light theme inspired by Linear/Stripe
       // Uses subtle off-white background with white cards and shadows for depth
@@ -624,7 +279,7 @@ class ThemeService {
           disableFocusOutlines: true,
           disableTooltips: false
         },
-        colors: {
+        colors: complete({
           // Core colors - Refined blue primary
           primaryColor: '#2563eb',
           secondaryColor: '#7c3aed',
@@ -802,9 +457,10 @@ class ThemeService {
           fireworkColor8: '#ffffff', // White
           fireworkRocketColor: '#2563eb', // Blue (uses primaryColor)
           fireworkGlowColor: '#3b82f6' // Blue glow
-        }
+        })
       }
     ];
+    return this._builtInThemesCache;
   }
 
   async getTheme(themeId: string): Promise<Theme | null> {
@@ -846,17 +502,13 @@ class ThemeService {
         }
       }
 
-      return parsed as Theme;
+      const theme = parsed as Theme;
+      theme.colors = parseThemeColors(theme.colors as Record<string, unknown>);
+      return theme;
     } catch (error) {
       console.error('Error parsing TOML theme:', error);
       return null;
     }
-  }
-
-  private hexToRgba(hex: string, opacity: number): string {
-    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-    if (!result) return `rgba(0, 0, 0, ${opacity})`;
-    return `rgba(${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}, ${opacity})`;
   }
 
   /**
@@ -865,51 +517,50 @@ class ThemeService {
    * Blend variables use explicit defaults — theme creators override directly.
    */
   private generateComputedColorVars(colors: Record<string, string | undefined>): string {
-    const rgba = (hex: string, opacity: number): string => this.hexToRgba(hex, opacity);
+    const rgba = (hex: string, opacity: number): string => schemaHexToRgba(hex, opacity);
 
-    // Resolve base colors with fallbacks
-    const primary = colors.primaryColor || '#3b82f6';
-    const secondary = colors.secondaryColor || '#8b5cf6';
-    const accent = colors.accentColor || '#06b6d4';
-    const success = colors.success || '#10b981';
-    const warning = colors.warning || '#fb923c';
-    const error = colors.error || '#ef4444';
-    const info = colors.info || '#3b82f6';
-    const steam = colors.steamColor || '#10b981';
-    const epic = colors.epicColor || '#8b5cf6';
-    const buttonBg = colors.buttonBg || '#3b82f6';
-    const actionDelete = colors.actionDeleteBg || '#ef4444';
-    const actionProcess = colors.actionProcessBg || '#10b981';
-    const actionReset = colors.actionResetBg || '#f59e0b';
-    const bgPrimary = colors.bgPrimary || '#111827';
-    const bgSecondary = colors.bgSecondary || '#283649';
-    const bgTertiary = colors.bgTertiary || '#313e52';
-    const cardBg = colors.cardBg || '#1e2938';
-    const textPrimary = colors.textPrimary || '#ffffff';
-    const textSecondary = colors.textSecondary || '#d1d5db';
-    const textMuted = colors.textMuted || '#9ca3af';
-    const iconBlue = colors.iconBgBlue || '#3b82f6';
-    const iconGreen = colors.iconBgGreen || '#10b981';
-    const iconEmerald = colors.iconBgEmerald || '#10b981';
-    const iconPurple = colors.iconBgPurple || '#8b5cf6';
-    const iconIndigo = colors.iconBgIndigo || '#6366f1';
-    const iconOrange = colors.iconBgOrange || '#f97316';
-    const iconYellow = colors.iconBgYellow || '#eab308';
-    const iconCyan = colors.iconBgCyan || '#06b6d4';
-    const iconRed = colors.iconBgRed || '#ef4444';
-    const iconGray = colors.textMuted || '#6b7280';
-    const chartColor1 = colors.chartColor1 || '#3b82f6';
-    const chartCacheHit = colors.chartCacheHitColor || '#10b981';
-    // Event colors
+    // Resolve base colors — guaranteed present by schema
+    const primary = colors.primaryColor!;
+    const accent = colors.accentColor!;
+    const success = colors.success!;
+    const warning = colors.warning!;
+    const error = colors.error!;
+    const info = colors.info!;
+    const steam = colors.steamColor!;
+    const epic = colors.epicColor!;
+    const buttonBg = colors.buttonBg!;
+    const actionDelete = colors.actionDeleteBg!;
+    const actionProcess = colors.actionProcessBg!;
+    const actionReset = colors.actionResetBg!;
+    const bgPrimary = colors.bgPrimary!;
+    const bgSecondary = colors.bgSecondary!;
+    const bgTertiary = colors.bgTertiary!;
+    const cardBg = colors.cardBg!;
+    const textPrimary = colors.textPrimary!;
+    const textSecondary = colors.textSecondary!;
+    const textMuted = colors.textMuted!;
+    const iconBlue = colors.iconBgBlue!;
+    const iconGreen = colors.iconBgGreen!;
+    const iconEmerald = colors.iconBgEmerald!;
+    const iconPurple = colors.iconBgPurple!;
+    const iconIndigo = colors.iconBgIndigo!;
+    const iconOrange = colors.iconBgOrange!;
+    const iconYellow = colors.iconBgYellow!;
+    const iconCyan = colors.iconBgCyan!;
+    const iconRed = colors.iconBgRed!;
+    const iconGray = colors.textMuted!;
+    const chartColor1 = colors.chartColor1!;
+    const chartCacheHit = colors.chartCacheHitColor!;
+    // Event colors — guaranteed present by schema
     const ev = [
-      colors.eventColor1 || primary,
-      colors.eventColor2 || success,
-      colors.eventColor3 || warning,
-      colors.eventColor4 || error,
-      colors.eventColor5 || secondary,
-      colors.eventColor6 || '#ec4899',
-      colors.eventColor7 || accent,
-      colors.eventColor8 || iconOrange
+      colors.eventColor1!,
+      colors.eventColor2!,
+      colors.eventColor3!,
+      colors.eventColor4!,
+      colors.eventColor5!,
+      colors.eventColor6!,
+      colors.eventColor7!,
+      colors.eventColor8!
     ];
 
     // Helper: use theme override if provided, else computed value
@@ -970,13 +621,13 @@ class ThemeService {
 
       /* Platform */
       --theme-steam-subtle: ${v('steamSubtle', rgba(steam, 0.15))};
-      --theme-steam-faint: ${v('steamFaint', rgba(steam, 0.1))};
-      --theme-steam-on-border: ${v('steamOnBorder', rgba(steam, 0.5))};
-      --theme-steam-strong: ${v('steamStrong', rgba(steam, 0.3))};
+      --theme-steam-faint: ${colors.steamFaint};
+      --theme-steam-on-border: ${colors.steamOnBorder};
+      --theme-steam-strong: ${colors.steamStrong};
       --theme-epic-subtle: ${v('epicSubtle', rgba(epic, 0.15))};
-      --theme-epic-faint: ${v('epicFaint', rgba(epic, 0.1))};
-      --theme-epic-on-border: ${v('epicOnBorder', rgba(epic, 0.5))};
-      --theme-epic-strong: ${v('epicStrong', rgba(epic, 0.3))};
+      --theme-epic-faint: ${colors.epicFaint};
+      --theme-epic-on-border: ${colors.epicOnBorder};
+      --theme-epic-strong: ${colors.epicStrong};
       --theme-epic-muted: ${v('epicMuted', rgba(epic, 0.25))};
 
       /* Icon Backgrounds */
@@ -1053,223 +704,8 @@ class ThemeService {
   }
 
   private applyDefaultVariables(): void {
-    const sharpCorners = this.getSharpCornersSync();
-    const borderRadius = sharpCorners ? '0px' : '0.5rem';
-    const borderRadiusLg = sharpCorners ? '0px' : '0.75rem';
-    const borderRadiusXl = sharpCorners ? '0px' : '1rem';
-
-    const defaultStyles = `
-      :root {
-        /* Core Colors */
-        --theme-primary: #3b82f6;
-        --theme-primary-rgb: 59, 130, 246;
-        --theme-secondary: #8b5cf6;
-        --theme-secondary-rgb: 139, 92, 246;
-        --theme-accent: #06b6d4;
-
-        /* Backgrounds */
-        --theme-bg-primary: #111827;
-        --theme-bg-secondary: #283649;
-        --theme-bg-tertiary: #313e52;
-        --theme-bg-hover: #4b5563;
-        --theme-bg-elevated: #283649;
-
-        /* Text */
-        --theme-text-primary: #ffffff;
-        --theme-text-secondary: #d1d5db;
-        --theme-text-muted: #9ca3af;
-        --theme-text-accent: #60a5fa;
-        --theme-text-placeholder: #6b7280;
-
-        /* Drag Handle */
-        --theme-drag-handle: #6b7280;
-        --theme-drag-handle-hover: #60a5fa;
-
-        /* Borders */
-        --theme-border: #374151;
-        --theme-border-primary: #374151;
-        --theme-border-secondary: #4b5563;
-        --theme-border-focus: var(--theme-primary);
-        --theme-border-radius: ${borderRadius};
-        --theme-border-radius-lg: ${borderRadiusLg};
-        --theme-border-radius-xl: ${borderRadiusXl};
-
-        /* Navigation */
-        --theme-nav-bg: #1f2937;
-        --theme-nav-border: #374151;
-        --theme-nav-tab-active: #3b82f6;
-        --theme-nav-tab-inactive: #9ca3af;
-        --theme-nav-tab-hover: #ffffff;
-        --theme-nav-tab-active-border: #3b82f6;
-        --theme-nav-mobile-menu-bg: #1f2937;
-        --theme-nav-mobile-item-hover: #374151;
-
-        /* Status Colors */
-        --theme-success: #10b981;
-        --theme-success-bg: #064e3b;
-        --theme-success-text: #34d399;
-        --theme-warning: #fb923c;
-        --theme-warning-bg: #44403c;
-        --theme-warning-text: #fcd34d;
-        --theme-error: #ef4444;
-        --theme-error-bg: #7f1d1d;
-        --theme-error-text: #fca5a5;
-        --theme-info: #3b82f6;
-        --theme-info-bg: #1e3a8a;
-        --theme-info-text: #93c5fd;
-
-        /* Service Colors - Match getBuiltInThemes() */
-        --theme-steam: #10b981;
-        --theme-epic: #8b5cf6;
-        --theme-origin: #fb923c;
-        --theme-blizzard: #3b82f6;
-        --theme-wsus: #06b6d4;
-        --theme-riot: #ef4444;
-        --theme-xbox: #107C10;
-
-        /* Card & Components */
-        --theme-card-bg: #1e2938;
-        --theme-card-border: #374151;
-        --theme-card-outline: #3b82f6;
-        --theme-card-hover: #4b5563;
-
-        /* Buttons */
-        --theme-button-bg: #3b82f6;
-        --theme-button-hover: #2563eb;
-        --theme-button-text: #ffffff;
-        --theme-button-primary: #3b82f6;
-        --theme-primary-hover: #2563eb;
-        --theme-primary-text: #ffffff;
-
-        --theme-secondary-bg: #283649;
-
-        /* Inputs */
-        --theme-input-bg: #374151;
-        --theme-input-border: #4b5563;
-        --theme-input-focus: var(--theme-primary);
-
-        /* Checkbox */
-        --theme-checkbox-accent: #3b82f6;
-        --theme-checkbox-border: #4b5563;
-        --theme-checkbox-bg: #1f2937;
-        --theme-checkbox-checkmark: #ffffff;
-        --theme-checkbox-shadow: none;
-        --theme-checkbox-hover-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-        --theme-checkbox-hover-bg: #374151;
-        --theme-checkbox-focus: var(--theme-primary);
-
-        /* Slider */
-        --theme-slider-accent: #3b82f6;
-        --theme-slider-thumb: #3b82f6;
-        --theme-slider-track: #374151;
-        --theme-progress-bg: #374151;
-
-        /* Hit Rate Colors - Match getBuiltInThemes() */
-        --theme-hit-rate-high-bg: #064e3b;
-        --theme-hit-rate-high-text: #34d399;
-        --theme-hit-rate-medium-bg: #1e3a8a;
-        --theme-hit-rate-medium-text: #93c5fd;
-        --theme-hit-rate-low-bg: #44403c;
-        --theme-hit-rate-low-text: #fbbf24;
-        --theme-hit-rate-warning-bg: #44403c;
-        --theme-hit-rate-warning-text: #fcd34d;
-
-        /* Action Buttons */
-        --theme-action-reset-bg: #f59e0b;
-        --theme-action-reset-hover: #d97706;
-        --theme-action-process-bg: #10b981;
-        --theme-action-process-hover: #059669;
-        --theme-action-delete-bg: #ef4444;
-        --theme-action-delete-hover: #dc2626;
-
-        /* Floating Icon */
-        --theme-floating-icon: #3b82f6;
-
-        /* Icon Colors */
-        --theme-icon-blue: #3b82f6;
-        --theme-icon-green: #10b981;
-        --theme-icon-emerald: #10b981;
-        --theme-icon-purple: #8b5cf6;
-        --theme-icon-indigo: #6366f1;
-        --theme-icon-orange: #f97316;
-        --theme-icon-yellow: #eab308;
-        --theme-icon-cyan: #06b6d4;
-        --theme-icon-red: #ef4444;
-        --theme-icon-gray: #6b7280;
-
-        /* Chart Colors */
-        --theme-chart-1: #3b82f6;
-        --theme-chart-2: #10b981;
-        --theme-chart-3: #f59e0b;
-        --theme-chart-4: #ef4444;
-        --theme-chart-5: #8b5cf6;
-        --theme-chart-6: #06b6d4;
-        --theme-chart-7: #f97316;
-        --theme-chart-8: #ec4899;
-        --theme-chart-border: #1f2937;
-        --theme-chart-grid: #374151;
-        --theme-chart-text: #9ca3af;
-        --theme-chart-cache-hit: #10b981;
-        --theme-chart-cache-miss: #f59e0b;
-
-        /* Scrollbar */
-        --theme-scrollbar-track: #374151;
-        --theme-scrollbar-thumb: #6B7280;
-        --theme-scrollbar-hover: #9CA3AF;
-
-        /* Access Indicators */
-        --theme-public-access-bg: rgba(16, 185, 129, 0.2);
-        --theme-public-access-text: #34d399;
-        --theme-public-access-border: rgba(16, 185, 129, 0.3);
-        --theme-secured-access-bg: rgba(245, 158, 11, 0.2);
-        --theme-secured-access-text: #fbbf24;
-        --theme-secured-access-border: rgba(245, 158, 11, 0.3);
-
-        /* Session Colors */
-        --theme-user-session: #3b82f6;
-        --theme-user-session-bg: rgba(59, 130, 246, 0.15);
-        --theme-guest-session: #06b6d4;
-        --theme-guest-session-bg: rgba(6, 182, 212, 0.15);
-        --theme-active-session: #f97316;
-        --theme-active-session-bg: rgba(249, 115, 22, 0.15);
-
-        /* Event Colors */
-        --theme-event-1: #3b82f6;
-        --theme-event-2: #10b981;
-        --theme-event-3: #f59e0b;
-        --theme-event-4: #ef4444;
-        --theme-event-5: #8b5cf6;
-        --theme-event-6: #ec4899;
-        --theme-event-7: #06b6d4;
-        --theme-event-8: #f97316;
-
-        /* Firework Colors - Blue theme */
-        --theme-firework-1: #3b82f6;
-        --theme-firework-2: #60a5fa;
-        --theme-firework-3: #06b6d4;
-        --theme-firework-4: #8b5cf6;
-        --theme-firework-5: #22d3ee;
-        --theme-firework-6: #a78bfa;
-        --theme-firework-7: #38bdf8;
-        --theme-firework-8: #ffffff;
-        --theme-firework-rocket: #3b82f6;
-        --theme-firework-glow: #60a5fa;
-
-        /* Muted aliases */
-        --theme-muted: #9ca3af;
-        --theme-muted-bg: #313e52;
-
-        ${this.generateComputedColorVars(this.getBuiltInThemes()[0].colors)}
-      }
-    `;
-
-    let defaultStyleElement = document.getElementById('lancache-default-vars');
-    if (!defaultStyleElement) {
-      defaultStyleElement = document.createElement('style');
-      defaultStyleElement.id = 'lancache-default-vars';
-      document.head.appendChild(defaultStyleElement);
-    }
-    defaultStyleElement.textContent = defaultStyles;
+    const defaultTheme = this.getBuiltInThemes().find((t) => t.meta.id === 'dark-default')!;
+    this.applyTheme(defaultTheme);
   }
 
   applyTheme(theme: Theme): void {
@@ -1316,12 +752,6 @@ class ThemeService {
 
     const colors = theme.colors;
 
-    // Normalize theme: if focus colors aren't defined, use primaryColor
-    if (!colors.borderFocus) colors.borderFocus = colors.primaryColor;
-    if (!colors.inputFocus) colors.inputFocus = colors.primaryColor;
-    if (!colors.checkboxFocus) colors.checkboxFocus = colors.primaryColor;
-    if (!colors.cardOutline) colors.cardOutline = colors.primaryColor;
-
     // Get border radius settings from theme (already set above)
     const borderRadius = sharpCorners ? '0px' : '0.5rem';
     const borderRadiusLg = sharpCorners ? '0px' : '0.75rem';
@@ -1335,8 +765,8 @@ class ThemeService {
         : '0, 0, 0';
     };
 
-    const primaryRgb = colors.primaryColor ? hexToRgb(colors.primaryColor) : '0, 0, 0';
-    const secondaryRgb = colors.secondaryColor ? hexToRgb(colors.secondaryColor) : '0, 0, 0';
+    const primaryRgb = hexToRgb(colors.primaryColor!);
+    const secondaryRgb = hexToRgb(colors.secondaryColor!);
 
     // Create clean theme styles with only CSS variables - no Tailwind overrides
     const themeStyles = `
@@ -1411,7 +841,7 @@ class ThemeService {
       --theme-wsus: ${colors.wsusColor};
       --theme-riot: ${colors.riotColor};
       --theme-xbox: ${colors.xboxColor};
-      --theme-ubisoft: ${colors.ubisoftColor || colors.epicColor};
+      --theme-ubisoft: ${colors.ubisoftColor};
 
       /* Card & Component Colors */
       --theme-card-bg: ${colors.cardBg};
@@ -1464,7 +894,7 @@ class ThemeService {
       --theme-action-delete-hover: ${colors.actionDeleteHover};
       
       /* Floating Icon */
-      --theme-floating-icon: ${colors.floatingIconColor || colors.primaryColor};
+      --theme-floating-icon: ${colors.floatingIconColor};
 
       /* Icon Colors */
       --theme-icon-blue: ${colors.iconBgBlue};
@@ -1494,47 +924,47 @@ class ThemeService {
       --theme-chart-cache-miss: ${colors.chartCacheMissColor};
       
       /* Scrollbar Colors */
-      --theme-scrollbar-track: ${colors.scrollbarTrack || colors.bgTertiary};
-      --theme-scrollbar-thumb: ${colors.scrollbarThumb || colors.textMuted};
-      --theme-scrollbar-hover: ${colors.scrollbarHover || colors.textSecondary};
+      --theme-scrollbar-track: ${colors.scrollbarTrack};
+      --theme-scrollbar-thumb: ${colors.scrollbarThumb};
+      --theme-scrollbar-hover: ${colors.scrollbarHover};
 
       /* Access Indicator Colors */
-      --theme-public-access-bg: ${colors.publicAccessBg || colors.warningBg};
-      --theme-public-access-text: ${colors.publicAccessText || colors.errorText};
-      --theme-public-access-border: ${colors.publicAccessBorder || colors.error};
+      --theme-public-access-bg: ${colors.publicAccessBg};
+      --theme-public-access-text: ${colors.publicAccessText};
+      --theme-public-access-border: ${colors.publicAccessBorder};
       --theme-secured-access-bg: ${colors.securedAccessBg};
       --theme-secured-access-text: ${colors.securedAccessText};
       --theme-secured-access-border: ${colors.securedAccessBorder};
 
       /* Session Colors */
-      --theme-user-session: ${colors.userSessionColor || colors.primaryColor};
-      --theme-user-session-bg: ${colors.userSessionBg || `rgba(${primaryRgb}, 0.15)`};
-      --theme-guest-session: ${colors.guestSessionColor || colors.info};
-      --theme-guest-session-bg: ${colors.guestSessionBg || colors.infoBg};
-      --theme-active-session: ${colors.activeSessionColor || colors.iconBgOrange};
-      --theme-active-session-bg: ${colors.activeSessionBg || 'rgba(249, 115, 22, 0.15)'};
+      --theme-user-session: ${colors.userSessionColor};
+      --theme-user-session-bg: ${colors.userSessionBg};
+      --theme-guest-session: ${colors.guestSessionColor};
+      --theme-guest-session-bg: ${colors.guestSessionBg};
+      --theme-active-session: ${colors.activeSessionColor};
+      --theme-active-session-bg: ${colors.activeSessionBg};
 
       /* Event Colors */
-      --theme-event-1: ${colors.eventColor1 || colors.primaryColor};
-      --theme-event-2: ${colors.eventColor2 || colors.success};
-      --theme-event-3: ${colors.eventColor3 || colors.warning};
-      --theme-event-4: ${colors.eventColor4 || colors.error};
-      --theme-event-5: ${colors.eventColor5 || colors.secondaryColor};
-      --theme-event-6: ${colors.eventColor6 || '#ec4899'};
-      --theme-event-7: ${colors.eventColor7 || colors.accentColor};
-      --theme-event-8: ${colors.eventColor8 || colors.iconBgOrange};
+      --theme-event-1: ${colors.eventColor1};
+      --theme-event-2: ${colors.eventColor2};
+      --theme-event-3: ${colors.eventColor3};
+      --theme-event-4: ${colors.eventColor4};
+      --theme-event-5: ${colors.eventColor5};
+      --theme-event-6: ${colors.eventColor6};
+      --theme-event-7: ${colors.eventColor7};
+      --theme-event-8: ${colors.eventColor8};
 
-      /* Firework Colors - fallback to theme colors if not defined */
-      --theme-firework-1: ${colors.fireworkColor1 || colors.primaryColor};
-      --theme-firework-2: ${colors.fireworkColor2 || colors.secondaryColor};
-      --theme-firework-3: ${colors.fireworkColor3 || colors.accentColor};
-      --theme-firework-4: ${colors.fireworkColor4 || colors.success};
-      --theme-firework-5: ${colors.fireworkColor5 || colors.warning};
-      --theme-firework-6: ${colors.fireworkColor6 || colors.info};
-      --theme-firework-7: ${colors.fireworkColor7 || colors.textAccent};
-      --theme-firework-8: ${colors.fireworkColor8 || '#ffffff'};
-      --theme-firework-rocket: ${colors.fireworkRocketColor || colors.primaryColor};
-      --theme-firework-glow: ${colors.fireworkGlowColor || colors.primaryColor};
+      /* Firework Colors */
+      --theme-firework-1: ${colors.fireworkColor1};
+      --theme-firework-2: ${colors.fireworkColor2};
+      --theme-firework-3: ${colors.fireworkColor3};
+      --theme-firework-4: ${colors.fireworkColor4};
+      --theme-firework-5: ${colors.fireworkColor5};
+      --theme-firework-6: ${colors.fireworkColor6};
+      --theme-firework-7: ${colors.fireworkColor7};
+      --theme-firework-8: ${colors.fireworkColor8};
+      --theme-firework-rocket: ${colors.fireworkRocketColor};
+      --theme-firework-glow: ${colors.fireworkGlowColor};
 
       /* Alias Variables for Compatibility */
       --theme-muted: ${colors.textMuted};
@@ -1700,19 +1130,13 @@ class ThemeService {
 
     toml += '[colors]\n';
     if (theme.colors) {
-      Object.entries(theme.colors).forEach(([key, value]) => {
-        toml += `${key} = "${value}"\n`;
-      });
+      Object.entries(theme.colors)
+        .filter(([, value]) => value !== undefined && value !== '')
+        .forEach(([key, value]) => {
+          toml += `${key} = "${value}"\n`;
+        });
     }
     toml += '\n';
-
-    if (theme.custom && Object.keys(theme.custom).length > 0) {
-      toml += '[custom]\n';
-      Object.entries(theme.custom).forEach(([key, value]) => {
-        toml += `"${key}" = "${value}"\n`;
-      });
-      toml += '\n';
-    }
 
     if (theme.css?.content) {
       toml += '[css]\n';

@@ -470,7 +470,8 @@ export const colorGroups: ColorGroup[] = [
         pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
       },
       { key: 'chartGridColor', supportsAlpha: true, pages: ['charts'] },
-      { key: 'chartTextColor', supportsAlpha: true, pages: ['charts'] }
+      { key: 'chartTextColor', supportsAlpha: true, pages: ['charts'] },
+      { key: 'chartBorderColor', supportsAlpha: true, pages: ['charts'] }
     ]
   },
 
@@ -496,7 +497,9 @@ export const colorGroups: ColorGroup[] = [
       { key: 'userSessionColor', supportsAlpha: true, pages: ['users'] },
       { key: 'userSessionBg', supportsAlpha: true, pages: ['users'] },
       { key: 'guestSessionColor', supportsAlpha: true, pages: ['users'] },
-      { key: 'guestSessionBg', supportsAlpha: true, pages: ['users'] }
+      { key: 'guestSessionBg', supportsAlpha: true, pages: ['users'] },
+      { key: 'activeSessionColor', supportsAlpha: true, pages: ['users'] },
+      { key: 'activeSessionBg', supportsAlpha: true, pages: ['users'] }
     ]
   },
 
@@ -559,6 +562,11 @@ export const colorGroups: ColorGroup[] = [
       },
       {
         key: 'xboxColor',
+        supportsAlpha: true,
+        pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+      },
+      {
+        key: 'ubisoftColor',
         supportsAlpha: true,
         pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
       }

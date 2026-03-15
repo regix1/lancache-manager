@@ -63,6 +63,17 @@ const GITHUB_API_BASE =
 const GITHUB_RAW_BASE =
   'https://raw.githubusercontent.com/regix1/lancache-manager/refs/heads/main/community-themes';
 
+function addCommunityFlag(content: string): string {
+  if (!content.includes('[meta]')) return content;
+  if (content.match(/isDark\s*=\s*(true|false)/)) {
+    return content.replace(/(isDark\s*=\s*(?:true|false))/, '$1\nisCommunityTheme = true');
+  }
+  return content.replace(/(\n)(\[(?!meta))/, '\nisCommunityTheme = true\n$2');
+}
+
+const GITHUB_ETAG_KEY = 'lancache_github_themes_etag';
+const GITHUB_CACHE_KEY = 'lancache_github_themes_cache';
+
 export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
   isAdmin,
   onThemeImported,
@@ -78,6 +89,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
   const [updatingThemes, setUpdatingThemes] = useState<Set<string>>(new Set());
   const loadingInProgressRef = useRef(false);
   const importingThemeRef = useRef<string | null>(null);
+  const rateLimitRemaining = useRef<number | null>(null);
 
   // Helper to show toast notifications
   const showToast = (type: 'success' | 'error' | 'info', message: string) => {
@@ -89,17 +101,9 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
   };
 
   useEffect(() => {
-    loadCommunityThemesAndCheckUpdates();
+    loadCommunityThemes();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Watch for changes in both community themes and installed themes, and auto-update when both are ready
-  useEffect(() => {
-    if (communityThemes.length > 0 && installedThemes.length > 0 && autoCheckUpdates && isAdmin) {
-      checkAndUpdateThemes(communityThemes);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [communityThemes, installedThemes, autoCheckUpdates, isAdmin]);
 
   // Check which community themes are already installed
   const isThemeInstalled = (themeId: string): boolean => {
@@ -116,43 +120,81 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
     setLoading(true);
 
     try {
-      // Fetch the list of files from GitHub
-      const response = await fetch(GITHUB_API_BASE);
-      if (!response.ok) {
-        throw new Error('Failed to fetch community themes from GitHub');
-      }
-
-      const files = await response.json();
-
-      // Filter for .toml files
-      const tomlFiles = files.filter(
-        (file: GitHubFile) => file.name.endsWith('.toml') && file.type === 'file'
-      );
-
-      // Fetch content for each theme file
-      const themes: CommunityTheme[] = [];
-      for (const file of tomlFiles) {
-        try {
-          const contentResponse = await fetch(`${GITHUB_RAW_BASE}/${file.name}`);
-          if (contentResponse.ok) {
-            const content = await contentResponse.text();
-            const parsedTheme = themeService.parseTomlTheme(content);
-
-            if (parsedTheme) {
-              themes.push({
-                name: file.name.replace('.toml', ''),
-                fileName: file.name,
-                content,
-                meta: parsedTheme.meta,
-                colors: parsedTheme.colors as ColorPreview
-              });
-            }
+      // Check rate limit from previous requests in this session
+      if (rateLimitRemaining.current !== null && rateLimitRemaining.current < 10) {
+        console.warn(
+          `GitHub API rate limit low (${rateLimitRemaining.current} remaining), using cached data if available`
+        );
+        const cachedData = localStorage.getItem(GITHUB_CACHE_KEY);
+        if (cachedData) {
+          const files = JSON.parse(cachedData) as GitHubFile[];
+          const themes = await fetchThemeContents(files);
+          setCommunityThemes(themes);
+          if (autoCheckUpdates && isAdmin) {
+            await checkAndUpdateThemes(themes);
           }
-        } catch (err) {
-          console.error(`Failed to load theme ${file.name}:`, err);
+          return;
         }
       }
 
+      // Build fetch headers with ETag for conditional request
+      const headers: HeadersInit = {
+        Accept: 'application/vnd.github.v3+json'
+      };
+      const cachedEtag = localStorage.getItem(GITHUB_ETAG_KEY);
+      if (cachedEtag) {
+        headers['If-None-Match'] = cachedEtag;
+      }
+
+      const response = await fetch(GITHUB_API_BASE, { headers });
+
+      // Update rate limit tracking from response headers
+      const remaining = response.headers.get('X-RateLimit-Remaining');
+      if (remaining !== null) {
+        rateLimitRemaining.current = parseInt(remaining, 10);
+        if (rateLimitRemaining.current < 10) {
+          console.warn(
+            `GitHub API rate limit low: ${rateLimitRemaining.current} requests remaining`
+          );
+        }
+      }
+
+      let files: GitHubFile[];
+
+      if (response.status === 304) {
+        // Not modified - use cached data
+        const cachedData = localStorage.getItem(GITHUB_CACHE_KEY);
+        if (cachedData) {
+          files = JSON.parse(cachedData) as GitHubFile[];
+        } else {
+          // Cache is missing despite having an ETag - refetch without ETag
+          const freshResponse = await fetch(GITHUB_API_BASE);
+          if (!freshResponse.ok) {
+            throw new Error('Failed to fetch community themes from GitHub');
+          }
+          files = await freshResponse.json();
+        }
+      } else if (response.ok) {
+        files = await response.json();
+
+        // Cache the ETag and response data
+        const etag = response.headers.get('ETag');
+        if (etag) {
+          localStorage.setItem(GITHUB_ETAG_KEY, etag);
+        }
+        localStorage.setItem(GITHUB_CACHE_KEY, JSON.stringify(files));
+      } else {
+        // Non-200/304 response - try cached data as fallback
+        const cachedData = localStorage.getItem(GITHUB_CACHE_KEY);
+        if (cachedData) {
+          console.warn(`GitHub API returned ${response.status}, falling back to cached data`);
+          files = JSON.parse(cachedData) as GitHubFile[];
+        } else {
+          throw new Error('Failed to fetch community themes from GitHub');
+        }
+      }
+
+      const themes = await fetchThemeContents(files);
       setCommunityThemes(themes);
 
       // Automatically check and update themes if enabled
@@ -172,6 +214,41 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
     }
   };
 
+  const fetchThemeContents = async (files: GitHubFile[]): Promise<CommunityTheme[]> => {
+    // Filter for .toml files
+    const tomlFiles = files.filter(
+      (file: GitHubFile) => file.name.endsWith('.toml') && file.type === 'file'
+    );
+
+    // Fetch content for all theme files in parallel
+    const results = await Promise.all(
+      tomlFiles.map(async (file): Promise<CommunityTheme | null> => {
+        try {
+          const contentResponse = await fetch(`${GITHUB_RAW_BASE}/${file.name}`);
+          if (!contentResponse.ok) return null;
+          const content = await contentResponse.text();
+          const parsedTheme = themeService.parseTomlTheme(content);
+
+          if (parsedTheme) {
+            return {
+              name: file.name.replace('.toml', ''),
+              fileName: file.name,
+              content,
+              meta: parsedTheme.meta,
+              colors: parsedTheme.colors as ColorPreview
+            };
+          }
+          return null;
+        } catch (err) {
+          console.error(`Failed to load theme ${file.name}:`, err);
+          return null;
+        }
+      })
+    );
+
+    return results.filter((t): t is CommunityTheme => t !== null);
+  };
+
   const handleImportTheme = async (theme: CommunityTheme) => {
     // Prevent double-clicks on the same theme
     if (importingThemeRef.current === theme.fileName) {
@@ -188,24 +265,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
 
     try {
       // Add isCommunityTheme flag to the TOML content
-      let modifiedContent = theme.content;
-
-      // Insert isCommunityTheme = true after the isDark line (or at end of meta section)
-      if (modifiedContent.includes('[meta]')) {
-        // Try to insert after isDark line if it exists
-        if (modifiedContent.match(/isDark\s*=\s*(true|false)/)) {
-          modifiedContent = modifiedContent.replace(
-            /(isDark\s*=\s*(?:true|false))/,
-            '$1\nisCommunityTheme = true'
-          );
-        } else {
-          // Otherwise insert before the [colors] section or next section
-          modifiedContent = modifiedContent.replace(
-            /(\n)(\[(?!meta))/,
-            '\nisCommunityTheme = true\n$2'
-          );
-        }
-      }
+      const modifiedContent = addCommunityFlag(theme.content);
 
       // Create a File object from the modified theme content
       const blob = new Blob([modifiedContent], { type: 'application/toml' });
@@ -309,24 +369,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
 
     try {
       // Add isCommunityTheme flag to the TOML content
-      let modifiedContent = theme.content;
-
-      // Insert isCommunityTheme = true after the isDark line (or at end of meta section)
-      if (modifiedContent.includes('[meta]')) {
-        // Try to insert after isDark line if it exists
-        if (modifiedContent.match(/isDark\s*=\s*(true|false)/)) {
-          modifiedContent = modifiedContent.replace(
-            /(isDark\s*=\s*(?:true|false))/,
-            '$1\nisCommunityTheme = true'
-          );
-        } else {
-          // Otherwise insert before the [colors] section or next section
-          modifiedContent = modifiedContent.replace(
-            /(\n)(\[(?!meta))/,
-            '\nisCommunityTheme = true\n$2'
-          );
-        }
-      }
+      const modifiedContent = addCommunityFlag(theme.content);
 
       const blob = new Blob([modifiedContent], { type: 'application/toml' });
       const file = new File([blob], theme.fileName, { type: 'application/toml' });
@@ -362,10 +405,6 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
         return next;
       });
     }
-  };
-
-  const loadCommunityThemesAndCheckUpdates = async () => {
-    await loadCommunityThemes();
   };
 
   const getColorPreview = (colors: ColorPreview | undefined) => {

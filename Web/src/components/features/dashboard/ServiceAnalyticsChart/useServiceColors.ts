@@ -37,9 +37,9 @@ export function useServiceColors(): ServiceColors {
     border: string;
   }>({
     serviceColors: new Map(),
-    cacheHit: '#22c55e',
-    cacheMiss: '#ef4444',
-    border: '#1a1a2e'
+    cacheHit: '',
+    cacheMiss: '',
+    border: ''
   });
   const [isReady, setIsReady] = useState(false);
 
@@ -48,16 +48,23 @@ export function useServiceColors(): ServiceColors {
       const computed = getComputedStyle(document.documentElement);
       const newServiceColors = new Map<string, string>();
 
-      // Resolve service colors
+      // Resolve service colors from CSS custom properties
+      const textSecondary = computed.getPropertyValue('--theme-text-secondary').trim();
       Object.entries(SERVICE_COLOR_MAP).forEach(([service, cssVar]) => {
         const color = computed.getPropertyValue(cssVar).trim();
-        newServiceColors.set(service, color || '#888888');
+        newServiceColors.set(service, color || textSecondary);
       });
 
-      // Resolve chart-specific colors
-      const cacheHit = computed.getPropertyValue('--theme-chart-cache-hit').trim() || '#22c55e';
-      const cacheMiss = computed.getPropertyValue('--theme-chart-cache-miss').trim() || '#ef4444';
-      const border = computed.getPropertyValue('--theme-chart-border').trim() || '#1a1a2e';
+      // Resolve chart-specific colors from CSS custom properties
+      const cacheHit =
+        computed.getPropertyValue('--theme-chart-cache-hit').trim() ||
+        computed.getPropertyValue('--theme-success').trim();
+      const cacheMiss =
+        computed.getPropertyValue('--theme-chart-cache-miss').trim() ||
+        computed.getPropertyValue('--theme-error').trim();
+      const border =
+        computed.getPropertyValue('--theme-chart-border').trim() ||
+        computed.getPropertyValue('--theme-border-secondary').trim();
 
       setColors({
         serviceColors: newServiceColors,
@@ -82,7 +89,10 @@ export function useServiceColors(): ServiceColors {
   const getColor = useCallback(
     (serviceName: string): string => {
       const normalizedName = serviceName.toLowerCase();
-      return colors.serviceColors.get(normalizedName) || '#888888';
+      return (
+        colors.serviceColors.get(normalizedName) ||
+        getComputedStyle(document.documentElement).getPropertyValue('--theme-text-secondary').trim()
+      );
     },
     [colors.serviceColors]
   );

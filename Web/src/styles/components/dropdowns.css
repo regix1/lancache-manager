@@ -435,7 +435,7 @@
   .github-repo-item.installable:hover .github-repo-icon,
   .github-repo-item.installable.hovered .github-repo-icon {
     background-color: var(--theme-icon-green);
-    color: white;
+    color: var(--theme-button-text);
   }
 
   /* Dependency - muted icon on hover */
@@ -534,7 +534,7 @@
   .github-repo-item:hover .github-fork-pill,
   .github-repo-item.hovered .github-fork-pill {
     background-color: var(--theme-primary);
-    color: white;
+    color: var(--theme-button-text);
     border-color: var(--theme-primary);
   }
 
@@ -575,15 +575,19 @@
     content: '';
     position: absolute;
     inset: 0;
-    background: linear-gradient(135deg, rgba(255, 107, 107, 0.15) 0%, rgba(238, 90, 90, 0.15) 100%);
+    background: linear-gradient(
+      135deg,
+      var(--theme-danger-gradient-start) 0%,
+      var(--theme-danger-gradient-end) 100%
+    );
     opacity: 0;
     transition: opacity 0.3s ease;
   }
 
   .github-donation-btn:hover {
     transform: translateY(-2px);
-    box-shadow: 0 8px 20px rgba(255, 107, 107, 0.25);
-    border-color: #ff6b6b;
+    box-shadow: 0 8px 20px var(--theme-danger-gradient-start);
+    border-color: var(--theme-danger-gradient-start);
   }
 
   .github-donation-btn:hover::before {
@@ -597,8 +601,12 @@
     width: 2rem;
     height: 2rem;
     border-radius: 50%;
-    background: linear-gradient(135deg, #ff6b6b 0%, #ee5a5a 100%);
-    color: white;
+    background: linear-gradient(
+      135deg,
+      var(--theme-danger-gradient-start) 0%,
+      var(--theme-danger-gradient-end) 100%
+    );
+    color: var(--theme-button-text);
     flex-shrink: 0;
   }
 
