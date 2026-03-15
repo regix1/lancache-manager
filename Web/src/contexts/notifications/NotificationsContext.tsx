@@ -791,7 +791,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
           if (e.status === 'failed') return 'failed';
           return undefined;
         },
-        getCompletedMessage: (e) => e.message || 'Depot mapping completed successfully',
+        getCompletedMessage: (e) => e.message || 'Depot mapping completed',
         getErrorMessage: (e) => e.message || 'Depot mapping failed',
         getDetails: (e) => ({ operationId: e.operationId })
       },
@@ -944,7 +944,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         getProgress: (e) => e.percentComplete || 0,
         getStatus: (e) =>
           e.status === 'completed' ? 'completed' : e.status === 'failed' ? 'failed' : undefined,
-        getCompletedMessage: formatEpicMappingCompleteMessage,
+        getCompletedMessage: (e) =>
+          e.cancelled ? 'Epic catalog refresh cancelled' : formatEpicMappingCompleteMessage(e),
         getErrorMessage: (e) => e.message || 'Epic games mapping failed',
         supportFastCompletion: true,
         getDetails: (e) => ({ operationId: e.operationId, cancelled: e.cancelled })
@@ -960,7 +961,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     // This arrives after EpicMappingProgress completes and provides the final game counts.
     const handleEpicGameMappingsUpdated = (event: EpicGameMappingsUpdatedEvent) => {
       // Don't show a notification if nothing changed
-      if (event.newGames === 0 && event.updatedGames === 0) return;
+      if (!event.newGames && !event.updatedGames) return;
 
       const detailMessage = formatEpicGameMappingsUpdatedMessage(event);
 

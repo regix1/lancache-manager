@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useTranslation } from 'react-i18next';
 import { Gamepad2, Search } from 'lucide-react';
 import { Card } from '@components/ui/Card';
+import { ManagerCardHeader } from '@components/ui/ManagerCard';
 import { DataTable, type DataTableColumn } from '@components/ui/DataTable';
 import { Tooltip } from '@components/ui/Tooltip';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
@@ -66,17 +67,6 @@ const SourceBadgeCell: React.FC<{ source: string }> = ({ source }) => {
   );
 };
 
-/** Sub-component for the stats last-updated display */
-const LastUpdatedLabel: React.FC<{ dateStr: string; label: string }> = ({ dateStr, label }) => {
-  const formatted = useFormattedDateTime(dateStr);
-  return (
-    <span className="text-themed-muted">
-      {' '}
-      &middot; {label}: {formatted}
-    </span>
-  );
-};
-
 const EpicGameMappings: React.FC = () => {
   const { t } = useTranslation();
   const { on, off, connectionState } = useSignalR();
@@ -112,10 +102,8 @@ const EpicGameMappings: React.FC = () => {
     };
 
     on('EpicGameMappingsUpdated', handleUpdate);
-    on('EpicMappingProgress', handleUpdate);
     return () => {
       off('EpicGameMappingsUpdated', handleUpdate);
-      off('EpicMappingProgress', handleUpdate);
     };
   }, [on, off, loadData]);
 
@@ -233,29 +221,18 @@ const EpicGameMappings: React.FC = () => {
     <Card>
       <div className="flex flex-col gap-4">
         {/* Card Header */}
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-purple">
-            <Gamepad2 className="w-5 h-5 icon-purple" />
-          </div>
-          <div>
-            <h3 className="text-lg font-semibold text-themed-primary">
-              {t('management.sections.integrations.epicGameMappings.title')}
-            </h3>
-            <p className="text-xs text-themed-muted">
-              {stats && stats.totalGames > 0
-                ? t('management.sections.integrations.epicGameMappings.gamesDiscovered', {
-                    count: stats.totalGames
-                  })
-                : t('management.sections.integrations.epicGameMappings.description')}
-              {stats?.lastUpdatedUtc && (
-                <LastUpdatedLabel
-                  dateStr={stats.lastUpdatedUtc}
-                  label={t('management.sections.integrations.epicGameMappings.lastUpdated')}
-                />
-              )}
-            </p>
-          </div>
-        </div>
+        <ManagerCardHeader
+          icon={Gamepad2}
+          iconColor="purple"
+          title={t('management.sections.integrations.epicGameMappings.title')}
+          subtitle={
+            stats && stats.totalGames > 0
+              ? t('management.sections.integrations.epicGameMappings.gamesDiscovered', {
+                  count: stats.totalGames
+                })
+              : t('management.sections.integrations.epicGameMappings.description')
+          }
+        />
 
         {/* Error / Info Message */}
         {error && <div className="p-4 text-center text-[var(--theme-error)]">{error}</div>}

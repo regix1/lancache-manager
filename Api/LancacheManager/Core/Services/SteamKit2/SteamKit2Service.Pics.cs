@@ -508,7 +508,7 @@ public partial class SteamKit2Service
         await _notifications.NotifyAllAsync(SignalREvents.DepotMappingComplete, new
         {
             success = true,
-            message = "Depot mapping completed successfully",
+            message = $"Depot mapping completed — {totalMappings} mappings, {downloadsUpdated} downloads updated",
             totalMappings,
             downloadsUpdated,
             scanMode = incrementalOnly ? "incremental" : "full",

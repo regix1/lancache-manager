@@ -273,6 +273,9 @@ public partial class EpicMappingService
         await _notifications.NotifyAllAsync(SignalREvents.EpicGameMappingsUpdated, new
         {
             totalGames = result.TotalGames,
+            newGames = result.NewGames,
+            updatedGames = result.UpdatedGames,
+            lastUpdatedUtc = DateTime.UtcNow,
             source = "image-refresh"
         });
 

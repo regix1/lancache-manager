@@ -1,5 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { flushSync } from 'react-dom';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ExternalLink, CheckCircle, XCircle, Clock } from 'lucide-react';
 import { EpicIcon } from '@components/ui/EpicIcon';
@@ -9,6 +8,7 @@ import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { ManagerCardHeader } from '@components/ui/ManagerCard';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { useNotifications } from '@contexts/notifications';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import ApiService from '@services/api.service';
 import type {
@@ -34,13 +34,18 @@ const EpicMappingManager: React.FC<EpicMappingManagerProps> = ({
 }) => {
   const { t } = useTranslation();
   const { on, off, connectionState } = useSignalR();
+  const { notifications } = useNotifications();
+
+  // Derive Epic mapping operation state from notifications (standardized pattern)
+  const activeEpicNotification = notifications.find(
+    (n) => n.type === 'epic_game_mapping' && n.status === 'running'
+  );
+  const isEpicMappingFromNotification = !!activeEpicNotification;
 
   const [authStatus, setAuthStatus] = useState<EpicMappingAuthStatus | null>(null);
   const [stats, setStats] = useState<EpicMappingStats | null>(null);
   const [schedule, setSchedule] = useState<EpicScheduleStatus | null>(null);
   const [localNextRefreshIn, setLocalNextRefreshIn] = useState<number | null>(null);
-  const [resolving, setResolving] = useState(false);
-  const resolveInProgressRef = useRef(false);
 
   const isAuthenticated = authStatus?.isAuthenticated ?? false;
 
@@ -138,9 +143,7 @@ const EpicMappingManager: React.FC<EpicMappingManagerProps> = ({
   };
 
   const handleRefresh = async () => {
-    if (resolveInProgressRef.current) return;
-    resolveInProgressRef.current = true;
-    flushSync(() => setResolving(true));
+    if (isEpicMappingFromNotification) return;
 
     try {
       const result = await ApiService.startEpicRefresh();
@@ -150,9 +153,6 @@ const EpicMappingManager: React.FC<EpicMappingManagerProps> = ({
       // Progress is tracked via SignalR notification bar — no inline success message needed
     } catch (err) {
       onError?.(err instanceof Error ? err.message : 'Failed to start Epic catalog refresh');
-    } finally {
-      setResolving(false);
-      resolveInProgressRef.current = false;
     }
   };
 
@@ -344,11 +344,11 @@ const EpicMappingManager: React.FC<EpicMappingManagerProps> = ({
           variant="filled"
           color="blue"
           onClick={handleRefresh}
-          disabled={resolving || mockMode || !isAdmin || !isAuthenticated}
-          loading={resolving}
+          disabled={isEpicMappingFromNotification || mockMode || !isAdmin || !isAuthenticated}
+          loading={isEpicMappingFromNotification}
           fullWidth
         >
-          {resolving
+          {isEpicMappingFromNotification
             ? t('management.epicMapping.buttons.resolving')
             : t('management.epicMapping.buttons.applyNow')}
         </Button>

@@ -449,7 +449,7 @@ export const formatEpicMappingProgressMessage = (event: EpicMappingProgressEvent
  * @returns Formatted completion message string
  */
 export const formatEpicMappingCompleteMessage = (event: EpicMappingProgressEvent): string => {
-  return event.message || 'Epic games mapping completed';
+  return event.message || 'Epic catalog refresh completed';
 };
 
 /**

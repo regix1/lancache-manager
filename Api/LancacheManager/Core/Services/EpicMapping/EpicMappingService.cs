@@ -42,6 +42,9 @@ public partial class EpicMappingService : IHostedService, IDisposable
     // Progress tracking
     private string _currentStatus = "Idle";
     private int _isProcessingInt;
+    private double _currentProgressPercent;
+    private int _lastNewGames;
+    private int _lastUpdatedGames;
 
     // Public properties
     public bool IsAuthenticated => _isAuthenticated;
@@ -180,7 +183,19 @@ public partial class EpicMappingService : IHostedService, IDisposable
             IsAuthenticated = _isAuthenticated,
             OperationId = _currentOperationId,
             Status = _currentStatus,
-            ProgressPercent = _isProcessingInt != 0 ? 50 : 0
+            ProgressPercent = _isProcessingInt != 0 ? _currentProgressPercent : 0,
+            StatusMessage = _isProcessingInt != 0 ? FormatStatusMessage(_currentStatus) : null
+        };
+    }
+
+    private static string FormatStatusMessage(string status)
+    {
+        return status switch
+        {
+            "Refreshing catalog" => "Refreshing Epic game catalog...",
+            "Authenticating" => "Authenticating with Epic Games...",
+            "Idle" => "Idle",
+            _ => status
         };
     }
 
@@ -287,4 +302,5 @@ public class EpicScheduleStatus
     public string? OperationId { get; set; }
     public string Status { get; set; } = "Idle";
     public double ProgressPercent { get; set; }
+    public string? StatusMessage { get; set; }
 }

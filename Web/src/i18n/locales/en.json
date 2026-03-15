@@ -2322,8 +2322,7 @@
         "nextRun": "Next run:",
         "lastRun": "Last run:",
         "disabled": "Disabled",
-        "calculating": "Calculating...",
-        "notifyOn": "Notify"
+        "calculating": "Calculating..."
       },
       "intervals": {
         "disabled": "Disabled",

@@ -609,7 +609,7 @@ export function createDepotMappingCompletionHandler(
 
   /** Handles successful depot mapping completion */
   const handleSuccess = (event: DepotMappingCompleteEvent): void => {
-    const successMessage = event.message || 'Depot mapping completed successfully';
+    const successMessage = event.message || 'Depot mapping completed';
     const successDetails = {
       totalMappings: event.totalMappings,
       downloadsUpdated: event.downloadsUpdated

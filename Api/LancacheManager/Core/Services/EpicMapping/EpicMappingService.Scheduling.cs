@@ -104,6 +104,10 @@ public partial class EpicMappingService
             _currentRefreshCts
         );
 
+        _currentProgressPercent = 0;
+        _lastNewGames = 0;
+        _lastUpdatedGames = 0;
+
         // Send start progress event (mirrors Steam's DepotMappingStarted)
         _notifications.NotifyAllFireAndForget(SignalREvents.EpicMappingProgress, new
         {
@@ -150,6 +154,7 @@ public partial class EpicMappingService
                     cancelled = true
                 });
 
+                _currentProgressPercent = 0;
                 _currentStatus = "Idle";
             }
             catch (Exception ex)
@@ -166,6 +171,7 @@ public partial class EpicMappingService
                     message = $"Epic catalog refresh failed: {ex.Message}"
                 });
 
+                _currentProgressPercent = 0;
                 _currentStatus = "Idle";
             }
             finally
@@ -176,6 +182,7 @@ public partial class EpicMappingService
                     _operationTracker.CompleteOperation(_currentOperationId, success, errorMessage);
                 }
 
+                _currentProgressPercent = 0;
                 _currentRefreshCts?.Dispose();
                 _currentRefreshCts = null;
                 _currentOperationId = null;
@@ -217,6 +224,10 @@ public partial class EpicMappingService
     /// </summary>
     private async Task RefreshCatalogAsync(CancellationToken ct)
     {
+        _lastNewGames = 0;
+        _lastUpdatedGames = 0;
+        _currentProgressPercent = 0;
+
         // First, try to refresh the token if it's expired
         if (_currentTokens != null && _currentTokens.ExpiresAt <= DateTime.UtcNow)
         {
@@ -260,6 +271,7 @@ public partial class EpicMappingService
         ct.ThrowIfCancellationRequested();
 
         // Fetch owned games
+        _currentProgressPercent = 15;
         await _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress, new
         {
             operationId = _currentOperationId,
@@ -277,6 +289,8 @@ public partial class EpicMappingService
 
             _gamesDiscovered = result.TotalGames;
             _lastCollectionUtc = DateTime.UtcNow;
+            _lastNewGames += result.NewGames;
+            _lastUpdatedGames += result.UpdatedGames;
 
             _logger.LogInformation(
                 "Catalog refresh: {New} new, {Updated} updated, {Total} total games",
@@ -286,6 +300,7 @@ public partial class EpicMappingService
         ct.ThrowIfCancellationRequested();
 
         // Refresh CDN patterns
+        _currentProgressPercent = 40;
         await _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress, new
         {
             operationId = _currentOperationId,
@@ -312,6 +327,7 @@ public partial class EpicMappingService
         ct.ThrowIfCancellationRequested();
 
         // Discover free games
+        _currentProgressPercent = 60;
         await _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress, new
         {
             operationId = _currentOperationId,
@@ -328,6 +344,8 @@ public partial class EpicMappingService
             {
                 var sessionHash = CryptoUtils.ComputeAnonymousHash("free-games-discovery");
                 var freeResult = await MergeOwnedGamesAsync(freeGames, sessionHash, "free-games", ct);
+                _lastNewGames += freeResult.NewGames;
+                _lastUpdatedGames += freeResult.UpdatedGames;
                 _logger.LogInformation(
                     "Free games discovery: {New} new, {Updated} updated from {Count} promotions",
                     freeResult.NewGames, freeResult.UpdatedGames, freeGames.Count);
@@ -341,6 +359,7 @@ public partial class EpicMappingService
         ct.ThrowIfCancellationRequested();
 
         // Resolve downloads against CDN patterns (mirrors Steam applying depot mappings after scan)
+        _currentProgressPercent = 85;
         await _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress, new
         {
             operationId = _currentOperationId,
@@ -364,19 +383,23 @@ public partial class EpicMappingService
         }
 
         // Send completion progress event
+        _currentProgressPercent = 100;
         await _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress, new
         {
             operationId = _currentOperationId,
             status = "completed",
             percentComplete = 100.0,
             gamesDiscovered = _gamesDiscovered,
-            message = $"Epic catalog refresh complete — {_gamesDiscovered} games"
+            message = $"Epic catalog refresh completed — {_gamesDiscovered} games"
         });
 
         // Notify frontend of data updates
         await _notifications.NotifyAllAsync(SignalREvents.EpicGameMappingsUpdated, new
         {
             totalGames = _gamesDiscovered,
+            newGames = _lastNewGames,
+            updatedGames = _lastUpdatedGames,
+            lastUpdatedUtc = DateTime.UtcNow,
             source = "scheduled-refresh"
         });
     }

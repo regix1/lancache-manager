@@ -160,7 +160,7 @@ public partial class SteamKit2Service
                 operationId,
                 success = true,
                 scanMode = "github",
-                message = "GitHub depot data imported successfully",
+                message = $"GitHub depot data imported — {totalMappings} mappings",
                 totalMappings,
                 isLoggedOn = IsSteamAuthenticated,
                 timestamp = DateTime.UtcNow

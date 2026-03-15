@@ -60,6 +60,8 @@ public partial class EpicMappingService
                     result.NewGames, result.UpdatedGames, result.TotalGames);
 
                 _gamesDiscovered = result.TotalGames;
+                _lastNewGames = result.NewGames;
+                _lastUpdatedGames = result.UpdatedGames;
             }
 
             await _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress, new
@@ -120,6 +122,9 @@ public partial class EpicMappingService
             await _notifications.NotifyAllAsync(SignalREvents.EpicGameMappingsUpdated, new
             {
                 totalGames = _gamesDiscovered,
+                newGames = _lastNewGames,
+                updatedGames = _lastUpdatedGames,
+                lastUpdatedUtc = DateTime.UtcNow,
                 source = "mapping-login"
             });
 

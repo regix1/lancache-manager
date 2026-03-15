@@ -284,7 +284,7 @@ const RECOVERY_CONFIGS = {
     notificationId: NOTIFICATION_IDS.EPIC_GAME_MAPPING,
     isProcessing: (data: Record<string, unknown>) => Boolean(data.isProcessing),
     createNotification: (data: Record<string, unknown>) => ({
-      message: (data.status as string) || 'Mapping Epic games...',
+      message: (data.statusMessage as string) || 'Refreshing Epic game catalog...',
       progress: (data.progressPercent as number) || 0,
       details: {
         operationId: data.operationId as string
