@@ -6,7 +6,7 @@ import { z } from 'zod';
 // This is the single source of truth for colour keys and their defaults.
 // ---------------------------------------------------------------------------
 
-export const themeColorsSchema = z.object({
+const themeColorsSchema = z.object({
   // ── Core colors ──────────────────────────────────────────────────────
   primaryColor: z.string().default('#3b82f6'),
   secondaryColor: z.string().default('#8b5cf6'),
@@ -199,11 +199,6 @@ export const themeColorsSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// Exported type for the parsed colour map
-// ---------------------------------------------------------------------------
-export type ThemeColorsSchema = z.infer<typeof themeColorsSchema>;
-
-// ---------------------------------------------------------------------------
 // Utility: convert hex colour to rgba string
 // ---------------------------------------------------------------------------
 export function hexToRgba(hex: string, opacity: number): string {
@@ -216,7 +211,7 @@ export function hexToRgba(hex: string, opacity: number): string {
 // Fill in derived colours that depend on other base colours.
 // Only sets a key when it is missing or empty.
 // ---------------------------------------------------------------------------
-export function normalizeThemeColors(colors: Record<string, string>): Record<string, string> {
+function normalizeThemeColors(colors: Record<string, string>): Record<string, string> {
   const result = { ...colors };
 
   // Focus colours default to primary
@@ -257,11 +252,4 @@ export function parseThemeColors(partial: Record<string, unknown>): Record<strin
     }
   }
   return normalizeThemeColors(filtered);
-}
-
-// ---------------------------------------------------------------------------
-// Get the complete dark-default colour map (no overrides).
-// ---------------------------------------------------------------------------
-export function getThemeDefaults(): Record<string, string> {
-  return parseThemeColors({});
 }
