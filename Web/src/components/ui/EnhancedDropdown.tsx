@@ -184,7 +184,12 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
       const rect = buttonRef.current.getBoundingClientRect();
       // Parse maxHeight if provided in pixels, otherwise default to 300
       const parsedMaxHeight = maxHeight && maxHeight.endsWith('px') ? parseInt(maxHeight, 10) : 300;
-      const dropdownHeight = parsedMaxHeight + 50; // Add buffer for header/footer
+      // In compactMode items are much shorter (py-1 text-xs vs py-2.5 text-sm),
+      // so estimate a smaller dropdown height to avoid unnecessarily opening upward
+      const estimatedContentHeight = compactMode
+        ? Math.min(parsedMaxHeight, options.length * 24 + 8) // ~24px per compact item + padding
+        : parsedMaxHeight;
+      const dropdownHeight = estimatedContentHeight + 50; // Add buffer for header/footer
       const spaceBelow = window.innerHeight - rect.bottom;
       const spaceAbove = rect.top;
       const shouldOpenUpward = spaceBelow < dropdownHeight && spaceAbove > dropdownHeight;
@@ -218,10 +223,10 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
         animation: `${pos.shouldOpenUpward ? 'dropdownSlideUp' : 'dropdownSlideDown'} 0.15s cubic-bezier(0.16, 1, 0.3, 1)`
       });
     }
-  }, [isOpen, alignRight, dropdownWidth, maxHeight]);
+  }, [isOpen, alignRight, dropdownWidth, maxHeight, compactMode, options.length]);
 
-  // After the dropdown is rendered, clamp its position using the *actual* measured width.
-  // This prevents overflows if CSS constraints (min/max width) or content affect final sizing.
+  // After the dropdown is rendered, clamp its position using the *actual* measured dimensions.
+  // This corrects both horizontal overflow and vertical direction using real rendered height.
   useLayoutEffect(() => {
     if (!isOpen || !dropdownPosition || !buttonRef.current || !dropdownRef.current) return;
 
@@ -229,6 +234,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
     const buttonRect = buttonRef.current.getBoundingClientRect();
     const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
 
+    // Horizontal clamping
     const desiredLeft = alignRight ? buttonRect.right - dropdownRect.width : buttonRect.left;
     const maxLeft = Math.max(
       VIEWPORT_PADDING_PX,
@@ -236,8 +242,40 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
     );
     const clampedLeft = Math.min(Math.max(desiredLeft, VIEWPORT_PADDING_PX), maxLeft);
 
-    if (Math.abs(clampedLeft - dropdownPosition.left) > 0.5) {
-      setDropdownPosition({ ...dropdownPosition, left: clampedLeft });
+    // Vertical correction: use actual rendered height to re-evaluate direction.
+    // If we opened upward but the actual height fits below, switch to downward.
+    const gap = 4;
+    const actualHeight = dropdownRect.height;
+    const spaceBelow = window.innerHeight - buttonRect.bottom;
+    const isCurrentlyUpward = dropdownPosition.bottom !== undefined;
+    const fitsBelow = spaceBelow >= actualHeight + gap;
+
+    let newTop = dropdownPosition.top;
+    let newBottom = dropdownPosition.bottom;
+    let directionChanged = false;
+
+    if (isCurrentlyUpward && fitsBelow) {
+      // Switch from upward to downward - actual height fits below
+      newTop = buttonRect.bottom + gap;
+      newBottom = undefined;
+      directionChanged = true;
+    }
+
+    const leftChanged = Math.abs(clampedLeft - dropdownPosition.left) > 0.5;
+
+    if (leftChanged || directionChanged) {
+      const newLeft = leftChanged || directionChanged ? clampedLeft : dropdownPosition.left;
+      setDropdownPosition({
+        top: newTop,
+        bottom: newBottom,
+        left: newLeft,
+        width: dropdownPosition.width
+      });
+      if (directionChanged) {
+        setDropdownStyle({
+          animation: 'dropdownSlideDown 0.15s cubic-bezier(0.16, 1, 0.3, 1)'
+        });
+      }
     }
   }, [isOpen, alignRight, dropdownPosition]);
 
@@ -391,7 +429,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
               paddingMode="compact"
               className="!rounded-none"
             >
-              <div className="py-1">
+              <div className={compactMode ? 'py-0.5' : 'py-1'}>
                 {options.map((option) =>
                   option.value === 'divider' ? (
                     <div
@@ -405,7 +443,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                       <button
                         type="button"
                         onClick={(e) => handleSubmenuToggle(option.value, e.currentTarget)}
-                        className={`ed-option w-full px-3 py-2.5 text-left text-sm cursor-pointer ${value.startsWith(option.value + ':') || expandedSubmenu === option.value ? 'ed-option-selected' : ''}`}
+                        className={`ed-option w-full ${compactMode ? 'px-2 py-1 text-xs' : 'px-3 py-2.5 text-sm'} text-left cursor-pointer ${value.startsWith(option.value + ':') || expandedSubmenu === option.value ? 'ed-option-selected' : ''}`}
                         title={option.description || option.label}
                       >
                         <div className="flex items-start gap-3">
@@ -547,13 +585,13 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                             type="button"
                             onClick={() => !option.disabled && handleSelect(option.value)}
                             disabled={option.disabled}
-                            className={`ed-option w-full px-3 py-2.5 text-left text-sm ${option.disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'} ${isSelected ? 'ed-option-selected' : ''}`}
+                            className={`ed-option w-full ${compactMode ? 'px-2 py-1 text-xs' : 'px-3 py-2.5 text-sm'} text-left ${option.disabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'} ${isSelected ? 'ed-option-selected' : ''}`}
                           >
-                            <div className="flex items-start gap-3">
+                            <div className={`flex items-start ${compactMode ? 'gap-2' : 'gap-3'}`}>
                               {!cleanStyle && option.icon && (
                                 <option.icon
                                   className={`flex-shrink-0 mt-0.5 ${isSelected ? 'text-[var(--theme-primary)]' : 'text-themed-secondary'}`}
-                                  size={16}
+                                  size={compactMode ? 12 : 16}
                                 />
                               )}
                               <div className="flex flex-col flex-1 min-w-0">
@@ -577,7 +615,7 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
                               )}
                               {!cleanStyle && isSelected && (
                                 <Check
-                                  size={16}
+                                  size={compactMode ? 12 : 16}
                                   className="flex-shrink-0 mt-0.5 text-[var(--theme-primary)]"
                                 />
                               )}

@@ -38,6 +38,7 @@ interface MultiSelectDropdownProps {
   title?: string;
   minSelections?: number;
   maxSelections?: number;
+  compactMode?: boolean;
 }
 
 // Memoized option component
@@ -47,52 +48,62 @@ interface OptionItemProps {
   isDisabled: boolean;
   isLast: boolean;
   onToggle: (value: string) => void;
+  compact?: boolean;
 }
 
-const OptionItem = memo<OptionItemProps>(({ option, isSelected, isDisabled, isLast, onToggle }) => {
-  const Icon = option.icon;
+const OptionItem = memo<OptionItemProps>(
+  ({ option, isSelected, isDisabled, isLast, onToggle, compact }) => {
+    const Icon = option.icon;
 
-  return (
-    <button
-      type="button"
-      onClick={() => !isDisabled && onToggle(option.value)}
-      disabled={isDisabled}
-      className={`
-        msd-option w-full text-left flex items-start gap-3 px-4 py-3.5 bg-themed-secondary
+    return (
+      <button
+        type="button"
+        onClick={() => !isDisabled && onToggle(option.value)}
+        disabled={isDisabled}
+        className={`
+        msd-option w-full text-left flex items-start ${compact ? 'gap-2 px-2 py-1' : 'gap-3 px-4 py-3.5'} bg-themed-secondary
         ${isSelected ? 'msd-option-selected' : ''}
         ${isDisabled ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}
         ${!isLast ? 'border-b border-themed-secondary' : ''}
       `}
-    >
-      <div className="msd-accent absolute left-0 top-0 bottom-0 w-0.5 bg-[var(--theme-primary)]" />
-
-      <div
-        className={`msd-checkbox flex-shrink-0 w-5 h-5 rounded-md flex items-center justify-center mt-0.5 ${
-          isSelected
-            ? 'msd-checkbox-selected bg-[var(--theme-primary)] border-none shadow-[0_2px_4px_var(--theme-primary-strong)]'
-            : 'bg-transparent border-2 border-themed-primary shadow-none'
-        }`}
       >
-        <Check className="msd-checkbox-inner w-3.5 h-3.5 text-white" strokeWidth={3} />
-      </div>
+        <div className="msd-accent absolute left-0 top-0 bottom-0 w-0.5 bg-[var(--theme-primary)]" />
 
-      {Icon && (
         <div
-          className={`flex-shrink-0 mt-0.5 ${isSelected ? 'text-[var(--theme-primary)]' : 'text-themed-muted'}`}
+          className={`msd-checkbox flex-shrink-0 ${compact ? 'w-4 h-4' : 'w-5 h-5'} rounded-md flex items-center justify-center mt-0.5 ${
+            isSelected
+              ? 'msd-checkbox-selected bg-[var(--theme-primary)] border-none shadow-[0_2px_4px_var(--theme-primary-strong)]'
+              : 'bg-transparent border-2 border-themed-primary shadow-none'
+          }`}
         >
-          <Icon size={18} />
+          <Check
+            className={`msd-checkbox-inner ${compact ? 'w-2.5 h-2.5' : 'w-3.5 h-3.5'} text-white`}
+            strokeWidth={3}
+          />
         </div>
-      )}
 
-      <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium leading-tight text-themed-primary">{option.label}</div>
-        {option.description && (
-          <div className="text-xs leading-[1.4] mt-1 text-themed-muted">{option.description}</div>
+        {Icon && (
+          <div
+            className={`flex-shrink-0 mt-0.5 ${isSelected ? 'text-[var(--theme-primary)]' : 'text-themed-muted'}`}
+          >
+            <Icon size={compact ? 14 : 18} />
+          </div>
         )}
-      </div>
-    </button>
-  );
-});
+
+        <div className="flex-1 min-w-0">
+          <div
+            className={`${compact ? 'text-xs' : 'text-sm'} font-medium leading-tight text-themed-primary`}
+          >
+            {option.label}
+          </div>
+          {option.description && (
+            <div className="text-xs leading-[1.4] mt-1 text-themed-muted">{option.description}</div>
+          )}
+        </div>
+      </button>
+    );
+  }
+);
 
 OptionItem.displayName = 'OptionItem';
 
@@ -107,7 +118,8 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
   alignRight = false,
   title,
   minSelections = 1,
-  maxSelections
+  maxSelections,
+  compactMode = false
 }) => {
   const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
@@ -285,12 +297,13 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
         createPortal(
           <div
             ref={dropdownRef}
-            className={`msd-dropdown fixed z-[85] ${dropdownWidth || 'w-72'} themed-border-radius overflow-hidden bg-themed-secondary border border-themed-primary shadow-[0_4px_6px_-1px_rgba(0,0,0,0.1),0_10px_20px_-5px_rgba(0,0,0,0.2),0_20px_40px_-10px_rgba(0,0,0,0.15),inset_0_1px_0_0_var(--theme-glint-white)]`}
+            className={`msd-dropdown fixed z-[85] ${dropdownWidth || ''} themed-border-radius overflow-hidden bg-themed-secondary border border-themed-primary shadow-[0_4px_6px_-1px_rgba(0,0,0,0.1),0_10px_20px_-5px_rgba(0,0,0,0.2),0_20px_40px_-10px_rgba(0,0,0,0.15),inset_0_1px_0_0_var(--theme-glint-white)]`}
             style={{
               top: dropdownStyle.top,
               bottom: dropdownStyle.bottom,
               left: dropdownStyle.left,
-              animation: dropdownStyle.animation
+              animation: dropdownStyle.animation,
+              ...(!dropdownWidth ? { width: buttonRef.current?.getBoundingClientRect().width } : {})
             }}
             onPointerDown={(event) => event.stopPropagation()}
             onMouseDown={(event) => event.stopPropagation()}
@@ -320,6 +333,7 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
                     }
                     isLast={i === options.length - 1}
                     onToggle={handleToggle}
+                    compact={compactMode}
                   />
                 ))}
               </div>

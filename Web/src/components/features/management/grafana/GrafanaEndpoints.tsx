@@ -217,7 +217,7 @@ const GrafanaEndpoints: React.FC = () => {
 
   return (
     <Card>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-lg flex items-center justify-center icon-bg-indigo">
             <Link className="w-5 h-5 icon-indigo" />
@@ -317,7 +317,7 @@ const GrafanaEndpoints: React.FC = () => {
 
       {/* Data Refresh Rate - Controls how often the app updates metrics */}
       <div className="mt-4 p-3 rounded-lg border bg-themed-tertiary border-themed-secondary">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <div className="flex items-center gap-2">
             <RefreshCw className="w-4 h-4 text-themed-muted" />
             <div>
@@ -355,7 +355,7 @@ const GrafanaEndpoints: React.FC = () => {
 
       {/* Prometheus Scrape Interval - Controls how often Prometheus pulls metrics */}
       <div className="mt-2 p-3 rounded-lg border bg-themed-tertiary border-themed-secondary">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <div className="flex items-center gap-2">
             <Clock className="w-4 h-4 text-themed-muted" />
             <div>

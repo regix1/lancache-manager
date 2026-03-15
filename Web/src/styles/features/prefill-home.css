@@ -317,7 +317,12 @@
 
     .prefill-home-grid {
       flex-direction: column;
-      align-items: center;
+      align-items: stretch;
+    }
+
+    .prefill-home-grid > .prefill-service-card {
+      flex: none;
+      max-width: none;
     }
 
     .prefill-home-title {

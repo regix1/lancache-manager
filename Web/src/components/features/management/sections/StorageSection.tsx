@@ -62,7 +62,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     >
       {/* Section Header */}
       <div className="mb-4 sm:mb-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-xl font-semibold text-themed-primary mb-1">
               {t('management.sections.storage.title')}

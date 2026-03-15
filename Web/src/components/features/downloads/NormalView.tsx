@@ -731,7 +731,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                             <button
                               type="button"
                               onClick={() => toggleIp(clientIp)}
-                              className="w-full bg-[var(--theme-bg-tertiary)] px-4 py-2 flex items-center justify-between border-b border-[var(--theme-border-secondary)] text-left"
+                              className="w-full bg-[var(--theme-bg-tertiary)] px-4 py-2 flex flex-wrap items-center justify-between gap-1 border-b border-[var(--theme-border-secondary)] text-left"
                             >
                               <div className="flex items-center gap-2">
                                 <ChevronDown

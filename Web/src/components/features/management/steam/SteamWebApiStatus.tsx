@@ -294,7 +294,7 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
 
         {/* Configure/Remove Buttons */}
         {(needsApiKey || status?.hasApiKey) && (
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button
               variant="filled"
               color="blue"

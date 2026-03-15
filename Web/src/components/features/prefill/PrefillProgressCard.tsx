@@ -67,7 +67,7 @@ export function PrefillProgressCard({ progress, onCancel }: PrefillProgressCardP
             <div>
               <p className="font-medium text-themed-primary">{getStateLabel()}</p>
               {showAppInfo && (
-                <p className="text-sm text-themed-muted truncate max-w-[300px]">
+                <p className="text-sm text-themed-muted truncate max-w-[180px] sm:max-w-[300px]">
                   {progress.currentAppName ||
                     t('prefill.progress.appId', { id: progress.currentAppId })}
                   {progress.state === 'app_completed' && ` - ${t('prefill.progress.complete')}`}

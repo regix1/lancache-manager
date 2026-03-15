@@ -1208,20 +1208,53 @@
   }
 
   /* Session filter bar — mobile overrides */
-  @media (max-width: 639px) {
+  @media (max-width: 767px) {
     .session-filter-bar {
-      gap: 0.4rem 0.5rem;
-      padding: 0.4rem 0.5rem;
+      flex-direction: column;
+      gap: 0.4rem;
+      padding: 0.5rem;
+    }
+
+    .session-filter-group {
+      width: 100%;
+      justify-content: space-between;
+      flex-shrink: 1;
     }
 
     .session-filter-label {
       font-size: 0.6rem;
+      min-width: 3.5rem;
+    }
+
+    .session-filter-pills {
+      flex-wrap: wrap;
+      justify-content: flex-end;
     }
 
     .session-filter-pill,
     .session-filter-clear {
       font-size: 0.65rem;
       padding: 0.15rem 0.4rem;
+    }
+
+    .session-filter-ip-select {
+      width: auto;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .session-filter-bar .ed-trigger {
+      min-width: 6rem;
+    }
+
+    .session-filter-count {
+      text-align: center;
+      margin-left: 0;
+    }
+
+    .session-filter-clear {
+      width: 100%;
+      text-align: center;
     }
   }
 }

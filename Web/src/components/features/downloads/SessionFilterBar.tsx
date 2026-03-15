@@ -150,8 +150,8 @@ const SessionFilterBar: React.FC<SessionFilterBarProps> = ({
               onChange={(values: string[]) => updateFilter('clientIps', values)}
               placeholder="All IPs"
               minSelections={0}
-              dropdownWidth="w-44"
               className="session-filter-ip-select"
+              compactMode
             />
           </div>
         )}
@@ -192,6 +192,7 @@ const SessionFilterBar: React.FC<SessionFilterBarProps> = ({
             options={sortDropdownOptions}
             value={filters.sortBy}
             onChange={(value: string) => updateFilter('sortBy', value as SessionSortBy)}
+            compactMode
           />
         </div>
 
@@ -201,6 +202,7 @@ const SessionFilterBar: React.FC<SessionFilterBarProps> = ({
             options={perPageDropdownOptions}
             value={String(filters.sessionsPerPage)}
             onChange={(value: string) => updateFilter('sessionsPerPage', Number(value))}
+            compactMode
           />
         </div>
 
