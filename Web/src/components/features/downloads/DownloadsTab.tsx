@@ -994,9 +994,7 @@ const DownloadsTab: React.FC = () => {
     if (currentPage !== 1) {
       setCurrentPage(1);
       requestAnimationFrame(() => {
-        if (scrollAnchorRef.current) {
-          scrollAnchorRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
+        scrollToAnchor();
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1038,6 +1036,16 @@ const DownloadsTab: React.FC = () => {
     }
   }, [settingsOpened]);
 
+  // Scroll to the pagination anchor using window.scrollTo (more reliable than scrollIntoView
+  // which has known issues with sticky elements - Chromium bug #664246)
+  const scrollToAnchor = () => {
+    if (!scrollAnchorRef.current) return;
+    const rect = scrollAnchorRef.current.getBoundingClientRect();
+    const scrollMargin = parseFloat(getComputedStyle(scrollAnchorRef.current).scrollMarginTop) || 0;
+    const absoluteY = rect.top + window.scrollY - scrollMargin;
+    window.scrollTo({ top: absoluteY, behavior: 'smooth' });
+  };
+
   // Handle page changes with smooth scroll
   const handlePageChange = (newPage: number) => {
     if (newPage === currentPage) return;
@@ -1046,9 +1054,7 @@ const DownloadsTab: React.FC = () => {
       setCurrentPage(newPage);
     });
 
-    if (scrollAnchorRef.current) {
-      scrollAnchorRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
+    scrollToAnchor();
   };
 
   // Callback for retro view to report its pagination info
