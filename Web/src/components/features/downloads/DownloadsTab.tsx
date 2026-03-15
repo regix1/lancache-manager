@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { flushSync } from 'react-dom';
+
 import { useTranslation } from 'react-i18next';
 import {
   Database,
@@ -89,24 +89,24 @@ const PRESETS = {
   pretty: {
     showZeroBytes: false,
     showSmallFiles: false,
-    hideLocalhost: false,
+    hideLocalhost: true,
     hideUnknownGames: true,
     groupUnknownGames: false,
     aestheticMode: false,
     fullHeightBanners: true,
-    groupByFrequency: false,
+    groupByFrequency: true,
     enableScrollIntoView: true
   },
   minimal: {
     showZeroBytes: false,
     showSmallFiles: false,
-    hideLocalhost: false,
+    hideLocalhost: true,
     hideUnknownGames: true,
     groupUnknownGames: false,
     aestheticMode: true,
     fullHeightBanners: false,
     groupByFrequency: true,
-    enableScrollIntoView: true
+    enableScrollIntoView: false
   },
   showAll: {
     showZeroBytes: true,
@@ -282,7 +282,7 @@ const DownloadsTab: React.FC = () => {
   const [retroTotalPages, setRetroTotalPages] = useState(1);
   const [retroTotalItems, setRetroTotalItems] = useState(0);
   const contentRef = useRef<HTMLDivElement>(null);
-  const scrollAnchorRef = useRef<HTMLDivElement>(null);
+
   const settingsRef = useRef<HTMLDivElement>(null);
   const retroViewRef = useRef<RetroViewHandle>(null);
 
@@ -993,15 +993,6 @@ const DownloadsTab: React.FC = () => {
   useEffect(() => {
     if (currentPage !== 1) {
       setCurrentPage(1);
-      requestAnimationFrame(() => {
-        if (scrollAnchorRef.current) {
-          const scrollMargin =
-            parseFloat(getComputedStyle(scrollAnchorRef.current).scrollMarginTop) || 0;
-          const absoluteY =
-            scrollAnchorRef.current.getBoundingClientRect().top + window.scrollY - scrollMargin;
-          window.scrollTo({ top: absoluteY, behavior: 'smooth' });
-        }
-      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -1045,38 +1036,29 @@ const DownloadsTab: React.FC = () => {
   // Fade state for smooth page content transitions
   const [isPageFading, setIsPageFading] = useState(false);
 
-  // Handle page changes with smooth scroll and content fade
+  // Suppress scroll-into-view during page changes so pagination scroll isn't fought
+  const [suppressExpandScroll, setSuppressExpandScroll] = useState(false);
+
+  // Handle page changes with content fade (no scroll)
   const handlePageChange = (newPage: number) => {
     if (newPage === currentPage) return;
 
-    // Capture scroll target BEFORE state change (anchor is above content, position is stable)
-    let scrollTarget = 0;
-    if (scrollAnchorRef.current) {
-      const scrollMargin =
-        parseFloat(getComputedStyle(scrollAnchorRef.current).scrollMarginTop) || 0;
-      scrollTarget =
-        scrollAnchorRef.current.getBoundingClientRect().top + window.scrollY - scrollMargin;
-    }
+    // Suppress scroll-into-view on newly mounted items during page transition
+    setSuppressExpandScroll(true);
+    setTimeout(() => setSuppressExpandScroll(false), 600);
 
-    // Fade out, swap content, fade in
+    // Fade out content
     setIsPageFading(true);
 
-    // Small delay to let fade-out start, then swap content
-    requestAnimationFrame(() => {
-      flushSync(() => {
-        setCurrentPage(newPage);
-      });
+    // Wait for fade-out to finish, then swap content and fade in
+    setTimeout(() => {
+      setCurrentPage(newPage);
 
-      // Scroll to anchor position
-      if (scrollTarget > 0) {
-        window.scrollTo({ top: scrollTarget, behavior: 'smooth' });
-      }
-
-      // Fade content back in after a brief moment
+      // Fade content back in on next frame
       requestAnimationFrame(() => {
         setIsPageFading(false);
       });
-    });
+    }, 150);
   };
 
   // Callback for retro view to report its pagination info
@@ -1752,9 +1734,6 @@ const DownloadsTab: React.FC = () => {
             </Alert>
           )}
 
-          {/* Scroll anchor for pagination (non-sticky, so scrollIntoView works reliably) */}
-          <div ref={scrollAnchorRef} className="pagination-scroll-anchor" />
-
           {/* Sticky Pagination Controls (above content) */}
           {settings.itemsPerPage !== 'unlimited' &&
             (settings.viewMode === 'retro' ? retroTotalPages : totalPages) > 1 && (
@@ -1777,7 +1756,7 @@ const DownloadsTab: React.FC = () => {
 
           {/* Downloads list */}
           <div
-            className={`relative overflow-x-hidden transition-opacity duration-150 ${isPageFading ? 'opacity-0' : 'opacity-100'}`}
+            className={`relative overflow-x-hidden page-content-transition ${isPageFading ? 'page-fading' : ''}`}
             ref={contentRef}
           >
             {/* Content based on view mode with fade transition */}
@@ -1798,7 +1777,7 @@ const DownloadsTab: React.FC = () => {
                       onItemClick={handleItemClick}
                       aestheticMode={settings.aestheticMode}
                       groupByFrequency={settings.groupByFrequency}
-                      enableScrollIntoView={settings.enableScrollIntoView}
+                      enableScrollIntoView={false}
                       showDatasourceLabels={showDatasourceLabels}
                       hasMultipleDatasources={hasMultipleDatasources}
                     />
@@ -1821,7 +1800,7 @@ const DownloadsTab: React.FC = () => {
                       aestheticMode={settings.aestheticMode}
                       fullHeightBanners={settings.fullHeightBanners}
                       groupByFrequency={settings.groupByFrequency}
-                      enableScrollIntoView={settings.enableScrollIntoView}
+                      enableScrollIntoView={settings.enableScrollIntoView && !suppressExpandScroll}
                       showDatasourceLabels={showDatasourceLabels}
                       hasMultipleDatasources={hasMultipleDatasources}
                     />

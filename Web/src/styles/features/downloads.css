@@ -121,6 +121,91 @@
     }
   }
 
+  /* Page transition - items fade and slide up when page changes */
+  @keyframes pageItemIn {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .page-item-enter {
+    animation: pageItemIn 0.25s cubic-bezier(0.4, 0, 0.2, 1) both;
+  }
+
+  /* Staggered delays for first 20 items */
+  .page-item-enter:nth-child(1) {
+    animation-delay: 0ms;
+  }
+  .page-item-enter:nth-child(2) {
+    animation-delay: 20ms;
+  }
+  .page-item-enter:nth-child(3) {
+    animation-delay: 40ms;
+  }
+  .page-item-enter:nth-child(4) {
+    animation-delay: 60ms;
+  }
+  .page-item-enter:nth-child(5) {
+    animation-delay: 80ms;
+  }
+  .page-item-enter:nth-child(6) {
+    animation-delay: 100ms;
+  }
+  .page-item-enter:nth-child(7) {
+    animation-delay: 120ms;
+  }
+  .page-item-enter:nth-child(8) {
+    animation-delay: 140ms;
+  }
+  .page-item-enter:nth-child(9) {
+    animation-delay: 160ms;
+  }
+  .page-item-enter:nth-child(10) {
+    animation-delay: 180ms;
+  }
+  .page-item-enter:nth-child(11) {
+    animation-delay: 200ms;
+  }
+  .page-item-enter:nth-child(12) {
+    animation-delay: 220ms;
+  }
+  .page-item-enter:nth-child(13) {
+    animation-delay: 240ms;
+  }
+  .page-item-enter:nth-child(14) {
+    animation-delay: 260ms;
+  }
+  .page-item-enter:nth-child(15) {
+    animation-delay: 280ms;
+  }
+  .page-item-enter:nth-child(16) {
+    animation-delay: 300ms;
+  }
+  .page-item-enter:nth-child(17) {
+    animation-delay: 320ms;
+  }
+  .page-item-enter:nth-child(18) {
+    animation-delay: 340ms;
+  }
+  .page-item-enter:nth-child(19) {
+    animation-delay: 360ms;
+  }
+  .page-item-enter:nth-child(20) {
+    animation-delay: 380ms;
+  }
+
+  /* Respect reduced motion preference */
+  @media (prefers-reduced-motion: reduce) {
+    .page-item-enter {
+      animation: none;
+    }
+  }
+
   /* ===== DOWNLOADS HEADER ===== */
 
   .downloads-header {

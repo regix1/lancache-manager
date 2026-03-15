@@ -141,8 +141,14 @@ const GroupCard: React.FC<GroupCardProps> = ({
 
     if (isExpanded && !wasExpanded && cardRef.current) {
       const timeoutId = setTimeout(() => {
-        cardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      }, 450);
+        if (!cardRef.current) return;
+        const rect = cardRef.current.getBoundingClientRect();
+        // Only scroll if the card is not fully visible in the viewport
+        if (rect.top < 0 || rect.bottom > window.innerHeight) {
+          const targetY = rect.top + window.scrollY - 16; // 16px buffer from top
+          window.scrollTo({ top: targetY, behavior: 'smooth' });
+        }
+      }, 300);
       return () => clearTimeout(timeoutId);
     }
   }, [isExpanded, enableScrollIntoView]);
@@ -440,7 +446,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
   return (
     <div
       ref={cardRef}
-      className={`rounded-lg border overflow-hidden shadow-sm bg-[var(--theme-bg-secondary)] ${
+      className={`page-item-enter rounded-lg border overflow-hidden shadow-sm bg-[var(--theme-bg-secondary)] ${
         isExpanded ? 'ring-2 border-[var(--theme-primary)]' : 'border-[var(--theme-border-primary)]'
       } ${!fullHeightBanners && !isExpanded ? 'sm:max-h-[160px]' : ''}`}
     >

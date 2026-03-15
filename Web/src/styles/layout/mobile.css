@@ -51,6 +51,16 @@
     }
   }
 
+  /* ===== PAGE CONTENT FADE TRANSITION ===== */
+  /* Page content fade transition */
+  .page-content-transition {
+    transition: opacity 0.15s ease-out;
+  }
+
+  .page-content-transition.page-fading {
+    opacity: 0;
+  }
+
   /* ===== MOBILE RESPONSIVE UTILITIES ===== */
 
   /* Extra small screens (below 480px) */
