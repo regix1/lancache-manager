@@ -13,7 +13,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
-import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
+import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { ToggleSwitch } from '@components/ui/ToggleSwitch';
 import { AccordionSection } from '@components/ui/AccordionSection';
@@ -227,24 +227,18 @@ const GrafanaEndpoints: React.FC = () => {
           </h3>
           <HelpPopover position="left" width={320}>
             <HelpSection title={t('management.grafana.help.metrics.title')} variant="subtle">
-              <div className="divide-y divide-[var(--theme-text-muted)]">
-                <div className="py-1.5 first:pt-0 last:pb-0">
-                  <div className="font-medium text-themed-primary">
-                    {t('management.grafana.help.metrics.cache.term')}
-                  </div>
-                  <div className="mt-0.5">
-                    {t('management.grafana.help.metrics.cache.description')}
-                  </div>
-                </div>
-                <div className="py-1.5 first:pt-0 last:pb-0">
-                  <div className="font-medium text-themed-primary">
-                    {t('management.grafana.help.metrics.activity.term')}
-                  </div>
-                  <div className="mt-0.5">
-                    {t('management.grafana.help.metrics.activity.description')}
-                  </div>
-                </div>
-              </div>
+              <HelpDefinition
+                items={[
+                  {
+                    term: t('management.grafana.help.metrics.cache.term'),
+                    description: t('management.grafana.help.metrics.cache.description')
+                  },
+                  {
+                    term: t('management.grafana.help.metrics.activity.term'),
+                    description: t('management.grafana.help.metrics.activity.description')
+                  }
+                ]}
+              />
             </HelpSection>
 
             <HelpSection title={t('management.grafana.help.integration.title')} variant="subtle">
@@ -388,7 +382,6 @@ const GrafanaEndpoints: React.FC = () => {
         <AccordionSection
           title={t('management.grafana.prometheusConfig')}
           icon={Settings}
-          count={7}
           isExpanded={isConfigExpanded}
           onToggle={() => setIsConfigExpanded((prev) => !prev)}
         >

@@ -5,7 +5,7 @@ import ApiService from '@services/api.service';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Modal } from '@components/ui/Modal';
-import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
+import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { DatasourceListItem } from '@components/ui/DatasourceListItem';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import type { LogProcessingCompleteEvent } from '@contexts/SignalRContext/types';
@@ -222,30 +222,26 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   const helpContent = (
     <HelpPopover position="left" width={320}>
       <HelpSection title={t('management.datasources.help.title')} variant="subtle">
-        <div className="divide-y divide-[var(--theme-text-muted)]">
-          <div className="py-1.5 first:pt-0 last:pb-0">
-            <div className="font-medium text-themed-primary">
-              {t('management.datasources.help.process.term')}
-            </div>
-            <div className="mt-0.5">{t('management.datasources.help.process.description')}</div>
-          </div>
-          <div className="py-1.5 first:pt-0 last:pb-0">
-            <div className="font-medium text-themed-primary">
-              {t('management.datasources.help.reposition.term')}
-            </div>
-            <div className="mt-0.5">{t('management.datasources.help.reposition.description')}</div>
-          </div>
-          {hasMultiple && (
-            <div className="py-1.5 first:pt-0 last:pb-0">
-              <div className="font-medium text-themed-primary">
-                {t('management.datasources.help.datasource.term')}
-              </div>
-              <div className="mt-0.5">
-                {t('management.datasources.help.datasource.description')}
-              </div>
-            </div>
-          )}
-        </div>
+        <HelpDefinition
+          items={[
+            {
+              term: t('management.datasources.help.process.term'),
+              description: t('management.datasources.help.process.description')
+            },
+            {
+              term: t('management.datasources.help.reposition.term'),
+              description: t('management.datasources.help.reposition.description')
+            },
+            ...(hasMultiple
+              ? [
+                  {
+                    term: t('management.datasources.help.datasource.term'),
+                    description: t('management.datasources.help.datasource.description')
+                  }
+                ]
+              : [])
+          ]}
+        />
       </HelpSection>
 
       <HelpNote type="info">{t('management.datasources.help.note')}</HelpNote>

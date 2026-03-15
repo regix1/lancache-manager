@@ -11,7 +11,7 @@ import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { Modal } from '@components/ui/Modal';
-import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
+import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { DatasourceListItem } from '@components/ui/DatasourceListItem';
 import { Tooltip } from '@components/ui/Tooltip';
 import { ManagerCardHeader, ReadOnlyBadge } from '@components/ui/ManagerCard';
@@ -283,26 +283,22 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   const helpContent = (
     <HelpPopover position="left" width={320}>
       <HelpSection title={t('management.cache.help.title')} variant="subtle">
-        <div className="divide-y divide-[var(--theme-text-muted)]">
-          <div className="py-1.5 first:pt-0 last:pb-0">
-            <div className="font-medium text-themed-primary">
-              {t('management.cache.help.preserve.term')}
-            </div>
-            <div className="mt-0.5">{t('management.cache.help.preserve.description')}</div>
-          </div>
-          <div className="py-1.5 first:pt-0 last:pb-0">
-            <div className="font-medium text-themed-primary">
-              {t('management.cache.help.removeAll.term')}
-            </div>
-            <div className="mt-0.5">{t('management.cache.help.removeAll.description')}</div>
-          </div>
-          <div className="py-1.5 first:pt-0 last:pb-0">
-            <div className="font-medium text-themed-primary">
-              {t('management.cache.help.rsync.term')}
-            </div>
-            <div className="mt-0.5">{t('management.cache.help.rsync.description')}</div>
-          </div>
-        </div>
+        <HelpDefinition
+          items={[
+            {
+              term: t('management.cache.help.preserve.term'),
+              description: t('management.cache.help.preserve.description')
+            },
+            {
+              term: t('management.cache.help.removeAll.term'),
+              description: t('management.cache.help.removeAll.description')
+            },
+            {
+              term: t('management.cache.help.rsync.term'),
+              description: t('management.cache.help.rsync.description')
+            }
+          ]}
+        />
       </HelpSection>
 
       <HelpNote type="warning">{t('management.cache.help.warning')}</HelpNote>

@@ -6,7 +6,7 @@ import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Tooltip } from '@components/ui/Tooltip';
-import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
+import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { useNotifications, NOTIFICATION_IDS } from '@contexts/notifications';
@@ -605,24 +605,18 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       </HelpSection>
 
       <HelpSection title={t('management.gameDetection.help.removal.title')} variant="subtle">
-        <div className="divide-y divide-[var(--theme-text-muted)]">
-          <div className="py-1.5 first:pt-0 last:pb-0">
-            <div className="font-medium text-themed-primary">
-              {t('management.gameDetection.help.removal.game.term')}
-            </div>
-            <div className="mt-0.5">
-              {t('management.gameDetection.help.removal.game.description')}
-            </div>
-          </div>
-          <div className="py-1.5 first:pt-0 last:pb-0">
-            <div className="font-medium text-themed-primary">
-              {t('management.gameDetection.help.removal.service.term')}
-            </div>
-            <div className="mt-0.5">
-              {t('management.gameDetection.help.removal.service.description')}
-            </div>
-          </div>
-        </div>
+        <HelpDefinition
+          items={[
+            {
+              term: t('management.gameDetection.help.removal.game.term'),
+              description: t('management.gameDetection.help.removal.game.description')
+            },
+            {
+              term: t('management.gameDetection.help.removal.service.term'),
+              description: t('management.gameDetection.help.removal.service.description')
+            }
+          ]}
+        />
       </HelpSection>
 
       <HelpNote type="info">{t('management.gameDetection.help.note')}</HelpNote>

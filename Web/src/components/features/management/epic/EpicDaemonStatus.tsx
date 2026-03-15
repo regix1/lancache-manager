@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { CheckCircle, Loader2, LogOut, XCircle } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
-import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
+import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { EpicIcon } from '@components/ui/EpicIcon';
 
 import { EpicAuthModal } from '@components/modals/auth/EpicAuthModal';
@@ -127,32 +127,26 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({
               )}
               variant="subtle"
             >
-              <div className="divide-y divide-[var(--theme-text-muted)]">
-                <div className="py-1.5 first:pt-0 last:pb-0">
-                  <div className="font-medium text-themed-primary">
-                    {t(
+              <HelpDefinition
+                items={[
+                  {
+                    term: t(
                       'management.sections.integrations.epicDaemonStatus.help.authentication.loginRequired.term'
-                    )}
-                  </div>
-                  <div className="mt-0.5">
-                    {t(
+                    ),
+                    description: t(
                       'management.sections.integrations.epicDaemonStatus.help.authentication.loginRequired.description'
-                    )}
-                  </div>
-                </div>
-                <div className="py-1.5 first:pt-0 last:pb-0">
-                  <div className="font-medium text-themed-primary">
-                    {t(
+                    )
+                  },
+                  {
+                    term: t(
                       'management.sections.integrations.epicDaemonStatus.help.authentication.gameDiscovery.term'
-                    )}
-                  </div>
-                  <div className="mt-0.5">
-                    {t(
+                    ),
+                    description: t(
                       'management.sections.integrations.epicDaemonStatus.help.authentication.gameDiscovery.description'
-                    )}
-                  </div>
-                </div>
-              </div>
+                    )
+                  }
+                ]}
+              />
             </HelpSection>
             <HelpNote type="info">
               {t('management.sections.integrations.epicDaemonStatus.help.note')}

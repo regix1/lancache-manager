@@ -7,7 +7,7 @@ import { useDockerSocket } from '@contexts/useDockerSocket';
 import { useNotifications } from '@contexts/notifications';
 import { Card } from '@components/ui/Card';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
-import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
+import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
@@ -363,32 +363,22 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         title={t('management.corruption.help.whatRemovalDeletes.title')}
         variant="subtle"
       >
-        <div className="divide-y divide-[var(--theme-text-muted)]">
-          <div className="py-1.5 first:pt-0 last:pb-0">
-            <div className="font-medium text-themed-primary">
-              {t('management.corruption.help.whatRemovalDeletes.cacheFilesLabel')}
-            </div>
-            <div className="mt-0.5">
-              {t('management.corruption.help.whatRemovalDeletes.cacheFiles')}
-            </div>
-          </div>
-          <div className="py-1.5 first:pt-0 last:pb-0">
-            <div className="font-medium text-themed-primary">
-              {t('management.corruption.help.whatRemovalDeletes.logEntriesLabel')}
-            </div>
-            <div className="mt-0.5">
-              {t('management.corruption.help.whatRemovalDeletes.logEntries')}
-            </div>
-          </div>
-          <div className="py-1.5 first:pt-0 last:pb-0">
-            <div className="font-medium text-themed-primary">
-              {t('management.corruption.help.whatRemovalDeletes.databaseRecordsLabel')}
-            </div>
-            <div className="mt-0.5">
-              {t('management.corruption.help.whatRemovalDeletes.databaseRecords')}
-            </div>
-          </div>
-        </div>
+        <HelpDefinition
+          items={[
+            {
+              term: t('management.corruption.help.whatRemovalDeletes.cacheFilesLabel'),
+              description: t('management.corruption.help.whatRemovalDeletes.cacheFiles')
+            },
+            {
+              term: t('management.corruption.help.whatRemovalDeletes.logEntriesLabel'),
+              description: t('management.corruption.help.whatRemovalDeletes.logEntries')
+            },
+            {
+              term: t('management.corruption.help.whatRemovalDeletes.databaseRecordsLabel'),
+              description: t('management.corruption.help.whatRemovalDeletes.databaseRecords')
+            }
+          ]}
+        />
       </HelpSection>
 
       <HelpNote type="warning">{t('management.corruption.help.warning')}</HelpNote>

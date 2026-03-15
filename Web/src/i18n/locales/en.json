@@ -418,7 +418,7 @@
       },
       "usedSpace": {
         "term": "Used Space",
-        "description": "In Live mode, this is the current size on disk. In historical views, it's the average from hourly snapshots."
+        "description": "In Live mode, this is the current size on disk. In historical views, it's the size at the end of the selected period."
       },
       "bandwidthSaved": {
         "term": "Bandwidth Saved",
@@ -958,7 +958,7 @@
         "title": "Session Types",
         "authenticated": {
           "label": "Authenticated",
-          "description": "Full access to all features. Session doesn't expire."
+          "description": "Full access to all features. Session lasts 30 days and renews on activity."
         },
         "guest": {
           "label": "Guest",
@@ -1606,7 +1606,7 @@
                 "description": "Once connected, your Epic Games library is scanned to identify cached downloads and match them to game titles."
               }
             },
-            "note": "Your credentials are stored securely and used only for game library discovery."
+            "note": "An encrypted OAuth refresh token is stored locally to allow automatic reconnection. It is used only for game library discovery."
           }
         },
         "epicGameMappings": {
@@ -2221,17 +2221,17 @@
         "apiVersions": {
           "title": "Steam API Versions",
           "v2": {
-            "term": "V2 (Default)",
-            "description": "No setup needed. Works without an API key but can occasionally be rate-limited by Steam."
+            "term": "V2",
+            "description": "No API key needed, but currently unreliable. Steam frequently rate-limits or blocks V2 requests."
           },
           "v1": {
-            "term": "V1 (Fallback)",
-            "description": "Requires a free API key from Steam. Used automatically when V2 is unavailable."
+            "term": "V1 (Recommended)",
+            "description": "Requires a free API key from Steam. More reliable than V2 and used automatically when configured."
           }
         },
         "apiKey": {
           "title": "Do I Need an API Key?",
-          "description": "Usually no. V2 works without one. Only add a key if V2 goes down and you don't want to use the GitHub download option."
+          "description": "Recommended. V2 is frequently unavailable, so a V1 API key ensures depot scans work reliably. Alternatively, use the GitHub download option."
         },
         "getApiKey": {
           "before": "Get a free API key at",
@@ -2247,9 +2247,6 @@
         "message": "{{message}}"
       },
       "loginUnavailable": "Steam Account Login Unavailable",
-      "v2Required": "Steam account login requires V2 API which is currently unavailable.",
-      "v1KeyProvides": "Your V1 API key already provides access to playtest/restricted games since it's tied to your Steam account.",
-      "configureV1Key": "Configure a V1 API key above to access playtest/restricted games.",
       "modes": {
         "anonymous": "Anonymous (Public Games Only)",
         "authenticated": "Account Login (Playtest/Restricted Games)"
@@ -2293,7 +2290,7 @@
             "description": "You trigger the rebuild yourself from the Depot Mapping section."
           }
         },
-        "note": "Account login needs the V2 Steam API. If you only have a V1 API key, it can still access restricted games but doesn't support logging in."
+        "note": "Account login connects directly to Steam via SteamKit2 and works independently of the Steam Web API. The Web API (V2/V1) is only used for full depot scans."
       }
     },
     "epicMapping": {
@@ -2340,7 +2337,7 @@
         },
         "applyNow": {
           "title": "Apply Now",
-          "description": "Matches unresolved Epic download URLs in the database against stored CDN patterns to identify which games they belong to."
+          "description": "Re-fetches your owned games and CDN patterns from Epic, then resolves unmatched download URLs to game names."
         },
         "note": "Epic has no public game database like Steam's PICS. Game discovery requires at least one Epic account login."
       }
@@ -2414,11 +2411,11 @@
           "title": "Update Methods",
           "incremental": {
             "term": "Incremental",
-            "description": "Only checks apps that changed since the last scan. Fast, usually under a minute."
+            "description": "Only checks apps that changed since the last scan. Fast when changes are few, may take longer after a gap."
           },
           "full": {
             "term": "Full Scan",
-            "description": "Re-scans all ~300,000 Steam apps from scratch. Takes several minutes."
+            "description": "Re-scans all Steam apps from scratch. Takes several minutes."
           },
           "github": {
             "term": "GitHub Download",
@@ -2571,7 +2568,7 @@
           "title": "Preview Mode",
           "description": "Try a theme temporarily. Click Apply to make it your active theme."
         },
-        "note": "Theme files are in TOML format. Download the sample file to see how they work."
+        "note": "Theme files use TOML or JSON format. Download the sample file to see how they work."
       },
       "notifications": {
         "guestCannotChange": "Guest users cannot change themes",

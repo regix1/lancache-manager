@@ -25,7 +25,7 @@ import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
-import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
+import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { API_BASE } from '@utils/constants';
 import { Tooltip } from '@components/ui/Tooltip';
 import { ThemeCard } from './ThemeCard';
@@ -558,24 +558,18 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
             </div>
             <HelpPopover position="left" width={320}>
               <HelpSection title={t('management.themes.help.themeTypes.title')} variant="subtle">
-                <div className="divide-y divide-[var(--theme-text-muted)]">
-                  <div className="py-1.5 first:pt-0 last:pb-0">
-                    <div className="font-medium text-themed-primary">
-                      {t('management.themes.help.themeTypes.system.term')}
-                    </div>
-                    <div className="mt-0.5">
-                      {t('management.themes.help.themeTypes.system.description')}
-                    </div>
-                  </div>
-                  <div className="py-1.5 first:pt-0 last:pb-0">
-                    <div className="font-medium text-themed-primary">
-                      {t('management.themes.help.themeTypes.custom.term')}
-                    </div>
-                    <div className="mt-0.5">
-                      {t('management.themes.help.themeTypes.custom.description')}
-                    </div>
-                  </div>
-                </div>
+                <HelpDefinition
+                  items={[
+                    {
+                      term: t('management.themes.help.themeTypes.system.term'),
+                      description: t('management.themes.help.themeTypes.system.description')
+                    },
+                    {
+                      term: t('management.themes.help.themeTypes.custom.term'),
+                      description: t('management.themes.help.themeTypes.custom.description')
+                    }
+                  ]}
+                />
               </HelpSection>
 
               <HelpSection title={t('management.themes.help.previewMode.title')} variant="subtle">

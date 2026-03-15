@@ -14,7 +14,7 @@ import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { Modal } from '@components/ui/Modal';
 import { Alert } from '@components/ui/Alert';
-import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
+import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 
 import SteamWebApiKeyModal from '@components/modals/setup/SteamWebApiKeyModal';
 import { useSteamWebApiStatus } from '@contexts/useSteamWebApiStatus';
@@ -188,24 +188,18 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
               title={t('management.steamWebApi.help.apiVersions.title')}
               variant="subtle"
             >
-              <div className="divide-y divide-[var(--theme-text-muted)]">
-                <div className="py-1.5 first:pt-0 last:pb-0">
-                  <div className="font-medium text-themed-primary">
-                    {t('management.steamWebApi.help.apiVersions.v2.term')}
-                  </div>
-                  <div className="mt-0.5">
-                    {t('management.steamWebApi.help.apiVersions.v2.description')}
-                  </div>
-                </div>
-                <div className="py-1.5 first:pt-0 last:pb-0">
-                  <div className="font-medium text-themed-primary">
-                    {t('management.steamWebApi.help.apiVersions.v1.term')}
-                  </div>
-                  <div className="mt-0.5">
-                    {t('management.steamWebApi.help.apiVersions.v1.description')}
-                  </div>
-                </div>
-              </div>
+              <HelpDefinition
+                items={[
+                  {
+                    term: t('management.steamWebApi.help.apiVersions.v2.term'),
+                    description: t('management.steamWebApi.help.apiVersions.v2.description')
+                  },
+                  {
+                    term: t('management.steamWebApi.help.apiVersions.v1.term'),
+                    description: t('management.steamWebApi.help.apiVersions.v1.description')
+                  }
+                ]}
+              />
             </HelpSection>
 
             <HelpSection title={t('management.steamWebApi.help.apiKey.title')} variant="subtle">

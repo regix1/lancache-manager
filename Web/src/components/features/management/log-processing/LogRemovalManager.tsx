@@ -256,11 +256,11 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
       </HelpSection>
 
       <HelpSection title={t('management.logRemoval.help.whatItAffects.title')} variant="subtle">
-        <div className="divide-y divide-[var(--theme-text-muted)]">
-          <div className="py-1.5 first:pt-0 last:pb-0">
+        <div className="help-definition-list">
+          <div className="help-definition-desc">
             {t('management.logRemoval.help.whatItAffects.logFiles')}
           </div>
-          <div className="py-1.5 first:pt-0 last:pb-0">
+          <div className="help-definition-desc">
             {t('management.logRemoval.help.whatItAffects.databaseRecords')}
           </div>
         </div>

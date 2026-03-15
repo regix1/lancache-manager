@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { formatBytes } from '@utils/formatters';
 import { type HourlyActivityResponse, type HourlyActivityItem } from '../../../../types';
 import { Tooltip } from '@components/ui/Tooltip';
-import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
+import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { useTimezone } from '@contexts/useTimezone';
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import { useMockMode } from '@contexts/useMockMode';
@@ -268,40 +268,32 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(
                 {t('widgets.peakUsageHours.description')}
               </HelpSection>
               <HelpSection title={t('widgets.peakUsageHours.help.termsTitle')} variant="subtle">
-                <div className="divide-y divide-[var(--theme-text-muted)]">
-                  <div className="py-1.5 first:pt-0 last:pb-0">
-                    <div className="font-medium text-themed-primary">
-                      {t('widgets.peakUsageHours.dataPeriod.term')}
-                    </div>
-                    <div className="mt-0.5">
-                      {isMultiDayPeriod
+                <HelpDefinition
+                  items={[
+                    {
+                      term: t('widgets.peakUsageHours.dataPeriod.term'),
+                      description: isMultiDayPeriod
                         ? t('widgets.peakUsageHours.dataPeriod.multiDay', { days: daysInPeriod })
-                        : t('widgets.peakUsageHours.dataPeriod.singleDay')}
-                    </div>
-                  </div>
-                  <div className="py-1.5 first:pt-0 last:pb-0">
-                    <div className="font-medium text-themed-primary">
-                      {t('widgets.peakUsageHours.peakHour.term')}
-                    </div>
-                    <div className="mt-0.5">
-                      {isMultiDayPeriod
+                        : t('widgets.peakUsageHours.dataPeriod.singleDay')
+                    },
+                    {
+                      term: t('widgets.peakUsageHours.peakHour.term'),
+                      description: isMultiDayPeriod
                         ? t('widgets.peakUsageHours.peakHour.multiDay')
-                        : t('widgets.peakUsageHours.peakHour.singleDay')}
-                    </div>
-                  </div>
-                  {isTodayInRange && (
-                    <div className="py-1.5 first:pt-0 last:pb-0">
-                      <div className="font-medium text-themed-primary">
-                        {t('widgets.peakUsageHours.currentHour.term')}
-                      </div>
-                      <div className="mt-0.5">
-                        {isMultiDayPeriod
-                          ? t('widgets.peakUsageHours.currentHour.multiDay')
-                          : t('widgets.peakUsageHours.currentHour.singleDay')}
-                      </div>
-                    </div>
-                  )}
-                </div>
+                        : t('widgets.peakUsageHours.peakHour.singleDay')
+                    },
+                    ...(isTodayInRange
+                      ? [
+                          {
+                            term: t('widgets.peakUsageHours.currentHour.term'),
+                            description: isMultiDayPeriod
+                              ? t('widgets.peakUsageHours.currentHour.multiDay')
+                              : t('widgets.peakUsageHours.currentHour.singleDay')
+                          }
+                        ]
+                      : [])
+                  ]}
+                />
               </HelpSection>
               <HelpNote type="info">{t('widgets.peakUsageHours.heatmapNote')}</HelpNote>
             </HelpPopover>

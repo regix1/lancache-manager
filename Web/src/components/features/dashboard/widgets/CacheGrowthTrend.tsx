@@ -5,7 +5,7 @@ import { formatBytes } from '@utils/formatters';
 import { type CacheGrowthResponse } from '../../../../types';
 import Sparkline from '../components/Sparkline';
 import ApiService from '@services/api.service';
-import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
+import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import { useMockMode } from '@contexts/useMockMode';
 import MockDataService from '../../../../test/mockData.service';
@@ -188,46 +188,37 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
             </h3>
             <HelpPopover width={320}>
               <HelpSection title={t('widgets.cacheGrowthTrend.help.termsTitle')} variant="subtle">
-                <div className="divide-y divide-[var(--theme-text-muted)]">
-                  <div className="py-1.5 first:pt-0 last:pb-0">
-                    <div className="font-medium text-themed-primary">
-                      {t('widgets.cacheGrowthTrend.trendUp.term')}
-                    </div>
-                    <div className="mt-0.5">
-                      {t('widgets.cacheGrowthTrend.trendUp.description')}
-                    </div>
-                  </div>
-                  <div className="py-1.5 first:pt-0 last:pb-0">
-                    <div className="font-medium text-themed-primary">
-                      {t('widgets.cacheGrowthTrend.trendDown.term')}
-                    </div>
-                    <div className="mt-0.5">
-                      {t('widgets.cacheGrowthTrend.trendDown.description')}
-                    </div>
-                  </div>
-                  {hasDataDeletion && (
-                    <div className="py-1.5 first:pt-0 last:pb-0">
-                      <div className="font-medium text-themed-primary">
-                        {t('widgets.cacheGrowthTrend.netGrowth.term')}
-                      </div>
-                      <div className="mt-0.5">
-                        {t('widgets.cacheGrowthTrend.netGrowth.description')}
-                      </div>
-                    </div>
-                  )}
-                  <div className="py-1.5 first:pt-0 last:pb-0">
-                    <div className="font-medium text-themed-primary">
-                      {t('widgets.cacheGrowthTrend.dataPoints.term')}
-                    </div>
-                    <div className="mt-0.5">
-                      {t('widgets.cacheGrowthTrend.dataPoints.description')}{' '}
-                      {sparklineData.length > 0 &&
-                        t('widgets.cacheGrowthTrend.dataPoints.current', {
-                          count: sparklineData.length
-                        })}
-                    </div>
-                  </div>
-                </div>
+                <HelpDefinition
+                  items={[
+                    {
+                      term: t('widgets.cacheGrowthTrend.trendUp.term'),
+                      description: t('widgets.cacheGrowthTrend.trendUp.description')
+                    },
+                    {
+                      term: t('widgets.cacheGrowthTrend.trendDown.term'),
+                      description: t('widgets.cacheGrowthTrend.trendDown.description')
+                    },
+                    ...(hasDataDeletion
+                      ? [
+                          {
+                            term: t('widgets.cacheGrowthTrend.netGrowth.term'),
+                            description: t('widgets.cacheGrowthTrend.netGrowth.description')
+                          }
+                        ]
+                      : []),
+                    {
+                      term: t('widgets.cacheGrowthTrend.dataPoints.term'),
+                      description:
+                        t('widgets.cacheGrowthTrend.dataPoints.description') +
+                        (sparklineData.length > 0
+                          ? ' ' +
+                            t('widgets.cacheGrowthTrend.dataPoints.current', {
+                              count: sparklineData.length
+                            })
+                          : '')
+                    }
+                  ]}
+                />
               </HelpSection>
               <HelpNote type="info">
                 {hasDataDeletion

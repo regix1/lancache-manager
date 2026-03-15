@@ -3,19 +3,8 @@ import { createPortal } from 'react-dom';
 import { HelpCircle, AlertTriangle, Info, CheckCircle2 } from 'lucide-react';
 import { CustomScrollbar } from './CustomScrollbar';
 
-interface HelpPopoverSection {
-  title: string;
-  items: {
-    label: string;
-    description: string;
-    color?: string;
-  }[];
-}
-
 interface HelpPopoverProps {
-  /** Simple sections with label-description pairs */
-  sections?: HelpPopoverSection[];
-  /** Rich content as children (alternative to sections) */
+  /** Rich content as children */
   children?: React.ReactNode;
   /** Popover alignment */
   position?: 'left' | 'right';
@@ -25,50 +14,7 @@ interface HelpPopoverProps {
   maxHeight?: string;
 }
 
-// Internal component for popover content
-const PopoverContent: React.FC<{
-  sections?: HelpPopoverSection[];
-  children?: React.ReactNode;
-}> = ({ sections, children }) => {
-  if (children) {
-    return (
-      <div className="space-y-3 text-xs leading-relaxed text-themed-secondary">{children}</div>
-    );
-  }
-
-  if (sections) {
-    return (
-      <div className="space-y-4">
-        {sections.map((section, sectionIndex) => (
-          <div
-            key={section.title}
-            className={sectionIndex > 0 ? 'border-t border-[var(--theme-border)] pt-4' : ''}
-          >
-            <div className="text-xs font-semibold mb-2 text-themed-primary">{section.title}</div>
-            <div className="space-y-1.5">
-              {section.items.map((item) => (
-                <div key={item.label} className="flex gap-2 text-xs">
-                  <span
-                    className="font-medium flex-shrink-0"
-                    style={{ color: item.color || 'var(--theme-text-primary)' }}
-                  >
-                    {item.label}
-                  </span>
-                  <span className="text-themed-secondary">{item.description}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  return null;
-};
-
 export const HelpPopover: React.FC<HelpPopoverProps> = ({
-  sections,
   children,
   position = 'left',
   width = 320,
@@ -85,7 +31,6 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
   useEffect(() => {
     const calculateWidth = () => {
       const viewportWidth = window.innerWidth;
-      // On mobile (<640px), use smaller width with more margin
       if (viewportWidth < 640) {
         setEffectiveWidth(Math.min(width, viewportWidth - 32));
       } else {
@@ -130,7 +75,6 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
     if (!isOpen) return;
 
     const handleScroll = (e: Event) => {
-      // Don't close if scrolling inside the popover
       if (popoverRef.current?.contains(e.target as Node)) {
         return;
       }
@@ -145,7 +89,6 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
   useLayoutEffect(() => {
     if (!isOpen || !triggerRef.current || !popoverRef.current) return;
 
-    // Small delay to ensure popover is rendered with content
     const timer = setTimeout(() => {
       if (!triggerRef.current || !popoverRef.current) return;
 
@@ -153,11 +96,9 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
       const popoverRect = popoverRef.current.getBoundingClientRect();
       const viewportPadding = 12;
 
-      // Start position: below trigger, aligned based on position prop
       let x = position === 'left' ? triggerRect.left : triggerRect.right - effectiveWidth;
       let y = triggerRect.bottom + 8;
 
-      // Clamp X to viewport bounds
       if (x + effectiveWidth > window.innerWidth - viewportPadding) {
         x = window.innerWidth - effectiveWidth - viewportPadding;
       }
@@ -165,13 +106,11 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
         x = viewportPadding;
       }
 
-      // If would go off bottom, show above
-      const popoverHeight = popoverRect.height || 200; // fallback height
+      const popoverHeight = popoverRect.height || 200;
       if (y + popoverHeight > window.innerHeight - viewportPadding) {
         y = triggerRect.top - popoverHeight - 8;
       }
 
-      // Clamp Y to viewport
       y = Math.max(viewportPadding, y);
 
       setPopoverPos({ x, y });
@@ -199,29 +138,30 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
         createPortal(
           <div
             ref={popoverRef}
-            className="fixed themed-border-radius border shadow-[0_10px_40px_rgba(0,0,0,0.4)] themed-card max-w-[calc(100vw-24px)] z-[90]"
+            className="fixed themed-border-radius border help-popover themed-card max-w-[calc(100vw-24px)] z-[90]"
             style={{
               left: popoverPos.x,
               top: popoverPos.y,
               width: effectiveWidth,
               maxHeight: maxHeight || `calc(100vh - 100px)`,
-              // Use opacity for instant appear/disappear without animation
               opacity: isReady ? 1 : 0,
-              // Ensure no transitions that could cause flying effect
               transition: 'none',
-              // Prevent interaction during measurement
               pointerEvents: isReady ? 'auto' : 'none'
             }}
           >
             {maxHeight ? (
               <CustomScrollbar maxHeight={maxHeight}>
-                <div className="p-3 sm:p-4">
-                  <PopoverContent sections={sections}>{children}</PopoverContent>
+                <div className="p-4 sm:p-5">
+                  <div className="help-popover-sections text-xs leading-relaxed text-themed-secondary">
+                    {children}
+                  </div>
                 </div>
               </CustomScrollbar>
             ) : (
-              <div className="p-3 sm:p-4">
-                <PopoverContent sections={sections}>{children}</PopoverContent>
+              <div className="p-4 sm:p-5">
+                <div className="help-popover-sections text-xs leading-relaxed text-themed-secondary">
+                  {children}
+                </div>
               </div>
             )}
           </div>,
@@ -231,67 +171,62 @@ export const HelpPopover: React.FC<HelpPopoverProps> = ({
   );
 };
 
-/** Helper component for section titles in HelpPopover - now with subtle background */
+/** Section with title in HelpPopover */
 export const HelpSection: React.FC<{
   title: string;
   children: React.ReactNode;
   variant?: 'default' | 'subtle';
 }> = ({ title, children, variant = 'default' }) => (
-  <div className={`rounded-md ${variant === 'subtle' ? 'bg-themed-secondary p-2.5 -mx-1' : ''}`}>
-    <div className="text-[11px] font-semibold mb-1.5 uppercase tracking-wide text-themed-muted">
-      {title}
-    </div>
+  <div className={variant === 'subtle' ? 'help-section-subtle' : ''}>
+    <div className="help-section-title">{title}</div>
     <div className="text-xs leading-relaxed text-themed-secondary">{children}</div>
   </div>
 );
 
-/** Important note/callout with colored left border */
+/** Note/callout box in HelpPopover */
 export const HelpNote: React.FC<{
   children: React.ReactNode;
   type?: 'info' | 'warning' | 'success' | 'tip';
 }> = ({ children, type = 'info' }) => {
-  const config = {
-    info: {
-      border: 'var(--theme-info)',
-      bg: 'var(--theme-info-bg)',
-      icon: Info,
-      iconColor: 'var(--theme-info-text)'
-    },
-    warning: {
-      border: 'var(--theme-warning)',
-      bg: 'var(--theme-warning-bg)',
-      icon: AlertTriangle,
-      iconColor: 'var(--theme-warning-text)'
-    },
-    success: {
-      border: 'var(--theme-success)',
-      bg: 'var(--theme-success-bg)',
-      icon: CheckCircle2,
-      iconColor: 'var(--theme-success-text)'
-    },
-    tip: {
-      border: 'var(--theme-icon-purple)',
-      bg: 'var(--theme-icon-purple-faint)',
-      icon: Info,
-      iconColor: 'var(--theme-icon-purple)'
-    }
+  const iconMap = {
+    info: Info,
+    warning: AlertTriangle,
+    success: CheckCircle2,
+    tip: Info
   };
 
-  const Icon = config[type].icon;
+  const iconColorMap = {
+    info: 'text-themed-info',
+    warning: 'text-themed-warning',
+    success: 'text-themed-success',
+    tip: 'icon-purple'
+  };
+
+  const Icon = iconMap[type];
 
   return (
-    <div
-      className="flex gap-2 p-2 rounded-r text-[11px] leading-relaxed border-l-[3px]"
-      style={{
-        backgroundColor: config[type].bg,
-        borderLeftColor: config[type].border
-      }}
-    >
-      <Icon
-        className="w-3.5 h-3.5 flex-shrink-0 mt-0.5"
-        style={{ color: config[type].iconColor }}
-      />
+    <div className={`help-note help-note-${type}`}>
+      <Icon className={`w-3.5 h-3.5 flex-shrink-0 mt-0.5 ${iconColorMap[type]}`} />
       <div className="text-themed-primary">{children}</div>
     </div>
   );
 };
+
+interface HelpDefinitionItem {
+  term: string;
+  description: string;
+}
+
+/** Definition list replacing the divide-y pattern */
+export const HelpDefinition: React.FC<{
+  items: HelpDefinitionItem[];
+}> = ({ items }) => (
+  <div className="help-definition-list">
+    {items.map((item: HelpDefinitionItem) => (
+      <div key={item.term}>
+        <div className="help-definition-term">{item.term}</div>
+        <div className="help-definition-desc">{item.description}</div>
+      </div>
+    ))}
+  </div>
+);
