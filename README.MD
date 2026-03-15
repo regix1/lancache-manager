@@ -42,44 +42,61 @@ LANCache Manager is a simple web UI for monitoring and managing your [LANCache](
 <div align="center">
 
 ### Dashboard
-<img width="1517" height="1150" alt="Dashboard Overview" src="https://github.com/user-attachments/assets/a9a7e9a5-ca5d-44e0-ad80-fac163782ee9" />
-<img width="1526" height="988" alt="Dashboard Charts" src="https://github.com/user-attachments/assets/695c61cc-f2cd-4bc5-bbed-a5f7e6b0f11c" />
+<img alt="Dashboard Overview" src="docs/images/dashboard-overview.png" />
+<img alt="Dashboard Stats" src="docs/images/dashboard-stats.png" />
 
-*Stats at a glance with draggable cards and time range filtering*
+*Stats at a glance with draggable cards, service analytics, and top clients*
 
 ### Downloads
 
 **Normal View**
-<img width="1517" height="1236" alt="Downloads - Normal View" src="https://github.com/user-attachments/assets/29dbd4ba-ef24-4796-a527-ae50add3570d" />
+<img alt="Downloads - Normal View" src="docs/images/downloads-normal.png" />
 
 **Compact View**
-<img width="1527" height="1124" alt="Downloads - Compact View" src="https://github.com/user-attachments/assets/87f61e41-9c11-4aac-89a9-aad7e60f86f6" />
+<img alt="Downloads - Compact View" src="docs/images/downloads-compact.png" />
 
 **Retro View**
-<img width="1516" height="1248" alt="Downloads - Retro View" src="https://github.com/user-attachments/assets/6588f68e-ee72-4226-ae08-f5bd92ff81c2" />
+<img alt="Downloads - Retro View" src="docs/images/downloads-retro.png" />
 
 *Three view modes to browse your cached games*
 
 ### Clients
-<img width="1521" height="909" alt="Clients" src="https://github.com/user-attachments/assets/0a80fcdb-d51e-42a8-8d9b-1b0a436e2ab1" />
+<img alt="Clients" src="docs/images/clients.png" />
 
 *Monitor which devices are using your cache*
 
-### Users
-<img width="1523" height="510" alt="Users - Session Overview" src="https://github.com/user-attachments/assets/0c5e4a95-7fad-4fa7-819d-bf49fc7355e0" />
-<img width="1497" height="899" alt="Users - Details" src="https://github.com/user-attachments/assets/84194a8c-e574-4e5e-abbb-a48840c32d36" />
-
-*Manage sessions and access controls*
-
 ### Events
-<img width="1523" height="1249" alt="Events Calendar" src="https://github.com/user-attachments/assets/123dd833-d300-49e5-8023-62ea8d4e4acc" />
+<img alt="Events Calendar" src="docs/images/events.png" />
 
 *Calendar view of download activity and LAN events*
 
 ### Prefill
-<img width="1522" height="1069" alt="Prefill" src="https://github.com/user-attachments/assets/a42963cd-cf5a-45a4-a538-638bf43e7c06" />
+<img alt="Prefill Home" src="docs/images/prefill-home.png" />
 
-*Pre-download Steam and Epic games to your cache before your LAN party*
+*Pick between Steam and Epic to start a prefill session*
+
+<img alt="Prefill Session" src="docs/images/prefill-session.png" />
+
+*Game selection, download settings, and real-time activity log*
+
+### Management
+<img alt="Management - Settings" src="docs/images/management-settings.png" />
+
+*Authentication, demo mode, and display preferences*
+
+<img alt="Management - Logs & Cache" src="docs/images/management-logs.png" />
+<img alt="Management - Cache Operations" src="docs/images/management-cache.png" />
+
+*Log processing, corruption detection, and game cache detection*
+
+<img alt="Management - Themes" src="docs/images/management-themes.png" />
+<img alt="Management - Theme Editor" src="docs/images/management-theme-editor.png" />
+
+*Browse installed themes or create your own with the theme editor*
+
+<img alt="Management - Client Nicknames" src="docs/images/management-clients.png" />
+
+*Assign friendly names to client IPs and exclude clients from stats*
 
 </div>
 
@@ -146,8 +163,7 @@ services:
 > [!NOTE]
 > Remove `:ro` from the cache volume if you want cache clearing and game removal. The Docker socket is optional but required for nginx log rotation and prefill (both Steam and Epic).
 
-<details>
-<summary><strong>Full docker-compose.yml with all available options</strong></summary>
+Full docker-compose.yml with all available options:
 
 ```yaml
 services:
@@ -213,8 +229,6 @@ services:
       # - Logging__LogLevel__LancacheManager.Infrastructure.Platform=Debug
 ```
 
-</details>
-
 -----
 
 <a id="configuration-options"></a>
@@ -229,8 +243,7 @@ services:
 | `/cache` | LANCache cached files | Add `:ro` for monitoring only |
 | `/var/run/docker.sock` | Docker API access | Optional. Required for nginx rotation and prefill (Steam & Epic) |
 
-<details open>
-<summary><strong>Required Settings</strong></summary>
+### Required Settings
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -240,10 +253,7 @@ services:
 | `LanCache__LogPath` | — | Path to the LANCache access log file. |
 | `LanCache__CachePath` | — | Path to the LANCache cache directory. |
 
-</details>
-
-<details>
-<summary><strong>Security</strong></summary>
+### Security
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -271,10 +281,7 @@ To grant guest access:
 
 Guests can view dashboards, downloads, and events but cannot modify settings or clear cache.
 
-</details>
-
-<details>
-<summary><strong>Prefill (Steam & Epic)</strong></summary>
+### Prefill (Steam & Epic)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -293,10 +300,7 @@ Guests can view dashboards, downloads, and events but cannot modify settings or 
 > [!TIP]
 > Most prefill settings are auto-detected. You typically only need to set `Prefill__NetworkMode` if the default doesn't work with your Docker networking setup.
 
-</details>
-
-<details>
-<summary><strong>Paths & Datasources</strong></summary>
+### Paths & Datasources
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -305,10 +309,7 @@ Guests can view dashboards, downloads, and events but cannot modify settings or 
 
 See [Multiple Datasources](#multiple-datasources) for details on multi-instance setups.
 
-</details>
-
-<details>
-<summary><strong>Nginx Log Rotation</strong></summary>
+### Nginx Log Rotation
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -316,10 +317,7 @@ See [Multiple Datasources](#multiple-datasources) for details on multi-instance 
 | `NginxLogRotation__ContainerName` | `auto` | LANCache container name. `auto` finds containers with "lancache" in the name. |
 | `NginxLogRotation__ScheduleHours` | `24` | How often to check for rotation needs. |
 
-</details>
-
-<details>
-<summary><strong>API & Advanced</strong></summary>
+### API & Advanced
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -327,8 +325,6 @@ See [Multiple Datasources](#multiple-datasources) for details on multi-instance 
 | `ApiOptions__DefaultClientsLimit` | `100` | Default client limit when none is provided. |
 | `Optimizations__EnableGarbageCollectionManagement` | `false` | Show memory management controls in Management. Useful for low-memory systems. |
 | `ASPNETCORE_URLS` | `http://+:80` | Internal port binding. Do not change unless you know what you are doing. |
-
-</details>
 
 -----
 

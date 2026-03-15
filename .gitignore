@@ -120,7 +120,8 @@ tmpclaude-*
 **/tmpclaude-*
 
 # Documentation and reference files (local only)
-docs/
+docs/*
+!docs/images/
 notification_code.md
 
 # Development tools and temporary files
