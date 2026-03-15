@@ -2347,7 +2347,7 @@
       }
     },
     "depotMapping": {
-      "title": "Depot Mapping",
+      "title": "Steam Depot Mapping",
       "subtitle": "Automatically identifies Steam games from depot IDs",
       "configureSteamApi": "Configure Steam API",
       "downloadingFromGitHub": "Downloading Depot Mappings from GitHub...",
