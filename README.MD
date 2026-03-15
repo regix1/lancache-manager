@@ -20,7 +20,6 @@ LANCache Manager is a simple web UI for monitoring and managing your [LANCache](
 ## Table of Contents
 
 - [Screenshots](#screenshots)
-- [Features](#features)
 - [Quick Start](#quick-start)
 - [Docker Compose Reference](#docker-compose-reference)
 - [Configuration Options](#configuration-options)
@@ -83,57 +82,6 @@ LANCache Manager is a simple web UI for monitoring and managing your [LANCache](
 *Pre-download Steam and Epic games to your cache before your LAN party*
 
 </div>
-
------
-
-<a id="features"></a>
-## Features
-
-### Dashboard
-- **Draggable stat cards** - Move or hide cards to match your layout
-- **Time range filtering** - Live, 1h, 24h, 7 days, 30 days, or custom
-- **Service breakdown** - Bandwidth usage per platform (Steam, Epic, Battle.net, and more)
-- **Recent downloads** - A quick view of what is being cached
-- **Top clients** - Find your heaviest users
-
-### Downloads
-- **Three view modes** - Normal (cards), Compact (list), and Retro (terminal style)
-- **Flexible sorting** - Date, size, cache efficiency, session count, or name
-- **Powerful filtering** - Filter by service, platform, client, session, or hide small and unknown downloads
-- **Data export** - JSON or CSV
-
-### Clients
-- **Device tracking** - See every device that has used the cache
-- **Client grouping** - Add friendly names to keep things organized
-- **Bandwidth stats** - Usage breakdown per client
-
-### Users
-- **Session management** - View active authenticated and guest sessions
-- **Guest access** - Configurable read-only access with per-service prefill permissions
-- **Access control** - Revoke sessions when needed
-
-### Events
-- **Calendar view** - Visualize download activity over time
-- **Custom events** - Create events for LAN parties
-- **Activity tracking** - See what was downloaded during each event
-
-### Prefill
-- **Steam integration** - Pre-download Steam games directly to your cache
-- **Epic Games integration** - Pre-download Epic games with OAuth login
-- **Steam Guard support** - Works with all Steam authentication methods
-- **Library selection** - Browse your owned games and pick which ones to prefill
-- **Real-time progress** - Monitor downloads as they happen
-- **Per-service guest access** - Control which platforms guests can prefill
-
-### Management
-- **Cache operations** - Clear cache by service or remove specific Steam and Epic games
-- **Log processing** - Reprocess logs and handle corruption
-- **Game detection** - See what games are in your cache with accurate sizes
-- **Depot mappings** - Download 290,000+ Steam game mappings from GitHub
-- **Epic game mapping** - Map Epic cached downloads to actual game names with cover art
-- **Account management** - Ban specific accounts from prefill
-- **Theme editor** - Create and import custom themes with a shared editor and color history
-- **Prometheus metrics** - Export data to Grafana
 
 -----
 
