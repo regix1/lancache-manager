@@ -1567,14 +1567,22 @@ const DownloadsTab: React.FC = () => {
                         <Checkbox
                           checked={settings.aestheticMode}
                           onChange={(e) =>
-                            setSettings({ ...settings, aestheticMode: e.target.checked })
+                            setSettings({
+                              ...settings,
+                              aestheticMode: e.target.checked,
+                              ...(e.target.checked ? { fullHeightBanners: false } : {})
+                            })
                           }
                           label={t('downloads.tab.display.minimalMode')}
                         />
                         <Checkbox
                           checked={settings.fullHeightBanners}
                           onChange={(e) =>
-                            setSettings({ ...settings, fullHeightBanners: e.target.checked })
+                            setSettings({
+                              ...settings,
+                              fullHeightBanners: e.target.checked,
+                              ...(e.target.checked ? { aestheticMode: false } : {})
+                            })
                           }
                           label={t('downloads.tab.display.fullHeightBanners')}
                         />
