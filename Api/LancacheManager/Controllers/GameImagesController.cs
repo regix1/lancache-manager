@@ -165,7 +165,7 @@ public class GameImagesController : ControllerBase
             var mapping = await _context.EpicGameMappings
                 .FirstOrDefaultAsync(m => m.AppId == epicAppId, cancellationToken);
 
-            _logger.LogInformation("Epic image request for {EpicAppId}: mapping={Found}, imageUrl={Url}",
+            _logger.LogDebug("Epic image request for {EpicAppId}: mapping={Found}, imageUrl={Url}",
                 epicAppId, mapping != null ? "found" : "NOT FOUND",
                 mapping?.ImageUrl ?? "null");
 
@@ -176,7 +176,7 @@ public class GameImagesController : ControllerBase
 
             var imageUrl = EpicApiDirectClient.EnsureResizeParams(mapping.ImageUrl);
 
-            _logger.LogInformation("Epic image URL for {EpicAppId} after EnsureResizeParams: {Url}", epicAppId, imageUrl);
+            _logger.LogDebug("Epic image URL for {EpicAppId} after EnsureResizeParams: {Url}", epicAppId, imageUrl);
 
             var result = await TryGetImageAsync(cacheKey, imageUrl, cancellationToken);
             if (result.HasValue)
