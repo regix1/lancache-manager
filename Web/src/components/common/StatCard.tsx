@@ -37,7 +37,7 @@ interface StatCardProps {
 }
 
 // Color → CSS variable mapping used for sparkline colors (icon backgrounds use CSS data-color selectors)
-export const statCardColorMap: Record<StatCardColor, string> = {
+const statCardColorMap: Record<StatCardColor, string> = {
   blue: 'var(--theme-icon-blue)',
   green: 'var(--theme-icon-green)',
   emerald: 'var(--theme-icon-emerald)',

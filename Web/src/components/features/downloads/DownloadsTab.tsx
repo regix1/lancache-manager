@@ -1611,117 +1611,6 @@ const DownloadsTab: React.FC = () => {
             </div>
           </Card>
 
-          {/* Stats */}
-          <Alert color="blue" icon={<Database className="w-5 h-5" />}>
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-              <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 text-sm">
-                {/* Mobile: compact download count */}
-                <span className="downloads-stats-compact whitespace-nowrap font-medium">
-                  {filteredDownloads.length !== latestDownloads.length
-                    ? t('downloads.tab.pagination.downloadCountTotal', {
-                        count: filteredDownloads.length,
-                        total: latestDownloads.length
-                      })
-                    : t('downloads.tab.pagination.downloadCount', {
-                        count: filteredDownloads.length
-                      })}
-                </span>
-                {/* Desktop: verbose pagination text */}
-                <span className="downloads-stats-verbose">
-                  <span className="whitespace-nowrap">
-                    {settings.itemsPerPage !== 'unlimited' && (
-                      <span className="font-medium">
-                        {t('downloads.tab.pagination.pageOf', {
-                          page: currentPage,
-                          total: settings.viewMode === 'retro' ? retroTotalPages : totalPages
-                        })}
-                      </span>
-                    )}
-                  </span>
-                  <span className="flex flex-wrap items-center gap-1">
-                    {settings.itemsPerPage !== 'unlimited' && (
-                      <span className="hidden sm:inline">-</span>
-                    )}
-                    <span>
-                      {settings.viewMode === 'retro'
-                        ? t('downloads.tab.pagination.showingDepotGroups', {
-                            count: Math.min(
-                              settings.itemsPerPage === 'unlimited'
-                                ? retroTotalItems
-                                : (settings.itemsPerPage as number),
-                              retroTotalItems -
-                                (currentPage - 1) *
-                                  (settings.itemsPerPage === 'unlimited'
-                                    ? retroTotalItems
-                                    : (settings.itemsPerPage as number))
-                            ),
-                            total: retroTotalItems
-                          })
-                        : t('downloads.tab.pagination.showingGroups', {
-                            count: itemsToDisplay.length,
-                            total: allItemsSorted.length
-                          })}
-                    </span>
-                    <span className="whitespace-nowrap">
-                      {filteredDownloads.length !== latestDownloads.length
-                        ? t('downloads.tab.pagination.downloadCountTotal', {
-                            count: filteredDownloads.length,
-                            total: latestDownloads.length
-                          })
-                        : t('downloads.tab.pagination.downloadCount', {
-                            count: filteredDownloads.length
-                          })}
-                    </span>
-                  </span>
-                </span>
-                {(settings.selectedService !== 'all' ||
-                  settings.selectedClient !== 'all' ||
-                  settings.searchQuery) && (
-                  <span className="flex flex-wrap gap-1 text-xs sm:text-sm">
-                    {settings.searchQuery && (
-                      <span className="whitespace-nowrap">
-                        {t('downloads.tab.filters.active.search', { query: settings.searchQuery })}
-                      </span>
-                    )}
-                    {settings.selectedService !== 'all' && (
-                      <span className="whitespace-nowrap">
-                        {t('downloads.tab.filters.active.service', {
-                          service: settings.selectedService
-                        })}
-                      </span>
-                    )}
-                    {settings.selectedClient !== 'all' && (
-                      <span className="whitespace-nowrap">
-                        {t('downloads.tab.filters.active.client', {
-                          client: settings.selectedClient
-                        })}
-                      </span>
-                    )}
-                  </span>
-                )}
-              </div>
-              {(settings.selectedService !== 'all' ||
-                settings.selectedClient !== 'all' ||
-                settings.searchQuery) && (
-                <Button
-                  variant="filled"
-                  size="xs"
-                  onClick={() =>
-                    setSettings({
-                      ...settings,
-                      selectedService: 'all',
-                      selectedClient: 'all',
-                      searchQuery: ''
-                    })
-                  }
-                  className="self-start sm:self-auto"
-                >
-                  {t('downloads.tab.filters.clear')}
-                </Button>
-              )}
-            </div>
-          </Alert>
-
           {/* Help message for empty time ranges */}
           {filteredDownloads.length === 0 && timeRange !== 'live' && (
             <Alert color="yellow">
@@ -1750,6 +1639,7 @@ const DownloadsTab: React.FC = () => {
                   onPageChange={handlePageChange}
                   itemLabel={settings.viewMode === 'retro' ? 'depot groups' : 'items'}
                   showCard={false}
+                  totalDownloads={filteredDownloads.length}
                 />
               </div>
             )}

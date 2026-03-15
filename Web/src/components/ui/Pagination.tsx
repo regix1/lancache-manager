@@ -16,6 +16,8 @@ interface PaginationProps {
   parentPadding?: 'sm' | 'md' | 'lg' | 'none';
   /** Use compact mode for narrow containers - shows only prev/next with page indicator */
   compact?: boolean;
+  /** Total number of downloads to display alongside pagination info */
+  totalDownloads?: number;
 }
 
 export const Pagination: React.FC<PaginationProps> = ({
@@ -28,7 +30,8 @@ export const Pagination: React.FC<PaginationProps> = ({
   className = '',
   showCard = true,
   parentPadding = 'lg',
-  compact = false
+  compact = false,
+  totalDownloads
 }) => {
   const { t } = useTranslation();
 
@@ -119,6 +122,11 @@ export const Pagination: React.FC<PaginationProps> = ({
             label: itemLabel
           })}
         </span>
+        {totalDownloads !== undefined && (
+          <span className="text-sm text-themed-muted">
+            {t('ui.pagination.downloadCount', { count: totalDownloads })}
+          </span>
+        )}
       </div>
 
       {/* Navigation Controls */}

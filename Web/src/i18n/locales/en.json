@@ -4883,7 +4883,9 @@
       "goToPreviousPage": "Go to previous page",
       "goToNextPage": "Go to next page",
       "goToLastPage": "Go to last page",
-      "jumpTo": "Jump to..."
+      "jumpTo": "Jump to...",
+      "downloadCount": "({{count}} download)",
+      "downloadCount_plural": "({{count}} downloads)"
     },
     "dropdown": {
       "selectOption": "Select option"

@@ -971,25 +971,4 @@
     flex: 1;
     min-width: 0;
   }
-
-  /* Compact stats alert on mobile */
-  @media (max-width: 639px) {
-    .downloads-stats-verbose {
-      display: none;
-    }
-
-    .downloads-stats-compact {
-      display: inline;
-    }
-  }
-
-  @media (min-width: 640px) {
-    .downloads-stats-verbose {
-      display: inline;
-    }
-
-    .downloads-stats-compact {
-      display: none;
-    }
-  }
 }
