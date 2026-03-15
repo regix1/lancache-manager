@@ -27,6 +27,7 @@ struct SpeedLogEntry {
     depot_id: Option<u32>,
     bytes_sent: i64,
     is_cache_hit: bool,
+    request_url: String,
 }
 
 #[derive(Serialize)]
@@ -134,6 +135,7 @@ impl LogParser {
             depot_id,
             bytes_sent,
             is_cache_hit,
+            request_url: url.to_string(),
         })
     }
 
@@ -210,6 +212,9 @@ struct SpeedTracker {
     entries: VecDeque<SpeedLogEntry>,
     depot_cache: HashMap<u32, (Option<String>, Option<u32>)>, // depot_id -> (game_name, game_app_id)
     file_positions: HashMap<PathBuf, u64>,
+    epic_cdn_cache: HashMap<String, Option<String>>, // url -> game_name (None = no match)
+    epic_patterns: Vec<(String, String)>,            // (ChunkBaseUrl trimmed, GameName)
+    last_epic_pattern_load: Option<Instant>,
 }
 
 impl SpeedTracker {
@@ -224,6 +229,9 @@ impl SpeedTracker {
             entries: VecDeque::new(),
             depot_cache: HashMap::new(),
             file_positions: HashMap::new(),
+            epic_cdn_cache: HashMap::new(),
+            epic_patterns: Vec::new(),
+            last_epic_pattern_load: None,
         }
     }
 
@@ -360,10 +368,30 @@ impl SpeedTracker {
             .collect();
 
         // Add non-depot service entries (Epic, Origin, etc.)
-        // These show the service display name since individual games can't be resolved
+        // Try to resolve Epic game names from CDN patterns, fall back to service display name
+        // First, sub-group by resolved game name for Epic entries
+        let mut resolved_groups: HashMap<(String, String), Vec<SpeedLogEntry>> = HashMap::new();
         for ((service, client_ip), entries) in service_groups {
-            let display_name = get_service_display_name(&service);
-            game_speeds.push(build_game_speed_info(entries, 0, client_ip, service, Some(display_name), None));
+            if service.contains("epic") {
+                // Try to resolve each entry's URL to a game name, then sub-group
+                let mut sub_groups: HashMap<String, Vec<SpeedLogEntry>> = HashMap::new();
+                for entry in entries {
+                    let game_name = self.lookup_epic_game(&entry.request_url)
+                        .unwrap_or_else(|| get_service_display_name(&service));
+                    sub_groups.entry(game_name).or_default().push(entry);
+                }
+                for (game_name, sub_entries) in sub_groups {
+                    resolved_groups.entry((game_name, client_ip.clone())).or_default().extend(sub_entries);
+                }
+            } else {
+                let display_name = get_service_display_name(&service);
+                resolved_groups.entry((display_name, client_ip)).or_default().extend(entries);
+            }
+        }
+
+        for ((game_name, client_ip), entries) in resolved_groups {
+            let service = entries.first().map(|e| e.service.clone()).unwrap_or_default();
+            game_speeds.push(build_game_speed_info(entries, 0, client_ip, service, Some(game_name), None));
         }
 
         // Sort by speed descending
@@ -417,6 +445,64 @@ impl SpeedTracker {
             entries_in_window: entries_count,
             has_active_downloads: entries_count > 0,
         }
+    }
+
+    fn load_epic_patterns(&mut self) {
+        // Only reload every 60 seconds
+        if let Some(last) = self.last_epic_pattern_load {
+            if last.elapsed() < Duration::from_secs(60) {
+                return;
+            }
+        }
+
+        let conn = match Connection::open(&self.db_path) {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+
+        // Load patterns with game names, longest ChunkBaseUrl first
+        let mut stmt = match conn.prepare(
+            "SELECT p.ChunkBaseUrl, COALESCE(m.Name, p.Name) as GameName \
+             FROM EpicCdnPatterns p \
+             LEFT JOIN EpicGameMappings m ON p.AppId = m.AppId \
+             ORDER BY LENGTH(p.ChunkBaseUrl) DESC"
+        ) {
+            Ok(s) => s,
+            Err(_) => return,
+        };
+
+        self.epic_patterns = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?.trim_end_matches('/').to_string(),
+                row.get::<_, String>(1)?,
+            ))
+        })
+        .ok()
+        .map(|rows| rows.filter_map(|r| r.ok()).collect())
+        .unwrap_or_default();
+
+        self.last_epic_pattern_load = Some(Instant::now());
+        self.epic_cdn_cache.clear(); // Clear cache when patterns reload
+    }
+
+    fn lookup_epic_game(&mut self, url: &str) -> Option<String> {
+        // Check cache first
+        if let Some(cached) = self.epic_cdn_cache.get(url) {
+            return cached.clone();
+        }
+
+        // Reload patterns if needed
+        self.load_epic_patterns();
+
+        // Match URL against patterns (longest first for most specific match)
+        let result = self.epic_patterns.iter()
+            .find(|(chunk_base, _)| url.contains(chunk_base.as_str()))
+            .map(|(_, name)| name.clone());
+
+        // Cache the result (including None for no match)
+        self.epic_cdn_cache.insert(url.to_string(), result.clone());
+
+        result
     }
 
     fn lookup_depot(&mut self, depot_id: u32) -> (Option<String>, Option<u32>) {

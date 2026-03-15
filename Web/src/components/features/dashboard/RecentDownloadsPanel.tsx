@@ -239,7 +239,10 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
           groupType = 'game';
         } else if (download.service.toLowerCase() !== 'steam') {
           groupKey = `service-${download.service.toLowerCase()}`;
-          groupName = `${download.service} Downloads`;
+          groupName =
+            download.service.toLowerCase() === 'epicgames'
+              ? 'Epic Games'
+              : `${download.service.charAt(0).toUpperCase() + download.service.slice(1)} Downloads`;
           groupType = download.totalBytes === 0 ? 'metadata' : 'content';
         } else {
           individuals.push(download);

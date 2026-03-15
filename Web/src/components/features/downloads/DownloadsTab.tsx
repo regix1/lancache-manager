@@ -665,7 +665,10 @@ const DownloadsTab: React.FC = () => {
         groupType = 'content';
       } else if (download.service.toLowerCase() !== 'steam') {
         groupKey = `service-${download.service.toLowerCase()}`;
-        groupName = `${download.service} downloads`;
+        groupName =
+          download.service.toLowerCase() === 'epicgames'
+            ? 'Epic Games'
+            : `${download.service.charAt(0).toUpperCase() + download.service.slice(1)} Downloads`;
         groupType = download.totalBytes === 0 ? 'metadata' : 'content';
       } else {
         individuals.push(download);
