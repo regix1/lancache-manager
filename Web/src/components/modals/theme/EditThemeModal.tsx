@@ -66,7 +66,7 @@ const EditThemeModal: React.FC<EditThemeModalProps> = ({
     if (Array.isArray(translatedAffects)) {
       return translatedAffects as string[];
     }
-    return color.affects;
+    return [];
   };
   const getPageLabel = (page: (typeof pageDefinitions)[number]) =>
     t(`modals.theme.pages.${page.name}.label`);

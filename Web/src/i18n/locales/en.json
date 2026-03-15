@@ -4317,6 +4317,36 @@
           "description": "Riot Games platform color",
           "affects": ["Riot badges", "Riot charts"]
         },
+        "steamFaint": {
+          "label": "Steam Faint",
+          "description": "Steam faint accent for subtle backgrounds and glows",
+          "affects": ["Prefill Steam card glow", "Prefill Steam card shadow"]
+        },
+        "steamOnBorder": {
+          "label": "Steam Border",
+          "description": "Steam accent color for hover borders",
+          "affects": ["Prefill Steam card hover border"]
+        },
+        "steamStrong": {
+          "label": "Steam Strong",
+          "description": "Steam stronger accent for icon shadows",
+          "affects": ["Prefill Steam icon shadow"]
+        },
+        "epicFaint": {
+          "label": "Epic Faint",
+          "description": "Epic faint accent for subtle backgrounds and glows",
+          "affects": ["Prefill Epic card glow", "Prefill Epic card shadow"]
+        },
+        "epicOnBorder": {
+          "label": "Epic Border",
+          "description": "Epic accent color for hover borders",
+          "affects": ["Prefill Epic card hover border"]
+        },
+        "epicStrong": {
+          "label": "Epic Strong",
+          "description": "Epic stronger accent for icon shadows",
+          "affects": ["Prefill Epic icon shadow"]
+        },
         "xboxColor": {
           "label": "Xbox Live",
           "description": "Xbox Live platform color",

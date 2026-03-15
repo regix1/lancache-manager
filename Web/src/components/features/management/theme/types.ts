@@ -42,15 +42,11 @@ export interface Theme {
 export interface ColorGroup {
   name: string;
   icon: ElementType;
-  description: string;
   colors: ColorDefinition[];
 }
 
 export interface ColorDefinition {
   key: string;
-  label: string;
-  description: string;
-  affects: string[];
   value?: string;
   supportsAlpha?: boolean;
   pages?: string[];
@@ -58,9 +54,7 @@ export interface ColorDefinition {
 
 export interface PageGroup {
   name: string;
-  label: string;
   icon: ElementType;
-  description: string;
 }
 
 export interface ThemeManagerProps {
