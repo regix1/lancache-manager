@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { flushSync } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import {
   Database,
@@ -281,7 +282,6 @@ const DownloadsTab: React.FC = () => {
   const [retroTotalPages, setRetroTotalPages] = useState(1);
   const [retroTotalItems, setRetroTotalItems] = useState(0);
   const contentRef = useRef<HTMLDivElement>(null);
-  const paginationRef = useRef<HTMLDivElement>(null);
   const scrollAnchorRef = useRef<HTMLDivElement>(null);
   const settingsRef = useRef<HTMLDivElement>(null);
   const retroViewRef = useRef<RetroViewHandle>(null);
@@ -358,11 +358,17 @@ const DownloadsTab: React.FC = () => {
 
   // Track previous view mode to detect changes
   const prevViewModeRef = useRef(settings.viewMode);
+  const [isViewTransitioning, setIsViewTransitioning] = useState(false);
 
   // Effect to switch items per page when view mode changes
   useEffect(() => {
     if (prevViewModeRef.current !== settings.viewMode) {
       const newMode = settings.viewMode;
+
+      // Trigger opacity transition for view-mode switch
+      setIsViewTransitioning(true);
+      const timer = setTimeout(() => setIsViewTransitioning(false), 350);
+
       prevViewModeRef.current = newMode;
 
       // Load the saved items per page for the new view mode
@@ -391,6 +397,8 @@ const DownloadsTab: React.FC = () => {
       if (settings.itemsPerPage !== newItemsPerPage) {
         setSettings((prev) => ({ ...prev, itemsPerPage: newItemsPerPage }));
       }
+
+      return () => clearTimeout(timer);
     }
   }, [settings.viewMode, settings.itemsPerPage]);
 
@@ -985,9 +993,11 @@ const DownloadsTab: React.FC = () => {
   useEffect(() => {
     if (currentPage !== 1) {
       setCurrentPage(1);
-      if (scrollAnchorRef.current) {
-        scrollAnchorRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
+      requestAnimationFrame(() => {
+        if (scrollAnchorRef.current) {
+          scrollAnchorRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -1028,11 +1038,14 @@ const DownloadsTab: React.FC = () => {
     }
   }, [settingsOpened]);
 
-  // Handle page changes with smooth scroll to pagination bar
+  // Handle page changes with smooth scroll
   const handlePageChange = (newPage: number) => {
     if (newPage === currentPage) return;
 
-    setCurrentPage(newPage);
+    flushSync(() => {
+      setCurrentPage(newPage);
+    });
+
     if (scrollAnchorRef.current) {
       scrollAnchorRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
@@ -1712,12 +1725,12 @@ const DownloadsTab: React.FC = () => {
           )}
 
           {/* Scroll anchor for pagination (non-sticky, so scrollIntoView works reliably) */}
-          <div ref={scrollAnchorRef} />
+          <div ref={scrollAnchorRef} className="pagination-scroll-anchor" />
 
           {/* Sticky Pagination Controls (above content) */}
           {settings.itemsPerPage !== 'unlimited' &&
             (settings.viewMode === 'retro' ? retroTotalPages : totalPages) > 1 && (
-              <div ref={paginationRef} className="pagination-sticky">
+              <div className="pagination-sticky">
                 <Pagination
                   currentPage={currentPage}
                   totalPages={settings.viewMode === 'retro' ? retroTotalPages : totalPages}
@@ -1740,7 +1753,7 @@ const DownloadsTab: React.FC = () => {
             <ImageCacheContext.Provider value={imageCacheVersion}>
               <div className="relative">
                 <div
-                  className={`transition-opacity duration-300 ${
+                  className={`${isViewTransitioning ? 'transition-opacity duration-300' : ''} ${
                     settings.viewMode === 'compact'
                       ? 'opacity-100'
                       : 'opacity-0 absolute inset-0 pointer-events-none'
@@ -1762,7 +1775,7 @@ const DownloadsTab: React.FC = () => {
                 </div>
 
                 <div
-                  className={`transition-opacity duration-300 ${
+                  className={`${isViewTransitioning ? 'transition-opacity duration-300' : ''} ${
                     settings.viewMode === 'normal'
                       ? 'opacity-100'
                       : 'opacity-0 absolute inset-0 pointer-events-none'
@@ -1785,7 +1798,7 @@ const DownloadsTab: React.FC = () => {
                 </div>
 
                 <div
-                  className={`transition-opacity duration-300 ${
+                  className={`${isViewTransitioning ? 'transition-opacity duration-300' : ''} ${
                     settings.viewMode === 'retro'
                       ? 'opacity-100'
                       : 'opacity-0 absolute inset-0 pointer-events-none'

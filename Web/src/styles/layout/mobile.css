@@ -40,6 +40,17 @@
     }
   }
 
+  /* Scroll anchor offset - accounts for sticky nav height */
+  .pagination-scroll-anchor {
+    scroll-margin-top: 3.5rem; /* 56px - mobile nav (48px) + 8px buffer */
+  }
+
+  @media (min-width: 768px) {
+    .pagination-scroll-anchor {
+      scroll-margin-top: 0.5rem; /* Desktop: small buffer from viewport top */
+    }
+  }
+
   /* ===== MOBILE RESPONSIVE UTILITIES ===== */
 
   /* Extra small screens (below 480px) */
