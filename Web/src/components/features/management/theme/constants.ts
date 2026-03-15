@@ -1038,12 +1038,60 @@ export const colorGroups: ColorGroup[] = [
         pages: ['dashboard', 'downloads', 'clients', 'services', 'prefill', 'charts']
       },
       {
+        key: 'steamFaint',
+        label: 'Steam Faint',
+        description: 'Steam faint accent for subtle backgrounds and glows',
+        affects: ['Prefill Steam card glow', 'Prefill Steam card shadow'],
+        supportsAlpha: true,
+        pages: ['prefill']
+      },
+      {
+        key: 'steamOnBorder',
+        label: 'Steam Border',
+        description: 'Steam accent color for hover borders',
+        affects: ['Prefill Steam card hover border'],
+        supportsAlpha: true,
+        pages: ['prefill']
+      },
+      {
+        key: 'steamStrong',
+        label: 'Steam Strong',
+        description: 'Steam stronger accent for icon shadows',
+        affects: ['Prefill Steam icon shadow'],
+        supportsAlpha: true,
+        pages: ['prefill']
+      },
+      {
         key: 'epicColor',
         label: 'Epic Games',
         description: 'Epic Games platform color',
         affects: ['Epic badges', 'Epic charts'],
         supportsAlpha: true,
         pages: ['dashboard', 'downloads', 'clients', 'services', 'charts']
+      },
+      {
+        key: 'epicFaint',
+        label: 'Epic Faint',
+        description: 'Epic faint accent for subtle backgrounds and glows',
+        affects: ['Prefill Epic card glow', 'Prefill Epic card shadow'],
+        supportsAlpha: true,
+        pages: ['prefill']
+      },
+      {
+        key: 'epicOnBorder',
+        label: 'Epic Border',
+        description: 'Epic accent color for hover borders',
+        affects: ['Prefill Epic card hover border'],
+        supportsAlpha: true,
+        pages: ['prefill']
+      },
+      {
+        key: 'epicStrong',
+        label: 'Epic Strong',
+        description: 'Epic stronger accent for icon shadows',
+        affects: ['Prefill Epic icon shadow'],
+        supportsAlpha: true,
+        pages: ['prefill']
       },
       {
         key: 'originColor',
