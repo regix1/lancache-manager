@@ -192,13 +192,13 @@ const RECOVERY_CONFIGS = {
       return {
         message: (data.statusMessage as string) || 'Downloading depot data...',
         detailMessage,
-        progress: (data.percentComplete as number) || 0,
+        progress: (data.progressPercent as number) || 0,
         details: {
           operationId: data.operationId as string | undefined,
           totalMappings: data.totalMappings as number,
           processedMappings: data.processedMappings as number,
           isLoggedOn: data.isLoggedOn as boolean,
-          percentComplete: data.percentComplete as number
+          percentComplete: data.progressPercent as number
         }
       };
     },
