@@ -100,6 +100,7 @@ public partial class EpicMappingService
             _isAuthenticated = true;
             _displayName = tokens.DisplayName;
             _lastCollectionUtc = DateTime.UtcNow;
+            _lastRefreshTime = DateTime.UtcNow;
 
             // Resolve existing Epic downloads against the freshly collected CDN patterns
             try

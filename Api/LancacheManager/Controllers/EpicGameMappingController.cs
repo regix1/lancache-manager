@@ -139,8 +139,23 @@ public class EpicGameMappingController : ControllerBase
     }
 
     /// <summary>
-    /// Resolves unmatched Epic downloads against stored CDN patterns.
-    /// Maps download URLs to game names using the EpicCdnPatterns table.
+    /// Starts a full Epic catalog refresh (scan + apply mappings).
+    /// Mirrors Steam's POST /api/depots/rebuild — runs scan then resolves downloads.
+    /// </summary>
+    [HttpPost("refresh")]
+    public ActionResult StartRefresh(CancellationToken ct = default)
+    {
+        var started = _epicMappingService.TryStartRefresh(ct);
+        return Accepted(new
+        {
+            started,
+            refreshInProgress = _epicMappingService.GetScheduleStatus().IsProcessing,
+            message = started ? "Epic catalog refresh started" : "A refresh is already in progress"
+        });
+    }
+
+    /// <summary>
+    /// Resolves unmatched Epic downloads against stored CDN patterns only (no scan).
     /// </summary>
     [HttpPost("resolve")]
     public async Task<ActionResult> ResolveDownloadsAsync(CancellationToken ct = default)

@@ -30,8 +30,6 @@ const EpicMappingManager: React.FC<EpicMappingManagerProps> = ({
   isAdmin,
   mockMode,
   onError,
-  onSuccess,
-  onDataRefresh,
   onNavigateToEpicLogin
 }) => {
   const { t } = useTranslation();
@@ -139,22 +137,19 @@ const EpicMappingManager: React.FC<EpicMappingManagerProps> = ({
     return `${seconds}s`;
   };
 
-  const handleResolve = async () => {
+  const handleRefresh = async () => {
     if (resolveInProgressRef.current) return;
     resolveInProgressRef.current = true;
-    // Flush synchronously so the Loader2 spinner appears instantly before any async work
     flushSync(() => setResolving(true));
 
     try {
-      const result = await ApiService.resolveEpicDownloads();
-      if (result.resolved > 0) {
-        onSuccess?.(t('management.epicMapping.resolveSuccess', { count: result.resolved }));
-        setTimeout(() => onDataRefresh?.(), 2000);
-      } else {
-        onSuccess?.(t('management.epicMapping.noUnresolved'));
+      const result = await ApiService.startEpicRefresh();
+      if (!result.started) {
+        onError?.(result.message || 'A refresh is already in progress');
       }
+      // Progress is tracked via SignalR notification bar — no inline success message needed
     } catch (err) {
-      onError?.(err instanceof Error ? err.message : 'Failed to resolve Epic downloads');
+      onError?.(err instanceof Error ? err.message : 'Failed to start Epic catalog refresh');
     } finally {
       setResolving(false);
       resolveInProgressRef.current = false;
@@ -348,7 +343,7 @@ const EpicMappingManager: React.FC<EpicMappingManagerProps> = ({
         <Button
           variant="filled"
           color="blue"
-          onClick={handleResolve}
+          onClick={handleRefresh}
           disabled={resolving || mockMode || !isAdmin || !isAuthenticated}
           loading={resolving}
           fullWidth

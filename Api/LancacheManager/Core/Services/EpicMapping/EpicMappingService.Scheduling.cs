@@ -58,41 +58,70 @@ public partial class EpicMappingService
         if (timeSinceLastRefresh < _refreshInterval)
             return;
 
+        _logger.LogInformation(
+            "Starting scheduled Epic catalog refresh (last refresh was {Minutes} minutes ago)",
+            (int)timeSinceLastRefresh.TotalMinutes);
+
+        TryStartRefresh();
+    }
+
+    /// <summary>
+    /// Starts a catalog refresh in the background. Returns true if started, false if already running.
+    /// Mirrors SteamKit2Service.TryStartRebuild() — used by both periodic timer and manual "Apply Now".
+    /// </summary>
+    public bool TryStartRefresh(CancellationToken cancellationToken = default)
+    {
+        if (Interlocked.CompareExchange(ref _isProcessingInt, 1, 0) != 0)
+        {
+            return false;
+        }
+
+        if (!_isAuthenticated || _currentTokens == null)
+        {
+            Interlocked.Exchange(ref _isProcessingInt, 0);
+            return false;
+        }
+
+        // Create per-operation CTS linked to service-level CTS (mirrors Steam's _currentRebuildCts)
+        _currentRefreshCts?.Dispose();
+        try
+        {
+            _currentRefreshCts = cancellationToken.CanBeCanceled
+                ? CancellationTokenSource.CreateLinkedTokenSource(_cancellationTokenSource.Token, cancellationToken)
+                : CancellationTokenSource.CreateLinkedTokenSource(_cancellationTokenSource.Token);
+        }
+        catch (ObjectDisposedException)
+        {
+            _currentRefreshCts = cancellationToken.CanBeCanceled
+                ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken)
+                : new CancellationTokenSource();
+        }
+
+        // Register with operation tracker (mirrors Steam's TryStartRebuild)
+        _currentOperationId = _operationTracker.RegisterOperation(
+            OperationType.EpicMapping,
+            "Epic Catalog Refresh",
+            _currentRefreshCts
+        );
+
+        // Send start progress event (mirrors Steam's DepotMappingStarted)
+        _notifications.NotifyAllFireAndForget(SignalREvents.EpicMappingProgress, new
+        {
+            operationId = _currentOperationId,
+            status = "Starting Epic catalog refresh...",
+            percentComplete = 0.0,
+            gamesDiscovered = _gamesDiscovered,
+            message = "Starting Epic catalog refresh..."
+        });
+
         _ = Task.Run(async () =>
         {
-            if (Interlocked.CompareExchange(ref _isProcessingInt, 1, 0) != 0) return;
-
             var success = false;
             string? errorMessage = null;
-
-            // Create per-operation CTS linked to service-level CTS (mirrors Steam's _currentRebuildCts)
-            _currentRefreshCts?.Dispose();
-            _currentRefreshCts = CancellationTokenSource.CreateLinkedTokenSource(_cancellationTokenSource.Token);
-
-            // Register with operation tracker (mirrors Steam's TryStartRebuild)
-            _currentOperationId = _operationTracker.RegisterOperation(
-                OperationType.EpicMapping,
-                "Epic Catalog Refresh",
-                _currentRefreshCts
-            );
 
             try
             {
                 _currentStatus = "Refreshing catalog";
-
-                _logger.LogInformation(
-                    "Starting scheduled Epic catalog refresh (last refresh was {Minutes} minutes ago)",
-                    (int)timeSinceLastRefresh.TotalMinutes);
-
-                // Send start progress event (mirrors Steam's DepotMappingStarted)
-                await _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress, new
-                {
-                    operationId = _currentOperationId,
-                    status = "Starting Epic catalog refresh...",
-                    percentComplete = 0.0,
-                    gamesDiscovered = _gamesDiscovered,
-                    message = "Starting Epic catalog refresh..."
-                });
 
                 await RefreshCatalogAsync(_currentRefreshCts.Token);
 
@@ -100,7 +129,10 @@ public partial class EpicMappingService
                 _currentStatus = "Idle";
                 success = true;
 
-                _logger.LogInformation("Scheduled Epic catalog refresh completed successfully");
+                // Persist last refresh time so it survives restarts (mirrors Steam's SaveLastCrawlTime)
+                _authStorage.UpdateEpicAuthData(data => data.LastAuthenticated = _lastRefreshTime);
+
+                _logger.LogInformation("Epic catalog refresh completed successfully");
             }
             catch (OperationCanceledException)
             {
@@ -122,7 +154,7 @@ public partial class EpicMappingService
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Scheduled Epic catalog refresh failed - will retry on next interval");
+                _logger.LogWarning(ex, "Epic catalog refresh failed");
                 errorMessage = ex.Message;
 
                 await _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress, new
@@ -150,6 +182,8 @@ public partial class EpicMappingService
                 Interlocked.Exchange(ref _isProcessingInt, 0);
             }
         });
+
+        return true;
     }
 
     /// <summary>
@@ -178,8 +212,8 @@ public partial class EpicMappingService
     }
 
     /// <summary>
-    /// Refreshes the Epic game catalog by re-fetching owned games and CDN patterns.
-    /// Sends progress events at each stage for the notification bar.
+    /// Refreshes the Epic game catalog by re-fetching owned games, CDN patterns,
+    /// then resolving downloads. Sends progress events at each stage.
     /// </summary>
     private async Task RefreshCatalogAsync(CancellationToken ct)
     {
@@ -193,7 +227,6 @@ public partial class EpicMappingService
                 _currentTokens = tokens;
                 _logger.LogDebug("Epic token refreshed successfully, proceeding with catalog update");
 
-                // Save updated refresh token
                 var authData = new EpicAuthData
                 {
                     RefreshToken = tokens.RefreshToken,
@@ -231,7 +264,7 @@ public partial class EpicMappingService
         {
             operationId = _currentOperationId,
             status = "Fetching owned games...",
-            percentComplete = 20.0,
+            percentComplete = 15.0,
             gamesDiscovered = _gamesDiscovered,
             message = "Fetching owned games from Epic catalog..."
         });
@@ -257,7 +290,7 @@ public partial class EpicMappingService
         {
             operationId = _currentOperationId,
             status = "Refreshing CDN patterns...",
-            percentComplete = 50.0,
+            percentComplete = 40.0,
             gamesDiscovered = _gamesDiscovered,
             message = $"Discovered {_gamesDiscovered} games, refreshing CDN patterns..."
         });
@@ -283,7 +316,7 @@ public partial class EpicMappingService
         {
             operationId = _currentOperationId,
             status = "Discovering free games...",
-            percentComplete = 75.0,
+            percentComplete = 60.0,
             gamesDiscovered = _gamesDiscovered,
             message = "Checking for free game promotions..."
         });
@@ -305,7 +338,32 @@ public partial class EpicMappingService
             _logger.LogDebug(ex, "Free games discovery skipped or failed (non-critical)");
         }
 
-        // Send completion progress event (mirrors Steam's DepotMappingComplete)
+        ct.ThrowIfCancellationRequested();
+
+        // Resolve downloads against CDN patterns (mirrors Steam applying depot mappings after scan)
+        await _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress, new
+        {
+            operationId = _currentOperationId,
+            status = "Applying mappings to downloads...",
+            percentComplete = 85.0,
+            gamesDiscovered = _gamesDiscovered,
+            message = "Resolving Epic downloads to game names..."
+        });
+
+        try
+        {
+            var resolved = await ResolveEpicDownloadsAsync(ct);
+            if (resolved > 0)
+            {
+                _logger.LogInformation("Resolved {Count} Epic downloads to game names", resolved);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Failed to resolve Epic downloads (non-fatal)");
+        }
+
+        // Send completion progress event
         await _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress, new
         {
             operationId = _currentOperationId,

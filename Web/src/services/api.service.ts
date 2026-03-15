@@ -1671,6 +1671,14 @@ class ApiService {
     return ApiService.handleResponse<{ resolved: number; message: string }>(response);
   }
 
+  static async startEpicRefresh(): Promise<{ started: boolean; message: string }> {
+    const response = await fetch(`${API_BASE}/epic/game-mappings/refresh`, {
+      method: 'POST',
+      credentials: 'include'
+    });
+    return ApiService.handleResponse<{ started: boolean; message: string }>(response);
+  }
+
   static async getEpicMappingAuthStatus(): Promise<EpicMappingAuthStatus> {
     const response = await fetch(`${API_BASE}/epic/game-mappings/auth-status`, {
       credentials: 'include'

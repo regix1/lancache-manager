@@ -72,6 +72,13 @@ public partial class EpicMappingService : IHostedService, IDisposable
         _logger.LogInformation("EpicMappingService starting...");
         _isRunning = true;
 
+        // Load last refresh time from saved auth data (mirrors Steam loading from state.json)
+        var savedAuth = _authStorage.GetEpicAuthData();
+        if (savedAuth.LastAuthenticated.HasValue)
+        {
+            _lastRefreshTime = savedAuth.LastAuthenticated.Value;
+        }
+
         // Try auto-reconnect if we have saved credentials (auth only, no scanning)
         if (_authStorage.HasSavedCredentials())
         {
