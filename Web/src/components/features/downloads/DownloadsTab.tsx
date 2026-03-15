@@ -994,7 +994,13 @@ const DownloadsTab: React.FC = () => {
     if (currentPage !== 1) {
       setCurrentPage(1);
       requestAnimationFrame(() => {
-        scrollToAnchor();
+        if (scrollAnchorRef.current) {
+          const scrollMargin =
+            parseFloat(getComputedStyle(scrollAnchorRef.current).scrollMarginTop) || 0;
+          const absoluteY =
+            scrollAnchorRef.current.getBoundingClientRect().top + window.scrollY - scrollMargin;
+          window.scrollTo({ top: absoluteY, behavior: 'smooth' });
+        }
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1036,25 +1042,41 @@ const DownloadsTab: React.FC = () => {
     }
   }, [settingsOpened]);
 
-  // Scroll to the pagination anchor using window.scrollTo (more reliable than scrollIntoView
-  // which has known issues with sticky elements - Chromium bug #664246)
-  const scrollToAnchor = () => {
-    if (!scrollAnchorRef.current) return;
-    const rect = scrollAnchorRef.current.getBoundingClientRect();
-    const scrollMargin = parseFloat(getComputedStyle(scrollAnchorRef.current).scrollMarginTop) || 0;
-    const absoluteY = rect.top + window.scrollY - scrollMargin;
-    window.scrollTo({ top: absoluteY, behavior: 'smooth' });
-  };
+  // Fade state for smooth page content transitions
+  const [isPageFading, setIsPageFading] = useState(false);
 
-  // Handle page changes with smooth scroll
+  // Handle page changes with smooth scroll and content fade
   const handlePageChange = (newPage: number) => {
     if (newPage === currentPage) return;
 
-    flushSync(() => {
-      setCurrentPage(newPage);
-    });
+    // Capture scroll target BEFORE state change (anchor is above content, position is stable)
+    let scrollTarget = 0;
+    if (scrollAnchorRef.current) {
+      const scrollMargin =
+        parseFloat(getComputedStyle(scrollAnchorRef.current).scrollMarginTop) || 0;
+      scrollTarget =
+        scrollAnchorRef.current.getBoundingClientRect().top + window.scrollY - scrollMargin;
+    }
 
-    scrollToAnchor();
+    // Fade out, swap content, fade in
+    setIsPageFading(true);
+
+    // Small delay to let fade-out start, then swap content
+    requestAnimationFrame(() => {
+      flushSync(() => {
+        setCurrentPage(newPage);
+      });
+
+      // Scroll to anchor position
+      if (scrollTarget > 0) {
+        window.scrollTo({ top: scrollTarget, behavior: 'smooth' });
+      }
+
+      // Fade content back in after a brief moment
+      requestAnimationFrame(() => {
+        setIsPageFading(false);
+      });
+    });
   };
 
   // Callback for retro view to report its pagination info
@@ -1754,7 +1776,10 @@ const DownloadsTab: React.FC = () => {
             )}
 
           {/* Downloads list */}
-          <div className="relative overflow-x-hidden" ref={contentRef}>
+          <div
+            className={`relative overflow-x-hidden transition-opacity duration-150 ${isPageFading ? 'opacity-0' : 'opacity-100'}`}
+            ref={contentRef}
+          >
             {/* Content based on view mode with fade transition */}
             <ImageCacheContext.Provider value={imageCacheVersion}>
               <div className="relative">
