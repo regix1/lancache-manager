@@ -51,6 +51,7 @@ LANCache Manager is a simple web UI for monitoring and managing your [LANCache](
 
 **Normal View**
 <img alt="Downloads - Normal View" src="docs/images/downloads-normal.png" />
+<img alt="Downloads - Game Detail" src="docs/images/downloads-detail.png" />
 
 **Compact View**
 <img alt="Downloads - Compact View" src="docs/images/downloads-compact.png" />
