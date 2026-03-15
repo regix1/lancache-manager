@@ -981,38 +981,47 @@ const NormalView: React.FC<NormalViewProps> = ({
             if (group.count > 1 && !multipleDownloadsHeaderRendered) {
               multipleDownloadsHeaderRendered = true;
               header = (
-                <div className="mb-4 mt-6 first:mt-0">
-                  <h2 className="text-lg font-bold text-themed-primary border-b border-[var(--theme-border-secondary)] pb-2">
-                    {labels.multipleDownloads}
-                  </h2>
-                  <p className="text-xs text-themed-muted mt-1">
-                    Games that have been downloaded multiple times
-                  </p>
+                <div className="section-divider mb-5 mt-8 first:mt-0">
+                  <div className="section-divider-inner">
+                    <div className="section-divider-accent" />
+                    <div className="section-divider-content">
+                      <h2 className="section-divider-title">{labels.multipleDownloads}</h2>
+                      <p className="section-divider-description">
+                        Games that have been downloaded multiple times
+                      </p>
+                    </div>
+                  </div>
                 </div>
               );
             } else if (group.count === 1 && !singleDownloadsHeaderRendered) {
               singleDownloadsHeaderRendered = true;
               header = (
-                <div className="mb-4 mt-6 first:mt-0">
-                  <h2 className="text-lg font-bold text-themed-primary border-b border-[var(--theme-border-secondary)] pb-2">
-                    {labels.singleDownloads}
-                  </h2>
-                  <p className="text-xs text-themed-muted mt-1">
-                    Games downloaded once in a single session
-                  </p>
+                <div className="section-divider mb-5 mt-8 first:mt-0">
+                  <div className="section-divider-inner">
+                    <div className="section-divider-accent" />
+                    <div className="section-divider-content">
+                      <h2 className="section-divider-title">{labels.singleDownloads}</h2>
+                      <p className="section-divider-description">
+                        Games downloaded once in a single session
+                      </p>
+                    </div>
+                  </div>
                 </div>
               );
             }
           } else if (!isGroup && !individualHeaderRendered) {
             individualHeaderRendered = true;
             header = (
-              <div className="mb-4 mt-6 first:mt-0">
-                <h2 className="text-lg font-bold text-themed-primary border-b border-[var(--theme-border-secondary)] pb-2">
-                  {labels.individual}
-                </h2>
-                <p className="text-xs text-themed-muted mt-1">
-                  {t('downloads.tab.normal.sections.individualDescription')}
-                </p>
+              <div className="section-divider mb-5 mt-8 first:mt-0">
+                <div className="section-divider-inner">
+                  <div className="section-divider-accent" />
+                  <div className="section-divider-content">
+                    <h2 className="section-divider-title">{labels.individual}</h2>
+                    <p className="section-divider-description">
+                      {t('downloads.tab.normal.sections.individualDescription')}
+                    </p>
+                  </div>
+                </div>
               </div>
             );
           }
