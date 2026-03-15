@@ -9,6 +9,7 @@ import React, {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, Check } from 'lucide-react';
+import { CustomScrollbar } from './CustomScrollbar';
 import { useTranslation } from 'react-i18next';
 
 interface IconComponentProps {
@@ -158,12 +159,14 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
     setDropdownStyle(
       openUpward
         ? {
+            top: undefined,
             bottom: window.innerHeight - rect.top + 4,
             left,
             animation: 'msdFadeInUp 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards'
           }
         : {
             top: rect.bottom + 4,
+            bottom: undefined,
             left,
             animation: 'msdFadeInDown 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards'
           }
@@ -298,27 +301,29 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
               </div>
             )}
 
-            <div
-              className="overflow-y-auto max-h-[280px] bg-themed-secondary"
-              style={{ overscrollBehavior: 'contain' }}
-              onWheel={(event) => event.stopPropagation()}
-              onTouchMove={(event) => event.stopPropagation()}
-            >
-              {options.map((option, i) => (
-                <OptionItem
-                  key={option.value}
-                  option={option}
-                  isSelected={valuesSet.has(option.value)}
-                  isDisabled={
-                    option.disabled ||
-                    (valuesSet.has(option.value) && !canDeselect) ||
-                    (!valuesSet.has(option.value) && !canSelect)
-                  }
-                  isLast={i === options.length - 1}
-                  onToggle={handleToggle}
-                />
-              ))}
-            </div>
+            <CustomScrollbar maxHeight="280px" paddingMode="compact">
+              <div
+                className="bg-themed-secondary"
+                style={{ overscrollBehavior: 'contain' }}
+                onWheel={(event) => event.stopPropagation()}
+                onTouchMove={(event) => event.stopPropagation()}
+              >
+                {options.map((option, i) => (
+                  <OptionItem
+                    key={option.value}
+                    option={option}
+                    isSelected={valuesSet.has(option.value)}
+                    isDisabled={
+                      option.disabled ||
+                      (valuesSet.has(option.value) && !canDeselect) ||
+                      (!valuesSet.has(option.value) && !canSelect)
+                    }
+                    isLast={i === options.length - 1}
+                    onToggle={handleToggle}
+                  />
+                ))}
+              </div>
+            </CustomScrollbar>
 
             {minSelections > 0 && (
               <div className="px-4 py-3 text-xs border-t border-themed-secondary flex items-center gap-2 text-themed-muted bg-themed-tertiary">

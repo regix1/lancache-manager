@@ -971,4 +971,197 @@
     flex: 1;
     min-width: 0;
   }
+
+  /* ===== SESSION FILTER BAR ===== */
+
+  .session-filter-bar-wrapper {
+    margin-bottom: 0.75rem;
+  }
+
+  .session-filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+    padding: 0.5rem 0.625rem;
+    background: var(--theme-bg-tertiary);
+    border: 1px solid var(--theme-border-secondary);
+    border-radius: var(--theme-border-radius);
+  }
+
+  .session-filter-group {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-shrink: 0;
+  }
+
+  .session-filter-group-ip {
+    position: relative;
+  }
+
+  .session-filter-label {
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--theme-text-muted);
+    white-space: nowrap;
+  }
+
+  .session-filter-pills {
+    display: flex;
+    gap: 0.2rem;
+  }
+
+  .session-filter-pill {
+    padding: 0.2rem 0.5rem;
+    font-size: 0.7rem;
+    font-weight: 500;
+    line-height: 1.4;
+    border: 1px solid var(--theme-border-secondary);
+    border-radius: var(--theme-border-radius);
+    background: var(--theme-bg-secondary);
+    color: var(--theme-text-secondary);
+    cursor: pointer;
+    transition:
+      background 0.15s ease,
+      border-color 0.15s ease,
+      color 0.15s ease;
+    white-space: nowrap;
+  }
+
+  .session-filter-pill:hover:not(.active) {
+    background: var(--theme-bg-secondary-strong);
+    border-color: var(--theme-border-primary);
+    color: var(--theme-text-primary);
+  }
+
+  .session-filter-pill.active {
+    background: var(--theme-primary-on-bg-hover);
+    border-color: var(--theme-primary-on-border);
+    color: var(--theme-primary);
+    font-weight: 600;
+  }
+
+  /* Make dropdown triggers match pill button sizing */
+  .session-filter-bar .msd-trigger,
+  .session-filter-bar .ed-trigger {
+    padding: 0.2rem 0.5rem;
+    font-size: 0.7rem;
+    font-weight: 500;
+    line-height: 1.4;
+    min-height: 0;
+    gap: 0.35rem;
+    border-radius: var(--theme-border-radius);
+  }
+
+  .session-filter-bar .msd-trigger svg,
+  .session-filter-bar .ed-trigger svg {
+    width: 0.7rem;
+    height: 0.7rem;
+  }
+
+  .session-filter-bar .msd-trigger span[class*='rounded-full'] {
+    min-width: 0.85rem;
+    height: 0.85rem;
+    font-size: 0.55rem;
+    padding: 0 0.2rem;
+  }
+
+  .session-filter-ip-select {
+    width: 11rem;
+  }
+
+  .session-filter-bar .ed-trigger {
+    min-width: 7rem;
+  }
+
+  .session-filter-count {
+    font-size: 0.7rem;
+    color: var(--theme-text-muted);
+    white-space: nowrap;
+    margin-left: auto;
+  }
+
+  .session-filter-clear {
+    padding: 0.2rem 0.55rem;
+    font-size: 0.7rem;
+    font-weight: 500;
+    line-height: 1.4;
+    border: 1px solid var(--theme-border-secondary);
+    border-radius: var(--theme-border-radius);
+    background: transparent;
+    color: var(--theme-text-muted);
+    cursor: pointer;
+    transition:
+      background 0.15s ease,
+      border-color 0.15s ease,
+      color 0.15s ease;
+    white-space: nowrap;
+  }
+
+  .session-filter-clear:hover {
+    background: var(--theme-bg-tertiary);
+    border-color: var(--theme-border-primary);
+    color: var(--theme-text-primary);
+  }
+
+  .session-filter-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    margin-top: 0.35rem;
+    padding: 0 0.1rem;
+  }
+
+  .session-filter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.2rem 0.45rem;
+    font-size: 0.68rem;
+    font-weight: 500;
+    border-radius: 9999px;
+    background: var(--theme-primary-on-bg-hover);
+    border: 1px solid var(--theme-primary-on-border);
+    color: var(--theme-primary);
+    white-space: nowrap;
+  }
+
+  .session-filter-chip-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    background: transparent;
+    border: none;
+    color: inherit;
+    cursor: pointer;
+    opacity: 0.65;
+    transition: opacity 0.1s ease;
+    line-height: 1;
+  }
+
+  .session-filter-chip-remove:hover {
+    opacity: 1;
+  }
+
+  /* Session filter bar — mobile overrides */
+  @media (max-width: 639px) {
+    .session-filter-bar {
+      gap: 0.4rem 0.5rem;
+      padding: 0.4rem 0.5rem;
+    }
+
+    .session-filter-label {
+      font-size: 0.6rem;
+    }
+
+    .session-filter-pill,
+    .session-filter-clear {
+      font-size: 0.65rem;
+      padding: 0.15rem 0.4rem;
+    }
+  }
 }

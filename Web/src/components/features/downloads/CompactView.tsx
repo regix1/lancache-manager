@@ -10,6 +10,8 @@ import { GameImage } from '@components/common/GameImage';
 import { useHoldTimer } from '@hooks/useHoldTimer';
 import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import DownloadBadges from './DownloadBadges';
+import { useSessionFilters } from './useSessionFilters';
+import SessionFilterBar from './SessionFilterBar';
 import type { Download, DownloadGroup } from '../../../types';
 
 interface CompactViewSectionLabels {
@@ -53,7 +55,6 @@ interface GroupRowProps {
   setGroupPages: React.Dispatch<React.SetStateAction<Record<string, number>>>;
   startHoldTimer: (callback: () => void) => void;
   stopHoldTimer: () => void;
-  SESSIONS_PER_PAGE: number;
   labels: CompactViewSectionLabels;
   enableScrollIntoView: boolean;
   showDatasourceLabels: boolean;
@@ -71,7 +72,6 @@ const GroupRow: React.FC<GroupRowProps> = ({
   setGroupPages,
   startHoldTimer,
   stopHoldTimer,
-  SESSIONS_PER_PAGE,
   enableScrollIntoView,
   showDatasourceLabels,
   hasMultipleDatasources
@@ -81,6 +81,28 @@ const GroupRow: React.FC<GroupRowProps> = ({
   const isExpanded = expandedItem === group.id;
   const rowRef = React.useRef<HTMLDivElement>(null);
   const prevExpandedRef = React.useRef<boolean>(false);
+
+  const {
+    filters,
+    updateFilter,
+    resetFilters,
+    filteredDownloads,
+    uniqueIps,
+    totalCount,
+    filteredCount,
+    hasActiveFilters
+  } = useSessionFilters(group.downloads);
+
+  const [expandedIps, setExpandedIps] = React.useState<Record<string, boolean>>({});
+
+  const toggleIp = (ip: string): void => {
+    setExpandedIps((prev) => ({ ...prev, [ip]: !prev[ip] }));
+  };
+
+  const isIpExpanded = (ip: string, sessionCount: number): boolean => {
+    if (ip in expandedIps) return expandedIps[ip];
+    return sessionCount <= 5;
+  };
 
   // Fetch associations when group is expanded
   // refreshVersion triggers re-fetch when cache is invalidated (e.g., DownloadTagged event)
@@ -346,28 +368,27 @@ const GroupRow: React.FC<GroupRowProps> = ({
 
               {/* Sessions list */}
               {(() => {
+                const sessionsPerPage = filters.sessionsPerPage;
+                const totalFilteredPages = Math.ceil(filteredDownloads.length / sessionsPerPage);
                 const currentPage = groupPages[group.id] || 1;
-                const sortedDownloads = group.downloads.sort(
-                  (a, b) => new Date(b.startTimeUtc).getTime() - new Date(a.startTimeUtc).getTime()
-                );
-                const totalPages = Math.ceil(sortedDownloads.length / SESSIONS_PER_PAGE);
-                const startIndex = (currentPage - 1) * SESSIONS_PER_PAGE;
-                const endIndex = startIndex + SESSIONS_PER_PAGE;
-                const paginatedDownloads = sortedDownloads.slice(startIndex, endIndex);
-                const excludedSessions = Math.max(0, sortedDownloads.length - group.count);
+                const safePage = Math.min(currentPage, Math.max(1, totalFilteredPages));
+                const startIndex = (safePage - 1) * sessionsPerPage;
+                const endIndex = startIndex + sessionsPerPage;
+                const paginatedDownloads = filteredDownloads.slice(startIndex, endIndex);
+                const excludedSessions = Math.max(0, group.downloads.length - group.count);
 
-                const handlePageChange = (newPage: number) => {
+                const handlePageChange = (newPage: number): void => {
                   setGroupPages((prev) => ({ ...prev, [group.id]: newPage }));
                 };
 
                 const handlePointerHoldStart = (
                   event: React.PointerEvent<HTMLButtonElement>,
                   direction: 'prev' | 'next'
-                ) => {
+                ): void => {
                   const isPrevious = direction === 'prev';
                   if (
-                    (isPrevious && currentPage === 1) ||
-                    (!isPrevious && currentPage === totalPages)
+                    (isPrevious && safePage === 1) ||
+                    (!isPrevious && safePage === totalFilteredPages)
                   ) {
                     return;
                   }
@@ -378,7 +399,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                       const current = prev[group.id] || 1;
                       const nextPage = isPrevious
                         ? Math.max(1, current - 1)
-                        : Math.min(totalPages, current + 1);
+                        : Math.min(totalFilteredPages, current + 1);
                       if (nextPage === current) {
                         return prev;
                       }
@@ -387,13 +408,40 @@ const GroupRow: React.FC<GroupRowProps> = ({
                   });
                 };
 
-                const handlePointerHoldEnd = (event: React.PointerEvent<HTMLButtonElement>) => {
+                const handlePointerHoldEnd = (
+                  event: React.PointerEvent<HTMLButtonElement>
+                ): void => {
                   event.currentTarget.releasePointerCapture?.(event.pointerId);
                   stopHoldTimer();
                 };
 
+                const ipGroups = paginatedDownloads.reduce(
+                  (acc, d) => {
+                    if (!acc[d.clientIp]) acc[d.clientIp] = [];
+                    acc[d.clientIp].push(d);
+                    return acc;
+                  },
+                  {} as Record<string, typeof paginatedDownloads>
+                );
+
                 return (
                   <div>
+                    {/* Filter bar — only for groups with many sessions */}
+                    {group.downloads.length > 10 && (
+                      <div className="mb-2">
+                        <SessionFilterBar
+                          filters={filters}
+                          updateFilter={updateFilter}
+                          resetFilters={resetFilters}
+                          uniqueIps={uniqueIps}
+                          totalCount={totalCount}
+                          filteredCount={filteredCount}
+                          hasActiveFilters={hasActiveFilters}
+                        />
+                      </div>
+                    )}
+
+                    {/* Sessions header with count and pagination */}
                     <div className="flex items-center justify-between mb-1.5">
                       <span className="text-[10px] uppercase tracking-wide font-semibold text-[var(--theme-text-muted)]">
                         {t('downloads.tab.compact.labels.sessions', { count: group.count })}
@@ -408,32 +456,32 @@ const GroupRow: React.FC<GroupRowProps> = ({
                         )}
                       </span>
                       {/* Inline pagination */}
-                      {totalPages > 1 && (
+                      {totalFilteredPages > 1 && (
                         <div className="flex items-center gap-0.5">
                           <Tooltip content={t('downloads.tab.compact.pagination.previous')}>
                             <button
-                              onClick={() => handlePageChange(currentPage - 1)}
+                              onClick={() => handlePageChange(safePage - 1)}
                               onPointerDown={(event) => handlePointerHoldStart(event, 'prev')}
                               onPointerUp={handlePointerHoldEnd}
                               onPointerCancel={handlePointerHoldEnd}
                               onLostPointerCapture={stopHoldTimer}
-                              disabled={currentPage === 1}
+                              disabled={safePage === 1}
                               className="p-0.5 rounded transition-colors disabled:opacity-30 hover:bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)]"
                             >
                               <ChevronLeft size={12} />
                             </button>
                           </Tooltip>
                           <span className="text-[10px] text-[var(--theme-text-muted)] font-mono min-w-[28px] text-center">
-                            {currentPage}/{totalPages}
+                            {safePage}/{totalFilteredPages}
                           </span>
                           <Tooltip content={t('downloads.tab.compact.pagination.next')}>
                             <button
-                              onClick={() => handlePageChange(currentPage + 1)}
+                              onClick={() => handlePageChange(safePage + 1)}
                               onPointerDown={(event) => handlePointerHoldStart(event, 'next')}
                               onPointerUp={handlePointerHoldEnd}
                               onPointerCancel={handlePointerHoldEnd}
                               onLostPointerCapture={stopHoldTimer}
-                              disabled={currentPage === totalPages}
+                              disabled={safePage === totalFilteredPages}
                               className="p-0.5 rounded transition-colors disabled:opacity-30 hover:bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)]"
                             >
                               <ChevronRight size={12} />
@@ -443,88 +491,139 @@ const GroupRow: React.FC<GroupRowProps> = ({
                       )}
                     </div>
 
-                    {/* Sessions table */}
+                    {/* Collapsible IP groups */}
                     <div className="rounded-md border border-[var(--theme-border-secondary)] overflow-hidden divide-y divide-[var(--theme-border-secondary)]">
-                      {paginatedDownloads.map((download) => {
-                        const totalBytes = download.totalBytes || 0;
-                        const cachePercent =
-                          totalBytes > 0 ? ((download.cacheHitBytes || 0) / totalBytes) * 100 : 0;
-                        const associations = getAssociations(download.id);
+                      {Object.entries(ipGroups).map(([ip, ipDownloads]) => {
+                        const ipTotal = ipDownloads.reduce((s, d) => s + (d.totalBytes || 0), 0);
+                        const ipCacheHit = ipDownloads.reduce(
+                          (s, d) => s + (d.cacheHitBytes || 0),
+                          0
+                        );
+                        const expanded = isIpExpanded(ip, ipDownloads.length);
 
                         return (
-                          <div
-                            key={download.id}
-                            className="text-xs px-2.5 py-2 hover:bg-[var(--theme-bg-tertiary)] transition-colors"
-                          >
-                            {/* Mobile: Stacked layout */}
-                            <div className="sm:hidden">
-                              <div className="flex items-center justify-between">
+                          <div key={ip}>
+                            {/* IP header — clickable to toggle */}
+                            <button
+                              type="button"
+                              onClick={() => toggleIp(ip)}
+                              className="w-full text-left text-xs px-2.5 py-1.5 flex items-center justify-between bg-[var(--theme-bg-tertiary)]"
+                            >
+                              <div className="flex items-center gap-2">
+                                <ChevronRight
+                                  size={10}
+                                  className={`flex-shrink-0 text-[var(--theme-text-muted)] transition-transform duration-200 ${expanded ? 'rotate-90' : ''}`}
+                                />
                                 <ClientIpDisplay
-                                  clientIp={download.clientIp}
+                                  clientIp={ip}
                                   className="font-mono text-[var(--theme-text-primary)] text-[11px]"
                                 />
-                                <div className="flex items-center gap-2">
-                                  <span className="font-semibold text-[var(--theme-text-primary)] font-mono">
-                                    {formatBytes(totalBytes)}
-                                  </span>
-                                  {download.cacheHitBytes > 0 ? (
-                                    <span className="font-semibold font-mono text-[var(--theme-success-text)]">
-                                      {formatPercent(cachePercent)}
-                                    </span>
-                                  ) : (
-                                    <span className="font-medium font-mono text-[var(--theme-text-muted)]">
-                                      —
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                              <div className="flex items-center justify-between mt-1">
-                                <span className="text-[var(--theme-text-muted)]">
-                                  {formatRelativeTime(download.startTimeUtc)}
+                                <span className="text-[10px] text-[var(--theme-text-muted)] bg-[var(--theme-bg-primary)] px-1 rounded">
+                                  {ipDownloads.length}
                                 </span>
-                                {associations.events.length > 0 && (
-                                  <DownloadBadges
-                                    events={associations.events}
-                                    maxVisible={2}
-                                    size="sm"
-                                  />
+                              </div>
+                              <div className="flex items-center gap-3 text-[11px]">
+                                <span className="font-medium text-[var(--theme-text-primary)] font-mono">
+                                  {formatBytes(ipTotal)}
+                                </span>
+                                {ipCacheHit > 0 && (
+                                  <span className="font-medium text-[var(--theme-success-text)] font-mono">
+                                    {formatPercent((ipCacheHit / ipTotal) * 100)}
+                                  </span>
                                 )}
                               </div>
-                            </div>
+                            </button>
 
-                            {/* Desktop: Single row */}
-                            <div className="hidden sm:flex items-center justify-between">
-                              <div className="flex items-center gap-3">
-                                <ClientIpDisplay
-                                  clientIp={download.clientIp}
-                                  className="font-mono text-[var(--theme-text-primary)] text-[11px]"
-                                />
-                                <span className="text-[var(--theme-text-muted)]">
-                                  {formatRelativeTime(download.startTimeUtc)}
-                                </span>
-                                {associations.events.length > 0 && (
-                                  <DownloadBadges
-                                    events={associations.events}
-                                    maxVisible={3}
-                                    size="sm"
-                                  />
-                                )}
+                            {/* Session rows — only when expanded */}
+                            {expanded && (
+                              <div className="divide-y divide-[var(--theme-border-secondary)]">
+                                {ipDownloads.map((download) => {
+                                  const totalBytes = download.totalBytes || 0;
+                                  const cachePercent =
+                                    totalBytes > 0
+                                      ? ((download.cacheHitBytes || 0) / totalBytes) * 100
+                                      : 0;
+                                  const associations = getAssociations(download.id);
+
+                                  return (
+                                    <div
+                                      key={download.id}
+                                      className="text-xs px-2.5 py-2 hover:bg-[var(--theme-bg-tertiary)] transition-colors"
+                                    >
+                                      {/* Mobile: Stacked layout */}
+                                      <div className="sm:hidden">
+                                        <div className="flex items-center justify-between">
+                                          <ClientIpDisplay
+                                            clientIp={download.clientIp}
+                                            className="font-mono text-[var(--theme-text-primary)] text-[11px]"
+                                          />
+                                          <div className="flex items-center gap-2">
+                                            <span className="font-semibold text-[var(--theme-text-primary)] font-mono">
+                                              {formatBytes(totalBytes)}
+                                            </span>
+                                            {download.cacheHitBytes > 0 ? (
+                                              <span className="font-semibold font-mono text-[var(--theme-success-text)]">
+                                                {formatPercent(cachePercent)}
+                                              </span>
+                                            ) : (
+                                              <span className="font-medium font-mono text-[var(--theme-text-muted)]">
+                                                —
+                                              </span>
+                                            )}
+                                          </div>
+                                        </div>
+                                        <div className="flex items-center justify-between mt-1">
+                                          <span className="text-[var(--theme-text-muted)]">
+                                            {formatRelativeTime(download.startTimeUtc)}
+                                          </span>
+                                          {associations.events.length > 0 && (
+                                            <DownloadBadges
+                                              events={associations.events}
+                                              maxVisible={2}
+                                              size="sm"
+                                            />
+                                          )}
+                                        </div>
+                                      </div>
+
+                                      {/* Desktop: Single row */}
+                                      <div className="hidden sm:flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                          <ClientIpDisplay
+                                            clientIp={download.clientIp}
+                                            className="font-mono text-[var(--theme-text-primary)] text-[11px]"
+                                          />
+                                          <span className="text-[var(--theme-text-muted)]">
+                                            {formatRelativeTime(download.startTimeUtc)}
+                                          </span>
+                                          {associations.events.length > 0 && (
+                                            <DownloadBadges
+                                              events={associations.events}
+                                              maxVisible={3}
+                                              size="sm"
+                                            />
+                                          )}
+                                        </div>
+                                        <div className="flex items-center gap-4">
+                                          <span className="font-semibold text-[var(--theme-text-primary)] font-mono text-right min-w-[60px]">
+                                            {formatBytes(totalBytes)}
+                                          </span>
+                                          {download.cacheHitBytes > 0 ? (
+                                            <span className="font-semibold font-mono text-right min-w-[36px] text-[var(--theme-success-text)]">
+                                              {formatPercent(cachePercent)}
+                                            </span>
+                                          ) : (
+                                            <span className="font-medium font-mono text-right min-w-[36px] text-[var(--theme-text-muted)]">
+                                              —
+                                            </span>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
                               </div>
-                              <div className="flex items-center gap-4">
-                                <span className="font-semibold text-[var(--theme-text-primary)] font-mono text-right min-w-[60px]">
-                                  {formatBytes(totalBytes)}
-                                </span>
-                                {download.cacheHitBytes > 0 ? (
-                                  <span className="font-semibold font-mono text-right min-w-[36px] text-[var(--theme-success-text)]">
-                                    {formatPercent(cachePercent)}
-                                  </span>
-                                ) : (
-                                  <span className="font-medium font-mono text-right min-w-[36px] text-[var(--theme-text-muted)]">
-                                    —
-                                  </span>
-                                )}
-                              </div>
-                            </div>
+                            )}
                           </div>
                         );
                       })}
@@ -557,8 +656,6 @@ const CompactView: React.FC<CompactViewProps> = ({
   const [groupPages, setGroupPages] = React.useState<Record<string, number>>({});
   const { startHoldTimer, stopHoldTimer } = useHoldTimer();
 
-  const SESSIONS_PER_PAGE = 10;
-
   const handleImageError = (gameAppId: string) => {
     setImageErrors((prev) => new Set(prev).add(gameAppId));
   };
@@ -575,7 +672,6 @@ const CompactView: React.FC<CompactViewProps> = ({
       setGroupPages={setGroupPages}
       startHoldTimer={startHoldTimer}
       stopHoldTimer={stopHoldTimer}
-      SESSIONS_PER_PAGE={SESSIONS_PER_PAGE}
       labels={labels}
       enableScrollIntoView={enableScrollIntoView}
       showDatasourceLabels={showDatasourceLabels}

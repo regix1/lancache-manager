@@ -2,6 +2,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   ChevronRight,
+  ChevronDown,
   Clock,
   ExternalLink,
   CheckCircle,
@@ -24,6 +25,8 @@ import { GameImage } from '@components/common/GameImage';
 import { useHoldTimer } from '@hooks/useHoldTimer';
 import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import DownloadBadges from './DownloadBadges';
+import { useSessionFilters } from './useSessionFilters';
+import SessionFilterBar from './SessionFilterBar';
 import type { Download, DownloadGroup } from '../../../types';
 
 interface NormalViewSectionLabels {
@@ -83,7 +86,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
   setGroupPages,
   startHoldTimer,
   stopHoldTimer,
-  SESSIONS_PER_PAGE,
+  SESSIONS_PER_PAGE: _SESSIONS_PER_PAGE,
   enableScrollIntoView,
   showDatasourceLabels,
   hasMultipleDatasources
@@ -93,6 +96,17 @@ const GroupCard: React.FC<GroupCardProps> = ({
   const isExpanded = expandedItem === group.id;
   const cardRef = React.useRef<HTMLDivElement>(null);
   const prevExpandedRef = React.useRef<boolean>(false);
+  const {
+    filters,
+    updateFilter,
+    resetFilters,
+    filteredDownloads,
+    uniqueIps,
+    totalCount,
+    filteredCount,
+    hasActiveFilters
+  } = useSessionFilters(group.downloads);
+  const [expandedIps, setExpandedIps] = React.useState<Record<string, boolean>>({});
   const hitPercent = group.totalBytes > 0 ? (group.cacheHitBytes / group.totalBytes) * 100 : 0;
   const primaryDownload = group.downloads[0];
   const serviceLower = group.service.toLowerCase();
@@ -596,11 +610,20 @@ const GroupCard: React.FC<GroupCardProps> = ({
             {/* Download Sessions List */}
             {group.downloads.length > 0 &&
               (() => {
+                const toggleIp = (ip: string) => {
+                  setExpandedIps((prev) => ({ ...prev, [ip]: !prev[ip] }));
+                };
+                const isIpExpanded = (ip: string, count: number): boolean => {
+                  if (ip in expandedIps) return expandedIps[ip];
+                  return count <= 5;
+                };
+
+                const sessionsPerPage = filters.sessionsPerPage;
                 const currentPage = groupPages[group.id] || 1;
-                const totalPages = Math.ceil(group.downloads.length / SESSIONS_PER_PAGE);
-                const startIndex = (currentPage - 1) * SESSIONS_PER_PAGE;
-                const endIndex = startIndex + SESSIONS_PER_PAGE;
-                const paginatedDownloads = group.downloads.slice(startIndex, endIndex);
+                const totalPages = Math.ceil(filteredDownloads.length / sessionsPerPage);
+                const startIndex = (currentPage - 1) * sessionsPerPage;
+                const endIndex = startIndex + sessionsPerPage;
+                const paginatedDownloads = filteredDownloads.slice(startIndex, endIndex);
                 const excludedSessions = Math.max(0, group.downloads.length - group.count);
 
                 const handlePageChange = (newPage: number) => {
@@ -639,6 +662,16 @@ const GroupCard: React.FC<GroupCardProps> = ({
                   stopHoldTimer();
                 };
 
+                // Group paginated downloads by client IP
+                const ipGroups = paginatedDownloads.reduce(
+                  (acc, d) => {
+                    if (!acc[d.clientIp]) acc[d.clientIp] = [];
+                    acc[d.clientIp].push(d);
+                    return acc;
+                  },
+                  {} as Record<string, typeof group.downloads>
+                );
+
                 return (
                   <div className="mt-2">
                     <div className="flex items-center justify-between mb-3">
@@ -661,18 +694,24 @@ const GroupCard: React.FC<GroupCardProps> = ({
                       </div>
                     </div>
 
-                    {/* Group sessions by client IP */}
+                    {/* Filter bar — only shown for groups with more than 10 downloads */}
+                    {group.downloads.length > 10 && (
+                      <div className="mb-4">
+                        <SessionFilterBar
+                          filters={filters}
+                          updateFilter={updateFilter}
+                          resetFilters={resetFilters}
+                          uniqueIps={uniqueIps}
+                          totalCount={totalCount}
+                          filteredCount={filteredCount}
+                          hasActiveFilters={hasActiveFilters}
+                        />
+                      </div>
+                    )}
+
+                    {/* Group sessions by client IP — collapsible */}
                     <div className="space-y-4">
-                      {Object.entries(
-                        paginatedDownloads.reduce(
-                          (acc, d) => {
-                            if (!acc[d.clientIp]) acc[d.clientIp] = [];
-                            acc[d.clientIp].push(d);
-                            return acc;
-                          },
-                          {} as Record<string, typeof group.downloads>
-                        )
-                      ).map(([clientIp, clientDownloads]) => {
+                      {Object.entries(ipGroups).map(([clientIp, clientDownloads]) => {
                         const clientTotal = clientDownloads.reduce(
                           (sum, d) => sum + (d.totalBytes || 0),
                           0
@@ -681,15 +720,24 @@ const GroupCard: React.FC<GroupCardProps> = ({
                           (sum, d) => sum + (d.cacheHitBytes || 0),
                           0
                         );
+                        const expanded = isIpExpanded(clientIp, clientDownloads.length);
 
                         return (
                           <div
                             key={clientIp}
                             className="rounded-lg border border-[var(--theme-border-secondary)] overflow-hidden"
                           >
-                            {/* Client Header */}
-                            <div className="bg-[var(--theme-bg-tertiary)] px-4 py-2 flex items-center justify-between border-b border-[var(--theme-border-secondary)]">
+                            {/* Client Header — clickable to collapse/expand */}
+                            <button
+                              type="button"
+                              onClick={() => toggleIp(clientIp)}
+                              className="w-full bg-[var(--theme-bg-tertiary)] px-4 py-2 flex items-center justify-between border-b border-[var(--theme-border-secondary)] text-left"
+                            >
                               <div className="flex items-center gap-2">
+                                <ChevronDown
+                                  size={14}
+                                  className={`text-[var(--theme-text-muted)] transition-transform duration-200 flex-shrink-0 ${expanded ? '' : '-rotate-90'}`}
+                                />
                                 <ClientIpDisplay
                                   clientIp={clientIp}
                                   className="font-mono text-xs font-bold text-[var(--theme-text-primary)]"
@@ -712,90 +760,92 @@ const GroupCard: React.FC<GroupCardProps> = ({
                                   </span>
                                 )}
                               </div>
-                            </div>
+                            </button>
 
-                            {/* Sessions Table-like list */}
-                            <div className="divide-y divide-[var(--theme-border-secondary)]">
-                              {clientDownloads.map((download) => {
-                                const totalBytes = download.totalBytes || 0;
-                                const cachePercent =
-                                  totalBytes > 0
-                                    ? ((download.cacheHitBytes || 0) / totalBytes) * 100
-                                    : 0;
-                                const associations = getAssociations(download.id);
+                            {/* Sessions Table-like list — shown only when expanded */}
+                            {expanded && (
+                              <div className="divide-y divide-[var(--theme-border-secondary)]">
+                                {clientDownloads.map((download) => {
+                                  const totalBytes = download.totalBytes || 0;
+                                  const cachePercent =
+                                    totalBytes > 0
+                                      ? ((download.cacheHitBytes || 0) / totalBytes) * 100
+                                      : 0;
+                                  const associations = getAssociations(download.id);
 
-                                return (
-                                  <div
-                                    key={download.id}
-                                    className="px-4 py-3 hover:bg-[var(--theme-bg-tertiary)] transition-colors"
-                                  >
-                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                                      {/* Time & Events */}
-                                      <div className="flex-1 min-w-0">
-                                        <div className="flex items-center gap-2 mb-1">
-                                          {download.endTimeUtc ? (
-                                            <CheckCircle
-                                              size={14}
-                                              className="text-[var(--theme-success-text)]"
-                                            />
-                                          ) : (
-                                            <AlertCircle
-                                              size={14}
-                                              className="text-[var(--theme-info-text)]"
-                                            />
-                                          )}
-                                          <span className="text-sm text-[var(--theme-text-primary)]">
-                                            {formatRelativeTime(download.startTimeUtc)}
-                                          </span>
-                                          {download.depotId && (
-                                            <span className="text-xs font-mono text-[var(--theme-text-muted)] bg-[var(--theme-bg-tertiary)] px-1.5 rounded">
-                                              {download.depotId}
+                                  return (
+                                    <div
+                                      key={download.id}
+                                      className="px-4 py-3 hover:bg-[var(--theme-bg-tertiary)] transition-colors"
+                                    >
+                                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                        {/* Time & Events */}
+                                        <div className="flex-1 min-w-0">
+                                          <div className="flex items-center gap-2 mb-1">
+                                            {download.endTimeUtc ? (
+                                              <CheckCircle
+                                                size={14}
+                                                className="text-[var(--theme-success-text)]"
+                                              />
+                                            ) : (
+                                              <AlertCircle
+                                                size={14}
+                                                className="text-[var(--theme-info-text)]"
+                                              />
+                                            )}
+                                            <span className="text-sm text-[var(--theme-text-primary)]">
+                                              {formatRelativeTime(download.startTimeUtc)}
                                             </span>
-                                          )}
-                                        </div>
-                                        {associations.events.length > 0 && (
-                                          <div className="mt-1">
-                                            <DownloadBadges
-                                              events={associations.events}
-                                              maxVisible={3}
-                                              size="sm"
-                                            />
-                                          </div>
-                                        )}
-                                      </div>
-
-                                      {/* Stats */}
-                                      <div className="flex items-center gap-4 sm:gap-6 text-sm">
-                                        <div className="flex flex-col items-end">
-                                          <span className="text-[10px] uppercase text-[var(--theme-text-muted)] font-semibold">
-                                            Size
-                                          </span>
-                                          <span className="font-medium text-[var(--theme-text-primary)]">
-                                            {formatBytes(totalBytes)}
-                                          </span>
-                                        </div>
-                                        <div className="flex flex-col items-end w-20">
-                                          <span className="text-[10px] uppercase text-[var(--theme-text-muted)] font-semibold">
-                                            Cache
-                                          </span>
-                                          {download.cacheHitBytes > 0 ? (
-                                            <div className="flex items-center gap-1.5">
-                                              <span className="font-bold text-[var(--theme-success-text)]">
-                                                {formatPercent(cachePercent)}
+                                            {download.depotId && (
+                                              <span className="text-xs font-mono text-[var(--theme-text-muted)] bg-[var(--theme-bg-tertiary)] px-1.5 rounded">
+                                                {download.depotId}
                                               </span>
+                                            )}
+                                          </div>
+                                          {associations.events.length > 0 && (
+                                            <div className="mt-1">
+                                              <DownloadBadges
+                                                events={associations.events}
+                                                maxVisible={3}
+                                                size="sm"
+                                              />
                                             </div>
-                                          ) : (
-                                            <span className="text-[var(--theme-text-muted)]">
-                                              —
-                                            </span>
                                           )}
+                                        </div>
+
+                                        {/* Stats */}
+                                        <div className="flex items-center gap-4 sm:gap-6 text-sm">
+                                          <div className="flex flex-col items-end">
+                                            <span className="text-[10px] uppercase text-[var(--theme-text-muted)] font-semibold">
+                                              Size
+                                            </span>
+                                            <span className="font-medium text-[var(--theme-text-primary)]">
+                                              {formatBytes(totalBytes)}
+                                            </span>
+                                          </div>
+                                          <div className="flex flex-col items-end w-20">
+                                            <span className="text-[10px] uppercase text-[var(--theme-text-muted)] font-semibold">
+                                              Cache
+                                            </span>
+                                            {download.cacheHitBytes > 0 ? (
+                                              <div className="flex items-center gap-1.5">
+                                                <span className="font-bold text-[var(--theme-success-text)]">
+                                                  {formatPercent(cachePercent)}
+                                                </span>
+                                              </div>
+                                            ) : (
+                                              <span className="text-[var(--theme-text-muted)]">
+                                                —
+                                              </span>
+                                            )}
+                                          </div>
                                         </div>
                                       </div>
                                     </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
+                                  );
+                                })}
+                              </div>
+                            )}
                           </div>
                         );
                       })}
