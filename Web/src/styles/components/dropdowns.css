@@ -93,12 +93,12 @@
   }
 
   .calendar-nav .ed-trigger {
-    border-color: var(--theme-button-bg);
-    color: var(--theme-button-bg);
+    border-color: var(--theme-border-secondary);
+    color: var(--theme-text-primary);
   }
 
   .calendar-nav .ed-trigger:not(:disabled):hover {
-    background-color: var(--theme-button-bg-subtle);
+    background-color: var(--theme-bg-hover);
   }
 
   .ed-dropdown {

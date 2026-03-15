@@ -65,7 +65,7 @@ public class EpicApiDirectClient
 
         if (!response.IsSuccessStatusCode)
         {
-            _logger.LogError("Epic OAuth token exchange failed: {StatusCode} {Body}", response.StatusCode, json);
+            _logger.LogError("Epic OAuth token exchange failed with status {StatusCode}", response.StatusCode);
             throw new InvalidOperationException($"Epic OAuth failed: {response.StatusCode}. Check your authorization code.");
         }
 
@@ -112,7 +112,7 @@ public class EpicApiDirectClient
 
         if (!response.IsSuccessStatusCode)
         {
-            _logger.LogWarning("Epic OAuth refresh failed: {StatusCode} {Body}", response.StatusCode, json);
+            _logger.LogWarning("Epic OAuth refresh failed with status {StatusCode}", response.StatusCode);
             throw new InvalidOperationException($"Epic OAuth refresh failed: {response.StatusCode}");
         }
 

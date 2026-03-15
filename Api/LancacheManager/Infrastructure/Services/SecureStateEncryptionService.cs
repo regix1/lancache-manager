@@ -121,7 +121,15 @@ public class SecureStateEncryptionService
         }
 
         // Case 3: Plaintext (no prefix) - oldest legacy format
-        _logger.LogDebug("Migrating plaintext sensitive data to encrypted format");
+        // Log at Warning level so operators can see that an unencrypted credential file was found.
+        // The plaintext value is returned as-is so the caller is unaffected.
+        // TODO: The caller (e.g. SteamAuthStorageService.GetSteamAuthData / EpicAuthStorageService.GetEpicAuthData)
+        //       should detect that at least one field had no encryption prefix (i.e. Decrypt returned a value that
+        //       was not null but the original ciphertext had no ENC:/ENC2: prefix) and immediately call its
+        //       SaveSteamAuthData / SaveEpicAuthData with the already-decrypted struct so that all fields are
+        //       re-encrypted via Encrypt() and written back to disk.  That pattern is already used for v1→v2
+        //       migration in those services and should be replicated here for the plaintext→v2 case.
+        _logger.LogWarning("Migrating legacy plaintext credentials to encrypted format");
         return ciphertext;
     }
 }

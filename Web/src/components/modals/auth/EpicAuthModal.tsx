@@ -154,7 +154,7 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
                   {t('modals.epicAuth.authorizationCodeLabel')}
                 </label>
                 <input
-                  type="text"
+                  type="password"
                   value={authorizationCode}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                     setAuthorizationCode(e.target.value)
