@@ -63,7 +63,6 @@ const LanguageSelector: React.FC<LanguageSelectorProps> = ({ iconOnly = false })
       options={options}
       value={currentLanguage}
       onChange={handleChange}
-      compactMode={true}
       customTriggerLabel={triggerLabel}
       iconOnly={iconOnly}
       triggerAriaLabel={t('common.languageSelector.title')}

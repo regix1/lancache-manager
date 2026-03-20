@@ -328,7 +328,6 @@ const GrafanaEndpoints: React.FC = () => {
             value={dataRefreshRate}
             onChange={handleDataRefreshChange}
             placeholder={t('management.grafana.placeholders.selectRate')}
-            compactMode={true}
             dropdownWidth="w-56"
             alignRight={true}
             dropdownTitle={t('management.grafana.dataRefreshRate')}
@@ -366,7 +365,6 @@ const GrafanaEndpoints: React.FC = () => {
             value={scrapeInterval}
             onChange={handleScrapeIntervalChange}
             placeholder={t('management.grafana.placeholders.selectInterval')}
-            compactMode={true}
             dropdownWidth="w-56"
             alignRight={true}
             dropdownTitle={t('management.grafana.scrapeIntervalTitle')}

@@ -174,7 +174,6 @@ const TimezoneSelector: React.FC<TimezoneSelectorProps> = ({ iconOnly = false })
       })}
       value={getCurrentValue()}
       onChange={handleTimeSettingChange}
-      compactMode={true}
       customTriggerLabel={currentTime}
       iconOnly={iconOnly}
       triggerIcon={Clock}

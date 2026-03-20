@@ -737,7 +737,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                 value={selectedDatasource || ''}
                 onChange={(value) => setSelectedDatasource(value || null)}
                 placeholder={t('management.gameDetection.placeholders.allDatasources')}
-                compactMode
                 cleanStyle
                 prefix={t('management.gameDetection.filterPrefix')}
               />

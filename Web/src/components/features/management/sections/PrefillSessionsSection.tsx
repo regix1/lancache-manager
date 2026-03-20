@@ -1070,7 +1070,6 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                 setPage(1);
               }}
               placeholder={t('management.prefillSessions.statusFilters.all')}
-              compactMode
               className="min-w-[90px] sm:min-w-[120px]"
               dropdownWidth="140px"
             />
@@ -1088,7 +1087,6 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
                 setPage(1);
               }}
               placeholder="All Platforms"
-              compactMode
               className="min-w-[90px] sm:min-w-[120px]"
               dropdownWidth="140px"
             />

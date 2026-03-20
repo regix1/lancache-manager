@@ -97,7 +97,6 @@ const RefreshRateSelector: React.FC<RefreshRateSelectorProps> = ({
       onChange={handleRefreshRateChange}
       disabled={isDisabled}
       placeholder={t('common.refreshRate.placeholder')}
-      compactMode={true}
       dropdownWidth="w-64"
       alignRight={true}
       dropdownTitle={t('common.refreshRate.title')}

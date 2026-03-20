@@ -383,7 +383,6 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
               options={monthOptions}
               value={String(currentMonth.getMonth())}
               onChange={handleMonthChange}
-              compactMode
               cleanStyle
               className="w-[120px]"
             />
@@ -391,7 +390,6 @@ const EventCalendar: React.FC<EventCalendarProps> = ({ events, onEventClick, onD
               options={yearOptions}
               value={String(currentMonth.getFullYear())}
               onChange={handleYearChange}
-              compactMode
               cleanStyle
               className="w-[80px]"
             />

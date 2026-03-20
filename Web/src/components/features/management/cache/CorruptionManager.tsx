@@ -394,7 +394,6 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         value={String(compareToCacheLogs)}
         onChange={(val: string) => setCompareToCacheLogs(val === 'true')}
         disabled={isLoading || isScanning || isAnyRemovalRunning}
-        compactMode={true}
         dropdownWidth="w-72"
         alignRight={true}
         dropdownTitle={t('management.corruption.detectionModeTitle')}
@@ -404,7 +403,6 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         value={String(missThreshold)}
         onChange={(val: string) => setMissThreshold(Number(val))}
         disabled={isLoading || isScanning || isAnyRemovalRunning}
-        compactMode={true}
         dropdownWidth="w-72"
         alignRight={true}
         dropdownTitle={t('management.corruption.sensitivityTitle')}
