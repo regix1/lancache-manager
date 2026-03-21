@@ -9,7 +9,7 @@ import React, {
   memo
 } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Loader2, HardDrive, Download, Zap } from 'lucide-react';
+import { HardDrive, Download, Zap } from 'lucide-react';
 
 import { useIsDesktop } from '@hooks/useMediaQuery';
 import {
@@ -36,14 +36,20 @@ import { BlizzardIcon } from '@components/ui/BlizzardIcon';
 import { XboxIcon } from '@components/ui/XboxIcon';
 import { UnknownServiceIcon } from '@components/ui/UnknownServiceIcon';
 import { GameImage } from '@components/common/GameImage';
-import ApiService from '@services/api.service';
-import { API_BASE } from '@utils/constants';
-import { useMockMode } from '@contexts/useMockMode';
-import { useSignalR } from '@contexts/SignalRContext/useSignalR';
-import MockDataService from '../../../test/mockData.service';
 import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import DownloadBadges from './DownloadBadges';
-import type { EventSummary } from '../../../types';
+import type { Download as DownloadType, DownloadGroup, EventSummary } from '../../../types';
+
+type SortOrder =
+  | 'latest'
+  | 'oldest'
+  | 'largest'
+  | 'smallest'
+  | 'service'
+  | 'efficiency'
+  | 'efficiency-low'
+  | 'sessions'
+  | 'alphabetical';
 
 /**
  * Format a time range with consistent year display
@@ -63,41 +69,19 @@ const formatTimeRange = (startTimeUtc: string, endTimeUtc: string, forceYear = f
   return startTime === endTime ? startTime : `${startTime} - ${endTime}`;
 };
 
-/** Raw item shape from the API (clients as array, not Set) */
-interface RetroApiItem extends Omit<DepotGroupedData, 'clientsSet'> {
-  clients: string[];
-}
-
-/** Response shape from GET /api/downloads/retro */
-interface RetroApiResponse {
-  items: DepotGroupedData[];
-  totalItems: number;
-  totalPages: number;
-  currentPage: number;
-  pageSize: number;
-}
-
-/** Raw response before client-side hydration */
-interface RetroApiRawResponse {
-  items: RetroApiItem[];
-  totalItems: number;
-  totalPages: number;
-  currentPage: number;
-  pageSize: number;
-}
+// Helper to check if item is a DownloadGroup
+const isDownloadGroup = (item: DownloadType | DownloadGroup): item is DownloadGroup => {
+  return 'downloads' in item;
+};
 
 interface RetroViewProps {
+  items: (DownloadType | DownloadGroup)[];
+  sortOrder: string;
+  itemsPerPage: number;
+  currentPage: number;
+  onPageChange: (page: number) => void;
   showTimestamps: boolean;
   showBannerColumn: boolean;
-  sortOrder: string;
-  selectedService: string;
-  selectedClient: string;
-  searchQuery: string;
-  hideLocalhost: boolean;
-  showZeroBytes: boolean;
-  showSmallFiles: boolean;
-  hideUnknownGames: boolean;
-  itemsPerPage: number | string;
   aestheticMode?: boolean;
   showDatasourceLabels?: boolean;
   hasMultipleDatasources?: boolean;
@@ -265,6 +249,165 @@ interface DepotGroupedData {
   averageBytesPerSecond: number;
   downloadIds: number[]; // Track original download IDs for event associations
 }
+
+// Group items by depot ID for retro view display
+const groupByDepot = (
+  items: (DownloadType | DownloadGroup)[],
+  sortOrder: SortOrder = 'latest'
+): DepotGroupedData[] => {
+  const depotGroups: Record<
+    string,
+    DepotGroupedData & { _weightedSpeedSum: number; _speedBytesSum: number }
+  > = {};
+
+  items.forEach((item) => {
+    if (isDownloadGroup(item)) {
+      item.downloads.forEach((download) => {
+        const depotKey = download.depotId
+          ? `depot-${download.depotId}-${download.clientIp}`
+          : `no-depot-${download.service}-${download.clientIp}-${download.id}`;
+
+        if (!depotGroups[depotKey]) {
+          depotGroups[depotKey] = {
+            id: depotKey,
+            service: download.service,
+            gameName: download.gameName || download.service,
+            gameAppId: download.gameAppId || null,
+            epicAppId: download.epicAppId || null,
+            depotId: download.depotId || null,
+            clientIp: download.clientIp,
+            startTimeUtc: download.startTimeUtc,
+            endTimeUtc: download.endTimeUtc || download.startTimeUtc,
+            cacheHitBytes: 0,
+            cacheMissBytes: 0,
+            totalBytes: 0,
+            requestCount: 0,
+            clientsSet: new Set<string>(),
+            datasource: download.datasource,
+            averageBytesPerSecond: 0,
+            downloadIds: [],
+            _weightedSpeedSum: 0,
+            _speedBytesSum: 0
+          };
+        }
+
+        const group = depotGroups[depotKey];
+        group.downloadIds.push(download.id);
+        group.cacheHitBytes += download.cacheHitBytes || 0;
+        group.cacheMissBytes += download.cacheMissBytes || 0;
+        group.totalBytes += download.totalBytes || 0;
+        group.requestCount += 1;
+        group.clientsSet.add(download.clientIp);
+
+        const speed = download.averageBytesPerSecond || 0;
+        const bytes = download.totalBytes || 0;
+        if (speed > 0 && bytes > 0) {
+          group._weightedSpeedSum += speed * bytes;
+          group._speedBytesSum += bytes;
+        }
+
+        if (download.startTimeUtc < group.startTimeUtc) {
+          group.startTimeUtc = download.startTimeUtc;
+        }
+        const endTime = download.endTimeUtc || download.startTimeUtc;
+        if (endTime > group.endTimeUtc) {
+          group.endTimeUtc = endTime;
+        }
+      });
+    } else {
+      const download = item;
+      const depotKey = download.depotId
+        ? `depot-${download.depotId}-${download.clientIp}`
+        : `no-depot-${download.service}-${download.clientIp}-${download.id}`;
+
+      if (!depotGroups[depotKey]) {
+        depotGroups[depotKey] = {
+          id: depotKey,
+          service: download.service,
+          gameName: download.gameName || download.service,
+          gameAppId: download.gameAppId || null,
+          epicAppId: download.epicAppId || null,
+          depotId: download.depotId || null,
+          clientIp: download.clientIp,
+          startTimeUtc: download.startTimeUtc,
+          endTimeUtc: download.endTimeUtc || download.startTimeUtc,
+          cacheHitBytes: 0,
+          cacheMissBytes: 0,
+          totalBytes: 0,
+          requestCount: 0,
+          clientsSet: new Set<string>(),
+          datasource: download.datasource,
+          averageBytesPerSecond: 0,
+          downloadIds: [],
+          _weightedSpeedSum: 0,
+          _speedBytesSum: 0
+        };
+      }
+
+      const group = depotGroups[depotKey];
+      group.downloadIds.push(download.id);
+      group.cacheHitBytes += download.cacheHitBytes || 0;
+      group.cacheMissBytes += download.cacheMissBytes || 0;
+      group.totalBytes += download.totalBytes || 0;
+      group.requestCount += 1;
+      group.clientsSet.add(download.clientIp);
+
+      const speed = download.averageBytesPerSecond || 0;
+      const bytes = download.totalBytes || 0;
+      if (speed > 0 && bytes > 0) {
+        group._weightedSpeedSum += speed * bytes;
+        group._speedBytesSum += bytes;
+      }
+
+      if (download.startTimeUtc < group.startTimeUtc) {
+        group.startTimeUtc = download.startTimeUtc;
+      }
+      const endTime = download.endTimeUtc || download.startTimeUtc;
+      if (endTime > group.endTimeUtc) {
+        group.endTimeUtc = endTime;
+      }
+    }
+  });
+
+  const grouped = Object.values(depotGroups).map((group) => {
+    const { _weightedSpeedSum, _speedBytesSum, ...cleanGroup } = group;
+    cleanGroup.averageBytesPerSecond = _speedBytesSum > 0 ? _weightedSpeedSum / _speedBytesSum : 0;
+    return cleanGroup as DepotGroupedData;
+  });
+
+  return grouped.sort((a, b) => {
+    switch (sortOrder) {
+      case 'oldest':
+        return new Date(a.startTimeUtc).getTime() - new Date(b.startTimeUtc).getTime();
+      case 'largest':
+        return b.totalBytes - a.totalBytes;
+      case 'smallest':
+        return a.totalBytes - b.totalBytes;
+      case 'service': {
+        const serviceCompare = a.service.localeCompare(b.service);
+        if (serviceCompare !== 0) return serviceCompare;
+        return new Date(b.endTimeUtc).getTime() - new Date(a.endTimeUtc).getTime();
+      }
+      case 'efficiency': {
+        const aEff = a.totalBytes > 0 ? (a.cacheHitBytes / a.totalBytes) * 100 : 0;
+        const bEff = b.totalBytes > 0 ? (b.cacheHitBytes / b.totalBytes) * 100 : 0;
+        return bEff - aEff;
+      }
+      case 'efficiency-low': {
+        const aEffLow = a.totalBytes > 0 ? (a.cacheHitBytes / a.totalBytes) * 100 : 0;
+        const bEffLow = b.totalBytes > 0 ? (b.cacheHitBytes / b.totalBytes) * 100 : 0;
+        return aEffLow - bEffLow;
+      }
+      case 'sessions':
+        return b.requestCount - a.requestCount;
+      case 'alphabetical':
+        return a.gameName.localeCompare(b.gameName);
+      case 'latest':
+      default:
+        return new Date(b.endTimeUtc).getTime() - new Date(a.endTimeUtc).getTime();
+    }
+  });
+};
 
 // Circular Efficiency Gauge Component
 const EfficiencyGauge: React.FC<{ percent: number; size?: number }> = ({ percent, size = 56 }) => {
@@ -447,17 +590,13 @@ const RetroView = memo(
   forwardRef<RetroViewHandle, RetroViewProps>(
     (
       {
-        showTimestamps = true,
-        showBannerColumn = true,
-        sortOrder = 'latest',
-        selectedService = 'all',
-        selectedClient = 'all',
-        searchQuery = '',
-        hideLocalhost = false,
-        showZeroBytes = false,
-        showSmallFiles = true,
-        hideUnknownGames = false,
-        itemsPerPage = 20,
+        items,
+        sortOrder,
+        itemsPerPage,
+        currentPage,
+        onPageChange,
+        showTimestamps,
+        showBannerColumn,
         aestheticMode = false,
         showDatasourceLabels = true,
         hasMultipleDatasources = false
@@ -465,149 +604,7 @@ const RetroView = memo(
       ref
     ) => {
       const { t } = useTranslation();
-      const { mockMode } = useMockMode();
       const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
-
-      // --- Internal state for API-driven data ---
-      const [retroData, setRetroData] = useState<RetroApiResponse | null>(null);
-      const [loading, setLoading] = useState(false);
-      const [currentPage, setCurrentPage] = useState(1);
-      const [error, setError] = useState<string | null>(null);
-      const [refreshTrigger, setRefreshTrigger] = useState(0);
-
-      // Subscribe to SignalR events to refresh retro data when downloads change
-      const { on, off } = useSignalR();
-      useEffect(() => {
-        const handler = () => setRefreshTrigger((prev) => prev + 1);
-        const events = [
-          'DownloadsRefresh',
-          'LogProcessingComplete',
-          'DepotMappingComplete'
-        ] as const;
-        events.forEach((event) => on(event, handler));
-        return () => {
-          events.forEach((event) => off(event, handler));
-        };
-      }, [on, off]);
-
-      // Resolve numeric page size for the API
-      const pageSize =
-        typeof itemsPerPage === 'number'
-          ? itemsPerPage
-          : itemsPerPage === 'unlimited'
-            ? 10000
-            : parseInt(String(itemsPerPage)) || 20;
-
-      // Reset to page 1 when filters change
-      useEffect(() => {
-        setCurrentPage(1);
-      }, [
-        sortOrder,
-        selectedService,
-        selectedClient,
-        searchQuery,
-        hideLocalhost,
-        showZeroBytes,
-        showSmallFiles,
-        hideUnknownGames,
-        itemsPerPage
-      ]);
-
-      // Fetch retro data from the API (or generate mock data)
-      useEffect(() => {
-        if (mockMode) {
-          const mockResult = MockDataService.generateMockRetroData({
-            page: currentPage,
-            pageSize,
-            sortOrder,
-            service: selectedService,
-            client: selectedClient,
-            search: searchQuery,
-            hideLocalhost,
-            showZeroBytes,
-            showSmallFiles,
-            hideUnknownGames
-          });
-          setRetroData(mockResult);
-          setLoading(false);
-          setError(null);
-          return;
-        }
-
-        const controller = new AbortController();
-        let cancelled = false;
-
-        const fetchData = async () => {
-          setLoading(true);
-          setError(null);
-          try {
-            const params = new URLSearchParams({
-              page: String(currentPage),
-              pageSize: String(pageSize),
-              sortOrder: String(sortOrder)
-            });
-            if (selectedService && selectedService !== 'all')
-              params.set('service', selectedService);
-            if (selectedClient && selectedClient !== 'all') params.set('client', selectedClient);
-            if (searchQuery) params.set('search', searchQuery);
-            if (hideLocalhost) params.set('hideLocalhost', 'true');
-            if (showZeroBytes) params.set('showZeroBytes', 'true');
-            if (!showSmallFiles) params.set('showSmallFiles', 'false');
-            if (hideUnknownGames) params.set('hideUnknownGames', 'true');
-
-            const response = await fetch(
-              `${API_BASE}/downloads/retro?${params.toString()}`,
-              ApiService.getFetchOptions({ signal: controller.signal })
-            );
-
-            if (cancelled) return;
-
-            const raw = await ApiService.handleResponse<RetroApiRawResponse>(response);
-            if (!cancelled) {
-              // Hydrate clients array into Set for rendering compatibility
-              const hydrated: RetroApiResponse = {
-                ...raw,
-                items: raw.items.map((item) => ({
-                  ...item,
-                  clientsSet: new Set(item.clients || [item.clientIp])
-                }))
-              };
-              setRetroData(hydrated);
-            }
-          } catch (err: unknown) {
-            if (cancelled) return;
-            if (err instanceof Error && err.name === 'AbortError') return;
-            setError(err instanceof Error ? err.message : 'Failed to fetch retro data');
-          } finally {
-            if (!cancelled) {
-              setLoading(false);
-            }
-          }
-        };
-
-        fetchData();
-
-        return () => {
-          cancelled = true;
-          controller.abort();
-        };
-      }, [
-        mockMode,
-        currentPage,
-        pageSize,
-        sortOrder,
-        selectedService,
-        selectedClient,
-        searchQuery,
-        hideLocalhost,
-        showZeroBytes,
-        showSmallFiles,
-        hideUnknownGames,
-        refreshTrigger
-      ]);
-
-      // Items from the API response (already grouped/sorted server-side)
-      const items = useMemo(() => retroData?.items ?? [], [retroData]);
 
       // Use JavaScript-based breakpoint detection for conditional rendering
       // This completely removes desktop layout from DOM on mobile, preventing width calculation conflicts
@@ -616,6 +613,23 @@ const RetroView = memo(
       // Event associations for download badges
       const { fetchAssociations, getAssociations, refreshVersion } = useDownloadAssociations();
 
+      // Group all items (memoized)
+      const allGroupedItems = useMemo(
+        () => groupByDepot(items, sortOrder as SortOrder),
+        [items, sortOrder]
+      );
+
+      // Calculate total pages
+      const totalPages = useMemo(() => {
+        return Math.max(1, Math.ceil(allGroupedItems.length / itemsPerPage));
+      }, [allGroupedItems.length, itemsPerPage]);
+
+      // Slice for current page
+      const groupedItems = useMemo(() => {
+        const start = (currentPage - 1) * itemsPerPage;
+        return allGroupedItems.slice(start, start + itemsPerPage);
+      }, [allGroupedItems, currentPage, itemsPerPage]);
+
       // Calculate smart default widths based on content
       const smartDefaultWidths = useMemo(() => {
         return getDefaultColumnWidths();
@@ -623,7 +637,7 @@ const RetroView = memo(
 
       // Generate a cache key from the data for column width caching
       const cacheKey = useMemo(() => {
-        const ids = items
+        const ids = groupedItems
           .map((item) => item.id)
           .sort()
           .join(',');
@@ -633,7 +647,13 @@ const RetroView = memo(
           showBannerColumn
         ).length;
         return `${ids.length}-${colCount}-${ids.slice(0, 100)}`;
-      }, [items, hasMultipleDatasources, showDatasourceLabels, showTimestamps, showBannerColumn]);
+      }, [
+        groupedItems,
+        hasMultipleDatasources,
+        showDatasourceLabels,
+        showTimestamps,
+        showBannerColumn
+      ]);
 
       // Column widths state - load from localStorage or use smart defaults
       const [columnWidths, setColumnWidths] = useState<ColumnWidths>(() => {
@@ -656,13 +676,13 @@ const RetroView = memo(
 
       // Recalculate widths when items change (for actual data measurement)
       useEffect(() => {
-        if (items.length > 0) {
+        if (groupedItems.length > 0) {
           // Extract actual data for measurement
           const timestamps: string[] = [];
           const appNames: string[] = [];
           const clientIps: string[] = [];
 
-          items.forEach((data) => {
+          groupedItems.forEach((data) => {
             // Use forceYear=true to measure with maximum width (always includes year)
             const timeRange = formatTimeRange(data.startTimeUtc, data.endTimeUtc, true);
             timestamps.push(timeRange);
@@ -683,7 +703,7 @@ const RetroView = memo(
             }));
           }
         }
-      }, [items, sortOrder, cacheKey, smartDefaultWidths]);
+      }, [groupedItems, sortOrder, cacheKey, smartDefaultWidths]);
 
       // Container ref for measurements
       const containerRef = useRef<HTMLDivElement>(null);
@@ -746,7 +766,7 @@ const RetroView = memo(
         measureSpan.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;';
         document.body.appendChild(measureSpan);
 
-        const grouped = items;
+        const grouped = groupedItems;
         const isDatasourceShown = hasMultipleDatasources && showDatasourceLabels;
 
         // Measure each column's required width based on actual data
@@ -874,7 +894,7 @@ const RetroView = memo(
         );
         setColumnWidths(fittedWidths);
       }, [
-        items,
+        groupedItems,
         hasMultipleDatasources,
         showDatasourceLabels,
         smartDefaultWidths,
@@ -898,7 +918,7 @@ const RetroView = memo(
           document.body.appendChild(measureSpan);
 
           // Use the actual data to measure full text widths (not truncated DOM)
-          const grouped = items;
+          const grouped = groupedItems;
 
           // Set font based on column type
           switch (column) {
@@ -1034,7 +1054,7 @@ const RetroView = memo(
         },
         [
           smartDefaultWidths,
-          items,
+          groupedItems,
           t,
           hasMultipleDatasources,
           showDatasourceLabels,
@@ -1056,9 +1076,6 @@ const RetroView = memo(
         setImageErrors((prev) => new Set(prev).add(gameAppId));
       };
 
-      // Server provides items already grouped — use directly
-      const groupedItems = items;
-
       // Fetch event associations for visible downloads
       // refreshVersion triggers re-fetch when cache is invalidated (e.g., DownloadTagged event)
       useEffect(() => {
@@ -1067,14 +1084,6 @@ const RetroView = memo(
           fetchAssociations(allDownloadIds);
         }
       }, [groupedItems, fetchAssociations, refreshVersion]);
-
-      // Pagination values from API response
-      const totalPages = retroData?.totalPages ?? 1;
-      const totalItems = retroData?.totalItems ?? 0;
-
-      const handlePageChange = useCallback((page: number) => {
-        setCurrentPage(page);
-      }, []);
 
       // Pre-compute row data with events to avoid recalculating during render
       // This memoization prevents expensive event lookups on every render
@@ -1162,24 +1171,6 @@ const RetroView = memo(
         return parts.join(' ');
       }, [columnWidths, showDatasourceColumn, showTimestamps, showBannerColumn]);
 
-      // Loading state
-      if (loading && !retroData) {
-        return (
-          <div className="flex items-center justify-center py-16">
-            <Loader2 className="w-8 h-8 animate-spin text-themed-accent" />
-          </div>
-        );
-      }
-
-      // Error state
-      if (error) {
-        return (
-          <div className="flex flex-col items-center justify-center py-16 px-4">
-            <p className="text-sm text-themed-error">{error}</p>
-          </div>
-        );
-      }
-
       return (
         <div
           ref={containerRef}
@@ -1193,10 +1184,20 @@ const RetroView = memo(
         }
       `}</style>
 
-          {/* Loading overlay for subsequent fetches */}
-          {loading && retroData && (
-            <div className="flex items-center justify-center py-2">
-              <Loader2 className="w-5 h-5 animate-spin text-themed-accent" />
+          {/* Pagination controls */}
+          {totalPages > 1 && (
+            <div className="pagination-sticky">
+              <div className="p-2 mx-2 mt-2 rounded-lg bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-primary)]">
+                <Pagination
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  totalItems={allGroupedItems.length}
+                  itemsPerPage={itemsPerPage}
+                  onPageChange={onPageChange}
+                  itemLabel="depot groups"
+                  showCard={false}
+                />
+              </div>
             </div>
           )}
 
@@ -1213,7 +1214,7 @@ const RetroView = memo(
                       {t('downloads.tab.retro.headers.timestamp')}
                     </span>
                     <ResizeHandle
-                      onMouseDown={(e) => handleMouseDown('timestamp', e)}
+                      onMouseDown={(e: React.MouseEvent) => handleMouseDown('timestamp', e)}
                       onDoubleClick={() => handleAutoFitColumn('timestamp')}
                     />
                   </div>
@@ -1227,7 +1228,7 @@ const RetroView = memo(
                       {t('downloads.tab.retro.headers.banner', 'Banner')}
                     </span>
                     <ResizeHandle
-                      onMouseDown={(e) => handleMouseDown('banner', e)}
+                      onMouseDown={(e: React.MouseEvent) => handleMouseDown('banner', e)}
                       onDoubleClick={() => handleAutoFitColumn('banner')}
                     />
                   </div>
@@ -1237,7 +1238,7 @@ const RetroView = memo(
                     {t('downloads.tab.retro.headers.app')}
                   </span>
                   <ResizeHandle
-                    onMouseDown={(e) => handleMouseDown('app', e)}
+                    onMouseDown={(e: React.MouseEvent) => handleMouseDown('app', e)}
                     onDoubleClick={() => handleAutoFitColumn('app')}
                   />
                 </div>
@@ -1250,7 +1251,7 @@ const RetroView = memo(
                       {t('downloads.tab.retro.headers.source')}
                     </span>
                     <ResizeHandle
-                      onMouseDown={(e) => handleMouseDown('datasource', e)}
+                      onMouseDown={(e: React.MouseEvent) => handleMouseDown('datasource', e)}
                       onDoubleClick={() => handleAutoFitColumn('datasource')}
                     />
                   </div>
@@ -1263,7 +1264,7 @@ const RetroView = memo(
                     {t('downloads.tab.retro.headers.events')}
                   </span>
                   <ResizeHandle
-                    onMouseDown={(e) => handleMouseDown('events', e)}
+                    onMouseDown={(e: React.MouseEvent) => handleMouseDown('events', e)}
                     onDoubleClick={() => handleAutoFitColumn('events')}
                   />
                 </div>
@@ -1275,7 +1276,7 @@ const RetroView = memo(
                     {t('downloads.tab.retro.headers.depot')}
                   </span>
                   <ResizeHandle
-                    onMouseDown={(e) => handleMouseDown('depot', e)}
+                    onMouseDown={(e: React.MouseEvent) => handleMouseDown('depot', e)}
                     onDoubleClick={() => handleAutoFitColumn('depot')}
                   />
                 </div>
@@ -1287,7 +1288,7 @@ const RetroView = memo(
                     {t('downloads.tab.retro.headers.client')}
                   </span>
                   <ResizeHandle
-                    onMouseDown={(e) => handleMouseDown('client', e)}
+                    onMouseDown={(e: React.MouseEvent) => handleMouseDown('client', e)}
                     onDoubleClick={() => handleAutoFitColumn('client')}
                   />
                 </div>
@@ -1299,7 +1300,7 @@ const RetroView = memo(
                     {t('downloads.tab.retro.headers.avgSpeed')}
                   </span>
                   <ResizeHandle
-                    onMouseDown={(e) => handleMouseDown('speed', e)}
+                    onMouseDown={(e: React.MouseEvent) => handleMouseDown('speed', e)}
                     onDoubleClick={() => handleAutoFitColumn('speed')}
                   />
                 </div>
@@ -1311,7 +1312,7 @@ const RetroView = memo(
                     {t('downloads.tab.retro.headers.cachePerformance')}
                   </span>
                   <ResizeHandle
-                    onMouseDown={(e) => handleMouseDown('cacheHit', e)}
+                    onMouseDown={(e: React.MouseEvent) => handleMouseDown('cacheHit', e)}
                     onDoubleClick={() => handleAutoFitColumn('cacheHit')}
                   />
                 </div>
@@ -1612,19 +1613,6 @@ const RetroView = memo(
               <EmptyState />
             )}
           </div>
-
-          {/* Pagination controls */}
-          {totalPages > 1 && (
-            <Pagination
-              currentPage={currentPage}
-              totalPages={totalPages}
-              totalItems={totalItems}
-              itemsPerPage={pageSize}
-              onPageChange={handlePageChange}
-              itemLabel="depot groups"
-              showCard={true}
-            />
-          )}
         </div>
       );
     }

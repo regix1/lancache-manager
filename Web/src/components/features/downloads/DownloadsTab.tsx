@@ -483,12 +483,12 @@ const DownloadsTab: React.FC = () => {
 
         const retroSaved = storage.getItem(STORAGE_KEYS.ITEMS_PER_PAGE_RETRO);
         if (retroSaved === 'unlimited') {
-          // Retro saved as unlimited — cap to 20 instead
-          newItemsPerPage = 20;
+          // Retro saved as unlimited — cap to 100 instead
+          newItemsPerPage = 100;
         } else if (retroSaved) {
           const parsed = parseInt(retroSaved);
           // Cap at 100 when switching to retro
-          newItemsPerPage = parsed > 100 ? 20 : parsed;
+          newItemsPerPage = parsed > 100 ? 100 : parsed;
         } else {
           newItemsPerPage = DEFAULT_ITEMS_PER_PAGE.retro;
         }
@@ -612,16 +612,19 @@ const DownloadsTab: React.FC = () => {
     return options;
   }, [availableClients, getGroupForIp, t]);
 
-  const itemsPerPageOptions = useMemo(
-    () => [
+  const itemsPerPageOptions = useMemo(() => {
+    const options = [
       { value: '20', label: '20' },
       { value: '50', label: '50' },
       { value: '100', label: '100' },
       { value: '200', label: '200' },
       { value: 'unlimited', label: t('downloads.tab.filters.allItems') }
-    ],
-    [t]
-  );
+    ];
+    if (settings.viewMode === 'retro') {
+      return options.filter((opt) => opt.value !== 'unlimited' && opt.value !== '200');
+    }
+    return options;
+  }, [t, settings.viewMode]);
 
   // Handler for items-per-page changes
   const handleItemsPerPageChange = (value: string) => {
@@ -1877,17 +1880,15 @@ const DownloadsTab: React.FC = () => {
                   {retroEverMounted.current && (
                     <RetroView
                       ref={retroViewRef}
+                      items={allItemsSorted}
+                      sortOrder={settings.sortOrder}
+                      itemsPerPage={
+                        typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 100
+                      }
+                      currentPage={currentPage}
+                      onPageChange={handlePageChange}
                       showTimestamps={settings.showTimestamps}
                       showBannerColumn={settings.showBannerColumn}
-                      sortOrder={settings.sortOrder}
-                      selectedService={settings.selectedService}
-                      selectedClient={settings.selectedClient}
-                      searchQuery={settings.searchQuery}
-                      hideLocalhost={settings.hideLocalhost}
-                      showZeroBytes={settings.showZeroBytes}
-                      showSmallFiles={settings.showSmallFiles}
-                      hideUnknownGames={settings.hideUnknownGames}
-                      itemsPerPage={settings.itemsPerPage}
                       aestheticMode={settings.aestheticMode}
                       showDatasourceLabels={showDatasourceLabels}
                       hasMultipleDatasources={hasMultipleDatasources}
