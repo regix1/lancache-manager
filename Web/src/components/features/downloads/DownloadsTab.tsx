@@ -1790,18 +1790,20 @@ const DownloadsTab: React.FC = () => {
             settings.itemsPerPage !== 'unlimited' &&
             totalPages > 1 && (
               <div className="pagination-sticky">
-                <Pagination
-                  currentPage={currentPage}
-                  totalPages={totalPages}
-                  totalItems={allItemsSorted.length}
-                  itemsPerPage={
-                    typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 20
-                  }
-                  onPageChange={handlePageChange}
-                  itemLabel="items"
-                  showCard={false}
-                  totalDownloads={filteredDownloads.length}
-                />
+                <div className="p-2 rounded-lg bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-primary)]">
+                  <Pagination
+                    currentPage={currentPage}
+                    totalPages={totalPages}
+                    totalItems={allItemsSorted.length}
+                    itemsPerPage={
+                      typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 20
+                    }
+                    onPageChange={handlePageChange}
+                    itemLabel="items"
+                    showCard={false}
+                    totalDownloads={filteredDownloads.length}
+                  />
+                </div>
               </div>
             )}
 

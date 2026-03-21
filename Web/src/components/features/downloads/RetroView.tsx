@@ -1176,15 +1176,17 @@ const RetroView = memo(
           {/* Pagination controls */}
           {totalPages > 1 && (
             <div className="pagination-sticky">
-              <Pagination
-                currentPage={currentPage}
-                totalPages={totalPages}
-                totalItems={allGroupedItems.length}
-                itemsPerPage={itemsPerPage}
-                onPageChange={onPageChange}
-                itemLabel="depot groups"
-                showCard={false}
-              />
+              <div className="p-2 rounded-lg bg-[var(--theme-bg-secondary)] border border-[var(--theme-border-primary)]">
+                <Pagination
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  totalItems={allGroupedItems.length}
+                  itemsPerPage={itemsPerPage}
+                  onPageChange={onPageChange}
+                  itemLabel="depot groups"
+                  showCard={false}
+                />
+              </div>
             </div>
           )}
 
@@ -1200,7 +1202,7 @@ const RetroView = memo(
         }
       `}</style>
 
-            <div className="overflow-y-auto max-h-[80vh]">
+            <div>
               {/* Desktop Table Header - only rendered on desktop via JS conditional */}
               {isDesktop && (
                 <div
