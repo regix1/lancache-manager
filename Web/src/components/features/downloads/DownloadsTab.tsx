@@ -34,6 +34,7 @@ import { formatDateTime } from '@utils/formatters';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
+import { Modal } from '@components/ui/Modal';
 import { Checkbox } from '@components/ui/Checkbox';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { ActionMenu, ActionMenuItem } from '@components/ui/ActionMenu';
@@ -341,6 +342,20 @@ const DownloadsTab: React.FC = () => {
   const settingsRef = useRef<HTMLDivElement>(null);
   const retroViewRef = useRef<RetroViewHandle>(null);
 
+  // Retro view: store previous non-retro itemsPerPage so we can restore when switching away
+  const previousNonRetroItemsPerPage = useRef<number | 'unlimited'>(
+    (() => {
+      const saved = storage.getItem(STORAGE_KEYS.ITEMS_PER_PAGE);
+      if (saved === 'unlimited') return 'unlimited';
+      if (saved) return parseInt(saved);
+      return DEFAULT_ITEMS_PER_PAGE.normal;
+    })()
+  );
+
+  // Retro "Show All" warning modal
+  const [retroAllWarningOpen, setRetroAllWarningOpen] = useState(false);
+  const retroPreviousItemsPerPage = useRef<number | 'unlimited'>(DEFAULT_ITEMS_PER_PAGE.retro);
+
   const [settings, setSettings] = useState(() => {
     const savedViewMode = (storage.getItem(STORAGE_KEYS.VIEW_MODE) || 'normal') as ViewMode;
 
@@ -449,6 +464,7 @@ const DownloadsTab: React.FC = () => {
   // Effect to switch items per page when view mode changes
   useEffect(() => {
     if (prevViewModeRef.current !== settings.viewMode) {
+      const prevMode = prevViewModeRef.current;
       const newMode = settings.viewMode;
 
       // Mark view as ever-mounted for display:none pattern
@@ -461,16 +477,33 @@ const DownloadsTab: React.FC = () => {
       setIsViewTransitioning(true);
       const timer = setTimeout(() => setIsViewTransitioning(false), 350);
 
+      // When switching AWAY from retro, save current retro value and restore previous non-retro value
+      if (prevMode === 'retro' && newMode !== 'retro') {
+        // Restore the previously saved non-retro itemsPerPage
+        const restored = previousNonRetroItemsPerPage.current;
+        prevViewModeRef.current = newMode;
+        if (settings.itemsPerPage !== restored) {
+          setSettings((prev) => ({ ...prev, itemsPerPage: restored }));
+        }
+        return () => clearTimeout(timer);
+      }
+
       prevViewModeRef.current = newMode;
 
       // Load the saved items per page for the new view mode
       let newItemsPerPage: number | 'unlimited';
       if (newMode === 'retro') {
+        // When switching TO retro: save current non-retro itemsPerPage, then cap retro
+        previousNonRetroItemsPerPage.current = settings.itemsPerPage;
+
         const retroSaved = storage.getItem(STORAGE_KEYS.ITEMS_PER_PAGE_RETRO);
         if (retroSaved === 'unlimited') {
-          newItemsPerPage = 'unlimited';
+          // Retro saved as unlimited — cap to 20 instead
+          newItemsPerPage = 20;
         } else if (retroSaved) {
-          newItemsPerPage = parseInt(retroSaved);
+          const parsed = parseInt(retroSaved);
+          // Cap at 100 when switching to retro
+          newItemsPerPage = parsed > 100 ? 20 : parsed;
         } else {
           newItemsPerPage = DEFAULT_ITEMS_PER_PAGE.retro;
         }
@@ -604,6 +637,20 @@ const DownloadsTab: React.FC = () => {
     ],
     [t]
   );
+
+  // Handler for items-per-page changes — intercepts "unlimited" in retro mode to show warning
+  const handleItemsPerPageChange = (value: string) => {
+    if (value === 'unlimited' && settings.viewMode === 'retro') {
+      // Save the current value so we can revert on cancel
+      retroPreviousItemsPerPage.current = settings.itemsPerPage;
+      setRetroAllWarningOpen(true);
+      return;
+    }
+    setSettings((prev) => ({
+      ...prev,
+      itemsPerPage: value === 'unlimited' ? 'unlimited' : parseInt(value)
+    }));
+  };
 
   const filteredDownloads = useMemo(() => {
     if (!Array.isArray(latestDownloads)) {
@@ -1370,12 +1417,7 @@ const DownloadsTab: React.FC = () => {
                         ? 'unlimited'
                         : settings.itemsPerPage.toString()
                     }
-                    onChange={(value) =>
-                      setSettings({
-                        ...settings,
-                        itemsPerPage: value === 'unlimited' ? 'unlimited' : parseInt(value)
-                      })
-                    }
+                    onChange={handleItemsPerPageChange}
                     prefix={t('downloads.tab.filters.showPrefix')}
                     className="flex-1 min-w-0"
                   />
@@ -1452,12 +1494,7 @@ const DownloadsTab: React.FC = () => {
                         ? 'unlimited'
                         : settings.itemsPerPage.toString()
                     }
-                    onChange={(value) =>
-                      setSettings({
-                        ...settings,
-                        itemsPerPage: value === 'unlimited' ? 'unlimited' : parseInt(value)
-                      })
-                    }
+                    onChange={handleItemsPerPageChange}
                     prefix={t('downloads.tab.filters.showPrefix')}
                     className="w-28"
                   />
@@ -1948,6 +1985,36 @@ const DownloadsTab: React.FC = () => {
           )}
         </>
       )}
+
+      {/* Retro "Show All" warning modal */}
+      <Modal
+        opened={retroAllWarningOpen}
+        onClose={() => setRetroAllWarningOpen(false)}
+        size="sm"
+        title="Warning: Loading All Items"
+      >
+        <div className="space-y-4">
+          <p className="text-themed-secondary">
+            Loading all items in Retro view may be slow with large datasets and could cause the page
+            to become unresponsive.
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button variant="default" onClick={() => setRetroAllWarningOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="filled"
+              color="yellow"
+              onClick={() => {
+                setSettings((prev) => ({ ...prev, itemsPerPage: 'unlimited' }));
+                setRetroAllWarningOpen(false);
+              }}
+            >
+              Continue Anyway
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };
