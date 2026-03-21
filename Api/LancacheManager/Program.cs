@@ -310,6 +310,11 @@ builder.Services.AddAuthorization(options =>
 
     options.AddPolicy("EpicPrefillAccess", policy =>
         policy.RequireClaim("EpicPrefillActive", "true"));
+
+    options.AddPolicy("AnyPrefillAccess", policy =>
+        policy.RequireAssertion(context =>
+            context.User.HasClaim("SteamPrefillActive", "true") ||
+            context.User.HasClaim("EpicPrefillActive", "true")));
 });
 
 // Register SignalR connection tracking service for targeted messaging

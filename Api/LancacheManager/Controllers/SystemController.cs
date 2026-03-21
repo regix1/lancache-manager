@@ -17,7 +17,7 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/system")]
-[Authorize(Policy = "AdminOnly")]
+[Authorize]
 public class SystemController : ControllerBase
 {
     private readonly StateService _stateService;
@@ -180,6 +180,7 @@ public class SystemController : ControllerBase
     /// RESTful: PATCH is proper method for partial updates
     /// Request body: { "completed": true }
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpPatch("setup")]
     public IActionResult UpdateSetupStatus([FromBody] UpdateSetupRequest request)
     {
@@ -201,6 +202,7 @@ public class SystemController : ControllerBase
     /// <summary>
     /// GET /api/system/rsync/available - Check if rsync is available
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpGet("rsync/available")]
     public IActionResult CheckRsyncAvailable()
     {
@@ -212,6 +214,7 @@ public class SystemController : ControllerBase
     /// POST /api/system/migrations/sessions - Run session migration
     /// Note: POST is acceptable as this is a one-time operation/action
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpPost("migrations/sessions")]
     public IActionResult MigrateSessions()
     {
@@ -223,6 +226,7 @@ public class SystemController : ControllerBase
     /// RESTful: PATCH is proper method for configuration updates
     /// Request body: { "deleteMode": "preserve" | "full" | "rsync" }
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpPatch("cache-delete-mode")]
     public IActionResult SetCacheDeleteMode([FromBody] SetCacheDeleteModeRequest request)
     {
@@ -241,6 +245,7 @@ public class SystemController : ControllerBase
     /// RESTful: PATCH is proper method for configuration updates
     /// Request body: { "intervalHours": 24 }
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpPatch("depots/crawl-interval")]
     public IActionResult SetDepotCrawlInterval([FromBody] SetCrawlIntervalRequest request)
     {
@@ -264,6 +269,7 @@ public class SystemController : ControllerBase
     /// RESTful: PATCH is proper method for configuration updates
     /// Request body: { "mode": "full" } or { "mode": "incremental" }
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpPatch("depots/scan-mode")]
     public IActionResult SetDepotScanMode([FromBody] SetScanModeRequest request)
     {
@@ -305,6 +311,7 @@ public class SystemController : ControllerBase
     /// RESTful: PATCH is proper method for configuration updates
     /// Request body: { "refreshRate": "LIVE" | "ULTRA" | "REALTIME" | "STANDARD" | "RELAXED" | "SLOW" }
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpPatch("refresh-rate")]
     public IActionResult SetRefreshRate([FromBody] SetRefreshRateRequest request)
     {
@@ -346,6 +353,7 @@ public class SystemController : ControllerBase
     /// RESTful: PATCH is proper method for configuration updates
     /// Request body: { "refreshRate": "LIVE" | "ULTRA" | "REALTIME" | "STANDARD" | "RELAXED" | "SLOW" }
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpPatch("default-guest-refresh-rate")]
     public async Task<IActionResult> SetDefaultGuestRefreshRateAsync([FromBody] SetRefreshRateRequest request)
     {
@@ -381,6 +389,7 @@ public class SystemController : ControllerBase
     /// PATCH /api/system/guest-refresh-rate-lock - Lock or unlock guest refresh rate selection
     /// Request body: { "locked": true | false }
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpPatch("guest-refresh-rate-lock")]
     public async Task<IActionResult> SetGuestRefreshRateLockAsync([FromBody] GuestRefreshRateLockRequest request)
     {
@@ -423,6 +432,7 @@ public class SystemController : ControllerBase
     /// <summary>
     /// Update allowed time formats for guests
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpPatch("default-guest-preferences/allowed-time-formats")]
     public async Task<IActionResult> SetAllowedTimeFormatsAsync([FromBody] SetAllowedTimeFormatsRequest request)
     {
@@ -461,6 +471,7 @@ public class SystemController : ControllerBase
     /// <summary>
     /// Update a single default guest preference
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpPatch("default-guest-preferences/{key}")]
     public async Task<IActionResult> SetDefaultGuestPreferenceAsync(string key, [FromBody] SetBoolPreferenceRequest request)
     {
@@ -534,6 +545,7 @@ public class SystemController : ControllerBase
     /// <summary>
     /// Update default prefill panel settings
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpPatch("prefill-defaults")]
     public async Task<IActionResult> SetPrefillDefaultsAsync([FromBody] SetPrefillDefaultsRequest request)
     {
@@ -615,6 +627,7 @@ public class SystemController : ControllerBase
     /// <summary>
     /// GET /api/system/log-rotation/status - Get nginx log rotation status
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpGet("log-rotation/status")]
     public IActionResult GetLogRotationStatus()
     {
@@ -625,6 +638,7 @@ public class SystemController : ControllerBase
     /// <summary>
     /// POST /api/system/log-rotation/trigger - Force nginx log rotation
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpPost("log-rotation/trigger")]
     public async Task<IActionResult> TriggerLogRotationAsync()
     {
@@ -644,6 +658,7 @@ public class SystemController : ControllerBase
     /// <summary>
     /// PUT /api/system/log-rotation/schedule - Update log rotation schedule
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpPut("log-rotation/schedule")]
     public async Task<IActionResult> UpdateLogRotationScheduleAsync([FromBody] UpdateLogRotationScheduleRequest request)
     {

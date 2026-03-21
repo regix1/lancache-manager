@@ -15,7 +15,7 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/prefill-admin")]
-[Authorize(Policy = "AdminOnly")]
+[Authorize]
 public class PrefillAdminController : ControllerBase
 {
     private readonly PrefillSessionService _sessionService;
@@ -82,6 +82,7 @@ public class PrefillAdminController : ControllerBase
     /// <summary>
     /// Gets all prefill sessions (paginated).
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpGet("sessions")]
     public async Task<ActionResult<PrefillSessionsResponse>> GetSessionsAsync(
         [FromQuery] int page = 1,
@@ -134,6 +135,7 @@ public class PrefillAdminController : ControllerBase
     /// <summary>
     /// Gets all currently active (in-memory) sessions.
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpGet("sessions/active")]
     public ActionResult<List<DaemonSessionDto>> GetActiveSessions()
     {
@@ -147,6 +149,7 @@ public class PrefillAdminController : ControllerBase
     /// <summary>
     /// Gets prefill history for a specific session.
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpGet("sessions/{sessionId}/history")]
     public async Task<ActionResult<List<PrefillHistoryEntryDto>>> GetSessionHistoryAsync(string sessionId)
     {
@@ -170,6 +173,7 @@ public class PrefillAdminController : ControllerBase
     /// <summary>
     /// Terminates a specific session.
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpPost("sessions/{sessionId}/terminate")]
     public async Task<ActionResult> TerminateSessionAsync(
         string sessionId,
@@ -192,6 +196,7 @@ public class PrefillAdminController : ControllerBase
     /// <summary>
     /// Terminates all active sessions.
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpPost("sessions/terminate-all")]
     public async Task<ActionResult> TerminateAllSessionsAsync([FromBody] TerminateSessionRequest? request = null)
     {
@@ -227,6 +232,7 @@ public class PrefillAdminController : ControllerBase
     /// <summary>
     /// Gets all active bans.
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpGet("bans")]
     public async Task<ActionResult<List<BannedSteamUserDto>>> GetBansAsync([FromQuery] bool includeLifted = false)
     {
@@ -254,6 +260,7 @@ public class PrefillAdminController : ControllerBase
     /// Bans a Steam user by session ID.
     /// Looks up the username from the session.
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpPost("bans/by-session/{sessionId}")]
     public async Task<ActionResult<BannedSteamUserDto>> BanBySessionAsync(
         string sessionId,
@@ -287,6 +294,7 @@ public class PrefillAdminController : ControllerBase
     /// <summary>
     /// Bans a Steam user by username.
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpPost("bans")]
     public async Task<ActionResult<BannedSteamUserDto>> BanByUsernameAsync([FromBody] BanByUsernameRequest request)
     {
@@ -315,6 +323,7 @@ public class PrefillAdminController : ControllerBase
     /// <summary>
     /// Lifts a ban.
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpPost("bans/{banId}/lift")]
     public async Task<ActionResult> LiftBanAsync(int banId)
     {
@@ -349,6 +358,7 @@ public class PrefillAdminController : ControllerBase
     /// <summary>
     /// Gets all cached apps with their cache timestamps.
     /// </summary>
+    [Authorize(Policy = "AnyPrefillAccess")]
     [HttpGet("cache")]
     public async Task<ActionResult<List<CachedAppDto>>> GetCachedAppsAsync()
     {
@@ -368,6 +378,7 @@ public class PrefillAdminController : ControllerBase
     /// <summary>
     /// Checks if specific apps are cached. Returns which ones are cached.
     /// </summary>
+    [Authorize(Policy = "AnyPrefillAccess")]
     [HttpPost("cache/check")]
     public async Task<ActionResult<CacheCheckResponse>> CheckAppsCachedAsync([FromBody] List<uint> appIds)
     {
@@ -403,6 +414,7 @@ public class PrefillAdminController : ControllerBase
     /// <summary>
     /// Clears cache for a specific app (for force re-download).
     /// </summary>
+    [Authorize(Policy = "AnyPrefillAccess")]
     [HttpDelete("cache/{appId}")]
     public async Task<ActionResult> ClearAppCacheAsync(uint appId)
     {
@@ -414,6 +426,7 @@ public class PrefillAdminController : ControllerBase
     /// <summary>
     /// Clears the entire prefill cache.
     /// </summary>
+    [Authorize(Policy = "AnyPrefillAccess")]
     [HttpDelete("cache")]
     public async Task<ActionResult> ClearAllCacheAsync()
     {

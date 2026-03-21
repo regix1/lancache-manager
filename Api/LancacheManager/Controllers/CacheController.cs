@@ -16,7 +16,7 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/cache")]
-[Authorize(Policy = "AdminOnly")]
+[Authorize]
 public class CacheController : ControllerBase
 {
     private readonly CacheManagementService _cacheService;
@@ -66,6 +66,7 @@ public class CacheController : ControllerBase
     /// <summary>
     /// GET /api/cache - Get cache information (size, path, etc.)
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpGet]
     public async Task<IActionResult> GetCacheInfoAsync()
     {
@@ -76,6 +77,7 @@ public class CacheController : ControllerBase
     /// <summary>
     /// GET /api/cache/size - Calculate cache size with deletion time estimates
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpGet("size")]
     [Authorize]
     public async Task<IActionResult> GetCacheSizeAsync([FromQuery] string? datasource = null, [FromQuery] bool force = false)
@@ -91,6 +93,7 @@ public class CacheController : ControllerBase
     /// <summary>
     /// GET /api/cache/permissions - Check cache directory permissions
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpGet("permissions")]
     public IActionResult GetDirectoryPermissions()
     {
@@ -109,6 +112,7 @@ public class CacheController : ControllerBase
     /// DELETE /api/cache - Clear all cache (all datasources)
     /// RESTful: DELETE is proper method for clearing/removing resources
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpDelete]
     public async Task<IActionResult> ClearAllCacheAsync()
     {
@@ -149,6 +153,7 @@ public class CacheController : ControllerBase
     /// DELETE /api/cache/datasources/{name} - Clear cache for a specific datasource
     /// RESTful: DELETE is proper method for clearing/removing resources
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpDelete("datasources/{name}")]
     public async Task<IActionResult> ClearDatasourceCacheAsync(string name)
     {
@@ -198,6 +203,7 @@ public class CacheController : ControllerBase
     /// <summary>
     /// GET /api/cache/operations - List all active cache operations
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpGet("operations")]
     public IActionResult GetActiveOperations()
     {
@@ -209,6 +215,7 @@ public class CacheController : ControllerBase
     /// <summary>
     /// GET /api/cache/operations/{id}/status - Get status of specific cache clear operation
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpGet("operations/{id}/status")]
     public IActionResult GetCacheClearStatus(string id)
     {
@@ -226,6 +233,7 @@ public class CacheController : ControllerBase
     /// DELETE /api/cache/operations/{id} - Cancel a running cache clear operation
     /// RESTful: DELETE is proper method for cancelling/removing operations
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpDelete("operations/{id}")]
     public IActionResult CancelCacheClear(string id)
     {
@@ -243,6 +251,7 @@ public class CacheController : ControllerBase
     /// POST /api/cache/operations/{id}/kill - Force kill a cache clear operation's process
     /// Used as fallback when graceful cancellation fails
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpPost("operations/{id}/kill")]
     public async Task<IActionResult> ForceKillCacheClearAsync(string id)
     {
@@ -260,6 +269,7 @@ public class CacheController : ControllerBase
     /// GET /api/cache/corruption/cached - Get cached corruption detection results
     /// Returns immediately with cached results (if available) without running a new scan.
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpGet("corruption/cached")]
     public async Task<IActionResult> GetCachedCorruptionDetectionAsync()
     {
@@ -286,6 +296,7 @@ public class CacheController : ControllerBase
     /// POST /api/cache/corruption/detect - Start a background corruption detection scan
     /// Returns immediately with an operation ID. Results sent via SignalR when complete.
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpPost("corruption/detect")]
     public async Task<IActionResult> StartCorruptionDetectionAsync([FromQuery] int threshold = 3, [FromQuery] bool compareToCacheLogs = true)
     {
@@ -296,6 +307,7 @@ public class CacheController : ControllerBase
     /// <summary>
     /// GET /api/cache/corruption/detect/status - Get the status of the active corruption detection operation
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpGet("corruption/detect/status")]
     public IActionResult GetCorruptionDetectionStatus()
     {
@@ -319,6 +331,7 @@ public class CacheController : ControllerBase
     /// GET /api/cache/services/{name}/corruption - Get detailed corruption info for specific service
     /// Returns array of corrupted chunks with URLs, miss counts, and cache file paths
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpGet("services/{service}/corruption")]
     public async Task<IActionResult> GetCorruptionDetailsAsync(string service, [FromQuery] bool forceRefresh = false, [FromQuery] int threshold = 3, [FromQuery] bool compareToCacheLogs = true)
     {
@@ -330,6 +343,7 @@ public class CacheController : ControllerBase
     /// DELETE /api/cache/services/{name}/corruption - Remove corrupted chunks for specific service
     /// RESTful: DELETE is proper method for removing resources
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpDelete("services/{service}/corruption")]
     public IActionResult RemoveCorruptedChunks(string service, [FromQuery] int threshold = 3, [FromQuery] bool compareToCacheLogs = true)
     {
@@ -569,6 +583,7 @@ public class CacheController : ControllerBase
     /// GET /api/cache/services/{service}/corruption/status - Get corruption removal status
     /// Used for restoring progress on page refresh
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpGet("services/{service}/corruption/status")]
     public IActionResult GetCorruptionRemovalStatus(string service)
     {
@@ -594,6 +609,7 @@ public class CacheController : ControllerBase
     /// <summary>
     /// GET /api/cache/corruption/removals/active - Get all active corruption removal operations
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpGet("corruption/removals/active")]
     public IActionResult GetActiveCorruptionRemovals()
     {
@@ -620,6 +636,7 @@ public class CacheController : ControllerBase
     /// DELETE /api/cache/services/{name} - Remove specific service from cache
     /// RESTful: DELETE is proper method for removing resources
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpDelete("services/{name}")]
     public IActionResult ClearServiceCache(string name)
     {
@@ -747,6 +764,7 @@ public class CacheController : ControllerBase
     /// GET /api/cache/services/{name}/removal-status - Get service removal status
     /// Used for restoring progress on page refresh
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpGet("services/{name}/removal-status")]
     public IActionResult GetServiceRemovalStatus(string name)
     {
@@ -773,6 +791,7 @@ public class CacheController : ControllerBase
     /// <summary>
     /// GET /api/cache/services/removals/active - Get all active service removal operations
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpGet("services/removals/active")]
     public IActionResult GetActiveServiceRemovals()
     {
@@ -800,6 +819,7 @@ public class CacheController : ControllerBase
     /// GET /api/cache/removals/active - Get all active removal operations (games, services, corruption)
     /// Used for universal recovery on page refresh
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpGet("removals/active")]
     public IActionResult GetAllActiveRemovals()
     {

@@ -17,7 +17,7 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/depots")]
-[Authorize(Policy = "AdminOnly")]
+[Authorize]
 public class DepotsController : ControllerBase
 {
     private readonly AppDbContext _context;
@@ -44,6 +44,7 @@ public class DepotsController : ControllerBase
     /// GET /api/depots/status - Get status of depot mappings (PICS JSON and database)
     /// RESTful: Proper resource status endpoint
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpGet("status")]
     [Authorize]
     public async Task<IActionResult> GetDepotStatusAsync()
@@ -84,6 +85,7 @@ public class DepotsController : ControllerBase
     /// - If Steam requires full scan: Returns requiresFullScan flag to show modal to user
     /// - If incremental=false: Skips viability check and proceeds directly to full scan
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpPost("rebuild")]
     public async Task<IActionResult> StartDepotRebuildAsync(CancellationToken cancellationToken, [FromQuery] bool incremental = false)
     {
@@ -137,6 +139,7 @@ public class DepotsController : ControllerBase
     /// GET /api/depots/rebuild/progress - Get current depot rebuild progress
     /// RESTful: Progress is a sub-resource of the rebuild operation
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpGet("rebuild/progress")]
     public IActionResult GetRebuildProgress()
     {
@@ -148,6 +151,7 @@ public class DepotsController : ControllerBase
     /// DELETE /api/depots/rebuild - Cancel the current depot rebuild
     /// RESTful: DELETE is proper method for cancelling/removing operations
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpDelete("rebuild")]
     public async Task<IActionResult> CancelRebuildAsync()
     {
@@ -167,6 +171,7 @@ public class DepotsController : ControllerBase
     /// GET /api/depots/rebuild/check-incremental - Check if incremental scan is viable
     /// RESTful: This is a query/check operation on the rebuild resource
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpGet("rebuild/check-incremental")]
     public async Task<IActionResult> CheckIncrementalViabilityAsync(CancellationToken cancellationToken)
     {
@@ -179,6 +184,7 @@ public class DepotsController : ControllerBase
     /// RESTful: POST is proper method for importing/creating resources
     /// Query param 'source' determines import source: 'github' or 'local'
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpPost("import")]
     public async Task<IActionResult> ImportDepotMappingsAsync([FromQuery] string source, CancellationToken cancellationToken)
     {
@@ -231,6 +237,7 @@ public class DepotsController : ControllerBase
     /// PATCH /api/depots - Apply depot mappings to existing downloads
     /// RESTful: PATCH is proper method for applying updates to a resource collection
     /// </summary>
+    [Authorize(Policy = "AdminOnly")]
     [HttpPatch]
     public async Task<IActionResult> ApplyDepotMappingsAsync(CancellationToken cancellationToken)
     {
@@ -253,6 +260,7 @@ public class DepotsController : ControllerBase
     /// RESTful: PUT is proper method for updating configuration
     /// </summary>
     /// <param name="intervalHours">Interval in hours (supports fractional values like 0.00833 for 30 seconds). Use 0 to disable.</param>
+    [Authorize(Policy = "AdminOnly")]
     [HttpPut("rebuild/config/interval")]
     public IActionResult SetCrawlInterval([FromBody] double intervalHours)
     {
@@ -298,6 +306,7 @@ public class DepotsController : ControllerBase
     /// RESTful: PUT is proper method for updating configuration
     /// </summary>
     /// <param name="mode">Mode value: true (incremental), false (full), or "github" (PICS updates only)</param>
+    [Authorize(Policy = "AdminOnly")]
     [HttpPut("rebuild/config/mode")]
     public IActionResult SetCrawlMode([FromBody] JsonElement mode)
     {
