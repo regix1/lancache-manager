@@ -1127,10 +1127,13 @@ const DownloadsTab: React.FC = () => {
     retroLoadedCount < deferredAllItemsSorted.length;
 
   const totalPages = useMemo(() => {
+    // Use settings.itemsPerPage (actual user selection) — effectiveItemsPerPage caps retro+unlimited
+    // to 20 for hidden-view performance, so we must not use it for the page count guard here.
+    if (settings.itemsPerPage === 'unlimited') return 1;
     if (effectiveItemsPerPage === 'unlimited') return 1;
     const itemsPerPageNum = typeof effectiveItemsPerPage === 'number' ? effectiveItemsPerPage : 20;
     return Math.ceil(allItemsSorted.length / itemsPerPageNum);
-  }, [allItemsSorted.length, effectiveItemsPerPage]);
+  }, [allItemsSorted.length, effectiveItemsPerPage, settings.itemsPerPage]);
 
   // Reset to page 1 when filters change
   useEffect(() => {
@@ -1864,7 +1867,7 @@ const DownloadsTab: React.FC = () => {
           )}
 
           {/* Sticky Pagination Controls (above content) */}
-          {effectiveItemsPerPage !== 'unlimited' &&
+          {settings.itemsPerPage !== 'unlimited' &&
             (settings.viewMode === 'retro' ? retroTotalPages : totalPages) > 1 && (
               <div className="pagination-sticky">
                 <Pagination
@@ -1988,7 +1991,7 @@ const DownloadsTab: React.FC = () => {
           </div>
 
           {/* Performance warning */}
-          {effectiveItemsPerPage === 'unlimited' && itemsToDisplay.length > 500 && (
+          {settings.itemsPerPage === 'unlimited' && itemsToDisplay.length > 500 && (
             <Alert color="yellow">
               Loading {itemsToDisplay.length} items. Consider using pagination for better
               performance.
