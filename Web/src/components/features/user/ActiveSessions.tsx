@@ -504,6 +504,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         setEditingPreferences(null);
         setPendingSteamPrefillChange(null);
         setPendingEpicPrefillChange(null);
+        loadSessions(false);
       } else {
         const errorData = await response.json();
         showToast('error', errorData.error || t('activeSessions.errors.savePreferences'));
@@ -2171,7 +2172,8 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                         onClick={() =>
                           setEditingPreferences({
                             ...editingPreferences,
-                            refreshRateLocked: editingPreferences.refreshRateLocked !== false
+                            refreshRateLocked:
+                              editingPreferences.refreshRateLocked === false ? true : false
                           })
                         }
                       >
