@@ -516,6 +516,199 @@ class MockDataService {
       cacheWasCleared: false
     };
   }
+
+  /**
+   * Generate mock retro view data (grouped by depot + client, matching the /api/downloads/retro shape)
+   */
+  static generateMockRetroData(
+    options: {
+      page?: number;
+      pageSize?: number;
+      sortOrder?: string;
+      service?: string;
+      client?: string;
+      search?: string;
+      hideLocalhost?: boolean;
+      showZeroBytes?: boolean;
+      showSmallFiles?: boolean;
+      hideUnknownGames?: boolean;
+    } = {}
+  ): {
+    items: {
+      id: string;
+      service: string;
+      gameName: string;
+      gameAppId: number | null;
+      epicAppId: string | null;
+      depotId: number | null;
+      clientIp: string;
+      startTimeUtc: string;
+      endTimeUtc: string;
+      cacheHitBytes: number;
+      cacheMissBytes: number;
+      totalBytes: number;
+      requestCount: number;
+      clientsSet: Set<string>;
+      datasource: string;
+      averageBytesPerSecond: number;
+      downloadIds: number[];
+    }[];
+    totalItems: number;
+    totalPages: number;
+    currentPage: number;
+    pageSize: number;
+  } {
+    const {
+      page = 1,
+      pageSize = 20,
+      sortOrder = 'latest',
+      service: filterService,
+      client: filterClient,
+      search,
+      hideLocalhost = false,
+      showZeroBytes = false,
+      showSmallFiles = true,
+      hideUnknownGames = false
+    } = options;
+
+    const now = new Date();
+    const allItems: {
+      id: string;
+      service: string;
+      gameName: string;
+      gameAppId: number | null;
+      epicAppId: string | null;
+      depotId: number | null;
+      clientIp: string;
+      startTimeUtc: string;
+      endTimeUtc: string;
+      cacheHitBytes: number;
+      cacheMissBytes: number;
+      totalBytes: number;
+      requestCount: number;
+      clientsSet: Set<string>;
+      datasource: string;
+      averageBytesPerSecond: number;
+      downloadIds: number[];
+    }[] = [];
+
+    // Generate ~80 grouped depot entries using real Steam games
+    for (let i = 0; i < 80; i++) {
+      const game = STEAM_GAMES[i % STEAM_GAMES.length];
+      const clientIp = CLIENT_IPS[i % CLIENT_IPS.length];
+      const depotId = parseInt(game.appId, 10) + 1;
+
+      const hoursAgo = Math.pow(i / 80, 2) * 2160;
+      const startTime = new Date(
+        now.getTime() - hoursAgo * 60 * 60 * 1000 - Math.random() * 3600000
+      );
+      const durationMs = (1 + Math.random() * 30) * 60 * 1000;
+      const endTime = new Date(startTime.getTime() + durationMs);
+
+      const cacheHitRatio = Math.min(0.95, 0.1 + (hoursAgo / 2160) * 0.85);
+      const totalBytes = Math.floor(game.size * (0.3 + Math.random() * 0.7));
+      const cacheHitBytes = Math.floor(totalBytes * cacheHitRatio);
+      const cacheMissBytes = totalBytes - cacheHitBytes;
+      const requestCount = 1 + Math.floor(Math.random() * 10);
+      const speed = totalBytes > 0 ? totalBytes / (durationMs / 1000) : 0;
+
+      allItems.push({
+        id: `depot-${depotId}-${clientIp}`,
+        service: 'steam',
+        gameName: game.name,
+        gameAppId: parseInt(game.appId, 10),
+        epicAppId: null,
+        depotId,
+        clientIp,
+        startTimeUtc: startTime.toISOString(),
+        endTimeUtc: endTime.toISOString(),
+        cacheHitBytes,
+        cacheMissBytes,
+        totalBytes,
+        requestCount,
+        clientsSet: new Set([clientIp]),
+        datasource: 'Default',
+        averageBytesPerSecond: speed,
+        downloadIds: Array.from({ length: requestCount }, (_, j) => i * 10 + j + 1)
+      });
+    }
+
+    // Apply filters
+    let filtered = allItems;
+    if (filterService && filterService !== 'all') {
+      filtered = filtered.filter((item) => item.service === filterService);
+    }
+    if (filterClient && filterClient !== 'all') {
+      filtered = filtered.filter((item) => item.clientIp === filterClient);
+    }
+    if (search) {
+      const q = search.toLowerCase();
+      filtered = filtered.filter(
+        (item) =>
+          item.gameName.toLowerCase().includes(q) ||
+          item.clientIp.includes(q) ||
+          String(item.depotId).includes(q)
+      );
+    }
+    if (hideLocalhost) {
+      filtered = filtered.filter(
+        (item) => item.clientIp !== '127.0.0.1' && item.clientIp !== '::1'
+      );
+    }
+    if (!showZeroBytes) {
+      filtered = filtered.filter((item) => item.totalBytes > 0);
+    }
+    if (!showSmallFiles) {
+      filtered = filtered.filter((item) => item.totalBytes > 1024 * 1024);
+    }
+    if (hideUnknownGames) {
+      filtered = filtered.filter((item) => item.gameName && item.gameName !== item.service);
+    }
+
+    // Sort
+    filtered.sort((a, b) => {
+      switch (sortOrder) {
+        case 'oldest':
+          return new Date(a.startTimeUtc).getTime() - new Date(b.startTimeUtc).getTime();
+        case 'largest':
+          return b.totalBytes - a.totalBytes;
+        case 'smallest':
+          return a.totalBytes - b.totalBytes;
+        case 'efficiency': {
+          const aEff = a.totalBytes > 0 ? a.cacheHitBytes / a.totalBytes : 0;
+          const bEff = b.totalBytes > 0 ? b.cacheHitBytes / b.totalBytes : 0;
+          return bEff - aEff;
+        }
+        case 'efficiency-low': {
+          const aEff = a.totalBytes > 0 ? a.cacheHitBytes / a.totalBytes : 0;
+          const bEff = b.totalBytes > 0 ? b.cacheHitBytes / b.totalBytes : 0;
+          return aEff - bEff;
+        }
+        case 'sessions':
+          return b.requestCount - a.requestCount;
+        case 'alphabetical':
+          return a.gameName.localeCompare(b.gameName);
+        case 'latest':
+        default:
+          return new Date(b.endTimeUtc).getTime() - new Date(a.endTimeUtc).getTime();
+      }
+    });
+
+    // Paginate
+    const totalItems = filtered.length;
+    const effectivePageSize = pageSize >= 10000 ? totalItems : pageSize;
+    const totalPages = Math.max(1, Math.ceil(totalItems / effectivePageSize));
+    const start = (page - 1) * effectivePageSize;
+    const items = filtered.slice(start, start + effectivePageSize);
+
+    return {
+      items,
+      totalItems,
+      totalPages,
+      currentPage: page,
+      pageSize: effectivePageSize
+    };
+  }
 }
 
 export default MockDataService;

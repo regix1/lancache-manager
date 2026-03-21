@@ -34,7 +34,6 @@ import { formatDateTime } from '@utils/formatters';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
-import { Modal } from '@components/ui/Modal';
 import { Checkbox } from '@components/ui/Checkbox';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { ActionMenu, ActionMenuItem } from '@components/ui/ActionMenu';
@@ -334,9 +333,6 @@ const DownloadsTab: React.FC = () => {
   const [imageCacheClearing, setImageCacheClearing] = useState(false);
   const [imageCacheVersion, setImageCacheVersion] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
-  // Retro view manages its own pagination since it groups by depot
-  const [retroTotalPages, setRetroTotalPages] = useState(1);
-  const [retroTotalItems, setRetroTotalItems] = useState(0);
   const contentRef = useRef<HTMLDivElement>(null);
 
   const settingsRef = useRef<HTMLDivElement>(null);
@@ -351,13 +347,6 @@ const DownloadsTab: React.FC = () => {
       return DEFAULT_ITEMS_PER_PAGE.normal;
     })()
   );
-
-  // Retro "Show All" warning modal
-  const [retroAllWarningOpen, setRetroAllWarningOpen] = useState(false);
-  const retroPreviousItemsPerPage = useRef<number | 'unlimited'>(DEFAULT_ITEMS_PER_PAGE.retro);
-  // Tracks whether the user explicitly confirmed "Show All" in retro mode via the warning modal.
-  // When true, effectiveItemsPerPage returns 'unlimited' instead of capping to 20.
-  const [retroUnlimitedConfirmed, setRetroUnlimitedConfirmed] = useState(false);
 
   const [settings, setSettings] = useState(() => {
     const savedViewMode = (storage.getItem(STORAGE_KEYS.VIEW_MODE) || 'normal') as ViewMode;
@@ -423,13 +412,6 @@ const DownloadsTab: React.FC = () => {
   const normalEverMounted = useRef(settings.viewMode === 'normal');
   const retroEverMounted = useRef(settings.viewMode === 'retro');
 
-  // Column width cache for RetroView - persists across view switches
-  const columnWidthCache = useRef<Map<string, number[]>>(new Map());
-
-  // Progressive/chunked loading for RetroView when showing all items
-  const RETRO_CHUNK_SIZE = 50;
-  const [retroLoadedCount, setRetroLoadedCount] = useState(0);
-
   // Effect to save settings to localStorage
   useEffect(() => {
     storage.setItem(STORAGE_KEYS.SHOW_METADATA, settings.showZeroBytes.toString());
@@ -482,7 +464,6 @@ const DownloadsTab: React.FC = () => {
 
       // When switching AWAY from retro, save current retro value and restore previous non-retro value
       if (prevMode === 'retro' && newMode !== 'retro') {
-        setRetroUnlimitedConfirmed(false);
         // Restore the previously saved non-retro itemsPerPage
         const restored = previousNonRetroItemsPerPage.current;
         prevViewModeRef.current = newMode;
@@ -642,18 +623,8 @@ const DownloadsTab: React.FC = () => {
     [t]
   );
 
-  // Handler for items-per-page changes — intercepts "unlimited" in retro mode to show warning
+  // Handler for items-per-page changes
   const handleItemsPerPageChange = (value: string) => {
-    if (value === 'unlimited' && settings.viewMode === 'retro') {
-      // Save the current value so we can revert on cancel
-      retroPreviousItemsPerPage.current = settings.itemsPerPage;
-      setRetroAllWarningOpen(true);
-      return;
-    }
-    // If user selects a non-unlimited value in retro, reset the confirmation flag
-    if (value !== 'unlimited') {
-      setRetroUnlimitedConfirmed(false);
-    }
     setSettings((prev) => ({
       ...prev,
       itemsPerPage: value === 'unlimited' ? 'unlimited' : parseInt(value)
@@ -1069,92 +1040,25 @@ const DownloadsTab: React.FC = () => {
     return items;
   }, [filteredDownloads, normalViewItems, compactViewItems, settings.viewMode, settings.sortOrder]);
 
-  // Synchronous guard: when in retro mode, cap the effective itemsPerPage so the
-  // hidden-but-mounted non-retro views (normal/compact/card) never receive unlimited
-  // items. Without this, the useEffect that switches itemsPerPage to 20 runs AFTER
-  // the first render, causing a lag spike as all hidden views render all items.
-  // Once the user explicitly confirms "Show All" via the warning modal, let unlimited through.
-  const effectiveItemsPerPage = useMemo(() => {
-    if (
-      settings.viewMode === 'retro' &&
-      settings.itemsPerPage === 'unlimited' &&
-      !retroUnlimitedConfirmed
-    ) {
-      return 20;
-    }
-    return settings.itemsPerPage;
-  }, [settings.viewMode, settings.itemsPerPage, retroUnlimitedConfirmed]);
-
   const itemsToDisplay = useMemo(() => {
-    if (effectiveItemsPerPage === 'unlimited') {
+    if (settings.itemsPerPage === 'unlimited') {
       return allItemsSorted;
     }
 
-    // Apply pagination based on effectiveItemsPerPage
-    const itemsPerPageNum = typeof effectiveItemsPerPage === 'number' ? effectiveItemsPerPage : 20;
+    const itemsPerPageNum = typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 20;
     const startIndex = (currentPage - 1) * itemsPerPageNum;
     const endIndex = startIndex + itemsPerPageNum;
     return allItemsSorted.slice(startIndex, endIndex);
-  }, [allItemsSorted, currentPage, effectiveItemsPerPage]);
+  }, [allItemsSorted, currentPage, settings.itemsPerPage]);
 
   // Deferred items for smoother view transitions
   const deferredItemsToDisplay = useDeferredValue(itemsToDisplay);
-  const deferredAllItemsSorted = useDeferredValue(allItemsSorted);
-
-  // Progressive chunked loading for RetroView — prevents crash when "Show All" is selected
-  // by feeding rows to RetroView in small batches, yielding to the browser between each chunk.
-  // When the user switches away from retro, we reset the count and cancel any pending chunk timer
-  // so the main thread isn't blocked by background chunk loading.
-  useEffect(() => {
-    if (settings.viewMode !== 'retro') {
-      // Not in retro view — cancel any pending chunk and reset
-      setRetroLoadedCount(0);
-      return;
-    }
-
-    if (settings.itemsPerPage !== 'unlimited') {
-      setRetroLoadedCount(0);
-      return;
-    }
-
-    if (retroLoadedCount < deferredAllItemsSorted.length) {
-      const timer = setTimeout(() => {
-        setRetroLoadedCount((prev) =>
-          Math.min(prev + RETRO_CHUNK_SIZE, deferredAllItemsSorted.length)
-        );
-      }, 0);
-      return () => clearTimeout(timer);
-    }
-  }, [settings.viewMode, settings.itemsPerPage, retroLoadedCount, deferredAllItemsSorted.length]);
-
-  // Reset chunk counter when the underlying data changes
-  useEffect(() => {
-    if (settings.viewMode === 'retro' && settings.itemsPerPage === 'unlimited') {
-      setRetroLoadedCount(RETRO_CHUNK_SIZE);
-    }
-  }, [filteredDownloads.length, settings.viewMode, settings.itemsPerPage]);
-
-  // Items to pass to RetroView — chunked when unlimited, full list otherwise
-  const retroItems = useMemo(() => {
-    if (settings.viewMode !== 'retro') return deferredAllItemsSorted;
-    if (settings.itemsPerPage !== 'unlimited') return deferredAllItemsSorted;
-    const count = retroLoadedCount || RETRO_CHUNK_SIZE;
-    return deferredAllItemsSorted.slice(0, count);
-  }, [settings.viewMode, settings.itemsPerPage, retroLoadedCount, deferredAllItemsSorted]);
-
-  const isRetroChunkedLoading =
-    settings.viewMode === 'retro' &&
-    settings.itemsPerPage === 'unlimited' &&
-    retroLoadedCount < deferredAllItemsSorted.length;
 
   const totalPages = useMemo(() => {
-    // Use settings.itemsPerPage (actual user selection) — effectiveItemsPerPage caps retro+unlimited
-    // to 20 for hidden-view performance, so we must not use it for the page count guard here.
     if (settings.itemsPerPage === 'unlimited') return 1;
-    if (effectiveItemsPerPage === 'unlimited') return 1;
-    const itemsPerPageNum = typeof effectiveItemsPerPage === 'number' ? effectiveItemsPerPage : 20;
+    const itemsPerPageNum = typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 20;
     return Math.ceil(allItemsSorted.length / itemsPerPageNum);
-  }, [allItemsSorted.length, effectiveItemsPerPage, settings.itemsPerPage]);
+  }, [allItemsSorted.length, settings.itemsPerPage]);
 
   // Reset to page 1 when filters change
   useEffect(() => {
@@ -1227,15 +1131,6 @@ const DownloadsTab: React.FC = () => {
       });
     }, 150);
   };
-
-  // Callback for retro view to report its pagination info
-  const handleRetroTotalPagesChange = React.useCallback(
-    (totalPages: number, totalItems: number) => {
-      setRetroTotalPages(totalPages);
-      setRetroTotalItems(totalItems);
-    },
-    []
-  );
 
   const handleExport = (format: 'json' | 'csv') => {
     setExportLoading(true);
@@ -1887,21 +1782,20 @@ const DownloadsTab: React.FC = () => {
             </Alert>
           )}
 
-          {/* Sticky Pagination Controls (above content) */}
-          {settings.itemsPerPage !== 'unlimited' &&
-            (settings.viewMode === 'retro' ? retroTotalPages : totalPages) > 1 && (
+          {/* Sticky Pagination Controls (above content) — retro view manages its own pagination */}
+          {settings.viewMode !== 'retro' &&
+            settings.itemsPerPage !== 'unlimited' &&
+            totalPages > 1 && (
               <div className="pagination-sticky">
                 <Pagination
                   currentPage={currentPage}
-                  totalPages={settings.viewMode === 'retro' ? retroTotalPages : totalPages}
-                  totalItems={
-                    settings.viewMode === 'retro' ? retroTotalItems : allItemsSorted.length
-                  }
+                  totalPages={totalPages}
+                  totalItems={allItemsSorted.length}
                   itemsPerPage={
-                    typeof effectiveItemsPerPage === 'number' ? effectiveItemsPerPage : 20
+                    typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 20
                   }
                   onPageChange={handlePageChange}
-                  itemLabel={settings.viewMode === 'retro' ? 'depot groups' : 'items'}
+                  itemLabel="items"
                   showCard={false}
                   totalDownloads={filteredDownloads.length}
                 />
@@ -1981,30 +1875,23 @@ const DownloadsTab: React.FC = () => {
                   }
                 >
                   {retroEverMounted.current && (
-                    <>
-                      <RetroView
-                        ref={retroViewRef}
-                        items={retroItems as (Download | DownloadGroup)[]}
-                        aestheticMode={settings.aestheticMode}
-                        itemsPerPage={effectiveItemsPerPage}
-                        currentPage={currentPage}
-                        onTotalPagesChange={handleRetroTotalPagesChange}
-                        sortOrder={settings.sortOrder}
-                        showDatasourceLabels={showDatasourceLabels}
-                        hasMultipleDatasources={hasMultipleDatasources}
-                        showTimestamps={settings.showTimestamps}
-                        showBannerColumn={settings.showBannerColumn}
-                        columnWidthCache={columnWidthCache}
-                      />
-                      {isRetroChunkedLoading && (
-                        <div className="retro-chunked-loading">
-                          <Loader2 size={16} className="animate-spin" />
-                          <span>
-                            Loading {retroLoadedCount} of {allItemsSorted.length} rows...
-                          </span>
-                        </div>
-                      )}
-                    </>
+                    <RetroView
+                      ref={retroViewRef}
+                      showTimestamps={settings.showTimestamps}
+                      showBannerColumn={settings.showBannerColumn}
+                      sortOrder={settings.sortOrder}
+                      selectedService={settings.selectedService}
+                      selectedClient={settings.selectedClient}
+                      searchQuery={settings.searchQuery}
+                      hideLocalhost={settings.hideLocalhost}
+                      showZeroBytes={settings.showZeroBytes}
+                      showSmallFiles={settings.showSmallFiles}
+                      hideUnknownGames={settings.hideUnknownGames}
+                      itemsPerPage={settings.itemsPerPage}
+                      aestheticMode={settings.aestheticMode}
+                      showDatasourceLabels={showDatasourceLabels}
+                      hasMultipleDatasources={hasMultipleDatasources}
+                    />
                   )}
                 </Suspense>
               </div>
@@ -2020,37 +1907,6 @@ const DownloadsTab: React.FC = () => {
           )}
         </>
       )}
-
-      {/* Retro "Show All" warning modal */}
-      <Modal
-        opened={retroAllWarningOpen}
-        onClose={() => setRetroAllWarningOpen(false)}
-        size="sm"
-        title="Warning: Loading All Items"
-      >
-        <div className="space-y-4">
-          <p className="text-themed-secondary">
-            Loading all items in Retro view may be slow with large datasets and could cause the page
-            to become unresponsive.
-          </p>
-          <div className="flex justify-end gap-2">
-            <Button variant="default" onClick={() => setRetroAllWarningOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="filled"
-              color="yellow"
-              onClick={() => {
-                setRetroUnlimitedConfirmed(true);
-                setSettings((prev) => ({ ...prev, itemsPerPage: 'unlimited' }));
-                setRetroAllWarningOpen(false);
-              }}
-            >
-              Continue Anyway
-            </Button>
-          </div>
-        </div>
-      </Modal>
     </div>
   );
 };

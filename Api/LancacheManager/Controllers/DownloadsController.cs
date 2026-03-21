@@ -290,4 +290,246 @@ public class DownloadsController : ControllerBase
 
         return Ok(result);
     }
+
+    /// <summary>
+    /// Get paginated, grouped download data for the Retro view.
+    /// Groups downloads by DepotId + ClientIp and aggregates cache statistics.
+    /// Resolves game names via LEFT JOIN with SteamDepotMappings and EpicGameMappings.
+    /// </summary>
+    [HttpGet("retro")]
+    public async Task<ActionResult<RetroDownloadResponse>> GetRetroDownloadsAsync([FromQuery] RetroDownloadQuery query)
+    {
+        const int maxRetries = 3;
+        const int maxPageSize = 200;
+
+        // Clamp page size
+        query.PageSize = Math.Clamp(query.PageSize, 1, maxPageSize);
+        if (query.Page < 1) query.Page = 1;
+
+        for (int retry = 0; retry < maxRetries; retry++)
+        {
+            try
+            {
+                var excludedClientIps = _stateRepository.GetExcludedClientIps();
+
+                // Base query: filter prefill sessions
+                var baseQuery = _context.Downloads
+                    .AsNoTracking()
+                    .Where(d => d.ClientIp == null || d.ClientIp.ToLower() != PrefillToken)
+                    .Where(d => d.Datasource == null || d.Datasource.ToLower() != PrefillToken)
+                    .Where(d => !d.IsActive); // Only completed downloads for retro view
+
+                // Exclude hidden client IPs
+                if (excludedClientIps.Count > 0)
+                {
+                    baseQuery = baseQuery.Where(d => !excludedClientIps.Contains(d.ClientIp));
+                }
+
+                // Filter: hide localhost
+                if (query.HideLocalhost)
+                {
+                    baseQuery = baseQuery.Where(d => d.ClientIp != "127.0.0.1" && d.ClientIp != "::1");
+                }
+
+                // Filter: service
+                if (!string.IsNullOrEmpty(query.Service) && query.Service != "all")
+                {
+                    baseQuery = baseQuery.Where(d => d.Service == query.Service);
+                }
+
+                // Filter: client IP
+                if (!string.IsNullOrEmpty(query.Client) && query.Client != "all")
+                {
+                    baseQuery = baseQuery.Where(d => d.ClientIp == query.Client);
+                }
+
+                // Filter: hide zero-byte downloads
+                if (!query.ShowZeroBytes)
+                {
+                    baseQuery = baseQuery.Where(d => (d.CacheHitBytes + d.CacheMissBytes) > 0);
+                }
+
+                // LEFT JOIN with SteamDepotMappings to resolve missing game names
+                var withSteamMapping = from d in baseQuery
+                                       join sm in _context.SteamDepotMappings.Where(m => m.IsOwner)
+                                           on d.DepotId equals sm.DepotId into steamMappings
+                                       from sm in steamMappings.DefaultIfEmpty()
+                                       select new
+                                       {
+                                           Download = d,
+                                           SteamAppName = sm != null ? sm.AppName : null,
+                                           SteamAppId = sm != null ? (uint?)sm.AppId : null
+                                       };
+
+                // Materialize to memory for grouping with Epic resolution
+                var allDownloads = await withSteamMapping.ToListAsync();
+
+                // Build Epic game name lookup for Epic downloads
+                var epicAppIds = allDownloads
+                    .Where(r => !string.IsNullOrEmpty(r.Download.EpicAppId))
+                    .Select(r => r.Download.EpicAppId!)
+                    .Distinct()
+                    .ToList();
+
+                var epicMappings = epicAppIds.Count > 0
+                    ? await _context.EpicGameMappings
+                        .AsNoTracking()
+                        .Where(m => epicAppIds.Contains(m.AppId))
+                        .ToDictionaryAsync(m => m.AppId, m => m.Name)
+                    : new Dictionary<string, string>();
+
+                // Resolve game names and project to flat structure
+                var resolved = allDownloads.Select(r =>
+                {
+                    var d = r.Download;
+                    var gameName = d.GameName;
+                    var gameAppId = d.GameAppId;
+
+                    // Fill from Steam mapping if missing
+                    if (string.IsNullOrEmpty(gameName) && !string.IsNullOrEmpty(r.SteamAppName))
+                    {
+                        gameName = r.SteamAppName;
+                        gameAppId = r.SteamAppId;
+                    }
+
+                    // Fill from Epic mapping if still missing
+                    if (string.IsNullOrEmpty(gameName) && !string.IsNullOrEmpty(d.EpicAppId)
+                        && epicMappings.TryGetValue(d.EpicAppId, out var epicName))
+                    {
+                        gameName = epicName;
+                    }
+
+                    return new
+                    {
+                        d.Id,
+                        d.DepotId,
+                        d.EpicAppId,
+                        d.ClientIp,
+                        d.Service,
+                        d.Datasource,
+                        d.StartTimeUtc,
+                        d.EndTimeUtc,
+                        d.CacheHitBytes,
+                        d.CacheMissBytes,
+                        TotalBytes = d.CacheHitBytes + d.CacheMissBytes,
+                        GameName = gameName ?? d.Service,
+                        GameAppId = gameAppId,
+                        AverageBytesPerSecond = d.AverageBytesPerSecond
+                    };
+                }).ToList();
+
+                // Filter: search by game name
+                if (!string.IsNullOrEmpty(query.Search))
+                {
+                    var searchLower = query.Search.ToLower();
+                    resolved = resolved
+                        .Where(r => r.GameName.ToLower().Contains(searchLower)
+                                 || r.Service.ToLower().Contains(searchLower)
+                                 || (r.DepotId.HasValue && r.DepotId.Value.ToString().Contains(searchLower))
+                                 || r.ClientIp.Contains(searchLower))
+                        .ToList();
+                }
+
+                // Filter: hide unknown games
+                if (query.HideUnknown)
+                {
+                    resolved = resolved
+                        .Where(r => !string.IsNullOrEmpty(r.GameName)
+                                 && r.GameName != r.Service
+                                 && !r.GameName.StartsWith("Unknown", StringComparison.OrdinalIgnoreCase))
+                        .ToList();
+                }
+
+                // Group by DepotId + ClientIp (same logic as frontend groupByDepot)
+                var grouped = resolved
+                    .GroupBy(r => r.DepotId.HasValue
+                        ? $"depot-{r.DepotId}-{r.ClientIp}"
+                        : $"no-depot-{r.Service}-{r.ClientIp}-{r.Id}")
+                    .Select(g =>
+                    {
+                        var first = g.First();
+                        var totalBytes = g.Sum(r => r.TotalBytes);
+                        var cacheHitBytes = g.Sum(r => r.CacheHitBytes);
+                        var cacheMissBytes = g.Sum(r => r.CacheMissBytes);
+                        var cacheHitPercent = totalBytes > 0 ? (cacheHitBytes * 100.0) / totalBytes : 0;
+
+                        // Weighted average speed (weight by bytes downloaded)
+                        var weightedSpeedSum = g.Sum(r => r.AverageBytesPerSecond * r.TotalBytes);
+                        var speedBytesSum = g.Where(r => r.AverageBytesPerSecond > 0 && r.TotalBytes > 0)
+                            .Sum(r => (double)r.TotalBytes);
+                        var avgSpeed = speedBytesSum > 0 ? weightedSpeedSum / speedBytesSum : 0;
+
+                        return new RetroDownloadDto
+                        {
+                            Id = g.Key,
+                            DepotId = first.DepotId,
+                            EpicAppId = first.EpicAppId,
+                            ClientIp = first.ClientIp,
+                            Service = first.Service,
+                            Datasource = first.Datasource,
+                            AppName = first.GameName,
+                            SteamAppId = first.GameAppId,
+                            StartTimeUtc = g.Min(r => r.StartTimeUtc),
+                            EndTimeUtc = g.Max(r => r.EndTimeUtc),
+                            CacheHitBytes = cacheHitBytes,
+                            CacheMissBytes = cacheMissBytes,
+                            CacheHitPercent = Math.Round(cacheHitPercent, 1),
+                            TotalBytes = totalBytes,
+                            AverageBytesPerSecond = avgSpeed,
+                            RequestCount = g.Count(),
+                            DownloadIds = g.Select(r => r.Id).ToList()
+                        };
+                    })
+                    .ToList();
+
+                // Sort
+                grouped = query.Sort switch
+                {
+                    "oldest" => grouped.OrderBy(g => g.StartTimeUtc).ToList(),
+                    "largest" => grouped.OrderByDescending(g => g.TotalBytes).ToList(),
+                    "smallest" => grouped.OrderBy(g => g.TotalBytes).ToList(),
+                    "efficiency" => grouped.OrderByDescending(g => g.CacheHitPercent).ToList(),
+                    "efficiency-low" => grouped.OrderBy(g => g.CacheHitPercent).ToList(),
+                    "sessions" => grouped.OrderByDescending(g => g.RequestCount).ToList(),
+                    "alphabetical" => grouped.OrderBy(g => g.AppName, StringComparer.OrdinalIgnoreCase).ToList(),
+                    "service" => grouped.OrderBy(g => g.Service).ThenByDescending(g => g.EndTimeUtc).ToList(),
+                    _ => grouped.OrderByDescending(g => g.EndTimeUtc).ToList(), // "latest" default
+                };
+
+                // Paginate
+                var totalItems = grouped.Count;
+                var totalPages = (int)Math.Ceiling((double)totalItems / query.PageSize);
+                var items = grouped
+                    .Skip((query.Page - 1) * query.PageSize)
+                    .Take(query.PageSize)
+                    .ToList();
+
+                return Ok(new RetroDownloadResponse
+                {
+                    Items = items,
+                    TotalItems = totalItems,
+                    TotalPages = totalPages,
+                    CurrentPage = query.Page,
+                    PageSize = query.PageSize
+                });
+            }
+            catch (Microsoft.Data.Sqlite.SqliteException ex) when (ex.SqliteErrorCode == 5) // SQLITE_BUSY
+            {
+                if (retry < maxRetries - 1)
+                {
+                    _logger.LogWarning("Database busy on retro query, retrying... (attempt {Attempt}/{MaxRetries})", retry + 1, maxRetries);
+                    await Task.Delay(100 * (retry + 1));
+                    continue;
+                }
+                _logger.LogError(ex, "Database locked after retries on retro query");
+                return Ok(new RetroDownloadResponse());
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error getting retro downloads");
+                return Ok(new RetroDownloadResponse());
+            }
+        }
+        return Ok(new RetroDownloadResponse());
+    }
 }
