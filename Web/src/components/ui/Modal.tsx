@@ -5,7 +5,6 @@ import { X } from 'lucide-react';
 // Global modal tracking for nested modal support
 let modalStack: number[] = [];
 let modalIdCounter = 0;
-let savedScrollbarWidth = 0;
 
 interface ModalProps {
   opened: boolean;
@@ -33,11 +32,9 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
       // Assign unique ID to this modal instance
       modalId.current = ++modalIdCounter;
 
-      // Only lock scroll and save scrollbar width for the first modal
+      // Only lock scroll for the first modal
       if (modalStack.length === 0) {
-        savedScrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
-        document.documentElement.style.overflow = 'hidden';
-        document.body.style.paddingRight = `${savedScrollbarWidth}px`;
+        document.documentElement.classList.add('modal-open');
       }
 
       // Add this modal to the stack
@@ -65,8 +62,7 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
 
         // Only restore scroll when all modals are closed
         if (modalStack.length === 0) {
-          document.documentElement.style.overflow = '';
-          document.body.style.paddingRight = '';
+          document.documentElement.classList.remove('modal-open');
         }
       }, 250); // Match transition duration
     }
@@ -79,8 +75,7 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
 
         // Restore scroll if this was the last modal
         if (modalStack.length === 0) {
-          document.documentElement.style.overflow = '';
-          document.body.style.paddingRight = '';
+          document.documentElement.classList.remove('modal-open');
         }
       }
     };

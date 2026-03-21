@@ -32,11 +32,11 @@ const Drawer: React.FC<DrawerProps> = ({
   useEffect(() => {
     if (opened) {
       document.addEventListener('keydown', handleKeyDown);
-      document.documentElement.style.overflow = 'hidden';
+      document.documentElement.classList.add('modal-open');
     }
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
-      document.documentElement.style.overflow = '';
+      document.documentElement.classList.remove('modal-open');
     };
   }, [opened, handleKeyDown]);
 

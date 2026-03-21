@@ -1061,17 +1061,28 @@ const DownloadsTab: React.FC = () => {
     return items;
   }, [filteredDownloads, normalViewItems, compactViewItems, settings.viewMode, settings.sortOrder]);
 
+  // Synchronous guard: when in retro mode, cap the effective itemsPerPage so the
+  // hidden-but-mounted non-retro views (normal/compact/card) never receive unlimited
+  // items. Without this, the useEffect that switches itemsPerPage to 20 runs AFTER
+  // the first render, causing a lag spike as all hidden views render all items.
+  const effectiveItemsPerPage = useMemo(() => {
+    if (settings.viewMode === 'retro' && settings.itemsPerPage === 'unlimited') {
+      return 20;
+    }
+    return settings.itemsPerPage;
+  }, [settings.viewMode, settings.itemsPerPage]);
+
   const itemsToDisplay = useMemo(() => {
-    if (settings.itemsPerPage === 'unlimited') {
+    if (effectiveItemsPerPage === 'unlimited') {
       return allItemsSorted;
     }
 
-    // Apply pagination based on settings.itemsPerPage
-    const itemsPerPageNum = typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 20;
+    // Apply pagination based on effectiveItemsPerPage
+    const itemsPerPageNum = typeof effectiveItemsPerPage === 'number' ? effectiveItemsPerPage : 20;
     const startIndex = (currentPage - 1) * itemsPerPageNum;
     const endIndex = startIndex + itemsPerPageNum;
     return allItemsSorted.slice(startIndex, endIndex);
-  }, [allItemsSorted, currentPage, settings.itemsPerPage]);
+  }, [allItemsSorted, currentPage, effectiveItemsPerPage]);
 
   // Deferred items for smoother view transitions
   const deferredItemsToDisplay = useDeferredValue(itemsToDisplay);
@@ -1116,10 +1127,10 @@ const DownloadsTab: React.FC = () => {
     retroLoadedCount < deferredAllItemsSorted.length;
 
   const totalPages = useMemo(() => {
-    if (settings.itemsPerPage === 'unlimited') return 1;
-    const itemsPerPageNum = typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 20;
+    if (effectiveItemsPerPage === 'unlimited') return 1;
+    const itemsPerPageNum = typeof effectiveItemsPerPage === 'number' ? effectiveItemsPerPage : 20;
     return Math.ceil(allItemsSorted.length / itemsPerPageNum);
-  }, [allItemsSorted.length, settings.itemsPerPage]);
+  }, [allItemsSorted.length, effectiveItemsPerPage]);
 
   // Reset to page 1 when filters change
   useEffect(() => {
@@ -1853,7 +1864,7 @@ const DownloadsTab: React.FC = () => {
           )}
 
           {/* Sticky Pagination Controls (above content) */}
-          {settings.itemsPerPage !== 'unlimited' &&
+          {effectiveItemsPerPage !== 'unlimited' &&
             (settings.viewMode === 'retro' ? retroTotalPages : totalPages) > 1 && (
               <div className="pagination-sticky">
                 <Pagination
@@ -1863,7 +1874,7 @@ const DownloadsTab: React.FC = () => {
                     settings.viewMode === 'retro' ? retroTotalItems : allItemsSorted.length
                   }
                   itemsPerPage={
-                    typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 20
+                    typeof effectiveItemsPerPage === 'number' ? effectiveItemsPerPage : 20
                   }
                   onPageChange={handlePageChange}
                   itemLabel={settings.viewMode === 'retro' ? 'depot groups' : 'items'}
@@ -1951,7 +1962,7 @@ const DownloadsTab: React.FC = () => {
                         ref={retroViewRef}
                         items={retroItems as (Download | DownloadGroup)[]}
                         aestheticMode={settings.aestheticMode}
-                        itemsPerPage={settings.itemsPerPage}
+                        itemsPerPage={effectiveItemsPerPage}
                         currentPage={currentPage}
                         onTotalPagesChange={handleRetroTotalPagesChange}
                         sortOrder={settings.sortOrder}
@@ -1977,7 +1988,7 @@ const DownloadsTab: React.FC = () => {
           </div>
 
           {/* Performance warning */}
-          {settings.itemsPerPage === 'unlimited' && itemsToDisplay.length > 500 && (
+          {effectiveItemsPerPage === 'unlimited' && itemsToDisplay.length > 500 && (
             <Alert color="yellow">
               Loading {itemsToDisplay.length} items. Consider using pagination for better
               performance.
