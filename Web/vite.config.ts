@@ -23,8 +23,21 @@ export default defineConfig({
       '@services': path.resolve(__dirname, './src/services'),
       '@utils': path.resolve(__dirname, './src/utils'),
       '@contexts': path.resolve(__dirname, './src/contexts'),
-      '@hooks': path.resolve(__dirname, './src/hooks')
+      '@hooks': path.resolve(__dirname, './src/hooks'),
+      // Force all packages to use the same React instance (fixes use-callback-ref + React 19)
+      'react': path.resolve(__dirname, './node_modules/react'),
+      'react-dom': path.resolve(__dirname, './node_modules/react-dom')
     }
+  },
+  optimizeDeps: {
+    include: [
+      'react',
+      'react-dom',
+      'use-callback-ref',
+      'react-remove-scroll',
+      '@mantine/core',
+      '@mantine/hooks'
+    ]
   },
   server: {
     port: 3000,
