@@ -607,7 +607,7 @@ const RetroView = memo(
       ]);
 
       // Items from the API response (already grouped/sorted server-side)
-      const items = retroData?.items ?? [];
+      const items = useMemo(() => retroData?.items ?? [], [retroData]);
 
       // Use JavaScript-based breakpoint detection for conditional rendering
       // This completely removes desktop layout from DOM on mobile, preventing width calculation conflicts
@@ -875,7 +875,6 @@ const RetroView = memo(
         setColumnWidths(fittedWidths);
       }, [
         items,
-        sortOrder,
         hasMultipleDatasources,
         showDatasourceLabels,
         smartDefaultWidths,
@@ -1036,7 +1035,6 @@ const RetroView = memo(
         [
           smartDefaultWidths,
           items,
-          sortOrder,
           t,
           hasMultipleDatasources,
           showDatasourceLabels,

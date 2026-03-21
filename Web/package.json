@@ -18,7 +18,6 @@
   "dependencies": {
     "@microsoft/signalr": "^8.0.7",
     "@number-flow/react": "^0.5.10",
-    "@tanstack/react-virtual": "^3.13.23",
     "chart.js": "^4.5.1",
     "i18next": "^23.16.8",
     "lucide-react": "^0.542.0",
