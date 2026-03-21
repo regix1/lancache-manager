@@ -1203,11 +1203,14 @@ const RetroView = memo(
         });
       }, [groupedItems, getAssociations, aestheticMode, imageErrors]);
 
+      // Row height depends on whether banner thumbnails are shown
+      const ROW_HEIGHT = showBannerColumn ? 81 : 49;
+
       // Row virtualizer for efficient rendering of large lists
       const virtualizer = useVirtualizer({
         count: rowsWithEvents.length,
         getScrollElement: () => scrollContainerRef.current,
-        estimateSize: () => 48,
+        estimateSize: () => ROW_HEIGHT,
         overscan: 10
       });
 
@@ -1404,7 +1407,7 @@ const RetroView = memo(
                         top: 0,
                         left: 0,
                         width: '100%',
-                        height: '48px',
+                        height: `${ROW_HEIGHT}px`,
                         transform: `translateY(${virtualRow.start}px)`
                       }}
                     >

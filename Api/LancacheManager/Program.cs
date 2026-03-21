@@ -248,9 +248,11 @@ builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
         dbPathInitialized = true;
     }
 
-    // Default Timeout=5 sets SQLite busy_timeout to 5 seconds for all connections
-    // This allows SQLite to wait and retry when the database is locked instead of failing immediately
+    // Default Timeout=5 sets ADO.NET command timeout (not SQLite's busy_timeout).
+    // The SqliteBusyTimeoutInterceptor below sets PRAGMA busy_timeout on every connection,
+    // which tells SQLite to wait up to 5 seconds when the database is locked instead of failing immediately.
     options.UseSqlite($"Data Source={dbPath};Default Timeout=5");
+    options.AddInterceptors(new SqliteBusyTimeoutInterceptor(busyTimeoutMs: 5000));
 });
 
 // Register DbContextFactory for singleton services that need to create multiple contexts
@@ -451,7 +453,7 @@ using (var scope = app.Services.CreateScope())
 
         // Enable WAL mode for better concurrent access (reduces "database is locked" errors)
         // WAL is persistent and only needs to be set once per database file
-        // busy_timeout is configured in the connection string (Default Timeout=5)
+        // busy_timeout is set per-connection via SqliteBusyTimeoutInterceptor (5000ms)
         await dbContext.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL;");
         logger.LogInformation("SQLite WAL mode enabled");
 
@@ -702,6 +704,7 @@ class CustomDbContextFactory : IDbContextFactory<AppDbContext>
     {
         var optionsBuilder = new DbContextOptionsBuilder<AppDbContext>();
         optionsBuilder.UseSqlite(_connectionString);
+        optionsBuilder.AddInterceptors(new SqliteBusyTimeoutInterceptor(busyTimeoutMs: 5000));
         return new AppDbContext(optionsBuilder.Options);
     }
 }

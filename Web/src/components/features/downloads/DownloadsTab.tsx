@@ -1103,8 +1103,16 @@ const DownloadsTab: React.FC = () => {
 
   // Progressive chunked loading for RetroView — prevents crash when "Show All" is selected
   // by feeding rows to RetroView in small batches, yielding to the browser between each chunk.
+  // When the user switches away from retro, we reset the count and cancel any pending chunk timer
+  // so the main thread isn't blocked by background chunk loading.
   useEffect(() => {
-    if (settings.viewMode !== 'retro' || settings.itemsPerPage !== 'unlimited') {
+    if (settings.viewMode !== 'retro') {
+      // Not in retro view — cancel any pending chunk and reset
+      setRetroLoadedCount(0);
+      return;
+    }
+
+    if (settings.itemsPerPage !== 'unlimited') {
       setRetroLoadedCount(0);
       return;
     }
