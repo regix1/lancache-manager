@@ -18,6 +18,11 @@ bgPrimary = "#1a1a1c"
 bgSecondary = "#242426"
 bgTertiary = "#2e2e30"
 bgHover = "#3a3a3c"
+bgElevated = "#1f1f21"
+bgSurface = "#262628"
+bgSurfaceHover = "#2e2e30"
+bgSurfaceActive = "#363638"
+bgOverlay = "rgba(0,0,0,0.6)"
 
 # Text - Clean whites
 textPrimary = "#f5f5f5"
@@ -30,6 +35,8 @@ textPlaceholder = "#707070"
 borderPrimary = "#363638"
 borderSecondary = "#454547"
 borderFocus = "#dc3545"
+borderElevated = "#3e3e40"
+borderHover = "#505052"
 
 # Navigation
 navBg = "#1f1f21"

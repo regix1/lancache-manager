@@ -291,6 +291,11 @@ class ThemeService {
           bgSecondary: '#ffffff', // Pure white for cards
           bgTertiary: '#f1f5f9', // slate-100 - subtle grey for nested elements
           bgHover: '#e2e8f0', // slate-200 - hover state
+          bgElevated: '#ffffff', // Drawer/modal/floating panel background
+          bgSurface: '#f8fafc', // Sections within elevated surfaces
+          bgSurfaceHover: '#f1f5f9', // Hover on surface elements
+          bgSurfaceActive: '#e2e8f0', // Active/pressed surface elements
+          bgOverlay: 'rgba(0,0,0,0.4)', // Backdrop overlay
 
           // Text - Rich, crisp colors (not washed out)
           textPrimary: '#0f172a', // slate-900 - near black for crisp readability
@@ -307,6 +312,8 @@ class ThemeService {
           borderPrimary: '#e2e8f0', // slate-200 - subtle border
           borderSecondary: '#cbd5e1', // slate-300 - slightly stronger
           borderFocus: '#2563eb',
+          borderElevated: '#d1d5db', // Borders within elevated panels
+          borderHover: '#9ca3af', // Border hover state
 
           // Navigation - Clean white with subtle border
           navBg: '#ffffff',
@@ -783,7 +790,11 @@ class ThemeService {
       --theme-bg-secondary: ${colors.bgSecondary};
       --theme-bg-tertiary: ${colors.bgTertiary};
       --theme-bg-hover: ${colors.bgHover};
-      --theme-bg-elevated: ${colors.bgSecondary};
+      --theme-bg-elevated: ${colors.bgElevated};
+      --theme-bg-surface: ${colors.bgSurface};
+      --theme-bg-surface-hover: ${colors.bgSurfaceHover};
+      --theme-bg-surface-active: ${colors.bgSurfaceActive};
+      --theme-bg-overlay: ${colors.bgOverlay};
 
       /* Text */
       --theme-text-primary: ${colors.textPrimary};
@@ -801,6 +812,8 @@ class ThemeService {
       --theme-border-primary: ${colors.borderPrimary};
       --theme-border-secondary: ${colors.borderSecondary};
       --theme-border-focus: ${colors.borderFocus};
+      --theme-border-elevated: ${colors.borderElevated};
+      --theme-border-hover: ${colors.borderHover};
       --theme-border-radius: ${borderRadius};
       --theme-border-radius-lg: ${borderRadiusLg};
       --theme-border-radius-xl: ${borderRadiusXl};

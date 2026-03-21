@@ -1,4 +1,13 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, {
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  useTransition,
+  useDeferredValue,
+  lazy,
+  Suspense
+} from 'react';
 
 import { useTranslation } from 'react-i18next';
 import {
@@ -6,12 +15,14 @@ import {
   Settings,
   Download as DownloadIcon,
   List,
+  LayoutGrid,
   Grid3x3,
   Table,
   Search,
   X,
   Maximize2,
-  RefreshCw
+  RefreshCw,
+  Loader2
 } from 'lucide-react';
 import { useDownloads } from '@contexts/DashboardDataContext/hooks';
 import { useTimeFilter } from '@contexts/useTimeFilter';
@@ -34,7 +45,8 @@ import { ImageCacheContext } from '@components/common/ImageCacheContext';
 // Import view components
 import CompactView from './CompactView';
 import NormalView from './NormalView';
-import RetroView, { type RetroViewHandle } from './RetroView';
+import type { RetroViewHandle } from './RetroView';
+const RetroView = lazy(() => import('./RetroView'));
 import DownloadsHeader from './DownloadsHeader';
 import ActiveDownloadsView from './ActiveDownloadsView';
 
@@ -56,18 +68,25 @@ const STORAGE_KEYS = {
   AESTHETIC_MODE: 'lancache_downloads_aesthetic_mode',
   FULL_HEIGHT_BANNERS: 'lancache_downloads_full_height_banners',
   ENABLE_SCROLL_INTO_VIEW: 'lancache_downloads_scroll_into_view',
-  GROUP_UNKNOWN_GAMES: 'lancache_downloads_group_unknown'
+  GROUP_UNKNOWN_GAMES: 'lancache_downloads_group_unknown',
+  CARD_SIZE: 'lancache_downloads_card_size',
+  SHOW_CACHE_HIT_BAR: 'lancache_downloads_show_cache_hit_bar',
+  SHOW_EVENT_BADGES: 'lancache_downloads_show_event_badges',
+  SHOW_TIMESTAMPS: 'lancache_downloads_show_timestamps',
+  SHOW_BANNER_COLUMN: 'lancache_downloads_show_banner_column',
+  BANNER_ONLY: 'downloads_banner_only'
 };
 
 // Default items per page for each view mode
 const DEFAULT_ITEMS_PER_PAGE = {
   compact: 50,
+  card: 50,
   normal: 50,
   retro: 100
 };
 
 // View modes
-type ViewMode = 'compact' | 'normal' | 'retro';
+type ViewMode = 'compact' | 'card' | 'normal' | 'retro';
 
 // Sort order type
 type SortOrder =
@@ -95,7 +114,13 @@ const PRESETS = {
     aestheticMode: false,
     fullHeightBanners: true,
     groupByFrequency: true,
-    enableScrollIntoView: true
+    enableScrollIntoView: true,
+    cardSize: 'medium' as const,
+    showCacheHitBar: true,
+    showEventBadges: true,
+    showTimestamps: true,
+    showBannerColumn: true,
+    bannerOnly: false
   },
   minimal: {
     showZeroBytes: false,
@@ -106,7 +131,13 @@ const PRESETS = {
     aestheticMode: true,
     fullHeightBanners: false,
     groupByFrequency: true,
-    enableScrollIntoView: false
+    enableScrollIntoView: false,
+    cardSize: 'medium' as const,
+    showCacheHitBar: false,
+    showEventBadges: false,
+    showTimestamps: false,
+    showBannerColumn: false,
+    bannerOnly: false
   },
   showAll: {
     showZeroBytes: true,
@@ -117,7 +148,13 @@ const PRESETS = {
     aestheticMode: false,
     fullHeightBanners: false,
     groupByFrequency: true,
-    enableScrollIntoView: true
+    enableScrollIntoView: true,
+    cardSize: 'medium' as const,
+    showCacheHitBar: true,
+    showEventBadges: true,
+    showTimestamps: true,
+    showBannerColumn: true,
+    bannerOnly: false
   },
   default: {
     showZeroBytes: false,
@@ -128,7 +165,13 @@ const PRESETS = {
     aestheticMode: false,
     fullHeightBanners: false,
     groupByFrequency: true,
-    enableScrollIntoView: true
+    enableScrollIntoView: true,
+    cardSize: 'medium' as const,
+    showCacheHitBar: true,
+    showEventBadges: true,
+    showTimestamps: true,
+    showBannerColumn: true,
+    bannerOnly: false
   }
 };
 
@@ -143,6 +186,12 @@ const detectActivePreset = (settings: {
   fullHeightBanners: boolean;
   groupByFrequency: boolean;
   enableScrollIntoView: boolean;
+  cardSize: 'small' | 'medium' | 'large';
+  showCacheHitBar: boolean;
+  showEventBadges: boolean;
+  showTimestamps: boolean;
+  showBannerColumn: boolean;
+  bannerOnly: boolean;
 }): PresetType => {
   const presetKeys = ['pretty', 'minimal', 'showAll', 'default'] as const;
 
@@ -157,7 +206,13 @@ const detectActivePreset = (settings: {
       settings.aestheticMode === presetConfig.aestheticMode &&
       settings.fullHeightBanners === presetConfig.fullHeightBanners &&
       settings.groupByFrequency === presetConfig.groupByFrequency &&
-      settings.enableScrollIntoView === presetConfig.enableScrollIntoView;
+      settings.enableScrollIntoView === presetConfig.enableScrollIntoView &&
+      settings.cardSize === presetConfig.cardSize &&
+      settings.showCacheHitBar === presetConfig.showCacheHitBar &&
+      settings.showEventBadges === presetConfig.showEventBadges &&
+      settings.showTimestamps === presetConfig.showTimestamps &&
+      settings.showBannerColumn === presetConfig.showBannerColumn &&
+      settings.bannerOnly === presetConfig.bannerOnly;
 
     if (matches) return preset;
   }
@@ -328,9 +383,30 @@ const DownloadsTab: React.FC = () => {
       fullHeightBanners: storage.getItem(STORAGE_KEYS.FULL_HEIGHT_BANNERS) === 'true',
       groupByFrequency: storage.getItem('lancache_downloads_group_by_frequency') !== 'false',
       enableScrollIntoView: storage.getItem(STORAGE_KEYS.ENABLE_SCROLL_INTO_VIEW) !== 'false',
-      groupUnknownGames: storage.getItem(STORAGE_KEYS.GROUP_UNKNOWN_GAMES) === 'true'
+      groupUnknownGames: storage.getItem(STORAGE_KEYS.GROUP_UNKNOWN_GAMES) === 'true',
+      cardSize: (storage.getItem(STORAGE_KEYS.CARD_SIZE) || 'medium') as
+        | 'small'
+        | 'medium'
+        | 'large',
+      showCacheHitBar: storage.getItem(STORAGE_KEYS.SHOW_CACHE_HIT_BAR) !== 'false',
+      showEventBadges: storage.getItem(STORAGE_KEYS.SHOW_EVENT_BADGES) !== 'false',
+      showTimestamps: storage.getItem(STORAGE_KEYS.SHOW_TIMESTAMPS) !== 'false',
+      showBannerColumn: storage.getItem(STORAGE_KEYS.SHOW_BANNER_COLUMN) !== 'false',
+      bannerOnly: storage.getItem(STORAGE_KEYS.BANNER_ONLY) === 'true'
     };
   });
+
+  // useTransition for view mode switching - prevents UI jank
+  const [, startTransition] = useTransition();
+
+  // hasEverMounted refs for display:none pattern - keep views mounted once visited
+  const compactEverMounted = useRef(settings.viewMode === 'compact');
+  const cardEverMounted = useRef(settings.viewMode === 'card');
+  const normalEverMounted = useRef(settings.viewMode === 'normal');
+  const retroEverMounted = useRef(settings.viewMode === 'retro');
+
+  // Column width cache for RetroView - persists across view switches
+  const columnWidthCache = useRef<Map<string, number[]>>(new Map());
 
   // Effect to save settings to localStorage
   useEffect(() => {
@@ -354,16 +430,28 @@ const DownloadsTab: React.FC = () => {
     storage.setItem('lancache_downloads_group_by_frequency', settings.groupByFrequency.toString());
     storage.setItem(STORAGE_KEYS.ENABLE_SCROLL_INTO_VIEW, settings.enableScrollIntoView.toString());
     storage.setItem(STORAGE_KEYS.GROUP_UNKNOWN_GAMES, settings.groupUnknownGames.toString());
+    storage.setItem(STORAGE_KEYS.CARD_SIZE, settings.cardSize);
+    storage.setItem(STORAGE_KEYS.SHOW_CACHE_HIT_BAR, settings.showCacheHitBar.toString());
+    storage.setItem(STORAGE_KEYS.SHOW_EVENT_BADGES, settings.showEventBadges.toString());
+    storage.setItem(STORAGE_KEYS.SHOW_TIMESTAMPS, settings.showTimestamps.toString());
+    storage.setItem(STORAGE_KEYS.SHOW_BANNER_COLUMN, settings.showBannerColumn.toString());
+    storage.setItem(STORAGE_KEYS.BANNER_ONLY, settings.bannerOnly.toString());
   }, [settings]);
 
   // Track previous view mode to detect changes
   const prevViewModeRef = useRef(settings.viewMode);
-  const [isViewTransitioning, setIsViewTransitioning] = useState(false);
+  const [_isViewTransitioning, setIsViewTransitioning] = useState(false);
 
   // Effect to switch items per page when view mode changes
   useEffect(() => {
     if (prevViewModeRef.current !== settings.viewMode) {
       const newMode = settings.viewMode;
+
+      // Mark view as ever-mounted for display:none pattern
+      if (newMode === 'compact') compactEverMounted.current = true;
+      if (newMode === 'card') cardEverMounted.current = true;
+      if (newMode === 'normal') normalEverMounted.current = true;
+      if (newMode === 'retro') retroEverMounted.current = true;
 
       // Trigger opacity transition for view-mode switch
       setIsViewTransitioning(true);
@@ -713,8 +801,6 @@ const DownloadsTab: React.FC = () => {
   };
 
   const normalViewItems = useMemo((): (Download | DownloadGroup)[] => {
-    if (settings.viewMode !== 'normal') return [];
-
     const { groups, individuals } = createGroups(filteredDownloads, settings.groupUnknownGames);
 
     // Filter out groups with "unknown" in the name if hideUnknownGames is enabled
@@ -762,71 +848,17 @@ const DownloadsTab: React.FC = () => {
     });
   }, [
     filteredDownloads,
-    settings.viewMode,
     settings.groupByFrequency,
     settings.hideUnknownGames,
     settings.groupUnknownGames
   ]);
 
-  const compactViewItems = useMemo((): (Download | DownloadGroup)[] => {
-    if (settings.viewMode !== 'compact') return [];
-
-    const { groups, individuals } = createGroups(filteredDownloads, settings.groupUnknownGames);
-
-    // Filter out groups with "unknown" in the name if hideUnknownGames is enabled
-    let filteredGroups = groups;
-    if (settings.hideUnknownGames) {
-      filteredGroups = groups.filter((g) => {
-        const groupNameLower = g.name.toLowerCase().trim();
-        const hasUnknown = groupNameLower.includes('unknown');
-        const isUnmappedApps = g.name === 'Unmapped Steam Apps';
-        const shouldKeep = !hasUnknown && !isUnmappedApps;
-        return shouldKeep;
-      });
-    }
-
-    // Keep ALL groups as expandable groups, including single downloads
-    const allItems: (Download | DownloadGroup)[] = [...filteredGroups, ...individuals];
-
-    return allItems.sort((a, b) => {
-      // If groupByFrequency is disabled, skip the frequency-based sorting
-      if (settings.groupByFrequency) {
-        // First sort by whether it's a group with multiple downloads vs single/individual
-        const aIsMultiple = 'downloads' in a && a.downloads.length > 1;
-        const bIsMultiple = 'downloads' in b && b.downloads.length > 1;
-
-        if (aIsMultiple && !bIsMultiple) return -1; // Multiple downloads first
-        if (!aIsMultiple && bIsMultiple) return 1; // Single downloads/individuals after
-
-        const aIsSingle = 'downloads' in a && a.downloads.length === 1;
-        const bIsSingle = 'downloads' in b && b.downloads.length === 1;
-
-        if (aIsSingle && !bIsSingle && !bIsMultiple) return -1; // Single downloads before individuals
-        if (!aIsSingle && bIsSingle && !aIsMultiple) return 1; // Individuals after single downloads
-      }
-
-      // Then sort by time within each category (or just by time if groupByFrequency is off)
-      const aTime =
-        'downloads' in a
-          ? Math.max(...a.downloads.map((d) => new Date(d.startTimeUtc).getTime()))
-          : new Date(a.startTimeUtc).getTime();
-      const bTime =
-        'downloads' in b
-          ? Math.max(...b.downloads.map((d) => new Date(d.startTimeUtc).getTime()))
-          : new Date(b.startTimeUtc).getTime();
-      return bTime - aTime;
-    });
-  }, [
-    filteredDownloads,
-    settings.viewMode,
-    settings.groupByFrequency,
-    settings.hideUnknownGames,
-    settings.groupUnknownGames
-  ]);
+  // Compact and Normal share the same grouping logic, so reuse normalViewItems
+  const compactViewItems = normalViewItems;
 
   const allItemsSorted = useMemo(() => {
     let items =
-      settings.viewMode === 'normal'
+      settings.viewMode === 'normal' || settings.viewMode === 'card'
         ? normalViewItems
         : settings.viewMode === 'compact'
           ? compactViewItems
@@ -937,7 +969,11 @@ const DownloadsTab: React.FC = () => {
     };
 
     // Apply sorting
-    if (settings.viewMode === 'normal' || settings.viewMode === 'compact') {
+    if (
+      settings.viewMode === 'normal' ||
+      settings.viewMode === 'card' ||
+      settings.viewMode === 'compact'
+    ) {
       const mixedItems = [...items] as (Download | DownloadGroup)[];
 
       // When sorting by service, alphabetical, efficiency, or sessions - sort all items together without frequency grouping
@@ -985,6 +1021,10 @@ const DownloadsTab: React.FC = () => {
     const endIndex = startIndex + itemsPerPageNum;
     return allItemsSorted.slice(startIndex, endIndex);
   }, [allItemsSorted, currentPage, settings.itemsPerPage]);
+
+  // Deferred items for smoother view transitions
+  const deferredItemsToDisplay = useDeferredValue(itemsToDisplay);
+  const deferredAllItemsSorted = useDeferredValue(allItemsSorted);
 
   const totalPages = useMemo(() => {
     if (settings.itemsPerPage === 'unlimited') return 1;
@@ -1086,7 +1126,9 @@ const DownloadsTab: React.FC = () => {
 
       if (format === 'csv') {
         const downloadsForExport =
-          settings.viewMode === 'normal' || settings.viewMode === 'compact'
+          settings.viewMode === 'normal' ||
+          settings.viewMode === 'card' ||
+          settings.viewMode === 'compact'
             ? (itemsForExport as (Download | DownloadGroup)[]).flatMap((item) =>
                 'downloads' in item ? item.downloads : [item]
               )
@@ -1323,6 +1365,11 @@ const DownloadsTab: React.FC = () => {
                         tooltip: t('downloads.tab.view.compact')
                       },
                       {
+                        value: 'card',
+                        icon: <LayoutGrid />,
+                        tooltip: t('downloads.tab.view.card', 'Card')
+                      },
+                      {
                         value: 'normal',
                         icon: <Grid3x3 />,
                         tooltip: t('downloads.tab.view.normal')
@@ -1330,7 +1377,11 @@ const DownloadsTab: React.FC = () => {
                       { value: 'retro', icon: <Table />, tooltip: t('downloads.tab.view.retro') }
                     ]}
                     value={settings.viewMode}
-                    onChange={(value) => setSettings({ ...settings, viewMode: value as ViewMode })}
+                    onChange={(value) =>
+                      startTransition(() =>
+                        setSettings({ ...settings, viewMode: value as ViewMode })
+                      )
+                    }
                     size="sm"
                     className="flex-shrink-0"
                   />
@@ -1396,11 +1447,20 @@ const DownloadsTab: React.FC = () => {
                   <SegmentedControl
                     options={[
                       { value: 'compact', label: t('downloads.tab.view.compact'), icon: <List /> },
+                      {
+                        value: 'card',
+                        label: t('downloads.tab.view.card', 'Card'),
+                        icon: <LayoutGrid />
+                      },
                       { value: 'normal', label: t('downloads.tab.view.normal'), icon: <Grid3x3 /> },
                       { value: 'retro', label: t('downloads.tab.view.retro'), icon: <Table /> }
                     ]}
                     value={settings.viewMode}
-                    onChange={(value) => setSettings({ ...settings, viewMode: value as ViewMode })}
+                    onChange={(value) =>
+                      startTransition(() =>
+                        setSettings({ ...settings, viewMode: value as ViewMode })
+                      )
+                    }
                     size="md"
                     showLabels="responsive"
                   />
@@ -1564,28 +1624,81 @@ const DownloadsTab: React.FC = () => {
                         <div className="text-xs font-semibold uppercase tracking-wide mb-2 text-[var(--theme-text-muted)]">
                           {t('downloads.tab.sections.display')}
                         </div>
-                        <Checkbox
-                          checked={settings.aestheticMode}
-                          onChange={(e) =>
-                            setSettings({
-                              ...settings,
-                              aestheticMode: e.target.checked,
-                              ...(e.target.checked ? { fullHeightBanners: false } : {})
-                            })
-                          }
-                          label={t('downloads.tab.display.minimalMode')}
-                        />
-                        <Checkbox
-                          checked={settings.fullHeightBanners}
-                          onChange={(e) =>
-                            setSettings({
-                              ...settings,
-                              fullHeightBanners: e.target.checked,
-                              ...(e.target.checked ? { aestheticMode: false } : {})
-                            })
-                          }
-                          label={t('downloads.tab.display.fullHeightBanners')}
-                        />
+                        {['compact', 'normal'].includes(settings.viewMode) && (
+                          <Checkbox
+                            checked={settings.aestheticMode}
+                            onChange={(e) =>
+                              setSettings({
+                                ...settings,
+                                aestheticMode: e.target.checked,
+                                ...(e.target.checked ? { fullHeightBanners: false } : {})
+                              })
+                            }
+                            label={t('downloads.tab.display.minimalMode')}
+                          />
+                        )}
+                        {settings.viewMode === 'normal' && (
+                          <Checkbox
+                            checked={settings.fullHeightBanners}
+                            onChange={(e) =>
+                              setSettings({
+                                ...settings,
+                                fullHeightBanners: e.target.checked,
+                                ...(e.target.checked ? { aestheticMode: false } : {})
+                              })
+                            }
+                            label={t('downloads.tab.display.fullHeightBanners')}
+                          />
+                        )}
+                        {['compact', 'card', 'normal'].includes(settings.viewMode) && (
+                          <Checkbox
+                            checked={settings.groupUnknownGames}
+                            onChange={(e) =>
+                              setSettings({ ...settings, groupUnknownGames: e.target.checked })
+                            }
+                            label={t('downloads.tab.behavior.groupUnknown')}
+                          />
+                        )}
+                        {['compact', 'normal'].includes(settings.viewMode) && (
+                          <Checkbox
+                            checked={settings.groupByFrequency}
+                            onChange={(e) =>
+                              setSettings({ ...settings, groupByFrequency: e.target.checked })
+                            }
+                            label={t('downloads.tab.behavior.groupByFrequency')}
+                          />
+                        )}
+                        {settings.viewMode === 'card' && (
+                          <div className="flex items-center gap-2 py-1">
+                            <span className="text-sm text-[var(--theme-text-secondary)]">
+                              Card size
+                            </span>
+                            <SegmentedControl
+                              options={[
+                                { value: 'small', label: 'S' },
+                                { value: 'medium', label: 'M' },
+                                { value: 'large', label: 'L' }
+                              ]}
+                              value={settings.cardSize}
+                              onChange={(value) =>
+                                setSettings({
+                                  ...settings,
+                                  cardSize: value as 'small' | 'medium' | 'large'
+                                })
+                              }
+                              size="sm"
+                            />
+                          </div>
+                        )}
+                        {settings.viewMode === 'card' && (
+                          <Checkbox
+                            checked={settings.bannerOnly}
+                            onChange={(e) =>
+                              setSettings({ ...settings, bannerOnly: e.target.checked })
+                            }
+                            label="Banner only"
+                          />
+                        )}
                       </div>
 
                       {/* Behavior Column */}
@@ -1593,27 +1706,53 @@ const DownloadsTab: React.FC = () => {
                         <div className="text-xs font-semibold uppercase tracking-wide mb-2 text-[var(--theme-text-muted)]">
                           {t('downloads.tab.sections.behavior')}
                         </div>
-                        <Checkbox
-                          checked={settings.groupUnknownGames}
-                          onChange={(e) =>
-                            setSettings({ ...settings, groupUnknownGames: e.target.checked })
-                          }
-                          label={t('downloads.tab.behavior.groupUnknown')}
-                        />
-                        <Checkbox
-                          checked={settings.groupByFrequency}
-                          onChange={(e) =>
-                            setSettings({ ...settings, groupByFrequency: e.target.checked })
-                          }
-                          label={t('downloads.tab.behavior.groupByFrequency')}
-                        />
-                        <Checkbox
-                          checked={settings.enableScrollIntoView}
-                          onChange={(e) =>
-                            setSettings({ ...settings, enableScrollIntoView: e.target.checked })
-                          }
-                          label={t('downloads.tab.behavior.scrollOnExpand')}
-                        />
+                        {['compact', 'normal'].includes(settings.viewMode) && (
+                          <Checkbox
+                            checked={settings.enableScrollIntoView}
+                            onChange={(e) =>
+                              setSettings({ ...settings, enableScrollIntoView: e.target.checked })
+                            }
+                            label={t('downloads.tab.behavior.scrollOnExpand')}
+                          />
+                        )}
+                        {(settings.viewMode === 'normal' ||
+                          (settings.viewMode === 'card' && !settings.bannerOnly)) && (
+                          <Checkbox
+                            checked={settings.showCacheHitBar}
+                            onChange={(e) =>
+                              setSettings({ ...settings, showCacheHitBar: e.target.checked })
+                            }
+                            label="Show cache hit bar"
+                          />
+                        )}
+                        {(settings.viewMode === 'normal' ||
+                          (settings.viewMode === 'card' && !settings.bannerOnly)) && (
+                          <Checkbox
+                            checked={settings.showEventBadges}
+                            onChange={(e) =>
+                              setSettings({ ...settings, showEventBadges: e.target.checked })
+                            }
+                            label="Show event badges"
+                          />
+                        )}
+                        {settings.viewMode === 'retro' && (
+                          <Checkbox
+                            checked={settings.showTimestamps}
+                            onChange={(e) =>
+                              setSettings({ ...settings, showTimestamps: e.target.checked })
+                            }
+                            label="Show timestamps"
+                          />
+                        )}
+                        {settings.viewMode === 'retro' && (
+                          <Checkbox
+                            checked={settings.showBannerColumn}
+                            onChange={(e) =>
+                              setSettings({ ...settings, showBannerColumn: e.target.checked })
+                            }
+                            label="Show banner column"
+                          />
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1660,66 +1799,77 @@ const DownloadsTab: React.FC = () => {
             className={`relative overflow-x-hidden page-content-transition ${isPageFading ? 'page-fading' : ''}`}
             ref={contentRef}
           >
-            {/* Content based on view mode with fade transition */}
+            {/* Content based on view mode with display:none pattern for instant switching */}
             <ImageCacheContext.Provider value={imageCacheVersion}>
-              <div className="relative">
-                <div
-                  className={`${isViewTransitioning ? 'transition-opacity duration-300' : ''} ${
-                    settings.viewMode === 'compact'
-                      ? 'opacity-100'
-                      : 'opacity-0 absolute inset-0 pointer-events-none'
-                  }`}
-                >
-                  {settings.viewMode === 'compact' && (
-                    <CompactView
-                      key={`compact-${imageCacheVersion}`}
-                      items={itemsToDisplay as (Download | DownloadGroup)[]}
-                      expandedItem={expandedItem}
-                      onItemClick={handleItemClick}
-                      aestheticMode={settings.aestheticMode}
-                      groupByFrequency={settings.groupByFrequency}
-                      enableScrollIntoView={false}
-                      showDatasourceLabels={showDatasourceLabels}
-                      hasMultipleDatasources={hasMultipleDatasources}
-                    />
-                  )}
-                </div>
+              <div style={{ display: settings.viewMode === 'compact' ? 'block' : 'none' }}>
+                {compactEverMounted.current && (
+                  <CompactView
+                    items={deferredItemsToDisplay as (Download | DownloadGroup)[]}
+                    expandedItem={expandedItem}
+                    onItemClick={handleItemClick}
+                    aestheticMode={settings.aestheticMode}
+                    groupByFrequency={settings.groupByFrequency}
+                    enableScrollIntoView={settings.enableScrollIntoView && !suppressExpandScroll}
+                    showDatasourceLabels={showDatasourceLabels}
+                    hasMultipleDatasources={hasMultipleDatasources}
+                  />
+                )}
+              </div>
 
-                <div
-                  className={`${isViewTransitioning ? 'transition-opacity duration-300' : ''} ${
-                    settings.viewMode === 'normal'
-                      ? 'opacity-100'
-                      : 'opacity-0 absolute inset-0 pointer-events-none'
-                  }`}
-                >
-                  {settings.viewMode === 'normal' && (
-                    <NormalView
-                      key={`normal-${imageCacheVersion}`}
-                      items={itemsToDisplay as (Download | DownloadGroup)[]}
-                      expandedItem={expandedItem}
-                      onItemClick={handleItemClick}
-                      aestheticMode={settings.aestheticMode}
-                      fullHeightBanners={settings.fullHeightBanners}
-                      groupByFrequency={settings.groupByFrequency}
-                      enableScrollIntoView={settings.enableScrollIntoView && !suppressExpandScroll}
-                      showDatasourceLabels={showDatasourceLabels}
-                      hasMultipleDatasources={hasMultipleDatasources}
-                    />
-                  )}
-                </div>
+              <div style={{ display: settings.viewMode === 'card' ? 'block' : 'none' }}>
+                {cardEverMounted.current && (
+                  <NormalView
+                    items={deferredItemsToDisplay as (Download | DownloadGroup)[]}
+                    expandedItem={expandedItem}
+                    onItemClick={handleItemClick}
+                    aestheticMode={false}
+                    fullHeightBanners={false}
+                    groupByFrequency={false}
+                    enableScrollIntoView={false}
+                    showDatasourceLabels={showDatasourceLabels}
+                    hasMultipleDatasources={hasMultipleDatasources}
+                    cardGridLayout={true}
+                    cardSize={settings.cardSize}
+                    showCacheHitBar={settings.showCacheHitBar}
+                    showEventBadges={settings.showEventBadges}
+                    bannerOnly={settings.bannerOnly}
+                  />
+                )}
+              </div>
 
-                <div
-                  className={`${isViewTransitioning ? 'transition-opacity duration-300' : ''} ${
-                    settings.viewMode === 'retro'
-                      ? 'opacity-100'
-                      : 'opacity-0 absolute inset-0 pointer-events-none'
-                  }`}
+              <div style={{ display: settings.viewMode === 'normal' ? 'block' : 'none' }}>
+                {normalEverMounted.current && (
+                  <NormalView
+                    items={deferredItemsToDisplay as (Download | DownloadGroup)[]}
+                    expandedItem={expandedItem}
+                    onItemClick={handleItemClick}
+                    aestheticMode={settings.aestheticMode}
+                    fullHeightBanners={settings.fullHeightBanners}
+                    groupByFrequency={settings.groupByFrequency}
+                    enableScrollIntoView={settings.enableScrollIntoView && !suppressExpandScroll}
+                    showDatasourceLabels={showDatasourceLabels}
+                    hasMultipleDatasources={hasMultipleDatasources}
+                    cardGridLayout={false}
+                    cardSize={settings.cardSize}
+                    showCacheHitBar={settings.showCacheHitBar}
+                    showEventBadges={settings.showEventBadges}
+                    bannerOnly={settings.bannerOnly}
+                  />
+                )}
+              </div>
+
+              <div style={{ display: settings.viewMode === 'retro' ? 'block' : 'none' }}>
+                <Suspense
+                  fallback={
+                    <div className="flex justify-center py-8">
+                      <Loader2 className="animate-spin" />
+                    </div>
+                  }
                 >
-                  {settings.viewMode === 'retro' && (
+                  {retroEverMounted.current && (
                     <RetroView
-                      key={`retro-${imageCacheVersion}`}
                       ref={retroViewRef}
-                      items={allItemsSorted as (Download | DownloadGroup)[]}
+                      items={deferredAllItemsSorted as (Download | DownloadGroup)[]}
                       aestheticMode={settings.aestheticMode}
                       itemsPerPage={settings.itemsPerPage}
                       currentPage={currentPage}
@@ -1727,9 +1877,12 @@ const DownloadsTab: React.FC = () => {
                       sortOrder={settings.sortOrder}
                       showDatasourceLabels={showDatasourceLabels}
                       hasMultipleDatasources={hasMultipleDatasources}
+                      showTimestamps={settings.showTimestamps}
+                      showBannerColumn={settings.showBannerColumn}
+                      columnWidthCache={columnWidthCache}
                     />
                   )}
-                </div>
+                </Suspense>
               </div>
             </ImageCacheContext.Provider>
           </div>

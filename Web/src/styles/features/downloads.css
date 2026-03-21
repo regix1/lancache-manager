@@ -560,6 +560,275 @@
     }
   }
 
+  /* ===== CARD GRID LAYOUT ===== */
+
+  .card-grid-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1rem;
+  }
+
+  .card-grid-container.card-size-small {
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  }
+
+  .card-grid-container.card-size-large {
+    grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  }
+
+  .card-grid-item {
+    border-radius: 0.5rem;
+    border: 1px solid var(--theme-border-primary);
+    background: var(--theme-card-bg);
+    overflow: hidden;
+    cursor: pointer;
+    transition:
+      border-color 0.15s ease,
+      box-shadow 0.15s ease;
+  }
+
+  .card-grid-item:hover {
+    border-color: var(--theme-primary);
+  }
+
+  .card-grid-item.expanded {
+    border-color: var(--theme-primary);
+    box-shadow: 0 2px 8px var(--theme-shadow);
+  }
+
+  .card-grid-item-banner {
+    width: 100%;
+    aspect-ratio: 460 / 215;
+    overflow: hidden;
+    background: var(--theme-bg-secondary);
+  }
+
+  .card-grid-item-banner img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .card-grid-item-info {
+    padding: 0.75rem;
+  }
+
+  .card-grid-item-name {
+    font-weight: 600;
+    color: var(--theme-text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .card-grid-item-stats {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.25rem;
+    font-size: 0.8125rem;
+    color: var(--theme-text-secondary);
+  }
+
+  .card-grid-item-cache-bar {
+    width: 100%;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--theme-bg-tertiary);
+    margin-top: 0.5rem;
+    overflow: hidden;
+  }
+
+  .card-grid-item-cache-bar-fill {
+    height: 100%;
+    background: var(--theme-success);
+    transition: width 0.3s ease;
+    border-radius: 2px;
+  }
+
+  /* Expand/collapse animation wrapper */
+  .card-grid-item-details-wrapper {
+    display: grid;
+    grid-template-rows: 0fr;
+    opacity: 0;
+    transition:
+      grid-template-rows 0.3s ease,
+      opacity 0.25s ease;
+    overflow: hidden;
+  }
+
+  .card-grid-item-details-inner {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .card-grid-item-details-wrapper.expanded {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+
+  .card-grid-item-details {
+    padding: 0.75rem 1rem 1rem;
+    border-top: 1px solid var(--theme-border-secondary);
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  /* Spacing for analytics sections inside expanded card details */
+  .card-grid-item-details > .pt-3 {
+    padding-top: 0.5rem;
+  }
+
+  /* Force analytics grid to single column inside narrow card grid items */
+  .card-grid-item-details .grid {
+    grid-template-columns: 1fr !important;
+    gap: 1rem;
+  }
+
+  /* Ensure text wraps properly in narrow analytics cards */
+  .card-grid-item-details .grid > .rounded-lg {
+    padding: 1rem;
+    overflow-wrap: break-word;
+    word-break: break-word;
+  }
+
+  /* Prevent flex rows from overlapping in narrow cards */
+  .card-grid-item-details .flex.items-baseline,
+  .card-grid-item-details .flex.items-center {
+    flex-wrap: wrap;
+    gap: 0.25rem;
+  }
+
+  /* Download Sessions: ensure IP group containers have rounded corners */
+  .card-grid-item-details .space-y-4 > div {
+    border-radius: 0.5rem;
+    overflow: hidden;
+  }
+
+  /* Download Sessions: round the IP group header button top corners */
+  .card-grid-item-details .space-y-4 > div > button:first-child {
+    border-radius: 0.5rem 0.5rem 0 0;
+  }
+
+  .card-grid-item-collapse-btn {
+    display: flex;
+    justify-content: center;
+    padding: 0.5rem 0.75rem 0.75rem;
+  }
+
+  /* Banner-only mode: show just the game banner with no info text */
+  .card-grid-item.banner-only {
+    border-radius: 0.5rem;
+    overflow: hidden;
+  }
+
+  .card-grid-item.banner-only .card-grid-item-banner {
+    border-radius: 0.5rem;
+  }
+
+  /* ===== GAME DETAIL DRAWER ===== */
+
+  .drawer-header {
+    background: var(--theme-bg-elevated);
+    border-bottom: 1px solid var(--theme-border-elevated);
+  }
+
+  .drawer-body {
+    background: var(--theme-bg-elevated);
+    padding: 1rem;
+  }
+
+  .drawer-content {
+    background: var(--theme-bg-elevated);
+
+    /* Override Mantine's internal CSS variables so Drawer chrome
+       (close button, scrollbar, etc.) uses the app's theme palette */
+    --mantine-color-body: var(--theme-bg-elevated);
+    --mantine-color-text: var(--theme-text-primary);
+    --mantine-color-dimmed: var(--theme-text-muted);
+    --mantine-color-dark-0: var(--theme-text-primary);
+    --mantine-color-dark-1: var(--theme-text-secondary);
+    --mantine-color-dark-2: var(--theme-text-muted);
+    --mantine-color-dark-3: var(--theme-border-secondary);
+    --mantine-color-dark-4: var(--theme-border-elevated);
+    --mantine-color-dark-5: var(--theme-bg-surface-hover);
+    --mantine-color-dark-6: var(--theme-bg-surface);
+    --mantine-color-dark-7: var(--theme-bg-elevated);
+    --mantine-color-dark-8: var(--theme-bg-elevated);
+    --mantine-color-dark-9: var(--theme-bg-elevated);
+  }
+
+  .drawer-title {
+    font-weight: 700;
+    color: var(--theme-text-primary);
+  }
+
+  /* Mantine close button inside the drawer */
+  .drawer-header button[aria-label] {
+    color: var(--theme-text-secondary);
+    transition:
+      background-color 0.15s ease,
+      color 0.15s ease;
+  }
+
+  .drawer-header button[aria-label]:hover {
+    background-color: var(--theme-bg-hover);
+    color: var(--theme-text-primary);
+  }
+
+  .drawer-banner-wrapper {
+    width: calc(100% + 2rem);
+    margin: -1rem -1rem 1rem -1rem;
+    aspect-ratio: 460 / 215;
+    border-radius: 0;
+    overflow: hidden;
+    background: var(--theme-bg-secondary);
+  }
+
+  .drawer-banner-image {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+    object-position: center;
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
+  }
+
+  .drawer-detail-content {
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Sections/cards within the drawer use surface background */
+  .drawer-detail-content .rounded-lg,
+  .drawer-detail-content .grid > div {
+    background: var(--theme-bg-surface);
+    border: 1px solid var(--theme-border-elevated);
+  }
+
+  /* Session IP group: expanded rows area gets a subtle elevated background
+     so content is visually distinct from the drawer body */
+  .drawer-detail-content .divide-y {
+    background-color: var(--theme-bg-surface);
+  }
+
+  /* Session rows inside the drawer: distinct hover from the IP group header */
+  .drawer-detail-content .divide-y > div {
+    transition: background-color 0.15s ease;
+  }
+
+  .drawer-detail-content .divide-y > div:hover {
+    background-color: var(--theme-bg-surface-hover) !important;
+  }
+
+  /* Hover states on interactive elements within drawer */
+  .drawer-detail-content button:hover,
+  .drawer-detail-content .space-y-4 > div > button:hover {
+    background: var(--theme-bg-surface-hover);
+  }
+
   /* ===== ACTIVE DOWNLOADS VIEW ===== */
 
   /* Empty state */

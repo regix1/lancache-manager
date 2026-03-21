@@ -184,6 +184,76 @@ export const colorGroups: ColorGroup[] = [
         ]
       },
       {
+        key: 'bgElevated',
+        supportsAlpha: true,
+        pages: [
+          'dashboard',
+          'downloads',
+          'clients',
+          'services',
+          'users',
+          'events',
+          'prefill',
+          'management'
+        ]
+      },
+      {
+        key: 'bgSurface',
+        supportsAlpha: true,
+        pages: [
+          'dashboard',
+          'downloads',
+          'clients',
+          'services',
+          'users',
+          'events',
+          'prefill',
+          'management'
+        ]
+      },
+      {
+        key: 'bgSurfaceHover',
+        supportsAlpha: true,
+        pages: [
+          'dashboard',
+          'downloads',
+          'clients',
+          'services',
+          'users',
+          'events',
+          'prefill',
+          'management'
+        ]
+      },
+      {
+        key: 'bgSurfaceActive',
+        supportsAlpha: true,
+        pages: [
+          'dashboard',
+          'downloads',
+          'clients',
+          'services',
+          'users',
+          'events',
+          'prefill',
+          'management'
+        ]
+      },
+      {
+        key: 'bgOverlay',
+        supportsAlpha: true,
+        pages: [
+          'dashboard',
+          'downloads',
+          'clients',
+          'services',
+          'users',
+          'events',
+          'prefill',
+          'management'
+        ]
+      },
+      {
         key: 'cardBg',
         supportsAlpha: true,
         pages: ['dashboard', 'downloads', 'events']
@@ -339,6 +409,34 @@ export const colorGroups: ColorGroup[] = [
         key: 'borderFocus',
         supportsAlpha: true,
         pages: []
+      },
+      {
+        key: 'borderElevated',
+        supportsAlpha: true,
+        pages: [
+          'dashboard',
+          'downloads',
+          'clients',
+          'services',
+          'users',
+          'events',
+          'prefill',
+          'management'
+        ]
+      },
+      {
+        key: 'borderHover',
+        supportsAlpha: true,
+        pages: [
+          'dashboard',
+          'downloads',
+          'clients',
+          'services',
+          'users',
+          'events',
+          'prefill',
+          'management'
+        ]
       }
     ]
   },

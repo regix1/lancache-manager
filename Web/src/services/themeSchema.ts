@@ -17,6 +17,11 @@ const themeColorsSchema = z.object({
   bgSecondary: z.string().default('#283649'),
   bgTertiary: z.string().default('#313e52'),
   bgHover: z.string().default('#4b5563'),
+  bgElevated: z.string().default('#1c2a3a'),
+  bgSurface: z.string().default('#223044'),
+  bgSurfaceHover: z.string().default('#2a3a4e'),
+  bgSurfaceActive: z.string().default('#324458'),
+  bgOverlay: z.string().default('rgba(0,0,0,0.6)'),
 
   // ── Text ─────────────────────────────────────────────────────────────
   textPrimary: z.string().default('#ffffff'),
@@ -33,6 +38,8 @@ const themeColorsSchema = z.object({
   borderPrimary: z.string().default('#374151'),
   borderSecondary: z.string().default('#4b5563'),
   borderFocus: z.string().optional(),
+  borderElevated: z.string().default('#3a4d63'),
+  borderHover: z.string().default('#4a5f78'),
 
   // ── Navigation ───────────────────────────────────────────────────────
   navBg: z.string().default('#1f2937'),

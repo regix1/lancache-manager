@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Drawer } from '@mantine/core';
 import {
   ChevronRight,
   ChevronDown,
@@ -54,6 +55,11 @@ interface NormalViewProps {
   enableScrollIntoView?: boolean;
   showDatasourceLabels?: boolean;
   hasMultipleDatasources?: boolean;
+  cardGridLayout?: boolean;
+  cardSize?: 'small' | 'medium' | 'large';
+  showCacheHitBar?: boolean;
+  showEventBadges?: boolean;
+  bannerOnly?: boolean;
 }
 
 interface GroupCardProps {
@@ -72,6 +78,8 @@ interface GroupCardProps {
   enableScrollIntoView: boolean;
   showDatasourceLabels: boolean;
   hasMultipleDatasources: boolean;
+  showCacheHitBar: boolean;
+  showEventBadges: boolean;
 }
 
 const GroupCard: React.FC<GroupCardProps> = ({
@@ -89,7 +97,9 @@ const GroupCard: React.FC<GroupCardProps> = ({
   SESSIONS_PER_PAGE: _SESSIONS_PER_PAGE,
   enableScrollIntoView,
   showDatasourceLabels,
-  hasMultipleDatasources
+  hasMultipleDatasources,
+  showCacheHitBar,
+  showEventBadges
 }) => {
   const { t } = useTranslation();
   const { fetchAssociations, getAssociations, refreshVersion } = useDownloadAssociations();
@@ -295,11 +305,12 @@ const GroupCard: React.FC<GroupCardProps> = ({
                   <span className="font-semibold text-[var(--theme-text-primary)]">
                     {formatBytes(group.totalBytes)}
                   </span>
-                  {hitPercent > 0 ? (
-                    <span className="cache-hit font-semibold">{formatPercent(hitPercent)}</span>
-                  ) : (
-                    <span className="text-[var(--theme-text-muted)]">0%</span>
-                  )}
+                  {showCacheHitBar &&
+                    (hitPercent > 0 ? (
+                      <span className="cache-hit font-semibold">{formatPercent(hitPercent)}</span>
+                    ) : (
+                      <span className="text-[var(--theme-text-muted)]">0%</span>
+                    ))}
                   {group.count > 1 && (
                     <span className="text-[var(--theme-text-muted)]">{group.count} req</span>
                   )}
@@ -312,7 +323,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
               </div>
 
               {/* Event badges - only show if present */}
-              {groupEvents.length > 0 && (
+              {showEventBadges && groupEvents.length > 0 && (
                 <div className="mt-2">
                   <DownloadBadges events={groupEvents} maxVisible={2} size="sm" />
                 </div>
@@ -367,7 +378,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                       </span>
                     </Tooltip>
                   )}
-                {groupEvents.length > 0 && (
+                {showEventBadges && groupEvents.length > 0 && (
                   <DownloadBadges events={groupEvents} maxVisible={2} size="sm" />
                 )}
                 {group.count > 1 && (
@@ -408,18 +419,20 @@ const GroupCard: React.FC<GroupCardProps> = ({
                     {group.clientsSet.size}
                   </span>
                 </div>
-                <div className="flex items-baseline gap-2">
-                  <span
-                    className={`${fullHeightBanners ? 'text-xs' : 'text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[80px]'}`}
-                  >
-                    {t('downloads.tab.normal.stats.cacheSaved')}
-                  </span>
-                  <span
-                    className={`${fullHeightBanners ? 'text-sm' : 'text-base'} font-bold text-[var(--theme-success-text)]`}
-                  >
-                    {formatBytes(group.cacheHitBytes)}
-                  </span>
-                </div>
+                {showCacheHitBar && (
+                  <div className="flex items-baseline gap-2">
+                    <span
+                      className={`${fullHeightBanners ? 'text-xs' : 'text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[80px]'}`}
+                    >
+                      {t('downloads.tab.normal.stats.cacheSaved')}
+                    </span>
+                    <span
+                      className={`${fullHeightBanners ? 'text-sm' : 'text-base'} font-bold text-[var(--theme-success-text)]`}
+                    >
+                      {formatBytes(group.cacheHitBytes)}
+                    </span>
+                  </div>
+                )}
                 <div className="flex items-baseline gap-2">
                   <span
                     className={`${fullHeightBanners ? 'text-xs' : 'text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[80px]'}`}
@@ -433,22 +446,24 @@ const GroupCard: React.FC<GroupCardProps> = ({
                     {formatRelativeTime(group.lastSeen)}
                   </span>
                 </div>
-                <div className="flex items-baseline gap-2">
-                  <span
-                    className={`${fullHeightBanners ? 'text-xs' : 'text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[80px]'}`}
-                  >
-                    {t('downloads.tab.normal.stats.efficiency')}
-                  </span>
-                  <span
-                    className={`${fullHeightBanners ? 'text-xs' : 'text-sm'} font-bold inline-flex items-center gap-1.5 ${
-                      hitPercent > 0 ? 'cache-hit' : 'text-[var(--theme-text-secondary)]'
-                    }`}
-                  >
-                    {hitPercent > 0
-                      ? formatPercent(hitPercent)
-                      : t('downloads.tab.normal.stats.notAvailable')}
-                  </span>
-                </div>
+                {showCacheHitBar && (
+                  <div className="flex items-baseline gap-2">
+                    <span
+                      className={`${fullHeightBanners ? 'text-xs' : 'text-sm'} text-themed-muted font-medium ${fullHeightBanners ? 'min-w-[60px]' : 'min-w-[80px]'}`}
+                    >
+                      {t('downloads.tab.normal.stats.efficiency')}
+                    </span>
+                    <span
+                      className={`${fullHeightBanners ? 'text-xs' : 'text-sm'} font-bold inline-flex items-center gap-1.5 ${
+                        hitPercent > 0 ? 'cache-hit' : 'text-[var(--theme-text-secondary)]'
+                      }`}
+                    >
+                      {hitPercent > 0
+                        ? formatPercent(hitPercent)
+                        : t('downloads.tab.normal.stats.notAvailable')}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -776,7 +791,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                                   return (
                                     <div
                                       key={download.id}
-                                      className="px-4 py-3 hover:bg-[var(--theme-bg-tertiary)] transition-colors"
+                                      className="drawer-session-row px-4 py-3 transition-colors"
                                     >
                                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                                         {/* Time & Events */}
@@ -802,7 +817,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                                               </span>
                                             )}
                                           </div>
-                                          {associations.events.length > 0 && (
+                                          {showEventBadges && associations.events.length > 0 && (
                                             <div className="mt-1">
                                               <DownloadBadges
                                                 events={associations.events}
@@ -897,6 +912,719 @@ const GroupCard: React.FC<GroupCardProps> = ({
   );
 };
 
+interface GridCardProps {
+  group: DownloadGroup;
+  isExpanded: boolean;
+  onItemClick: (id: string) => void;
+  imageErrors: Set<string>;
+  handleImageError: (gameAppId: string) => void;
+  showCacheHitBar: boolean;
+  showEventBadges: boolean;
+  bannerOnly: boolean;
+  groupPages: Record<string, number>;
+  setGroupPages: React.Dispatch<React.SetStateAction<Record<string, number>>>;
+  startHoldTimer: (callback: () => void) => void;
+  stopHoldTimer: () => void;
+  enableScrollIntoView: boolean;
+  showDatasourceLabels: boolean;
+  hasMultipleDatasources: boolean;
+}
+
+const GridCard: React.FC<GridCardProps> = ({
+  group,
+  isExpanded: _isExpanded,
+  onItemClick,
+  imageErrors,
+  handleImageError,
+  showCacheHitBar,
+  showEventBadges,
+  bannerOnly,
+  groupPages: _groupPages,
+  setGroupPages: _setGroupPages,
+  startHoldTimer: _startHoldTimer,
+  stopHoldTimer: _stopHoldTimer,
+  enableScrollIntoView: _enableScrollIntoView,
+  showDatasourceLabels,
+  hasMultipleDatasources
+}) => {
+  const { fetchAssociations, getAssociations, refreshVersion } = useDownloadAssociations();
+  const cardRef = React.useRef<HTMLDivElement>(null);
+  const hitPercent = group.totalBytes > 0 ? (group.cacheHitBytes / group.totalBytes) * 100 : 0;
+  const primaryDownload = group.downloads[0];
+  const serviceLower = group.service.toLowerCase();
+  const isSteam = serviceLower === 'steam';
+  const isEpic = serviceLower === 'epic' || serviceLower === 'epicgames';
+  const isWsus = serviceLower === 'wsus' || serviceLower === 'windows';
+  const isRiot = serviceLower === 'riot' || serviceLower === 'riotgames';
+  const isEA = serviceLower === 'origin' || serviceLower === 'ea';
+  const isBlizzard =
+    serviceLower === 'blizzard' || serviceLower === 'battle.net' || serviceLower === 'battlenet';
+  const isXbox = serviceLower === 'xbox' || serviceLower === 'xboxlive';
+  const isOtherService =
+    !isSteam && !isWsus && !isRiot && !isEpic && !isEA && !isBlizzard && !isXbox;
+  const steamAppId = primaryDownload?.gameAppId ? String(primaryDownload.gameAppId) : null;
+  const epicAppId = primaryDownload?.epicAppId ?? null;
+  const primaryName = primaryDownload?.gameName ?? '';
+  const isGenericSteamTitle =
+    primaryName === 'Unknown Steam Game' || /^Steam App \d+$/.test(primaryName);
+  const showSteamImage =
+    group.type === 'game' &&
+    isSteam &&
+    Boolean(steamAppId) &&
+    !!primaryName &&
+    !isGenericSteamTitle;
+  const showEpicImage = group.type === 'game' && isEpic && Boolean(epicAppId) && !!primaryName;
+  const artworkId = showSteamImage ? steamAppId : showEpicImage ? `epic-${epicAppId}` : null;
+  const hasArtwork = artworkId !== null && !imageErrors.has(artworkId);
+  const placeholderIconSize = 48;
+
+  React.useEffect(() => {
+    const downloadIds = group.downloads.map((d) => d.id);
+    fetchAssociations(downloadIds);
+  }, [group.downloads, fetchAssociations, refreshVersion]);
+
+  const groupEvents = React.useMemo(() => {
+    const eventsMap = new Map<
+      number,
+      { id: number; name: string; colorIndex: number; autoTagged: boolean }
+    >();
+    group.downloads.forEach((d) => {
+      const associations = getAssociations(d.id);
+      associations.events.forEach((event) => {
+        if (!eventsMap.has(event.id)) {
+          eventsMap.set(event.id, { ...event, autoTagged: event.autoTagged ?? false });
+        }
+      });
+    });
+    return Array.from(eventsMap.values());
+  }, [group.downloads, getAssociations]);
+
+  // Build banner content for the card
+  const shouldRenderBanner =
+    isSteam || isWsus || isRiot || isEpic || isEA || isBlizzard || isXbox || isOtherService;
+
+  let bannerContent: React.ReactNode | null = null;
+  if (shouldRenderBanner) {
+    if (hasArtwork && artworkId) {
+      bannerContent = (
+        <GameImage
+          gameAppId={showEpicImage ? epicAppId! : steamAppId!}
+          epicAppId={showEpicImage ? epicAppId! : undefined}
+          alt={primaryName || group.name}
+          className="download-banner-image"
+          sizes="(max-width: 639px) 100vw, 360px"
+          onFinalError={handleImageError}
+          loading="lazy"
+        />
+      );
+    } else {
+      bannerContent = (
+        <div className="download-banner-placeholder">
+          {isSteam ? (
+            <SteamIcon
+              size={placeholderIconSize}
+              className="opacity-75 text-[var(--theme-steam)]"
+            />
+          ) : isWsus ? (
+            <WsusIcon size={placeholderIconSize} className="opacity-75 text-[var(--theme-wsus)]" />
+          ) : isRiot ? (
+            <RiotIcon size={placeholderIconSize} className="opacity-75 text-[var(--theme-riot)]" />
+          ) : isEpic ? (
+            <EpicIcon size={placeholderIconSize} className="opacity-75 text-[var(--theme-epic)]" />
+          ) : isEA ? (
+            <EAIcon size={placeholderIconSize} className="opacity-75 text-[var(--theme-origin)]" />
+          ) : isBlizzard ? (
+            <BlizzardIcon
+              size={placeholderIconSize}
+              className="opacity-75 text-[var(--theme-blizzard)]"
+            />
+          ) : isXbox ? (
+            <XboxIcon size={placeholderIconSize} className="opacity-75 text-[var(--theme-xbox)]" />
+          ) : (
+            <UnknownServiceIcon
+              size={placeholderIconSize + 12}
+              className="opacity-75 text-[var(--theme-text-secondary)]"
+            />
+          )}
+        </div>
+      );
+    }
+  }
+
+  return (
+    <div
+      ref={cardRef}
+      className={`page-item-enter card-grid-item ${bannerOnly ? 'banner-only' : ''}`}
+      onClick={() => onItemClick(group.id)}
+      title={bannerOnly ? group.name : undefined}
+    >
+      {/* Banner */}
+      <div className="card-grid-item-banner">{bannerContent}</div>
+
+      {/* Info */}
+      {!bannerOnly && (
+        <div className="card-grid-item-info">
+          <div className="flex items-center gap-2 mb-1">
+            <span
+              className="px-2 py-0.5 text-[11px] font-extrabold rounded-md shadow-sm flex-shrink-0"
+              style={getServiceBadgeStyles(group.service)}
+            >
+              {group.service.toUpperCase()}
+            </span>
+            {hasMultipleDatasources && showDatasourceLabels && group.downloads[0]?.datasource && (
+              <span className="px-1.5 py-0.5 text-[10px] font-medium rounded-md flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)]">
+                {group.downloads[0].datasource}
+              </span>
+            )}
+          </div>
+          <div className="card-grid-item-name" title={group.name}>
+            {group.name}
+          </div>
+          <div className="card-grid-item-stats">
+            <span className="font-semibold text-[var(--theme-text-primary)]">
+              {formatBytes(group.totalBytes)}
+            </span>
+            {hitPercent > 0 ? (
+              <span className="cache-hit font-semibold">{formatPercent(hitPercent)}</span>
+            ) : (
+              <span className="text-[var(--theme-text-muted)]">0%</span>
+            )}
+            {group.count > 1 && (
+              <span className="text-[var(--theme-text-muted)]">{group.count} req</span>
+            )}
+          </div>
+
+          {/* Cache hit bar */}
+          {showCacheHitBar && (
+            <div className="card-grid-item-cache-bar">
+              <div className="card-grid-item-cache-bar-fill" style={{ width: `${hitPercent}%` }} />
+            </div>
+          )}
+
+          {/* Event badges */}
+          {showEventBadges && groupEvents.length > 0 && (
+            <div className="mt-2">
+              <DownloadBadges events={groupEvents} maxVisible={2} size="sm" />
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+interface GridCardDrawerContentProps {
+  group: DownloadGroup;
+  imageErrors: Set<string>;
+  handleImageError: (gameAppId: string) => void;
+  showEventBadges: boolean;
+  showDatasourceLabels: boolean;
+  hasMultipleDatasources: boolean;
+  groupPages: Record<string, number>;
+  setGroupPages: React.Dispatch<React.SetStateAction<Record<string, number>>>;
+  startHoldTimer: (callback: () => void) => void;
+  stopHoldTimer: () => void;
+}
+
+const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
+  group,
+  imageErrors,
+  handleImageError,
+  showEventBadges,
+  showDatasourceLabels,
+  hasMultipleDatasources,
+  groupPages,
+  setGroupPages,
+  startHoldTimer,
+  stopHoldTimer
+}) => {
+  const { t } = useTranslation();
+  const { fetchAssociations, getAssociations, refreshVersion } = useDownloadAssociations();
+  const {
+    filters,
+    updateFilter,
+    resetFilters,
+    filteredDownloads,
+    uniqueIps,
+    totalCount,
+    filteredCount,
+    hasActiveFilters
+  } = useSessionFilters(group.downloads);
+  const [expandedIps, setExpandedIps] = React.useState<Record<string, boolean>>({});
+  const hitPercent = group.totalBytes > 0 ? (group.cacheHitBytes / group.totalBytes) * 100 : 0;
+  const primaryDownload = group.downloads[0];
+  const serviceLower = group.service.toLowerCase();
+  const isSteam = serviceLower === 'steam';
+  const isEpic = serviceLower === 'epic' || serviceLower === 'epicgames';
+  const isWsus = serviceLower === 'wsus' || serviceLower === 'windows';
+  const isRiot = serviceLower === 'riot' || serviceLower === 'riotgames';
+  const isEA = serviceLower === 'origin' || serviceLower === 'ea';
+  const isBlizzard =
+    serviceLower === 'blizzard' || serviceLower === 'battle.net' || serviceLower === 'battlenet';
+  const isXbox = serviceLower === 'xbox' || serviceLower === 'xboxlive';
+  const isOtherService =
+    !isSteam && !isWsus && !isRiot && !isEpic && !isEA && !isBlizzard && !isXbox;
+  const steamAppId = primaryDownload?.gameAppId ? String(primaryDownload.gameAppId) : null;
+  const epicAppId = primaryDownload?.epicAppId ?? null;
+  const primaryName = primaryDownload?.gameName ?? '';
+  const isGenericSteamTitle =
+    primaryName === 'Unknown Steam Game' || /^Steam App \d+$/.test(primaryName);
+  const showSteamImage =
+    group.type === 'game' &&
+    isSteam &&
+    Boolean(steamAppId) &&
+    !!primaryName &&
+    !isGenericSteamTitle;
+  const showEpicImage = group.type === 'game' && isEpic && Boolean(epicAppId) && !!primaryName;
+  const artworkId = showSteamImage ? steamAppId : showEpicImage ? `epic-${epicAppId}` : null;
+  const hasArtwork = artworkId !== null && !imageErrors.has(artworkId);
+  const storeLink = primaryDownload?.gameAppId
+    ? `https://store.steampowered.com/app/${primaryDownload.gameAppId}`
+    : null;
+
+  React.useEffect(() => {
+    const downloadIds = group.downloads.map((d) => d.id);
+    fetchAssociations(downloadIds);
+  }, [group.downloads, fetchAssociations, refreshVersion]);
+
+  const groupEvents = React.useMemo(() => {
+    const eventsMap = new Map<
+      number,
+      { id: number; name: string; colorIndex: number; autoTagged: boolean }
+    >();
+    group.downloads.forEach((d) => {
+      const associations = getAssociations(d.id);
+      associations.events.forEach((event) => {
+        if (!eventsMap.has(event.id)) {
+          eventsMap.set(event.id, { ...event, autoTagged: event.autoTagged ?? false });
+        }
+      });
+    });
+    return Array.from(eventsMap.values());
+  }, [group.downloads, getAssociations]);
+
+  // Build banner for drawer header
+  const shouldRenderBanner =
+    isSteam || isWsus || isRiot || isEpic || isEA || isBlizzard || isXbox || isOtherService;
+
+  let drawerBanner: React.ReactNode | null = null;
+  if (shouldRenderBanner && hasArtwork && artworkId) {
+    drawerBanner = (
+      <GameImage
+        gameAppId={showEpicImage ? epicAppId! : steamAppId!}
+        epicAppId={showEpicImage ? epicAppId! : undefined}
+        alt={primaryName || group.name}
+        className="drawer-banner-image"
+        sizes="(max-width: 639px) 100vw, 550px"
+        onFinalError={handleImageError}
+      />
+    );
+  }
+
+  // Session pagination
+  const toggleIp = (ip: string) => {
+    setExpandedIps((prev) => ({ ...prev, [ip]: !prev[ip] }));
+  };
+  const isIpExpanded = (ip: string, count: number): boolean => {
+    if (ip in expandedIps) return expandedIps[ip];
+    return count <= 5;
+  };
+
+  const sessionsPerPage = filters.sessionsPerPage;
+  const currentPage = groupPages[group.id] || 1;
+  const totalPages = Math.ceil(filteredDownloads.length / sessionsPerPage);
+  const startIndex = (currentPage - 1) * sessionsPerPage;
+  const endIndex = startIndex + sessionsPerPage;
+  const paginatedDownloads = filteredDownloads.slice(startIndex, endIndex);
+  const excludedSessions = Math.max(0, group.downloads.length - group.count);
+
+  const handlePageChange = (newPage: number) => {
+    setGroupPages((prev) => ({ ...prev, [group.id]: newPage }));
+  };
+
+  const handlePointerHoldStart = (
+    event: React.PointerEvent<HTMLButtonElement>,
+    direction: 'prev' | 'next'
+  ) => {
+    const isPrevious = direction === 'prev';
+    if ((isPrevious && currentPage === 1) || (!isPrevious && currentPage === totalPages)) {
+      return;
+    }
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    startHoldTimer(() => {
+      setGroupPages((prev) => {
+        const current = prev[group.id] || 1;
+        const nextPage = isPrevious ? Math.max(1, current - 1) : Math.min(totalPages, current + 1);
+        if (nextPage === current) return prev;
+        return { ...prev, [group.id]: nextPage };
+      });
+    });
+  };
+
+  const handlePointerHoldEnd = (event: React.PointerEvent<HTMLButtonElement>) => {
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    stopHoldTimer();
+  };
+
+  const ipGroups = paginatedDownloads.reduce(
+    (acc, d) => {
+      if (!acc[d.clientIp]) acc[d.clientIp] = [];
+      acc[d.clientIp].push(d);
+      return acc;
+    },
+    {} as Record<string, typeof group.downloads>
+  );
+
+  return (
+    <div className="drawer-detail-content">
+      {/* Banner */}
+      {drawerBanner && <div className="drawer-banner-wrapper">{drawerBanner}</div>}
+
+      {/* Title area with service badge */}
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
+        <span
+          className="px-2.5 py-1 text-xs font-extrabold rounded-md shadow-sm flex-shrink-0"
+          style={getServiceBadgeStyles(group.service)}
+        >
+          {group.service.toUpperCase()}
+        </span>
+        {hasMultipleDatasources && showDatasourceLabels && group.downloads[0]?.datasource && (
+          <span className="px-2 py-0.5 text-xs font-medium rounded-md flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)]">
+            {group.downloads[0].datasource}
+          </span>
+        )}
+        {storeLink && (
+          <a
+            href={storeLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--theme-primary)] hover:text-[var(--theme-primary-hover)] transition-colors ml-auto"
+          >
+            <span>{t('downloads.tab.normal.store.label')}</span>
+            <ExternalLink size={12} />
+          </a>
+        )}
+      </div>
+
+      {/* Event badges */}
+      {showEventBadges && groupEvents.length > 0 && (
+        <div className="mb-4">
+          <DownloadBadges events={groupEvents} maxVisible={5} size="sm" />
+        </div>
+      )}
+
+      {/* Analytics Overview */}
+      <div className="mb-4">
+        <h4 className="text-sm font-bold text-[var(--theme-text-primary)] uppercase tracking-wider opacity-80 mb-3">
+          {t('downloads.tab.normal.stats.title', 'Analytics Overview')}
+        </h4>
+
+        <div className="flex flex-col gap-3">
+          {/* Efficiency */}
+          <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)]">
+            <h5 className="text-xs font-semibold text-[var(--theme-text-muted)] mb-3 uppercase tracking-wide">
+              Efficiency
+            </h5>
+            <div className="flex flex-col gap-4">
+              <div className="flex items-baseline justify-between">
+                <span className="text-sm text-[var(--theme-text-secondary)]">
+                  {t('downloads.tab.normal.stats.efficiencyRate')}
+                </span>
+                <span
+                  className={`text-xl font-bold ${hitPercent > 0 ? 'cache-hit' : 'text-[var(--theme-text-secondary)]'}`}
+                >
+                  {hitPercent > 0 ? formatPercent(hitPercent) : '\u2014'}
+                </span>
+              </div>
+              <div className="w-full bg-[var(--theme-bg-primary)] rounded-full h-1.5 overflow-hidden">
+                <div
+                  className="h-full bg-[var(--theme-success)] transition-all duration-500"
+                  style={{ width: `${hitPercent}%` }}
+                />
+              </div>
+              <div className="flex items-baseline justify-between pt-2 border-t border-[var(--theme-border-secondary)]">
+                <span className="text-xs text-[var(--theme-text-muted)]">
+                  {t('downloads.tab.normal.stats.cacheSaved')}
+                </span>
+                <span className="text-sm font-bold text-[var(--theme-success-text)]">
+                  {group.cacheHitBytes > 0 ? formatBytes(group.cacheHitBytes) : '\u2014'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Data Volume */}
+          <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)]">
+            <h5 className="text-xs font-semibold text-[var(--theme-text-muted)] mb-3 uppercase tracking-wide">
+              Data Volume
+            </h5>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-[var(--theme-text-secondary)]">
+                  {t('downloads.tab.normal.stats.totalDownloaded')}
+                </span>
+                <span className="text-base font-bold text-[var(--theme-text-primary)]">
+                  {formatBytes(group.totalBytes)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-[var(--theme-text-secondary)]">
+                  {t('downloads.tab.normal.stats.cacheMiss')}
+                </span>
+                <span className="text-sm font-medium text-[var(--theme-text-muted)]">
+                  {formatBytes(group.cacheMissBytes || 0)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-[var(--theme-text-secondary)]">
+                  {t('downloads.tab.normal.stats.cacheHit')}
+                </span>
+                <span className="text-sm font-medium text-[var(--theme-success-text)]">
+                  {formatBytes(group.cacheHitBytes)}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Activity */}
+          <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)]">
+            <h5 className="text-xs font-semibold text-[var(--theme-text-muted)] mb-3 uppercase tracking-wide">
+              Activity
+            </h5>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-[var(--theme-text-secondary)]">
+                  {t('downloads.tab.normal.stats.downloadSessions')}
+                </span>
+                <span className="text-base font-bold text-[var(--theme-text-primary)]">
+                  {group.count}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-[var(--theme-text-secondary)]">
+                  {t('downloads.tab.normal.stats.uniqueClients')}
+                </span>
+                <span className="text-sm font-medium text-[var(--theme-text-primary)]">
+                  {group.clientsSet.size}
+                </span>
+              </div>
+              <div className="flex items-center justify-between pt-2 border-t border-[var(--theme-border-secondary)]">
+                <span className="text-xs text-[var(--theme-text-muted)]">
+                  {t('downloads.tab.normal.stats.lastActivity')}
+                </span>
+                <span className="text-xs font-medium text-[var(--theme-text-secondary)]">
+                  {formatRelativeTime(group.lastSeen)}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Download Sessions */}
+      {group.downloads.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-sm font-bold text-[var(--theme-text-primary)] uppercase tracking-wider opacity-80">
+              {t('downloads.tab.normal.sessions.title')}
+            </h4>
+            <div className="flex items-center gap-3">
+              {excludedSessions > 0 && (
+                <span className="text-xs text-[var(--theme-text-muted)] italic">
+                  {t('downloads.tab.normal.sessions.excluded', { count: excludedSessions })}
+                </span>
+              )}
+              {totalPages > 1 && (
+                <span className="text-xs font-mono text-[var(--theme-text-muted)]">
+                  {currentPage} / {totalPages}
+                </span>
+              )}
+            </div>
+          </div>
+
+          {group.downloads.length > 10 && (
+            <div className="mb-4">
+              <SessionFilterBar
+                filters={filters}
+                updateFilter={updateFilter}
+                resetFilters={resetFilters}
+                uniqueIps={uniqueIps}
+                totalCount={totalCount}
+                filteredCount={filteredCount}
+                hasActiveFilters={hasActiveFilters}
+              />
+            </div>
+          )}
+
+          <div className="space-y-4">
+            {Object.entries(ipGroups).map(([clientIp, clientDownloads]) => {
+              const clientTotal = clientDownloads.reduce((sum, d) => sum + (d.totalBytes || 0), 0);
+              const clientCacheHit = clientDownloads.reduce(
+                (sum, d) => sum + (d.cacheHitBytes || 0),
+                0
+              );
+              const expanded = isIpExpanded(clientIp, clientDownloads.length);
+
+              return (
+                <div
+                  key={clientIp}
+                  className="rounded-lg border border-[var(--theme-border-secondary)] overflow-hidden"
+                >
+                  <button
+                    type="button"
+                    onClick={() => toggleIp(clientIp)}
+                    className="w-full bg-[var(--theme-bg-tertiary)] px-4 py-2 flex flex-wrap items-center justify-between gap-1 border-b border-[var(--theme-border-secondary)] text-left"
+                  >
+                    <div className="flex items-center gap-2">
+                      <ChevronDown
+                        size={14}
+                        className={`text-[var(--theme-text-muted)] transition-transform duration-200 flex-shrink-0 ${expanded ? '' : '-rotate-90'}`}
+                      />
+                      <ClientIpDisplay
+                        clientIp={clientIp}
+                        className="font-mono text-xs font-bold text-[var(--theme-text-primary)]"
+                      />
+                      <span className="text-[10px] uppercase tracking-wide text-[var(--theme-text-muted)] font-semibold px-1.5 py-0.5 rounded bg-[var(--theme-bg-primary)]">
+                        {clientDownloads.length} sessions
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3 text-xs">
+                      <span className="font-medium text-[var(--theme-text-secondary)]">
+                        Total:{' '}
+                        <span className="text-[var(--theme-text-primary)] font-bold">
+                          {formatBytes(clientTotal)}
+                        </span>
+                      </span>
+                      {clientCacheHit > 0 && (
+                        <span className="font-medium text-[var(--theme-success-text)]">
+                          Saved: <span className="font-bold">{formatBytes(clientCacheHit)}</span>
+                        </span>
+                      )}
+                    </div>
+                  </button>
+
+                  {expanded && (
+                    <div className="divide-y divide-[var(--theme-border-secondary)]">
+                      {clientDownloads.map((download) => {
+                        const totalBytes = download.totalBytes || 0;
+                        const cachePercent =
+                          totalBytes > 0 ? ((download.cacheHitBytes || 0) / totalBytes) * 100 : 0;
+                        const associations = getAssociations(download.id);
+
+                        return (
+                          <div
+                            key={download.id}
+                            className="drawer-session-row px-4 py-3 transition-colors"
+                          >
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-1">
+                                  {download.endTimeUtc ? (
+                                    <CheckCircle
+                                      size={14}
+                                      className="text-[var(--theme-success-text)]"
+                                    />
+                                  ) : (
+                                    <AlertCircle
+                                      size={14}
+                                      className="text-[var(--theme-info-text)]"
+                                    />
+                                  )}
+                                  <span className="text-sm text-[var(--theme-text-primary)]">
+                                    {formatRelativeTime(download.startTimeUtc)}
+                                  </span>
+                                  {download.depotId && (
+                                    <span className="text-xs font-mono text-[var(--theme-text-muted)] bg-[var(--theme-bg-tertiary)] px-1.5 rounded">
+                                      {download.depotId}
+                                    </span>
+                                  )}
+                                </div>
+                                {showEventBadges && associations.events.length > 0 && (
+                                  <div className="mt-1">
+                                    <DownloadBadges
+                                      events={associations.events}
+                                      maxVisible={3}
+                                      size="sm"
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-4 sm:gap-6 text-sm">
+                                <div className="flex flex-col items-end">
+                                  <span className="text-[10px] uppercase text-[var(--theme-text-muted)] font-semibold">
+                                    Size
+                                  </span>
+                                  <span className="font-medium text-[var(--theme-text-primary)]">
+                                    {formatBytes(totalBytes)}
+                                  </span>
+                                </div>
+                                <div className="flex flex-col items-end w-20">
+                                  <span className="text-[10px] uppercase text-[var(--theme-text-muted)] font-semibold">
+                                    Cache
+                                  </span>
+                                  {download.cacheHitBytes > 0 ? (
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="font-bold text-[var(--theme-success-text)]">
+                                        {formatPercent(cachePercent)}
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <span className="text-[var(--theme-text-muted)]">
+                                      {'\u2014'}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-2 mt-4 pt-2">
+              <Tooltip content={t('downloads.tab.normal.pagination.previous')}>
+                <button
+                  onClick={() => handlePageChange(currentPage - 1)}
+                  onPointerDown={(event) => handlePointerHoldStart(event, 'prev')}
+                  onPointerUp={handlePointerHoldEnd}
+                  onPointerCancel={handlePointerHoldEnd}
+                  onLostPointerCapture={stopHoldTimer}
+                  disabled={currentPage === 1}
+                  className="p-1.5 rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)]"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+              </Tooltip>
+              <span className="text-xs text-[var(--theme-text-secondary)] font-medium font-mono px-2">
+                {currentPage} of {totalPages}
+              </span>
+              <Tooltip content={t('downloads.tab.normal.pagination.next')}>
+                <button
+                  onClick={() => handlePageChange(currentPage + 1)}
+                  onPointerDown={(event) => handlePointerHoldStart(event, 'next')}
+                  onPointerUp={handlePointerHoldEnd}
+                  onPointerCancel={handlePointerHoldEnd}
+                  onLostPointerCapture={stopHoldTimer}
+                  disabled={currentPage === totalPages}
+                  className="p-1.5 rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)]"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </Tooltip>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const NormalView: React.FC<NormalViewProps> = ({
   items,
   expandedItem,
@@ -907,12 +1635,18 @@ const NormalView: React.FC<NormalViewProps> = ({
   groupByFrequency = true,
   enableScrollIntoView = true,
   showDatasourceLabels = true,
-  hasMultipleDatasources = false
+  hasMultipleDatasources = false,
+  cardGridLayout = false,
+  cardSize = 'medium',
+  showCacheHitBar = true,
+  showEventBadges = true,
+  bannerOnly = false
 }) => {
   const { t } = useTranslation();
   const labels = { ...getDefaultSectionLabels(t), ...sectionLabels };
   const [imageErrors, setImageErrors] = React.useState<Set<string>>(new Set());
   const [groupPages, setGroupPages] = React.useState<Record<string, number>>({});
+  const [drawerItem, setDrawerItem] = useState<DownloadGroup | null>(null);
   const { startHoldTimer, stopHoldTimer } = useHoldTimer();
 
   const SESSIONS_PER_PAGE = 10;
@@ -938,6 +1672,8 @@ const NormalView: React.FC<NormalViewProps> = ({
       enableScrollIntoView={enableScrollIntoView}
       showDatasourceLabels={showDatasourceLabels}
       hasMultipleDatasources={hasMultipleDatasources}
+      showCacheHitBar={showCacheHitBar}
+      showEventBadges={showEventBadges}
     />
   );
 
@@ -963,6 +1699,112 @@ const NormalView: React.FC<NormalViewProps> = ({
     return renderGroupCard(fakeGroup);
   };
 
+  const toGroup = (item: Download | DownloadGroup): DownloadGroup => {
+    if ('downloads' in item) return item as DownloadGroup;
+    const download = item as Download;
+    const totalBytes = download.totalBytes || 0;
+    return {
+      id: `individual-${download.id}`,
+      name: download.gameName || download.service,
+      type: 'game' as const,
+      service: download.service,
+      downloads: [download],
+      totalBytes: totalBytes,
+      totalDownloaded: totalBytes,
+      cacheHitBytes: download.cacheHitBytes || 0,
+      cacheMissBytes: download.cacheMissBytes || 0,
+      clientsSet: new Set([download.clientIp]),
+      firstSeen: download.startTimeUtc,
+      lastSeen: download.startTimeUtc,
+      count: 1
+    };
+  };
+
+  // Card Grid Layout mode
+  if (cardGridLayout) {
+    const gridSizeClass =
+      cardSize === 'small'
+        ? 'card-grid-container card-size-small'
+        : cardSize === 'large'
+          ? 'card-grid-container card-size-large'
+          : 'card-grid-container';
+
+    const handleGridCardClick = (groupId: string) => {
+      const group = items
+        .map((item: Download | DownloadGroup) => toGroup(item))
+        .find((g: DownloadGroup) => g.id === groupId);
+      if (group) {
+        setDrawerItem(group);
+      }
+    };
+
+    return (
+      <>
+        <div className={gridSizeClass}>
+          {items.map((item) => {
+            const group = toGroup(item);
+            const key =
+              'downloads' in item
+                ? (item as DownloadGroup).id
+                : `download-${(item as Download).id}`;
+
+            return (
+              <GridCard
+                key={key}
+                group={group}
+                isExpanded={false}
+                onItemClick={handleGridCardClick}
+                imageErrors={imageErrors}
+                handleImageError={handleImageError}
+                showCacheHitBar={showCacheHitBar}
+                showEventBadges={showEventBadges}
+                bannerOnly={bannerOnly}
+                groupPages={groupPages}
+                setGroupPages={setGroupPages}
+                startHoldTimer={startHoldTimer}
+                stopHoldTimer={stopHoldTimer}
+                enableScrollIntoView={false}
+                showDatasourceLabels={showDatasourceLabels}
+                hasMultipleDatasources={hasMultipleDatasources}
+              />
+            );
+          })}
+        </div>
+
+        <Drawer
+          opened={drawerItem !== null}
+          onClose={() => setDrawerItem(null)}
+          position="right"
+          size="lg"
+          title={drawerItem?.name ?? ''}
+          overlayProps={{ backgroundOpacity: 0.35, blur: 2 }}
+          classNames={{
+            header: 'drawer-header',
+            body: 'drawer-body',
+            content: 'drawer-content',
+            title: 'drawer-title'
+          }}
+        >
+          {drawerItem && (
+            <GridCardDrawerContent
+              group={drawerItem}
+              imageErrors={imageErrors}
+              handleImageError={handleImageError}
+              showEventBadges={showEventBadges}
+              showDatasourceLabels={showDatasourceLabels}
+              hasMultipleDatasources={hasMultipleDatasources}
+              groupPages={groupPages}
+              setGroupPages={setGroupPages}
+              startHoldTimer={startHoldTimer}
+              stopHoldTimer={stopHoldTimer}
+            />
+          )}
+        </Drawer>
+      </>
+    );
+  }
+
+  // Standard list layout
   let multipleDownloadsHeaderRendered = false;
   let singleDownloadsHeaderRendered = false;
   let individualHeaderRendered = false;
@@ -1040,4 +1882,5 @@ const NormalView: React.FC<NormalViewProps> = ({
   );
 };
 
-export default NormalView;
+const MemoizedNormalView = memo(NormalView);
+export default MemoizedNormalView;

@@ -44,6 +44,7 @@ import ApiService from '@services/api.service';
 import { setServerTimezone } from '@utils/timezone';
 import { storage } from '@utils/storage';
 import { isAbortError } from '@utils/error';
+import { MantineProvider } from '@mantine/core';
 import themeService from '@services/theme.service';
 import preferencesService from '@services/preferences.service';
 
@@ -666,53 +667,55 @@ const AppContent: React.FC = () => {
 const App: React.FC = () => {
   return (
     <ErrorBoundary>
-      <MockModeProvider>
-        <GameServiceProvider>
-          <TimeFilterProvider>
-            <SignalRProvider>
-              <AuthProvider>
-                <DockerSocketProvider>
-                  <SessionPreferencesProvider>
-                    <RefreshRateProvider>
-                      <SpeedProvider>
-                        <TimezoneProvider>
-                          <SteamWebApiStatusProvider>
-                            <GuestConfigProvider>
-                              <SetupStatusProvider>
-                                <SteamAuthProvider>
-                                  <PrefillProvider>
-                                    <PicsProgressProviderWithMockMode>
-                                      <NotificationsProvider>
-                                        <CacheSizeProvider>
-                                          <DashboardDataProviderWithMockMode>
-                                            <CalendarSettingsProvider>
-                                              <EventProvider>
-                                                <ClientGroupProvider>
-                                                  <DownloadAssociationsProvider>
-                                                    <AppContent />
-                                                  </DownloadAssociationsProvider>
-                                                </ClientGroupProvider>
-                                              </EventProvider>
-                                            </CalendarSettingsProvider>
-                                          </DashboardDataProviderWithMockMode>
-                                        </CacheSizeProvider>
-                                      </NotificationsProvider>
-                                    </PicsProgressProviderWithMockMode>
-                                  </PrefillProvider>
-                                </SteamAuthProvider>
-                              </SetupStatusProvider>
-                            </GuestConfigProvider>
-                          </SteamWebApiStatusProvider>
-                        </TimezoneProvider>
-                      </SpeedProvider>
-                    </RefreshRateProvider>
-                  </SessionPreferencesProvider>
-                </DockerSocketProvider>
-              </AuthProvider>
-            </SignalRProvider>
-          </TimeFilterProvider>
-        </GameServiceProvider>
-      </MockModeProvider>
+      <MantineProvider defaultColorScheme="dark" forceColorScheme="dark">
+        <MockModeProvider>
+          <GameServiceProvider>
+            <TimeFilterProvider>
+              <SignalRProvider>
+                <AuthProvider>
+                  <DockerSocketProvider>
+                    <SessionPreferencesProvider>
+                      <RefreshRateProvider>
+                        <SpeedProvider>
+                          <TimezoneProvider>
+                            <SteamWebApiStatusProvider>
+                              <GuestConfigProvider>
+                                <SetupStatusProvider>
+                                  <SteamAuthProvider>
+                                    <PrefillProvider>
+                                      <PicsProgressProviderWithMockMode>
+                                        <NotificationsProvider>
+                                          <CacheSizeProvider>
+                                            <DashboardDataProviderWithMockMode>
+                                              <CalendarSettingsProvider>
+                                                <EventProvider>
+                                                  <ClientGroupProvider>
+                                                    <DownloadAssociationsProvider>
+                                                      <AppContent />
+                                                    </DownloadAssociationsProvider>
+                                                  </ClientGroupProvider>
+                                                </EventProvider>
+                                              </CalendarSettingsProvider>
+                                            </DashboardDataProviderWithMockMode>
+                                          </CacheSizeProvider>
+                                        </NotificationsProvider>
+                                      </PicsProgressProviderWithMockMode>
+                                    </PrefillProvider>
+                                  </SteamAuthProvider>
+                                </SetupStatusProvider>
+                              </GuestConfigProvider>
+                            </SteamWebApiStatusProvider>
+                          </TimezoneProvider>
+                        </SpeedProvider>
+                      </RefreshRateProvider>
+                    </SessionPreferencesProvider>
+                  </DockerSocketProvider>
+                </AuthProvider>
+              </SignalRProvider>
+            </TimeFilterProvider>
+          </GameServiceProvider>
+        </MockModeProvider>
+      </MantineProvider>
     </ErrorBoundary>
   );
 };

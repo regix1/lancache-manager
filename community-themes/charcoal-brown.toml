@@ -18,6 +18,11 @@ bgPrimary = "#1f1d1b"
 bgSecondary = "#2a2725"
 bgTertiary = "#333130"
 bgHover = "#3d3a38"
+bgElevated = "#262321"
+bgSurface = "#2e2b29"
+bgSurfaceHover = "#353230"
+bgSurfaceActive = "#3d3a38"
+bgOverlay = "rgba(0,0,0,0.6)"
 
 # Text - Warm creams and tans
 textPrimary = "#ebe5dc"
@@ -30,6 +35,8 @@ textPlaceholder = "#706b65"
 borderPrimary = "#454240"
 borderSecondary = "#5a5653"
 borderFocus = "#a67c52"
+borderElevated = "#4e4b48"
+borderHover = "#635f5c"
 
 # Navigation
 navBg = "#262321"

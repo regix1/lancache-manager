@@ -3869,6 +3869,31 @@
           "description": "Interactive hover backgrounds",
           "affects": ["Button hovers", "List hovers", "Menu hovers"]
         },
+        "bgElevated": {
+          "label": "Elevated Background",
+          "description": "Floating panels, drawers, and modals",
+          "affects": ["Drawers", "Modals", "Floating panels", "Popovers"]
+        },
+        "bgSurface": {
+          "label": "Surface Background",
+          "description": "Sections within elevated containers",
+          "affects": ["Panel sections", "Card inner areas", "Surface layers"]
+        },
+        "bgSurfaceHover": {
+          "label": "Surface Hover",
+          "description": "Hover state on elevated surfaces",
+          "affects": ["List item hovers", "Surface hover states", "Menu item hovers"]
+        },
+        "bgSurfaceActive": {
+          "label": "Surface Active",
+          "description": "Active or pressed state on surfaces",
+          "affects": ["Pressed items", "Active selections", "Selected rows"]
+        },
+        "bgOverlay": {
+          "label": "Overlay Backdrop",
+          "description": "Semi-transparent backdrop behind modals",
+          "affects": ["Modal backdrops", "Drawer overlays", "Dialog dimming"]
+        },
         "cardBg": {
           "label": "Card Background",
           "description": "Card component background",
@@ -3993,6 +4018,16 @@
           "label": "Focus Border",
           "description": "Active focus indicators",
           "affects": ["Focus rings", "Active borders", "Selected outlines"]
+        },
+        "borderElevated": {
+          "label": "Elevated Border",
+          "description": "Borders within elevated panels and drawers",
+          "affects": ["Panel borders", "Drawer dividers", "Modal section borders"]
+        },
+        "borderHover": {
+          "label": "Border Hover",
+          "description": "Border color on hover interactions",
+          "affects": ["Card hover borders", "Input hover borders", "Interactive borders"]
         },
         "success": {
           "label": "Success Primary",

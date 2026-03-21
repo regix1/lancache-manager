@@ -172,7 +172,7 @@
 
   /* Allow grid to shrink to viewport while still expanding to content */
   .retro-table-container table,
-  .retro-table-container > div {
+  .retro-table-container > div > div {
     min-width: 100%;
     width: max-content;
   }
@@ -196,7 +196,7 @@
 }
 
 /* When scrolled, hide the scroll indicator */
-.retro-table-container:not([data-scroll-start="true"])::after {
+.retro-table-container:not([data-scroll-start='true'])::after {
   opacity: 0;
 }
 

@@ -40,31 +40,6 @@
     color: var(--theme-warning-text);
   }
 
-  /* Alert Variants */
-  .alert-success {
-    background-color: var(--theme-success-bg);
-    border-color: var(--theme-success);
-    color: var(--theme-success-text);
-  }
-
-  .alert-warning {
-    background-color: var(--theme-warning-bg);
-    border-color: var(--theme-warning);
-    color: var(--theme-warning-text);
-  }
-
-  .alert-error {
-    background-color: var(--theme-error-bg);
-    border-color: var(--theme-error);
-    color: var(--theme-error-text);
-  }
-
-  .alert-info {
-    background-color: var(--theme-info-bg);
-    border-color: var(--theme-info);
-    color: var(--theme-info-text);
-  }
-
   /* Count Badge - small pill for inline count indicators */
   .count-badge {
     display: inline-flex;

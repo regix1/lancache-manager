@@ -1,0 +1,90 @@
+@layer components {
+  /* ==============================================
+   * ALERTS — Left accent bar pattern
+   * Matches UniversalNotificationBar visual language
+   * ============================================== */
+
+  /* Base alert container */
+  .alert {
+    display: flex;
+    align-items: flex-start;
+    padding: 0.75rem 1rem;
+    border-radius: var(--theme-border-radius-lg);
+    border: none;
+    border-left: 3px solid transparent;
+    gap: 0.75rem;
+    font-size: 0.875rem;
+    line-height: 1.5;
+  }
+
+  .alert-icon {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    padding-top: 1px;
+  }
+
+  .alert-content {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .alert-close {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    padding: 0.125rem;
+    border-radius: var(--theme-border-radius);
+    opacity: 0.7;
+    transition: opacity 150ms ease;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: inherit;
+  }
+
+  .alert-close:hover {
+    opacity: 1;
+  }
+
+  /* Severity variants */
+  .alert-info {
+    background-color: var(--theme-info-bg);
+    border-left-color: var(--theme-info);
+    color: var(--theme-info-text);
+  }
+
+  .alert-info .alert-icon {
+    color: var(--theme-info);
+  }
+
+  .alert-success {
+    background-color: var(--theme-success-bg);
+    border-left-color: var(--theme-success);
+    color: var(--theme-success-text);
+  }
+
+  .alert-success .alert-icon {
+    color: var(--theme-success);
+  }
+
+  .alert-warning {
+    background-color: var(--theme-warning-bg);
+    border-left-color: var(--theme-warning);
+    color: var(--theme-warning-text);
+  }
+
+  .alert-warning .alert-icon {
+    color: var(--theme-warning);
+  }
+
+  .alert-error {
+    background-color: var(--theme-error-bg);
+    border-left-color: var(--theme-error);
+    color: var(--theme-error-text);
+  }
+
+  .alert-error .alert-icon {
+    color: var(--theme-error);
+  }
+}

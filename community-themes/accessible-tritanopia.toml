@@ -20,6 +20,11 @@ bgPrimary = "#1e1e1e"          # VSCode dark background
 bgSecondary = "#252526"        # VSCode sidebar
 bgTertiary = "#2d2d2d"         # Slightly lighter grey
 bgHover = "#3c3c3c"            # Hover state grey
+bgElevated = "#222223"         # Slightly lighter than bgPrimary
+bgSurface = "#2a2a2b"          # Surface within elevated panels
+bgSurfaceHover = "#323233"     # Hover on surface elements
+bgSurfaceActive = "#3a3a3b"    # Active/pressed surface elements
+bgOverlay = "rgba(0,0,0,0.6)"  # Backdrop overlay
 
 # Text - Clean neutral tones
 textPrimary = "#e0e0e0"        # Light grey
@@ -36,6 +41,8 @@ dragHandleHover = "#f87171"
 borderPrimary = "#333333"      # Dark border
 borderSecondary = "#444444"    # Medium border
 borderFocus = "#dc2626"
+borderElevated = "#3a3a3a"     # Borders within elevated panels
+borderHover = "#505050"        # Border hover state
 
 # Navigation - Neutral dark tones
 navBg = "#1b1b1b"              # Dark navigation background

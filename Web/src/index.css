@@ -6,6 +6,7 @@
 @import './styles/layout/overlays.css';
 
 /* Components */
+@import './styles/components/alerts.css';
 @import './styles/components/badges.css';
 @import './styles/components/buttons.css';
 @import './styles/components/cards.css';

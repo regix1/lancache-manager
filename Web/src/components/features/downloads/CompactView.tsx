@@ -639,7 +639,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
   );
 };
 
-const CompactView: React.FC<CompactViewProps> = ({
+const CompactView = React.memo(function CompactView({
   items,
   expandedItem,
   onItemClick,
@@ -649,7 +649,7 @@ const CompactView: React.FC<CompactViewProps> = ({
   enableScrollIntoView = true,
   showDatasourceLabels = true,
   hasMultipleDatasources = false
-}) => {
+}: CompactViewProps) {
   const { t } = useTranslation();
   const labels = { ...getDefaultSectionLabels(t), ...sectionLabels };
   const [imageErrors, setImageErrors] = React.useState<Set<string>>(new Set());
@@ -760,6 +760,6 @@ const CompactView: React.FC<CompactViewProps> = ({
       </div>
     </div>
   );
-};
+});
 
 export default CompactView;
