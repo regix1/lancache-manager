@@ -3,6 +3,7 @@ using System.Text.RegularExpressions;
 using LancacheManager.Models;
 using LancacheManager.Hubs;
 using LancacheManager.Core.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
@@ -13,6 +14,7 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/themes")]
+[AllowAnonymous]
 public class ThemeController : ControllerBase
 {
     private readonly string _themesPath;

@@ -2,6 +2,7 @@ using LancacheManager.Models;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Controllers.Filters;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
@@ -13,6 +14,7 @@ namespace LancacheManager.Controllers;
 [ApiController]
 [Route("api/gc")]
 [RequiresGcManagement]
+[Authorize(Policy = "AdminOnly")]
 public class GcController : ControllerBase
 {
     private readonly SettingsService _gcSettingsService;

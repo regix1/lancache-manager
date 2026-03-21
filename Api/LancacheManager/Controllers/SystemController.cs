@@ -4,6 +4,7 @@ using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Middleware;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using LancacheManager.Core.Services.SteamKit2;
 
@@ -16,6 +17,7 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/system")]
+[Authorize(Policy = "AdminOnly")]
 public class SystemController : ControllerBase
 {
     private readonly StateService _stateService;
@@ -57,6 +59,7 @@ public class SystemController : ControllerBase
     /// GET /api/system/config - Get system configuration
     /// Note: Public endpoint - needed for app initialization before authentication
     /// </summary>
+    [AllowAnonymous]
     [HttpGet("config")]
     public IActionResult GetConfig()
     {
@@ -97,6 +100,7 @@ public class SystemController : ControllerBase
     /// <summary>
     /// GET /api/system/state - Get application state
     /// </summary>
+    [AllowAnonymous]
     [HttpGet("state")]
     public IActionResult GetState()
     {
@@ -112,6 +116,7 @@ public class SystemController : ControllerBase
     /// <summary>
     /// GET /api/system/permissions - Check directory permissions and docker socket availability
     /// </summary>
+    [Authorize]
     [HttpGet("permissions")]
     public IActionResult GetPermissions()
     {
@@ -151,6 +156,7 @@ public class SystemController : ControllerBase
     /// GET /api/system/setup - Get setup status
     /// Note: Public endpoint - needed for AuthenticationModal before authentication
     /// </summary>
+    [AllowAnonymous]
     [HttpGet("setup")]
     public IActionResult GetSetupStatus()
     {
@@ -286,6 +292,7 @@ public class SystemController : ControllerBase
     /// GET /api/system/refresh-rate - Get the current refresh rate setting
     /// Note: Public endpoint - needed for RefreshRateContext before authentication
     /// </summary>
+    [AllowAnonymous]
     [HttpGet("refresh-rate")]
     public IActionResult GetRefreshRate()
     {
@@ -325,6 +332,7 @@ public class SystemController : ControllerBase
     /// <summary>
     /// GET /api/system/default-guest-refresh-rate - Get the default refresh rate for guest users
     /// </summary>
+    [Authorize]
     [HttpGet("default-guest-refresh-rate")]
     public IActionResult GetDefaultGuestRefreshRate()
     {
@@ -395,6 +403,7 @@ public class SystemController : ControllerBase
     /// <summary>
     /// Get default guest preferences
     /// </summary>
+    [Authorize]
     [HttpGet("default-guest-preferences")]
     public IActionResult GetDefaultGuestPreferences()
     {
@@ -501,6 +510,7 @@ public class SystemController : ControllerBase
     /// <summary>
     /// Get default prefill panel settings (session-aware for thread limits)
     /// </summary>
+    [Authorize]
     [HttpGet("prefill-defaults")]
     public IActionResult GetPrefillDefaults()
     {

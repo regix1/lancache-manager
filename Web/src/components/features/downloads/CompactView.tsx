@@ -156,7 +156,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
   return (
     <div
       ref={rowRef}
-      className={`page-item-enter rounded-lg border ${
+      className={`rounded-lg border ${
         isExpanded
           ? 'bg-[var(--theme-bg-secondary)] border-[var(--theme-primary)]'
           : 'hover:bg-[var(--theme-bg-tertiary)] border-transparent'

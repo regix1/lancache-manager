@@ -1,6 +1,7 @@
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services.EpicMapping;
 using LancacheManager.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
@@ -11,6 +12,7 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/epic/game-mappings")]
+[Authorize(Policy = "AdminOnly")]
 public class EpicGameMappingController : ControllerBase
 {
     private readonly EpicMappingService _epicMappingService;

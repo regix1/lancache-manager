@@ -3,8 +3,8 @@ import React, {
   useEffect,
   useMemo,
   useRef,
+  useCallback,
   useTransition,
-  useDeferredValue,
   lazy,
   Suspense
 } from 'react';
@@ -333,7 +333,11 @@ const DownloadsTab: React.FC = () => {
   const [imageCacheClearing, setImageCacheClearing] = useState(false);
   const [imageCacheVersion, setImageCacheVersion] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
-  const contentRef = useRef<HTMLDivElement>(null);
+  const nonRetroContentRef = useRef<HTMLDivElement>(null);
+  const currentPageRef = useRef(currentPage);
+  const pageChangeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const suppressExpandScrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fadeResetFrameRef = useRef<number | null>(null);
 
   const settingsRef = useRef<HTMLDivElement>(null);
   const retroViewRef = useRef<RetroViewHandle>(null);
@@ -1054,9 +1058,6 @@ const DownloadsTab: React.FC = () => {
     return allItemsSorted.slice(startIndex, endIndex);
   }, [allItemsSorted, currentPage, settings.itemsPerPage]);
 
-  // Deferred items for smoother view transitions
-  const deferredItemsToDisplay = useDeferredValue(itemsToDisplay);
-
   const totalPages = useMemo(() => {
     if (settings.itemsPerPage === 'unlimited') return 1;
     const itemsPerPageNum = typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 20;
@@ -1107,33 +1108,81 @@ const DownloadsTab: React.FC = () => {
     }
   }, [settingsOpened]);
 
-  // Fade state for smooth page content transitions
-  const [isPageFading, setIsPageFading] = useState(false);
-
   // Suppress scroll-into-view during page changes so pagination scroll isn't fought
   const [suppressExpandScroll, setSuppressExpandScroll] = useState(false);
 
-  // Handle page changes with content fade (no scroll)
-  const handlePageChange = (newPage: number) => {
-    if (newPage === currentPage) return;
+  useEffect(() => {
+    currentPageRef.current = currentPage;
+  }, [currentPage]);
 
-    // Suppress scroll-into-view on newly mounted items during page transition
-    setSuppressExpandScroll(true);
-    setTimeout(() => setSuppressExpandScroll(false), 600);
+  useEffect(() => {
+    return () => {
+      if (pageChangeTimeoutRef.current !== null) {
+        clearTimeout(pageChangeTimeoutRef.current);
+      }
+      if (suppressExpandScrollTimeoutRef.current !== null) {
+        clearTimeout(suppressExpandScrollTimeoutRef.current);
+      }
+      if (fadeResetFrameRef.current !== null) {
+        cancelAnimationFrame(fadeResetFrameRef.current);
+      }
+      nonRetroContentRef.current?.classList.remove('page-fading');
+      retroViewRef.current?.setPageFading(false);
+    };
+  }, []);
 
-    // Fade out content
-    setIsPageFading(true);
+  const setContentFade = useCallback(
+    (fading: boolean) => {
+      if (settings.viewMode === 'retro') {
+        nonRetroContentRef.current?.classList.remove('page-fading');
+        retroViewRef.current?.setPageFading(fading);
+        return;
+      }
 
-    // Wait for fade-out to finish, then swap content and fade in
-    setTimeout(() => {
-      setCurrentPage(newPage);
+      retroViewRef.current?.setPageFading(false);
+      nonRetroContentRef.current?.classList.toggle('page-fading', fading);
+    },
+    [settings.viewMode]
+  );
 
-      // Fade content back in on next frame
-      requestAnimationFrame(() => {
-        setIsPageFading(false);
-      });
-    }, 150);
-  };
+  // Handle page changes with a DOM-only fade so the pagination bar doesn't repaint.
+  const handlePageChange = useCallback(
+    (newPage: number) => {
+      if (newPage === currentPageRef.current) return;
+
+      if (pageChangeTimeoutRef.current !== null) {
+        clearTimeout(pageChangeTimeoutRef.current);
+      }
+      if (suppressExpandScrollTimeoutRef.current !== null) {
+        clearTimeout(suppressExpandScrollTimeoutRef.current);
+      }
+      if (fadeResetFrameRef.current !== null) {
+        cancelAnimationFrame(fadeResetFrameRef.current);
+        fadeResetFrameRef.current = null;
+      }
+
+      // Suppress scroll-into-view on newly mounted items during page transition.
+      setSuppressExpandScroll(true);
+      suppressExpandScrollTimeoutRef.current = setTimeout(() => {
+        setSuppressExpandScroll(false);
+        suppressExpandScrollTimeoutRef.current = null;
+      }, 600);
+
+      setContentFade(true);
+
+      pageChangeTimeoutRef.current = setTimeout(() => {
+        currentPageRef.current = newPage;
+        setCurrentPage(newPage);
+        pageChangeTimeoutRef.current = null;
+
+        fadeResetFrameRef.current = requestAnimationFrame(() => {
+          setContentFade(false);
+          fadeResetFrameRef.current = null;
+        });
+      }, 150);
+    },
+    [setContentFade]
+  );
 
   const handleExport = (format: 'json' | 'csv') => {
     setExportLoading(true);
@@ -1808,98 +1857,98 @@ const DownloadsTab: React.FC = () => {
             )}
 
           {/* Downloads list */}
-          <div
-            className={`relative overflow-x-hidden page-content-transition ${isPageFading ? 'page-fading' : ''}`}
-            ref={contentRef}
-          >
-            {/* Content based on view mode with display:none pattern for instant switching */}
-            <ImageCacheContext.Provider value={imageCacheVersion}>
-              <div style={{ display: settings.viewMode === 'compact' ? 'block' : 'none' }}>
-                {compactEverMounted.current && (
-                  <CompactView
-                    items={deferredItemsToDisplay as (Download | DownloadGroup)[]}
-                    expandedItem={expandedItem}
-                    onItemClick={handleItemClick}
+          <ImageCacheContext.Provider value={imageCacheVersion}>
+            {settings.viewMode === 'retro' ? (
+              <Suspense
+                fallback={
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="animate-spin" />
+                  </div>
+                }
+              >
+                {retroEverMounted.current && (
+                  <RetroView
+                    ref={retroViewRef}
+                    items={allItemsSorted}
+                    sortOrder={settings.sortOrder}
+                    itemsPerPage={
+                      typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 100
+                    }
+                    currentPage={currentPage}
+                    onPageChange={handlePageChange}
+                    showTimestamps={settings.showTimestamps}
+                    showBannerColumn={settings.showBannerColumn}
                     aestheticMode={settings.aestheticMode}
-                    groupByFrequency={settings.groupByFrequency}
-                    enableScrollIntoView={settings.enableScrollIntoView && !suppressExpandScroll}
                     showDatasourceLabels={showDatasourceLabels}
                     hasMultipleDatasources={hasMultipleDatasources}
                   />
                 )}
-              </div>
-
-              <div style={{ display: settings.viewMode === 'card' ? 'block' : 'none' }}>
-                {cardEverMounted.current && (
-                  <NormalView
-                    items={deferredItemsToDisplay as (Download | DownloadGroup)[]}
-                    expandedItem={expandedItem}
-                    onItemClick={handleItemClick}
-                    aestheticMode={false}
-                    fullHeightBanners={false}
-                    groupByFrequency={false}
-                    enableScrollIntoView={false}
-                    showDatasourceLabels={showDatasourceLabels}
-                    hasMultipleDatasources={hasMultipleDatasources}
-                    cardGridLayout={true}
-                    cardSize={settings.cardSize}
-                    showCacheHitBar={settings.showCacheHitBar}
-                    showEventBadges={settings.showEventBadges}
-                    bannerOnly={settings.bannerOnly}
-                  />
-                )}
-              </div>
-
-              <div style={{ display: settings.viewMode === 'normal' ? 'block' : 'none' }}>
-                {normalEverMounted.current && (
-                  <NormalView
-                    items={deferredItemsToDisplay as (Download | DownloadGroup)[]}
-                    expandedItem={expandedItem}
-                    onItemClick={handleItemClick}
-                    aestheticMode={settings.aestheticMode}
-                    fullHeightBanners={settings.fullHeightBanners}
-                    groupByFrequency={settings.groupByFrequency}
-                    enableScrollIntoView={settings.enableScrollIntoView && !suppressExpandScroll}
-                    showDatasourceLabels={showDatasourceLabels}
-                    hasMultipleDatasources={hasMultipleDatasources}
-                    cardGridLayout={false}
-                    cardSize={settings.cardSize}
-                    showCacheHitBar={settings.showCacheHitBar}
-                    showEventBadges={settings.showEventBadges}
-                    bannerOnly={settings.bannerOnly}
-                  />
-                )}
-              </div>
-
-              <div style={{ display: settings.viewMode === 'retro' ? 'block' : 'none' }}>
-                <Suspense
-                  fallback={
-                    <div className="flex justify-center py-8">
-                      <Loader2 className="animate-spin" />
-                    </div>
-                  }
-                >
-                  {retroEverMounted.current && (
-                    <RetroView
-                      ref={retroViewRef}
-                      items={allItemsSorted}
-                      sortOrder={settings.sortOrder}
-                      itemsPerPage={
-                        typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 100
-                      }
-                      currentPage={currentPage}
-                      onPageChange={handlePageChange}
-                      showTimestamps={settings.showTimestamps}
-                      showBannerColumn={settings.showBannerColumn}
+              </Suspense>
+            ) : (
+              <div
+                className="relative overflow-x-hidden page-content-transition"
+                ref={nonRetroContentRef}
+              >
+                {/* Content based on view mode with display:none pattern for instant switching */}
+                <div style={{ display: settings.viewMode === 'compact' ? 'block' : 'none' }}>
+                  {compactEverMounted.current && (
+                    <CompactView
+                      items={itemsToDisplay as (Download | DownloadGroup)[]}
+                      expandedItem={expandedItem}
+                      onItemClick={handleItemClick}
                       aestheticMode={settings.aestheticMode}
+                      groupByFrequency={settings.groupByFrequency}
+                      enableScrollIntoView={settings.enableScrollIntoView && !suppressExpandScroll}
                       showDatasourceLabels={showDatasourceLabels}
                       hasMultipleDatasources={hasMultipleDatasources}
                     />
                   )}
-                </Suspense>
+                </div>
+
+                <div style={{ display: settings.viewMode === 'card' ? 'block' : 'none' }}>
+                  {cardEverMounted.current && (
+                    <NormalView
+                      items={itemsToDisplay as (Download | DownloadGroup)[]}
+                      expandedItem={expandedItem}
+                      onItemClick={handleItemClick}
+                      aestheticMode={false}
+                      fullHeightBanners={false}
+                      groupByFrequency={false}
+                      enableScrollIntoView={false}
+                      showDatasourceLabels={showDatasourceLabels}
+                      hasMultipleDatasources={hasMultipleDatasources}
+                      cardGridLayout={true}
+                      cardSize={settings.cardSize}
+                      showCacheHitBar={settings.showCacheHitBar}
+                      showEventBadges={settings.showEventBadges}
+                      bannerOnly={settings.bannerOnly}
+                    />
+                  )}
+                </div>
+
+                <div style={{ display: settings.viewMode === 'normal' ? 'block' : 'none' }}>
+                  {normalEverMounted.current && (
+                    <NormalView
+                      items={itemsToDisplay as (Download | DownloadGroup)[]}
+                      expandedItem={expandedItem}
+                      onItemClick={handleItemClick}
+                      aestheticMode={settings.aestheticMode}
+                      fullHeightBanners={settings.fullHeightBanners}
+                      groupByFrequency={settings.groupByFrequency}
+                      enableScrollIntoView={settings.enableScrollIntoView && !suppressExpandScroll}
+                      showDatasourceLabels={showDatasourceLabels}
+                      hasMultipleDatasources={hasMultipleDatasources}
+                      cardGridLayout={false}
+                      cardSize={settings.cardSize}
+                      showCacheHitBar={settings.showCacheHitBar}
+                      showEventBadges={settings.showEventBadges}
+                      bannerOnly={settings.bannerOnly}
+                    />
+                  )}
+                </div>
               </div>
-            </ImageCacheContext.Provider>
-          </div>
+            )}
+          </ImageCacheContext.Provider>
 
           {/* Performance warning */}
           {settings.itemsPerPage === 'unlimited' && itemsToDisplay.length > 500 && (

@@ -3,6 +3,7 @@ using LancacheManager.Core.Services;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Middleware;
 using LancacheManager.Hubs;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using static LancacheManager.Core.Services.UserPreferencesService;
 
@@ -14,6 +15,7 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/user-preferences")]
+[Authorize]
 public class UserPreferencesController : ControllerBase
 {
     private readonly ILogger<UserPreferencesController> _logger;
@@ -54,13 +56,19 @@ public class UserPreferencesController : ControllerBase
     [HttpPut]
     public async Task<IActionResult> SavePreferencesAsync([FromBody] UserPreferencesDto preferences)
     {
-        var sessionId = GetSessionId();
-        if (sessionId == null)
+        var session = GetSession();
+        if (session == null)
         {
             return BadRequest(new MessageResponse { Success = false, Message = "No session found" });
         }
 
-        var success = _preferencesService.SavePreferences(sessionId.Value, preferences);
+        var sessionId = session.Id;
+
+        // Strip admin-only fields for non-admin sessions
+        if (session.SessionType != "admin")
+            UserPreferencesService.StripAdminOnlyFields(preferences);
+
+        var success = _preferencesService.SavePreferences(sessionId, preferences);
         if (success)
         {
             await _notifications.NotifyAllAsync(SignalREvents.UserPreferencesUpdated, new { sessionId, preferences });
@@ -73,13 +81,19 @@ public class UserPreferencesController : ControllerBase
     [HttpPatch("{key}")]
     public async Task<IActionResult> UpdatePreferenceAsync(string key, [FromBody] object value)
     {
-        var sessionId = GetSessionId();
-        if (sessionId == null)
+        var session = GetSession();
+        if (session == null)
         {
             return BadRequest(new MessageResponse { Success = false, Message = "No session found" });
         }
 
-        var preferences = _preferencesService.UpdatePreferenceAndGet(sessionId.Value, key, value);
+        var sessionId = session.Id;
+
+        // Guests cannot write admin-only preference keys
+        if (session.SessionType != "admin" && UserPreferencesService.IsAdminOnlyKey(key))
+            return Forbid();
+
+        var preferences = _preferencesService.UpdatePreferenceAndGet(sessionId, key, value);
 
         if (preferences != null)
         {
@@ -90,6 +104,7 @@ public class UserPreferencesController : ControllerBase
         return BadRequest(new MessageResponse { Success = false, Message = "Invalid preference key" });
     }
 
+    [Authorize(Policy = "AdminOnly")]
     [HttpGet("session/{sessionId}")]
     public IActionResult GetPreferencesForSession(Guid sessionId)
     {
@@ -102,6 +117,7 @@ public class UserPreferencesController : ControllerBase
         return Ok(preferences);
     }
 
+    [Authorize(Policy = "AdminOnly")]
     [HttpPut("session/{sessionId}")]
     public async Task<IActionResult> SavePreferencesForSessionAsync(Guid sessionId, [FromBody] UserPreferencesDto preferences)
     {

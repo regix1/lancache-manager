@@ -1,5 +1,6 @@
 using LancacheManager.Models;
 using LancacheManager.Infrastructure.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
@@ -10,6 +11,7 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/database")]
+[Authorize(Policy = "AdminOnly")]
 public class DatabaseController : ControllerBase
 {
     private readonly DatabaseService _dbService;

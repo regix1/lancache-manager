@@ -2,6 +2,7 @@ using LancacheManager.Models;
 using LancacheManager.Core.Services;
 using LancacheManager.Controllers.Base;
 using LancacheManager.Infrastructure.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
@@ -11,6 +12,7 @@ namespace LancacheManager.Controllers;
 /// Uses secure encrypted credential exchange for authentication.
 /// </summary>
 [Route("api/steam-daemon")]
+[Authorize(Policy = "SteamPrefillAccess")]
 public class SteamDaemonController : DaemonControllerBase<SteamDaemonService>
 {
     public SteamDaemonController(

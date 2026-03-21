@@ -1,9 +1,11 @@
 using LancacheManager.Core.Services;
 using LancacheManager.Security;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 
 namespace LancacheManager.Hubs;
 
+[Authorize]
 public class DownloadHub : Hub
 {
     private readonly ConnectionTrackingService _connectionTrackingService;
@@ -26,14 +28,30 @@ public class DownloadHub : Hub
     }
 
     /// <summary>
-    /// Called by clients to join the AuthenticatedUsersGroup.
-    /// Validates session before allowing join.
+    /// Called by admin clients to explicitly join the AdminGroup.
+    /// Validates that the caller's session has the admin session type before allowing join.
     /// </summary>
     public async Task JoinAuthenticatedGroupAsync()
     {
-        await Groups.AddToGroupAsync(Context.ConnectionId, AuthenticatedUsersGroup);
-        _logger.LogDebug("SignalR client joined AuthenticatedUsersGroup: ConnectionId={ConnectionId}",
-            Context.ConnectionId);
+        var httpContext = Context.GetHttpContext();
+        var rawToken = httpContext != null ? SessionService.GetSessionTokenFromRequest(httpContext) : null;
+
+        if (string.IsNullOrEmpty(rawToken))
+        {
+            _logger.LogWarning("SignalR JoinAuthenticatedGroupAsync rejected - no token: ConnectionId={ConnectionId}", Context.ConnectionId);
+            return;
+        }
+
+        var session = await _sessionService.ValidateSessionAsync(rawToken);
+        if (session == null || session.SessionType != "admin")
+        {
+            _logger.LogWarning("SignalR JoinAuthenticatedGroupAsync rejected - not admin: ConnectionId={ConnectionId}, SessionType={SessionType}",
+                Context.ConnectionId, session?.SessionType ?? "none");
+            return;
+        }
+
+        await Groups.AddToGroupAsync(Context.ConnectionId, AdminGroup);
+        _logger.LogDebug("SignalR client joined AdminGroup: ConnectionId={ConnectionId}", Context.ConnectionId);
     }
 
     public override async Task OnConnectedAsync()

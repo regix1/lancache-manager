@@ -4,6 +4,7 @@ using LancacheManager.Security;
 using LancacheManager.Infrastructure.Services;
 using Microsoft.AspNetCore.Mvc;
 using LancacheManager.Core.Services.SteamKit2;
+using Microsoft.AspNetCore.Authorization;
 
 
 namespace LancacheManager.Controllers;
@@ -14,6 +15,7 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/api-keys")]
+[Authorize(Policy = "AdminOnly")]
 public class ApiKeysController : ControllerBase
 {
     private readonly ApiKeyService _apiKeyService;

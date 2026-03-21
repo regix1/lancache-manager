@@ -2,6 +2,7 @@ using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Models;
 using LancacheManager.Security;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
 
 namespace LancacheManager.Hubs;
@@ -10,7 +11,11 @@ namespace LancacheManager.Hubs;
 /// Abstract base SignalR hub for prefill daemon sessions (Steam, Epic, etc.).
 /// Contains all shared hub methods; subclasses provide the concrete daemon service
 /// and platform-specific authorization checks.
+/// Browser clients connect via session cookies; the [Authorize] attribute provides
+/// the first authentication gate. OnConnectedAsync still validates admin/prefill access
+/// for fine-grained authorization and group assignment.
 /// </summary>
+[Authorize]
 public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : PrefillDaemonServiceBase
 {
     protected readonly TDaemon _daemonService;

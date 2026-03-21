@@ -1,5 +1,6 @@
 using LancacheManager.Models;
 using LancacheManager.Infrastructure.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using LancacheManager.Core.Services.SteamKit2;
@@ -13,6 +14,7 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/steam-auth")]
+[Authorize(Policy = "AdminOnly")]
 public class SteamAuthController : ControllerBase
 {
     private readonly SteamKit2Service _steamKit2Service;

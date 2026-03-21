@@ -475,7 +475,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
   return (
     <div
       ref={cardRef}
-      className={`page-item-enter rounded-lg border overflow-hidden shadow-sm bg-[var(--theme-bg-secondary)] ${
+      className={`rounded-lg border overflow-hidden shadow-sm bg-[var(--theme-bg-secondary)] ${
         isExpanded ? 'ring-2 border-[var(--theme-primary)]' : 'border-[var(--theme-border-primary)]'
       } ${!fullHeightBanners && !isExpanded ? 'sm:max-h-[160px]' : ''}`}
     >
@@ -1054,7 +1054,7 @@ const GridCard: React.FC<GridCardProps> = ({
   return (
     <div
       ref={cardRef}
-      className={`page-item-enter card-grid-item ${bannerOnly ? 'banner-only' : ''}`}
+      className={`card-grid-item ${bannerOnly ? 'banner-only' : ''}`}
       onClick={() => onItemClick(group.id)}
       title={bannerOnly ? group.name : undefined}
     >

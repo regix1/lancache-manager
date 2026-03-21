@@ -50,63 +50,77 @@ export const RefreshRateProvider: React.FC<{ children: ReactNode }> = ({ childre
     fetchGlobalDefaults();
   }, [authMode]);
 
-  // Derive refresh rate from SessionPreferencesContext (guests and authenticated)
+  // For unauthenticated users, just mark as loaded with defaults so the
+  // UI tree below this provider can render (e.g. the login modal).
   useEffect(() => {
-    // For unauthenticated users, just mark as loaded with defaults so the
-    // UI tree below this provider can render (e.g. the login modal).
     if (authMode === 'unauthenticated') {
+      setIsControlledByAdmin(false);
       setIsLoaded(true);
-      return;
     }
+  }, [authMode]);
+
+  // Guest users derive refresh state from their session preferences plus the
+  // global guest defaults/lock.
+  useEffect(() => {
+    if (authMode !== 'guest') return;
 
     if (!currentPreferences) {
-      // Preferences not loaded yet
+      // Guest preferences not loaded yet
       return;
     }
 
-    if (authMode === 'guest') {
-      // Guest: use per-session refreshRate, or fall back to global default
-      const perSessionRate = currentPreferences.refreshRate;
-      const perSessionLocked = currentPreferences.refreshRateLocked;
+    // Guest: use per-session refreshRate, or fall back to global default
+    const perSessionRate = currentPreferences.refreshRate;
+    const perSessionLocked = currentPreferences.refreshRateLocked;
 
-      if (perSessionRate && perSessionRate in REFRESH_RATES) {
-        setRefreshRateState(perSessionRate as RefreshRate);
-      } else if (defaultGuestRate && defaultGuestRate in REFRESH_RATES) {
-        setRefreshRateState(defaultGuestRate as RefreshRate);
-      }
-
-      // Per-session override takes precedence: false means unlocked, true means locked
-      // null/undefined means use global default
-      const effectiveLocked =
-        perSessionLocked !== null && perSessionLocked !== undefined
-          ? perSessionLocked
-          : globalLocked;
-      setIsControlledByAdmin(effectiveLocked);
-    } else {
-      // Authenticated: fetch global system refresh rate (not from user preferences)
-      setIsControlledByAdmin(false);
-
-      const fetchSystemRate = async () => {
-        try {
-          const response = await fetch('/api/system/refresh-rate', {
-            credentials: 'include'
-          });
-          if (response.ok) {
-            const data = await response.json();
-            if (data.refreshRate && data.refreshRate in REFRESH_RATES) {
-              setRefreshRateState(data.refreshRate as RefreshRate);
-            }
-          }
-        } catch (error) {
-          console.error('Failed to fetch system refresh rate:', error);
-        }
-      };
-
-      fetchSystemRate();
+    if (perSessionRate && perSessionRate in REFRESH_RATES) {
+      setRefreshRateState(perSessionRate as RefreshRate);
+    } else if (defaultGuestRate && defaultGuestRate in REFRESH_RATES) {
+      setRefreshRateState(defaultGuestRate as RefreshRate);
     }
 
+    // Per-session override takes precedence: false means unlocked, true means locked
+    // null/undefined means use global default
+    const effectiveLocked =
+      perSessionLocked !== null && perSessionLocked !== undefined ? perSessionLocked : globalLocked;
+    setIsControlledByAdmin(effectiveLocked);
     setIsLoaded(true);
   }, [authMode, currentPreferences, defaultGuestRate, globalLocked]);
+
+  // Authenticated users always use the global system refresh rate and should
+  // never inherit guest lock/default behavior.
+  useEffect(() => {
+    if (authMode !== 'authenticated') return;
+
+    let isCancelled = false;
+    setIsControlledByAdmin(false);
+
+    const fetchSystemRate = async () => {
+      try {
+        const response = await fetch('/api/system/refresh-rate', {
+          credentials: 'include'
+        });
+        if (response.ok) {
+          const data = await response.json();
+          if (!isCancelled && data.refreshRate && data.refreshRate in REFRESH_RATES) {
+            setRefreshRateState(data.refreshRate as RefreshRate);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch system refresh rate:', error);
+      } finally {
+        if (!isCancelled) {
+          setIsLoaded(true);
+        }
+      }
+    };
+
+    fetchSystemRate();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [authMode]);
 
   // Listen for SignalR events.
   // All handlers read authMode/sessionId from refs to avoid stale closures.

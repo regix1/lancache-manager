@@ -77,4 +77,38 @@ public interface ISignalRNotificationService
     /// Used for Epic-specific daemon events that should not be sent to the Steam hub.
     /// </summary>
     Task NotifyAllDownloadsAndEpicHubAsync(string eventName, object? data = null);
+
+    // ===== DownloadHub Group Methods =====
+
+    /// <summary>
+    /// Send a notification to admin users only on the DownloadHub (AdminUsers group).
+    /// </summary>
+    /// <param name="eventName">Use SignalREvents constants</param>
+    /// <param name="data">Optional payload data</param>
+    Task NotifyAdminAsync(string eventName, object? data = null);
+
+    /// <summary>
+    /// Send a notification to guest users only on the DownloadHub (GuestUsers group).
+    /// </summary>
+    /// <param name="eventName">Use SignalREvents constants</param>
+    /// <param name="data">Optional payload data</param>
+    Task NotifyGuestAsync(string eventName, object? data = null);
+
+    /// <summary>
+    /// Send a notification to a named SignalR group on the DownloadHub.
+    /// </summary>
+    /// <param name="groupName">The SignalR group name (e.g. DownloadHub.AdminGroup)</param>
+    /// <param name="eventName">Use SignalREvents constants</param>
+    /// <param name="data">Optional payload data</param>
+    Task NotifyGroupAsync(string groupName, string eventName, object? data = null);
+
+    /// <summary>
+    /// Send a notification to a specific session's connection on the DownloadHub.
+    /// Resolves session ID to connection ID via ConnectionTrackingService.
+    /// If the session has no active connection, the call is a no-op.
+    /// </summary>
+    /// <param name="sessionId">The session ID (GUID string)</param>
+    /// <param name="eventName">Use SignalREvents constants</param>
+    /// <param name="data">Optional payload data</param>
+    Task NotifySessionAsync(string sessionId, string eventName, object? data = null);
 }

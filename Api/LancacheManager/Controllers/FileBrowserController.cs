@@ -1,4 +1,5 @@
 using LancacheManager.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
@@ -10,6 +11,7 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/filebrowser")]
+[Authorize(Policy = "AdminOnly")]
 public class FileBrowserController : ControllerBase
 {
     private readonly ILogger<FileBrowserController> _logger;

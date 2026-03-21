@@ -5,6 +5,7 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using Microsoft.AspNetCore.Mvc;
 using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
+using Microsoft.AspNetCore.Authorization;
 
 namespace LancacheManager.Controllers;
 
@@ -14,6 +15,7 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/games")]
+[Authorize(Policy = "AdminOnly")]
 public class GamesController : ControllerBase
 {
     private readonly GameCacheDetectionService _gameCacheDetectionService;

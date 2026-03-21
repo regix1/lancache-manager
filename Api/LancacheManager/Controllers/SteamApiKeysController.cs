@@ -1,5 +1,6 @@
 using LancacheManager.Models;
 using LancacheManager.Core.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
@@ -11,6 +12,7 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/steam-api-keys")]
+[Authorize(Policy = "AdminOnly")]
 public class SteamApiKeysController : ControllerBase
 {
     private readonly SteamWebApiService _steamWebApiService;

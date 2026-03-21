@@ -388,6 +388,30 @@ public class UserPreferencesService
     }
 
     /// <summary>
+    /// Returns true if the given preference key is admin-only.
+    /// Guests are not permitted to read or write these keys.
+    /// </summary>
+    public static bool IsAdminOnlyKey(string key) => key.ToLowerInvariant() switch
+    {
+        "refreshratelocked" => true,
+        "allowedtimeformats" => true,
+        "steammaxthreadcount" => true,
+        "epicmaxthreadcount" => true,
+        _ => false
+    };
+
+    /// <summary>
+    /// Strips admin-only fields from a DTO so they cannot be persisted by non-admin callers.
+    /// </summary>
+    public static void StripAdminOnlyFields(UserPreferencesDto dto)
+    {
+        dto.RefreshRateLocked = null;
+        dto.AllowedTimeFormats = null;
+        dto.SteamMaxThreadCount = null;
+        dto.EpicMaxThreadCount = null;
+    }
+
+    /// <summary>
     /// Maps a UserPreferences entity to a UserPreferencesDto
     /// </summary>
     private static UserPreferencesDto ToDto(UserPreferences prefs) => new()

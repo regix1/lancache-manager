@@ -5,12 +5,14 @@ using LancacheManager.Infrastructure.Services;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
 using LancacheManager.Security;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
 
 [ApiController]
 [Route("api/auth")]
+[Authorize]
 public class AuthController : ControllerBase
 {
     private readonly SessionService _sessionService;
@@ -33,6 +35,7 @@ public class AuthController : ControllerBase
         _signalR = signalR;
     }
 
+    [AllowAnonymous]
     [HttpGet("status")]
     public async Task<IActionResult> CheckAuthStatusAsync()
     {
@@ -111,6 +114,7 @@ public class AuthController : ControllerBase
         });
     }
 
+    [AllowAnonymous]
     [HttpPost("login")]
     public async Task<IActionResult> LoginAsync([FromBody] LoginRequest request)
     {
@@ -157,6 +161,7 @@ public class AuthController : ControllerBase
         });
     }
 
+    [AllowAnonymous]
     [HttpPost("guest")]
     public async Task<IActionResult> StartGuestAsync()
     {
@@ -201,6 +206,7 @@ public class AuthController : ControllerBase
         });
     }
 
+    [AllowAnonymous]
     [HttpPost("logout")]
     public async Task<IActionResult> LogoutAsync()
     {
@@ -226,6 +232,7 @@ public class AuthController : ControllerBase
         return Ok(new { success = true, message = "Logged out successfully" });
     }
 
+    [AllowAnonymous]
     [HttpGet("guest/status")]
     public IActionResult GetGuestStatus()
     {
@@ -238,6 +245,7 @@ public class AuthController : ControllerBase
 
     // --- Guest Configuration Endpoints ---
 
+    [AllowAnonymous]
     [HttpGet("guest/config")]
     public IActionResult GetGuestConfig()
     {
@@ -248,6 +256,7 @@ public class AuthController : ControllerBase
         });
     }
 
+    [Authorize(Policy = "AdminOnly")]
     [HttpPost("guest/config/duration")]
     public async Task<IActionResult> SetGuestDurationAsync([FromBody] GuestDurationRequest request)
     {
@@ -268,6 +277,7 @@ public class AuthController : ControllerBase
         return Ok(new { success = true, durationHours = request.DurationHours, message = "Guest duration updated" });
     }
 
+    [Authorize(Policy = "AdminOnly")]
     [HttpPost("guest/config/lock")]
     public async Task<IActionResult> SetGuestLockAsync([FromBody] GuestLockRequest request)
     {
@@ -283,6 +293,7 @@ public class AuthController : ControllerBase
 
     // --- Guest Prefill Endpoints ---
 
+    [AllowAnonymous]
     [HttpGet("guest/prefill/config")]
     public IActionResult GetGuestPrefillConfig()
     {
@@ -297,6 +308,7 @@ public class AuthController : ControllerBase
         });
     }
 
+    [Authorize(Policy = "AdminOnly")]
     [HttpPost("guest/prefill/config")]
     public async Task<IActionResult> SetGuestPrefillConfigAsync([FromBody] GuestPrefillConfigRequest request)
     {
@@ -329,6 +341,7 @@ public class AuthController : ControllerBase
 
     // --- Epic Guest Prefill Endpoints ---
 
+    [AllowAnonymous]
     [HttpGet("guest/epic-prefill/config")]
     public IActionResult GetEpicGuestPrefillConfig()
     {
@@ -340,6 +353,7 @@ public class AuthController : ControllerBase
         });
     }
 
+    [Authorize(Policy = "AdminOnly")]
     [HttpPost("guest/epic-prefill/config")]
     public async Task<IActionResult> SetEpicGuestPrefillConfigAsync([FromBody] EpicGuestPrefillConfigRequest request)
     {
@@ -370,6 +384,7 @@ public class AuthController : ControllerBase
         });
     }
 
+    [Authorize(Policy = "AdminOnly")]
     [HttpPost("guest/prefill/toggle/{sessionId:guid}")]
     public async Task<IActionResult> ToggleGuestPrefillAsync(Guid sessionId, [FromBody] GuestPrefillToggleRequest request, [FromQuery] string service = "steam")
     {

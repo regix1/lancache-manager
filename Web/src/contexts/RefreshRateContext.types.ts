@@ -5,7 +5,7 @@ interface RefreshRateContextType {
   refreshRate: RefreshRate;
   setRefreshRate: (rate: RefreshRate) => void;
   getRefreshInterval: () => number;
-  isControlledByAdmin: boolean; // True for guests - they can't change their refresh rate
+  isControlledByAdmin: boolean; // True when admin has locked the refresh rate for the current guest session
 }
 
 export const RefreshRateContext = createContext<RefreshRateContextType | undefined>(undefined);

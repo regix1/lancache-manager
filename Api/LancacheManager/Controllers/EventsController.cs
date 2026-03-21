@@ -4,6 +4,7 @@ using LancacheManager.Infrastructure.Extensions;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Hubs;
 using LancacheManager.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
 
@@ -15,6 +16,7 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/events")]
+[Authorize]
 public class EventsController : CrudControllerBase<Event, Event, CreateEventRequest, UpdateEventRequest, int>
 {
     private readonly IEventsService _eventsService;
@@ -134,6 +136,7 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// Validation is handled automatically by FluentValidation (see CreateEventRequestValidator)
     /// </remarks>
     [HttpPost]
+    [Authorize(Policy = "AdminOnly")]
     public override Task<IActionResult> CreateAsync([FromBody] CreateEventRequest request, CancellationToken ct = default)
         => base.CreateAsync(request, ct);
 
@@ -144,6 +147,7 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// Validation is handled automatically by FluentValidation (see UpdateEventRequestValidator)
     /// </remarks>
     [HttpPut("{id:int}")]
+    [Authorize(Policy = "AdminOnly")]
     public override Task<IActionResult> UpdateAsync(int id, [FromBody] UpdateEventRequest request, CancellationToken ct = default)
         => base.UpdateAsync(id, request, ct);
 
@@ -151,6 +155,7 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// Delete an event
     /// </summary>
     [HttpDelete("{id:int}")]
+    [Authorize(Policy = "AdminOnly")]
     public override Task<IActionResult> DeleteAsync(int id, CancellationToken ct = default)
         => base.DeleteAsync(id, ct);
 
@@ -170,6 +175,7 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// Manually tag a download to an event
     /// </summary>
     [HttpPost("{eventId:int}/downloads/{downloadId:int}")]
+    [Authorize(Policy = "AdminOnly")]
     public async Task<IActionResult> TagDownloadAsync(int eventId, int downloadId)
     {
         var evt = await _eventsService.GetByIdOrThrowAsync(eventId, "Event");
@@ -186,6 +192,7 @@ public class EventsController : CrudControllerBase<Event, Event, CreateEventRequ
     /// Remove a download tag from an event
     /// </summary>
     [HttpDelete("{eventId:int}/downloads/{downloadId:int}")]
+    [Authorize(Policy = "AdminOnly")]
     public async Task<IActionResult> UntagDownloadAsync(int eventId, int downloadId)
     {
         await _eventsService.UntagDownloadAsync(eventId, downloadId);

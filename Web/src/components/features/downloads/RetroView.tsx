@@ -584,6 +584,7 @@ const ResizeHandle: React.FC<{
 // Expose handleResetWidths to parent components
 export interface RetroViewHandle {
   resetWidths: () => void;
+  setPageFading: (fading: boolean) => void;
 }
 
 const RetroView = memo(
@@ -707,6 +708,7 @@ const RetroView = memo(
 
       // Container ref for measurements
       const containerRef = useRef<HTMLDivElement>(null);
+      const fadeContainerRef = useRef<HTMLDivElement>(null);
 
       // Save column widths to localStorage
       useEffect(() => {
@@ -1063,13 +1065,18 @@ const RetroView = memo(
         ]
       );
 
-      // Expose resetWidths to parent via ref
+      const setPageFading = useCallback((fading: boolean) => {
+        fadeContainerRef.current?.classList.toggle('page-fading', fading);
+      }, []);
+
+      // Expose imperative helpers to parent via ref
       useImperativeHandle(
         ref,
         () => ({
-          resetWidths: handleResetWidths
+          resetWidths: handleResetWidths,
+          setPageFading
         }),
-        [handleResetWidths]
+        [handleResetWidths, setPageFading]
       );
 
       const handleImageError = (gameAppId: string) => {
@@ -1190,352 +1197,224 @@ const RetroView = memo(
             </div>
           )}
 
-          <div
-            ref={containerRef}
-            className="rounded-lg border border-[var(--theme-border-primary)] overflow-hidden retro-table-container bg-[var(--theme-card-bg)]"
-          >
-            {/* Keyframe styles for animations - only float animation for empty state */}
-            <style>{`
+          <div ref={fadeContainerRef} className="page-content-transition">
+            <div
+              ref={containerRef}
+              className="rounded-lg border border-[var(--theme-border-primary)] overflow-hidden retro-table-container bg-[var(--theme-card-bg)]"
+            >
+              {/* Keyframe styles for animations - only float animation for empty state */}
+              <style>{`
         @keyframes float {
           0%, 100% { transform: translateY(0); }
           50% { transform: translateY(-8px); }
         }
       `}</style>
 
-            <div>
-              {/* Desktop Table Header - only rendered on desktop via JS conditional */}
-              {isDesktop && (
-                <div
-                  className="grid pl-4 pr-4 py-3 items-center text-xs leading-none font-semibold uppercase tracking-wide border-b select-none sticky top-0 z-20 bg-[var(--theme-bg-tertiary)] border-[var(--theme-border-secondary)] text-[var(--theme-text-secondary)] min-w-fit"
-                  style={{ gridTemplateColumns: gridTemplateMemo }}
-                >
-                  {showTimestamps && (
+              <div>
+                {/* Desktop Table Header - only rendered on desktop via JS conditional */}
+                {isDesktop && (
+                  <div
+                    className="grid pl-4 pr-4 py-3 items-center text-xs leading-none font-semibold uppercase tracking-wide border-b select-none sticky top-0 z-20 bg-[var(--theme-bg-tertiary)] border-[var(--theme-border-secondary)] text-[var(--theme-text-secondary)] min-w-fit"
+                    style={{ gridTemplateColumns: gridTemplateMemo }}
+                  >
+                    {showTimestamps && (
+                      <div className="relative px-2 flex items-center h-full min-w-0" data-header>
+                        <span className="min-w-0 flex-1 truncate">
+                          {t('downloads.tab.retro.headers.timestamp')}
+                        </span>
+                        <ResizeHandle
+                          onMouseDown={(e: React.MouseEvent) => handleMouseDown('timestamp', e)}
+                          onDoubleClick={() => handleAutoFitColumn('timestamp')}
+                        />
+                      </div>
+                    )}
+                    {showBannerColumn && (
+                      <div
+                        className="relative px-2 flex items-center justify-center h-full min-w-0"
+                        data-header
+                      >
+                        <span className="min-w-0 truncate text-center">
+                          {t('downloads.tab.retro.headers.banner', 'Banner')}
+                        </span>
+                        <ResizeHandle
+                          onMouseDown={(e: React.MouseEvent) => handleMouseDown('banner', e)}
+                          onDoubleClick={() => handleAutoFitColumn('banner')}
+                        />
+                      </div>
+                    )}
                     <div className="relative px-2 flex items-center h-full min-w-0" data-header>
                       <span className="min-w-0 flex-1 truncate">
-                        {t('downloads.tab.retro.headers.timestamp')}
+                        {t('downloads.tab.retro.headers.app')}
                       </span>
                       <ResizeHandle
-                        onMouseDown={(e: React.MouseEvent) => handleMouseDown('timestamp', e)}
-                        onDoubleClick={() => handleAutoFitColumn('timestamp')}
+                        onMouseDown={(e: React.MouseEvent) => handleMouseDown('app', e)}
+                        onDoubleClick={() => handleAutoFitColumn('app')}
                       />
                     </div>
-                  )}
-                  {showBannerColumn && (
-                    <div
-                      className="relative px-2 flex items-center justify-center h-full min-w-0"
-                      data-header
-                    >
-                      <span className="min-w-0 truncate text-center">
-                        {t('downloads.tab.retro.headers.banner', 'Banner')}
-                      </span>
-                      <ResizeHandle
-                        onMouseDown={(e: React.MouseEvent) => handleMouseDown('banner', e)}
-                        onDoubleClick={() => handleAutoFitColumn('banner')}
-                      />
-                    </div>
-                  )}
-                  <div className="relative px-2 flex items-center h-full min-w-0" data-header>
-                    <span className="min-w-0 flex-1 truncate">
-                      {t('downloads.tab.retro.headers.app')}
-                    </span>
-                    <ResizeHandle
-                      onMouseDown={(e: React.MouseEvent) => handleMouseDown('app', e)}
-                      onDoubleClick={() => handleAutoFitColumn('app')}
-                    />
-                  </div>
-                  {showDatasourceColumn && (
+                    {showDatasourceColumn && (
+                      <div
+                        className="relative px-2 text-center flex items-center justify-center h-full min-w-0"
+                        data-header
+                      >
+                        <span className="min-w-0 flex-1 truncate text-center">
+                          {t('downloads.tab.retro.headers.source')}
+                        </span>
+                        <ResizeHandle
+                          onMouseDown={(e: React.MouseEvent) => handleMouseDown('datasource', e)}
+                          onDoubleClick={() => handleAutoFitColumn('datasource')}
+                        />
+                      </div>
+                    )}
                     <div
                       className="relative px-2 text-center flex items-center justify-center h-full min-w-0"
                       data-header
                     >
                       <span className="min-w-0 flex-1 truncate text-center">
-                        {t('downloads.tab.retro.headers.source')}
+                        {t('downloads.tab.retro.headers.events')}
                       </span>
                       <ResizeHandle
-                        onMouseDown={(e: React.MouseEvent) => handleMouseDown('datasource', e)}
-                        onDoubleClick={() => handleAutoFitColumn('datasource')}
+                        onMouseDown={(e: React.MouseEvent) => handleMouseDown('events', e)}
+                        onDoubleClick={() => handleAutoFitColumn('events')}
                       />
                     </div>
-                  )}
-                  <div
-                    className="relative px-2 text-center flex items-center justify-center h-full min-w-0"
-                    data-header
-                  >
-                    <span className="min-w-0 flex-1 truncate text-center">
-                      {t('downloads.tab.retro.headers.events')}
-                    </span>
-                    <ResizeHandle
-                      onMouseDown={(e: React.MouseEvent) => handleMouseDown('events', e)}
-                      onDoubleClick={() => handleAutoFitColumn('events')}
-                    />
+                    <div
+                      className="relative px-2 text-center flex items-center justify-center h-full min-w-0"
+                      data-header
+                    >
+                      <span className="min-w-0 flex-1 truncate text-center">
+                        {t('downloads.tab.retro.headers.depot')}
+                      </span>
+                      <ResizeHandle
+                        onMouseDown={(e: React.MouseEvent) => handleMouseDown('depot', e)}
+                        onDoubleClick={() => handleAutoFitColumn('depot')}
+                      />
+                    </div>
+                    <div
+                      className="relative px-2 text-center flex items-center justify-center h-full min-w-0"
+                      data-header
+                    >
+                      <span className="min-w-0 flex-1 truncate text-center">
+                        {t('downloads.tab.retro.headers.client')}
+                      </span>
+                      <ResizeHandle
+                        onMouseDown={(e: React.MouseEvent) => handleMouseDown('client', e)}
+                        onDoubleClick={() => handleAutoFitColumn('client')}
+                      />
+                    </div>
+                    <div
+                      className="relative px-2 text-center flex items-center justify-center h-full min-w-0"
+                      data-header
+                    >
+                      <span className="min-w-0 flex-1 truncate text-center">
+                        {t('downloads.tab.retro.headers.avgSpeed')}
+                      </span>
+                      <ResizeHandle
+                        onMouseDown={(e: React.MouseEvent) => handleMouseDown('speed', e)}
+                        onDoubleClick={() => handleAutoFitColumn('speed')}
+                      />
+                    </div>
+                    <div
+                      className="relative px-2 text-center flex items-center justify-center h-full min-w-0"
+                      data-header
+                    >
+                      <span className="min-w-0 flex-1 truncate text-center">
+                        {t('downloads.tab.retro.headers.cachePerformance')}
+                      </span>
+                      <ResizeHandle
+                        onMouseDown={(e: React.MouseEvent) => handleMouseDown('cacheHit', e)}
+                        onDoubleClick={() => handleAutoFitColumn('cacheHit')}
+                      />
+                    </div>
+                    <div
+                      className="relative px-2 text-center flex items-center justify-center h-full min-w-0"
+                      data-header
+                    >
+                      <span className="min-w-0 flex-1 truncate text-center">
+                        {t('downloads.tab.retro.headers.efficiency')}
+                      </span>
+                    </div>
                   </div>
-                  <div
-                    className="relative px-2 text-center flex items-center justify-center h-full min-w-0"
-                    data-header
-                  >
-                    <span className="min-w-0 flex-1 truncate text-center">
-                      {t('downloads.tab.retro.headers.depot')}
-                    </span>
-                    <ResizeHandle
-                      onMouseDown={(e: React.MouseEvent) => handleMouseDown('depot', e)}
-                      onDoubleClick={() => handleAutoFitColumn('depot')}
-                    />
-                  </div>
-                  <div
-                    className="relative px-2 text-center flex items-center justify-center h-full min-w-0"
-                    data-header
-                  >
-                    <span className="min-w-0 flex-1 truncate text-center">
-                      {t('downloads.tab.retro.headers.client')}
-                    </span>
-                    <ResizeHandle
-                      onMouseDown={(e: React.MouseEvent) => handleMouseDown('client', e)}
-                      onDoubleClick={() => handleAutoFitColumn('client')}
-                    />
-                  </div>
-                  <div
-                    className="relative px-2 text-center flex items-center justify-center h-full min-w-0"
-                    data-header
-                  >
-                    <span className="min-w-0 flex-1 truncate text-center">
-                      {t('downloads.tab.retro.headers.avgSpeed')}
-                    </span>
-                    <ResizeHandle
-                      onMouseDown={(e: React.MouseEvent) => handleMouseDown('speed', e)}
-                      onDoubleClick={() => handleAutoFitColumn('speed')}
-                    />
-                  </div>
-                  <div
-                    className="relative px-2 text-center flex items-center justify-center h-full min-w-0"
-                    data-header
-                  >
-                    <span className="min-w-0 flex-1 truncate text-center">
-                      {t('downloads.tab.retro.headers.cachePerformance')}
-                    </span>
-                    <ResizeHandle
-                      onMouseDown={(e: React.MouseEvent) => handleMouseDown('cacheHit', e)}
-                      onDoubleClick={() => handleAutoFitColumn('cacheHit')}
-                    />
-                  </div>
-                  <div
-                    className="relative px-2 text-center flex items-center justify-center h-full min-w-0"
-                    data-header
-                  >
-                    <span className="min-w-0 flex-1 truncate text-center">
-                      {t('downloads.tab.retro.headers.efficiency')}
-                    </span>
-                  </div>
-                </div>
-              )}
+                )}
 
-              {/* Table Body */}
-              {rowsWithEvents.length > 0 ? (
-                <div>
-                  {rowsWithEvents.map((data) => {
-                    // All values are pre-computed in rowsWithEvents useMemo
-                    const {
-                      totalBytes,
-                      cacheHitBytes,
-                      cacheMissBytes,
-                      hitPercent,
-                      timeRange,
-                      accentColor,
-                      hasGameImage,
-                      events
-                    } = data;
+                {/* Table Body */}
+                {rowsWithEvents.length > 0 ? (
+                  <div>
+                    {rowsWithEvents.map((data) => {
+                      // All values are pre-computed in rowsWithEvents useMemo
+                      const {
+                        totalBytes,
+                        cacheHitBytes,
+                        cacheMissBytes,
+                        hitPercent,
+                        timeRange,
+                        accentColor,
+                        hasGameImage,
+                        events
+                      } = data;
 
-                    return (
-                      <div key={data.id}>
-                        <div className="w-full hover:bg-[var(--theme-bg-tertiary)]/50 group relative border-b border-[var(--theme-border-secondary)]">
-                          {/* Left accent border based on efficiency */}
-                          <div
-                            className="absolute left-0 top-0 bottom-0 w-1 opacity-70"
-                            style={{ backgroundColor: accentColor }}
-                          />
-
-                          {/* Conditional Layout - Mobile or Desktop based on JS breakpoint detection */}
-                          {isDesktop ? (
-                            /* Desktop Layout */
+                      return (
+                        <div key={data.id}>
+                          <div className="w-full hover:bg-[var(--theme-bg-tertiary)]/50 group relative border-b border-[var(--theme-border-secondary)]">
+                            {/* Left accent border based on efficiency */}
                             <div
-                              className="grid pl-4 pr-4 py-3 items-center"
-                              style={{ gridTemplateColumns: gridTemplateMemo }}
-                              data-row
-                            >
-                              {/* Timestamp */}
-                              {showTimestamps && (
-                                <div
-                                  className="px-2 min-w-0 text-xs text-[var(--theme-text-secondary)] overflow-hidden whitespace-nowrap"
-                                  data-cell
-                                >
-                                  <span className="block truncate" title={timeRange}>
-                                    {timeRange}
-                                  </span>
-                                </div>
-                              )}
+                              className="absolute left-0 top-0 bottom-0 w-1 opacity-70"
+                              style={{ backgroundColor: accentColor }}
+                            />
 
-                              {/* Banner - dedicated column for game artwork */}
-                              {showBannerColumn && (
-                                <div
-                                  className="px-2 min-w-0 flex items-center justify-center"
-                                  data-cell
-                                >
-                                  {hasGameImage && (data.gameAppId || data.epicAppId) ? (
-                                    <GameImage
-                                      gameAppId={data.epicAppId || data.gameAppId!}
-                                      epicAppId={data.epicAppId || undefined}
-                                      alt={data.gameName || t('downloads.tab.retro.gameFallback')}
-                                      className="w-[120px] h-[56px] rounded object-cover"
-                                      onFinalError={handleImageError}
-                                    />
-                                  ) : (
-                                    /* Service icon placeholder */
-                                    <div className="w-[120px] h-[56px] rounded flex items-center justify-center bg-[var(--theme-bg-tertiary)]">
-                                      {getServiceIcon(data.service, 32)}
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-
-                              {/* App name */}
-                              <div className="px-2 min-w-0 overflow-hidden" data-cell>
-                                <div className="flex flex-col min-w-0 overflow-hidden">
-                                  <span
-                                    className="text-sm font-medium text-[var(--theme-text-primary)] truncate"
-                                    title={data.gameName || data.service}
+                            {/* Conditional Layout - Mobile or Desktop based on JS breakpoint detection */}
+                            {isDesktop ? (
+                              /* Desktop Layout */
+                              <div
+                                className="grid pl-4 pr-4 py-3 items-center"
+                                style={{ gridTemplateColumns: gridTemplateMemo }}
+                                data-row
+                              >
+                                {/* Timestamp */}
+                                {showTimestamps && (
+                                  <div
+                                    className="px-2 min-w-0 text-xs text-[var(--theme-text-secondary)] overflow-hidden whitespace-nowrap"
+                                    data-cell
                                   >
-                                    {data.gameName || data.service}
-                                  </span>
-                                  {data.requestCount > 1 && (
-                                    <span className="text-xs text-[var(--theme-text-muted)] truncate">
-                                      {t('downloads.tab.retro.clientCount', {
-                                        count: data.clientsSet.size
-                                      })}{' '}
-                                      ·{' '}
-                                      {t('downloads.tab.retro.requestCount', {
-                                        count: data.requestCount
-                                      })}
+                                    <span className="block truncate" title={timeRange}>
+                                      {timeRange}
                                     </span>
-                                  )}
-                                </div>
-                              </div>
-
-                              {/* Datasource - only shown when multiple datasources exist */}
-                              {showDatasourceColumn && (
-                                <div className="px-2 min-w-0 overflow-hidden text-center" data-cell>
-                                  <span
-                                    className="px-1.5 py-0.5 text-xs font-medium rounded inline-block truncate max-w-full bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)]"
-                                    title={data.datasource}
-                                  >
-                                    {data.datasource || t('downloads.tab.retro.notAvailable')}
-                                  </span>
-                                </div>
-                              )}
-
-                              {/* Events - shows event badges for associated downloads */}
-                              <div
-                                className="px-2 min-w-0 overflow-hidden flex justify-center"
-                                data-cell
-                              >
-                                {events.length > 0 ? (
-                                  <DownloadBadges events={events} maxVisible={2} size="sm" />
-                                ) : (
-                                  <span className="text-xs text-[var(--theme-text-muted)]">—</span>
-                                )}
-                              </div>
-
-                              {/* Depot */}
-                              <div className="px-2 min-w-0 overflow-hidden text-center" data-cell>
-                                {data.depotId ? (
-                                  <a
-                                    href={`https://steamdb.info/depot/${data.depotId}/`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-sm font-mono text-[var(--theme-primary)] hover:underline"
-                                  >
-                                    {data.depotId}
-                                  </a>
-                                ) : (
-                                  <span className="text-sm text-[var(--theme-text-muted)]">
-                                    {t('downloads.tab.retro.notAvailable')}
-                                  </span>
-                                )}
-                              </div>
-
-                              {/* Client IP */}
-                              <div
-                                className="px-2 min-w-0 text-sm font-mono text-[var(--theme-text-primary)] overflow-hidden text-center"
-                                data-cell
-                              >
-                                {data.clientsSet.size > 1 ? (
-                                  <span
-                                    className="truncate block"
-                                    title={t('downloads.tab.retro.clientCount', {
-                                      count: data.clientsSet.size
-                                    })}
-                                  >
-                                    {t('downloads.tab.retro.clientCount', {
-                                      count: data.clientsSet.size
-                                    })}
-                                  </span>
-                                ) : (
-                                  <span className="block truncate">
-                                    <ClientIpDisplay clientIp={data.clientIp} className="inline" />
-                                  </span>
-                                )}
-                              </div>
-
-                              {/* Avg Speed */}
-                              <div
-                                className="px-2 min-w-0 text-sm text-[var(--theme-text-primary)] overflow-hidden flex items-center justify-center gap-1"
-                                data-cell
-                              >
-                                <Zap size={12} className="text-[var(--theme-warning)] opacity-70" />
-                                <span className="truncate">
-                                  {formatSpeed(data.averageBytesPerSecond)}
-                                </span>
-                              </div>
-
-                              {/* Combined Cache Performance Bar */}
-                              <div
-                                className="px-2 min-w-0 overflow-hidden flex justify-center"
-                                data-cell
-                              >
-                                <CombinedProgressBar
-                                  hitBytes={cacheHitBytes}
-                                  missBytes={cacheMissBytes}
-                                  totalBytes={totalBytes}
-                                />
-                              </div>
-
-                              {/* Circular Efficiency Gauge */}
-                              <div className="px-2 min-w-0 flex justify-center" data-cell>
-                                <EfficiencyGauge percent={hitPercent} />
-                              </div>
-                            </div>
-                          ) : (
-                            /* Mobile Layout - with explicit width constraints */
-                            <div className="p-3 pl-4 space-y-2 sm:space-y-3 w-full max-w-full overflow-hidden">
-                              {/* App image and name */}
-                              <div className="flex items-center gap-3 w-full min-w-0">
-                                {hasGameImage && (data.gameAppId || data.epicAppId) ? (
-                                  <GameImage
-                                    gameAppId={data.epicAppId || data.gameAppId!}
-                                    epicAppId={data.epicAppId || undefined}
-                                    alt={data.gameName || t('downloads.tab.retro.gameFallback')}
-                                    className="w-[120px] h-[56px] rounded object-cover flex-shrink-0"
-                                    onFinalError={handleImageError}
-                                  />
-                                ) : (
-                                  <div className="w-[120px] h-[56px] rounded flex items-center justify-center flex-shrink-0 bg-[var(--theme-bg-tertiary)]">
-                                    {getServiceIcon(data.service, 32)}
                                   </div>
                                 )}
-                                <div className="flex-1 min-w-0 overflow-hidden">
-                                  <div className="text-sm font-medium text-[var(--theme-text-primary)] truncate">
-                                    {data.gameName || data.service}
+
+                                {/* Banner - dedicated column for game artwork */}
+                                {showBannerColumn && (
+                                  <div
+                                    className="px-2 min-w-0 flex items-center justify-center"
+                                    data-cell
+                                  >
+                                    {hasGameImage && (data.gameAppId || data.epicAppId) ? (
+                                      <GameImage
+                                        gameAppId={data.epicAppId || data.gameAppId!}
+                                        epicAppId={data.epicAppId || undefined}
+                                        alt={data.gameName || t('downloads.tab.retro.gameFallback')}
+                                        className="w-[120px] h-[56px] rounded object-cover"
+                                        onFinalError={handleImageError}
+                                      />
+                                    ) : (
+                                      /* Service icon placeholder */
+                                      <div className="w-[120px] h-[56px] rounded flex items-center justify-center bg-[var(--theme-bg-tertiary)]">
+                                        {getServiceIcon(data.service, 32)}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+
+                                {/* App name */}
+                                <div className="px-2 min-w-0 overflow-hidden" data-cell>
+                                  <div className="flex flex-col min-w-0 overflow-hidden">
+                                    <span
+                                      className="text-sm font-medium text-[var(--theme-text-primary)] truncate"
+                                      title={data.gameName || data.service}
+                                    >
+                                      {data.gameName || data.service}
+                                    </span>
                                     {data.requestCount > 1 && (
-                                      <span className="ml-2 text-xs text-[var(--theme-text-muted)]">
-                                        (
+                                      <span className="text-xs text-[var(--theme-text-muted)] truncate">
                                         {t('downloads.tab.retro.clientCount', {
                                           count: data.clientsSet.size
                                         })}{' '}
@@ -1543,79 +1422,220 @@ const RetroView = memo(
                                         {t('downloads.tab.retro.requestCount', {
                                           count: data.requestCount
                                         })}
-                                        )
                                       </span>
                                     )}
                                   </div>
-                                  <div className="flex items-center gap-2 text-xs text-[var(--theme-text-muted)] min-w-0">
-                                    <span className="truncate">
+                                </div>
+
+                                {/* Datasource - only shown when multiple datasources exist */}
+                                {showDatasourceColumn && (
+                                  <div
+                                    className="px-2 min-w-0 overflow-hidden text-center"
+                                    data-cell
+                                  >
+                                    <span
+                                      className="px-1.5 py-0.5 text-xs font-medium rounded inline-block truncate max-w-full bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)]"
+                                      title={data.datasource}
+                                    >
+                                      {data.datasource || t('downloads.tab.retro.notAvailable')}
+                                    </span>
+                                  </div>
+                                )}
+
+                                {/* Events - shows event badges for associated downloads */}
+                                <div
+                                  className="px-2 min-w-0 overflow-hidden flex justify-center"
+                                  data-cell
+                                >
+                                  {events.length > 0 ? (
+                                    <DownloadBadges events={events} maxVisible={2} size="sm" />
+                                  ) : (
+                                    <span className="text-xs text-[var(--theme-text-muted)]">
+                                      —
+                                    </span>
+                                  )}
+                                </div>
+
+                                {/* Depot */}
+                                <div className="px-2 min-w-0 overflow-hidden text-center" data-cell>
+                                  {data.depotId ? (
+                                    <a
+                                      href={`https://steamdb.info/depot/${data.depotId}/`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-sm font-mono text-[var(--theme-primary)] hover:underline"
+                                    >
+                                      {data.depotId}
+                                    </a>
+                                  ) : (
+                                    <span className="text-sm text-[var(--theme-text-muted)]">
+                                      {t('downloads.tab.retro.notAvailable')}
+                                    </span>
+                                  )}
+                                </div>
+
+                                {/* Client IP */}
+                                <div
+                                  className="px-2 min-w-0 text-sm font-mono text-[var(--theme-text-primary)] overflow-hidden text-center"
+                                  data-cell
+                                >
+                                  {data.clientsSet.size > 1 ? (
+                                    <span
+                                      className="truncate block"
+                                      title={t('downloads.tab.retro.clientCount', {
+                                        count: data.clientsSet.size
+                                      })}
+                                    >
+                                      {t('downloads.tab.retro.clientCount', {
+                                        count: data.clientsSet.size
+                                      })}
+                                    </span>
+                                  ) : (
+                                    <span className="block truncate">
                                       <ClientIpDisplay
                                         clientIp={data.clientIp}
                                         className="inline"
                                       />
-                                      {data.depotId && (
-                                        <>
-                                          {' • '}
-                                          <a
-                                            href={`https://steamdb.info/depot/${data.depotId}/`}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="text-[var(--theme-primary)] hover:underline"
-                                          >
-                                            {data.depotId}
-                                          </a>
-                                        </>
-                                      )}
                                     </span>
-                                    {hasMultipleDatasources &&
-                                      showDatasourceLabels &&
-                                      data.datasource && (
-                                        <Tooltip
-                                          content={t('downloads.tab.retro.datasourceTooltip', {
-                                            datasource: data.datasource
-                                          })}
-                                        >
-                                          <span className="px-1.5 py-0.5 text-xs font-medium rounded flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)]">
-                                            {data.datasource}
-                                          </span>
-                                        </Tooltip>
-                                      )}
-                                  </div>
+                                  )}
                                 </div>
-                              </div>
 
-                              {/* Timestamp and Speed */}
-                              <div className="flex items-center justify-between text-xs text-[var(--theme-text-secondary)] min-w-0">
-                                <span className="truncate mr-2">{timeRange}</span>
-                                <span className="flex items-center gap-1 text-[var(--theme-text-primary)] flex-shrink-0">
-                                  <Zap size={12} className="text-[var(--theme-warning)]" />
-                                  {formatSpeed(data.averageBytesPerSecond)}
-                                </span>
-                              </div>
+                                {/* Avg Speed */}
+                                <div
+                                  className="px-2 min-w-0 text-sm text-[var(--theme-text-primary)] overflow-hidden flex items-center justify-center gap-1"
+                                  data-cell
+                                >
+                                  <Zap
+                                    size={12}
+                                    className="text-[var(--theme-warning)] opacity-70"
+                                  />
+                                  <span className="truncate">
+                                    {formatSpeed(data.averageBytesPerSecond)}
+                                  </span>
+                                </div>
 
-                              {/* Combined Progress Bar and Efficiency */}
-                              <div className="flex items-center gap-3 w-full min-w-0">
-                                <div className="flex-1 min-w-0 overflow-hidden">
+                                {/* Combined Cache Performance Bar */}
+                                <div
+                                  className="px-2 min-w-0 overflow-hidden flex justify-center"
+                                  data-cell
+                                >
                                   <CombinedProgressBar
                                     hitBytes={cacheHitBytes}
                                     missBytes={cacheMissBytes}
                                     totalBytes={totalBytes}
                                   />
                                 </div>
-                                <div className="flex-shrink-0">
-                                  <EfficiencyGauge percent={hitPercent} size={44} />
+
+                                {/* Circular Efficiency Gauge */}
+                                <div className="px-2 min-w-0 flex justify-center" data-cell>
+                                  <EfficiencyGauge percent={hitPercent} />
                                 </div>
                               </div>
-                            </div>
-                          )}
+                            ) : (
+                              /* Mobile Layout - with explicit width constraints */
+                              <div className="p-3 pl-4 space-y-2 sm:space-y-3 w-full max-w-full overflow-hidden">
+                                {/* App image and name */}
+                                <div className="flex items-center gap-3 w-full min-w-0">
+                                  {hasGameImage && (data.gameAppId || data.epicAppId) ? (
+                                    <GameImage
+                                      gameAppId={data.epicAppId || data.gameAppId!}
+                                      epicAppId={data.epicAppId || undefined}
+                                      alt={data.gameName || t('downloads.tab.retro.gameFallback')}
+                                      className="w-[120px] h-[56px] rounded object-cover flex-shrink-0"
+                                      onFinalError={handleImageError}
+                                    />
+                                  ) : (
+                                    <div className="w-[120px] h-[56px] rounded flex items-center justify-center flex-shrink-0 bg-[var(--theme-bg-tertiary)]">
+                                      {getServiceIcon(data.service, 32)}
+                                    </div>
+                                  )}
+                                  <div className="flex-1 min-w-0 overflow-hidden">
+                                    <div className="text-sm font-medium text-[var(--theme-text-primary)] truncate">
+                                      {data.gameName || data.service}
+                                      {data.requestCount > 1 && (
+                                        <span className="ml-2 text-xs text-[var(--theme-text-muted)]">
+                                          (
+                                          {t('downloads.tab.retro.clientCount', {
+                                            count: data.clientsSet.size
+                                          })}{' '}
+                                          ·{' '}
+                                          {t('downloads.tab.retro.requestCount', {
+                                            count: data.requestCount
+                                          })}
+                                          )
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center gap-2 text-xs text-[var(--theme-text-muted)] min-w-0">
+                                      <span className="truncate">
+                                        <ClientIpDisplay
+                                          clientIp={data.clientIp}
+                                          className="inline"
+                                        />
+                                        {data.depotId && (
+                                          <>
+                                            {' • '}
+                                            <a
+                                              href={`https://steamdb.info/depot/${data.depotId}/`}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="text-[var(--theme-primary)] hover:underline"
+                                            >
+                                              {data.depotId}
+                                            </a>
+                                          </>
+                                        )}
+                                      </span>
+                                      {hasMultipleDatasources &&
+                                        showDatasourceLabels &&
+                                        data.datasource && (
+                                          <Tooltip
+                                            content={t('downloads.tab.retro.datasourceTooltip', {
+                                              datasource: data.datasource
+                                            })}
+                                          >
+                                            <span className="px-1.5 py-0.5 text-xs font-medium rounded flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)]">
+                                              {data.datasource}
+                                            </span>
+                                          </Tooltip>
+                                        )}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Timestamp and Speed */}
+                                <div className="flex items-center justify-between text-xs text-[var(--theme-text-secondary)] min-w-0">
+                                  <span className="truncate mr-2">{timeRange}</span>
+                                  <span className="flex items-center gap-1 text-[var(--theme-text-primary)] flex-shrink-0">
+                                    <Zap size={12} className="text-[var(--theme-warning)]" />
+                                    {formatSpeed(data.averageBytesPerSecond)}
+                                  </span>
+                                </div>
+
+                                {/* Combined Progress Bar and Efficiency */}
+                                <div className="flex items-center gap-3 w-full min-w-0">
+                                  <div className="flex-1 min-w-0 overflow-hidden">
+                                    <CombinedProgressBar
+                                      hitBytes={cacheHitBytes}
+                                      missBytes={cacheMissBytes}
+                                      totalBytes={totalBytes}
+                                    />
+                                  </div>
+                                  <div className="flex-shrink-0">
+                                    <EfficiencyGauge percent={hitPercent} size={44} />
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <EmptyState />
-              )}
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <EmptyState />
+                )}
+              </div>
             </div>
           </div>
         </>

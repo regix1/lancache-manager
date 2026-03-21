@@ -1,5 +1,6 @@
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
@@ -10,6 +11,7 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/operations")]
+[Authorize(Policy = "AdminOnly")]
 public class OperationsController : ControllerBase
 {
     private readonly IUnifiedOperationTracker _operationTracker;

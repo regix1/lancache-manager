@@ -4,6 +4,7 @@ using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Extensions;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
 
@@ -15,6 +16,7 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/client-groups")]
+[Authorize]
 public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGroupDto, CreateClientGroupRequest, UpdateClientGroupRequest, int>
 {
     private readonly IClientGroupsService _clientGroupsRepository;
@@ -123,6 +125,7 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
     // ===== Override Create to return Created with location =====
 
     [HttpPost]
+    [Authorize(Policy = "AdminOnly")]
     public override async Task<IActionResult> CreateAsync([FromBody] CreateClientGroupRequest request, CancellationToken ct = default)
     {
         await ValidateCreateRequestAsync(request, ct);
@@ -147,6 +150,7 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
     /// Validation is handled automatically by FluentValidation (see AddMemberRequestValidator)
     /// </remarks>
     [HttpPost("{id:int}/members")]
+    [Authorize(Policy = "AdminOnly")]
     public async Task<IActionResult> AddMemberAsync(int id, [FromBody] AddMemberRequest request, CancellationToken ct = default)
     {
         // Validation is handled automatically by FluentValidation
@@ -168,6 +172,7 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
     /// Remove an IP from a client group
     /// </summary>
     [HttpDelete("{id:int}/members/{ip}")]
+    [Authorize(Policy = "AdminOnly")]
     public async Task<IActionResult> RemoveMemberAsync(int id, string ip, CancellationToken ct = default)
     {
         var group = await _clientGroupsRepository.GetByIdOrThrowAsync(id, "Client group", ct);
@@ -193,4 +198,20 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
         );
         return Ok(result);
     }
+
+    /// <summary>
+    /// Update a client group (admin only)
+    /// </summary>
+    [HttpPut("{id}")]
+    [Authorize(Policy = "AdminOnly")]
+    public override Task<IActionResult> UpdateAsync(int id, [FromBody] UpdateClientGroupRequest request, CancellationToken ct = default)
+        => base.UpdateAsync(id, request, ct);
+
+    /// <summary>
+    /// Delete a client group (admin only)
+    /// </summary>
+    [HttpDelete("{id}")]
+    [Authorize(Policy = "AdminOnly")]
+    public override Task<IActionResult> DeleteAsync(int id, CancellationToken ct = default)
+        => base.DeleteAsync(id, ct);
 }

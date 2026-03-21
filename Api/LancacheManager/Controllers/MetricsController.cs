@@ -1,6 +1,7 @@
 using LancacheManager.Models;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
@@ -11,6 +12,7 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/metrics")]
+[Authorize(Policy = "AdminOnly")]
 public class MetricsController : ControllerBase
 {
     private readonly IConfiguration _configuration;

@@ -6,6 +6,7 @@ using LancacheManager.Infrastructure.Data;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.EpicMapping;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -17,6 +18,7 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/game-images")]
+[AllowAnonymous]
 public class GameImagesController : ControllerBase
 {
     private readonly ILogger<GameImagesController> _logger;

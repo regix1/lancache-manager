@@ -14,6 +14,7 @@ using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Middleware;
 using LancacheManager.Security;
 using LancacheManager.Validators;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.DataProtection;
 
 using Microsoft.AspNetCore.Routing.Constraints;
@@ -290,6 +291,27 @@ builder.Services.AddScoped<AuthenticationHelper>();
 builder.Services.AddScoped<SessionService>();
 builder.Services.AddSingleton<LancacheManager.Core.Services.UserPreferencesService>();
 
+// ASP.NET Core Authentication (session-based via cookie)
+builder.Services.AddAuthentication(SessionAuthenticationHandler.SchemeName)
+    .AddScheme<AuthenticationSchemeOptions, SessionAuthenticationHandler>(
+        SessionAuthenticationHandler.SchemeName, null);
+
+// Authorization policies
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("AdminOnly", policy =>
+        policy.RequireClaim("SessionType", "admin"));
+
+    options.AddPolicy("GuestAllowed", policy =>
+        policy.RequireAuthenticatedUser());
+
+    options.AddPolicy("SteamPrefillAccess", policy =>
+        policy.RequireClaim("SteamPrefillActive", "true"));
+
+    options.AddPolicy("EpicPrefillAccess", policy =>
+        policy.RequireClaim("EpicPrefillActive", "true"));
+});
+
 // Register SignalR connection tracking service for targeted messaging
 builder.Services.AddSingleton<LancacheManager.Core.Services.ConnectionTrackingService>();
 
@@ -520,8 +542,12 @@ app.UseRouting();
 // Rate limiting - must be after routing to access endpoint metadata
 app.UseRateLimiter();
 
-// Session-based authentication middleware
+// Session-based authentication middleware (populates HttpContext.Items["Session"] for backward compat)
 app.UseMiddleware<SessionAuthMiddleware>();
+
+// ASP.NET Core authentication & authorization pipeline
+app.UseAuthentication();
+app.UseAuthorization();
 
 // Add Metrics Authentication Middleware (optional API key for /metrics)
 app.UseMiddleware<MetricsAuthenticationMiddleware>();

@@ -5,6 +5,7 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Hubs;
 using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
@@ -15,6 +16,7 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/cache")]
+[Authorize(Policy = "AdminOnly")]
 public class CacheController : ControllerBase
 {
     private readonly CacheManagementService _cacheService;
@@ -75,6 +77,7 @@ public class CacheController : ControllerBase
     /// GET /api/cache/size - Calculate cache size with deletion time estimates
     /// </summary>
     [HttpGet("size")]
+    [Authorize]
     public async Task<IActionResult> GetCacheSizeAsync([FromQuery] string? datasource = null, [FromQuery] bool force = false)
     {
         var result = await _cacheService.GetCachedCacheSizeAsync(force, datasource);

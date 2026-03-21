@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.SignalR;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
 
 namespace LancacheManager.Infrastructure.Services;
@@ -15,17 +16,20 @@ public class SignalRNotificationService : ISignalRNotificationService
     private readonly IHubContext<DownloadHub> _downloadHubContext;
     private readonly IHubContext<SteamDaemonHub> _steamHubContext;
     private readonly IHubContext<EpicPrefillDaemonHub> _epicHubContext;
+    private readonly ConnectionTrackingService _connectionTrackingService;
     private readonly ILogger<SignalRNotificationService> _logger;
 
     public SignalRNotificationService(
         IHubContext<DownloadHub> downloadHubContext,
         IHubContext<SteamDaemonHub> steamHubContext,
         IHubContext<EpicPrefillDaemonHub> epicHubContext,
+        ConnectionTrackingService connectionTrackingService,
         ILogger<SignalRNotificationService> logger)
     {
         _downloadHubContext = downloadHubContext;
         _steamHubContext = steamHubContext;
         _epicHubContext = epicHubContext;
+        _connectionTrackingService = connectionTrackingService;
         _logger = logger;
     }
 
@@ -153,6 +157,67 @@ public class SignalRNotificationService : ISignalRNotificationService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to send SignalR notification (downloads + epic): {EventName}", eventName);
+        }
+    }
+
+    // ===== DownloadHub Group Methods =====
+
+    public async Task NotifyAdminAsync(string eventName, object? data = null)
+    {
+        try
+        {
+            await _downloadHubContext.Clients.Group(DownloadHub.AdminGroup).SendAsync(eventName, data);
+            _logger.LogDebug("SignalR notification sent to admin group: {EventName}", eventName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send SignalR notification to admin group: {EventName}", eventName);
+        }
+    }
+
+    public async Task NotifyGuestAsync(string eventName, object? data = null)
+    {
+        try
+        {
+            await _downloadHubContext.Clients.Group(DownloadHub.GuestGroup).SendAsync(eventName, data);
+            _logger.LogDebug("SignalR notification sent to guest group: {EventName}", eventName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send SignalR notification to guest group: {EventName}", eventName);
+        }
+    }
+
+    public async Task NotifyGroupAsync(string groupName, string eventName, object? data = null)
+    {
+        try
+        {
+            await _downloadHubContext.Clients.Group(groupName).SendAsync(eventName, data);
+            _logger.LogDebug("SignalR notification sent to group {GroupName}: {EventName}", groupName, eventName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send SignalR notification to group {GroupName}: {EventName}", groupName, eventName);
+        }
+    }
+
+    public async Task NotifySessionAsync(string sessionId, string eventName, object? data = null)
+    {
+        var connectionId = _connectionTrackingService.GetConnectionId(sessionId);
+        if (connectionId == null)
+        {
+            _logger.LogDebug("SignalR session notification skipped - no active connection for session {SessionId}: {EventName}", sessionId, eventName);
+            return;
+        }
+
+        try
+        {
+            await _downloadHubContext.Clients.Client(connectionId).SendAsync(eventName, data);
+            _logger.LogDebug("SignalR notification sent to session {SessionId} (connection {ConnectionId}): {EventName}", sessionId, connectionId, eventName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send SignalR notification to session {SessionId} (connection {ConnectionId}): {EventName}", sessionId, connectionId, eventName);
         }
     }
 }

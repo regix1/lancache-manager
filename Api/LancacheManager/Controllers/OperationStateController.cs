@@ -1,6 +1,7 @@
 using System.Text.Json;
 using LancacheManager.Models;
 using LancacheManager.Core.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using OperationState = LancacheManager.Core.Services.OperationState;
 
@@ -12,6 +13,7 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/operation-state")]
+[Authorize(Policy = "AdminOnly")]
 public class OperationStateController : ControllerBase
 {
     private readonly OperationStateService _stateService;

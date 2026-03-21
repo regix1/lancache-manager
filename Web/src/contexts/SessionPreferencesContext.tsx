@@ -243,19 +243,38 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
     [getCurrentSessionId]
   );
 
-  // When bulk preferences are reset, clear all cached prefs so badges refresh
-  const handleUserPreferencesReset = useCallback(() => {
-    setPreferences({});
-    loadedIds.current.clear();
-    failedIds.current.clear();
-    initialLoadDone.current = false;
+  // When bulk preferences are reset, clear all cached prefs so badges refresh.
+  // The backend may include sessionType ('guest' | 'authenticated') to scope the reset.
+  // If sessionType is 'guest' and this client is admin, ignore it (admin cache is unaffected).
+  // If sessionType is 'authenticated' and this client is not admin, ignore it.
+  // If sessionType is absent it is a global reset — always apply.
+  const handleUserPreferencesReset = useCallback(
+    (data?: { sessionType?: string }) => {
+      const sessionType = data?.sessionType;
 
-    // Reload current session's preferences immediately
-    const sessionId = getCurrentSessionId();
-    if (sessionId) {
-      loadSessionPreferences(sessionId);
-    }
-  }, [getCurrentSessionId, loadSessionPreferences]);
+      if (sessionType === 'guest' && isAdmin) {
+        // Guest-scoped reset — admin cache is unaffected, skip
+        return;
+      }
+
+      if (sessionType === 'authenticated' && !isAdmin) {
+        // Admin-scoped reset — guest cache is unaffected, skip
+        return;
+      }
+
+      setPreferences({});
+      loadedIds.current.clear();
+      failedIds.current.clear();
+      initialLoadDone.current = false;
+
+      // Reload current session's preferences immediately
+      const sessionId = getCurrentSessionId();
+      if (sessionId) {
+        loadSessionPreferences(sessionId);
+      }
+    },
+    [isAdmin, getCurrentSessionId, loadSessionPreferences]
+  );
 
   useEffect(() => {
     on('UserPreferencesUpdated', handleUserPreferencesUpdated);

@@ -4,6 +4,7 @@ using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
@@ -14,6 +15,7 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/logs")]
+[Authorize(Policy = "AdminOnly")]
 public class LogsController : ControllerBase
 {
     private readonly RustLogProcessorService _rustLogProcessorService;

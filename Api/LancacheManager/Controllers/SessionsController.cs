@@ -1,34 +1,41 @@
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Middleware;
 using LancacheManager.Models;
 using LancacheManager.Security;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LancacheManager.Controllers;
 
 [ApiController]
 [Route("api/sessions")]
+[Authorize]
 public class SessionsController : ControllerBase
 {
     private readonly SessionService _sessionService;
     private readonly ILogger<SessionsController> _logger;
     private readonly ISignalRNotificationService _signalR;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly StateService _stateService;
 
     public SessionsController(
         SessionService sessionService,
         ILogger<SessionsController> logger,
         ISignalRNotificationService signalR,
-        IServiceScopeFactory scopeFactory)
+        IServiceScopeFactory scopeFactory,
+        StateService stateService)
     {
         _sessionService = sessionService;
         _logger = logger;
         _signalR = signalR;
         _scopeFactory = scopeFactory;
+        _stateService = stateService;
     }
 
+    [Authorize(Policy = "AdminOnly")]
     [HttpGet]
     public async Task<IActionResult> GetAllSessionsAsync([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
@@ -94,6 +101,7 @@ public class SessionsController : ControllerBase
         };
     }
 
+    [Authorize(Policy = "AdminOnly")]
     [HttpPatch("{id:guid}/revoke")]
     public async Task<IActionResult> RevokeSessionAsync(Guid id)
     {
@@ -115,6 +123,7 @@ public class SessionsController : ControllerBase
         return Ok(new { success = true, message = "Session revoked" });
     }
 
+    [Authorize(Policy = "AdminOnly")]
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> DeleteSessionAsync(Guid id)
     {
@@ -139,6 +148,17 @@ public class SessionsController : ControllerBase
     [HttpPatch("{id:guid}/refresh-rate")]
     public async Task<IActionResult> UpdateRefreshRateAsync(Guid id, [FromBody] RefreshRateRequest request)
     {
+        var callerSession = HttpContext.GetUserSession();
+        var isAdmin = callerSession?.SessionType == "admin";
+
+        // Only the owning session or an admin may update refresh rate
+        if (!isAdmin && callerSession?.Id != id)
+            return Forbid();
+
+        // Guests cannot change their refresh rate when the global lock is active
+        if (!isAdmin && _stateService.GetGuestRefreshRateLocked())
+            return StatusCode(403, new { error = "Refresh rate changes are locked by the administrator" });
+
         using var scope = _scopeFactory.CreateScope();
         var prefsService = scope.ServiceProvider.GetRequiredService<UserPreferencesService>();
 
@@ -157,6 +177,7 @@ public class SessionsController : ControllerBase
         return Ok(new { success = true });
     }
 
+    [Authorize(Policy = "AdminOnly")]
     [HttpPost("bulk/reset-to-defaults")]
     public async Task<IActionResult> BulkResetToDefaultsAsync()
     {
@@ -191,6 +212,7 @@ public class SessionsController : ControllerBase
         return Ok(new { success = true, affectedCount });
     }
 
+    [Authorize(Policy = "AdminOnly")]
     [HttpDelete("bulk/clear-guests")]
     public async Task<IActionResult> BulkClearGuestsAsync()
     {

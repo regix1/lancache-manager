@@ -2,6 +2,7 @@ using LancacheManager.Models;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Utilities;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.Sqlite;
 using System.Diagnostics;
@@ -14,6 +15,7 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/migration")]
+[Authorize(Policy = "AdminOnly")]
 public class DataMigrationController : ControllerBase
 {
     private readonly ILogger<DataMigrationController> _logger;

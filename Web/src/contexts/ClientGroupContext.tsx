@@ -10,7 +10,7 @@ interface ClientGroupProviderProps {
 }
 
 export const ClientGroupProvider: React.FC<ClientGroupProviderProps> = ({ children }) => {
-  const { hasSession, isLoading: authLoading } = useAuth();
+  const { authMode, isLoading: authLoading } = useAuth();
   const { on, off } = useSignalR();
   const [clientGroups, setClientGroups] = useState<ClientGroup[]>([]);
   const [loading, setLoading] = useState(false);
@@ -33,12 +33,12 @@ export const ClientGroupProvider: React.FC<ClientGroupProviderProps> = ({ childr
     }
   }, []);
 
-  // Initial load - only fetch when authenticated
+  // Initial load - only fetch when admin-authenticated (not for guests)
   useEffect(() => {
-    if (!authLoading && hasSession) {
+    if (!authLoading && authMode === 'authenticated') {
       refreshGroups();
     }
-  }, [authLoading, hasSession, refreshGroups]);
+  }, [authLoading, authMode, refreshGroups]);
 
   // CRUD operations
   const createClientGroup = useCallback(
@@ -99,30 +99,40 @@ export const ClientGroupProvider: React.FC<ClientGroupProviderProps> = ({ childr
     [clientGroups]
   );
 
-  // Keep ref updated for SignalR handlers
+  // Keep refs updated for SignalR handlers
+  const authModeRef = useRef(authMode);
+  useEffect(() => {
+    authModeRef.current = authMode;
+  }, [authMode]);
+
   useEffect(() => {
     refreshGroupsRef.current = refreshGroups;
   }, [refreshGroups]);
 
-  // Listen for SignalR events
+  // Listen for SignalR events - only process when admin-authenticated
   useEffect(() => {
     const handleGroupCreated = () => {
+      if (authModeRef.current !== 'authenticated') return;
       refreshGroupsRef.current?.();
     };
 
     const handleGroupUpdated = () => {
+      if (authModeRef.current !== 'authenticated') return;
       refreshGroupsRef.current?.();
     };
 
     const handleGroupDeleted = () => {
+      if (authModeRef.current !== 'authenticated') return;
       refreshGroupsRef.current?.();
     };
 
     const handleMemberAdded = () => {
+      if (authModeRef.current !== 'authenticated') return;
       refreshGroupsRef.current?.();
     };
 
     const handleMemberRemoved = () => {
+      if (authModeRef.current !== 'authenticated') return;
       refreshGroupsRef.current?.();
     };
 

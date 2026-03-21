@@ -2,6 +2,7 @@ using System.Text.Json;
 using LancacheManager.Models;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using LancacheManager.Core.Services.SteamKit2;
 
@@ -16,6 +17,7 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/depots")]
+[Authorize(Policy = "AdminOnly")]
 public class DepotsController : ControllerBase
 {
     private readonly AppDbContext _context;
@@ -43,6 +45,7 @@ public class DepotsController : ControllerBase
     /// RESTful: Proper resource status endpoint
     /// </summary>
     [HttpGet("status")]
+    [Authorize]
     public async Task<IActionResult> GetDepotStatusAsync()
     {
         var picsData = await _picsDataService.LoadPicsDataFromJsonAsync();
