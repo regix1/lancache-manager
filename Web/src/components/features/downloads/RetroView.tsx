@@ -1399,13 +1399,12 @@ const RetroView = memo(
                   return (
                     <div
                       key={virtualRow.key}
-                      data-index={virtualRow.index}
-                      ref={virtualizer.measureElement}
                       style={{
                         position: 'absolute',
                         top: 0,
                         left: 0,
                         width: '100%',
+                        height: '48px',
                         transform: `translateY(${virtualRow.start}px)`
                       }}
                     >

@@ -355,6 +355,9 @@ const DownloadsTab: React.FC = () => {
   // Retro "Show All" warning modal
   const [retroAllWarningOpen, setRetroAllWarningOpen] = useState(false);
   const retroPreviousItemsPerPage = useRef<number | 'unlimited'>(DEFAULT_ITEMS_PER_PAGE.retro);
+  // Tracks whether the user explicitly confirmed "Show All" in retro mode via the warning modal.
+  // When true, effectiveItemsPerPage returns 'unlimited' instead of capping to 20.
+  const [retroUnlimitedConfirmed, setRetroUnlimitedConfirmed] = useState(false);
 
   const [settings, setSettings] = useState(() => {
     const savedViewMode = (storage.getItem(STORAGE_KEYS.VIEW_MODE) || 'normal') as ViewMode;
@@ -479,6 +482,7 @@ const DownloadsTab: React.FC = () => {
 
       // When switching AWAY from retro, save current retro value and restore previous non-retro value
       if (prevMode === 'retro' && newMode !== 'retro') {
+        setRetroUnlimitedConfirmed(false);
         // Restore the previously saved non-retro itemsPerPage
         const restored = previousNonRetroItemsPerPage.current;
         prevViewModeRef.current = newMode;
@@ -645,6 +649,10 @@ const DownloadsTab: React.FC = () => {
       retroPreviousItemsPerPage.current = settings.itemsPerPage;
       setRetroAllWarningOpen(true);
       return;
+    }
+    // If user selects a non-unlimited value in retro, reset the confirmation flag
+    if (value !== 'unlimited') {
+      setRetroUnlimitedConfirmed(false);
     }
     setSettings((prev) => ({
       ...prev,
@@ -1065,12 +1073,17 @@ const DownloadsTab: React.FC = () => {
   // hidden-but-mounted non-retro views (normal/compact/card) never receive unlimited
   // items. Without this, the useEffect that switches itemsPerPage to 20 runs AFTER
   // the first render, causing a lag spike as all hidden views render all items.
+  // Once the user explicitly confirms "Show All" via the warning modal, let unlimited through.
   const effectiveItemsPerPage = useMemo(() => {
-    if (settings.viewMode === 'retro' && settings.itemsPerPage === 'unlimited') {
+    if (
+      settings.viewMode === 'retro' &&
+      settings.itemsPerPage === 'unlimited' &&
+      !retroUnlimitedConfirmed
+    ) {
       return 20;
     }
     return settings.itemsPerPage;
-  }, [settings.viewMode, settings.itemsPerPage]);
+  }, [settings.viewMode, settings.itemsPerPage, retroUnlimitedConfirmed]);
 
   const itemsToDisplay = useMemo(() => {
     if (effectiveItemsPerPage === 'unlimited') {
@@ -2020,6 +2033,7 @@ const DownloadsTab: React.FC = () => {
               variant="filled"
               color="yellow"
               onClick={() => {
+                setRetroUnlimitedConfirmed(true);
                 setSettings((prev) => ({ ...prev, itemsPerPage: 'unlimited' }));
                 setRetroAllWarningOpen(false);
               }}
