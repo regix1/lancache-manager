@@ -39,6 +39,7 @@ import { GameImage } from '@components/common/GameImage';
 import ApiService from '@services/api.service';
 import { API_BASE } from '@utils/constants';
 import { useMockMode } from '@contexts/useMockMode';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import MockDataService from '../../../test/mockData.service';
 import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import DownloadBadges from './DownloadBadges';
@@ -472,6 +473,22 @@ const RetroView = memo(
       const [loading, setLoading] = useState(false);
       const [currentPage, setCurrentPage] = useState(1);
       const [error, setError] = useState<string | null>(null);
+      const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+      // Subscribe to SignalR events to refresh retro data when downloads change
+      const { on, off } = useSignalR();
+      useEffect(() => {
+        const handler = () => setRefreshTrigger((prev) => prev + 1);
+        const events = [
+          'DownloadsRefresh',
+          'LogProcessingComplete',
+          'DepotMappingComplete'
+        ] as const;
+        events.forEach((event) => on(event, handler));
+        return () => {
+          events.forEach((event) => off(event, handler));
+        };
+      }, [on, off]);
 
       // Resolve numeric page size for the API
       const pageSize =
@@ -585,7 +602,8 @@ const RetroView = memo(
         hideLocalhost,
         showZeroBytes,
         showSmallFiles,
-        hideUnknownGames
+        hideUnknownGames,
+        refreshTrigger
       ]);
 
       // Items from the API response (already grouped/sorted server-side)
