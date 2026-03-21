@@ -199,12 +199,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     };
   }, [signalR]);
 
-  // Join the AuthenticatedUsersGroup when SignalR is connected and has a session (admin or guest)
+  // Join the AuthenticatedUsersGroup when SignalR is connected and has a session (admin or guest).
+  // Also refresh auth state on reconnect to pick up any changes missed while disconnected
+  // (e.g. prefill permission grants that arrived via SignalR while the connection was down).
   useEffect(() => {
     if (signalR.isConnected && hasSession) {
       signalR.invoke('JoinAuthenticatedGroupAsync').catch((err: unknown) => {
         console.error('[Auth] Failed to join AuthenticatedUsersGroup:', err);
       });
+      fetchAuth();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signalR.isConnected, signalR.invoke, hasSession]);
