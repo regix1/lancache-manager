@@ -475,10 +475,8 @@ const GroupCard: React.FC<GroupCardProps> = ({
   return (
     <div
       ref={cardRef}
-      className={`rounded-lg border shadow-sm bg-[var(--theme-bg-secondary)] ${
-        isExpanded
-          ? 'ring-2 border-[var(--theme-primary)]'
-          : 'overflow-hidden border-[var(--theme-border-primary)]'
+      className={`rounded-lg border overflow-hidden shadow-sm bg-[var(--theme-bg-secondary)] ${
+        isExpanded ? 'ring-2 border-[var(--theme-primary)]' : 'border-[var(--theme-border-primary)]'
       } ${!fullHeightBanners && !isExpanded ? 'sm:max-h-[160px]' : ''}`}
     >
       {fullHeightBanners ? (
