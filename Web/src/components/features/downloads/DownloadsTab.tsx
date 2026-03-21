@@ -408,6 +408,10 @@ const DownloadsTab: React.FC = () => {
   // Column width cache for RetroView - persists across view switches
   const columnWidthCache = useRef<Map<string, number[]>>(new Map());
 
+  // Progressive/chunked loading for RetroView when showing all items
+  const RETRO_CHUNK_SIZE = 50;
+  const [retroLoadedCount, setRetroLoadedCount] = useState(0);
+
   // Effect to save settings to localStorage
   useEffect(() => {
     storage.setItem(STORAGE_KEYS.SHOW_METADATA, settings.showZeroBytes.toString());
@@ -1025,6 +1029,44 @@ const DownloadsTab: React.FC = () => {
   // Deferred items for smoother view transitions
   const deferredItemsToDisplay = useDeferredValue(itemsToDisplay);
   const deferredAllItemsSorted = useDeferredValue(allItemsSorted);
+
+  // Progressive chunked loading for RetroView — prevents crash when "Show All" is selected
+  // by feeding rows to RetroView in small batches, yielding to the browser between each chunk.
+  useEffect(() => {
+    if (settings.viewMode !== 'retro' || settings.itemsPerPage !== 'unlimited') {
+      setRetroLoadedCount(0);
+      return;
+    }
+
+    if (retroLoadedCount < deferredAllItemsSorted.length) {
+      const timer = setTimeout(() => {
+        setRetroLoadedCount((prev) =>
+          Math.min(prev + RETRO_CHUNK_SIZE, deferredAllItemsSorted.length)
+        );
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+  }, [settings.viewMode, settings.itemsPerPage, retroLoadedCount, deferredAllItemsSorted.length]);
+
+  // Reset chunk counter when the underlying data changes
+  useEffect(() => {
+    if (settings.viewMode === 'retro' && settings.itemsPerPage === 'unlimited') {
+      setRetroLoadedCount(RETRO_CHUNK_SIZE);
+    }
+  }, [filteredDownloads.length, settings.viewMode, settings.itemsPerPage]);
+
+  // Items to pass to RetroView — chunked when unlimited, full list otherwise
+  const retroItems = useMemo(() => {
+    if (settings.viewMode !== 'retro') return deferredAllItemsSorted;
+    if (settings.itemsPerPage !== 'unlimited') return deferredAllItemsSorted;
+    const count = retroLoadedCount || RETRO_CHUNK_SIZE;
+    return deferredAllItemsSorted.slice(0, count);
+  }, [settings.viewMode, settings.itemsPerPage, retroLoadedCount, deferredAllItemsSorted]);
+
+  const isRetroChunkedLoading =
+    settings.viewMode === 'retro' &&
+    settings.itemsPerPage === 'unlimited' &&
+    retroLoadedCount < deferredAllItemsSorted.length;
 
   const totalPages = useMemo(() => {
     if (settings.itemsPerPage === 'unlimited') return 1;
@@ -1867,20 +1909,30 @@ const DownloadsTab: React.FC = () => {
                   }
                 >
                   {retroEverMounted.current && (
-                    <RetroView
-                      ref={retroViewRef}
-                      items={deferredAllItemsSorted as (Download | DownloadGroup)[]}
-                      aestheticMode={settings.aestheticMode}
-                      itemsPerPage={settings.itemsPerPage}
-                      currentPage={currentPage}
-                      onTotalPagesChange={handleRetroTotalPagesChange}
-                      sortOrder={settings.sortOrder}
-                      showDatasourceLabels={showDatasourceLabels}
-                      hasMultipleDatasources={hasMultipleDatasources}
-                      showTimestamps={settings.showTimestamps}
-                      showBannerColumn={settings.showBannerColumn}
-                      columnWidthCache={columnWidthCache}
-                    />
+                    <>
+                      <RetroView
+                        ref={retroViewRef}
+                        items={retroItems as (Download | DownloadGroup)[]}
+                        aestheticMode={settings.aestheticMode}
+                        itemsPerPage={settings.itemsPerPage}
+                        currentPage={currentPage}
+                        onTotalPagesChange={handleRetroTotalPagesChange}
+                        sortOrder={settings.sortOrder}
+                        showDatasourceLabels={showDatasourceLabels}
+                        hasMultipleDatasources={hasMultipleDatasources}
+                        showTimestamps={settings.showTimestamps}
+                        showBannerColumn={settings.showBannerColumn}
+                        columnWidthCache={columnWidthCache}
+                      />
+                      {isRetroChunkedLoading && (
+                        <div className="retro-chunked-loading">
+                          <Loader2 size={16} className="animate-spin" />
+                          <span>
+                            Loading {retroLoadedCount} of {allItemsSorted.length} rows...
+                          </span>
+                        </div>
+                      )}
+                    </>
                   )}
                 </Suspense>
               </div>
