@@ -1116,6 +1116,8 @@ const DownloadsTab: React.FC = () => {
   }, [currentPage]);
 
   useEffect(() => {
+    const nonRetroEl = nonRetroContentRef.current;
+    const retroEl = retroViewRef.current;
     return () => {
       if (pageChangeTimeoutRef.current !== null) {
         clearTimeout(pageChangeTimeoutRef.current);
@@ -1126,8 +1128,8 @@ const DownloadsTab: React.FC = () => {
       if (fadeResetFrameRef.current !== null) {
         cancelAnimationFrame(fadeResetFrameRef.current);
       }
-      nonRetroContentRef.current?.classList.remove('page-fading');
-      retroViewRef.current?.setPageFading(false);
+      nonRetroEl?.classList.remove('page-fading');
+      retroEl?.setPageFading(false);
     };
   }, []);
 
