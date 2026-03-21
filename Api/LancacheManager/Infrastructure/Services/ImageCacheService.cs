@@ -50,7 +50,7 @@ public class ImageCacheService : IImageCacheService
                 // If currentImageUrl is provided, validate it hasn't changed (PICS update detection)
                 if (!string.IsNullOrEmpty(currentImageUrl) && File.Exists(metadataFilePath))
                 {
-                    var cachedUrl = await File.ReadAllTextAsync(metadataFilePath, cancellationToken);
+                    var cachedUrl = await File.ReadAllTextAsync(metadataFilePath);
                     if (cachedUrl.Trim() != currentImageUrl.Trim())
                     {
                         _logger.LogInformation($"Image URL changed for app {appId} (PICS update detected in fast path), cache invalid. Old: {cachedUrl}, New: {currentImageUrl}");
@@ -68,7 +68,7 @@ public class ImageCacheService : IImageCacheService
                     }
                 }
 
-                var cachedBytes = await File.ReadAllBytesAsync(cachedFilePath, cancellationToken);
+                var cachedBytes = await File.ReadAllBytesAsync(cachedFilePath);
                 _logger.LogTrace($"Served cached image for app {appId} (fast path)");
                 return (cachedBytes, "image/jpeg");
             }
@@ -102,7 +102,7 @@ public class ImageCacheService : IImageCacheService
                     bool urlChanged = false;
                     if (File.Exists(metadataFilePath))
                     {
-                        var cachedUrl = await File.ReadAllTextAsync(metadataFilePath, cancellationToken);
+                        var cachedUrl = await File.ReadAllTextAsync(metadataFilePath);
                         if (cachedUrl.Trim() != imageUrl.Trim())
                         {
                             _logger.LogInformation($"Image URL changed for app {appId} (PICS update detected), will re-download. Old: {cachedUrl}, New: {imageUrl}");
@@ -113,7 +113,7 @@ public class ImageCacheService : IImageCacheService
                     if (!urlChanged)
                     {
                         _logger.LogTrace($"Loading cached image for app {appId} from {cachedFilePath}");
-                        var cachedBytes = await File.ReadAllBytesAsync(cachedFilePath, cancellationToken);
+                        var cachedBytes = await File.ReadAllBytesAsync(cachedFilePath);
                         return (cachedBytes, "image/jpeg");
                     }
                 }
@@ -133,7 +133,7 @@ public class ImageCacheService : IImageCacheService
                 {
                     try
                     {
-                        var cachedBytes = await File.ReadAllBytesAsync(cachedFilePath, cancellationToken);
+                        var cachedBytes = await File.ReadAllBytesAsync(cachedFilePath);
                         return (cachedBytes, "image/jpeg");
                     }
                     catch (Exception ex)
@@ -158,8 +158,7 @@ public class ImageCacheService : IImageCacheService
                         {
                             var failureMarkerPath = Path.Combine(cacheDir, $"{appId}.failed");
                             await File.WriteAllTextAsync(failureMarkerPath,
-                                $"404 - Not Found\nURL: {imageUrl}\nTimestamp: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC",
-                                cancellationToken);
+                                $"404 - Not Found\nURL: {imageUrl}\nTimestamp: {DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC");
                             _logger.LogDebug($"Created failure marker for app {appId} (no image available)");
                         }
                         catch (Exception ex)
@@ -177,10 +176,10 @@ public class ImageCacheService : IImageCacheService
                 // Save to cache
                 try
                 {
-                    await File.WriteAllBytesAsync(cachedFilePath, imageBytes, cancellationToken);
+                    await File.WriteAllBytesAsync(cachedFilePath, imageBytes);
 
                     // Save metadata with the image URL for PICS update detection
-                    await File.WriteAllTextAsync(metadataFilePath, imageUrl, cancellationToken);
+                    await File.WriteAllTextAsync(metadataFilePath, imageUrl);
 
                     _logger.LogDebug($"Cached image for app {appId} to {cachedFilePath}");
                 }
