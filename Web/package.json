@@ -16,8 +16,6 @@
     "knip": "knip"
   },
   "dependencies": {
-    "@mantine/core": "^8.3.18",
-    "@mantine/hooks": "^8.3.18",
     "@microsoft/signalr": "^8.0.7",
     "@number-flow/react": "^0.5.10",
     "@tanstack/react-virtual": "^3.13.23",

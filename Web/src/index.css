@@ -16,6 +16,7 @@
 @import './styles/components/modals.css';
 @import './styles/components/help-popover.css';
 @import './styles/components/service-selector.css';
+@import './styles/components/drawer.css';
 
 /* Utilities */
 @import './styles/utilities/colors.css';

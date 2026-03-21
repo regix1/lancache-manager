@@ -741,22 +741,6 @@
 
   .drawer-content {
     background: var(--theme-bg-elevated);
-
-    /* Override Mantine's internal CSS variables so Drawer chrome
-       (close button, scrollbar, etc.) uses the app's theme palette */
-    --mantine-color-body: var(--theme-bg-elevated);
-    --mantine-color-text: var(--theme-text-primary);
-    --mantine-color-dimmed: var(--theme-text-muted);
-    --mantine-color-dark-0: var(--theme-text-primary);
-    --mantine-color-dark-1: var(--theme-text-secondary);
-    --mantine-color-dark-2: var(--theme-text-muted);
-    --mantine-color-dark-3: var(--theme-border-secondary);
-    --mantine-color-dark-4: var(--theme-border-elevated);
-    --mantine-color-dark-5: var(--theme-bg-surface-hover);
-    --mantine-color-dark-6: var(--theme-bg-surface);
-    --mantine-color-dark-7: var(--theme-bg-elevated);
-    --mantine-color-dark-8: var(--theme-bg-elevated);
-    --mantine-color-dark-9: var(--theme-bg-elevated);
   }
 
   .drawer-title {
@@ -764,15 +748,12 @@
     color: var(--theme-text-primary);
   }
 
-  /* Mantine close button inside the drawer */
-  .drawer-header button[aria-label] {
+  /* Close button inside the drawer */
+  .drawer-header .custom-drawer-close {
     color: var(--theme-text-secondary);
-    transition:
-      background-color 0.15s ease,
-      color 0.15s ease;
   }
 
-  .drawer-header button[aria-label]:hover {
+  .drawer-header .custom-drawer-close:hover {
     background-color: var(--theme-bg-hover);
     color: var(--theme-text-primary);
   }

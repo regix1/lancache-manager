@@ -23,20 +23,15 @@ export default defineConfig({
       '@services': path.resolve(__dirname, './src/services'),
       '@utils': path.resolve(__dirname, './src/utils'),
       '@contexts': path.resolve(__dirname, './src/contexts'),
-      '@hooks': path.resolve(__dirname, './src/hooks'),
-      // Force all packages to use the same React instance (fixes use-callback-ref + React 19)
-      'react': path.resolve(__dirname, './node_modules/react'),
-      'react-dom': path.resolve(__dirname, './node_modules/react-dom')
-    }
+      '@hooks': path.resolve(__dirname, './src/hooks')
+    },
+    // Ensure all packages resolve to the same React instance (prevents duplicate React in dev mode)
+    dedupe: ['react', 'react-dom']
   },
   optimizeDeps: {
     include: [
       'react',
-      'react-dom',
-      'use-callback-ref',
-      'react-remove-scroll',
-      '@mantine/core',
-      '@mantine/hooks'
+      'react-dom'
     ]
   },
   server: {
@@ -76,6 +71,8 @@ export default defineConfig({
         manualChunks: (id) => {
           if (id.includes('node_modules')) {
             if (id.includes('chart.js')) return 'charts';
+            // Keep use-callback-ref and use-sidecar with React since they import React directly
+            if (id.includes('use-callback-ref') || id.includes('use-sidecar')) return 'react-vendor';
             if (id.includes('react')) return 'react-vendor';
             if (id.includes('@tanstack')) return 'tanstack';
             if (id.includes('lucide-react')) return 'icons';

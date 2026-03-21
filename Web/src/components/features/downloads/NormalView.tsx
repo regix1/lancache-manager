@@ -1,6 +1,6 @@
 import React, { memo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Drawer } from '@mantine/core';
+import Drawer from '@components/ui/Drawer';
 import {
   ChevronRight,
   ChevronDown,
@@ -1775,9 +1775,7 @@ const NormalView: React.FC<NormalViewProps> = ({
           opened={drawerItem !== null}
           onClose={() => setDrawerItem(null)}
           position="right"
-          size="lg"
           title={drawerItem?.name ?? ''}
-          overlayProps={{ backgroundOpacity: 0.35, blur: 2 }}
           classNames={{
             header: 'drawer-header',
             body: 'drawer-body',
