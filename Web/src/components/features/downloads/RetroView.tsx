@@ -656,6 +656,10 @@ const RetroView = memo(
         }
         return smartDefaultWidths;
       });
+      // Ref that mirrors columnWidths so effects can read the current value
+      // without listing columnWidths as a dependency (which would cause loops).
+      const columnWidthsRef = useRef<ColumnWidths>(columnWidths);
+      columnWidthsRef.current = columnWidths;
 
       // Recalculate widths when items change (for actual data measurement)
       // Uses columnWidthCache to avoid re-measuring when data hasn't changed
@@ -712,12 +716,15 @@ const RetroView = memo(
               return nextWidths;
             });
           } else {
-            // Store current widths in cache even if from localStorage
+            // Store current widths in cache even if from localStorage.
+            // Use columnWidthsRef instead of columnWidths to avoid adding state
+            // to this effect's deps (the effect also calls setColumnWidths above,
+            // which would cause an infinite loop).
             if (columnWidthCache && cacheKey) {
-              const keys = Object.keys(columnWidths) as (keyof ColumnWidths)[];
+              const keys = Object.keys(columnWidthsRef.current) as (keyof ColumnWidths)[];
               columnWidthCache.current.set(
                 cacheKey,
-                keys.map((k) => columnWidths[k])
+                keys.map((k) => columnWidthsRef.current[k])
               );
             }
           }
