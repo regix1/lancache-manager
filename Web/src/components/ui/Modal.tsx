@@ -36,7 +36,7 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
       // Only lock scroll and save scrollbar width for the first modal
       if (modalStack.length === 0) {
         savedScrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
-        document.body.style.overflow = 'hidden';
+        document.documentElement.style.overflow = 'hidden';
         document.body.style.paddingRight = `${savedScrollbarWidth}px`;
       }
 
@@ -65,7 +65,7 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
 
         // Only restore scroll when all modals are closed
         if (modalStack.length === 0) {
-          document.body.style.overflow = '';
+          document.documentElement.style.overflow = '';
           document.body.style.paddingRight = '';
         }
       }, 250); // Match transition duration
@@ -79,7 +79,7 @@ export const Modal: React.FC<ModalProps> = ({ opened, onClose, title, children, 
 
         // Restore scroll if this was the last modal
         if (modalStack.length === 0) {
-          document.body.style.overflow = '';
+          document.documentElement.style.overflow = '';
           document.body.style.paddingRight = '';
         }
       }

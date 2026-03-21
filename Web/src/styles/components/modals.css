@@ -9,7 +9,8 @@
   }
 
   /* Prevent body shift when modal opens */
-  body.modal-open {
+  body.modal-open,
+  html.modal-open {
     overflow: hidden !important;
   }
 
