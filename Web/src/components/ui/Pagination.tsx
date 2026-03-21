@@ -206,7 +206,21 @@ export const Pagination: React.FC<PaginationProps> = ({
                 1
               </button>
 
-              {currentPage > 3 && <span className="px-2 text-themed-muted">•••</span>}
+              {currentPage > 3 && (
+                <button
+                  onClick={() => onPageChange(Math.max(1, currentPage - 5))}
+                  className="min-w-[32px] h-8 px-2 rounded-lg font-medium transition-all hover:scale-105 hover:bg-opacity-80 cursor-pointer"
+                  style={{
+                    backgroundColor: 'var(--theme-bg-tertiary)',
+                    color: 'var(--theme-text-secondary)',
+                    border: '1px solid var(--theme-border-secondary)'
+                  }}
+                  title={t('ui.pagination.jumpBack', { count: 5 })}
+                  aria-label={t('ui.pagination.jumpBack', { count: 5 })}
+                >
+                  •••
+                </button>
+              )}
 
               {Array.from({ length: 5 }, (_, i) => {
                 const pageNum = currentPage - 2 + i;
@@ -240,7 +254,21 @@ export const Pagination: React.FC<PaginationProps> = ({
                 );
               }).filter(Boolean)}
 
-              {currentPage < totalPages - 2 && <span className="px-2 text-themed-muted">•••</span>}
+              {currentPage < totalPages - 2 && (
+                <button
+                  onClick={() => onPageChange(Math.min(totalPages, currentPage + 5))}
+                  className="min-w-[32px] h-8 px-2 rounded-lg font-medium transition-all hover:scale-105 hover:bg-opacity-80 cursor-pointer"
+                  style={{
+                    backgroundColor: 'var(--theme-bg-tertiary)',
+                    color: 'var(--theme-text-secondary)',
+                    border: '1px solid var(--theme-border-secondary)'
+                  }}
+                  title={t('ui.pagination.jumpForward', { count: 5 })}
+                  aria-label={t('ui.pagination.jumpForward', { count: 5 })}
+                >
+                  •••
+                </button>
+              )}
 
               <button
                 onClick={() => onPageChange(totalPages)}
