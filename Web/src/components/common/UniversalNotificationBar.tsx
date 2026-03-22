@@ -521,7 +521,7 @@ const UniversalNotificationBar: React.FC = () => {
 
   return (
     <div
-      className={`w-full border-b shadow-sm bg-[var(--theme-nav-bg)] border-[var(--theme-nav-border)] transition-all duration-300 ease-out ${!stickyDisabled ? 'notification-bar-sticky' : ''}`}
+      className={`w-full border-b shadow-sm bg-[var(--theme-nav-bg)] border-[var(--theme-nav-border)] transition-all duration-300 ease-out ${!stickyDisabled ? 'sticky top-12 z-40 md:top-0 md:z-50' : ''}`}
       style={{
         transform: isAnimatingOut ? 'translateY(-100%)' : 'translateY(0)',
         opacity: isAnimatingOut ? 0 : 1
