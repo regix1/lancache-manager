@@ -520,29 +520,31 @@ const UniversalNotificationBar: React.FC = () => {
   }
 
   return (
-    <div
-      className={`w-full border-b shadow-sm bg-[var(--theme-nav-bg)] border-[var(--theme-nav-border)] transition-all duration-300 ease-out ${!stickyDisabled ? 'sticky top-12 z-40 md:top-0 md:z-50' : ''}`}
-      style={{
-        transform: isAnimatingOut ? 'translateY(-100%)' : 'translateY(0)',
-        opacity: isAnimatingOut ? 0 : 1
-      }}
-    >
-      <div className="container mx-auto px-4 py-2 space-y-2">
-        {/* Unified Notifications - completed/failed first, then running */}
-        {[...notifications]
-          .sort((a, b) => {
-            const statusOrder = { completed: 0, failed: 1, running: 2, pending: 3 };
-            return (statusOrder[a.status] ?? 4) - (statusOrder[b.status] ?? 4);
-          })
-          .map((notification) => (
-            <UnifiedNotificationItem
-              key={notification.id}
-              notification={notification}
-              onDismiss={() => handleDismiss(notification.id)}
-              onCancel={getCancelHandler(notification)}
-              isAnimatingOut={dismissingIds.has(notification.id)}
-            />
-          ))}
+    <div className={`w-full ${!stickyDisabled ? 'sticky top-12 z-40 md:top-0 md:z-50' : ''}`}>
+      <div
+        className="w-full border-b shadow-sm bg-[var(--theme-nav-bg)] border-[var(--theme-nav-border)] transition-all duration-300 ease-out"
+        style={{
+          transform: isAnimatingOut ? 'translateY(-100%)' : 'translateY(0)',
+          opacity: isAnimatingOut ? 0 : 1
+        }}
+      >
+        <div className="container mx-auto px-4 py-2 space-y-2">
+          {/* Unified Notifications - completed/failed first, then running */}
+          {[...notifications]
+            .sort((a, b) => {
+              const statusOrder = { completed: 0, failed: 1, running: 2, pending: 3 };
+              return (statusOrder[a.status] ?? 4) - (statusOrder[b.status] ?? 4);
+            })
+            .map((notification) => (
+              <UnifiedNotificationItem
+                key={notification.id}
+                notification={notification}
+                onDismiss={() => handleDismiss(notification.id)}
+                onCancel={getCancelHandler(notification)}
+                isAnimatingOut={dismissingIds.has(notification.id)}
+              />
+            ))}
+        </div>
       </div>
     </div>
   );

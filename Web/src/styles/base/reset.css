@@ -13,7 +13,9 @@
 
   body {
     @apply bg-gray-900 text-gray-100;
+    /* Use clip so sticky descendants still track the viewport when html owns vertical scrolling. */
     overflow-x: hidden;
+    overflow-x: clip;
     width: 100%;
   }
 
