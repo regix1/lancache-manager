@@ -297,7 +297,7 @@ export const MultiSelectDropdown: React.FC<MultiSelectDropdownProps> = ({
         createPortal(
           <div
             ref={dropdownRef}
-            className={`msd-dropdown fixed z-[85] ${dropdownWidth || ''} themed-border-radius overflow-hidden bg-themed-secondary border border-themed-primary shadow-[0_4px_6px_-1px_rgba(0,0,0,0.1),0_10px_20px_-5px_rgba(0,0,0,0.2),0_20px_40px_-10px_rgba(0,0,0,0.15),inset_0_1px_0_0_var(--theme-glint-white)]`}
+            className={`msd-dropdown fixed z-[250] ${dropdownWidth || ''} themed-border-radius overflow-hidden bg-themed-secondary border border-themed-primary shadow-[0_4px_6px_-1px_rgba(0,0,0,0.1),0_10px_20px_-5px_rgba(0,0,0,0.2),0_20px_40px_-10px_rgba(0,0,0,0.15),inset_0_1px_0_0_var(--theme-glint-white)]`}
             style={{
               top: dropdownStyle.top,
               bottom: dropdownStyle.bottom,
