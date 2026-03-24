@@ -4,9 +4,11 @@ import authService from '@services/auth.service';
 import ApiService from '@services/api.service';
 import { storage } from '@utils/storage';
 import { useInitializationAuth } from '@hooks/useInitializationAuth';
+import { API_BASE } from '@utils/constants';
 import type { PicsStatus } from '@/types';
 
 export type InitStep =
+  | 'database-setup'
   | 'api-key'
   | 'permissions-check'
   | 'import-historical-data'
@@ -58,6 +60,7 @@ interface UseInitializationFlowResult {
 
   // Navigation handlers
   handleGoBack: () => void;
+  handleDatabaseSetupComplete: () => void;
   handlePermissionsCheckComplete: () => void;
   handleImportComplete: () => void;
   handleSelectPlatform: (platform: 'github' | 'steam' | 'epic') => void;
@@ -90,23 +93,23 @@ const buildStepInfoMap = (
   t: (key: string) => string,
   choice: DataSourceChoice
 ): Record<InitStep, StepInfo> => {
-  // Main flow: api-key(1), permissions-check(2), import(3), platform-setup(4), log-processing(5), depot-mapping(6)
-  // Sub-flows extend from the hub (platform-setup = step 4)
-  const BASE_TOTAL = 6;
+  // Main flow: database-setup(1), api-key(2), permissions-check(3), import(4), platform-setup(5), log-processing(6), depot-mapping(7)
+  // Sub-flows extend from the hub (platform-setup = step 5)
+  const BASE_TOTAL = 7;
 
   const getSubFlowInfo = (step: InitStep): { number: number; total: number } | null => {
     switch (choice) {
       case 'github':
-        if (step === 'depot-init') return { number: 4, total: BASE_TOTAL + 1 };
+        if (step === 'depot-init') return { number: 5, total: BASE_TOTAL + 1 };
         break;
       case 'steam':
-        if (step === 'steam-api-key') return { number: 4, total: BASE_TOTAL + 4 };
-        if (step === 'steam-auth') return { number: 5, total: BASE_TOTAL + 4 };
-        if (step === 'depot-init') return { number: 6, total: BASE_TOTAL + 4 };
-        if (step === 'pics-progress') return { number: 7, total: BASE_TOTAL + 4 };
+        if (step === 'steam-api-key') return { number: 5, total: BASE_TOTAL + 4 };
+        if (step === 'steam-auth') return { number: 6, total: BASE_TOTAL + 4 };
+        if (step === 'depot-init') return { number: 7, total: BASE_TOTAL + 4 };
+        if (step === 'pics-progress') return { number: 8, total: BASE_TOTAL + 4 };
         break;
       case 'epic':
-        if (step === 'epic-auth') return { number: 4, total: BASE_TOTAL + 1 };
+        if (step === 'epic-auth') return { number: 5, total: BASE_TOTAL + 1 };
         break;
     }
     return null;
@@ -114,12 +117,13 @@ const buildStepInfoMap = (
 
   const getStepInfo = (step: InitStep): { number: number; total: number } => {
     const commonSteps: Record<string, number> = {
-      'api-key': 1,
-      'permissions-check': 2,
-      'import-historical-data': 3,
-      'platform-setup': 4,
-      'log-processing': 5,
-      'depot-mapping': 6
+      'database-setup': 1,
+      'api-key': 2,
+      'permissions-check': 3,
+      'import-historical-data': 4,
+      'platform-setup': 5,
+      'log-processing': 6,
+      'depot-mapping': 7
     };
 
     if (commonSteps[step] !== undefined) {
@@ -130,10 +134,11 @@ const buildStepInfoMap = (
     if (subFlow) return subFlow;
 
     // Fallback for steps not on the current path
-    return { number: 4, total: BASE_TOTAL };
+    return { number: 5, total: BASE_TOTAL };
   };
 
   const steps: InitStep[] = [
+    'database-setup',
     'api-key',
     'permissions-check',
     'import-historical-data',
@@ -148,6 +153,7 @@ const buildStepInfoMap = (
   ];
 
   const titles: Record<InitStep, string> = {
+    'database-setup': t('initialization.modal.stepTitles.databaseSetup'),
     'api-key': t('initialization.modal.stepTitles.authentication'),
     'permissions-check': t('initialization.modal.stepTitles.permissionsCheck'),
     'import-historical-data': t('initialization.modal.stepTitles.importHistoricalData'),
@@ -189,7 +195,7 @@ export function useInitializationFlow({
   // --- State ---
   const [currentStep, setCurrentStep] = useState<InitStep>(() => {
     const stored = storage.getItem('initializationCurrentStep');
-    return (stored as InitStep) || 'api-key';
+    return (stored as InitStep) || 'database-setup';
   });
 
   const [dataSourceChoice, setDataSourceChoice] = useState<DataSourceChoice>(() => {
@@ -316,16 +322,16 @@ export function useInitializationFlow({
           return;
         }
 
-        // Not authenticated -> show api-key step
+        // Not authenticated -> show database-setup step (will auto-skip if not needed)
         if (!authCheck.isAuthenticated) {
-          setCurrentStep('api-key');
+          setCurrentStep('database-setup');
           setIsCheckingAuth(false);
           return;
         }
 
         // Authenticated but setup not complete -> continue from stored step
         const storedStep = storage.getItem('initializationCurrentStep');
-        if (storedStep && storedStep !== 'api-key') {
+        if (storedStep && storedStep !== 'database-setup' && storedStep !== 'api-key') {
           const storedChoice = storage.getItem('dataSourceChoice');
           if (storedChoice) {
             setDataSourceChoice(storedChoice as DataSourceChoice);
@@ -353,16 +359,16 @@ export function useInitializationFlow({
           return;
         }
 
-        // No stored step or at api-key step
+        // No stored step or at api-key/database-setup step
         if (authCheck.isAuthenticated) {
           await checkPicsDataStatus();
           setCurrentStep('permissions-check');
         } else {
-          setCurrentStep('api-key');
+          setCurrentStep('database-setup');
         }
       } catch (error) {
         console.error('Failed to check setup status:', error);
-        setCurrentStep('api-key');
+        setCurrentStep('database-setup');
       } finally {
         setIsCheckingAuth(false);
       }
@@ -372,7 +378,37 @@ export function useInitializationFlow({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // --- Auto-skip database-setup if not needed ---
+  useEffect(() => {
+    if (currentStep !== 'database-setup') return;
+
+    const checkDatabaseSetup = async (): Promise<void> => {
+      try {
+        const response = await fetch(`${API_BASE}/setup/status`, { credentials: 'include' });
+        if (response.ok) {
+          const data = await response.json();
+          if (data.needsSetup !== true) {
+            // Database already configured, skip to api-key
+            setCurrentStep('api-key');
+          }
+        } else {
+          // Endpoint doesn't exist or errors — skip this step
+          setCurrentStep('api-key');
+        }
+      } catch {
+        // Network error — skip this step
+        setCurrentStep('api-key');
+      }
+    };
+
+    checkDatabaseSetup();
+  }, [currentStep]);
+
   // --- Navigation handlers ---
+  const handleDatabaseSetupComplete = useCallback((): void => {
+    setCurrentStep('api-key');
+  }, []);
+
   const handlePermissionsCheckComplete = useCallback((): void => {
     setCurrentStep('import-historical-data');
   }, []);
@@ -485,6 +521,9 @@ export function useInitializationFlow({
 
   const handleGoBack = useCallback((): void => {
     switch (currentStep) {
+      case 'api-key':
+        setCurrentStep('database-setup');
+        break;
       case 'permissions-check':
         setCurrentStep('api-key');
         break;
@@ -549,6 +588,7 @@ export function useInitializationFlow({
     setBackButtonDisabled,
 
     handleGoBack,
+    handleDatabaseSetupComplete,
     handlePermissionsCheckComplete,
     handleImportComplete,
     handleSelectPlatform,

@@ -2,7 +2,8 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use jwalk::WalkDir;
 use rayon::prelude::*;
-use rusqlite::Connection;
+use sqlx::PgPool;
+use sqlx::Row;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -11,6 +12,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 mod cache_utils;
+mod db;
 mod progress_events;
 mod progress_utils;
 
@@ -21,7 +23,7 @@ use progress_events::ProgressReporter;
 #[command(name = "cache_game_detect")]
 #[command(about = "Detects which games have files in the cache directory")]
 struct Args {
-    /// Path to LancacheManager.db
+    /// Path to LancacheManager database (DATABASE_URL env var or connection string)
     database_path: String,
 
     /// Cache directory root (e.g., /cache or H:/cache)
@@ -171,15 +173,12 @@ fn scan_cache_directory(cache_dir: &Path) -> Result<HashMap<String, CacheFileInf
     let total = cache_files.len();
     let total_size_gb = cache_files.values().map(|f| f.size).sum::<u64>() as f64 / 1_073_741_824.0;
 
-    eprintln!("\r  ✓ Found {} cache files ({:.2} GB total)", total, total_size_gb);
+    eprintln!("\r  Found {} cache files ({:.2} GB total)", total, total_size_gb);
 
     Ok(cache_files)
 }
 
-fn query_game_downloads(db_path: &Path, max_urls_per_game: Option<usize>, excluded_game_ids: &[u32]) -> Result<Vec<DownloadRecord>> {
-    let conn = Connection::open(db_path)
-        .context("Failed to open database")?;
-
+async fn query_game_downloads(pool: &PgPool, max_urls_per_game: Option<usize>, excluded_game_ids: &[u32]) -> Result<Vec<DownloadRecord>> {
     eprintln!("Querying LogEntries for game URLs...");
 
     // Build exclusion clause if we have games to exclude
@@ -188,7 +187,7 @@ fn query_game_downloads(db_path: &Path, max_urls_per_game: Option<usize>, exclud
             .map(|id| id.to_string())
             .collect::<Vec<_>>()
             .join(",");
-        format!("AND sdm.AppId NOT IN ({})", ids_str)
+        format!("AND sdm.\"AppId\" NOT IN ({})", ids_str)
     } else {
         String::new()
     };
@@ -198,64 +197,63 @@ fn query_game_downloads(db_path: &Path, max_urls_per_game: Option<usize>, exclud
     }
 
     // Query LogEntries joined with SteamDepotMappings to get URLs for mapped games
-    // Strategy: Get a sample of URLs per game for faster scanning
-    // IMPORTANT: Only match depots where IsOwner=1 to avoid attributing shared depots to multiple games
-    // Use COALESCE to fall back to DepotName when AppName is NULL (for redistributables like Ubisoft Connect)
     let query = if let Some(limit) = max_urls_per_game {
         eprintln!("Using sampling strategy: max {} URLs per game", limit);
         format!(
-            "SELECT le.Service, sdm.AppId, COALESCE(sdm.AppName, sdm.DepotName, 'App ' || sdm.AppId), le.Url, le.DepotId
-             FROM LogEntries le
-             INNER JOIN SteamDepotMappings sdm ON le.DepotId = sdm.DepotId
-             WHERE sdm.AppId IS NOT NULL AND le.Url IS NOT NULL AND sdm.IsOwner = 1 {}
-             GROUP BY sdm.AppId, le.Url
-             ORDER BY sdm.AppId, le.BytesServed DESC",
+            "SELECT le.\"Service\", sdm.\"AppId\", COALESCE(sdm.\"AppName\", sdm.\"DepotName\", 'App ' || sdm.\"AppId\"), le.\"Url\", le.\"DepotId\"
+             FROM \"LogEntries\" le
+             INNER JOIN \"SteamDepotMappings\" sdm ON le.\"DepotId\" = sdm.\"DepotId\"
+             WHERE sdm.\"AppId\" IS NOT NULL AND le.\"Url\" IS NOT NULL AND sdm.\"IsOwner\" = true {}
+             GROUP BY sdm.\"AppId\", le.\"Url\", le.\"Service\", sdm.\"AppName\", sdm.\"DepotName\", le.\"DepotId\"
+             ORDER BY sdm.\"AppId\", MAX(le.\"BytesServed\") DESC",
             exclusion_clause
         )
     } else {
         format!(
-            "SELECT DISTINCT le.Service, sdm.AppId, COALESCE(sdm.AppName, sdm.DepotName, 'App ' || sdm.AppId), le.Url, le.DepotId
-             FROM LogEntries le
-             INNER JOIN SteamDepotMappings sdm ON le.DepotId = sdm.DepotId
-             WHERE sdm.AppId IS NOT NULL AND le.Url IS NOT NULL AND sdm.IsOwner = 1 {}
-             ORDER BY sdm.AppId",
+            "SELECT DISTINCT le.\"Service\", sdm.\"AppId\", COALESCE(sdm.\"AppName\", sdm.\"DepotName\", 'App ' || sdm.\"AppId\"), le.\"Url\", le.\"DepotId\"
+             FROM \"LogEntries\" le
+             INNER JOIN \"SteamDepotMappings\" sdm ON le.\"DepotId\" = sdm.\"DepotId\"
+             WHERE sdm.\"AppId\" IS NOT NULL AND le.\"Url\" IS NOT NULL AND sdm.\"IsOwner\" = true {}
+             ORDER BY sdm.\"AppId\"",
             exclusion_clause
         )
     };
 
-    let mut stmt = conn.prepare(&query)?;
+    let rows = sqlx::query(&query).fetch_all(pool).await?;
 
     let mut records: Vec<DownloadRecord> = Vec::new();
     let mut current_game_id: Option<u32> = None;
     let mut current_game_count = 0;
 
-    let rows = stmt.query_map([], |row| {
-        Ok(DownloadRecord {
-            service: row.get(0)?,
-            game_app_id: row.get(1)?,
-            game_name: row.get(2)?,
-            url: row.get(3)?,
-            depot_id: row.get(4)?,
-        })
-    })?;
+    for row in rows {
+        let service: String = row.get(0);
+        let game_app_id: i64 = row.get(1);
+        let game_name: String = row.get(2);
+        let url: String = row.get(3);
+        let depot_id: Option<i64> = row.get(4);
 
-    for row_result in rows {
-        if let Ok(record) = row_result {
-            // Apply per-game limit if specified
-            if let Some(limit) = max_urls_per_game {
-                if Some(record.game_app_id) != current_game_id {
-                    current_game_id = Some(record.game_app_id);
-                    current_game_count = 0;
-                }
+        let record = DownloadRecord {
+            service,
+            game_app_id: game_app_id as u32,
+            game_name,
+            url,
+            depot_id: depot_id.map(|d| d as u32),
+        };
 
-                if current_game_count >= limit {
-                    continue;
-                }
-                current_game_count += 1;
+        // Apply per-game limit if specified
+        if let Some(limit) = max_urls_per_game {
+            if Some(record.game_app_id) != current_game_id {
+                current_game_id = Some(record.game_app_id);
+                current_game_count = 0;
             }
 
-            records.push(record);
+            if current_game_count >= limit {
+                continue;
+            }
+            current_game_count += 1;
         }
+
+        records.push(record);
     }
 
     eprintln!("Found {} URLs across all mapped games", records.len());
@@ -269,70 +267,68 @@ fn query_game_downloads(db_path: &Path, max_urls_per_game: Option<usize>, exclud
             .map(|id| id.to_string())
             .collect::<Vec<_>>()
             .join(",");
-        format!("AND le.DepotId NOT IN ({})", ids_str)
+        format!("AND le.\"DepotId\" NOT IN ({})", ids_str)
     } else {
         String::new()
     };
 
     let unknown_query = if let Some(limit) = max_urls_per_game {
         format!(
-            "SELECT le.Service, le.DepotId, le.Url
-             FROM LogEntries le
-             WHERE le.DepotId IS NOT NULL
-             AND le.Url IS NOT NULL
-             AND le.DepotId NOT IN (SELECT DepotId FROM SteamDepotMappings)
+            "SELECT le.\"Service\", le.\"DepotId\", le.\"Url\"
+             FROM \"LogEntries\" le
+             WHERE le.\"DepotId\" IS NOT NULL
+             AND le.\"Url\" IS NOT NULL
+             AND le.\"DepotId\" NOT IN (SELECT \"DepotId\" FROM \"SteamDepotMappings\")
              {}
-             GROUP BY le.DepotId, le.Url
+             GROUP BY le.\"DepotId\", le.\"Url\", le.\"Service\"
              LIMIT {}",
             unknown_exclusion_clause,
             limit * 10 // Allow more URLs for unknown games combined
         )
     } else {
         format!(
-            "SELECT DISTINCT le.Service, le.DepotId, le.Url
-             FROM LogEntries le
-             WHERE le.DepotId IS NOT NULL
-             AND le.Url IS NOT NULL
-             AND le.DepotId NOT IN (SELECT DepotId FROM SteamDepotMappings)
+            "SELECT DISTINCT le.\"Service\", le.\"DepotId\", le.\"Url\"
+             FROM \"LogEntries\" le
+             WHERE le.\"DepotId\" IS NOT NULL
+             AND le.\"Url\" IS NOT NULL
+             AND le.\"DepotId\" NOT IN (SELECT \"DepotId\" FROM \"SteamDepotMappings\")
              {}
-             ORDER BY le.DepotId",
+             ORDER BY le.\"DepotId\"",
             unknown_exclusion_clause
         )
     };
 
-    let mut unknown_stmt = conn.prepare(&unknown_query)?;
+    let unknown_rows = sqlx::query(&unknown_query).fetch_all(pool).await?;
 
     let mut unknown_current_depot: Option<u32> = None;
     let mut unknown_depot_count = 0;
 
-    let unknown_rows = unknown_stmt.query_map([], |row| {
-        let depot_id: u32 = row.get(1)?;
-        Ok((row.get::<_, String>(0)?, depot_id, row.get::<_, String>(2)?))
-    })?;
+    for row in unknown_rows {
+        let service: String = row.get(0);
+        let depot_id: i64 = row.get(1);
+        let url: String = row.get(2);
+        let depot_id_u32 = depot_id as u32;
 
-    for row_result in unknown_rows {
-        if let Ok((service, depot_id, url)) = row_result {
-            // Apply per-depot limit for unknown games
-            if let Some(limit) = max_urls_per_game {
-                if Some(depot_id) != unknown_current_depot {
-                    unknown_current_depot = Some(depot_id);
-                    unknown_depot_count = 0;
-                }
-
-                if unknown_depot_count >= limit {
-                    continue;
-                }
-                unknown_depot_count += 1;
+        // Apply per-depot limit for unknown games
+        if let Some(limit) = max_urls_per_game {
+            if Some(depot_id_u32) != unknown_current_depot {
+                unknown_current_depot = Some(depot_id_u32);
+                unknown_depot_count = 0;
             }
 
-            records.push(DownloadRecord {
-                service,
-                game_app_id: depot_id,
-                game_name: format!("Unknown Game (Depot {})", depot_id),
-                url,
-                depot_id: Some(depot_id),
-            });
+            if unknown_depot_count >= limit {
+                continue;
+            }
+            unknown_depot_count += 1;
         }
+
+        records.push(DownloadRecord {
+            service,
+            game_app_id: depot_id_u32,
+            game_name: format!("Unknown Game (Depot {})", depot_id_u32),
+            url,
+            depot_id: Some(depot_id_u32),
+        });
     }
 
     eprintln!("Found {} total URLs to check", records.len());
@@ -340,45 +336,33 @@ fn query_game_downloads(db_path: &Path, max_urls_per_game: Option<usize>, exclud
     Ok(records)
 }
 
-fn query_service_downloads(db_path: &Path) -> Result<HashMap<String, Vec<(String, String)>>> {
-    let conn = Connection::open(db_path)
-        .context("Failed to open database")?;
-
+async fn query_service_downloads(pool: &PgPool) -> Result<HashMap<String, Vec<(String, String)>>> {
     eprintln!("Querying LogEntries for non-game services...");
 
     // Services to detect (these typically don't have game AppIds)
     // We'll exclude 'steam' since it's covered by game detection
     let query = "
-        SELECT DISTINCT le.Service, le.Url
-        FROM LogEntries le
-        WHERE le.Service IS NOT NULL
-        AND le.Url IS NOT NULL
-        AND LOWER(le.Service) NOT IN ('steam', 'unknown', 'localhost')
-        AND le.Service != ''
-        ORDER BY le.Service, le.BytesServed DESC
+        SELECT DISTINCT le.\"Service\", le.\"Url\"
+        FROM \"LogEntries\" le
+        WHERE le.\"Service\" IS NOT NULL
+        AND le.\"Url\" IS NOT NULL
+        AND LOWER(le.\"Service\") NOT IN ('steam', 'unknown', 'localhost')
+        AND le.\"Service\" != ''
+        ORDER BY le.\"Service\", le.\"BytesServed\" DESC
     ";
 
-    let mut stmt = conn.prepare(query)?;
-
-    let rows = stmt.query_map([], |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, String>(1)?,
-        ))
-    })?;
+    let rows = sqlx::query(query).fetch_all(pool).await?;
 
     let mut services: HashMap<String, Vec<(String, String)>> = HashMap::new();
 
-    for row_result in rows {
-        if let Ok((service, url)) = row_result {
-            let service_lower = service.to_lowercase();
-            // Group by lowercase for display, but preserve original case for MD5 hash calculation
-            // Nginx cache keys use the original service name case
-            services
-                .entry(service_lower)
-                .or_insert_with(Vec::new)
-                .push((service, url));
-        }
+    for row in rows {
+        let service: String = row.get(0);
+        let url: String = row.get(1);
+        let service_lower = service.to_lowercase();
+        services
+            .entry(service_lower)
+            .or_insert_with(Vec::new)
+            .push((service, url));
     }
 
     let service_count = services.len();
@@ -448,7 +432,6 @@ fn detect_cache_files_for_service(
 }
 
 /// Detect cache files for a game using direct file existence checks (for incremental mode)
-/// This is faster when checking a small number of URLs
 fn detect_cache_files_for_game_incremental(
     records: &[DownloadRecord],
     cache_dir: &Path,
@@ -598,11 +581,11 @@ fn detect_cache_files_for_game(
     })
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let args = Args::parse();
     let reporter = ProgressReporter::new(args.progress);
 
-    let db_path = PathBuf::from(&args.database_path);
     let cache_dir = PathBuf::from(&args.cache_dir);
     let output_json = PathBuf::from(&args.output_json);
     let incremental_mode = args.incremental;
@@ -625,7 +608,6 @@ fn main() -> Result<()> {
     };
 
     eprintln!("Game Cache Detection");
-    eprintln!("  Database: {}", db_path.display());
     eprintln!("  Cache directory: {}", cache_dir.display());
     eprintln!("  Mode: {}", if incremental_mode { "Incremental (Quick Scan)" } else { "Full Scan" });
     if let Some(ref path) = progress_path {
@@ -639,20 +621,17 @@ fn main() -> Result<()> {
     write_progress(progress_path.as_deref(), "starting", "Initializing game cache detection", 0.0, 0, 0)?;
     reporter.emit_progress(0.0, "Initializing game cache detection");
 
-    if !db_path.exists() {
-        anyhow::bail!("Database not found: {}", db_path.display());
-    }
-
     if !cache_dir.exists() {
         anyhow::bail!("Cache directory not found: {}", cache_dir.display());
     }
+
+    let pool = db::create_pool().await;
 
     // Variables that may or may not be used depending on mode
     let cache_files_index: Option<HashMap<String, CacheFileInfo>>;
 
     if incremental_mode {
         // INCREMENTAL MODE: Skip expensive cache directory scan
-        // Only check file existence for new games (fast when there are few new games)
         eprintln!("\n=== Incremental Mode: Skipping Cache Directory Scan ===");
         eprintln!("Will check file existence directly for new games only...");
         write_progress(progress_path.as_deref(), "scanning", "Incremental mode - skipping cache scan", 20.0, 0, 0)?;
@@ -660,7 +639,6 @@ fn main() -> Result<()> {
         cache_files_index = None;
     } else {
         // FULL SCAN: Build in-memory index of all cache files
-        // This is much faster than checking 2.3M individual file.exists() calls
         write_progress(progress_path.as_deref(), "scanning", "Scanning cache directory", 5.0, 0, 0)?;
         reporter.emit_progress(5.0, "Scanning cache directory");
         let index = scan_cache_directory(&cache_dir)?;
@@ -675,12 +653,9 @@ fn main() -> Result<()> {
     reporter.emit_progress(20.0, "Querying database for game URLs");
 
     // Query ALL URLs to get accurate cache sizes (no sampling)
-    // This ensures we find and measure every cache file for complete accuracy
-    let all_records = query_game_downloads(&db_path, None, &excluded_game_ids)?;
+    let all_records = query_game_downloads(&pool, None, &excluded_game_ids).await?;
     write_progress(progress_path.as_deref(), "querying", "Database query complete", 30.0, 0, 0)?;
     reporter.emit_progress(30.0, "Database query complete");
-
-    // Continue even if no games found - we still want to detect services
 
     // Group records by game_app_id
     let mut games_map: HashMap<u32, Vec<DownloadRecord>> = HashMap::new();
@@ -694,7 +669,6 @@ fn main() -> Result<()> {
     let total_games = games_map.len();
     eprintln!("Found {} unique games in database", total_games);
 
-    // Calculate total URLs to give user an idea of scope
     let total_urls: usize = games_map.values().map(|v| v.len()).sum();
     eprintln!("Total URLs to match: {} across all games", total_urls);
 
@@ -778,8 +752,6 @@ fn main() -> Result<()> {
     eprintln!("Total game cache size: {:.2} GB", total_bytes_found as f64 / 1_073_741_824.0);
 
     // PHASE 4: Detect non-game services
-    // Skip service detection in incremental mode since services don't change often
-    // and this adds significant overhead
     let mut detected_services = Vec::new();
     let mut service_files_found = 0;
     let mut service_bytes_found: u64 = 0;
@@ -789,7 +761,7 @@ fn main() -> Result<()> {
         write_progress(progress_path.as_deref(), "services", "Detecting non-game services", 80.0, 0, 0)?;
         reporter.emit_progress(80.0, "Detecting non-game services");
 
-        let services_map = query_service_downloads(&db_path)?;
+        let services_map = query_service_downloads(&pool).await?;
         let total_services = services_map.len();
         let mut services_processed = 0;
 

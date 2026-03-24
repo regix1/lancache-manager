@@ -80,22 +80,22 @@ public class UserPreferencesService
     /// <summary>
     /// Save or update user preferences
     /// </summary>
-    public bool SavePreferences(Guid sessionId, UserPreferencesDto preferencesDto)
+    public async Task<bool> SavePreferencesAsync(Guid sessionId, UserPreferencesDto preferencesDto)
     {
         try
         {
             using var context = _contextFactory.CreateDbContext();
 
             // Ensure the session exists
-            var session = context.UserSessions.FirstOrDefault(s => s.Id == sessionId);
+            var session = await context.UserSessions.FirstOrDefaultAsync(s => s.Id == sessionId);
             if (session == null)
             {
                 _logger.LogWarning("Session not found: {SessionId}", sessionId);
                 return false;
             }
 
-            var existingPreferences = context.UserPreferences
-                .FirstOrDefault(p => p.SessionId == sessionId);
+            var existingPreferences = await context.UserPreferences
+                .FirstOrDefaultAsync(p => p.SessionId == sessionId);
 
             if (existingPreferences != null)
             {
@@ -143,7 +143,7 @@ public class UserPreferencesService
                 context.UserPreferences.Add(newPreferences);
             }
 
-            context.SaveChanges();
+            await context.SaveChangesAsync();
             _logger.LogInformation("Saved preferences for session: {SessionId}", sessionId);
             return true;
         }
@@ -158,22 +158,22 @@ public class UserPreferencesService
     /// Update a specific preference field and return the updated full preferences
     /// This prevents race conditions by reading from the same transaction
     /// </summary>
-    public UserPreferencesDto? UpdatePreferenceAndGet<T>(Guid sessionId, string preferenceKey, T value)
+    public async Task<UserPreferencesDto?> UpdatePreferenceAndGetAsync<T>(Guid sessionId, string preferenceKey, T value)
     {
         try
         {
             using var context = _contextFactory.CreateDbContext();
 
             // Ensure the session exists
-            var session = context.UserSessions.FirstOrDefault(s => s.Id == sessionId);
+            var session = await context.UserSessions.FirstOrDefaultAsync(s => s.Id == sessionId);
             if (session == null)
             {
                 _logger.LogWarning("Session not found when updating preference: {SessionId}", sessionId);
                 return null;
             }
 
-            var preferences = context.UserPreferences
-                .FirstOrDefault(p => p.SessionId == sessionId);
+            var preferences = await context.UserPreferences
+                .FirstOrDefaultAsync(p => p.SessionId == sessionId);
 
             if (preferences == null)
             {
@@ -240,7 +240,7 @@ public class UserPreferencesService
             }
 
             preferences.UpdatedAtUtc = DateTime.UtcNow;
-            context.SaveChanges();
+            await context.SaveChangesAsync();
 
             // Return the updated preferences from the same context to avoid race conditions
             return ToDto(preferences);
@@ -255,18 +255,18 @@ public class UserPreferencesService
     /// <summary>
     /// Delete user preferences
     /// </summary>
-    public bool DeletePreferences(Guid sessionId)
+    public async Task<bool> DeletePreferencesAsync(Guid sessionId)
     {
         try
         {
             using var context = _contextFactory.CreateDbContext();
-            var preferences = context.UserPreferences
-                .FirstOrDefault(p => p.SessionId == sessionId);
+            var preferences = await context.UserPreferences
+                .FirstOrDefaultAsync(p => p.SessionId == sessionId);
 
             if (preferences != null)
             {
                 context.UserPreferences.Remove(preferences);
-                context.SaveChanges();
+                await context.SaveChangesAsync();
                 _logger.LogInformation("Deleted preferences for session: {SessionId}", sessionId);
                 return true;
             }

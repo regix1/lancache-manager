@@ -10,7 +10,6 @@ public partial class EpicMappingService
     /// <summary>
     /// Merge a list of owned games into the persistent mapping.
     /// Called after successful Epic login when get-owned-games returns.
-    /// Thread-safe via SemaphoreSlim.
     /// </summary>
     public async Task<MergeResult> MergeOwnedGamesAsync(
         List<OwnedGame> games,
@@ -18,81 +17,73 @@ public partial class EpicMappingService
         string source = "prefill-login",
         CancellationToken ct = default)
     {
-        await _mergeLock.WaitAsync(ct);
-        try
+        using var db = _dbContextFactory.CreateDbContext();
+
+        var result = new MergeResult();
+        var now = DateTime.UtcNow;
+
+        var existingMappings = await db.EpicGameMappings
+            .ToDictionaryAsync(m => m.AppId, ct);
+
+        _logger.LogDebug("Loaded {Count} existing Epic game mappings for merge comparison", existingMappings.Count);
+
+        foreach (var game in games)
         {
-            using var db = _dbContextFactory.CreateDbContext();
+            if (string.IsNullOrWhiteSpace(game.AppId))
+                continue;
 
-            var result = new MergeResult();
-            var now = DateTime.UtcNow;
-
-            var existingMappings = await db.EpicGameMappings
-                .ToDictionaryAsync(m => m.AppId, ct);
-
-            _logger.LogDebug("Loaded {Count} existing Epic game mappings for merge comparison", existingMappings.Count);
-
-            foreach (var game in games)
+            if (existingMappings.TryGetValue(game.AppId, out var existing))
             {
-                if (string.IsNullOrWhiteSpace(game.AppId))
-                    continue;
-
-                if (existingMappings.TryGetValue(game.AppId, out var existing))
+                var changed = false;
+                if (!string.IsNullOrWhiteSpace(game.Name) && existing.Name != game.Name)
                 {
-                    var changed = false;
-                    if (!string.IsNullOrWhiteSpace(game.Name) && existing.Name != game.Name)
-                    {
-                        existing.Name = game.Name;
-                        changed = true;
-                    }
-                    if (!string.IsNullOrWhiteSpace(game.ImageUrl) && existing.ImageUrl != game.ImageUrl)
-                    {
-                        _logger.LogInformation("Updating ImageUrl for {AppId} ({Name}): {OldUrl} -> {NewUrl}",
-                            game.AppId, game.Name, existing.ImageUrl ?? "null", game.ImageUrl);
-                        existing.ImageUrl = game.ImageUrl;
-                        changed = true;
-                    }
-
-                    // Only update LastSeenAtUtc when it's more than 1 hour old to reduce unnecessary DB writes
-                    if ((now - existing.LastSeenAtUtc).TotalHours >= 1)
-                    {
-                        existing.LastSeenAtUtc = now;
-                        changed = true;
-                    }
-
-                    if (changed)
-                        result.UpdatedGames++;
-                    else
-                        result.UnchangedGames++;
+                    existing.Name = game.Name;
+                    changed = true;
                 }
+                if (!string.IsNullOrWhiteSpace(game.ImageUrl) && existing.ImageUrl != game.ImageUrl)
+                {
+                    _logger.LogInformation("Updating ImageUrl for {AppId} ({Name}): {OldUrl} -> {NewUrl}",
+                        game.AppId, game.Name, existing.ImageUrl ?? "null", game.ImageUrl);
+                    existing.ImageUrl = game.ImageUrl;
+                    changed = true;
+                }
+
+                // Only update LastSeenAtUtc when it's more than 1 hour old to reduce unnecessary DB writes
+                if ((now - existing.LastSeenAtUtc).TotalHours >= 1)
+                {
+                    existing.LastSeenAtUtc = now;
+                    changed = true;
+                }
+
+                if (changed)
+                    result.UpdatedGames++;
                 else
-                {
-                    var mapping = new EpicGameMapping
-                    {
-                        AppId = game.AppId,
-                        Name = game.Name,
-                        ImageUrl = game.ImageUrl,
-                        DiscoveredAtUtc = now,
-                        LastSeenAtUtc = now,
-                        DiscoveredByHash = sessionIdHash,
-                        Source = source
-                    };
-                    db.EpicGameMappings.Add(mapping);
-                    existingMappings[game.AppId] = mapping;
-                    result.NewGames++;
-                    _logger.LogTrace("New Epic game discovered: {AppId} = {Name}", game.AppId, game.Name);
-                }
+                    result.UnchangedGames++;
             }
-
-            await db.SaveChangesAsync(ct);
-
-            result.TotalGames = existingMappings.Count;
-
-            return result;
+            else
+            {
+                var mapping = new EpicGameMapping
+                {
+                    AppId = game.AppId,
+                    Name = game.Name,
+                    ImageUrl = game.ImageUrl,
+                    DiscoveredAtUtc = now,
+                    LastSeenAtUtc = now,
+                    DiscoveredByHash = sessionIdHash,
+                    Source = source
+                };
+                db.EpicGameMappings.Add(mapping);
+                existingMappings[game.AppId] = mapping;
+                result.NewGames++;
+                _logger.LogTrace("New Epic game discovered: {AppId} = {Name}", game.AppId, game.Name);
+            }
         }
-        finally
-        {
-            _mergeLock.Release();
-        }
+
+        await db.SaveChangesAsync(ct);
+
+        result.TotalGames = existingMappings.Count;
+
+        return result;
     }
 
     /// <summary>
@@ -306,56 +297,48 @@ public partial class EpicMappingService
     {
         if (cdnInfos.Count == 0) return;
 
-        await _mergeLock.WaitAsync(ct);
-        try
+        using var db = _dbContextFactory.CreateDbContext();
+        var now = DateTime.UtcNow;
+
+        var existingPatterns = await db.EpicCdnPatterns
+            .ToDictionaryAsync(p => p.ChunkBaseUrl, ct);
+
+        var newCount = 0;
+        var updatedCount = 0;
+
+        foreach (var info in cdnInfos)
         {
-            using var db = _dbContextFactory.CreateDbContext();
-            var now = DateTime.UtcNow;
+            if (string.IsNullOrWhiteSpace(info.ChunkBaseUrl)) continue;
 
-            var existingPatterns = await db.EpicCdnPatterns
-                .ToDictionaryAsync(p => p.ChunkBaseUrl, ct);
-
-            var newCount = 0;
-            var updatedCount = 0;
-
-            foreach (var info in cdnInfos)
+            if (existingPatterns.TryGetValue(info.ChunkBaseUrl, out var existing))
             {
-                if (string.IsNullOrWhiteSpace(info.ChunkBaseUrl)) continue;
-
-                if (existingPatterns.TryGetValue(info.ChunkBaseUrl, out var existing))
-                {
-                    existing.LastSeenAtUtc = now;
-                    if (!string.IsNullOrWhiteSpace(info.Name))
-                        existing.Name = info.Name;
-                    updatedCount++;
-                }
-                else
-                {
-                    var newPattern = new EpicCdnPattern
-                    {
-                        AppId = info.AppId,
-                        Name = info.Name,
-                        CdnHost = info.CdnHost,
-                        ChunkBaseUrl = info.ChunkBaseUrl,
-                        DiscoveredAtUtc = now,
-                        LastSeenAtUtc = now
-                    };
-                    db.EpicCdnPatterns.Add(newPattern);
-                    existingPatterns[info.ChunkBaseUrl] = newPattern;
-                    newCount++;
-                }
+                existing.LastSeenAtUtc = now;
+                if (!string.IsNullOrWhiteSpace(info.Name))
+                    existing.Name = info.Name;
+                updatedCount++;
             }
-
-            await db.SaveChangesAsync(ct);
-
-            _logger.LogInformation(
-                "Epic CDN pattern merge: {New} new, {Updated} updated, {Total} total",
-                newCount, updatedCount, newCount + updatedCount + (existingPatterns.Count - updatedCount));
+            else
+            {
+                var newPattern = new EpicCdnPattern
+                {
+                    AppId = info.AppId,
+                    Name = info.Name,
+                    CdnHost = info.CdnHost,
+                    ChunkBaseUrl = info.ChunkBaseUrl,
+                    DiscoveredAtUtc = now,
+                    LastSeenAtUtc = now
+                };
+                db.EpicCdnPatterns.Add(newPattern);
+                existingPatterns[info.ChunkBaseUrl] = newPattern;
+                newCount++;
+            }
         }
-        finally
-        {
-            _mergeLock.Release();
-        }
+
+        await db.SaveChangesAsync(ct);
+
+        _logger.LogInformation(
+            "Epic CDN pattern merge: {New} new, {Updated} updated, {Total} total",
+            newCount, updatedCount, newCount + updatedCount + (existingPatterns.Count - updatedCount));
     }
 }
 

@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use rusqlite::Connection;
+use sqlx::PgPool;
+use sqlx::Row;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -11,6 +12,7 @@ use flate2::write::GzEncoder;
 use flate2::Compression;
 
 mod cache_utils;
+mod db;
 mod log_discovery;
 mod log_reader;
 mod models;
@@ -28,7 +30,7 @@ use progress_events::ProgressReporter;
 #[command(name = "cache_game_remove")]
 #[command(about = "Removes all cache files for a specific game by scanning logs")]
 struct Args {
-    /// Path to LancacheManager.db (for game name mapping)
+    /// Path to LancacheManager database (DATABASE_URL env var or connection string)
     database_path: String,
 
     /// Directory containing log files
@@ -95,49 +97,44 @@ struct RemovalReport {
     depot_ids: Vec<u32>,
 }
 
-fn get_game_name_from_db(db_path: &Path, game_app_id: u32) -> Result<String> {
-    let conn = Connection::open(db_path)
-        .context("Failed to open database")?;
+async fn get_game_name_from_db(pool: &PgPool, game_app_id: u32) -> Result<String> {
+    let row = sqlx::query(
+        "SELECT DISTINCT \"GameName\" FROM \"Downloads\" WHERE \"GameAppId\" = $1 LIMIT 1"
+    )
+    .bind(game_app_id as i64)
+    .fetch_optional(pool)
+    .await?;
 
-    let mut stmt = conn.prepare(
-        "SELECT DISTINCT GameName FROM Downloads WHERE GameAppId = ? LIMIT 1"
-    )?;
-
-    let game_name = stmt.query_row([game_app_id], |row| row.get::<_, String>(0))
-        .unwrap_or_else(|_| format!("Game {}", game_app_id));
+    let game_name = row
+        .map(|r| r.get::<Option<String>, _>("GameName").unwrap_or_default())
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| format!("Game {}", game_app_id));
 
     Ok(game_name)
 }
 
-fn get_game_urls_from_db(db_path: &Path, game_app_id: u32) -> Result<HashMap<String, (String, i64, HashSet<u32>)>> {
+async fn get_game_urls_from_db(pool: &PgPool, game_app_id: u32) -> Result<HashMap<String, (String, i64, HashSet<u32>)>> {
     eprintln!("Querying database for game URLs and depot IDs...");
 
-    let conn = Connection::open(db_path)
-        .context("Failed to open database")?;
-
     // CRITICAL FIX: Query LogEntries instead of Downloads to get ALL URLs
-    // This matches the detector logic and ensures we delete ALL cache files
-    let mut stmt = conn.prepare(
-        "SELECT DISTINCT le.Service, le.Url, le.DepotId, le.BytesServed
-         FROM LogEntries le
-         INNER JOIN SteamDepotMappings sdm ON le.DepotId = sdm.DepotId
-         WHERE sdm.AppId = ? AND le.Url IS NOT NULL"
-    )?;
+    let rows = sqlx::query(
+        "SELECT DISTINCT le.\"Service\", le.\"Url\", le.\"DepotId\", le.\"BytesServed\"
+         FROM \"LogEntries\" le
+         INNER JOIN \"SteamDepotMappings\" sdm ON le.\"DepotId\" = sdm.\"DepotId\"
+         WHERE sdm.\"AppId\" = $1 AND le.\"Url\" IS NOT NULL"
+    )
+    .bind(game_app_id as i64)
+    .fetch_all(pool)
+    .await?;
 
     // Build service_urls map just like the detector does
     let mut service_urls: HashMap<String, HashMap<String, (i64, HashSet<u32>)>> = HashMap::new();
 
-    let rows = stmt.query_map([game_app_id], |row| {
-        Ok((
-            row.get::<_, String>(0)?,        // Service
-            row.get::<_, String>(1)?,        // Url
-            row.get::<_, Option<u32>>(2)?,   // DepotId (can be NULL)
-            row.get::<_, i64>(3)?,           // BytesServed
-        ))
-    })?;
-
     for row in rows {
-        let (service, url, depot_id_opt, bytes_served) = row?;
+        let service: String = row.get("Service");
+        let url: String = row.get("Url");
+        let depot_id_opt: Option<i64> = row.get("DepotId");
+        let bytes_served: i64 = row.get("BytesServed");
 
         // Lowercase service name to match cache file format (same as detector)
         let service_lower = service.to_lowercase();
@@ -155,31 +152,28 @@ fn get_game_urls_from_db(db_path: &Path, game_app_id: u32) -> Result<HashMap<Str
 
         // Track depot ID if present
         if let Some(depot_id) = depot_id_opt {
-            entry.1.insert(depot_id);
+            entry.1.insert(depot_id as u32);
         }
     }
 
     // Also get URLs for unknown games (depots not in mappings)
-    let mut unknown_stmt = conn.prepare(
-        "SELECT DISTINCT le.Service, le.Url, le.DepotId, le.BytesServed
-         FROM LogEntries le
-         WHERE le.DepotId IS NOT NULL
-         AND le.Url IS NOT NULL
-         AND le.DepotId = ?
-         AND le.DepotId NOT IN (SELECT DepotId FROM SteamDepotMappings)"
-    )?;
-
-    let unknown_rows = unknown_stmt.query_map([game_app_id], |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, Option<u32>>(2)?,
-            row.get::<_, i64>(3)?,
-        ))
-    })?;
+    let unknown_rows = sqlx::query(
+        "SELECT DISTINCT le.\"Service\", le.\"Url\", le.\"DepotId\", le.\"BytesServed\"
+         FROM \"LogEntries\" le
+         WHERE le.\"DepotId\" IS NOT NULL
+         AND le.\"Url\" IS NOT NULL
+         AND le.\"DepotId\" = $1
+         AND le.\"DepotId\" NOT IN (SELECT \"DepotId\" FROM \"SteamDepotMappings\")"
+    )
+    .bind(game_app_id as i64)
+    .fetch_all(pool)
+    .await?;
 
     for row in unknown_rows {
-        let (service, url, depot_id_opt, bytes_served) = row?;
+        let service: String = row.get("Service");
+        let url: String = row.get("Url");
+        let depot_id_opt: Option<i64> = row.get("DepotId");
+        let bytes_served: i64 = row.get("BytesServed");
         let service_lower = service.to_lowercase();
 
         let url_map = service_urls
@@ -193,7 +187,7 @@ fn get_game_urls_from_db(db_path: &Path, game_app_id: u32) -> Result<HashMap<Str
         entry.0 = entry.0.max(bytes_served);
 
         if let Some(depot_id) = depot_id_opt {
-            entry.1.insert(depot_id);
+            entry.1.insert(depot_id as u32);
         }
     }
 
@@ -210,48 +204,54 @@ fn get_game_urls_from_db(db_path: &Path, game_app_id: u32) -> Result<HashMap<Str
     Ok(url_data)
 }
 
-fn get_game_depot_ids(db_path: &Path, game_app_id: u32) -> Result<HashSet<u32>> {
-    let conn = Connection::open(db_path)?;
-
+async fn get_game_depot_ids(pool: &PgPool, game_app_id: u32) -> Result<HashSet<u32>> {
     // Get depot IDs from SteamDepotMappings for mapped games
-    let mut mapped_stmt = conn.prepare(
-        "SELECT DISTINCT DepotId FROM SteamDepotMappings WHERE AppId = ?"
-    )?;
+    let mapped_rows = sqlx::query(
+        "SELECT DISTINCT \"DepotId\" FROM \"SteamDepotMappings\" WHERE \"AppId\" = $1"
+    )
+    .bind(game_app_id as i64)
+    .fetch_all(pool)
+    .await?;
 
-    let mut depot_ids: HashSet<u32> = mapped_stmt.query_map([game_app_id], |row| row.get::<_, u32>(0))?
-        .filter_map(|r| r.ok())
+    let mut depot_ids: HashSet<u32> = mapped_rows.iter()
+        .map(|r| r.get::<i64, _>("DepotId") as u32)
         .collect();
 
     // Also check Downloads table for any additional depot IDs
-    let mut downloads_stmt = conn.prepare(
-        "SELECT DISTINCT DepotId FROM Downloads WHERE GameAppId = ? AND DepotId IS NOT NULL"
-    )?;
+    let download_rows = sqlx::query(
+        "SELECT DISTINCT \"DepotId\" FROM \"Downloads\" WHERE \"GameAppId\" = $1 AND \"DepotId\" IS NOT NULL"
+    )
+    .bind(game_app_id as i64)
+    .fetch_all(pool)
+    .await?;
 
-    let download_depot_ids: HashSet<u32> = downloads_stmt.query_map([game_app_id], |row| row.get::<_, u32>(0))?
-        .filter_map(|r| r.ok())
-        .collect();
-
-    depot_ids.extend(download_depot_ids);
+    for row in download_rows {
+        let depot_id: i64 = row.get("DepotId");
+        depot_ids.insert(depot_id as u32);
+    }
 
     Ok(depot_ids)
 }
 
-fn delete_game_from_database(db_path: &Path, game_app_id: u32) -> Result<usize> {
+async fn delete_game_from_database(pool: &PgPool, game_app_id: u32) -> Result<u64> {
     eprintln!("Deleting database records for game AppID {}...", game_app_id);
 
-    let conn = Connection::open(db_path)
-        .context("Failed to open database")?;
-
     // First, delete LogEntries that reference these downloads (foreign key constraint)
-    let mut log_entries_stmt = conn.prepare(
-        "DELETE FROM LogEntries WHERE DownloadId IN (SELECT Id FROM Downloads WHERE GameAppId = ?)"
-    )?;
-    let log_entries_deleted = log_entries_stmt.execute([game_app_id])?;
+    let log_result = sqlx::query(
+        "DELETE FROM \"LogEntries\" WHERE \"DownloadId\" IN (SELECT \"Id\" FROM \"Downloads\" WHERE \"GameAppId\" = $1)"
+    )
+    .bind(game_app_id as i64)
+    .execute(pool)
+    .await?;
+    let log_entries_deleted = log_result.rows_affected();
     eprintln!("  Deleted {} log entry records", log_entries_deleted);
 
     // Now safe to delete the downloads
-    let mut downloads_stmt = conn.prepare("DELETE FROM Downloads WHERE GameAppId = ?")?;
-    let downloads_deleted = downloads_stmt.execute([game_app_id])?;
+    let downloads_result = sqlx::query("DELETE FROM \"Downloads\" WHERE \"GameAppId\" = $1")
+        .bind(game_app_id as i64)
+        .execute(pool)
+        .await?;
+    let downloads_deleted = downloads_result.rows_affected();
 
     eprintln!("  Deleted {} download records", downloads_deleted);
     Ok(downloads_deleted)
@@ -362,12 +362,10 @@ fn remove_cache_files_for_game(
         }
 
         // Report granular progress during the removal phase (10% - 70%)
-        // Only report when crossing a new whole-percent boundary to avoid excessive writes
         if total_paths > 0 {
             let current_pct = (checked * 100) / total_paths;
             let prev_pct = last_reported_percent.load(Ordering::Relaxed);
             if current_pct > prev_pct {
-                // Attempt to claim this percent update (avoid duplicate writes from parallel threads)
                 if last_reported_percent.compare_exchange(prev_pct, current_pct, Ordering::SeqCst, Ordering::Relaxed).is_ok() {
                     let overall_percent = 10.0 + (checked as f64 / total_paths as f64) * 60.0;
                     let del_count = deleted_files.load(Ordering::Relaxed);
@@ -538,11 +536,10 @@ fn remove_log_entries_for_game(
             }
 
             // Atomically replace original with filtered version
-            // persist() uses rename which can fail on Windows if file is locked
             let temp_path = temp_file.into_temp_path();
 
             if let Err(persist_err) = temp_path.persist(&log_file.path) {
-                // Fallback: copy + delete (works even if target is locked by file watcher)
+                // Fallback: copy + delete
                 eprintln!("    persist() failed ({}), using copy fallback...", persist_err);
                 std::fs::copy(&persist_err.path, &log_file.path)?;
                 std::fs::remove_file(&persist_err.path).ok();
@@ -575,11 +572,11 @@ fn remove_log_entries_for_game(
     Ok((final_removed, final_permission_errors))
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let args = Args::parse();
     let reporter = ProgressReporter::new(args.progress);
 
-    let db_path = PathBuf::from(&args.database_path);
     let log_dir = PathBuf::from(&args.log_dir);
     let cache_dir = PathBuf::from(&args.cache_dir);
     let game_app_id = args.game_app_id;
@@ -587,19 +584,12 @@ fn main() -> Result<()> {
     let progress_path = PathBuf::from(&args.progress_json);
 
     eprintln!("Game Cache Removal");
-    eprintln!("  Database: {}", db_path.display());
     eprintln!("  Log directory: {}", log_dir.display());
     eprintln!("  Cache directory: {}", cache_dir.display());
     eprintln!("  Game AppID: {}", game_app_id);
 
     // Emit started event
     reporter.emit_started();
-
-    if !db_path.exists() {
-        let msg = format!("Database not found: {}", db_path.display());
-        reporter.emit_failed(&msg);
-        anyhow::bail!("{}", msg);
-    }
 
     if !log_dir.exists() {
         let msg = format!("Log directory not found: {}", log_dir.display());
@@ -613,8 +603,10 @@ fn main() -> Result<()> {
         anyhow::bail!("{}", msg);
     }
 
+    let pool = db::create_pool().await;
+
     // Get game name from database
-    let game_name = get_game_name_from_db(&db_path, game_app_id)?;
+    let game_name = get_game_name_from_db(&pool, game_app_id).await?;
     eprintln!("Game: {}", game_name);
 
     let start_msg = format!("Starting removal for game '{}' (AppID {})", game_name, game_app_id);
@@ -624,11 +616,11 @@ fn main() -> Result<()> {
     // Get valid depot IDs for this game from database
     write_progress(&progress_path, "querying_database", "Querying database for depot IDs and URLs", 5.0, 0, 0)?;
     reporter.emit_progress(5.0, "Querying database for depot IDs and URLs");
-    let valid_depot_ids = get_game_depot_ids(&db_path, game_app_id)?;
+    let valid_depot_ids = get_game_depot_ids(&pool, game_app_id).await?;
     eprintln!("Valid depot IDs for this game: {:?}", valid_depot_ids);
 
     // Query database directly for URLs - much faster than scanning logs!
-    let url_data = get_game_urls_from_db(&db_path, game_app_id)?;
+    let url_data = get_game_urls_from_db(&pool, game_app_id).await?;
 
     if url_data.is_empty() {
         eprintln!("No URLs found in logs for game AppID {}", game_app_id);
@@ -673,7 +665,6 @@ fn main() -> Result<()> {
     let (log_entries_removed, log_permission_errors) = remove_log_entries_for_game(&log_dir, &urls_to_remove, &valid_depot_ids)?;
 
     // CRITICAL: Check for permission errors before deleting database records
-    // This prevents the DB/filesystem mismatch that causes DbUpdateConcurrencyException
     let total_permission_errors = cache_permission_errors + log_permission_errors;
     if total_permission_errors > 0 {
         let error_msg = format!(
@@ -707,7 +698,7 @@ fn main() -> Result<()> {
     write_progress(&progress_path, "removing_database", "Deleting database records", 90.0, 0, 0)?;
     reporter.emit_progress(90.0, "Deleting database records");
     eprintln!("\nRemoving database records...");
-    let _db_records_deleted = delete_game_from_database(&db_path, game_app_id)?;
+    let _db_records_deleted = delete_game_from_database(&pool, game_app_id).await?;
 
     // Collect all depot IDs
     let mut all_depot_ids: HashSet<u32> = HashSet::new();

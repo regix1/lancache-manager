@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using LancacheManager.Extensions;
 using LancacheManager.Models;
-using Microsoft.Data.Sqlite;
+using Npgsql;
 using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Core.Services;
@@ -238,7 +238,7 @@ public class SteamService : IHostedService, IDisposable
                     await scopedDb.DbContext.SaveChangesAsync();
                     _logger.LogInformation("Saved {Count} depot mappings to database", added);
                 }
-                catch (DbUpdateException ex) when (ex.InnerException is SqliteException sqliteEx && sqliteEx.SqliteErrorCode == 19)
+                catch (DbUpdateException ex) when (ex.InnerException is NpgsqlException pgEx && pgEx.SqlState == "23505")
                 {
                     // UNIQUE constraint violation - duplicates already exist (race condition)
                     // This can happen if another process added the same mappings concurrently

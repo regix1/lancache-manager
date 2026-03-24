@@ -2,16 +2,17 @@ use anyhow::Result;
 use chrono::{NaiveDateTime, Utc};
 use chrono_tz::Tz;
 use regex::Regex;
-use rusqlite::{params, Connection};
+use sqlx::PgPool;
+use sqlx::Row;
 use serde::Serialize;
 use std::collections::{HashMap, VecDeque};
 use std::env;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::PathBuf;
-use std::thread;
 use std::time::{Duration, Instant};
 
+mod db;
 mod service_utils;
 
 // Configuration
@@ -206,7 +207,7 @@ impl LogParser {
 }
 
 struct SpeedTracker {
-    db_path: PathBuf,
+    pool: PgPool,
     log_paths: Vec<PathBuf>,
     parser: LogParser,
     entries: VecDeque<SpeedLogEntry>,
@@ -218,12 +219,12 @@ struct SpeedTracker {
 }
 
 impl SpeedTracker {
-    fn new(db_path: PathBuf, log_paths: Vec<PathBuf>) -> Self {
+    fn new(pool: PgPool, log_paths: Vec<PathBuf>) -> Self {
         let tz_str = env::var("TZ").unwrap_or_else(|_| "UTC".to_string());
         let local_tz: Tz = tz_str.parse().unwrap_or(chrono_tz::UTC);
 
         Self {
-            db_path,
+            pool,
             log_paths,
             parser: LogParser::new(local_tz),
             entries: VecDeque::new(),
@@ -235,7 +236,7 @@ impl SpeedTracker {
         }
     }
 
-    fn run(&mut self) -> Result<()> {
+    async fn run(&mut self) -> Result<()> {
         eprintln!("SpeedTracker started - monitoring {} log file(s)", self.log_paths.len());
 
         // Initialize file positions to end of files
@@ -263,7 +264,7 @@ impl SpeedTracker {
 
             // Broadcast if interval passed
             if last_broadcast.elapsed() >= Duration::from_millis(BROADCAST_INTERVAL_MS) {
-                let snapshot = self.calculate_snapshot();
+                let snapshot = self.calculate_snapshot().await;
 
                 // Output JSON to stdout (C# will read this)
                 if let Ok(json) = serde_json::to_string(&snapshot) {
@@ -273,7 +274,7 @@ impl SpeedTracker {
                 last_broadcast = Instant::now();
             }
 
-            thread::sleep(Duration::from_millis(POLL_INTERVAL_MS));
+            tokio::time::sleep(Duration::from_millis(POLL_INTERVAL_MS)).await;
         }
     }
 
@@ -328,7 +329,7 @@ impl SpeedTracker {
         self.entries.retain(|entry| entry.timestamp >= cutoff);
     }
 
-    fn calculate_snapshot(&mut self) -> DownloadSpeedSnapshot {
+    async fn calculate_snapshot(&mut self) -> DownloadSpeedSnapshot {
         let now = Utc::now();
         let window_start = now.naive_utc() - chrono::Duration::seconds(WINDOW_SECONDS);
 
@@ -352,8 +353,9 @@ impl SpeedTracker {
         }
 
         // Pre-populate depot cache for game name lookups
-        for &(depot_id, _) in depot_groups.keys() {
-            self.lookup_depot(depot_id);
+        let depot_ids: Vec<u32> = depot_groups.keys().map(|(id, _)| *id).collect();
+        for depot_id in depot_ids {
+            self.lookup_depot(depot_id).await;
         }
 
         // Build game speeds from depot groups (Steam and services with depot IDs)
@@ -368,15 +370,13 @@ impl SpeedTracker {
             .collect();
 
         // Add non-depot service entries (Epic, Origin, etc.)
-        // Try to resolve Epic game names from CDN patterns, fall back to service display name
-        // First, sub-group by resolved game name for Epic entries
         let mut resolved_groups: HashMap<(String, String), Vec<SpeedLogEntry>> = HashMap::new();
         for ((service, client_ip), entries) in service_groups {
             if service.contains("epic") {
                 // Try to resolve each entry's URL to a game name, then sub-group
                 let mut sub_groups: HashMap<String, Vec<SpeedLogEntry>> = HashMap::new();
                 for entry in entries {
-                    let game_name = self.lookup_epic_game(&entry.request_url)
+                    let game_name = self.lookup_epic_game(&entry.request_url).await
                         .unwrap_or_else(|| get_service_display_name(&service));
                     sub_groups.entry(game_name).or_default().push(entry);
                 }
@@ -447,7 +447,7 @@ impl SpeedTracker {
         }
     }
 
-    fn load_epic_patterns(&mut self) {
+    async fn load_epic_patterns(&mut self) {
         // Only reload every 60 seconds
         if let Some(last) = self.last_epic_pattern_load {
             if last.elapsed() < Duration::from_secs(60) {
@@ -455,44 +455,46 @@ impl SpeedTracker {
             }
         }
 
-        let conn = match Connection::open(&self.db_path) {
-            Ok(c) => c,
-            Err(_) => return,
-        };
-
         // Load patterns with game names, longest ChunkBaseUrl first
-        let mut stmt = match conn.prepare(
-            "SELECT p.ChunkBaseUrl, COALESCE(m.Name, p.Name) as GameName \
-             FROM EpicCdnPatterns p \
-             LEFT JOIN EpicGameMappings m ON p.AppId = m.AppId \
-             ORDER BY LENGTH(p.ChunkBaseUrl) DESC"
-        ) {
-            Ok(s) => s,
-            Err(_) => return,
-        };
+        let result = sqlx::query(
+            "SELECT p.\"ChunkBaseUrl\", COALESCE(m.\"Name\", p.\"Name\") as \"GameName\" \
+             FROM \"EpicCdnPatterns\" p \
+             LEFT JOIN \"EpicGameMappings\" m ON p.\"AppId\" = m.\"AppId\" \
+             ORDER BY LENGTH(p.\"ChunkBaseUrl\") DESC"
+        )
+        .fetch_all(&self.pool)
+        .await;
 
-        self.epic_patterns = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?.trim_end_matches('/').to_string(),
-                row.get::<_, String>(1)?,
-            ))
-        })
-        .ok()
-        .map(|rows| rows.filter_map(|r| r.ok()).collect())
-        .unwrap_or_default();
+        match result {
+            Ok(rows) => {
+                self.epic_patterns = rows.iter()
+                    .filter_map(|row| {
+                        let chunk_base_url: Option<String> = row.get("ChunkBaseUrl");
+                        let game_name: Option<String> = row.get("GameName");
+                        match (chunk_base_url, game_name) {
+                            (Some(url), Some(name)) => Some((url.trim_end_matches('/').to_string(), name)),
+                            _ => None,
+                        }
+                    })
+                    .collect();
 
-        self.last_epic_pattern_load = Some(Instant::now());
-        self.epic_cdn_cache.clear(); // Clear cache when patterns reload
+                self.last_epic_pattern_load = Some(Instant::now());
+                self.epic_cdn_cache.clear(); // Clear cache when patterns reload
+            }
+            Err(_) => {
+                // Silently ignore errors (table may not exist yet)
+            }
+        }
     }
 
-    fn lookup_epic_game(&mut self, url: &str) -> Option<String> {
+    async fn lookup_epic_game(&mut self, url: &str) -> Option<String> {
         // Check cache first
         if let Some(cached) = self.epic_cdn_cache.get(url) {
             return cached.clone();
         }
 
         // Reload patterns if needed
-        self.load_epic_patterns();
+        self.load_epic_patterns().await;
 
         // Match URL against patterns (longest first for most specific match)
         let result = self.epic_patterns.iter()
@@ -505,7 +507,7 @@ impl SpeedTracker {
         result
     }
 
-    fn lookup_depot(&mut self, depot_id: u32) -> (Option<String>, Option<u32>) {
+    async fn lookup_depot(&mut self, depot_id: u32) -> (Option<String>, Option<u32>) {
         // Check cache first - only use cached value if we have a real name
         if let Some(cached) = self.depot_cache.get(&depot_id) {
             if cached.0.is_some() {
@@ -515,7 +517,7 @@ impl SpeedTracker {
         }
 
         // Lookup in database
-        let result = self.lookup_depot_from_db(depot_id);
+        let result = self.lookup_depot_from_db(depot_id).await;
 
         // Only cache successful lookups (where we found a name)
         if result.0.is_some() {
@@ -525,23 +527,22 @@ impl SpeedTracker {
         result
     }
 
-    fn lookup_depot_from_db(&self, depot_id: u32) -> (Option<String>, Option<u32>) {
-        let conn = match Connection::open(&self.db_path) {
-            Ok(c) => c,
-            Err(_) => return (None, None),
-        };
+    async fn lookup_depot_from_db(&self, depot_id: u32) -> (Option<String>, Option<u32>) {
+        let result = sqlx::query(
+            "SELECT \"AppId\", \"AppName\" FROM \"SteamDepotMappings\" WHERE \"DepotId\" = $1 AND \"IsOwner\" = true LIMIT 1"
+        )
+        .bind(depot_id as i64)
+        .fetch_optional(&self.pool)
+        .await;
 
-        let result = conn.query_row(
-            "SELECT AppId, AppName FROM SteamDepotMappings WHERE DepotId = ? AND IsOwner = 1 LIMIT 1",
-            params![depot_id],
-            |row| {
-                let app_id: u32 = row.get(0)?;
-                let app_name: Option<String> = row.get(1)?;
-                Ok((app_name, Some(app_id)))
+        match result {
+            Ok(Some(row)) => {
+                let app_id: i64 = row.get("AppId");
+                let app_name: Option<String> = row.get("AppName");
+                (app_name, Some(app_id as u32))
             }
-        );
-
-        result.unwrap_or((None, None))
+            _ => (None, None),
+        }
     }
 }
 
@@ -601,26 +602,26 @@ fn get_service_display_name(service: &str) -> String {
     }
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let args: Vec<String> = env::args().collect();
 
-    if args.len() < 3 {
-        eprintln!("Usage: {} <db_path> <log_path> [log_path2] ...", args[0]);
-        eprintln!("  db_path: Path to SQLite database");
+    if args.len() < 2 {
+        eprintln!("Usage: {} <log_path> [log_path2] ...", args[0]);
         eprintln!("  log_path: Path to log directory (will monitor access.log)");
         eprintln!("");
+        eprintln!("Database connection is configured via DATABASE_URL environment variable.");
         eprintln!("Outputs JSON speed snapshots to stdout every {}ms", BROADCAST_INTERVAL_MS);
         eprintln!("Uses a {}-second rolling window", WINDOW_SECONDS);
         std::process::exit(1);
     }
 
-    let db_path = PathBuf::from(&args[1]);
-
     // Build log paths from all provided directories
-    let log_paths: Vec<PathBuf> = args[2..].iter()
+    let log_paths: Vec<PathBuf> = args[1..].iter()
         .map(|dir| PathBuf::from(dir).join("access.log"))
         .collect();
 
-    let mut tracker = SpeedTracker::new(db_path, log_paths);
-    tracker.run()
+    let pool = db::create_pool().await;
+    let mut tracker = SpeedTracker::new(pool, log_paths);
+    tracker.run().await
 }

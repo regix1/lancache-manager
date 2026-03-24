@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { NotificationsProvider } from '@contexts/notifications';
 import { CacheSizeProvider } from '@contexts/CacheSizeContext';
@@ -58,7 +58,6 @@ import ManagementTab from '@components/features/management/ManagementTab';
 import MemoryDiagnostics from '@components/features/memory/MemoryDiagnostics';
 import { PrefillPanel } from '@components/features/prefill';
 import ActiveEventBorder from '@components/common/ActiveEventBorder';
-
 // Wrapper components to inject mockMode from context into providers
 const DashboardDataProviderWithMockMode: React.FC<{ children: React.ReactNode }> = ({
   children
@@ -82,7 +81,14 @@ const AppContent: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const { connectionStatus } = useStats();
   const { setupStatus, isLoading: checkingSetupStatus, markSetupCompleted } = useSetupStatus();
-  const { authMode, isLoading: checkingAuth, refreshAuth, prefillEnabled, isBanned } = useAuth();
+  const {
+    authMode,
+    sessionId,
+    isLoading: checkingAuth,
+    refreshAuth,
+    prefillEnabled,
+    isBanned
+  } = useAuth();
   const { status: steamApiStatus, refresh: refreshSteamWebApiStatus } = useSteamWebApiStatus();
   const { refreshSteamAuth } = useSteamAuth();
   const { isDockerAvailable } = useDockerSocket();
@@ -92,6 +98,7 @@ const AppContent: React.FC = () => {
   const [showFullScanRequiredModal, setShowFullScanRequiredModal] = useState(false);
   const [fullScanModalChangeGap, setFullScanModalChangeGap] = useState(0);
   const signalR = useSignalR();
+  const hydratedThemeSessionRef = useRef<string | null>(null);
 
   // Derive setup state from context
   const setupCompleted = setupStatus?.isCompleted ?? null;
@@ -286,6 +293,7 @@ const AppContent: React.FC = () => {
       // this indicates /data was deleted while browser was open - clear everything
       if (
         storedStep &&
+        storedStep !== 'database-setup' &&
         storedStep !== 'api-key' &&
         storedStep !== 'import-historical-data' &&
         setupCompleted === false &&
@@ -406,6 +414,28 @@ const AppContent: React.FC = () => {
     // Reload theme from server after authentication changes
     await themeService.reloadThemeAfterAuth();
   };
+
+  // Hydrate session-specific theme/preferences once auth is settled for the current session.
+  useEffect(() => {
+    if (checkingAuth) {
+      return;
+    }
+
+    if (authMode === 'unauthenticated') {
+      hydratedThemeSessionRef.current = null;
+      return;
+    }
+
+    const sessionKey = `${authMode}:${sessionId ?? 'no-session'}`;
+    if (hydratedThemeSessionRef.current === sessionKey) {
+      return;
+    }
+
+    hydratedThemeSessionRef.current = sessionKey;
+    themeService.reloadThemeAfterAuth().catch((error) => {
+      console.error('[App] Failed to hydrate theme after auth:', error);
+    });
+  }, [checkingAuth, authMode, sessionId]);
 
   const handleFullScanModalDismiss = () => {
     setShowFullScanRequiredModal(false);
@@ -573,12 +603,7 @@ const AppContent: React.FC = () => {
 
   // Show login page if not authenticated
   if (!checkingAuth && authMode === 'unauthenticated') {
-    return (
-      <AuthenticationModal
-        onAuthComplete={() => refreshAuth()}
-        onAuthChanged={() => refreshAuth()}
-      />
-    );
+    return <AuthenticationModal onAuthComplete={refreshAuth} />;
   }
 
   // Show loading while checking initial status

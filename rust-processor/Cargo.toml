@@ -73,13 +73,10 @@ path = "src/cache_service_remove.rs"
 name = "db_reset"
 path = "src/db_reset.rs"
 
-# Import data from DeveLanCacheUI database
-[[bin]]
-name = "db_migrate"
-path = "src/db_migrate.rs"
 
 [dependencies]
-rusqlite = { version = "0.37", features = ["bundled"] }
+sqlx = { version = "0.8", features = ["postgres", "runtime-tokio", "macros"] }
+tokio = { version = "1", features = ["full"] }
 regex = "1.12"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

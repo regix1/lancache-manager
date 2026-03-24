@@ -10,7 +10,7 @@ namespace LancacheManager.Security;
 
 public class SessionService
 {
-    private readonly AppDbContext _dbContext;
+    private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly ApiKeyService _apiKeyService;
     private readonly ILogger<SessionService> _logger;
     private readonly StateService _stateService;
@@ -20,13 +20,13 @@ public class SessionService
     private const int AdminSessionDurationHours = 720; // 30 days
 
     public SessionService(
-        AppDbContext dbContext,
+        IDbContextFactory<AppDbContext> dbContextFactory,
         ApiKeyService apiKeyService,
         ILogger<SessionService> logger,
         StateService stateService,
         ISignalRNotificationService signalR)
     {
-        _dbContext = dbContext;
+        _dbContextFactory = dbContextFactory;
         _apiKeyService = apiKeyService;
         _logger = logger;
         _stateService = stateService;
@@ -55,8 +55,9 @@ public class SessionService
             IsRevoked = false
         };
 
-        _dbContext.UserSessions.Add(session);
-        await _dbContext.SaveChangesAsync();
+        using var context = _dbContextFactory.CreateDbContext();
+        context.UserSessions.Add(session);
+        await context.SaveChangesAsync();
 
         _logger.LogInformation("Created admin session {SessionId} for IP {IP}", session.Id, session.IpAddress);
         return (rawToken, session);
@@ -85,8 +86,9 @@ public class SessionService
             IsRevoked = false
         };
 
-        _dbContext.UserSessions.Add(session);
-        await _dbContext.SaveChangesAsync();
+        using var context = _dbContextFactory.CreateDbContext();
+        context.UserSessions.Add(session);
+        await context.SaveChangesAsync();
 
         _logger.LogInformation("Created guest session {SessionId} for IP {IP}, expires in {Hours}h",
             session.Id, session.IpAddress, durationHours);
@@ -98,7 +100,9 @@ public class SessionService
         var tokenHash = HashToken(rawToken);
         var now = DateTime.UtcNow;
 
-        var session = await _dbContext.UserSessions
+        using var context = _dbContextFactory.CreateDbContext();
+        var session = await context.UserSessions
+            .AsNoTracking()
             .FirstOrDefaultAsync(s => s.SessionTokenHash == tokenHash ||
                 (s.PreviousSessionTokenHash == tokenHash && s.PreviousTokenValidUntilUtc > now));
 
@@ -116,13 +120,14 @@ public class SessionService
 
     public async Task<bool> RevokeSessionAsync(Guid sessionId)
     {
-        var session = await _dbContext.UserSessions.FindAsync(sessionId);
+        using var context = _dbContextFactory.CreateDbContext();
+        var session = await context.UserSessions.FindAsync(sessionId);
         if (session == null)
             return false;
 
         session.IsRevoked = true;
         session.RevokedAtUtc = DateTime.UtcNow;
-        await _dbContext.SaveChangesAsync();
+        await context.SaveChangesAsync();
 
         _logger.LogInformation("Revoked session {SessionId}", sessionId);
         return true;
@@ -130,12 +135,13 @@ public class SessionService
 
     public async Task<bool> DeleteSessionAsync(Guid sessionId)
     {
-        var session = await _dbContext.UserSessions.FindAsync(sessionId);
+        using var context = _dbContextFactory.CreateDbContext();
+        var session = await context.UserSessions.FindAsync(sessionId);
         if (session == null)
             return false;
 
-        _dbContext.UserSessions.Remove(session);
-        await _dbContext.SaveChangesAsync();
+        context.UserSessions.Remove(session);
+        await context.SaveChangesAsync();
 
         _logger.LogInformation("Permanently deleted session {SessionId}", sessionId);
         return true;
@@ -144,7 +150,8 @@ public class SessionService
     public async Task<int> RevokeAllGuestSessionsAsync()
     {
         var now = DateTime.UtcNow;
-        var count = await _dbContext.UserSessions
+        using var context = _dbContextFactory.CreateDbContext();
+        var count = await context.UserSessions
             .Where(s => s.SessionType == "guest" && !s.IsRevoked)
             .ExecuteUpdateAsync(s => s
                 .SetProperty(x => x.IsRevoked, true)
@@ -157,7 +164,8 @@ public class SessionService
     public async Task<List<UserSession>> GetActiveSessionsAsync()
     {
         var now = DateTime.UtcNow;
-        return await _dbContext.UserSessions
+        using var context = _dbContextFactory.CreateDbContext();
+        return await context.UserSessions
             .AsNoTracking()
             .Where(s => !s.IsRevoked && s.ExpiresAtUtc > now)
             .OrderByDescending(s => s.LastSeenAtUtc)
@@ -170,7 +178,8 @@ public class SessionService
     public async Task<(List<UserSession> Sessions, int TotalCount)> GetActiveSessionsPagedAsync(int page, int pageSize)
     {
         var now = DateTime.UtcNow;
-        var query = _dbContext.UserSessions
+        using var context = _dbContextFactory.CreateDbContext();
+        var query = context.UserSessions
             .AsNoTracking()
             .Where(s => !s.IsRevoked && s.ExpiresAtUtc > now)
             .OrderByDescending(s => s.LastSeenAtUtc);
@@ -190,26 +199,48 @@ public class SessionService
     public async Task<List<UserSession>> GetHistorySessionsAsync()
     {
         var now = DateTime.UtcNow;
-        return await _dbContext.UserSessions
+        using var context = _dbContextFactory.CreateDbContext();
+        return await context.UserSessions
             .AsNoTracking()
             .Where(s => s.IsRevoked || s.ExpiresAtUtc <= now)
             .OrderByDescending(s => s.RevokedAtUtc ?? s.ExpiresAtUtc)
             .ToListAsync();
     }
 
+    public async Task<UserSession?> GetSessionByIdAsync(Guid sessionId)
+    {
+        using var context = _dbContextFactory.CreateDbContext();
+        return await context.UserSessions
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.Id == sessionId);
+    }
+
     public async Task UpdateLastSeenAsync(UserSession session)
     {
-        if ((DateTime.UtcNow - session.LastSeenAtUtc).TotalSeconds < 60)
+        var now = DateTime.UtcNow;
+        if ((now - session.LastSeenAtUtc).TotalSeconds < 60)
             return;
 
-        session.LastSeenAtUtc = DateTime.UtcNow;
-        await _dbContext.SaveChangesAsync();
+        using var context = _dbContextFactory.CreateDbContext();
+        var persistedSession = await context.UserSessions.FindAsync(session.Id);
+        if (persistedSession == null || persistedSession.IsRevoked || persistedSession.ExpiresAtUtc <= now)
+            return;
+
+        if ((now - persistedSession.LastSeenAtUtc).TotalSeconds < 60)
+        {
+            session.LastSeenAtUtc = persistedSession.LastSeenAtUtc;
+            return;
+        }
+
+        persistedSession.LastSeenAtUtc = now;
+        await context.SaveChangesAsync();
+        session.LastSeenAtUtc = now;
 
         // Broadcast SessionLastSeenUpdated (already throttled to 60s)
         _signalR.NotifyAllFireAndForget(SignalREvents.SessionLastSeenUpdated, new
         {
             sessionId = session.Id.ToString(),
-            lastSeenAt = session.LastSeenAtUtc
+            lastSeenAt = now
         });
     }
 
@@ -220,20 +251,31 @@ public class SessionService
     /// </summary>
     public async Task<string?> RotateSessionTokenAsync(UserSession session, HttpContext httpContext)
     {
+        using var context = _dbContextFactory.CreateDbContext();
+        var persistedSession = await context.UserSessions.FindAsync(session.Id);
+        if (persistedSession == null)
+            return null;
+
+        var now = DateTime.UtcNow;
+
         // Rate-limit: skip if we already rotated recently (previous token still in grace period)
-        if (session.PreviousTokenValidUntilUtc > DateTime.UtcNow)
+        if (persistedSession.PreviousTokenValidUntilUtc > now)
             return null;
 
         var (newRawToken, newTokenHash) = GenerateSessionToken();
 
         // Preserve old token hash for grace period
-        session.PreviousSessionTokenHash = session.SessionTokenHash;
-        session.PreviousTokenValidUntilUtc = DateTime.UtcNow.AddSeconds(30);
+        persistedSession.PreviousSessionTokenHash = persistedSession.SessionTokenHash;
+        persistedSession.PreviousTokenValidUntilUtc = now.AddSeconds(30);
 
         // Set new primary token
-        session.SessionTokenHash = newTokenHash;
+        persistedSession.SessionTokenHash = newTokenHash;
 
-        await _dbContext.SaveChangesAsync();
+        await context.SaveChangesAsync();
+
+        session.PreviousSessionTokenHash = persistedSession.PreviousSessionTokenHash;
+        session.PreviousTokenValidUntilUtc = persistedSession.PreviousTokenValidUntilUtc;
+        session.SessionTokenHash = persistedSession.SessionTokenHash;
 
         // Update the cookie with the new token
         SetSessionCookie(httpContext, newRawToken, session.ExpiresAtUtc);
@@ -244,7 +286,8 @@ public class SessionService
     public async Task<int> CleanupExpiredSessionsAsync()
     {
         var cutoff = DateTime.UtcNow.AddDays(-7);
-        var count = await _dbContext.UserSessions
+        using var context = _dbContextFactory.CreateDbContext();
+        var count = await context.UserSessions
             .Where(s => s.ExpiresAtUtc < cutoff || (s.IsRevoked && s.RevokedAtUtc < cutoff))
             .ExecuteDeleteAsync();
 
@@ -358,44 +401,48 @@ public class SessionService
 
     public async Task GrantSteamPrefillAccessAsync(Guid sessionId, int durationHours)
     {
-        var session = await _dbContext.UserSessions.FindAsync(sessionId);
+        using var context = _dbContextFactory.CreateDbContext();
+        var session = await context.UserSessions.FindAsync(sessionId);
         if (session != null)
         {
             session.SteamPrefillExpiresAtUtc = DateTime.UtcNow.AddHours(durationHours);
-            await _dbContext.SaveChangesAsync();
+            await context.SaveChangesAsync();
             _logger.LogInformation("Granted Steam prefill access to session {SessionId}, expires at {ExpiresAt}", sessionId, session.SteamPrefillExpiresAtUtc);
         }
     }
 
     public async Task GrantEpicPrefillAccessAsync(Guid sessionId, int durationHours)
     {
-        var session = await _dbContext.UserSessions.FindAsync(sessionId);
+        using var context = _dbContextFactory.CreateDbContext();
+        var session = await context.UserSessions.FindAsync(sessionId);
         if (session != null)
         {
             session.EpicPrefillExpiresAtUtc = DateTime.UtcNow.AddHours(durationHours);
-            await _dbContext.SaveChangesAsync();
+            await context.SaveChangesAsync();
             _logger.LogInformation("Granted Epic prefill access to session {SessionId}, expires at {ExpiresAt}", sessionId, session.EpicPrefillExpiresAtUtc);
         }
     }
 
     public async Task RevokeSteamPrefillAccessAsync(Guid sessionId)
     {
-        var session = await _dbContext.UserSessions.FindAsync(sessionId);
+        using var context = _dbContextFactory.CreateDbContext();
+        var session = await context.UserSessions.FindAsync(sessionId);
         if (session != null)
         {
             session.SteamPrefillExpiresAtUtc = null;
-            await _dbContext.SaveChangesAsync();
+            await context.SaveChangesAsync();
             _logger.LogInformation("Revoked Steam prefill access for session {SessionId}", sessionId);
         }
     }
 
     public async Task RevokeEpicPrefillAccessAsync(Guid sessionId)
     {
-        var session = await _dbContext.UserSessions.FindAsync(sessionId);
+        using var context = _dbContextFactory.CreateDbContext();
+        var session = await context.UserSessions.FindAsync(sessionId);
         if (session != null)
         {
             session.EpicPrefillExpiresAtUtc = null;
-            await _dbContext.SaveChangesAsync();
+            await context.SaveChangesAsync();
             _logger.LogInformation("Revoked Epic prefill access for session {SessionId}", sessionId);
         }
     }

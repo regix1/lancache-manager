@@ -101,8 +101,8 @@ public class LinuxMemoryManager : IMemoryManager
         // 3. Collect again to clean up finalized objects
         GC.Collect(2, GCCollectionMode.Aggressive, true, true);
 
-        // 4. Clear SQLite connection pool to free native memory
-        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        // 4. Clear PostgreSQL connection pool to free native memory
+        Npgsql.NpgsqlConnection.ClearAllPools();
 
         // 5. Linux-specific: Force glibc to return memory to OS
         try

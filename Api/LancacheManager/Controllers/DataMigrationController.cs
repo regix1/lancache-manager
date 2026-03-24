@@ -4,7 +4,7 @@ using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Utilities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Data.Sqlite;
+using Npgsql;
 using System.Diagnostics;
 
 namespace LancacheManager.Controllers;
@@ -294,19 +294,17 @@ public class DataMigrationController : ControllerBase
             }
 
             // Open source database (read-only)
-            var sourceConnStr = $"Data Source={sourceDatabasePath};Mode=ReadOnly;Default Timeout=5";
-            using var sourceConn = new SqliteConnection(sourceConnStr);
+            using var sourceConn = new NpgsqlConnection(sourceDatabasePath);
             await sourceConn.OpenAsync();
 
-            // Open target database (with busy timeout to handle concurrent access)
-            var targetConnStr = $"Data Source={targetDatabasePath};Default Timeout=5";
-            using var targetConn = new SqliteConnection(targetConnStr);
+            // Open target database
+            using var targetConn = new NpgsqlConnection(targetDatabasePath);
             await targetConn.OpenAsync();
 
             // Get total count from source
             using (var countCmd = sourceConn.CreateCommand())
             {
-                countCmd.CommandText = "SELECT COUNT(*) FROM Downloads";
+                countCmd.CommandText = "SELECT COUNT(*) FROM \"Downloads\"";
                 totalRecords = Convert.ToUInt64(await countCmd.ExecuteScalarAsync());
             }
 
@@ -334,10 +332,10 @@ public class DataMigrationController : ControllerBase
                 // Read batch from source
                 using var readCmd = sourceConn.CreateCommand();
                 readCmd.CommandText = @"
-                    SELECT Service, ClientIp, StartTimeUtc, EndTimeUtc, StartTimeLocal, EndTimeLocal,
-                           CacheHitBytes, CacheMissBytes, IsActive, DepotId, GameAppId, Datasource
-                    FROM Downloads
-                    ORDER BY StartTimeUtc
+                    SELECT ""Service"", ""ClientIp"", ""StartTimeUtc"", ""EndTimeUtc"", ""StartTimeLocal"", ""EndTimeLocal"",
+                           ""CacheHitBytes"", ""CacheMissBytes"", ""IsActive"", ""DepotId"", ""GameAppId"", ""Datasource""
+                    FROM ""Downloads""
+                    ORDER BY ""StartTimeUtc""
                     LIMIT @limit OFFSET @offset";
                 readCmd.Parameters.AddWithValue("@limit", batchSize);
                 readCmd.Parameters.AddWithValue("@offset", offset);
@@ -369,7 +367,7 @@ public class DataMigrationController : ControllerBase
                         // Check if record exists
                         using var checkCmd = targetConn.CreateCommand();
                         checkCmd.Transaction = transaction;
-                        checkCmd.CommandText = "SELECT COUNT(*) FROM Downloads WHERE ClientIp = @clientIp AND StartTimeUtc = @startTimeUtc";
+                        checkCmd.CommandText = "SELECT COUNT(*) FROM \"Downloads\" WHERE \"ClientIp\" = @clientIp AND \"StartTimeUtc\" = @startTimeUtc";
                         checkCmd.Parameters.AddWithValue("@clientIp", clientIp);
                         checkCmd.Parameters.AddWithValue("@startTimeUtc", startTimeUtc);
                         var exists = Convert.ToInt32(await checkCmd.ExecuteScalarAsync()) > 0;
@@ -381,11 +379,11 @@ public class DataMigrationController : ControllerBase
                                 using var updateCmd = targetConn.CreateCommand();
                                 updateCmd.Transaction = transaction;
                                 updateCmd.CommandText = @"
-                                    UPDATE Downloads SET
-                                        Service = @service, EndTimeUtc = @endTimeUtc, EndTimeLocal = @endTimeLocal,
-                                        CacheHitBytes = @cacheHitBytes, CacheMissBytes = @cacheMissBytes,
-                                        IsActive = @isActive, DepotId = @depotId, GameAppId = @gameAppId, Datasource = @datasource
-                                    WHERE ClientIp = @clientIp AND StartTimeUtc = @startTimeUtc";
+                                    UPDATE ""Downloads"" SET
+                                        ""Service"" = @service, ""EndTimeUtc"" = @endTimeUtc, ""EndTimeLocal"" = @endTimeLocal,
+                                        ""CacheHitBytes"" = @cacheHitBytes, ""CacheMissBytes"" = @cacheMissBytes,
+                                        ""IsActive"" = @isActive, ""DepotId"" = @depotId, ""GameAppId"" = @gameAppId, ""Datasource"" = @datasource
+                                    WHERE ""ClientIp"" = @clientIp AND ""StartTimeUtc"" = @startTimeUtc";
                                 updateCmd.Parameters.AddWithValue("@service", service);
                                 updateCmd.Parameters.AddWithValue("@endTimeUtc", endTimeUtc);
                                 updateCmd.Parameters.AddWithValue("@endTimeLocal", endTimeLocal);
@@ -410,8 +408,8 @@ public class DataMigrationController : ControllerBase
                             using var insertCmd = targetConn.CreateCommand();
                             insertCmd.Transaction = transaction;
                             insertCmd.CommandText = @"
-                                INSERT INTO Downloads (Service, ClientIp, StartTimeUtc, EndTimeUtc, StartTimeLocal, EndTimeLocal,
-                                    CacheHitBytes, CacheMissBytes, IsActive, DepotId, GameAppId, Datasource)
+                                INSERT INTO ""Downloads"" (""Service"", ""ClientIp"", ""StartTimeUtc"", ""EndTimeUtc"", ""StartTimeLocal"", ""EndTimeLocal"",
+                                    ""CacheHitBytes"", ""CacheMissBytes"", ""IsActive"", ""DepotId"", ""GameAppId"", ""Datasource"")
                                 VALUES (@service, @clientIp, @startTimeUtc, @endTimeUtc, @startTimeLocal, @endTimeLocal,
                                     @cacheHitBytes, @cacheMissBytes, @isActive, @depotId, @gameAppId, @datasource)";
                             insertCmd.Parameters.AddWithValue("@service", service);
@@ -579,13 +577,7 @@ public class DataMigrationController : ControllerBase
 
         try
         {
-            // Extract path and convert to connection string format for SqliteConnection
-            var dbPath = ExtractDatabasePath(connectionString);
-            var connStr = connectionString.Contains("Data Source", StringComparison.OrdinalIgnoreCase)
-                ? connectionString + ";Default Timeout=5"
-                : $"Data Source={dbPath};Default Timeout=5";
-
-            using var connection = new SqliteConnection(connStr);
+            using var connection = new NpgsqlConnection(connectionString);
             await connection.OpenAsync();
 
             // Determine which table to check based on import type
@@ -593,8 +585,8 @@ public class DataMigrationController : ControllerBase
 
             // Check for the appropriate table
             var cmd = connection.CreateCommand();
-            cmd.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name=@tableName";
-            cmd.Parameters.AddWithValue("@tableName", tableName);
+            cmd.CommandText = "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name=@tableName";
+            cmd.Parameters.AddWithValue("@tableName", tableName.ToLower());
             var tableExists = await cmd.ExecuteScalarAsync();
 
             if (tableExists == null)
@@ -609,8 +601,8 @@ public class DataMigrationController : ControllerBase
             // Get record count - tableName is safe (ternary-controlled: "Downloads" or "DownloadEvents" only)
             var countCmd = connection.CreateCommand();
             countCmd.CommandText = tableName == "Downloads"
-                ? "SELECT COUNT(*) FROM Downloads"
-                : "SELECT COUNT(*) FROM DownloadEvents";
+                ? "SELECT COUNT(*) FROM \"Downloads\""
+                : "SELECT COUNT(*) FROM \"DownloadEvents\"";
             var recordCount = Convert.ToInt32(await countCmd.ExecuteScalarAsync());
 
             return Ok(new ConnectionValidationResponse

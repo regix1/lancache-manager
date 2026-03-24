@@ -11,6 +11,9 @@ services:
       # Required: Data directory for database, API key, themes, and cached images
       - ./data:/data
 
+      # PostgreSQL data persistence (stores PG cluster files separate from /data)
+      - postgres_data:/var/lib/postgresql/data
+
       # Required: LANCache log directory
       # Add :ro for read-only (recommended for monitoring-only setups)
       - /mnt/lancache/logs:/logs:ro
@@ -25,6 +28,17 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
 
     environment:
+      #=========================================================================
+      # POSTGRESQL CREDENTIALS
+      #=========================================================================
+
+      # PostgreSQL username (default: lancache)
+      - POSTGRES_USER=${POSTGRES_USER:-lancache}
+
+      # PostgreSQL password — if not set, the app shows a first-run setup page
+      # to collect credentials. Once set via the UI, they persist in /data.
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-}
+
       #=========================================================================
       # REQUIRED - You must configure these for your environment
       #=========================================================================
@@ -209,3 +223,7 @@ services:
       # file system detection, Docker communication, etc.)
       # Useful for diagnosing issues with volume mounts, permissions, or Docker socket
       # - Logging__LogLevel__LancacheManager.Infrastructure.Platform=Debug
+
+# Named volumes — managed by Docker, survive container removal
+volumes:
+  postgres_data:

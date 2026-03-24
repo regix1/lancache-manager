@@ -23,6 +23,7 @@ LANCache Manager is a simple web UI for monitoring and managing your [LANCache](
 - [Quick Start](#quick-start)
 - [Docker Compose Reference](#docker-compose-reference)
 - [Configuration Options](#configuration-options)
+  - [PostgreSQL Database](#postgresql-database)
 - [Tabs Overview](#tabs-overview)
 - [Prefill (Steam & Epic)](#prefill-steam--epic)
 - [Custom Themes](#custom-themes)
@@ -239,7 +240,7 @@ services:
 
 | Volume | Purpose | Notes |
 |--------|---------|-------|
-| `/data` | Database, security, state/config, themes, cached images | Required |
+| `/data` | PostgreSQL database, security, state/config, themes, cached images | Required |
 | `/logs` | LANCache access logs | Add `:ro` for read-only |
 | `/cache` | LANCache cached files | Add `:ro` for monitoring only |
 | `/var/run/docker.sock` | Docker API access | Optional. Required for nginx rotation and prefill (Steam & Epic) |
@@ -253,6 +254,48 @@ services:
 | `TZ` | `UTC` | Timezone for log timestamps (e.g., `America/Chicago`). |
 | `LanCache__LogPath` | — | Path to the LANCache access log file. |
 | `LanCache__CachePath` | — | Path to the LANCache cache directory. |
+
+### PostgreSQL Database
+
+LANCache Manager uses PostgreSQL for data storage. On first launch, the app will prompt you to configure database credentials through a setup page in the web UI.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `POSTGRES_PASSWORD` | — | PostgreSQL password. Set via environment variable or through the first-run setup page. |
+| `POSTGRES_USER` | `lancache` | PostgreSQL username. |
+
+**Configuration options:**
+
+- **Environment variables (recommended for automation):** Set `POSTGRES_PASSWORD` and optionally `POSTGRES_USER` in your docker-compose.yml. The app will use these directly and skip the setup page.
+- **Web UI setup:** If `POSTGRES_PASSWORD` is not set, the app displays a first-run setup page where you can enter credentials through the browser.
+
+> [!NOTE]
+> **Migrating from SQLite:** Existing data is automatically migrated to PostgreSQL on the first container start after updating. No manual steps are required. The migration runs once and preserves all your existing downloads, settings, and cached data.
+
+#### Docker Compose with PostgreSQL
+
+```yaml
+services:
+  lancache-manager:
+    image: ghcr.io/regix1/lancache-manager:latest
+    container_name: lancache-manager
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    volumes:
+      - ./data:/data
+      - /mnt/lancache/logs:/logs:ro
+      - /mnt/lancache/cache:/cache:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - PUID=33
+      - PGID=33
+      - TZ=America/Chicago
+      - LanCache__LogPath=/logs/access.log
+      - LanCache__CachePath=/cache
+      - POSTGRES_PASSWORD=your-secure-password
+      # - POSTGRES_USER=lancache  # Optional, defaults to "lancache"
+```
 
 ### Security
 

@@ -296,11 +296,9 @@ const SessionCard: React.FC<{
                   </span>
                 ) : (
                   <span className="prefill-session-no-user">
-                    {platform === 'Epic'
-                      ? 'Epic Session'
-                      : isAuthenticated_
-                        ? t('management.prefillSessions.labels.unauthorizedAccount')
-                        : t('management.prefillSessions.labels.notLoggedInSession')}
+                    {isAuthenticated_
+                      ? t('management.prefillSessions.labels.unauthorizedAccount')
+                      : t('management.prefillSessions.labels.notLoggedInSession')}
                   </span>
                 )}
                 <StatusBadge status={status} isLive={isLive} />

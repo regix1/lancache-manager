@@ -2,7 +2,8 @@ use anyhow::Result;
 use chrono::{NaiveDateTime, TimeZone, Utc};
 use chrono_tz::Tz;
 use clap::Parser;
-use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
+use sqlx::PgPool;
+use sqlx::Row;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::env;
@@ -11,6 +12,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
+mod db;
 mod log_discovery;
 mod log_reader;
 mod models;
@@ -27,7 +29,7 @@ use progress_events::ProgressReporter;
 #[command(name = "log_processor")]
 #[command(about = "Parses lancache access logs and stores entries in the database")]
 struct Args {
-    /// Path to SQLite database
+    /// Path to PostgreSQL database URL (or use DATABASE_URL env var)
     db_path: String,
 
     /// Directory containing log files (e.g., H:/logs)
@@ -76,7 +78,7 @@ struct Progress {
 
 
 struct Processor {
-    db_path: PathBuf,
+    pool: PgPool,
     log_dir: PathBuf,
     log_base_name: String,
     progress_path: PathBuf,
@@ -95,7 +97,7 @@ struct Processor {
 
 impl Processor {
     fn new(
-        db_path: PathBuf,
+        pool: PgPool,
         log_dir: PathBuf,
         log_base_name: String,
         progress_path: PathBuf,
@@ -111,7 +113,7 @@ impl Processor {
         println!("Datasource: {}", datasource_name);
 
         Self {
-            db_path,
+            pool,
             log_dir,
             log_base_name,
             progress_path,
@@ -196,7 +198,7 @@ impl Processor {
         progress_utils::write_progress_with_retry(&self.progress_path, &progress, 5)
     }
 
-    fn process(&mut self) -> Result<()> {
+    async fn process(&mut self) -> Result<()> {
         println!("Starting log processing...");
         println!("Log directory: {}", self.log_dir.display());
         println!("Log base name: {}", self.log_base_name);
@@ -232,15 +234,6 @@ impl Processor {
 
         self.write_progress("counting", &format!("Counted {} lines across {} file(s)", total_lines, log_files.len()))?;
 
-        // Open database connection
-        let mut conn = Connection::open(&self.db_path)?;
-        conn.pragma_update(None, "journal_mode", "WAL")?;
-        conn.pragma_update(None, "synchronous", "NORMAL")?;
-        conn.pragma_update(None, "cache_size", 1000000)?;
-        conn.pragma_update(None, "temp_store", "MEMORY")?;
-        // Set busy timeout to 60 seconds to handle concurrent access from C# services
-        conn.busy_timeout(Duration::from_secs(60))?;
-
         // LogEntries table already exists from C# migrations, use it for duplicate detection
         // Index IX_LogEntries_DuplicateCheck on (ClientIp, Service, Timestamp, Url, BytesServed) exists
 
@@ -251,7 +244,7 @@ impl Processor {
             println!("\nProcessing file {}/{}: {}", file_index + 1, log_files.len(), log_file.path.display());
 
             // Try to process the file, but skip if it's corrupted (e.g., invalid gzip)
-            let file_result = self.process_single_file(&mut conn, log_file, &mut lines_to_skip, total_lines);
+            let file_result = self.process_single_file(log_file, &mut lines_to_skip, total_lines).await;
 
             if let Err(e) = file_result {
                 eprintln!("⚠ Warning: Skipping corrupted file {}: {}", log_file.path.display(), e);
@@ -267,9 +260,8 @@ impl Processor {
     }
 
     /// Process a single log file
-    fn process_single_file(
+    async fn process_single_file(
         &mut self,
-        conn: &mut Connection,
         log_file: &LogFile,
         lines_to_skip: &mut u64,
         total_lines: u64,
@@ -310,7 +302,7 @@ impl Processor {
             if bytes_read == 0 {
                 // EOF - process remaining batch
                 if !batch.is_empty() {
-                    self.process_batch(conn, &batch)?;
+                    self.process_batch(&batch).await?;
                     batch.clear();
                     batch.shrink_to_fit(); // Release memory since we're done
                 }
@@ -331,7 +323,7 @@ impl Processor {
 
                 // Process batch when it reaches BULK_BATCH_SIZE
                 if batch.len() >= BULK_BATCH_SIZE {
-                    self.process_batch(conn, &batch)?;
+                    self.process_batch(&batch).await?;
                     batch.clear();
                     // Don't shrink here - we'll reuse the capacity for the next batch
 
@@ -377,13 +369,13 @@ impl Processor {
         }
     }
 
-    fn process_batch(&mut self, conn: &mut Connection, entries: &[LogEntry]) -> Result<()> {
+    async fn process_batch(&mut self, entries: &[LogEntry]) -> Result<()> {
         if entries.is_empty() {
             return Ok(());
         }
 
-        // Use IMMEDIATE transaction to get write lock immediately, avoiding "database is locked" errors
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        // Begin a transaction
+        let mut tx = self.pool.begin().await?;
 
         // Group entries by client_ip + service + depot_id to prevent different games from being merged
         // For Epic services without a depot_id, use the URL path prefix as a discriminator
@@ -408,10 +400,10 @@ impl Processor {
         // Process each group and count actually inserted entries
         let mut total_inserted = 0u64;
         for (session_key, group_entries) in &grouped {
-            total_inserted += self.process_session_group(&tx, session_key, group_entries)?;
+            total_inserted += self.process_session_group(&mut tx, session_key, group_entries).await?;
         }
 
-        tx.commit()?;
+        tx.commit().await?;
 
         // Only count entries that were actually inserted (not duplicates)
         self.entries_saved
@@ -420,29 +412,29 @@ impl Processor {
         Ok(())
     }
 
-    fn lookup_depot_mapping(&self, tx: &Transaction, depot_id: u32) -> Result<Option<(u32, Option<String>)>> {
+    async fn lookup_depot_mapping(&self, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, depot_id: u32) -> Result<Option<(u32, Option<String>)>> {
         // Only use owner apps (IsOwner = true) - matches C# behavior
         // No fallback to non-owner apps to avoid incorrect mappings
-        let result = tx.query_row(
-            "SELECT AppId, AppName FROM SteamDepotMappings WHERE DepotId = ? AND IsOwner = 1 LIMIT 1",
-            params![depot_id],
-            |row| {
-                let app_id: u32 = row.get(0)?;
-                let app_name: Option<String> = row.get(1)?;
-                Ok((app_id, app_name))
-            }
-        );
+        let row = sqlx::query(
+            "SELECT \"AppId\", \"AppName\" FROM \"SteamDepotMappings\" WHERE \"DepotId\" = $1 AND \"IsOwner\" = true LIMIT 1"
+        )
+        .bind(depot_id as i64)
+        .fetch_optional(&mut **tx)
+        .await?;
 
-        match result {
-            Ok(mapping) => Ok(Some(mapping)),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(e.into())
+        match row {
+            Some(r) => {
+                let app_id: i64 = r.get("AppId");
+                let app_name: Option<String> = r.get("AppName");
+                Ok(Some((app_id as u32, app_name)))
+            }
+            None => Ok(None),
         }
     }
 
-    fn process_session_group(
+    async fn process_session_group(
         &mut self,
-        tx: &Transaction,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         session_key: &str,
         entries: &[&LogEntry],
     ) -> Result<u64> {
@@ -450,28 +442,24 @@ impl Processor {
             return Ok(0);
         }
 
-        // Simple duplicate detection with prepared statement
-        // Use cached statement for best performance
-        let mut check_stmt = tx.prepare_cached(
-            "SELECT 1 FROM LogEntries WHERE ClientIp = ? AND Service = ? AND Timestamp = ? AND Url = ? AND BytesServed = ? LIMIT 1"
-        )?;
-
+        // Simple duplicate detection
         let mut new_entries = Vec::with_capacity(entries.len());
         let mut skipped = 0;
 
         for entry in entries {
             let timestamp_str = entry.timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
 
-            let exists = check_stmt.query_row(
-                params![
-                    &entry.client_ip,
-                    &entry.service,
-                    &timestamp_str,
-                    &entry.url,
-                    entry.bytes_served,
-                ],
-                |_| Ok(true)
-            ).unwrap_or(false);
+            let exists = sqlx::query(
+                "SELECT 1 FROM \"LogEntries\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"Timestamp\" = $3 AND \"Url\" = $4 AND \"BytesServed\" = $5 LIMIT 1"
+            )
+            .bind(&entry.client_ip)
+            .bind(&entry.service)
+            .bind(&timestamp_str)
+            .bind(&entry.url)
+            .bind(entry.bytes_served)
+            .fetch_optional(&mut **tx)
+            .await?
+            .is_some();
 
             if exists {
                 skipped += 1;
@@ -524,7 +512,7 @@ impl Processor {
         // This ensures Downloads have GameAppId/GameName set immediately, avoiding "Unknown Game" in UI
         let (game_app_id, game_name) = if self.auto_map_depots && service.to_lowercase() == "steam" {
             if let Some(depot_id) = primary_depot_id {
-                match self.lookup_depot_mapping(tx, depot_id) {
+                match self.lookup_depot_mapping(tx, depot_id).await {
                     Ok(Some((app_id, app_name))) => {
                         // Only log each depot mapping once to avoid log spam
                         if !self.logged_depots.contains(&depot_id) {
@@ -557,16 +545,15 @@ impl Processor {
         // Find or create download session
         let download_id = if should_create_new {
             // Mark ALL old active sessions as inactive for this client/service
-            // This immediately marks previous games as complete when a new game starts
-            // Fixes the issue where old games stay active until the 30-second cleanup timeout
-            tx.execute(
-                "UPDATE Downloads SET IsActive = 0 WHERE ClientIp = ? AND Service = ? AND IsActive = 1",
-                params![client_ip, service],
-            )?;
+            sqlx::query(
+                "UPDATE \"Downloads\" SET \"IsActive\" = false WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"IsActive\" = true"
+            )
+            .bind(client_ip)
+            .bind(service)
+            .execute(&mut **tx)
+            .await?;
 
             // Create new download session with depot mapping
-            // Don't generate image URL here - let C# DatabaseService fetch it from Steam API
-            // This ensures we get the correct URL including hash-based URLs for newer games
             let game_image_url: Option<String> = None;
 
             // Convert timestamps to both UTC and local timezone - format once and reuse
@@ -575,112 +562,141 @@ impl Processor {
             let first_local = self.utc_to_local(first_timestamp).format("%Y-%m-%d %H:%M:%S").to_string();
             let last_local = self.utc_to_local(last_timestamp).format("%Y-%m-%d %H:%M:%S").to_string();
 
-            tx.execute(
-                "INSERT INTO Downloads (Service, ClientIp, StartTimeUtc, EndTimeUtc, StartTimeLocal, EndTimeLocal, CacheHitBytes, CacheMissBytes, IsActive, LastUrl, DepotId, GameAppId, GameName, GameImageUrl, Datasource)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)",
-                params![
-                    service,
-                    client_ip,
-                    first_utc,
-                    last_utc,
-                    first_local,
-                    last_local,
-                    total_hit_bytes,
-                    total_miss_bytes,
-                    last_url,
-                    primary_depot_id,
-                    game_app_id,
-                    game_name,
-                    game_image_url,
-                    &self.datasource_name,
-                ],
-            )?;
+            let row = sqlx::query(
+                "INSERT INTO \"Downloads\" (\"Service\", \"ClientIp\", \"StartTimeUtc\", \"EndTimeUtc\", \"StartTimeLocal\", \"EndTimeLocal\", \"CacheHitBytes\", \"CacheMissBytes\", \"IsActive\", \"LastUrl\", \"DepotId\", \"GameAppId\", \"GameName\", \"GameImageUrl\", \"Datasource\")
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, $9, $10, $11, $12, $13, $14)
+                 RETURNING \"Id\""
+            )
+            .bind(service)
+            .bind(client_ip)
+            .bind(&first_utc)
+            .bind(&last_utc)
+            .bind(&first_local)
+            .bind(&last_local)
+            .bind(total_hit_bytes)
+            .bind(total_miss_bytes)
+            .bind(last_url)
+            .bind(primary_depot_id.map(|d| d as i64))
+            .bind(game_app_id.map(|id| id as i64))
+            .bind(&game_name)
+            .bind(&game_image_url)
+            .bind(&self.datasource_name)
+            .fetch_one(&mut **tx)
+            .await?;
 
-            let download_id = tx.last_insert_rowid();
+            let download_id: i64 = row.get("Id");
 
             // Update or create client stats
-            let client_exists: bool = tx
-                .query_row(
-                    "SELECT COUNT(*) FROM ClientStats WHERE ClientIp = ?",
-                    params![client_ip],
-                    |row| row.get(0),
-                )
-                .map(|count: i64| count > 0)?;
+            let client_count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM \"ClientStats\" WHERE \"ClientIp\" = $1"
+            )
+            .bind(client_ip)
+            .fetch_one(&mut **tx)
+            .await?;
 
-            if client_exists {
-                tx.execute(
-                    "UPDATE ClientStats SET TotalCacheHitBytes = TotalCacheHitBytes + ?, TotalCacheMissBytes = TotalCacheMissBytes + ?, LastActivityUtc = ?, LastActivityLocal = ?, TotalDownloads = TotalDownloads + 1 WHERE ClientIp = ?",
-                    params![total_hit_bytes, total_miss_bytes, &last_utc, &last_local, client_ip],
-                )?;
+            if client_count > 0 {
+                sqlx::query(
+                    "UPDATE \"ClientStats\" SET \"TotalCacheHitBytes\" = \"TotalCacheHitBytes\" + $1, \"TotalCacheMissBytes\" = \"TotalCacheMissBytes\" + $2, \"LastActivityUtc\" = $3, \"LastActivityLocal\" = $4, \"TotalDownloads\" = \"TotalDownloads\" + 1 WHERE \"ClientIp\" = $5"
+                )
+                .bind(total_hit_bytes)
+                .bind(total_miss_bytes)
+                .bind(&last_utc)
+                .bind(&last_local)
+                .bind(client_ip)
+                .execute(&mut **tx)
+                .await?;
             } else {
-                tx.execute(
-                    "INSERT INTO ClientStats (ClientIp, TotalCacheHitBytes, TotalCacheMissBytes, LastActivityUtc, LastActivityLocal, TotalDownloads) VALUES (?, ?, ?, ?, ?, 1)",
-                    params![client_ip, total_hit_bytes, total_miss_bytes, &last_utc, &last_local],
-                )?;
+                sqlx::query(
+                    "INSERT INTO \"ClientStats\" (\"ClientIp\", \"TotalCacheHitBytes\", \"TotalCacheMissBytes\", \"LastActivityUtc\", \"LastActivityLocal\", \"TotalDownloads\") VALUES ($1, $2, $3, $4, $5, 1)"
+                )
+                .bind(client_ip)
+                .bind(total_hit_bytes)
+                .bind(total_miss_bytes)
+                .bind(&last_utc)
+                .bind(&last_local)
+                .execute(&mut **tx)
+                .await?;
             }
 
             // Update or create service stats
-            let service_exists: bool = tx
-                .query_row(
-                    "SELECT COUNT(*) FROM ServiceStats WHERE Service = ?",
-                    params![service],
-                    |row| row.get(0),
-                )
-                .map(|count: i64| count > 0)?;
+            let service_count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM \"ServiceStats\" WHERE \"Service\" = $1"
+            )
+            .bind(service)
+            .fetch_one(&mut **tx)
+            .await?;
 
-            if service_exists {
-                tx.execute(
-                    "UPDATE ServiceStats SET TotalCacheHitBytes = TotalCacheHitBytes + ?, TotalCacheMissBytes = TotalCacheMissBytes + ?, LastActivityUtc = ?, LastActivityLocal = ?, TotalDownloads = TotalDownloads + 1 WHERE Service = ?",
-                    params![total_hit_bytes, total_miss_bytes, &last_utc, &last_local, service],
-                )?;
+            if service_count > 0 {
+                sqlx::query(
+                    "UPDATE \"ServiceStats\" SET \"TotalCacheHitBytes\" = \"TotalCacheHitBytes\" + $1, \"TotalCacheMissBytes\" = \"TotalCacheMissBytes\" + $2, \"LastActivityUtc\" = $3, \"LastActivityLocal\" = $4, \"TotalDownloads\" = \"TotalDownloads\" + 1 WHERE \"Service\" = $5"
+                )
+                .bind(total_hit_bytes)
+                .bind(total_miss_bytes)
+                .bind(&last_utc)
+                .bind(&last_local)
+                .bind(service)
+                .execute(&mut **tx)
+                .await?;
             } else {
-                tx.execute(
-                    "INSERT INTO ServiceStats (Service, TotalCacheHitBytes, TotalCacheMissBytes, LastActivityUtc, LastActivityLocal, TotalDownloads) VALUES (?, ?, ?, ?, ?, 1)",
-                    params![service, total_hit_bytes, total_miss_bytes, &last_utc, &last_local],
-                )?;
+                sqlx::query(
+                    "INSERT INTO \"ServiceStats\" (\"Service\", \"TotalCacheHitBytes\", \"TotalCacheMissBytes\", \"LastActivityUtc\", \"LastActivityLocal\", \"TotalDownloads\") VALUES ($1, $2, $3, $4, $5, 1)"
+                )
+                .bind(service)
+                .bind(total_hit_bytes)
+                .bind(total_miss_bytes)
+                .bind(&last_utc)
+                .bind(&last_local)
+                .execute(&mut **tx)
+                .await?;
             }
 
             download_id
         } else {
             // Try to find existing active download for this specific depot/game
             let download_id_opt: Option<i64> = if let Some(depot_id) = primary_depot_id {
-                tx.query_row(
-                    "SELECT Id FROM Downloads WHERE ClientIp = ? AND Service = ? AND DepotId = ? AND IsActive = 1 ORDER BY StartTimeUtc DESC LIMIT 1",
-                    params![client_ip, service, depot_id],
-                    |row| row.get(0),
+                sqlx::query(
+                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" = $3 AND \"IsActive\" = true ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
                 )
-                .optional()?
+                .bind(client_ip)
+                .bind(service)
+                .bind(depot_id as i64)
+                .fetch_optional(&mut **tx)
+                .await?
+                .map(|r| r.get::<i64, _>("Id"))
             } else if service.to_lowercase().contains("epic") {
                 // For Epic services, match by URL path prefix to find the correct game session
-                // instead of matching any DepotId IS NULL download (which would merge all Epic games)
                 if let Some(path_prefix) = last_url.and_then(|u| Self::extract_epic_path_prefix(u)) {
                     let like_pattern = format!("{}%", path_prefix);
-                    tx.query_row(
-                        "SELECT Id FROM Downloads WHERE ClientIp = ? AND Service = ? AND DepotId IS NULL AND IsActive = 1 AND LastUrl LIKE ? ORDER BY StartTimeUtc DESC LIMIT 1",
-                        params![client_ip, service, like_pattern],
-                        |row| row.get(0),
+                    sqlx::query(
+                        "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true AND \"LastUrl\" LIKE $3 ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
                     )
-                    .optional()?
+                    .bind(client_ip)
+                    .bind(service)
+                    .bind(&like_pattern)
+                    .fetch_optional(&mut **tx)
+                    .await?
+                    .map(|r| r.get::<i64, _>("Id"))
                 } else {
-                    tx.query_row(
-                        "SELECT Id FROM Downloads WHERE ClientIp = ? AND Service = ? AND DepotId IS NULL AND IsActive = 1 ORDER BY StartTimeUtc DESC LIMIT 1",
-                        params![client_ip, service],
-                        |row| row.get(0),
+                    sqlx::query(
+                        "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
                     )
-                    .optional()?
+                    .bind(client_ip)
+                    .bind(service)
+                    .fetch_optional(&mut **tx)
+                    .await?
+                    .map(|r| r.get::<i64, _>("Id"))
                 }
             } else {
-                tx.query_row(
-                    "SELECT Id FROM Downloads WHERE ClientIp = ? AND Service = ? AND DepotId IS NULL AND IsActive = 1 ORDER BY StartTimeUtc DESC LIMIT 1",
-                    params![client_ip, service],
-                    |row| row.get(0),
+                sqlx::query(
+                    "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
                 )
-                .optional()?
+                .bind(client_ip)
+                .bind(service)
+                .fetch_optional(&mut **tx)
+                .await?
+                .map(|r| r.get::<i64, _>("Id"))
             };
 
-            // If no active download found (e.g., cleanup service marked it complete), create a new one
-            // Don't generate image URL here - let C# DatabaseService fetch it from Steam API
-            // This ensures we get the correct URL including hash-based URLs for newer games
             let game_image_url: Option<String> = None;
 
             let (download_id, is_new) = if let Some(id) = download_id_opt {
@@ -692,27 +708,26 @@ impl Processor {
                 let first_local = self.utc_to_local(first_timestamp).format("%Y-%m-%d %H:%M:%S").to_string();
                 let last_local = self.utc_to_local(last_timestamp).format("%Y-%m-%d %H:%M:%S").to_string();
 
-                tx.execute(
-                    "INSERT INTO Downloads (ClientIp, Service, StartTimeUtc, EndTimeUtc, StartTimeLocal, EndTimeLocal, CacheHitBytes, CacheMissBytes, IsActive, GameAppId, GameName, GameImageUrl, LastUrl, DepotId, Datasource) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    params![
-                        client_ip,
-                        service,
-                        first_utc,
-                        last_utc,
-                        first_local,
-                        last_local,
-                        total_hit_bytes,
-                        total_miss_bytes,
-                        1, // IsActive
-                        game_app_id,
-                        game_name,
-                        game_image_url,
-                        last_url,
-                        primary_depot_id,
-                        &self.datasource_name,
-                    ],
-                )?;
-                (tx.last_insert_rowid(), true)
+                let row = sqlx::query(
+                    "INSERT INTO \"Downloads\" (\"ClientIp\", \"Service\", \"StartTimeUtc\", \"EndTimeUtc\", \"StartTimeLocal\", \"EndTimeLocal\", \"CacheHitBytes\", \"CacheMissBytes\", \"IsActive\", \"GameAppId\", \"GameName\", \"GameImageUrl\", \"LastUrl\", \"DepotId\", \"Datasource\") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, $9, $10, $11, $12, $13, $14) RETURNING \"Id\""
+                )
+                .bind(client_ip)
+                .bind(service)
+                .bind(&first_utc)
+                .bind(&last_utc)
+                .bind(&first_local)
+                .bind(&last_local)
+                .bind(total_hit_bytes)
+                .bind(total_miss_bytes)
+                .bind(game_app_id.map(|id| id as i64))
+                .bind(&game_name)
+                .bind(&game_image_url)
+                .bind(last_url)
+                .bind(primary_depot_id.map(|d| d as i64))
+                .bind(&self.datasource_name)
+                .fetch_one(&mut **tx)
+                .await?;
+                (row.get::<i64, _>("Id"), true)
             };
 
             // Convert timestamps once for reuse in updates
@@ -721,32 +736,45 @@ impl Processor {
 
             // Only update if we found existing download (not if we just created it)
             if !is_new {
-                tx.execute(
-                    "UPDATE Downloads SET EndTimeUtc = ?, EndTimeLocal = ?, CacheHitBytes = CacheHitBytes + ?, CacheMissBytes = CacheMissBytes + ?, LastUrl = ?, DepotId = COALESCE(?, DepotId), GameAppId = COALESCE(?, GameAppId), GameName = COALESCE(?, GameName), GameImageUrl = COALESCE(?, GameImageUrl) WHERE Id = ?",
-                    params![
-                        &last_utc,
-                        &last_local,
-                        total_hit_bytes,
-                        total_miss_bytes,
-                        last_url,
-                        primary_depot_id,
-                        game_app_id,
-                        game_name,
-                        game_image_url,
-                        download_id,
-                    ],
-                )?;
+                sqlx::query(
+                    "UPDATE \"Downloads\" SET \"EndTimeUtc\" = $1, \"EndTimeLocal\" = $2, \"CacheHitBytes\" = \"CacheHitBytes\" + $3, \"CacheMissBytes\" = \"CacheMissBytes\" + $4, \"LastUrl\" = $5, \"DepotId\" = COALESCE($6, \"DepotId\"), \"GameAppId\" = COALESCE($7, \"GameAppId\"), \"GameName\" = COALESCE($8, \"GameName\"), \"GameImageUrl\" = COALESCE($9, \"GameImageUrl\") WHERE \"Id\" = $10"
+                )
+                .bind(&last_utc)
+                .bind(&last_local)
+                .bind(total_hit_bytes)
+                .bind(total_miss_bytes)
+                .bind(last_url)
+                .bind(primary_depot_id.map(|d| d as i64))
+                .bind(game_app_id.map(|id| id as i64))
+                .bind(&game_name)
+                .bind(&game_image_url)
+                .bind(download_id)
+                .execute(&mut **tx)
+                .await?;
             }
 
             // Update client and service stats (for both new and existing downloads)
-            tx.execute(
-                "UPDATE ClientStats SET TotalCacheHitBytes = TotalCacheHitBytes + ?, TotalCacheMissBytes = TotalCacheMissBytes + ?, LastActivityUtc = ?, LastActivityLocal = ? WHERE ClientIp = ?",
-                params![total_hit_bytes, total_miss_bytes, &last_utc, &last_local, client_ip],
-            )?;
-            tx.execute(
-                "UPDATE ServiceStats SET TotalCacheHitBytes = TotalCacheHitBytes + ?, TotalCacheMissBytes = TotalCacheMissBytes + ?, LastActivityUtc = ?, LastActivityLocal = ? WHERE Service = ?",
-                params![total_hit_bytes, total_miss_bytes, &last_utc, &last_local, service],
-            )?;
+            sqlx::query(
+                "UPDATE \"ClientStats\" SET \"TotalCacheHitBytes\" = \"TotalCacheHitBytes\" + $1, \"TotalCacheMissBytes\" = \"TotalCacheMissBytes\" + $2, \"LastActivityUtc\" = $3, \"LastActivityLocal\" = $4 WHERE \"ClientIp\" = $5"
+            )
+            .bind(total_hit_bytes)
+            .bind(total_miss_bytes)
+            .bind(&last_utc)
+            .bind(&last_local)
+            .bind(client_ip)
+            .execute(&mut **tx)
+            .await?;
+
+            sqlx::query(
+                "UPDATE \"ServiceStats\" SET \"TotalCacheHitBytes\" = \"TotalCacheHitBytes\" + $1, \"TotalCacheMissBytes\" = \"TotalCacheMissBytes\" + $2, \"LastActivityUtc\" = $3, \"LastActivityLocal\" = $4 WHERE \"Service\" = $5"
+            )
+            .bind(total_hit_bytes)
+            .bind(total_miss_bytes)
+            .bind(&last_utc)
+            .bind(&last_local)
+            .bind(service)
+            .execute(&mut **tx)
+            .await?;
 
             download_id
         };
@@ -756,31 +784,30 @@ impl Processor {
             .update_session(session_key, last_timestamp);
 
         // Insert ONLY the new (non-duplicate) entries
-        let mut insert_stmt = tx.prepare_cached(
-            "INSERT INTO LogEntries (Timestamp, ClientIp, Service, Method, Url, StatusCode, BytesServed, CacheStatus, DepotId, DownloadId, CreatedAt, Datasource)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        )?;
-
         let now = Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
         let inserted = new_entries.len();
 
-        for entry in new_entries {
+        for entry in &new_entries {
             let timestamp_str = entry.timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
 
-            insert_stmt.execute(params![
-                timestamp_str,
-                entry.client_ip,
-                entry.service,
-                "GET",
-                entry.url,
-                entry.status_code,
-                entry.bytes_served,
-                entry.cache_status,
-                entry.depot_id,
-                download_id,
-                now,
-                &self.datasource_name,
-            ])?;
+            sqlx::query(
+                "INSERT INTO \"LogEntries\" (\"Timestamp\", \"ClientIp\", \"Service\", \"Method\", \"Url\", \"StatusCode\", \"BytesServed\", \"CacheStatus\", \"DepotId\", \"DownloadId\", \"CreatedAt\", \"Datasource\")
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)"
+            )
+            .bind(&timestamp_str)
+            .bind(&entry.client_ip)
+            .bind(&entry.service)
+            .bind("GET")
+            .bind(&entry.url)
+            .bind(entry.status_code as i32)
+            .bind(entry.bytes_served)
+            .bind(&entry.cache_status)
+            .bind(entry.depot_id.map(|d| d as i64))
+            .bind(download_id)
+            .bind(&now)
+            .bind(&self.datasource_name)
+            .execute(&mut **tx)
+            .await?;
         }
 
         // Log if duplicates were skipped
@@ -797,11 +824,11 @@ impl Processor {
     }
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let args = Args::parse();
     let reporter = ProgressReporter::new(args.progress);
 
-    let db_path = PathBuf::from(&args.db_path);
     let log_dir = PathBuf::from(&args.log_dir);
     let progress_path = PathBuf::from(&args.progress_path);
     let start_position = args.start_position;
@@ -815,8 +842,10 @@ fn main() -> Result<()> {
     reporter.emit_started();
     reporter.emit_progress(0.0, "Starting log processing");
 
+    let pool = db::create_pool().await;
+
     let mut processor = Processor::new(
-        db_path,
+        pool,
         log_dir,
         log_base_name,
         progress_path,
@@ -825,7 +854,7 @@ fn main() -> Result<()> {
         datasource_name,
     );
 
-    match processor.process() {
+    match processor.process().await {
         Ok(()) => {
             reporter.emit_complete("Log processing completed successfully");
             Ok(())

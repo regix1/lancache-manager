@@ -174,11 +174,11 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
         foreach (var (oldName, newName) in serviceRenames)
         {
             var logEntriesUpdated = await context.Database.ExecuteSqlRawAsync(
-                "UPDATE LogEntries SET Service = {0} WHERE Service = {1}",
+                "UPDATE \"LogEntries\" SET \"Service\" = {0} WHERE \"Service\" = {1}",
                 newName, oldName);
 
             var downloadsUpdated = await context.Database.ExecuteSqlRawAsync(
-                "UPDATE Downloads SET Service = {0} WHERE Service = {1}",
+                "UPDATE \"Downloads\" SET \"Service\" = {0} WHERE \"Service\" = {1}",
                 newName, oldName);
 
             if (logEntriesUpdated > 0 || downloadsUpdated > 0)

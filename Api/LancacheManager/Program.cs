@@ -224,49 +224,56 @@ builder.Services.AddScoped(sp => (StatsDataService)sp.GetRequiredService<IStatsD
 builder.Services.AddScoped(sp => (EventsService)sp.GetRequiredService<IEventsService>());
 builder.Services.AddSingleton(sp => (SettingsService)sp.GetRequiredService<ISettingsService>());
 
-// Database configuration (now can use IPathResolver)
-var dbPathInitialized = false;
+// Database configuration — build connection string dynamically from env vars or config file
+var baseConnStr = builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? throw new InvalidOperationException("ConnectionStrings:DefaultConnection is not configured.");
+
+var pgUser = Environment.GetEnvironmentVariable("POSTGRES_USER");
+var pgPassword = Environment.GetEnvironmentVariable("POSTGRES_PASSWORD");
+
+// Check persistent config file if no env var credentials (production Docker setup page flow)
+if (string.IsNullOrEmpty(pgPassword))
+{
+    var configPath = "/data/postgres-credentials.json";
+    if (File.Exists(configPath))
+    {
+        try
+        {
+            var json = File.ReadAllText(configPath);
+            var config = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+            if (config != null)
+            {
+                pgPassword = config.GetValueOrDefault("password");
+                if (string.IsNullOrEmpty(pgUser))
+                    pgUser = config.GetValueOrDefault("username");
+            }
+        }
+        catch
+        {
+            // Config file corrupt or unreadable — will show setup page
+        }
+    }
+}
+
+// Build connection string with credentials
+// Start from base connection string (appsettings) — only override if env vars or config file provided values
+var connBuilder = new Npgsql.NpgsqlConnectionStringBuilder(baseConnStr);
+if (!string.IsNullOrEmpty(pgUser))
+    connBuilder.Username = pgUser;
+if (!string.IsNullOrEmpty(pgPassword))
+    connBuilder.Password = pgPassword;
+
+var dbConnectionString = connBuilder.ConnectionString;
+
 builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
 {
-    // Get the path resolver to determine the database path
-    var pathResolver = serviceProvider.GetRequiredService<IPathResolver>();
-    var dbPath = pathResolver.GetDatabasePath();
-
-    // Ensure the directory exists (only log once)
-    var dbDir = Path.GetDirectoryName(dbPath);
-    if (!string.IsNullOrEmpty(dbDir) && !Directory.Exists(dbDir))
-    {
-        Directory.CreateDirectory(dbDir);
-        var logger = serviceProvider.GetService<ILogger<Program>>();
-        logger?.LogInformation("Created database directory: {DbDir}", dbDir);
-    }
-
-    // Only log the path once at startup
-    if (!dbPathInitialized)
-    {
-        var logger = serviceProvider.GetService<ILogger<Program>>();
-        logger?.LogInformation("Using database path: {DbPath}", dbPath);
-        dbPathInitialized = true;
-    }
-
-    // Default Timeout=5 sets ADO.NET command timeout (not SQLite's busy_timeout).
-    // The SqliteBusyTimeoutInterceptor below sets PRAGMA busy_timeout on every connection,
-    // which tells SQLite to wait up to 5 seconds when the database is locked instead of failing immediately.
-    options.UseSqlite($"Data Source={dbPath};Default Timeout=5");
-    options.AddInterceptors(new SqliteBusyTimeoutInterceptor(busyTimeoutMs: 5000));
+    options.UseNpgsql(dbConnectionString);
 });
 
 // Register DbContextFactory for singleton services that need to create multiple contexts
 // Use a custom factory to avoid lifetime conflicts with AddDbContext
-builder.Services.AddSingleton<IDbContextFactory<AppDbContext>>(serviceProvider =>
-{
-    var pathResolver = serviceProvider.GetRequiredService<IPathResolver>();
-    var dbPath = pathResolver.GetDatabasePath();
-    var connectionString = $"Data Source={dbPath};Default Timeout=5";
-
-    // Create a factory that returns new DbContext instances on demand
-    return new CustomDbContextFactory(connectionString);
-});
+builder.Services.AddSingleton<IDbContextFactory<AppDbContext>>(_ =>
+    new CustomDbContextFactory(dbConnectionString));
 
 // Register HttpClientFactory for better HTTP client management
 builder.Services.AddHttpClient();
@@ -478,17 +485,7 @@ using (var scope = app.Services.CreateScope())
         // This will create the database if it doesn't exist and apply all pending migrations
         await dbContext.Database.MigrateAsync();
 
-        // Enable WAL mode for better concurrent access (reduces "database is locked" errors)
-        // WAL is persistent and only needs to be set once per database file
-        // busy_timeout is set per-connection via SqliteBusyTimeoutInterceptor (5000ms)
-        await dbContext.Database.ExecuteSqlRawAsync("PRAGMA journal_mode=WAL;");
-        logger.LogInformation("SQLite WAL mode enabled");
-
         logger.LogInformation("Database migrations applied successfully");
-
-        // Fix schema issues for existing databases that ran older no-op migrations
-        // (SQLite doesn't support ADD COLUMN IF NOT EXISTS, so we check and add if missing)
-        await LancacheManager.Infrastructure.Data.DatabaseSchemaFixer.ApplyPostMigrationFixesAsync(dbContext, logger);
 
         // Verify connection
         var canConnect = await dbContext.Database.CanConnectAsync();
@@ -530,6 +527,41 @@ apiKeyService.DisplayApiKey(app.Configuration);
 // This ensures HttpContext.Connection.RemoteIpAddress returns the real client IP
 app.UseForwardedHeaders();
 
+// Redirect to setup page if PostgreSQL credentials are not configured
+app.Use(async (context, next) =>
+{
+    // In Development, credentials come from appsettings.Development.json — skip setup redirect
+    if (app.Environment.IsDevelopment())
+    {
+        await next();
+        return;
+    }
+
+    var path = context.Request.Path.Value?.ToLower() ?? "";
+
+    // Skip for setup endpoints, health, static files, and API infrastructure
+    if (path.StartsWith("/api/setup") || path == "/health" ||
+        path.StartsWith("/static") || path.StartsWith("/assets") ||
+        path.EndsWith(".js") || path.EndsWith(".css") || path.EndsWith(".ico") ||
+        path.StartsWith("/hubs") || path.StartsWith("/metrics") ||
+        path.StartsWith("/swagger"))
+    {
+        await next();
+        return;
+    }
+
+    var needsSetup = string.IsNullOrEmpty(Environment.GetEnvironmentVariable("POSTGRES_PASSWORD"))
+                     && !File.Exists("/data/postgres-credentials.json");
+
+    if (needsSetup && !path.StartsWith("/setup"))
+    {
+        context.Response.Redirect("/setup");
+        return;
+    }
+
+    await next();
+});
+
 app.UseCors("AllowAll");
 
 // Global exception handler - must run early to catch all exceptions
@@ -547,10 +579,8 @@ app.UseRouting();
 // Rate limiting - must be after routing to access endpoint metadata
 app.UseRateLimiter();
 
-// Session-based authentication middleware (populates HttpContext.Items["Session"] for backward compat)
-app.UseMiddleware<SessionAuthMiddleware>();
-
 // ASP.NET Core authentication & authorization pipeline
+// SessionAuthenticationHandler populates HttpContext.Items["Session"] for backward compatibility.
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -734,8 +764,7 @@ class CustomDbContextFactory : IDbContextFactory<AppDbContext>
     public AppDbContext CreateDbContext()
     {
         var optionsBuilder = new DbContextOptionsBuilder<AppDbContext>();
-        optionsBuilder.UseSqlite(_connectionString);
-        optionsBuilder.AddInterceptors(new SqliteBusyTimeoutInterceptor(busyTimeoutMs: 5000));
+        optionsBuilder.UseNpgsql(_connectionString);
         return new AppDbContext(optionsBuilder.Options);
     }
 }

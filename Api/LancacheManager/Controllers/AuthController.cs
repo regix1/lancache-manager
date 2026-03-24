@@ -7,6 +7,7 @@ using LancacheManager.Models;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Controllers;
 
@@ -17,20 +18,20 @@ public class AuthController : ControllerBase
 {
     private readonly SessionService _sessionService;
     private readonly ILogger<AuthController> _logger;
-    private readonly AppDbContext _dbContext;
+    private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly StateService _stateService;
     private readonly ISignalRNotificationService _signalR;
 
     public AuthController(
         SessionService sessionService,
         ILogger<AuthController> logger,
-        AppDbContext dbContext,
+        IDbContextFactory<AppDbContext> dbContextFactory,
         StateService stateService,
         ISignalRNotificationService signalR)
     {
         _sessionService = sessionService;
         _logger = logger;
-        _dbContext = dbContext;
+        _dbContextFactory = dbContextFactory;
         _stateService = stateService;
         _signalR = signalR;
     }
@@ -49,7 +50,11 @@ public class AuthController : ControllerBase
         bool hasBeenInitialized = false;
         bool hasDataLoaded = false;
 
-        try { hasData = _dbContext.Downloads.Any(); }
+        try
+        {
+            using var context = _dbContextFactory.CreateDbContext();
+            hasData = await context.Downloads.AnyAsync();
+        }
         catch (Exception ex) { _logger.LogWarning(ex, "Failed to check if database has data"); }
 
         try { hasBeenInitialized = _stateService.GetSetupCompleted(); }
@@ -406,7 +411,7 @@ public class AuthController : ControllerBase
                 await _sessionService.RevokeSteamPrefillAccessAsync(sessionId);
         }
 
-        var updatedSession = await _dbContext.UserSessions.FindAsync(sessionId);
+        var updatedSession = await _sessionService.GetSessionByIdAsync(sessionId);
         DateTime? prefillExpiresAt = null;
 
         if (normalizedService == "epic")

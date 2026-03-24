@@ -3,6 +3,7 @@ import { Rocket, ArrowLeft } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useInitializationFlow, type InitStep } from '@hooks/useInitializationFlow';
 import {
+  DatabaseSetupStep,
   ApiKeyStep,
   PermissionsCheckStep,
   ImportHistoricalDataStep,
@@ -46,6 +47,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
     setBackButtonDisabled,
     completedPlatforms,
     handleGoBack,
+    handleDatabaseSetupComplete,
     handlePermissionsCheckComplete,
     handleImportComplete,
     handleSelectPlatform,
@@ -69,7 +71,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
 
   const renderStep = (step: InitStep): React.ReactNode => {
     // Show loading state while checking auth for steps that make API calls
-    if (isCheckingAuth && step !== 'api-key') {
+    if (isCheckingAuth && step !== 'api-key' && step !== 'database-setup') {
       return (
         <div className="flex flex-col items-center justify-center py-12">
           <div className="w-12 h-12 rounded-full border-4 border-themed-secondary border-t-primary animate-spin mb-4" />
@@ -79,6 +81,9 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
     }
 
     switch (step) {
+      case 'database-setup':
+        return <DatabaseSetupStep onSetupComplete={handleDatabaseSetupComplete} />;
+
       case 'api-key':
         return (
           <ApiKeyStep
@@ -184,7 +189,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
         {/* Header */}
         <div className="px-8 py-5 border-b flex items-center justify-between border-themed-secondary">
           <div className="flex items-center gap-3">
-            {currentStep !== 'api-key' && (
+            {currentStep !== 'database-setup' && currentStep !== 'api-key' && (
               <button
                 onClick={backButtonDisabled ? undefined : handleGoBack}
                 disabled={backButtonDisabled}

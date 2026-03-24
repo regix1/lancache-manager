@@ -27,7 +27,6 @@ RUN mkdir src && \
     echo "fn main() {}" > src/cache_epic_remove.rs && \
     echo "fn main() {}" > src/cache_service_remove.rs && \
     echo "fn main() {}" > src/db_reset.rs && \
-    echo "fn main() {}" > src/db_migrate.rs && \
     cargo build --release && \
     rm -rf src target/release/deps/lancache* target/release/lancache* target/release/.fingerprint/lancache*
 
@@ -49,7 +48,6 @@ RUN cargo build --release && \
     cp target/release/cache_epic_remove /build/output/ && \
     cp target/release/cache_service_remove /build/output/ && \
     cp target/release/db_reset /build/output/ && \
-    cp target/release/db_migrate /build/output/ && \
     chmod +x /build/output/*
 
 # Stage 2: Build Frontend
@@ -136,6 +134,20 @@ RUN apt-get update && \
     && apt-get update \
     && apt-get install -y docker-ce-cli \
     && rm -rf /var/lib/apt/lists/*
+
+# Install PostgreSQL 17
+# Uses PGDG apt repository for the latest PostgreSQL release
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    postgresql-common \
+    && /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y \
+    && apt-get update && apt-get install -y --no-install-recommends \
+    postgresql-17 \
+    pgloader \
+    && rm -rf /var/lib/apt/lists/*
+
+# Prepare PostgreSQL runtime directories and copy config
+RUN mkdir -p /var/run/postgresql && chown postgres:postgres /var/run/postgresql
+COPY postgresql.conf /etc/postgresql/17/main/postgresql.conf
 
 # Copy published application
 COPY --from=backend-builder /app/publish ./

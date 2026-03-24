@@ -4,19 +4,18 @@ namespace LancacheManager.Infrastructure.Data;
 
 /// <summary>
 /// Fixes database schema issues that can't be handled by EF Core migrations alone.
-/// This is necessary because SQLite doesn't support "ADD COLUMN IF NOT EXISTS".
+/// PostgreSQL supports "ADD COLUMN IF NOT EXISTS" natively, so this is a thin wrapper.
 /// </summary>
 public static class DatabaseSchemaFixer
 {
     /// <summary>
     /// Applies schema fixes AFTER migrations run.
-    /// This handles existing databases that ran older versions of migrations (e.g., no-op migrations).
     /// Call this AFTER DbContext.Database.MigrateAsync().
     /// </summary>
     public static async Task ApplyPostMigrationFixesAsync(DbContext dbContext, ILogger logger)
     {
         var connection = dbContext.Database.GetDbConnection();
-        
+
         // Connection should already be open from migrations, but ensure it is
         if (connection.State != System.Data.ConnectionState.Open)
         {
@@ -26,7 +25,6 @@ public static class DatabaseSchemaFixer
         try
         {
             // Fix: ShowYearInDates column may be missing if database ran the old no-op migration
-            // For fresh installs, the migration now properly adds it
             await AddColumnIfNotExistsAsync(connection, "UserPreferences", "ShowYearInDates", "INTEGER NOT NULL DEFAULT 0", logger);
 
             // Per-session refresh rate lock override (nullable bool: null = use global, 0 = unlocked, 1 = locked)
@@ -58,14 +56,23 @@ public static class DatabaseSchemaFixer
         ILogger logger)
     {
         using var checkCmd = connection.CreateCommand();
-        checkCmd.CommandText = $"SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = '{column}'";
+        checkCmd.CommandText = "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' AND table_name=@table AND column_name=@column";
+        var tableParam = checkCmd.CreateParameter();
+        tableParam.ParameterName = "@table";
+        tableParam.Value = table.ToLower();
+        checkCmd.Parameters.Add(tableParam);
+        var colParam = checkCmd.CreateParameter();
+        colParam.ParameterName = "@column";
+        colParam.Value = column.ToLower();
+        checkCmd.Parameters.Add(colParam);
+
         var columnExists = Convert.ToInt32(await checkCmd.ExecuteScalarAsync()) > 0;
 
         if (!columnExists)
         {
             logger.LogInformation("Adding missing {Column} column to {Table} table...", column, table);
             using var addCmd = connection.CreateCommand();
-            addCmd.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {definition}";
+            addCmd.CommandText = $"ALTER TABLE \"{table}\" ADD COLUMN IF NOT EXISTS \"{column}\" {definition}";
             await addCmd.ExecuteNonQueryAsync();
             logger.LogInformation("{Column} column added successfully", column);
         }

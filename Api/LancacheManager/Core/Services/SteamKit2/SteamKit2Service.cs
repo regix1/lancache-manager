@@ -5,6 +5,7 @@ using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Models;
+using Microsoft.EntityFrameworkCore;
 using SteamKit2;
 
 
@@ -660,13 +661,13 @@ public partial class SteamKit2Service : IHostedService, IDisposable
     /// <summary>
     /// Get current depot mapping count (always from database for accuracy)
     /// </summary>
-    public int GetDepotMappingCount()
+    public async Task<int> GetDepotMappingCountAsync()
     {
         try
         {
             using var scopedDb = _scopeFactory.CreateScopedDbContext();
 
-            return scopedDb.DbContext.SteamDepotMappings.Count();
+            return await scopedDb.DbContext.SteamDepotMappings.CountAsync();
         }
         catch (Exception ex)
         {

@@ -1,11 +1,12 @@
 use anyhow::{Context, Result};
 use chrono::Utc;
-use rusqlite::Connection;
 use serde::Serialize;
 use std::env;
 use std::fs;
 use std::path::Path;
 use std::time::Instant;
+
+mod db;
 
 #[derive(Serialize)]
 struct ProgressData {
@@ -53,15 +54,13 @@ fn write_progress(progress_path: &Path, progress: &ProgressData) -> Result<()> {
     Ok(())
 }
 
-fn reset_database(
-    db_path: &str,
+async fn reset_database(
     data_directory: &str,
     progress_path: &Path,
 ) -> Result<()> {
     let start_time = Instant::now();
 
     println!("Starting database reset...");
-    println!("Database: {}", db_path);
     println!("Data directory: {}", data_directory);
     println!("Progress file: {}", progress_path.display());
 
@@ -77,13 +76,8 @@ fn reset_database(
     );
     write_progress(progress_path, &progress)?;
 
-    // Open database connection
-    let conn = Connection::open(db_path)
-        .context("Failed to open database")?;
-
-    // Disable foreign key constraints for faster deletion
-    conn.execute("PRAGMA foreign_keys = OFF", [])
-        .context("Failed to disable foreign keys")?;
+    // Create PostgreSQL connection pool
+    let pool = db::create_pool().await;
 
     let tables = vec![
         "LogEntries",
@@ -92,14 +86,21 @@ fn reset_database(
         "ServiceStats",
     ];
 
+    // Disable foreign key constraints using session replication role
+    // (equivalent to PostgreSQL's way to bypass FK checks during bulk delete)
+    sqlx::query("SET session_replication_role = 'replica'")
+        .execute(&pool)
+        .await
+        .context("Failed to disable foreign key checks")?;
+
     let mut tables_cleared = 0;
-    let batch_size = 5000;
+    let batch_size = 5000i64;
 
     // Count total rows across all tables for accurate progress
     let mut total_rows = 0i64;
     for table_name in &tables {
-        let count_sql = format!("SELECT COUNT(*) FROM {}", table_name);
-        match conn.query_row(&count_sql, [], |row| row.get::<_, i64>(0)) {
+        let count_sql = format!("SELECT COUNT(*) FROM \"{}\"", table_name);
+        match sqlx::query_scalar::<_, i64>(&count_sql).fetch_one(&pool).await {
             Ok(count) => total_rows += count,
             Err(e) => eprintln!("Warning: Failed to count {}: {}", table_name, e),
         }
@@ -113,8 +114,8 @@ fn reset_database(
         println!("Clearing table: {}", table_name);
 
         // Count rows in this table
-        let count_sql = format!("SELECT COUNT(*) FROM {}", table_name);
-        let table_row_count = match conn.query_row(&count_sql, [], |row| row.get::<_, i64>(0)) {
+        let count_sql = format!("SELECT COUNT(*) FROM \"{}\"", table_name);
+        let table_row_count = match sqlx::query_scalar::<_, i64>(&count_sql).fetch_one(&pool).await {
             Ok(count) => count,
             Err(e) => {
                 eprintln!("  Warning: Failed to count {}: {}", table_name, e);
@@ -128,10 +129,15 @@ fn reset_database(
         let mut batch_num = 0;
         let mut table_had_error = false;
         loop {
-            let delete_sql = format!("DELETE FROM {} WHERE rowid IN (SELECT rowid FROM {} LIMIT {})", table_name, table_name, batch_size);
+            // PostgreSQL uses ctid for row-level deletion in batches (equivalent to SQLite's rowid)
+            let delete_sql = format!(
+                "DELETE FROM \"{}\" WHERE ctid IN (SELECT ctid FROM \"{}\" LIMIT {})",
+                table_name, table_name, batch_size
+            );
 
-            match conn.execute(&delete_sql, []) {
-                Ok(deleted) => {
+            match sqlx::query(&delete_sql).execute(&pool).await {
+                Ok(result) => {
+                    let deleted = result.rows_affected();
                     if deleted == 0 {
                         break; // No more rows to delete
                     }
@@ -140,7 +146,7 @@ fn reset_database(
                     batch_num += 1;
 
                     // Calculate progress: 0% to 85% based on rows deleted
-                    // Reserve 85-100% for vacuum and cleanup
+                    // Reserve 85-100% for cleanup
                     let overall_progress = if total_rows > 0 {
                         (deleted_rows as f64 / total_rows as f64) * 85.0
                     } else {
@@ -172,21 +178,24 @@ fn reset_database(
     }
 
     // Re-enable foreign key constraints
-    conn.execute("PRAGMA foreign_keys = ON", [])
-        .context("Failed to re-enable foreign keys")?;
+    sqlx::query("SET session_replication_role = 'DEFAULT'")
+        .execute(&pool)
+        .await
+        .context("Failed to re-enable foreign key checks")?;
 
-    // Run VACUUM to reclaim space
+    // PostgreSQL doesn't need VACUUM to reclaim space (autovacuum handles it)
+    // But we can run ANALYZE to update statistics
     progress.message = "Optimizing database...".to_string();
     progress.percent_complete = 88.0;
     progress.status = "optimizing".to_string();
     write_progress(progress_path, &progress)?;
 
-    println!("Running VACUUM to optimize database...");
-    conn.execute("VACUUM", [])
-        .context("Failed to vacuum database")?;
+    println!("Running ANALYZE to update statistics...");
+    sqlx::query("ANALYZE")
+        .execute(&pool)
+        .await
+        .context("Failed to analyze database")?;
 
-    // Close database connection
-    drop(conn);
     println!("Database cleared successfully");
 
     // Clean up files
@@ -241,19 +250,20 @@ fn reset_database(
     Ok(())
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let args: Vec<String> = env::args().collect();
 
-    if args.len() != 4 {
-        eprintln!("Usage: database_reset <db_path> <data_directory> <progress_json_path>");
+    if args.len() != 3 {
+        eprintln!("Usage: database_reset <data_directory> <progress_json_path>");
         eprintln!("\nExample:");
-        eprintln!("  database_reset ./data/LancacheManager.db ./data ./data/reset_progress.json");
+        eprintln!("  database_reset ./data ./data/reset_progress.json");
+        eprintln!("\nNote: Database connection is configured via DATABASE_URL environment variable.");
         std::process::exit(1);
     }
 
-    let db_path = &args[1];
-    let data_directory = &args[2];
-    let progress_path = Path::new(&args[3]);
+    let data_directory = &args[1];
+    let progress_path = Path::new(&args[2]);
 
     // Create data directory if it doesn't exist
     if let Err(e) = fs::create_dir_all(data_directory) {
@@ -261,7 +271,7 @@ fn main() {
         std::process::exit(1);
     }
 
-    match reset_database(db_path, data_directory, progress_path) {
+    match reset_database(data_directory, progress_path).await {
         Ok(_) => {
             std::process::exit(0);
         }

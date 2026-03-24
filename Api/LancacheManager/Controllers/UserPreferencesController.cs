@@ -68,7 +68,7 @@ public class UserPreferencesController : ControllerBase
         if (session.SessionType != "admin")
             UserPreferencesService.StripAdminOnlyFields(preferences);
 
-        var success = _preferencesService.SavePreferences(sessionId, preferences);
+        var success = await _preferencesService.SavePreferencesAsync(sessionId, preferences);
         if (success)
         {
             await _notifications.NotifyAllAsync(SignalREvents.UserPreferencesUpdated, new { sessionId, preferences });
@@ -93,7 +93,7 @@ public class UserPreferencesController : ControllerBase
         if (session.SessionType != "admin" && UserPreferencesService.IsAdminOnlyKey(key))
             return Forbid();
 
-        var preferences = _preferencesService.UpdatePreferenceAndGet(sessionId, key, value);
+        var preferences = await _preferencesService.UpdatePreferenceAndGetAsync(sessionId, key, value);
 
         if (preferences != null)
         {
@@ -121,7 +121,7 @@ public class UserPreferencesController : ControllerBase
     [HttpPut("session/{sessionId}")]
     public async Task<IActionResult> SavePreferencesForSessionAsync(Guid sessionId, [FromBody] UserPreferencesDto preferences)
     {
-        var success = _preferencesService.SavePreferences(sessionId, preferences);
+        var success = await _preferencesService.SavePreferencesAsync(sessionId, preferences);
         if (success)
         {
             await _notifications.NotifyAllAsync(SignalREvents.UserPreferencesUpdated, new { sessionId, preferences });

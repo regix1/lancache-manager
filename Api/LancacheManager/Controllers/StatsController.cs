@@ -561,13 +561,13 @@ public class StatsController : ControllerBase
         // Note: All-time totals should NOT be filtered by event - they represent overall system stats
         // Filter out hidden IPs, but exclude stats-excluded IPs from calculations
         var allTimeQuery = ApplyHiddenClientFilter(_context.Downloads.AsNoTracking(), hiddenClientIps);
-        var totalHitBytesTask = SumCacheHitBytesExcludingAsync(allTimeQuery, statsExcludedOnlyIps);
-        var totalMissBytesTask = SumCacheMissBytesExcludingAsync(allTimeQuery, statsExcludedOnlyIps);
+        var totalHitBytes = await SumCacheHitBytesExcludingAsync(allTimeQuery, statsExcludedOnlyIps);
+        var totalMissBytes = await SumCacheMissBytesExcludingAsync(allTimeQuery, statsExcludedOnlyIps);
 
         // Calculate PERIOD-specific metrics (exclude stats-excluded IPs from calculations)
-        var periodHitBytesTask = SumCacheHitBytesExcludingAsync(downloadsQuery, statsExcludedOnlyIps);
-        var periodMissBytesTask = SumCacheMissBytesExcludingAsync(downloadsQuery, statsExcludedOnlyIps);
-        var periodDownloadCountTask = CountExcludingAsync(downloadsQuery, statsExcludedOnlyIps);
+        var periodHitBytes = await SumCacheHitBytesExcludingAsync(downloadsQuery, statsExcludedOnlyIps);
+        var periodMissBytes = await SumCacheMissBytesExcludingAsync(downloadsQuery, statsExcludedOnlyIps);
+        var periodDownloadCount = await CountExcludingAsync(downloadsQuery, statsExcludedOnlyIps);
 
         // Get top service from Downloads table (not cached ServiceStats)
         // Exclude stats-excluded IPs from the sum calculation
@@ -604,10 +604,10 @@ public class StatsController : ControllerBase
         // Active downloads and unique clients (exclude stats-excluded IPs from counts)
         var activeDownloadsQuery = ApplyHiddenClientFilter(_context.Downloads.AsNoTracking(), hiddenClientIps)
             .Where(d => d.IsActive && d.EndTimeUtc > DateTime.UtcNow.AddMinutes(-5));
-        var activeDownloadsTask = CountExcludingAsync(activeDownloadsQuery, statsExcludedOnlyIps);
+        var activeDownloads = await CountExcludingAsync(activeDownloadsQuery, statsExcludedOnlyIps);
 
         // Unique clients: count distinct IPs, excluding stats-excluded IPs
-        Task<int> uniqueClientsQuery;
+        int uniqueClientsCount;
         if (cutoffTime.HasValue || endDateTime.HasValue)
         {
             // For period queries, count distinct IPs excluding stats-excluded
@@ -615,7 +615,7 @@ public class StatsController : ControllerBase
             var excludedCount = statsExcludedOnlyIps.Count > 0 
                 ? allIps.Count(ip => statsExcludedOnlyIps.Contains(ip))
                 : 0;
-            uniqueClientsQuery = Task.FromResult(allIps.Count - excludedCount);
+            uniqueClientsCount = allIps.Count - excludedCount;
         }
         else
         {
@@ -627,18 +627,12 @@ public class StatsController : ControllerBase
             var excludedCount = statsExcludedOnlyIps.Count > 0 
                 ? allIps.Count(ip => statsExcludedOnlyIps.Contains(ip))
                 : 0;
-            uniqueClientsQuery = Task.FromResult(allIps.Count - excludedCount);
+            uniqueClientsCount = allIps.Count - excludedCount;
         }
 
-        // Await all tasks in parallel
-        await Task.WhenAll(
-            totalHitBytesTask, totalMissBytesTask,
-            periodHitBytesTask, periodMissBytesTask, periodDownloadCountTask,
-            activeDownloadsTask, uniqueClientsQuery);
-
         // All-time metrics (from Downloads table directly)
-        var totalBandwidthSaved = await totalHitBytesTask;
-        var totalAddedToCache = await totalMissBytesTask;
+        var totalBandwidthSaved = totalHitBytes;
+        var totalAddedToCache = totalMissBytes;
         var totalServed = totalBandwidthSaved + totalAddedToCache;
         var cacheHitRatio = totalServed > 0
             ? (double)totalBandwidthSaved / totalServed
@@ -646,12 +640,6 @@ public class StatsController : ControllerBase
         var topServiceName = topService?.Service ?? "none";
 
         // Period-specific metrics
-        var periodHitBytes = await periodHitBytesTask;
-        var periodMissBytes = await periodMissBytesTask;
-        var periodDownloadCount = await periodDownloadCountTask;
-        var activeDownloads = await activeDownloadsTask;
-        var uniqueClientsCount = await uniqueClientsQuery;
-
         var periodTotal = periodHitBytes + periodMissBytes;
         var periodHitRatio = periodTotal > 0
             ? (double)periodHitBytes / periodTotal

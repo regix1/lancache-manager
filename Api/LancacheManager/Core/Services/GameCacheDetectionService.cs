@@ -6,7 +6,7 @@ using LancacheManager.Hubs;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
-using Microsoft.Data.Sqlite;
+using Npgsql;
 using Microsoft.EntityFrameworkCore;
 using LancacheManager.Core.Services.SteamKit2;
 
@@ -285,11 +285,6 @@ public class GameCacheDetectionService : IDisposable
             var rustBinaryPath = _pathResolver.GetRustGameDetectorPath();
 
             _rustProcessHelper.ValidateRustBinaryExists(rustBinaryPath, "Game cache detector");
-
-            if (!File.Exists(dbPath))
-            {
-                throw new FileNotFoundException($"Database not found at {dbPath}");
-            }
 
             // Get all datasources
             var datasources = _datasourceService.GetDatasources();
@@ -1159,7 +1154,7 @@ public class GameCacheDetectionService : IDisposable
         {
             await dbContext.SaveChangesAsync();
         }
-        catch (DbUpdateException ex) when (ex.InnerException is SqliteException sqliteEx && sqliteEx.SqliteErrorCode == 19)
+        catch (DbUpdateException ex) when (ex.InnerException is NpgsqlException pgEx && pgEx.SqlState == "23505")
         {
             // UNIQUE constraint violation - log warning and continue
             // This can happen in rare race conditions

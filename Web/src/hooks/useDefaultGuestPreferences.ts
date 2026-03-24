@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import ApiService from '@services/api.service';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { useAuth } from '@contexts/useAuth';
 
 interface DefaultGuestPreferences {
   useLocalTimezone: boolean;
@@ -33,6 +34,7 @@ const notifyListeners = () => {
 
 export const useDefaultGuestPreferences = () => {
   const { on, off } = useSignalR();
+  const { hasSession, isLoading: authLoading } = useAuth();
   const [prefs, setPrefs] = useState<DefaultGuestPreferences>(cachedPrefs);
   const [loading, setLoading] = useState(!loaded);
 
@@ -97,8 +99,10 @@ export const useDefaultGuestPreferences = () => {
     const listener = () => setPrefs({ ...cachedPrefs });
     listeners.add(listener);
 
-    // Load if not already loaded
-    if (!loaded) {
+    // This endpoint requires a session, so defer until auth has settled.
+    if (!authLoading && !hasSession) {
+      setLoading(false);
+    } else if (!authLoading && hasSession && !loaded) {
       loadPreferences();
     }
 
@@ -113,6 +117,8 @@ export const useDefaultGuestPreferences = () => {
     };
   }, [
     loadPreferences,
+    authLoading,
+    hasSession,
     on,
     off,
     handleDefaultGuestPreferencesChanged,

@@ -874,13 +874,6 @@ public class CacheManagementService
 
             _rustProcessHelper.ValidateRustBinaryExists(rustBinaryPath, "Game cache remover");
 
-            if (!File.Exists(dbPath))
-            {
-                var errorMsg = $"Database not found at {dbPath}";
-                _logger.LogError(errorMsg);
-                throw new FileNotFoundException(errorMsg);
-            }
-
             var datasources = _datasourceService.GetDatasources();
             var aggregatedReport = new GameCacheRemovalReport
             {
@@ -1088,13 +1081,6 @@ public class CacheManagementService
 
             _rustProcessHelper.ValidateRustBinaryExists(rustBinaryPath, "Epic game cache remover");
 
-            if (!File.Exists(dbPath))
-            {
-                var errorMsg = $"Database not found at {dbPath}";
-                _logger.LogError(errorMsg);
-                throw new FileNotFoundException(errorMsg);
-            }
-
             var datasources = _datasourceService.GetDatasources();
             var aggregatedReport = new GameCacheRemovalReport
             {
@@ -1277,13 +1263,6 @@ public class CacheManagementService
             var rustBinaryPath = _pathResolver.GetRustServiceRemoverPath();
 
             _rustProcessHelper.ValidateRustBinaryExists(rustBinaryPath, "Service remover");
-
-            if (!File.Exists(dbPath))
-            {
-                var errorMsg = $"Database not found at {dbPath}";
-                _logger.LogError(errorMsg);
-                throw new FileNotFoundException(errorMsg);
-            }
 
             var datasources = _datasourceService.GetDatasources();
             var aggregatedReport = new ServiceCacheRemovalReport

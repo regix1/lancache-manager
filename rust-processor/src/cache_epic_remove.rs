@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use rusqlite::Connection;
+use sqlx::PgPool;
+use sqlx::Row;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -11,6 +12,7 @@ use flate2::write::GzEncoder;
 use flate2::Compression;
 
 mod cache_utils;
+mod db;
 mod log_discovery;
 mod log_reader;
 mod models;
@@ -31,7 +33,7 @@ use progress_events::ProgressReporter;
 #[command(name = "cache_epic_remove")]
 #[command(about = "Removes all cache files for a specific Epic game by name")]
 struct Args {
-    /// Path to LancacheManager.db
+    /// Path to LancacheManager database (DATABASE_URL env var or connection string)
     database_path: String,
 
     /// Directory containing log files
@@ -99,32 +101,26 @@ struct RemovalReport {
 /// Query the database for all URLs associated with an Epic game.
 /// Joins LogEntries with Downloads via DownloadId to find URLs for the specific game.
 /// Returns: HashMap<URL, (service_lowercase, max_bytes_served)>
-fn get_epic_game_urls_from_db(db_path: &Path, game_name: &str) -> Result<HashMap<String, (String, i64)>> {
+async fn get_epic_game_urls_from_db(pool: &PgPool, game_name: &str) -> Result<HashMap<String, (String, i64)>> {
     eprintln!("Querying database for Epic game URLs...");
 
-    let conn = Connection::open(db_path)
-        .context("Failed to open database")?;
-
     // Query LogEntries joined with Downloads to find all URLs for this Epic game
-    let mut stmt = conn.prepare(
-        "SELECT DISTINCT le.Service, le.Url, le.BytesServed
-         FROM LogEntries le
-         INNER JOIN Downloads d ON le.DownloadId = d.Id
-         WHERE d.GameName = ? AND d.EpicAppId IS NOT NULL AND le.Url IS NOT NULL"
-    )?;
+    let rows = sqlx::query(
+        "SELECT DISTINCT le.\"Service\", le.\"Url\", le.\"BytesServed\"
+         FROM \"LogEntries\" le
+         INNER JOIN \"Downloads\" d ON le.\"DownloadId\" = d.\"Id\"
+         WHERE d.\"GameName\" = $1 AND d.\"EpicAppId\" IS NOT NULL AND le.\"Url\" IS NOT NULL"
+    )
+    .bind(game_name)
+    .fetch_all(pool)
+    .await?;
 
     let mut url_data: HashMap<String, (String, i64)> = HashMap::new();
 
-    let rows = stmt.query_map([game_name], |row| {
-        Ok((
-            row.get::<_, String>(0)?,  // Service
-            row.get::<_, String>(1)?,  // Url
-            row.get::<_, i64>(2)?,     // BytesServed
-        ))
-    })?;
-
     for row in rows {
-        let (service, url, bytes_served) = row?;
+        let service: String = row.get("Service");
+        let url: String = row.get("Url");
+        let bytes_served: i64 = row.get("BytesServed");
         let service_lower = service.to_lowercase();
 
         let entry = url_data
@@ -137,26 +133,23 @@ fn get_epic_game_urls_from_db(db_path: &Path, game_name: &str) -> Result<HashMap
 
     // Also get URLs from LogEntries that match epicgames service but may not have DownloadId set
     // (fallback for entries processed before Epic game mapping was established)
-    let mut fallback_stmt = conn.prepare(
-        "SELECT DISTINCT le.Service, le.Url, le.BytesServed
-         FROM LogEntries le
-         WHERE LOWER(le.Service) = 'epicgames'
-         AND le.Url IS NOT NULL
-         AND le.DownloadId IN (
-             SELECT Id FROM Downloads WHERE GameName = ? AND EpicAppId IS NOT NULL
+    let fallback_rows = sqlx::query(
+        "SELECT DISTINCT le.\"Service\", le.\"Url\", le.\"BytesServed\"
+         FROM \"LogEntries\" le
+         WHERE LOWER(le.\"Service\") = 'epicgames'
+         AND le.\"Url\" IS NOT NULL
+         AND le.\"DownloadId\" IN (
+             SELECT \"Id\" FROM \"Downloads\" WHERE \"GameName\" = $1 AND \"EpicAppId\" IS NOT NULL
          )"
-    )?;
-
-    let fallback_rows = fallback_stmt.query_map([game_name], |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            row.get::<_, String>(1)?,
-            row.get::<_, i64>(2)?,
-        ))
-    })?;
+    )
+    .bind(game_name)
+    .fetch_all(pool)
+    .await?;
 
     for row in fallback_rows {
-        let (service, url, bytes_served) = row?;
+        let service: String = row.get("Service");
+        let url: String = row.get("Url");
+        let bytes_served: i64 = row.get("BytesServed");
         let service_lower = service.to_lowercase();
 
         let entry = url_data
@@ -171,26 +164,29 @@ fn get_epic_game_urls_from_db(db_path: &Path, game_name: &str) -> Result<HashMap
 }
 
 /// Delete database records for the Epic game (LogEntries + Downloads).
-fn delete_epic_game_from_database(db_path: &Path, game_name: &str) -> Result<(usize, usize)> {
+async fn delete_epic_game_from_database(pool: &PgPool, game_name: &str) -> Result<(u64, u64)> {
     eprintln!("Deleting database records for Epic game '{}'...", game_name);
 
-    let conn = Connection::open(db_path)
-        .context("Failed to open database")?;
-
     // First, delete LogEntries that reference these downloads (foreign key constraint)
-    let mut log_entries_stmt = conn.prepare(
-        "DELETE FROM LogEntries WHERE DownloadId IN (
-             SELECT Id FROM Downloads WHERE GameName = ? AND EpicAppId IS NOT NULL
+    let log_result = sqlx::query(
+        "DELETE FROM \"LogEntries\" WHERE \"DownloadId\" IN (
+             SELECT \"Id\" FROM \"Downloads\" WHERE \"GameName\" = $1 AND \"EpicAppId\" IS NOT NULL
          )"
-    )?;
-    let log_entries_deleted = log_entries_stmt.execute([game_name])?;
+    )
+    .bind(game_name)
+    .execute(pool)
+    .await?;
+    let log_entries_deleted = log_result.rows_affected();
     eprintln!("  Deleted {} log entry records", log_entries_deleted);
 
     // Now safe to delete the downloads
-    let mut downloads_stmt = conn.prepare(
-        "DELETE FROM Downloads WHERE GameName = ? AND EpicAppId IS NOT NULL"
-    )?;
-    let downloads_deleted = downloads_stmt.execute([game_name])?;
+    let downloads_result = sqlx::query(
+        "DELETE FROM \"Downloads\" WHERE \"GameName\" = $1 AND \"EpicAppId\" IS NOT NULL"
+    )
+    .bind(game_name)
+    .execute(pool)
+    .await?;
+    let downloads_deleted = downloads_result.rows_affected();
     eprintln!("  Deleted {} download records", downloads_deleted);
 
     Ok((log_entries_deleted, downloads_deleted))
@@ -489,11 +485,11 @@ fn remove_log_entries_for_epic_game(
     Ok((final_removed, final_permission_errors))
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let args = Args::parse();
     let reporter = ProgressReporter::new(args.progress);
 
-    let db_path = PathBuf::from(&args.database_path);
     let log_dir = PathBuf::from(&args.log_dir);
     let cache_dir = PathBuf::from(&args.cache_dir);
     let game_name = &args.game_name;
@@ -501,18 +497,11 @@ fn main() -> Result<()> {
     let progress_path = PathBuf::from(&args.progress_json);
 
     eprintln!("Epic Game Cache Removal");
-    eprintln!("  Database: {}", db_path.display());
     eprintln!("  Log directory: {}", log_dir.display());
     eprintln!("  Cache directory: {}", cache_dir.display());
     eprintln!("  Game name: {}", game_name);
 
     reporter.emit_started();
-
-    if !db_path.exists() {
-        let msg = format!("Database not found: {}", db_path.display());
-        reporter.emit_failed(&msg);
-        anyhow::bail!("{}", msg);
-    }
 
     if !log_dir.exists() {
         let msg = format!("Log directory not found: {}", log_dir.display());
@@ -526,6 +515,8 @@ fn main() -> Result<()> {
         anyhow::bail!("{}", msg);
     }
 
+    let pool = db::create_pool().await;
+
     let start_msg = format!("Starting removal for Epic game '{}'", game_name);
     write_progress(&progress_path, "starting", &start_msg, 0.0, 0, 0)?;
     reporter.emit_progress(0.0, &start_msg);
@@ -533,7 +524,7 @@ fn main() -> Result<()> {
     // Query database for URLs
     write_progress(&progress_path, "querying_database", "Querying database for game URLs", 5.0, 0, 0)?;
     reporter.emit_progress(5.0, "Querying database for game URLs");
-    let url_data = get_epic_game_urls_from_db(&db_path, game_name)?;
+    let url_data = get_epic_game_urls_from_db(&pool, game_name).await?;
 
     if url_data.is_empty() {
         eprintln!("No URLs found for Epic game '{}'", game_name);
@@ -608,7 +599,7 @@ fn main() -> Result<()> {
     write_progress(&progress_path, "removing_database", "Deleting database records", 90.0, 0, 0)?;
     reporter.emit_progress(90.0, "Deleting database records");
     eprintln!("\nRemoving database records...");
-    let (_log_records, _download_records) = delete_epic_game_from_database(&db_path, game_name)?;
+    let (_log_records, _download_records) = delete_epic_game_from_database(&pool, game_name).await?;
 
     // Write final report
     let report = RemovalReport {

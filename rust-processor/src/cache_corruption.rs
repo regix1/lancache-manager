@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use rusqlite::Connection;
+use sqlx::PgPool;
+use sqlx::Row;
 use serde::Serialize;
 use std::fs::File;
 use std::io::Write;
@@ -11,6 +12,7 @@ use flate2::Compression;
 
 mod cache_utils;
 mod cache_corruption_detector;
+mod db;
 mod log_discovery;
 mod log_reader;
 mod models;
@@ -76,7 +78,7 @@ enum Commands {
     },
     /// Delete database records, cache files, and log entries for corrupted chunks
     Remove {
-        /// Path to LancacheManager.db
+        /// Path to LancacheManager database (DATABASE_URL env var or connection string)
         database_path: String,
         /// Directory containing log files
         log_dir: String,
@@ -133,54 +135,52 @@ fn write_progress(
     progress_utils::write_progress_json(progress_path, &progress)
 }
 
-fn delete_corrupted_from_database(
-    db_path: &Path,
+async fn delete_corrupted_from_database(
+    pool: &PgPool,
     service: &str,
     corrupted_urls: &std::collections::HashSet<String>,
 ) -> Result<(usize, usize)> {
     eprintln!("Deleting corrupted database records for service: {}", service);
 
-    let conn = Connection::open(db_path)
-        .context("Failed to open database")?;
-
     let service_lower = service.to_lowercase();
-    let miss_status = "MISS".to_string();
-    let unknown_status = "UNKNOWN".to_string();
+    let miss_status = "MISS";
+    let unknown_status = "UNKNOWN";
 
-    let mut total_log_entries_deleted = 0;
-    let mut total_downloads_deleted = 0;
+    let mut total_log_entries_deleted = 0usize;
+    let mut total_downloads_deleted = 0usize;
 
-    // Process in batches to avoid SQL parameter limits (SQLite has a default limit of 999)
-    let batch_size = 400; // Reduced from 500 to accommodate extra parameters for cache status filter
+    // Process in batches to avoid query size limits
+    let batch_size = 400;
     let urls: Vec<&String> = corrupted_urls.iter().collect();
 
     // STEP 1: Collect all unique DownloadIds that have corrupted (MISS/UNKNOWN) log entries
-    let mut affected_download_ids = std::collections::HashSet::new();
+    let mut affected_download_ids: std::collections::HashSet<i64> = std::collections::HashSet::new();
 
     for chunk in urls.chunks(batch_size) {
-        let placeholders = vec!["?"; chunk.len()].join(", ");
+        // Build $1, $2, ... placeholders for the IN clause
+        // Parameters: service_lower = $1, then urls = $2..$(n+1), miss = $n+2, unknown = $n+3
+        let url_placeholders: String = chunk.iter().enumerate()
+            .map(|(i, _)| format!("${}", i + 2))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let miss_idx = chunk.len() + 2;
+        let unknown_idx = chunk.len() + 3;
 
-        let query = format!(
-            "SELECT DISTINCT DownloadId FROM LogEntries WHERE LOWER(Service) = ? AND Url IN ({}) AND CacheStatus IN (?, ?) AND DownloadId IS NOT NULL",
-            placeholders
+        let query_str = format!(
+            "SELECT DISTINCT \"DownloadId\" FROM \"LogEntries\" WHERE LOWER(\"Service\") = $1 AND \"Url\" IN ({}) AND \"CacheStatus\" IN (${}, ${}) AND \"DownloadId\" IS NOT NULL",
+            url_placeholders, miss_idx, unknown_idx
         );
 
-        let mut stmt = conn.prepare(&query)?;
-        let mut params: Vec<&dyn rusqlite::ToSql> = vec![&service_lower];
+        let mut query = sqlx::query(&query_str).bind(&service_lower);
         for url in chunk {
-            params.push(url);
+            query = query.bind(url.as_str());
         }
-        params.push(&miss_status);
-        params.push(&unknown_status);
+        query = query.bind(miss_status).bind(unknown_status);
 
-        let download_ids = stmt.query_map(rusqlite::params_from_iter(params.iter()), |row| {
-            row.get::<_, i32>(0)
-        })?;
-
-        for download_id in download_ids {
-            if let Ok(id) = download_id {
-                affected_download_ids.insert(id);
-            }
+        let rows = query.fetch_all(pool).await?;
+        for row in rows {
+            let download_id: i64 = row.get("DownloadId");
+            affected_download_ids.insert(download_id);
         }
     }
 
@@ -189,70 +189,80 @@ fn delete_corrupted_from_database(
     // STEP 2: Delete only MISS/UNKNOWN LogEntries for corrupted URLs
     // IMPORTANT: Keep HIT entries intact to prevent snowball corruption detection
     for chunk in urls.chunks(batch_size) {
-        let placeholders = vec!["?"; chunk.len()].join(", ");
+        let url_placeholders: String = chunk.iter().enumerate()
+            .map(|(i, _)| format!("${}", i + 2))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let miss_idx = chunk.len() + 2;
+        let unknown_idx = chunk.len() + 3;
 
-        let log_entries_query = format!(
-            "DELETE FROM LogEntries WHERE LOWER(Service) = ? AND Url IN ({}) AND CacheStatus IN (?, ?)",
-            placeholders
+        let log_query_str = format!(
+            "DELETE FROM \"LogEntries\" WHERE LOWER(\"Service\") = $1 AND \"Url\" IN ({}) AND \"CacheStatus\" IN (${}, ${})",
+            url_placeholders, miss_idx, unknown_idx
         );
 
-        let mut log_stmt = conn.prepare(&log_entries_query)?;
-        let mut params: Vec<&dyn rusqlite::ToSql> = vec![&service_lower];
+        let mut query = sqlx::query(&log_query_str).bind(&service_lower);
         for url in chunk {
-            params.push(url);
+            query = query.bind(url.as_str());
         }
-        params.push(&miss_status);
-        params.push(&unknown_status);
-        let log_deleted = log_stmt.execute(rusqlite::params_from_iter(params.iter()))?;
-        total_log_entries_deleted += log_deleted;
+        query = query.bind(miss_status).bind(unknown_status);
+
+        let result = query.execute(pool).await?;
+        total_log_entries_deleted += result.rows_affected() as usize;
     }
 
     eprintln!("  Deleted {} log entry records", total_log_entries_deleted);
 
     // STEP 3: Only delete Download sessions that have NO remaining LogEntries
-    // (i.e., sessions where ALL entries were corrupted MISS/UNKNOWN)
-    let download_ids_vec: Vec<i32> = affected_download_ids.into_iter().collect();
+    let download_ids_vec: Vec<i64> = affected_download_ids.into_iter().collect();
 
     for chunk in download_ids_vec.chunks(batch_size) {
-        let placeholders = vec!["?"; chunk.len()].join(", ");
+        let placeholders: String = chunk.iter().enumerate()
+            .map(|(i, _)| format!("${}", i + 1))
+            .collect::<Vec<_>>()
+            .join(", ");
 
-        // Only delete Downloads that now have zero LogEntries remaining
-        let downloads_query = format!(
-            "DELETE FROM Downloads WHERE Id IN ({}) AND NOT EXISTS (SELECT 1 FROM LogEntries WHERE LogEntries.DownloadId = Downloads.Id)",
+        let downloads_query_str = format!(
+            "DELETE FROM \"Downloads\" WHERE \"Id\" IN ({}) AND NOT EXISTS (SELECT 1 FROM \"LogEntries\" WHERE \"LogEntries\".\"DownloadId\" = \"Downloads\".\"Id\")",
             placeholders
         );
 
-        let mut downloads_stmt = conn.prepare(&downloads_query)?;
-        let params: Vec<&dyn rusqlite::ToSql> = chunk.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
-        let downloads_deleted = downloads_stmt.execute(rusqlite::params_from_iter(params.iter()))?;
-        total_downloads_deleted += downloads_deleted;
+        let mut query = sqlx::query(&downloads_query_str);
+        for id in chunk {
+            query = query.bind(*id);
+        }
+
+        let result = query.execute(pool).await?;
+        total_downloads_deleted += result.rows_affected() as usize;
     }
 
     eprintln!("  Deleted {} download records (sessions with only corrupted chunks)", total_downloads_deleted);
 
     // STEP 4: Update CacheMissBytes on remaining Downloads that had some corrupted entries removed
-    // Recalculate miss bytes from remaining LogEntries
-    let remaining_ids: Vec<i32> = download_ids_vec.iter()
-        .copied()
-        .collect();
+    for chunk in download_ids_vec.chunks(batch_size) {
+        let placeholders: String = chunk.iter().enumerate()
+            .map(|(i, _)| format!("${}", i + 1))
+            .collect::<Vec<_>>()
+            .join(", ");
 
-    for chunk in remaining_ids.chunks(batch_size) {
-        let placeholders = vec!["?"; chunk.len()].join(", ");
-
-        let update_query = format!(
-            "UPDATE Downloads SET CacheMissBytes = COALESCE((SELECT SUM(BytesServed) FROM LogEntries WHERE LogEntries.DownloadId = Downloads.Id AND CacheStatus IN ('MISS', 'UNKNOWN')), 0) WHERE Id IN ({})",
+        let update_query_str = format!(
+            "UPDATE \"Downloads\" SET \"CacheMissBytes\" = COALESCE((SELECT SUM(\"BytesServed\") FROM \"LogEntries\" WHERE \"LogEntries\".\"DownloadId\" = \"Downloads\".\"Id\" AND \"CacheStatus\" IN ('MISS', 'UNKNOWN')), 0) WHERE \"Id\" IN ({})",
             placeholders
         );
 
-        let mut update_stmt = conn.prepare(&update_query)?;
-        let params: Vec<&dyn rusqlite::ToSql> = chunk.iter().map(|id| id as &dyn rusqlite::ToSql).collect();
-        update_stmt.execute(rusqlite::params_from_iter(params.iter()))?;
+        let mut query = sqlx::query(&update_query_str);
+        for id in chunk {
+            query = query.bind(*id);
+        }
+
+        query.execute(pool).await?;
     }
 
     Ok((total_downloads_deleted, total_log_entries_deleted))
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let args = Args::parse();
     let reporter = ProgressReporter::new(args.progress);
 
@@ -349,25 +359,19 @@ fn main() -> Result<()> {
             reporter.emit_complete("Corruption summary generated");
         }
 
-        Commands::Remove { database_path, log_dir, cache_dir, service, progress_json, threshold, no_cache_check } => {
+        Commands::Remove { database_path: _, log_dir, cache_dir, service, progress_json, threshold, no_cache_check } => {
             reporter.emit_started();
 
-            let db_path = PathBuf::from(&database_path);
             let log_dir = PathBuf::from(&log_dir);
             let cache_dir = PathBuf::from(&cache_dir);
             let progress_path = PathBuf::from(&progress_json);
 
             eprintln!("Removing corrupted chunks for service: {}", service);
-            eprintln!("  Database: {}", db_path.display());
             eprintln!("  Log directory: {}", log_dir.display());
             eprintln!("  Cache directory: {}", cache_dir.display());
 
             write_progress(&progress_path, "starting", &format!("Starting removal for {}", service), 0.0, 0, 0)?;
             reporter.emit_progress(0.0, &format!("Starting removal for {}", service));
-
-            // OPTIMIZED: Single-pass detection and removal
-            // Instead of reading logs twice (once to detect, once to remove),
-            // we detect corrupted URLs while filtering the log files in a single pass
 
             use log_reader::LogFileReader;
             use std::io::Write as IoWrite;
@@ -420,7 +424,6 @@ fn main() -> Result<()> {
                                     entries_processed += 1;
 
                                     // Track the maximum response size for this URL
-                                    // (same URL might have different sizes in different requests)
                                     url_sizes.entry(entry.url.clone())
                                         .and_modify(|size| *size = (*size).max(entry.bytes_served))
                                         .or_insert(entry.bytes_served);
@@ -461,18 +464,13 @@ fn main() -> Result<()> {
                 eprintln!("Using all {} candidate URLs", candidate_count);
                 candidates
             } else {
-                // Filter to only URLs where the cache file actually exists on disk
-                // If the file doesn't exist, the MISSes were likely legitimate cold-cache or eviction events
-                // True corruption = file exists but nginx can't serve it (repeated MISSes despite file presence)
                 let filtered: HashMap<String, i64> = candidates
                     .into_iter()
                     .filter(|(url, _response_size)| {
-                        // Check no-range format first (modern lancache)
                         let cache_path = cache_utils::calculate_cache_path_no_range(&cache_dir, &service_lower, url);
                         if cache_path.exists() {
                             return true;
                         }
-                        // Fallback: check first chunk in range format (legacy lancache)
                         let range_path = cache_utils::calculate_cache_path(&cache_dir, &service_lower, url, 0, 1_048_575);
                         range_path.exists()
                     })
@@ -568,9 +566,6 @@ fn main() -> Result<()> {
                             // Parse the line and check if URL is in corrupted set
                             if let Some(entry) = parser.parse_line(line.trim()) {
                                 // Only remove MISS/UNKNOWN lines for corrupted URLs
-                                // IMPORTANT: Keep HIT lines intact - removing them would skew future
-                                // corruption detection by eliminating evidence of successful cache hits,
-                                // causing a snowball effect where each removal doubles the corruption count
                                 if entry.service == service_lower
                                     && corrupted_urls.contains(&entry.url)
                                     && (entry.cache_status == "MISS" || entry.cache_status == "UNKNOWN")
@@ -601,18 +596,15 @@ fn main() -> Result<()> {
                     }
 
                     // Atomically replace original with filtered version
-                    // persist() uses rename which can fail on Windows if file is locked
                     let temp_path = temp_file.into_temp_path();
 
                     if let Err(persist_err) = temp_path.persist(&log_file.path) {
-                        // Fallback: copy + delete (works even if target is locked by file watcher)
+                        // Fallback: copy + delete
                         eprintln!("    persist() failed ({}), using copy fallback...", persist_err);
 
-                        // Copy temp file contents to original
                         std::fs::copy(&persist_err.path, &log_file.path)
                             .with_context(|| format!("Failed to copy temp file to {}", log_file.path.display()))?;
 
-                        // Delete the temp file manually (persist_err.path is the temp path)
                         std::fs::remove_file(&persist_err.path).ok();
                     }
 
@@ -636,8 +628,6 @@ fn main() -> Result<()> {
             reporter.emit_progress(70.0, &format!("Removing cache files for {} corrupted URLs", total_urls));
 
             // Step 3: Delete ALL cache file chunks from disk
-            // IMPORTANT: Use same logic as game_cache_remover - try no-range format first!
-            // Track permission errors separately - these indicate PUID/PGID mismatch
             eprintln!("Step 3: Deleting cache files...");
             let mut deleted_count = 0;
             let mut permission_errors = 0;
@@ -651,12 +641,11 @@ fn main() -> Result<()> {
                     write_progress(&progress_path, "removing_cache", &format!("Removing cache file {}/{}", url_index + 1, total_urls), cache_percent, url_index, total_urls)?;
                     reporter.emit_progress(cache_percent, &format!("Removing cache file {}/{}", url_index + 1, total_urls));
                 }
-                
+
                 // FIRST: Try the no-range format (standard lancache format)
                 let cache_path_no_range = cache_utils::calculate_cache_path_no_range(&cache_dir, &service_lower, url);
 
                 if cache_path_no_range.exists() {
-                    // Found file with no-range format - delete it
                     match std::fs::remove_file(&cache_path_no_range) {
                         Ok(_) => {
                             deleted_count += 1;
@@ -665,7 +654,6 @@ fn main() -> Result<()> {
                             }
                         }
                         Err(e) => {
-                            // Check if this is a permission error
                             if e.kind() == std::io::ErrorKind::PermissionDenied {
                                 permission_errors += 1;
                                 if permission_errors <= 5 {
@@ -680,7 +668,6 @@ fn main() -> Result<()> {
                 } else {
                     // FALLBACK: Try the chunked format with bytes range
                     if *response_size == 0 {
-                        // If no response size, check at least the first chunk
                         let cache_path = cache_utils::calculate_cache_path(&cache_dir, &service_lower, url, 0, 1_048_575);
 
                         if cache_path.exists() {
@@ -700,7 +687,6 @@ fn main() -> Result<()> {
                             }
                         }
                     } else {
-                        // Calculate ALL chunks based on actual response size
                         let mut start: i64 = 0;
                         while start < *response_size {
                             let end = start + slice_size - 1;
@@ -748,7 +734,6 @@ fn main() -> Result<()> {
             eprintln!("Removed {} total log lines across {} files", total_lines_removed, log_files.len());
 
             // CRITICAL: If we had permission errors, do NOT delete database records
-            // This prevents the DB/filesystem state mismatch that causes issues
             if permission_errors > 0 {
                 let error_msg = format!(
                     "ABORTED: Cannot delete database records because {} cache files could not be deleted due to permission errors. \
@@ -763,12 +748,12 @@ fn main() -> Result<()> {
             }
 
             // Step 4: Delete database records for corrupted downloads
-            // Only reached if ALL file deletions succeeded (no permission errors)
             eprintln!("Step 4: Deleting database records...");
             write_progress(&progress_path, "removing_database", "Deleting database records for corrupted chunks", 90.0, 0, 0)?;
             reporter.emit_progress(90.0, "Deleting database records for corrupted chunks");
 
-            let (downloads_deleted, log_entries_deleted) = delete_corrupted_from_database(&db_path, &service, &corrupted_urls)?;
+            let pool = db::create_pool().await;
+            let (downloads_deleted, log_entries_deleted) = delete_corrupted_from_database(&pool, &service, &corrupted_urls).await?;
 
             let summary_msg = format!("Removed {} corrupted URLs for {} ({} cache files deleted, {} log lines removed, {} downloads deleted, {} log entries deleted)", corrupted_urls_with_sizes.len(), service, deleted_count, total_lines_removed, downloads_deleted, log_entries_deleted);
             write_progress(&progress_path, "completed", &summary_msg, 100.0, 0, 0)?;

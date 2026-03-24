@@ -117,17 +117,6 @@ public class DownloadsController : ControllerBase
                 // Return just the array - frontend will use array.length for actual count
                 return Ok(downloads);
             }
-            catch (Microsoft.Data.Sqlite.SqliteException ex) when (ex.SqliteErrorCode == 5) // SQLITE_BUSY
-            {
-                if (retry < maxRetries - 1)
-                {
-                    _logger.LogWarning($"Database busy, retrying... (attempt {retry + 1}/{maxRetries})");
-                    await Task.Delay(100 * (retry + 1)); // Exponential backoff
-                    continue;
-                }
-                _logger.LogError(ex, "Database locked after retries");
-                return Ok(new List<Download>());
-            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error getting latest downloads");
@@ -514,17 +503,6 @@ public class DownloadsController : ControllerBase
                     CurrentPage = query.Page,
                     PageSize = query.PageSize
                 });
-            }
-            catch (Microsoft.Data.Sqlite.SqliteException ex) when (ex.SqliteErrorCode == 5) // SQLITE_BUSY
-            {
-                if (retry < maxRetries - 1)
-                {
-                    _logger.LogWarning("Database busy on retro query, retrying... (attempt {Attempt}/{MaxRetries})", retry + 1, maxRetries);
-                    await Task.Delay(100 * (retry + 1));
-                    continue;
-                }
-                _logger.LogError(ex, "Database locked after retries on retro query");
-                return Ok(new RetroDownloadResponse());
             }
             catch (Exception ex)
             {

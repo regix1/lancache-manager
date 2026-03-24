@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use rusqlite::Connection;
+use sqlx::PgPool;
+use sqlx::Row;
 use serde::Serialize;
 use std::collections::HashSet;
 use std::fs;
@@ -11,6 +12,7 @@ use flate2::write::GzEncoder;
 use flate2::Compression;
 
 mod cache_utils;
+mod db;
 mod log_discovery;
 mod log_reader;
 mod models;
@@ -28,7 +30,7 @@ use progress_events::ProgressReporter;
 #[command(name = "cache_service_remove")]
 #[command(about = "Removes all cache files for a specific service")]
 struct Args {
-    /// Path to LancacheManager.db
+    /// Path to LancacheManager database (DATABASE_URL env var or connection string)
     database_path: String,
 
     /// Directory containing log files
@@ -84,29 +86,25 @@ fn write_progress(
     progress_utils::write_progress_json(progress_path, &progress)
 }
 
-fn get_service_urls_from_db(db_path: &Path, service: &str) -> Result<HashSet<String>> {
+async fn get_service_urls_from_db(pool: &PgPool, service: &str) -> Result<HashSet<String>> {
     eprintln!("Querying database for {} URLs...", service);
-
-    let conn = Connection::open(db_path)
-        .context("Failed to open database")?;
 
     let service_lower = service.to_lowercase();
 
-    let query = "
-        SELECT DISTINCT Url
-        FROM LogEntries
-        WHERE LOWER(Service) = ?
-        AND Url IS NOT NULL
-    ";
-
-    let mut stmt = conn.prepare(query)?;
-    let rows = stmt.query_map([&service_lower], |row| row.get::<_, String>(0))?;
+    let rows = sqlx::query(
+        "SELECT DISTINCT \"Url\"
+        FROM \"LogEntries\"
+        WHERE LOWER(\"Service\") = $1
+        AND \"Url\" IS NOT NULL"
+    )
+    .bind(&service_lower)
+    .fetch_all(pool)
+    .await?;
 
     let mut urls = HashSet::new();
-    for row_result in rows {
-        if let Ok(url) = row_result {
-            urls.insert(url);
-        }
+    for row in rows {
+        let url: String = row.get("Url");
+        urls.insert(url);
     }
 
     eprintln!("Found {} unique URLs for service '{}'", urls.len(), service);
@@ -201,7 +199,6 @@ fn remove_cache_files_for_service(
         }
 
         // Report granular progress during the removal phase (10% - 70%)
-        // Only report when crossing a new whole-percent boundary to avoid excessive writes
         if total_urls > 0 {
             let current_pct = (urls_processed * 100) / total_urls;
             if current_pct > last_reported_percent {
@@ -313,11 +310,10 @@ fn remove_log_entries_for_service(
             }
 
             // Replace original with filtered version
-            // persist() uses rename which can fail on Windows if file is locked
             let temp_path = temp_file.into_temp_path();
 
             if let Err(persist_err) = temp_path.persist(&log_file.path) {
-                // Fallback: copy + delete (works even if target is locked by file watcher)
+                // Fallback: copy + delete
                 eprintln!("    persist() failed ({}), using copy fallback...", persist_err);
                 fs::copy(&persist_err.path, &log_file.path)?;
                 fs::remove_file(&persist_err.path).ok();
@@ -348,45 +344,49 @@ fn remove_log_entries_for_service(
     Ok((total_lines_removed, permission_errors))
 }
 
-fn delete_service_from_database(db_path: &Path, service: &str) -> Result<usize> {
+async fn delete_service_from_database(pool: &PgPool, service: &str) -> Result<u64> {
     eprintln!("Deleting database records for service '{}'...", service);
-
-    let conn = Connection::open(db_path)
-        .context("Failed to open database")?;
 
     let service_lower = service.to_lowercase();
 
     // First delete LogEntries
-    let mut log_stmt = conn.prepare("DELETE FROM LogEntries WHERE LOWER(Service) = ?")?;
-    let log_deleted = log_stmt.execute([&service_lower])?;
+    let log_result = sqlx::query("DELETE FROM \"LogEntries\" WHERE LOWER(\"Service\") = $1")
+        .bind(&service_lower)
+        .execute(pool)
+        .await?;
+    let log_deleted = log_result.rows_affected();
     eprintln!("  Deleted {} log entry records", log_deleted);
 
     // Then delete Downloads
-    let mut downloads_stmt = conn.prepare("DELETE FROM Downloads WHERE LOWER(Service) = ?")?;
-    let downloads_deleted = downloads_stmt.execute([&service_lower])?;
+    let downloads_result = sqlx::query("DELETE FROM \"Downloads\" WHERE LOWER(\"Service\") = $1")
+        .bind(&service_lower)
+        .execute(pool)
+        .await?;
+    let downloads_deleted = downloads_result.rows_affected();
     eprintln!("  Deleted {} download records", downloads_deleted);
 
     Ok(log_deleted + downloads_deleted)
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let args = Args::parse();
     let reporter = ProgressReporter::new(args.progress);
 
-    let db_path = PathBuf::from(&args.database_path);
     let log_dir = PathBuf::from(&args.log_dir);
     let cache_dir = PathBuf::from(&args.cache_dir);
     let service = &args.service;
     let progress_path = PathBuf::from(&args.progress_json);
 
     eprintln!("Service Cache Removal");
-    eprintln!("  Database: {}", db_path.display());
     eprintln!("  Log directory: {}", log_dir.display());
     eprintln!("  Cache directory: {}", cache_dir.display());
     eprintln!("  Service: {}", service);
 
     // Emit started event
     reporter.emit_started();
+
+    let pool = db::create_pool().await;
 
     let start_msg = format!("Starting removal for service '{}'", service);
     write_progress(&progress_path, "starting", &start_msg, 0.0, 0, 0)?;
@@ -395,7 +395,7 @@ fn main() -> Result<()> {
     // Step 1: Get all URLs for this service from database
     write_progress(&progress_path, "querying_database", "Querying database for service URLs", 5.0, 0, 0)?;
     reporter.emit_progress(5.0, "Querying database for service URLs");
-    let urls = get_service_urls_from_db(&db_path, service)?;
+    let urls = get_service_urls_from_db(&pool, service).await?;
 
     if urls.is_empty() {
         eprintln!("No URLs found for service '{}'", service);
@@ -416,7 +416,6 @@ fn main() -> Result<()> {
     let (log_entries_removed, log_permission_errors) = remove_log_entries_for_service(&log_dir, service, &urls)?;
 
     // CRITICAL: Check for permission errors before deleting database records
-    // This prevents the DB/filesystem mismatch that causes DbUpdateConcurrencyException
     let total_permission_errors = cache_permission_errors + log_permission_errors;
     if total_permission_errors > 0 {
         let error_msg = format!(
@@ -435,7 +434,7 @@ fn main() -> Result<()> {
     // Step 4: Delete database records (only if no permission errors)
     write_progress(&progress_path, "removing_database", "Deleting database records", 90.0, cache_files_deleted, urls.len())?;
     reporter.emit_progress(90.0, "Deleting database records");
-    let database_entries_deleted = delete_service_from_database(&db_path, service)?;
+    let database_entries_deleted = delete_service_from_database(&pool, service).await?;
 
     // Create summary message
     let summary_message = format!(

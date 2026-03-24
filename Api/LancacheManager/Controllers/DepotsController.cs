@@ -51,7 +51,7 @@ public class DepotsController : ControllerBase
     {
         var picsData = await _picsDataService.LoadPicsDataFromJsonAsync();
         var needsUpdate = await _picsDataService.NeedsUpdateAsync();
-        var dbMappingCount = _steamKit2Service.GetDepotMappingCount();
+        var dbMappingCount = await _steamKit2Service.GetDepotMappingCountAsync();
 
         return Ok(new DepotFullStatusResponse
         {
@@ -131,7 +131,7 @@ public class DepotsController : ControllerBase
             RequiresFullScan = false,
             RebuildInProgress = _steamKit2Service.IsRebuildRunning,
             Ready = _steamKit2Service.IsReady,
-            DepotCount = _steamKit2Service.GetDepotMappingCount()
+            DepotCount = await _steamKit2Service.GetDepotMappingCountAsync()
         });
     }
 

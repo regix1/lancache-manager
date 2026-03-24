@@ -3,7 +3,7 @@ using LancacheManager.Extensions;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
-using Microsoft.Data.Sqlite;
+using Npgsql;
 using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Core.Services;
@@ -543,33 +543,17 @@ public class PicsDataService
             if (progressCallback != null) await progressCallback("Checking existing mappings...", 20);
 
             // Get existing mappings to avoid duplicates
-            // SQLite has a limit of ~999 variables per query, so we batch the Contains query
             var depotIds = mappingsToImport.Select(m => m.DepotId).Distinct().ToList();
             var existingMappings = new Dictionary<string, SteamDepotMapping>();
-            const int queryBatchSize = 500; // Stay safely under SQLite's 999 variable limit
-            var totalQueryBatches = (depotIds.Count + queryBatchSize - 1) / queryBatchSize;
-            var queryBatchIndex = 0;
 
-            for (int i = 0; i < depotIds.Count; i += queryBatchSize)
+            cancellationToken.ThrowIfCancellationRequested();
+            var allMatchingMappings = await scopedDb.DbContext.SteamDepotMappings
+                .Where(m => depotIds.Contains(m.DepotId))
+                .ToListAsync(cancellationToken);
+
+            foreach (var mapping in allMatchingMappings)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                var batchDepotIds = depotIds.Skip(i).Take(queryBatchSize).ToList();
-                var batchMappings = await scopedDb.DbContext.SteamDepotMappings
-                    .Where(m => batchDepotIds.Contains(m.DepotId))
-                    .ToListAsync(cancellationToken);
-
-                foreach (var mapping in batchMappings)
-                {
-                    existingMappings[$"{mapping.DepotId}_{mapping.AppId}"] = mapping;
-                }
-
-                queryBatchIndex++;
-                // Report progress during query phase (20-35%)
-                if (progressCallback != null && totalQueryBatches > 0 && queryBatchIndex % Math.Max(1, totalQueryBatches / 5) == 0)
-                {
-                    var queryProgress = 20 + (int)(15.0 * queryBatchIndex / totalQueryBatches);
-                    await progressCallback($"Checking existing mappings... ({queryBatchIndex}/{totalQueryBatches})", queryProgress);
-                }
+                existingMappings[$"{mapping.DepotId}_{mapping.AppId}"] = mapping;
             }
 
             // Phase 4: Compare and prepare new mappings (35-45%)
@@ -634,7 +618,7 @@ public class PicsDataService
                     await scopedDb.DbContext.SteamDepotMappings.AddRangeAsync(batch, cancellationToken);
                     await scopedDb.DbContext.SaveChangesAsync(cancellationToken);
                 }
-                catch (DbUpdateException ex) when (ex.InnerException is SqliteException sqliteEx && sqliteEx.SqliteErrorCode == 19)
+                catch (DbUpdateException ex) when (ex.InnerException is NpgsqlException pgEx && pgEx.SqlState == "23505")
                 {
                     // UNIQUE constraint violation - duplicates already exist
                     // This can happen if the same data is imported multiple times

@@ -213,10 +213,10 @@ public class DatabaseService : IDatabaseService
             // Track which preference reset event needs to be broadcast AFTER operation completes
             bool shouldBroadcastPreferencesReset = false;
 
-            // Temporarily disable foreign key constraints for bulk deletion (SQLite)
+            // Temporarily disable foreign key triggers for bulk deletion (PostgreSQL)
             // This prevents FK constraint errors during table deletions
-            _logger.LogInformation("Disabling foreign key constraints for bulk deletion");
-            await context.Database.ExecuteSqlRawAsync("PRAGMA foreign_keys = OFF;");
+            _logger.LogInformation("Disabling foreign key triggers for bulk deletion");
+            await context.Database.ExecuteSqlRawAsync("SET session_replication_role = replica;");
 
             // Wrap all deletion operations in a transaction for atomicity
             using var deleteTransaction = await context.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
@@ -275,12 +275,12 @@ public class DatabaseService : IDatabaseService
                             {
                                 cancellationToken.ThrowIfCancellationRequested();
                                 // Delete a batch using raw SQL for efficiency
-                                // SQLite doesn't support LIMIT in DELETE, so we use a subquery
+                                // Use a subquery for batched deletion
                                 var deleted = await context.Database.ExecuteSqlInterpolatedAsync(
-                                    $"DELETE FROM LogEntries WHERE Id IN (SELECT Id FROM LogEntries LIMIT {batchSize})", cancellationToken);
+                                    $"DELETE FROM \"LogEntries\" WHERE \"Id\" IN (SELECT \"Id\" FROM \"LogEntries\" LIMIT {batchSize})", cancellationToken);
 
                                 // Check for cancellation immediately after batch completes
-                                // SQLite completes the batch synchronously, so we check here for fastest response
+                                // Check for cancellation immediately after batch completes for fastest response
                                 cancellationToken.ThrowIfCancellationRequested();
 
                                 if (deleted == 0)
@@ -826,9 +826,9 @@ public class DatabaseService : IDatabaseService
             }
             finally
             {
-                // Re-enable foreign key constraints
-                _logger.LogInformation("Re-enabling foreign key constraints");
-                await context.Database.ExecuteSqlRawAsync("PRAGMA foreign_keys = ON;");
+                // Re-enable foreign key triggers
+                _logger.LogInformation("Re-enabling foreign key triggers");
+                await context.Database.ExecuteSqlRawAsync("SET session_replication_role = DEFAULT;");
             }
 
             // Broadcast preference reset event AFTER all database operations complete

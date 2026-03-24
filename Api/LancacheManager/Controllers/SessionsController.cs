@@ -162,7 +162,7 @@ public class SessionsController : ControllerBase
         using var scope = _scopeFactory.CreateScope();
         var prefsService = scope.ServiceProvider.GetRequiredService<UserPreferencesService>();
 
-        var result = prefsService.UpdatePreferenceAndGet(id, "refreshRate", request.RefreshRate ?? "");
+        var result = await prefsService.UpdatePreferenceAndGetAsync(id, "refreshRate", request.RefreshRate ?? "");
         if (result == null)
         {
             return NotFound(new { error = "Session not found or update failed" });
@@ -194,7 +194,7 @@ public class SessionsController : ControllerBase
         var affectedCount = 0;
         foreach (var sessionId in guestSessionIds)
         {
-            if (prefsService.DeletePreferences(sessionId))
+            if (await prefsService.DeletePreferencesAsync(sessionId))
             {
                 affectedCount++;
             }

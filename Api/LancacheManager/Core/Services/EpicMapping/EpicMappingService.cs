@@ -28,7 +28,6 @@ public partial class EpicMappingService : IHostedService, IDisposable
     private int _gamesDiscovered;
     private EpicOAuthTokens? _currentTokens;
     private readonly SemaphoreSlim _sessionLock = new(1, 1);
-    private readonly SemaphoreSlim _mergeLock = new(1, 1);
 
     // Scheduling state
     private Timer? _periodicTimer;
