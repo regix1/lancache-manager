@@ -41,91 +41,83 @@ public class DownloadsController : ControllerBase
     [HttpGet("latest")]
     public async Task<IActionResult> GetLatestAsync([FromQuery] int count = int.MaxValue, [FromQuery] long? startTime = null, [FromQuery] long? endTime = null, [FromQuery] int? eventId = null)
     {
-        const int maxRetries = 3;
-
         // Convert single eventId to list for filtering
         var eventIdList = eventId.HasValue
             ? new List<int> { eventId.Value }
             : new List<int>();
         var excludedClientIps = _stateRepository.GetExcludedClientIps();
 
-        for (int retry = 0; retry < maxRetries; retry++)
+        try
         {
-            try
-            {
-                List<Download> downloads;
+            List<Download> downloads;
 
-                // If no time filtering and no event filter, use cached service method
-                if (!startTime.HasValue && !endTime.HasValue && eventIdList.Count == 0)
+            // If no time filtering and no event filter, use cached service method
+            if (!startTime.HasValue && !endTime.HasValue && eventIdList.Count == 0)
+            {
+                downloads = await _statsService.GetLatestDownloadsAsync(count);
+            }
+            else
+            {
+                // With filtering, query database directly
+                // Database stores dates in UTC, so filter with UTC
+                var startDate = startTime.HasValue
+                    ? startTime.Value.FromUnixSeconds()
+                    : DateTime.MinValue;
+                var endDate = endTime.HasValue
+                    ? endTime.Value.FromUnixSeconds()
+                    : DateTime.UtcNow;
+
+                // Apply event filter if provided (filters to only tagged downloads)
+                if (eventIdList.Count > 0)
                 {
-                    downloads = await _statsService.GetLatestDownloadsAsync(count);
+                    // Use subquery to atomically fetch downloads with event associations
+                    // This eliminates the race condition by using a single query
+                    downloads = await _context.Downloads
+                        .AsNoTracking()
+                        .Where(d => _context.EventDownloads
+                            .Where(ed => eventIdList.Contains(ed.EventId))
+                            .Select(ed => ed.DownloadId)
+                            .Contains(d.Id))
+                        .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate)
+                        .OrderByDescending(d => d.StartTimeUtc)
+                        .Take(count)
+                        .ToListAsync();
                 }
                 else
                 {
-                    // With filtering, query database directly
-                    // Database stores dates in UTC, so filter with UTC
-                    var startDate = startTime.HasValue
-                        ? startTime.Value.FromUnixSeconds()
-                        : DateTime.MinValue;
-                    var endDate = endTime.HasValue
-                        ? endTime.Value.FromUnixSeconds()
-                        : DateTime.UtcNow;
-
-                    // Apply event filter if provided (filters to only tagged downloads)
-                    if (eventIdList.Count > 0)
-                    {
-                        // Use subquery to atomically fetch downloads with event associations
-                        // This eliminates the race condition by using a single query
-                        downloads = await _context.Downloads
-                            .AsNoTracking()
-                            .Where(d => _context.EventDownloads
-                                .Where(ed => eventIdList.Contains(ed.EventId))
-                                .Select(ed => ed.DownloadId)
-                                .Contains(d.Id))
-                            .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate)
-                            .OrderByDescending(d => d.StartTimeUtc)
-                            .Take(count)
-                            .ToListAsync();
-                    }
-                    else
-                    {
-                        downloads = await _context.Downloads
-                            .AsNoTracking()
-                            .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate)
-                            .OrderByDescending(d => d.StartTimeUtc)
-                            .Take(count)
-                            .ToListAsync();
-                    }
-
-                    downloads.WithUtcMarking();
+                    downloads = await _context.Downloads
+                        .AsNoTracking()
+                        .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate)
+                        .OrderByDescending(d => d.StartTimeUtc)
+                        .Take(count)
+                        .ToListAsync();
                 }
 
-                // Apply exclusion filter to ALL downloads (both cached and direct query paths)
-                if (excludedClientIps.Count > 0)
-                {
-                    downloads = downloads
-                        .Where(d => !excludedClientIps.Contains(d.ClientIp))
-                        .ToList();
-                }
-
-                // Filter out prefill sessions (safety net - StatsDataService already filters, but direct queries may not)
-                downloads = downloads
-                    .Where(d => !string.Equals(d.ClientIp, PrefillToken, StringComparison.OrdinalIgnoreCase))
-                    .Where(d => !string.Equals(d.Datasource, PrefillToken, StringComparison.OrdinalIgnoreCase))
-                    .ToList();
-
-                // Return just the array - frontend will use array.length for actual count
-                return Ok(downloads);
+                downloads.WithUtcMarking();
             }
-            catch (Exception ex)
+
+            // Apply exclusion filter to ALL downloads (both cached and direct query paths)
+            if (excludedClientIps.Count > 0)
             {
-                _logger.LogError(ex, "Error getting latest downloads");
-                return Ok(new List<Download>());
+                downloads = downloads
+                    .Where(d => !excludedClientIps.Contains(d.ClientIp))
+                    .ToList();
             }
+
+            // Filter out prefill sessions (safety net - StatsDataService already filters, but direct queries may not)
+            downloads = downloads
+                .Where(d => !string.Equals(d.ClientIp, PrefillToken, StringComparison.OrdinalIgnoreCase))
+                .Where(d => !string.Equals(d.Datasource, PrefillToken, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            // Return just the array - frontend will use array.length for actual count
+            return Ok(downloads);
         }
-#pragma warning disable CS0162 // Unreachable code detected
-        return Ok(new List<Download>());
-#pragma warning restore CS0162
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting latest downloads");
+            return Ok(new List<Download>());
+        }
     }
 
     /// <summary>
@@ -292,17 +284,14 @@ public class DownloadsController : ControllerBase
     [HttpGet("retro")]
     public async Task<ActionResult<RetroDownloadResponse>> GetRetroDownloadsAsync([FromQuery] RetroDownloadQuery query)
     {
-        const int maxRetries = 3;
         const int maxPageSize = 200;
 
         // Clamp page size
         query.PageSize = Math.Clamp(query.PageSize, 1, maxPageSize);
         if (query.Page < 1) query.Page = 1;
 
-        for (int retry = 0; retry < maxRetries; retry++)
+        try
         {
-            try
-            {
                 var excludedClientIps = _stateRepository.GetExcludedClientIps();
 
                 // Base query: filter prefill sessions
@@ -506,14 +495,10 @@ public class DownloadsController : ControllerBase
                     PageSize = query.PageSize
                 });
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error getting retro downloads");
-                return Ok(new RetroDownloadResponse());
-            }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting retro downloads");
+            return Ok(new RetroDownloadResponse());
         }
-#pragma warning disable CS0162 // Unreachable code detected
-        return Ok(new RetroDownloadResponse());
-#pragma warning restore CS0162
     }
 }
