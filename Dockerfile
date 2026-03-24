@@ -5,8 +5,8 @@ ARG VERSION=1.2.0
 
 # Stage 1: Build Rust binaries
 # Using full rust image (not slim) to avoid installing gcc/g++ which causes timeouts
-# Rust 1.86+ required for edition2024 support (home crate v0.5.12)
-FROM rust:1.86 AS rust-builder
+# Rust 1.85+ required for edition2024 support; using latest stable for dependency MSRV headroom
+FROM rust:1.94 AS rust-builder
 
 ARG TARGETPLATFORM
 
