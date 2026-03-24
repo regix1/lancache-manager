@@ -5,7 +5,7 @@ ARG VERSION=1.2.0
 
 # Stage 1: Build Rust binaries
 # Using full rust image (not slim) to avoid installing gcc/g++ which causes timeouts
-FROM rust:1.83 AS rust-builder
+FROM rust:1.86 AS rust-builder
 
 ARG TARGETPLATFORM
 
