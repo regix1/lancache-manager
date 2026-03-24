@@ -123,7 +123,9 @@ public class DownloadsController : ControllerBase
                 return Ok(new List<Download>());
             }
         }
+#pragma warning disable CS0162 // Unreachable code detected
         return Ok(new List<Download>());
+#pragma warning restore CS0162
     }
 
     /// <summary>
@@ -510,6 +512,8 @@ public class DownloadsController : ControllerBase
                 return Ok(new RetroDownloadResponse());
             }
         }
+#pragma warning disable CS0162 // Unreachable code detected
         return Ok(new RetroDownloadResponse());
+#pragma warning restore CS0162
     }
 }

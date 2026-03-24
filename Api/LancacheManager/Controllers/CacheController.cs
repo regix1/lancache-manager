@@ -602,7 +602,7 @@ public class CacheController : ControllerBase
 
         // Query which services currently have corruption data
         var cachedDetection = await _corruptionDetectionService.GetCachedDetectionAsync();
-        if (cachedDetection == null || cachedDetection.CorruptionCounts.Count == 0)
+        if (cachedDetection == null || cachedDetection.CorruptionCounts == null || cachedDetection.CorruptionCounts.Count == 0)
         {
             return Ok(new { Message = "No corruption data found. Run a corruption detection scan first." });
         }

@@ -32,7 +32,7 @@ public class SetupController : ControllerBase
     }
 
     [HttpPost("credentials")]
-    public async Task<IActionResult> SetCredentials([FromBody] SetupCredentialsRequest request)
+    public async Task<IActionResult> SetCredentialsAsync([FromBody] SetupCredentialsRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Password))
             return BadRequest(new SetupErrorResponse { Error = "Password is required" });
