@@ -1021,6 +1021,25 @@ class ApiService {
     }
   }
 
+  static async removeAllCorruptedChunks(
+    threshold = 3,
+    compareToCacheLogs = true
+  ): Promise<{ message: string }> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/cache/corruption?threshold=${threshold}&compareToCacheLogs=${compareToCacheLogs}`,
+        this.getFetchOptions({
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' }
+        })
+      );
+      return await this.handleResponse<{ message: string }>(res);
+    } catch (error) {
+      console.error('removeAllCorruptedChunks error:', error);
+      throw error;
+    }
+  }
+
   // Get detailed corruption information for a specific service
   static async getCorruptionDetails(
     service: string,

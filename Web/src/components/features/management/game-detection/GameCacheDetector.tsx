@@ -619,6 +619,11 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         />
       </HelpSection>
 
+      <HelpSection title={t('management.gameDetection.help.unknownGames.title')} variant="subtle">
+        {t('management.gameDetection.help.unknownGames.description')}
+        <HelpNote type="warning">{t('management.gameDetection.help.unknownGames.tip')}</HelpNote>
+      </HelpSection>
+
       <HelpNote type="info">{t('management.gameDetection.help.note')}</HelpNote>
     </HelpPopover>
   );

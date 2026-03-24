@@ -56,6 +56,8 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   const [loadingDetails, setLoadingDetails] = useState<string | null>(null);
   const { isLoading, hasInitiallyLoaded, setLoading, markLoaded } = useManagerLoading();
   const [startingCorruptionRemoval, setStartingCorruptionRemoval] = useState<string | null>(null);
+  const [pendingRemoveAll, setPendingRemoveAll] = useState(false);
+  const [startingRemoveAll, setStartingRemoveAll] = useState(false);
 
   // Use shared directory permissions hook
   const { logsReadOnly, cacheReadOnly, logsExist, cacheExist, checkingPermissions } =
@@ -314,6 +316,33 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     }
   };
 
+  const handleRemoveAll = () => {
+    if (authMode !== 'authenticated') {
+      onError?.(t('common.fullAuthRequired'));
+      return;
+    }
+    setPendingRemoveAll(true);
+  };
+
+  const confirmRemoveAll = async () => {
+    if (authMode !== 'authenticated') return;
+
+    setPendingRemoveAll(false);
+    setStartingRemoveAll(true);
+
+    try {
+      await ApiService.removeAllCorruptedChunks(missThreshold, compareToCacheLogs);
+    } catch (err: unknown) {
+      console.error('Remove all corrupted failed:', err);
+      onError?.(
+        (err instanceof Error ? err.message : String(err)) ||
+          t('management.corruption.errors.removeAllCorrupted')
+      );
+    } finally {
+      setStartingRemoveAll(false);
+    }
+  };
+
   const toggleCorruptionDetails = async (service: string) => {
     if (expandedCorruptionService === service) {
       setExpandedCorruptionService(null);
@@ -382,6 +411,12 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       </HelpSection>
 
       <HelpNote type="warning">{t('management.corruption.help.warning')}</HelpNote>
+
+      <HelpSection title={t('management.corruption.help.perGameRemoval.title')} variant="subtle">
+        <HelpNote type="info">
+          {t('management.corruption.help.perGameRemoval.description')}
+        </HelpNote>
+      </HelpSection>
     </HelpPopover>
   );
 
@@ -545,6 +580,32 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
               <LoadingState message={t('management.corruption.loadingCachedData')} />
             ) : hasCachedResults && corruptionList.length > 0 ? (
               <div className="space-y-3">
+                {corruptionList.length >= 2 && (
+                  <div className="flex justify-end">
+                    <Button
+                      onClick={handleRemoveAll}
+                      disabled={
+                        mockMode ||
+                        isAnyRemovalRunning ||
+                        !!startingCorruptionRemoval ||
+                        startingRemoveAll ||
+                        authMode !== 'authenticated' ||
+                        logsReadOnly ||
+                        cacheReadOnly ||
+                        !isDockerAvailable ||
+                        checkingPermissions
+                      }
+                      variant="filled"
+                      color="red"
+                      size="sm"
+                      loading={startingRemoveAll}
+                    >
+                      {startingRemoveAll
+                        ? t('management.corruption.removing')
+                        : t('management.corruption.removeAllServices')}
+                    </Button>
+                  </div>
+                )}
                 {corruptionList.map(([service, count]) => (
                   <div
                     key={`corruption-${service}`}
@@ -676,6 +737,68 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
           </>
         )}
       </Card>
+
+      {/* Remove All Corrupted Confirmation Modal */}
+      <Modal
+        opened={pendingRemoveAll}
+        onClose={() => setPendingRemoveAll(false)}
+        title={
+          <div className="flex items-center space-x-3">
+            <AlertTriangle className="w-6 h-6 text-themed-warning" />
+            <span>{t('management.corruption.modal.removeAllTitle')}</span>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-themed-secondary">
+            {t('management.corruption.modal.confirmRemoveAll', {
+              count: corruptionList.length
+            })}
+          </p>
+
+          <Alert color="red">
+            <div>
+              <p className="text-sm font-medium mb-2">
+                {t('management.corruption.modal.willDelete')}
+              </p>
+              <ul className="list-disc list-inside text-sm space-y-1 ml-2">
+                <li>
+                  <strong>{t('management.corruption.modal.cacheFilesLabel')}</strong>{' '}
+                  {t('management.corruption.modal.cacheFilesDesc')}
+                </li>
+                <li>
+                  <strong>{t('management.corruption.modal.logEntriesLabel')}</strong>{' '}
+                  {t('management.corruption.modal.logEntriesDesc')}
+                </li>
+                <li>
+                  <strong>{t('management.corruption.modal.databaseRecordsLabel')}</strong>{' '}
+                  {t('management.corruption.modal.databaseRecordsDesc')}
+                </li>
+              </ul>
+            </div>
+          </Alert>
+
+          <Alert color="yellow">
+            <div>
+              <p className="text-sm font-medium mb-2">{t('management.cache.alerts.important')}</p>
+              <ul className="list-disc list-inside text-sm space-y-1 ml-2">
+                <li>{t('management.corruption.modal.cannotBeUndone')}</li>
+                <li>{t('management.corruption.modal.mayTakeSeveralMinutes')}</li>
+                <li>{t('management.corruption.modal.removeAllAcrossAllServices')}</li>
+              </ul>
+            </div>
+          </Alert>
+
+          <div className="flex justify-end space-x-3 pt-2">
+            <Button variant="default" onClick={() => setPendingRemoveAll(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button variant="filled" color="red" onClick={confirmRemoveAll}>
+              {t('management.corruption.modal.removeAllConfirm')}
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Corruption Removal Confirmation Modal */}
       <Modal

@@ -1769,6 +1769,7 @@
       "corruptedChunks": "{{count}} corrupted chunk",
       "corruptedChunks_plural": "{{count}} corrupted chunks",
       "removeAll": "Remove All",
+      "removeAllServices": "Remove All Corrupted",
       "removing": "Removing...",
       "removalFailed": "Corruption removal failed",
       "readOnly": "Read-only",
@@ -1808,7 +1809,11 @@
           "databaseRecords": "Download records are cleaned up if no log entries remain for them"
         },
         "warning": "Needs write access to both cache and log directories.",
-        "warningLogsOnly": "Needs write access to log directories only."
+        "warningLogsOnly": "Needs write access to log directories only.",
+        "perGameRemoval": {
+          "title": "Per-Game Removal",
+          "description": "To remove corrupted chunks for a specific game only, use the Game Cache Detection tab. It lets you scan for detected games and remove cache files game-by-game — including unknown or delisted titles."
+        }
       },
       "alerts": {
         "cacheMissing": "Cache directory does not exist",
@@ -1843,7 +1848,8 @@
         "loadCachedData": "Failed to load cached data",
         "startScan": "Failed to start corruption scan",
         "removeCorrupted": "Failed to remove corrupted chunks for {{service}}",
-        "loadDetails": "Failed to load corruption details for {{service}}"
+        "loadDetails": "Failed to load corruption details for {{service}}",
+        "removeAllCorrupted": "Failed to remove all corrupted chunks"
       },
       "modal": {
         "title": "Remove Corrupted Chunks",
@@ -1860,7 +1866,11 @@
         "validFilesRemain": "Valid {{service}} cache files will remain intact",
         "removesApproximately": "Removes approximately {{count}} corrupted chunks",
         "deleteCacheAndLogs": "Delete Cache & Logs",
-        "deleteLogsOnly": "Delete Logs Only"
+        "deleteLogsOnly": "Delete Logs Only",
+        "removeAllTitle": "Remove All Corrupted Chunks",
+        "confirmRemoveAll": "Remove all corrupted cache chunks across {{count}} services?",
+        "removeAllAcrossAllServices": "Removal will run across all affected services in sequence",
+        "removeAllConfirm": "Remove All Corrupted"
       }
     },
     "gameDetection": {
@@ -1890,6 +1900,7 @@
       "showingPaths": "Showing {{showing}} of {{total}} paths",
       "cacheReadOnlyShort": "Cache directory is mounted read-only",
       "dockerSocketRequired": "Docker socket required for log cleanup",
+      "unknownGameBadge": "Unknown",
       "noGamesMatching": "No games found matching \"{{query}}\"",
       "clearSearch": "Clear search",
       "gamesLabel": "games",
@@ -1927,7 +1938,12 @@
           "title": "How It Works",
           "description": "Looks up games and services in your database, checks which files actually exist on disk, and shows the size and file count."
         },
-        "note": "Make sure you've processed your access logs first, otherwise there won't be anything to show."
+        "note": "Make sure you've processed your access logs first, otherwise there won't be anything to show.",
+        "unknownGames": {
+          "title": "Unknown & Delisted Games",
+          "description": "Games that no longer appear in Steam's app list (delisted titles) still show up as \"Unknown Game (Depot XXXXXX)\". You can remove them the same way as any other game — run a scan and click Remove.",
+          "tip": "Removing an unknown game is the recommended way to fix corrupted or broken game downloads."
+        }
       },
       "emptyState": {
         "noGamesServices": "No games or services with cache files detected",

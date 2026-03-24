@@ -68,6 +68,7 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
 
   const isEpic = service === 'epicgames';
   const showImage = !!gameAppId && !imageError;
+  const isUnknownGame = title.startsWith('Unknown Game');
 
   return (
     <div className="rounded-lg border bg-themed-tertiary border-themed-secondary">
@@ -102,6 +103,11 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
             <h4 className={titleClassName || 'text-themed-primary font-semibold break-words'}>
               {title}
             </h4>
+            {isUnknownGame && (
+              <span className="text-xs font-medium px-2 py-0.5 rounded bg-themed-elevated text-themed-warning">
+                {t('management.gameDetection.unknownGameBadge')}
+              </span>
+            )}
             {subtitle && subtitle}
           </div>
           <div className="flex items-center gap-3 text-xs text-themed-muted flex-wrap">
