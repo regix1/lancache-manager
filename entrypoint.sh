@@ -173,7 +173,7 @@ if [ -f "$SQLITE_DB" ] && [ ! -f "$PGDATA/.migration_complete" ]; then
     cat > /tmp/pgloader-data-only.load << PGEOF
 LOAD DATABASE
     FROM sqlite://$SQLITE_DB
-    INTO postgresql:///$PGDATABASE
+    INTO postgresql:///$PGDATABASE?user=postgres
 
 WITH data only, reset sequences, batch rows = 1000
 
@@ -187,11 +187,13 @@ PGEOF
         echo "[migration] Waiting for application to start and apply migrations..."
         if timeout 120 bash -c 'until curl -sf http://localhost/health > /dev/null 2>&1; do sleep 2; done'; then
             echo "[migration] Application is healthy. Running pgloader data-only migration..."
-            if pgloader /tmp/pgloader-data-only.load 2>&1 | tail -20; then
+            pgloader /tmp/pgloader-data-only.load 2>&1 | tail -20
+            PGLOADER_EXIT=${PIPESTATUS[0]}
+            if [ "$PGLOADER_EXIT" -eq 0 ]; then
                 touch "$PGDATA/.migration_complete"
                 echo "[migration] Data migration complete. SQLite database preserved at $SQLITE_DB"
             else
-                echo "[migration] WARNING: Data migration failed. Check pgloader output above."
+                echo "[migration] WARNING: Data migration failed (exit code: $PGLOADER_EXIT). Check pgloader output above."
             fi
         else
             echo "[migration] WARNING: Application did not become healthy within 120s. Skipping data migration."
