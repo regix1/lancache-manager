@@ -48,7 +48,10 @@ fi
 # Change ownership of application directories
 # /data needs write access for database and progress files
 # /app needs read access for the application
-chown -R "$PUID:$PGID" /data /app/rust-processor 2>/dev/null || true
+# Exclude /data/postgresql — it must stay owned by the postgres OS user
+chown -R "$PUID:$PGID" /app/rust-processor 2>/dev/null || true
+find /data -mindepth 1 -maxdepth 1 ! -name postgresql -exec chown -R "$PUID:$PGID" {} + 2>/dev/null || true
+chown "$PUID:$PGID" /data 2>/dev/null || true
 
 # Fix ownership of /logs and /cache if they are writable (not mounted read-only)
 # Only chown the directory itself (not -R) to avoid slow recursive operations on large caches
@@ -120,6 +123,9 @@ if [ ! -f "$PGDATA/PG_VERSION" ]; then
         echo "local all all trust"
     } > "$PGDATA/pg_hba.conf"
 fi
+
+# Ensure PostgreSQL data directory is owned by postgres (may have been changed by upgrades or manual chown)
+chown -R postgres:postgres "$PGDATA"
 
 # Ensure the PostgreSQL log file exists and is writable by the postgres user
 touch "$PG_LOG"
