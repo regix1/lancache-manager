@@ -192,7 +192,13 @@ PGEOF
     (
         echo "[migration] Waiting for application to start and apply migrations..."
         if timeout 120 bash -c 'until curl -sf http://localhost/health > /dev/null 2>&1; do sleep 2; done'; then
-            echo "[migration] Application is healthy. Running pgloader data-only migration..."
+            echo "[migration] Application is healthy. Waiting for EF Core migrations to create schema..."
+            # Health endpoint responds before migrations complete — wait for tables to exist
+            if timeout 60 bash -c "until su - postgres -c \"psql -d $PGDATABASE -tAc \\\"SELECT count(*) FROM information_schema.tables WHERE table_schema='public'\\\"\" 2>/dev/null | grep -q '[1-9]'; do sleep 2; done"; then
+                echo "[migration] Schema ready. Running pgloader data-only migration..."
+            else
+                echo "[migration] WARNING: Schema not ready after 60s. Attempting migration anyway..."
+            fi
             pgloader /tmp/pgloader-data-only.load 2>&1 | tail -20
             PGLOADER_EXIT=${PIPESTATUS[0]}
             if [ "$PGLOADER_EXIT" -eq 0 ]; then
