@@ -182,8 +182,8 @@ if [ -f "$SQLITE_DB" ] && [ ! -f "$PGDATA/.migration_complete" ]; then
         exit 1
     fi
 
-    if ! su - postgres -c "psql -d $PGDATABASE -tAc \"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public'\"" 2>/dev/null | grep -q '[1-9]'; then
-        echo "[migration] ERROR: No PostgreSQL tables were created in schema public."
+    if ! su - postgres -c "psql -d $PGDATABASE -tAc \"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name='Downloads'\"" 2>/dev/null | grep -q '1'; then
+        echo "[migration] ERROR: Expected PostgreSQL table \"Downloads\" was not created by EF Core migrations."
         exit 1
     fi
 
@@ -193,7 +193,7 @@ LOAD DATABASE
     FROM sqlite://$SQLITE_DB
     INTO postgresql://postgres@/$PGDATABASE
 
-WITH data only, reset sequences, batch rows = 1000
+WITH data only, quote identifiers, reset sequences, batch rows = 1000
 
 SET work_mem to '64MB', maintenance_work_mem to '512MB'
 ;
