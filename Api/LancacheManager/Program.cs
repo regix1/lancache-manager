@@ -527,40 +527,6 @@ apiKeyService.DisplayApiKey(app.Configuration);
 // This ensures HttpContext.Connection.RemoteIpAddress returns the real client IP
 app.UseForwardedHeaders();
 
-// Redirect to setup page if PostgreSQL credentials are not configured
-app.Use(async (context, next) =>
-{
-    // In Development, credentials come from appsettings.Development.json — skip setup redirect
-    if (app.Environment.IsDevelopment())
-    {
-        await next();
-        return;
-    }
-
-    var path = context.Request.Path.Value?.ToLower() ?? "";
-
-    // Skip for API endpoints, health, static files, and infrastructure
-    if (path.StartsWith("/api") || path == "/health" ||
-        path.StartsWith("/static") || path.StartsWith("/assets") ||
-        path.EndsWith(".js") || path.EndsWith(".css") || path.EndsWith(".ico") ||
-        path.StartsWith("/hubs") || path.StartsWith("/metrics") ||
-        path.StartsWith("/swagger"))
-    {
-        await next();
-        return;
-    }
-
-    var needsSetup = string.IsNullOrEmpty(Environment.GetEnvironmentVariable("POSTGRES_PASSWORD"))
-                     && !File.Exists("/data/postgres-credentials.json");
-
-    if (needsSetup && !path.StartsWith("/setup"))
-    {
-        context.Response.Redirect("/setup");
-        return;
-    }
-
-    await next();
-});
 
 app.UseCors("AllowAll");
 
