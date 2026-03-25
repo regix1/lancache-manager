@@ -188,7 +188,10 @@ if [ -f "$SQLITE_DB" ] && [ ! -f "$PGDATA/.migration_complete" ]; then
     fi
 
     echo "[migration] Running SQLite → PostgreSQL data migration..."
-    /scripts/migrate-sqlite-to-postgres.sh "$SQLITE_DB" "$PGDATABASE" "$PGDATA"
+    if ! /scripts/migrate-sqlite-to-postgres.sh "$SQLITE_DB" "$PGDATABASE" "$PGDATA"; then
+        echo "[migration] ERROR: Data migration script failed."
+        exit 1
+    fi
 fi
 
 # Run the application as the specified user

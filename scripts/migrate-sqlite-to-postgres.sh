@@ -11,19 +11,29 @@
 #
 # Usage: migrate-sqlite-to-postgres.sh <sqlite_db_path> <pg_database> <pg_data_dir>
 # ---------------------------------------------------------------------------
-set -euo pipefail
+set -eo pipefail
 
 SQLITE_DB="$1"
 PGDATABASE="$2"
 PGDATA="$3"
 
-psql_cmd() {
-    su - postgres -c "psql -q -d $PGDATABASE $*"
-}
+# Validate prerequisites
+if ! command -v sqlite3 &>/dev/null; then
+    echo "[migration] ERROR: sqlite3 is not installed."
+    exit 1
+fi
 
-psql_stdin() {
-    su - postgres -c "psql -q -d $PGDATABASE"
+if [ ! -f "$SQLITE_DB" ]; then
+    echo "[migration] ERROR: SQLite database not found at $SQLITE_DB"
+    exit 1
+fi
+
+# Verify sqlite3 can read the database
+TABLE_COUNT=$(sqlite3 "$SQLITE_DB" "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name != '__EFMigrationsHistory';" 2>&1) || {
+    echo "[migration] ERROR: sqlite3 cannot read database: $TABLE_COUNT"
+    exit 1
 }
+echo "[migration] Found $TABLE_COUNT tables to migrate in SQLite database."
 
 # ---------------------------------------------------------------------------
 # Phase 1: Tune PostgreSQL for bulk loading
