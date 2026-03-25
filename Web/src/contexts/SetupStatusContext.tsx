@@ -7,6 +7,7 @@ import { SetupStatusContext } from './SetupStatusContext.types';
 interface SetupStatus {
   isCompleted: boolean;
   hasProcessedLogs: boolean;
+  needsPostgresCredentials: boolean;
 }
 
 interface SetupStatusProviderProps {
@@ -35,13 +36,15 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
         const isCompleted = data.isCompleted === true || data.setupCompleted === true;
         setSetupStatus({
           isCompleted,
-          hasProcessedLogs: data.hasProcessedLogs === true
+          hasProcessedLogs: data.hasProcessedLogs === true,
+          needsPostgresCredentials: data.needsPostgresCredentials === true
         });
       } else {
         // Non-OK response: set reasonable defaults
         setSetupStatus({
           isCompleted: false,
-          hasProcessedLogs: false
+          hasProcessedLogs: false,
+          needsPostgresCredentials: false
         });
       }
     } catch (error) {
@@ -53,7 +56,8 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
       // On error/timeout: set reasonable defaults
       setSetupStatus({
         isCompleted: false,
-        hasProcessedLogs: false
+        hasProcessedLogs: false,
+        needsPostgresCredentials: false
       });
     } finally {
       clearTimeout(timeoutId);

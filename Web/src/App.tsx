@@ -38,6 +38,7 @@ import ErrorBoundary from '@components/common/ErrorBoundary';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import UniversalNotificationBar from '@components/common/UniversalNotificationBar';
 import DepotInitializationModal from '@components/modals/setup/DepotInitializationModal';
+import { DatabaseSetupStep } from '@components/initialization/steps';
 import AuthenticationModal from '@components/modals/auth/AuthenticationModal';
 import { FullScanRequiredModal } from '@components/modals/setup/FullScanRequiredModal';
 import ApiService from '@services/api.service';
@@ -80,7 +81,12 @@ const AppContent: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState('dashboard');
   const { connectionStatus } = useStats();
-  const { setupStatus, isLoading: checkingSetupStatus, markSetupCompleted } = useSetupStatus();
+  const {
+    setupStatus,
+    isLoading: checkingSetupStatus,
+    markSetupCompleted,
+    refreshSetupStatus
+  } = useSetupStatus();
   const {
     authMode,
     sessionId,
@@ -616,6 +622,17 @@ const AppContent: React.FC = () => {
             checkingSetupStatus ? t('app.loading.checkingSetup') : t('app.loading.checkingDepot')
           }
         />
+      </div>
+    );
+  }
+
+  // Force PostgreSQL credential setup (blocks migrating users who already have setupCompleted=true)
+  if (!checkingSetupStatus && setupStatus?.needsPostgresCredentials) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-themed-primary">
+        <div className="w-full max-w-md p-6 bg-themed-secondary rounded-lg">
+          <DatabaseSetupStep onSetupComplete={refreshSetupStatus} />
+        </div>
       </div>
     );
   }

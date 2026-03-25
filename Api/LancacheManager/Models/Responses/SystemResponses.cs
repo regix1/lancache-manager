@@ -133,6 +133,7 @@ public class SetupStatusResponse
     public bool IsCompleted { get; set; }
     public bool HasProcessedLogs { get; set; }
     public bool SetupCompleted { get; set; } // Legacy field for backward compatibility
+    public bool NeedsPostgresCredentials { get; set; }
 }
 
 /// <summary>

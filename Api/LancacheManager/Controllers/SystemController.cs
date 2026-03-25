@@ -166,12 +166,15 @@ public class SystemController : ControllerBase
 
         var isCompleted = _stateService.GetSetupCompleted();
         var hasProcessedLogs = _stateService.GetHasProcessedLogs();
+        var needsPostgresCredentials = string.IsNullOrEmpty(Environment.GetEnvironmentVariable("POSTGRES_PASSWORD"))
+                                       && !System.IO.File.Exists("/data/postgres-credentials.json");
 
         return Ok(new SetupStatusResponse
         {
             IsCompleted = isCompleted,
             HasProcessedLogs = hasProcessedLogs,
-            SetupCompleted = isCompleted // For backward compatibility
+            SetupCompleted = isCompleted, // For backward compatibility
+            NeedsPostgresCredentials = needsPostgresCredentials
         });
     }
 

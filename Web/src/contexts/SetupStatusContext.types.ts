@@ -3,6 +3,7 @@ import { createContext } from 'react';
 interface SetupStatus {
   isCompleted: boolean;
   hasProcessedLogs: boolean;
+  needsPostgresCredentials: boolean;
 }
 
 interface SetupStatusContextType {
