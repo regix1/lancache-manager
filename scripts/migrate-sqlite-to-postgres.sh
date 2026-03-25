@@ -95,18 +95,30 @@ IDXEOF
 # ---------------------------------------------------------------------------
 echo "[migration] Starting table-by-table data migration..."
 
-# Get user tables from SQLite (skip internal tables and EF migration history —
-# EF Core already wrote the correct PostgreSQL migration entry during schema creation)
+# Get tables that exist in BOTH SQLite and PostgreSQL (skip internal tables,
+# EF migration history — EF Core already wrote the correct entry during schema creation)
 SQLITE_TABLES=$(sqlite3 "$SQLITE_DB" \
     "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name != '__EFMigrationsHistory' ORDER BY name;")
 
-# Disable triggers (including FK enforcement) so tables can load in any order
+PG_TABLES=$(su - postgres -c "psql -tA -d $PGDATABASE -c \"SELECT tablename FROM pg_tables WHERE schemaname='public';\"")
+
+# Only migrate tables that exist on both sides
+TABLES_TO_MIGRATE=""
 for TABLE in $SQLITE_TABLES; do
-    su - postgres -c "psql -q -d $PGDATABASE -c 'ALTER TABLE \"$TABLE\" DISABLE TRIGGER ALL;'" 2>/dev/null
+    if echo "$PG_TABLES" | grep -qx "$TABLE"; then
+        TABLES_TO_MIGRATE="$TABLES_TO_MIGRATE $TABLE"
+    else
+        echo "[migration]   $TABLE: not in PostgreSQL schema, skipping"
+    fi
+done
+
+# Disable triggers (including FK enforcement) so tables can load in any order
+for TABLE in $TABLES_TO_MIGRATE; do
+    su - postgres -c "psql -q -d $PGDATABASE -c 'ALTER TABLE \"$TABLE\" DISABLE TRIGGER ALL;'" || true
 done
 
 MIGRATION_FAILED=0
-for TABLE in $SQLITE_TABLES; do
+for TABLE in $TABLES_TO_MIGRATE; do
     ROW_COUNT=$(sqlite3 "$SQLITE_DB" "SELECT COUNT(*) FROM \"$TABLE\";")
     if [ "$ROW_COUNT" -eq 0 ]; then
         echo "[migration]   $TABLE: empty, skipping"
@@ -122,7 +134,7 @@ for TABLE in $SQLITE_TABLES; do
     # Stream: COPY command → CSV data → end-of-data marker, all into one psql session
     if ! { echo "COPY \"$TABLE\" ($QUOTED_COLUMNS) FROM STDIN WITH (FORMAT csv, NULL '');"; \
            sqlite3 -csv "$SQLITE_DB" "SELECT * FROM \"$TABLE\";"; \
-           echo '\.' ; } | su - postgres -c "psql -q -d $PGDATABASE" 2>&1; then
+           echo '\.' ; } | su - postgres -c "psql -d $PGDATABASE" 2>&1; then
         echo "[migration] ERROR: Failed to migrate table $TABLE"
         MIGRATION_FAILED=1
         break
@@ -130,8 +142,8 @@ for TABLE in $SQLITE_TABLES; do
 done
 
 # Re-enable triggers
-for TABLE in $SQLITE_TABLES; do
-    su - postgres -c "psql -q -d $PGDATABASE -c 'ALTER TABLE \"$TABLE\" ENABLE TRIGGER ALL;'" 2>/dev/null
+for TABLE in $TABLES_TO_MIGRATE; do
+    su - postgres -c "psql -q -d $PGDATABASE -c 'ALTER TABLE \"$TABLE\" ENABLE TRIGGER ALL;'" || true
 done
 
 # ---------------------------------------------------------------------------
