@@ -143,7 +143,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y \
     && apt-get update && apt-get install -y --no-install-recommends \
     postgresql-17 \
-    pgloader \
+    sqlite3 \
     && rm -rf /var/lib/apt/lists/*
 
 # Prepare PostgreSQL runtime directories and copy config
@@ -153,9 +153,10 @@ COPY postgresql.conf /etc/postgresql/17/main/postgresql.conf
 # Copy published application
 COPY --from=backend-builder /app/publish ./
 
-# Copy entrypoint script
+# Copy entrypoint and migration scripts
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+COPY scripts/ /scripts/
+RUN chmod +x /entrypoint.sh /scripts/*.sh
 
 # Create /tmp directory (data/logs/cache are created by the application)
 RUN mkdir -p /tmp && chmod 777 /tmp
