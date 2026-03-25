@@ -179,7 +179,7 @@ if [ -f "$SQLITE_DB" ] && [ ! -f "$PGDATA/.migration_complete" ]; then
     cat > /tmp/pgloader-data-only.load << PGEOF
 LOAD DATABASE
     FROM sqlite://$SQLITE_DB
-    INTO postgresql:///$PGDATABASE?user=postgres
+    INTO postgresql://postgres@/$PGDATABASE
 
 WITH data only, reset sequences, batch rows = 1000
 
