@@ -59,11 +59,11 @@ public static class DatabaseSchemaFixer
         checkCmd.CommandText = "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' AND table_name=@table AND column_name=@column";
         var tableParam = checkCmd.CreateParameter();
         tableParam.ParameterName = "@table";
-        tableParam.Value = table.ToLower();
+        tableParam.Value = table;
         checkCmd.Parameters.Add(tableParam);
         var colParam = checkCmd.CreateParameter();
         colParam.ParameterName = "@column";
-        colParam.Value = column.ToLower();
+        colParam.Value = column;
         checkCmd.Parameters.Add(colParam);
 
         var columnExists = Convert.ToInt32(await checkCmd.ExecuteScalarAsync()) > 0;

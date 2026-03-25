@@ -165,15 +165,27 @@ export POSTGRES_USER="$PGUSER"
 export POSTGRES_PASSWORD="$PGPASSWORD"
 
 # ---------------------------------------------------------------------------
-# SQLite → PostgreSQL data migration (background, after EF Core schema creation)
+# SQLite → PostgreSQL data migration (before starting the web app)
 # ---------------------------------------------------------------------------
-# EF Core's MigrateAsync (called on app startup) creates the correct schema.
-# pgloader must run AFTER that, importing DATA ONLY into the existing tables.
-# Running pgloader first would create tables with SQLite-derived types that
-# conflict with EF Core's migrations.
+# Run the app once in migrate-only mode so EF Core creates the PostgreSQL
+# schema, then import SQLite data synchronously before the main host starts.
+# This avoids racing a background import against app startup.
 # ---------------------------------------------------------------------------
 if [ -f "$SQLITE_DB" ] && [ ! -f "$PGDATA/.migration_complete" ]; then
-    echo "[postgres] SQLite database found. Data will be migrated after schema creation..."
+    echo "[postgres] SQLite database found. Preparing PostgreSQL schema before startup..."
+
+    echo "[migration] Running EF Core migrations in migrate-only mode..."
+    if gosu "$USER_NAME" env LANCACHE_MIGRATE_ONLY=1 dotnet LancacheManager.dll; then
+        echo "[migration] EF Core schema created successfully."
+    else
+        echo "[migration] ERROR: EF Core migrate-only run failed."
+        exit 1
+    fi
+
+    if ! su - postgres -c "psql -d $PGDATABASE -tAc \"SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public'\"" 2>/dev/null | grep -q '[1-9]'; then
+        echo "[migration] ERROR: No PostgreSQL tables were created in schema public."
+        exit 1
+    fi
 
     # Create pgloader load file for data-only migration
     cat > /tmp/pgloader-data-only.load << PGEOF
@@ -187,31 +199,18 @@ SET work_mem to '64MB', maintenance_work_mem to '512MB'
 ;
 PGEOF
 
-    # Background process: wait for the app to finish applying EF Core migrations
-    # (indicated by the /health endpoint becoming available), then import data.
-    (
-        echo "[migration] Waiting for application to start and apply migrations..."
-        if timeout 120 bash -c 'until curl -sf http://localhost/health > /dev/null 2>&1; do sleep 2; done'; then
-            echo "[migration] Application is healthy. Waiting for EF Core migrations to create schema..."
-            # Health endpoint responds before migrations complete — wait for tables to exist
-            if timeout 60 bash -c "until su - postgres -c \"psql -d $PGDATABASE -tAc \\\"SELECT count(*) FROM information_schema.tables WHERE table_schema='public'\\\"\" 2>/dev/null | grep -q '[1-9]'; do sleep 2; done"; then
-                echo "[migration] Schema ready. Running pgloader data-only migration..."
-            else
-                echo "[migration] WARNING: Schema not ready after 60s. Attempting migration anyway..."
-            fi
-            pgloader /tmp/pgloader-data-only.load 2>&1 | tail -20
-            PGLOADER_EXIT=${PIPESTATUS[0]}
-            if [ "$PGLOADER_EXIT" -eq 0 ]; then
-                touch "$PGDATA/.migration_complete"
-                echo "[migration] Data migration complete. SQLite database preserved at $SQLITE_DB"
-            else
-                echo "[migration] WARNING: Data migration failed (exit code: $PGLOADER_EXIT). Check pgloader output above."
-            fi
-        else
-            echo "[migration] WARNING: Application did not become healthy within 120s. Skipping data migration."
-        fi
-        rm -f /tmp/pgloader-data-only.load
-    ) &
+    echo "[migration] Running pgloader data-only migration..."
+    pgloader /tmp/pgloader-data-only.load 2>&1 | tail -20
+    PGLOADER_EXIT=${PIPESTATUS[0]}
+    rm -f /tmp/pgloader-data-only.load
+
+    if [ "$PGLOADER_EXIT" -eq 0 ]; then
+        touch "$PGDATA/.migration_complete"
+        echo "[migration] Data migration complete. SQLite database preserved at $SQLITE_DB"
+    else
+        echo "[migration] ERROR: Data migration failed (exit code: $PGLOADER_EXIT). Check pgloader output above."
+        exit "$PGLOADER_EXIT"
+    fi
 fi
 
 # Run the application as the specified user
