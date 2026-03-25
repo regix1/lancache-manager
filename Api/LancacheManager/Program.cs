@@ -539,8 +539,8 @@ app.Use(async (context, next) =>
 
     var path = context.Request.Path.Value?.ToLower() ?? "";
 
-    // Skip for setup endpoints, health, static files, and API infrastructure
-    if (path.StartsWith("/api/setup") || path == "/health" ||
+    // Skip for API endpoints, health, static files, and infrastructure
+    if (path.StartsWith("/api") || path == "/health" ||
         path.StartsWith("/static") || path.StartsWith("/assets") ||
         path.EndsWith(".js") || path.EndsWith(".css") || path.EndsWith(".ico") ||
         path.StartsWith("/hubs") || path.StartsWith("/metrics") ||
