@@ -570,8 +570,7 @@ app.UseGlobalExceptionHandler();
 // GC Middleware - must run BEFORE static files to catch all requests
 app.UseMiddleware<GcMiddleware>();
 
-// Serve static files
-app.UseDefaultFiles();
+// Serve static files (MapFallback handles SPA routing for index.html)
 app.UseStaticFiles();
 
 app.UseRouting();
