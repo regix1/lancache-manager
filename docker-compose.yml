@@ -8,11 +8,9 @@ services:
     ports:
       - "8080:80"
     volumes:
-      # Required: Data directory for database, API key, themes, and cached images
+      # Required: Data directory for database, PostgreSQL, API key, themes, and cached images
+      # PostgreSQL data is stored at /data/postgresql by default
       - ./data:/data
-
-      # PostgreSQL data persistence (stores PG cluster files separate from /data)
-      - postgres_data:/var/lib/postgresql/data
 
       # Required: LANCache log directory
       # Add :ro for read-only (recommended for monitoring-only setups)
@@ -224,6 +222,8 @@ services:
       # Useful for diagnosing issues with volume mounts, permissions, or Docker socket
       # - Logging__LogLevel__LancacheManager.Infrastructure.Platform=Debug
 
-# Named volumes — managed by Docker, survive container removal
-volumes:
-  postgres_data:
+# Fallback: If /data is not writable, PostgreSQL uses /var/lib/postgresql/data.
+# Uncomment below to persist that fallback location with a named Docker volume.
+# volumes:
+#   postgres_data:
+# Then add to service volumes: - postgres_data:/var/lib/postgresql/data
