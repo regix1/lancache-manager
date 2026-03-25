@@ -99,6 +99,10 @@ if [ ! -f "$PGDATA/PG_VERSION" ]; then
     } > "$PGDATA/pg_hba.conf"
 fi
 
+# Ensure the PostgreSQL log file exists and is writable by the postgres user
+touch "$PG_LOG"
+chown postgres:postgres "$PG_LOG"
+
 # Start PostgreSQL as the postgres OS user
 echo "[postgres] Starting PostgreSQL 17..."
 su - postgres -c "/usr/lib/postgresql/17/bin/pg_ctl -D $PGDATA -l $PG_LOG start"
