@@ -188,16 +188,65 @@ if [ -f "$SQLITE_DB" ] && [ ! -f "$PGDATA/.migration_complete" ]; then
     fi
 
     # Create pgloader load file for data-only migration
+    # Keep the loader conservative on memory usage: upstream pgloader/SBCL
+    # issues recommend small prefetch/batch settings and single-threaded loads
+    # to avoid heap exhaustion during one-shot migrations.
     cat > /tmp/pgloader-data-only.load << PGEOF
 LOAD DATABASE
     FROM sqlite://$SQLITE_DB
     INTO postgresql://postgres@/$PGDATABASE
 
-WITH data only, quote identifiers, reset sequences, batch rows = 1000
+WITH data only,
+     quote identifiers,
+     workers = 1,
+     concurrency = 1,
+     prefetch rows = 1000,
+     batch rows = 250,
+     batch size = 1MB
 
 SET work_mem to '64MB', maintenance_work_mem to '512MB'
 ;
 PGEOF
+
+    # pgloader's built-in reset sequences logic is flaky with pre-created
+    # schemas, so repair owned sequences explicitly after the load completes.
+    cat > /tmp/reset-postgres-sequences.sql <<'SQLEOF'
+DO $$
+DECLARE
+    seq_record record;
+    next_value bigint;
+BEGIN
+    FOR seq_record IN
+        SELECT
+            n.nspname AS schema_name,
+            c.relname AS table_name,
+            a.attname AS column_name,
+            pg_get_serial_sequence(format('%I.%I', n.nspname, c.relname), a.attname) AS sequence_name
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        JOIN pg_attribute a ON a.attrelid = c.oid
+        WHERE c.relkind = 'r'
+          AND n.nspname = 'public'
+          AND a.attnum > 0
+          AND NOT a.attisdropped
+          AND pg_get_serial_sequence(format('%I.%I', n.nspname, c.relname), a.attname) IS NOT NULL
+    LOOP
+        EXECUTE format(
+            'SELECT COALESCE(MAX(%I), 0) + 1 FROM %I.%I',
+            seq_record.column_name,
+            seq_record.schema_name,
+            seq_record.table_name
+        )
+        INTO next_value;
+
+        EXECUTE format(
+            'SELECT setval(%L, %s, false)',
+            seq_record.sequence_name,
+            next_value
+        );
+    END LOOP;
+END $$;
+SQLEOF
 
     echo "[migration] Running pgloader data-only migration..."
     pgloader /tmp/pgloader-data-only.load 2>&1 | tail -20
@@ -205,9 +254,17 @@ PGEOF
     rm -f /tmp/pgloader-data-only.load
 
     if [ "$PGLOADER_EXIT" -eq 0 ]; then
+        echo "[migration] Resetting PostgreSQL sequences after import..."
+        if ! su - postgres -c "psql -d $PGDATABASE -v ON_ERROR_STOP=1 -f /tmp/reset-postgres-sequences.sql"; then
+            rm -f /tmp/reset-postgres-sequences.sql
+            echo "[migration] ERROR: PostgreSQL sequence reset failed after data migration."
+            exit 1
+        fi
+        rm -f /tmp/reset-postgres-sequences.sql
         touch "$PGDATA/.migration_complete"
         echo "[migration] Data migration complete. SQLite database preserved at $SQLITE_DB"
     else
+        rm -f /tmp/reset-postgres-sequences.sql
         echo "[migration] ERROR: Data migration failed (exit code: $PGLOADER_EXIT). Check pgloader output above."
         exit "$PGLOADER_EXIT"
     fi
