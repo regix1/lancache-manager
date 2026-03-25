@@ -187,10 +187,59 @@ if [ -f "$SQLITE_DB" ] && [ ! -f "$PGDATA/.migration_complete" ]; then
         exit 1
     fi
 
-    # Create pgloader load file for data-only migration
-    # Keep the loader conservative on memory usage: upstream pgloader/SBCL
-    # issues recommend small prefetch/batch settings and single-threaded loads
-    # to avoid heap exhaustion during one-shot migrations.
+    # Temporarily tune PostgreSQL for bulk loading.  This is safe because the
+    # SQLite source file is preserved – if the migration fails we simply redo it.
+    echo "[migration] Tuning PostgreSQL for bulk import..."
+    su - postgres -c "psql -d $PGDATABASE" <<'TUNEEOF'
+-- WAL / fsync: skip durability guarantees during one-shot import
+ALTER SYSTEM SET synchronous_commit = 'off';
+ALTER SYSTEM SET fsync = 'off';
+ALTER SYSTEM SET full_page_writes = 'off';
+ALTER SYSTEM SET wal_level = 'minimal';
+ALTER SYSTEM SET max_wal_senders = 0;
+ALTER SYSTEM SET max_wal_size = '1GB';
+ALTER SYSTEM SET checkpoint_completion_target = 0.9;
+-- Memory: give the import plenty of room
+ALTER SYSTEM SET work_mem = '64MB';
+ALTER SYSTEM SET maintenance_work_mem = '512MB';
+-- Disable autovacuum during bulk load
+ALTER SYSTEM SET autovacuum = 'off';
+SELECT pg_reload_conf();
+TUNEEOF
+
+    # Save and drop all non-PK indexes so pgloader inserts into bare tables.
+    # They will be recreated after the data load finishes.
+    echo "[migration] Dropping non-PK indexes for faster import..."
+    su - postgres -c "psql -d $PGDATABASE" <<'IDXEOF'
+CREATE TABLE IF NOT EXISTS _migration_saved_indexes (
+    indexname text PRIMARY KEY,
+    indexdef  text NOT NULL
+);
+INSERT INTO _migration_saved_indexes (indexname, indexdef)
+SELECT indexname, indexdef
+FROM pg_indexes
+WHERE schemaname = 'public'
+  AND indexname NOT IN (
+      SELECT conindid::regclass::text
+      FROM pg_constraint
+      WHERE contype = 'p'
+  )
+ON CONFLICT DO NOTHING;
+
+DO $$
+DECLARE r record;
+BEGIN
+    FOR r IN
+        SELECT indexname FROM _migration_saved_indexes
+    LOOP
+        EXECUTE format('DROP INDEX IF EXISTS public.%I', r.indexname);
+    END LOOP;
+END $$;
+IDXEOF
+
+    # Create pgloader load file for data-only migration.
+    # Batch sizes are large since we have bulk-load tuning active.
+    # Keep workers=1 to avoid SBCL heap exhaustion (upstream pgloader issue).
     cat > /tmp/pgloader-data-only.load << PGEOF
 LOAD DATABASE
     FROM sqlite://$SQLITE_DB
@@ -200,9 +249,9 @@ WITH data only,
      quote identifiers,
      workers = 1,
      concurrency = 1,
-     prefetch rows = 1000,
-     batch rows = 250,
-     batch size = 1MB
+     prefetch rows = 10000,
+     batch rows = 5000,
+     batch size = 20MB
 
 SET work_mem to '64MB', maintenance_work_mem to '512MB'
 ;
@@ -254,6 +303,21 @@ SQLEOF
     rm -f /tmp/pgloader-data-only.load
 
     if [ "$PGLOADER_EXIT" -eq 0 ]; then
+        # Recreate indexes that were dropped before the bulk load
+        echo "[migration] Recreating indexes..."
+        su - postgres -c "psql -d $PGDATABASE" <<'IDXREOF'
+DO $$
+DECLARE r record;
+BEGIN
+    FOR r IN
+        SELECT indexdef FROM _migration_saved_indexes
+    LOOP
+        EXECUTE r.indexdef;
+    END LOOP;
+END $$;
+DROP TABLE IF EXISTS _migration_saved_indexes;
+IDXREOF
+
         echo "[migration] Resetting PostgreSQL sequences after import..."
         if ! su - postgres -c "psql -d $PGDATABASE -v ON_ERROR_STOP=1 -f /tmp/reset-postgres-sequences.sql"; then
             rm -f /tmp/reset-postgres-sequences.sql
@@ -261,6 +325,26 @@ SQLEOF
             exit 1
         fi
         rm -f /tmp/reset-postgres-sequences.sql
+
+        # Restore safe PostgreSQL settings after bulk load
+        echo "[migration] Restoring safe PostgreSQL settings..."
+        su - postgres -c "psql" <<'RESTOREEOF'
+ALTER SYSTEM RESET synchronous_commit;
+ALTER SYSTEM RESET fsync;
+ALTER SYSTEM RESET full_page_writes;
+ALTER SYSTEM RESET wal_level;
+ALTER SYSTEM RESET max_wal_senders;
+ALTER SYSTEM RESET max_wal_size;
+ALTER SYSTEM RESET work_mem;
+ALTER SYSTEM RESET maintenance_work_mem;
+ALTER SYSTEM RESET autovacuum;
+SELECT pg_reload_conf();
+RESTOREEOF
+
+        # Run ANALYZE so the planner has accurate stats after bulk import
+        echo "[migration] Running ANALYZE..."
+        su - postgres -c "psql -d $PGDATABASE -c 'ANALYZE;'"
+
         touch "$PGDATA/.migration_complete"
         echo "[migration] Data migration complete. SQLite database preserved at $SQLITE_DB"
     else
