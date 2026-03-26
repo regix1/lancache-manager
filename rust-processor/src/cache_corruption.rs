@@ -163,7 +163,7 @@ async fn delete_corrupted_from_database(
     let urls: Vec<&String> = corrupted_urls.iter().collect();
 
     // STEP 1: Collect all unique DownloadIds that have corrupted (MISS/UNKNOWN) log entries
-    let mut affected_download_ids: std::collections::HashSet<i64> = std::collections::HashSet::new();
+    let mut affected_download_ids: std::collections::HashSet<i32> = std::collections::HashSet::new();
 
     for chunk in urls.chunks(batch_size) {
         // Build $1, $2, ... placeholders for the IN clause
@@ -188,7 +188,7 @@ async fn delete_corrupted_from_database(
 
         let rows = query.fetch_all(pool).await?;
         for row in rows {
-            let download_id: i64 = row.get("DownloadId");
+            let download_id: i32 = row.get("DownloadId");
             affected_download_ids.insert(download_id);
         }
     }
@@ -223,7 +223,7 @@ async fn delete_corrupted_from_database(
     eprintln!("  Deleted {} log entry records", total_log_entries_deleted);
 
     // STEP 3: Only delete Download sessions that have NO remaining LogEntries
-    let download_ids_vec: Vec<i64> = affected_download_ids.into_iter().collect();
+    let download_ids_vec: Vec<i32> = affected_download_ids.into_iter().collect();
 
     for chunk in download_ids_vec.chunks(batch_size) {
         let placeholders: String = chunk.iter().enumerate()

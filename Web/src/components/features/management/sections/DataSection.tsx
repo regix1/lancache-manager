@@ -55,6 +55,7 @@ const DataSection: React.FC<DataSectionProps> = ({
   const [evictionLoading, setEvictionLoading] = useState(false);
   const [evictionSaving, setEvictionSaving] = useState(false);
   const [reconciling, setReconciling] = useState(false);
+  const [resettingEvictions, setResettingEvictions] = useState(false);
   const [reconcileResult, setReconcileResult] = useState<{
     processed: number;
     evicted: number;
@@ -124,6 +125,26 @@ const DataSection: React.FC<DataSectionProps> = ({
       );
     } finally {
       setReconciling(false);
+    }
+  };
+
+  const handleResetEvictions = async () => {
+    setResettingEvictions(true);
+    try {
+      const result = await ApiService.resetEvictions();
+      onSuccess(
+        t('management.sections.data.resetEvictionsSuccess', {
+          count: result.reset
+        })
+      );
+      onDataRefresh();
+    } catch (err: unknown) {
+      onError(
+        (err instanceof Error ? err.message : String(err)) ||
+          t('management.sections.data.resetEvictionsError')
+      );
+    } finally {
+      setResettingEvictions(false);
     }
   };
 
@@ -464,15 +485,24 @@ const DataSection: React.FC<DataSectionProps> = ({
               </div>
 
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-4 border-t border-themed-primary">
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 flex-wrap">
                   <Button
                     onClick={handleRunReconciliation}
-                    disabled={reconciling}
+                    disabled={reconciling || resettingEvictions}
                     loading={reconciling}
                     variant="subtle"
                     className="sm:w-48"
                   >
                     {t('management.sections.data.runReconciliation')}
+                  </Button>
+                  <Button
+                    onClick={handleResetEvictions}
+                    disabled={resettingEvictions || reconciling}
+                    loading={resettingEvictions}
+                    variant="subtle"
+                    className="sm:w-48"
+                  >
+                    {t('management.sections.data.resetEvictions')}
                   </Button>
                   {reconcileResult && (
                     <span className="text-xs text-themed-muted">

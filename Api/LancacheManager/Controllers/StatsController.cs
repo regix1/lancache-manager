@@ -469,6 +469,18 @@ public class StatsController : ControllerBase
         return Ok(new { processed, evicted, unEvicted });
     }
 
+    [HttpPost("eviction/reset")]
+    [Authorize(Policy = "AdminOnly")]
+    public async Task<IActionResult> ResetEvictionsAsync(CancellationToken ct)
+    {
+        var resetCount = await _context.Downloads
+            .Where(d => d.IsEvicted)
+            .ExecuteUpdateAsync(s => s.SetProperty(d => d.IsEvicted, false), ct);
+
+        await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, new { reason = "eviction-reset" });
+        return Ok(new { reset = resetCount });
+    }
+
     /// <summary>
     /// Creates a ClientStatsWithGroup object with calculated metrics
     /// </summary>

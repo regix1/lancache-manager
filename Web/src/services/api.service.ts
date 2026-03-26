@@ -321,6 +321,19 @@ class ApiService {
     }
   }
 
+  static async resetEvictions(): Promise<{ reset: number }> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/stats/eviction/reset`,
+        this.getFetchOptions({ method: 'POST' })
+      );
+      return await this.handleResponse<{ reset: number }>(res);
+    } catch (error: unknown) {
+      console.error('resetEvictions error:', error);
+      throw error;
+    }
+  }
+
   static async getServiceStats(
     signal?: AbortSignal,
     startTime?: number,

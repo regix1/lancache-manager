@@ -418,13 +418,13 @@ impl Processor {
         let row = sqlx::query(
             "SELECT \"AppId\", \"AppName\" FROM \"SteamDepotMappings\" WHERE \"DepotId\" = $1 AND \"IsOwner\" = true LIMIT 1"
         )
-        .bind(depot_id as i64)
+        .bind(depot_id as i32)
         .fetch_optional(&mut **tx)
         .await?;
 
         match row {
             Some(r) => {
-                let app_id: i64 = r.get("AppId");
+                let app_id: i32 = r.get("AppId");
                 let app_name: Option<String> = r.get("AppName");
                 Ok(Some((app_id as u32, app_name)))
             }
@@ -576,15 +576,15 @@ impl Processor {
             .bind(total_hit_bytes)
             .bind(total_miss_bytes)
             .bind(last_url)
-            .bind(primary_depot_id.map(|d| d as i64))
-            .bind(game_app_id.map(|id| id as i64))
+            .bind(primary_depot_id.map(|d| d as i32))
+            .bind(game_app_id.map(|id| id as i32))
             .bind(&game_name)
             .bind(&game_image_url)
             .bind(&self.datasource_name)
             .fetch_one(&mut **tx)
             .await?;
 
-            let download_id: i64 = row.get("Id");
+            let download_id: i32 = row.get("Id");
 
             // Update or create client stats
             let client_count: i64 = sqlx::query_scalar(
@@ -653,16 +653,16 @@ impl Processor {
             download_id
         } else {
             // Try to find existing active download for this specific depot/game
-            let download_id_opt: Option<i64> = if let Some(depot_id) = primary_depot_id {
+            let download_id_opt: Option<i32> = if let Some(depot_id) = primary_depot_id {
                 sqlx::query(
                     "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" = $3 AND \"IsActive\" = true ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
                 )
                 .bind(client_ip)
                 .bind(service)
-                .bind(depot_id as i64)
+                .bind(depot_id as i32)
                 .fetch_optional(&mut **tx)
                 .await?
-                .map(|r| r.get::<i64, _>("Id"))
+                .map(|r| r.get::<i32, _>("Id"))
             } else if service.to_lowercase().contains("epic") {
                 // For Epic services, match by URL path prefix to find the correct game session
                 if let Some(path_prefix) = last_url.and_then(|u| Self::extract_epic_path_prefix(u)) {
@@ -675,7 +675,7 @@ impl Processor {
                     .bind(&like_pattern)
                     .fetch_optional(&mut **tx)
                     .await?
-                    .map(|r| r.get::<i64, _>("Id"))
+                    .map(|r| r.get::<i32, _>("Id"))
                 } else {
                     sqlx::query(
                         "SELECT \"Id\" FROM \"Downloads\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"DepotId\" IS NULL AND \"IsActive\" = true ORDER BY \"StartTimeUtc\" DESC LIMIT 1"
@@ -684,7 +684,7 @@ impl Processor {
                     .bind(service)
                     .fetch_optional(&mut **tx)
                     .await?
-                    .map(|r| r.get::<i64, _>("Id"))
+                    .map(|r| r.get::<i32, _>("Id"))
                 }
             } else {
                 sqlx::query(
@@ -694,7 +694,7 @@ impl Processor {
                 .bind(service)
                 .fetch_optional(&mut **tx)
                 .await?
-                .map(|r| r.get::<i64, _>("Id"))
+                .map(|r| r.get::<i32, _>("Id"))
             };
 
             let game_image_url: Option<String> = None;
@@ -719,15 +719,15 @@ impl Processor {
                 .bind(&last_local)
                 .bind(total_hit_bytes)
                 .bind(total_miss_bytes)
-                .bind(game_app_id.map(|id| id as i64))
+                .bind(game_app_id.map(|id| id as i32))
                 .bind(&game_name)
                 .bind(&game_image_url)
                 .bind(last_url)
-                .bind(primary_depot_id.map(|d| d as i64))
+                .bind(primary_depot_id.map(|d| d as i32))
                 .bind(&self.datasource_name)
                 .fetch_one(&mut **tx)
                 .await?;
-                (row.get::<i64, _>("Id"), true)
+                (row.get::<i32, _>("Id"), true)
             };
 
             // Convert timestamps once for reuse in updates
@@ -744,8 +744,8 @@ impl Processor {
                 .bind(total_hit_bytes)
                 .bind(total_miss_bytes)
                 .bind(last_url)
-                .bind(primary_depot_id.map(|d| d as i64))
-                .bind(game_app_id.map(|id| id as i64))
+                .bind(primary_depot_id.map(|d| d as i32))
+                .bind(game_app_id.map(|id| id as i32))
                 .bind(&game_name)
                 .bind(&game_image_url)
                 .bind(download_id)
@@ -802,7 +802,7 @@ impl Processor {
             .bind(entry.status_code as i32)
             .bind(entry.bytes_served)
             .bind(&entry.cache_status)
-            .bind(entry.depot_id.map(|d| d as i64))
+            .bind(entry.depot_id.map(|d| d as i32))
             .bind(download_id)
             .bind(&now)
             .bind(&self.datasource_name)

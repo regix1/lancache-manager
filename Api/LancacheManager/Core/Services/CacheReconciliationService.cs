@@ -86,6 +86,9 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             _logger.LogInformation("[CacheReconciliation] Found {FileCount} cache files on disk across {DatasourceCount} datasource(s)",
                 filesOnDisk.Count, _datasourceService.DatasourceCount);
 
+            // Auto-detect nginx cache directory levels from actual file paths on disk
+            var (level1Size, level2Size) = DetectCacheLevels(filesOnDisk);
+
             // Step 2: Get all inactive (completed) Downloads that have associated LogEntries
             // Process in batches to avoid loading the entire table into memory
             const int batchSize = 100;
@@ -145,7 +148,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         if (datasource == null)
                             continue;
 
-                        var cacheFilePath = ComputeCacheFilePath(datasource.CachePath, entry.Service, entry.Url);
+                        var cacheFilePath = ComputeCacheFilePath(datasource.CachePath, entry.Service, entry.Url, level1Size, level2Size);
                         if (filesOnDisk.Contains(cacheFilePath))
                         {
                             hasCacheFile = true;
@@ -231,27 +234,70 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     }
 
     /// <summary>
-    /// Computes the expected nginx cache file path for a given service + URL combination.
-    /// Lancache nginx uses proxy_cache_key "$cacheidentifier$uri" and stores files at:
-    ///   cachePath/XX/YY/MD5HASH
-    /// where XX = last 2 hex chars, YY = next 2 hex chars (nginx cache levels 2:2).
+    /// Auto-detects nginx cache directory levels by examining actual file paths on disk.
+    /// Samples files and determines the directory component sizes (e.g., 1:2, 2:2).
     /// </summary>
-    private static string ComputeCacheFilePath(string cachePath, string service, string url)
+    private (int level1Size, int level2Size) DetectCacheLevels(HashSet<string> filesOnDisk)
     {
-        // nginx proxy_cache_key = "$cacheidentifier$uri"
-        // cacheidentifier = service name (e.g., "steam", "epicgames")
+        var datasources = _datasourceService.GetDatasources();
+
+        foreach (var filePath in filesOnDisk.Take(20))
+        {
+            foreach (ResolvedDatasource datasource in datasources)
+            {
+                var cachePath = datasource.CachePath.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                if (!filePath.StartsWith(cachePath, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var relative = filePath[cachePath.Length..];
+                var parts = relative.Split(Path.DirectorySeparatorChar);
+
+                // Expect exactly: level1dir/level2dir/hashfilename
+                // MD5 hash is 32 hex characters
+                if (parts.Length != 3 || parts[2].Length != 32)
+                    continue;
+
+                // Validate directory components are hex strings
+                if (!IsHexString(parts[0]) || !IsHexString(parts[1]))
+                    continue;
+
+                var l1 = parts[0].Length;
+                var l2 = parts[1].Length;
+                _logger.LogInformation("[CacheReconciliation] Auto-detected cache levels: {L1}:{L2} from file structure (sample: {Path})",
+                    l1, l2, filePath);
+                return (l1, l2);
+            }
+        }
+
+        _logger.LogWarning("[CacheReconciliation] Could not auto-detect cache levels from disk, using default 2:2");
+        return (2, 2);
+    }
+
+    private static bool IsHexString(string value)
+    {
+        foreach (char c in value)
+        {
+            if (!char.IsAsciiHexDigit(c))
+                return false;
+        }
+        return value.Length > 0;
+    }
+
+    /// <summary>
+    /// Computes the expected nginx cache file path for a given service + URL combination.
+    /// nginx proxy_cache_key = "$cacheidentifier$uri", stored at cachePath/L1/L2/MD5HASH
+    /// where L1 and L2 directory sizes are determined by the nginx levels configuration.
+    /// </summary>
+    private static string ComputeCacheFilePath(string cachePath, string service, string url, int level1Size, int level2Size)
+    {
         var cacheKey = service + url;
         #pragma warning disable CA5351 // MD5 is required here to match nginx's cache file naming convention
         var hashBytes = MD5.HashData(Encoding.UTF8.GetBytes(cacheKey));
         #pragma warning restore CA5351
         var hash = Convert.ToHexStringLower(hashBytes);
 
-        // nginx cache levels "2:2" means:
-        // - last 2 hex chars as first directory level
-        // - next 2 hex chars as second directory level
-        // File path: cachePath/XX/YY/FULL_HASH
-        var level1 = hash[^2..];          // last 2 chars
-        var level2 = hash[^4..^2];        // next 2 chars
+        var level1 = hash[^level1Size..];
+        var level2 = hash[^(level1Size + level2Size)..^level1Size];
 
         return Path.Combine(cachePath, level1, level2, hash);
     }
