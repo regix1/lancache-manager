@@ -32,6 +32,7 @@ interface DashboardDataContextType {
   // Game detection
   gameDetectionData: CachedDetectionResponse | null;
   gameDetectionLookup: Map<number, GameCacheInfo> | null;
+  gameDetectionByName: Map<string, GameCacheInfo> | null;
 
   // Loading & Error states
   loading: boolean;

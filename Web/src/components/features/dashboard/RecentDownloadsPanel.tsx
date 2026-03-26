@@ -15,7 +15,8 @@ import { useSpeed } from '@contexts/SpeedContext/useSpeed';
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import EventBadge from '../downloads/EventBadge';
-import type { Download, EventSummary, GameSpeedInfo, GameCacheInfo } from '@/types';
+import { storage } from '@utils/storage';
+import type { Download, EventSummary, GameSpeedInfo } from '@/types';
 
 interface DownloadGroup {
   id: string;
@@ -37,7 +38,6 @@ interface RecentDownloadsPanelProps {
   downloads?: Download[];
   timeRange?: string;
   glassmorphism?: boolean;
-  detectionLookup?: Map<number, GameCacheInfo> | null;
 }
 
 // Active download item component using real-time speed data
@@ -94,15 +94,9 @@ interface RecentDownloadItemProps {
   item: DownloadGroup | Download;
   events?: EventSummary[];
   index: number;
-  detectionLookup?: Map<number, GameCacheInfo> | null;
 }
 
-const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({
-  item,
-  events = [],
-  index,
-  detectionLookup
-}) => {
+const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({ item, events = [], index }) => {
   const { t } = useTranslation();
   const isGroup = 'downloads' in item;
   const display = isGroup
@@ -149,13 +143,21 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({
 
   const formattedTime = useFormattedDateTime(display.startTime);
 
-  const diskSizeBytes =
-    display.gameAppId && detectionLookup?.get(display.gameAppId)?.total_size_bytes;
+  const handleClick = useCallback(() => {
+    storage.setItem('lancache_downloads_search', display.name);
+    window.dispatchEvent(new CustomEvent('navigate-to-tab', { detail: { tab: 'downloads' } }));
+  }, [display.name]);
 
   return (
     <div
-      className={`download-item recent-item${display.isEvicted ? ' evicted-row' : ''}`}
+      className={`download-item recent-item clickable-row${display.isEvicted ? ' evicted-row' : ''}`}
       style={{ animationDelay: `${index * 30}ms` }}
+      onClick={handleClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e: React.KeyboardEvent) => {
+        if (e.key === 'Enter' || e.key === ' ') handleClick();
+      }}
     >
       <div className="item-left">
         <div className="item-icon">
@@ -183,14 +185,7 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({
                 display.clientInfo
               )}
             </span>
-            {diskSizeBytes && diskSizeBytes > 0 && (
-              <>
-                <span className="meta-separator">•</span>
-                <span className="meta-text">
-                  {t('dashboard.downloadsPanel.onDisk', { size: formatBytes(diskSizeBytes) })}
-                </span>
-              </>
-            )}
+
             {events.length > 0 &&
               events
                 .slice(0, 1)
@@ -684,6 +679,10 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
         .download-item:hover {
           border-color: var(--theme-border-primary);
           background: var(--theme-bg-secondary-on-tertiary);
+        }
+
+        .download-item.clickable-row {
+          cursor: pointer;
         }
 
         .download-item.active-item {

@@ -49,6 +49,7 @@ export const useDownloads = () => {
 
 export const useGameDetection = (): {
   detectionLookup: Map<number, GameCacheInfo> | null;
+  detectionByName: Map<string, GameCacheInfo> | null;
   gameDetectionData: {
     hasCachedResults: boolean;
     games?: GameCacheInfo[];
@@ -62,6 +63,7 @@ export const useGameDetection = (): {
   }
   return {
     detectionLookup: context.gameDetectionLookup,
+    detectionByName: context.gameDetectionByName,
     gameDetectionData: context.gameDetectionData,
     isLoading: context.loading
   };

@@ -37,6 +37,7 @@ import { XboxIcon } from '@components/ui/XboxIcon';
 import { UnknownServiceIcon } from '@components/ui/UnknownServiceIcon';
 import { GameImage } from '@components/common/GameImage';
 import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
+import { resolveGameDetection } from '@utils/gameDetection';
 import DownloadBadges from './DownloadBadges';
 import type {
   Download as DownloadType,
@@ -91,6 +92,7 @@ interface RetroViewProps {
   showDatasourceLabels?: boolean;
   hasMultipleDatasources?: boolean;
   detectionLookup?: Map<number, GameCacheInfo> | null;
+  detectionByName?: Map<string, GameCacheInfo> | null;
 }
 
 const STORAGE_KEY = 'retro-view-column-widths';
@@ -612,7 +614,8 @@ const RetroView = memo(
         aestheticMode = false,
         showDatasourceLabels = true,
         hasMultipleDatasources = false,
-        detectionLookup = null
+        detectionLookup = null,
+        detectionByName = null
       },
       ref
     ) => {
@@ -1433,11 +1436,21 @@ const RetroView = memo(
                                         {t('common.evicted')}
                                       </span>
                                     )}
-                                    {detectionLookup?.get(data.gameAppId!)?.total_size_bytes ? (
+                                    {resolveGameDetection(
+                                      data.gameAppId,
+                                      data.gameName,
+                                      detectionLookup,
+                                      detectionByName
+                                    )?.total_size_bytes ? (
                                       <span className="text-themed-muted text-xs ml-2">
                                         {t('dashboard.downloadsPanel.onDisk', {
                                           size: formatBytes(
-                                            detectionLookup.get(data.gameAppId!)!.total_size_bytes
+                                            resolveGameDetection(
+                                              data.gameAppId,
+                                              data.gameName,
+                                              detectionLookup,
+                                              detectionByName
+                                            )!.total_size_bytes
                                           )
                                         })}
                                       </span>
@@ -1586,11 +1599,21 @@ const RetroView = memo(
                                           {t('common.evicted')}
                                         </span>
                                       )}
-                                      {detectionLookup?.get(data.gameAppId!)?.total_size_bytes ? (
+                                      {resolveGameDetection(
+                                        data.gameAppId,
+                                        data.gameName,
+                                        detectionLookup,
+                                        detectionByName
+                                      )?.total_size_bytes ? (
                                         <span className="text-themed-muted text-xs ml-2">
                                           {t('dashboard.downloadsPanel.onDisk', {
                                             size: formatBytes(
-                                              detectionLookup.get(data.gameAppId!)!.total_size_bytes
+                                              resolveGameDetection(
+                                                data.gameAppId,
+                                                data.gameName,
+                                                detectionLookup,
+                                                detectionByName
+                                              )!.total_size_bytes
                                             )
                                           })}
                                         </span>

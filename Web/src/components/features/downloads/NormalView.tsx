@@ -28,6 +28,7 @@ import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import DownloadBadges from './DownloadBadges';
 import { useSessionFilters } from './useSessionFilters';
 import SessionFilterBar from './SessionFilterBar';
+import { resolveGameDetection } from '@utils/gameDetection';
 import type { Download, DownloadGroup, GameCacheInfo } from '../../../types';
 
 interface NormalViewSectionLabels {
@@ -61,6 +62,7 @@ interface NormalViewProps {
   showEventBadges?: boolean;
   bannerOnly?: boolean;
   detectionLookup?: Map<number, GameCacheInfo> | null;
+  detectionByName?: Map<string, GameCacheInfo> | null;
 }
 
 interface GroupCardProps {
@@ -82,6 +84,7 @@ interface GroupCardProps {
   showCacheHitBar: boolean;
   showEventBadges: boolean;
   detectionLookup?: Map<number, GameCacheInfo> | null;
+  detectionByName?: Map<string, GameCacheInfo> | null;
 }
 
 const GroupCard: React.FC<GroupCardProps> = ({
@@ -102,7 +105,8 @@ const GroupCard: React.FC<GroupCardProps> = ({
   hasMultipleDatasources,
   showCacheHitBar,
   showEventBadges,
-  detectionLookup
+  detectionLookup,
+  detectionByName
 }) => {
   const { t } = useTranslation();
   const { fetchAssociations, getAssociations, refreshVersion } = useDownloadAssociations();
@@ -137,8 +141,13 @@ const GroupCard: React.FC<GroupCardProps> = ({
   const epicAppId = primaryDownload?.epicAppId ?? null;
   const primaryName = primaryDownload?.gameName ?? '';
   const isEvicted = group.downloads.some((d: Download) => d.isEvicted);
-  const diskSizeBytes =
-    primaryDownload?.gameAppId && detectionLookup?.get(primaryDownload.gameAppId)?.total_size_bytes;
+  const detection = resolveGameDetection(
+    primaryDownload?.gameAppId,
+    primaryDownload?.gameName,
+    detectionLookup,
+    detectionByName
+  );
+  const diskSizeBytes = detection?.total_size_bytes;
   const isGenericSteamTitle =
     primaryName === 'Unknown Steam Game' || /^Steam App \d+$/.test(primaryName);
   const showSteamImage =
@@ -596,11 +605,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                           {t('downloads.tab.normal.stats.cacheFiles', 'Cache Files')}
                         </span>
                         <span className="text-sm font-bold text-[var(--theme-text-secondary)]">
-                          {(primaryDownload?.gameAppId &&
-                            detectionLookup
-                              ?.get(primaryDownload.gameAppId)
-                              ?.cache_files_found?.toLocaleString()) ??
-                            '—'}
+                          {detection?.cache_files_found?.toLocaleString() ?? '—'}
                         </span>
                       </div>
                     </div>
@@ -1183,6 +1188,7 @@ interface GridCardDrawerContentProps {
   startHoldTimer: (callback: () => void) => void;
   stopHoldTimer: () => void;
   detectionLookup?: Map<number, GameCacheInfo> | null;
+  detectionByName?: Map<string, GameCacheInfo> | null;
 }
 
 const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
@@ -1196,7 +1202,8 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
   setGroupPages,
   startHoldTimer,
   stopHoldTimer,
-  detectionLookup
+  detectionLookup,
+  detectionByName
 }) => {
   const { t } = useTranslation();
   const { fetchAssociations, getAssociations, refreshVersion } = useDownloadAssociations();
@@ -1236,8 +1243,13 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
     !!primaryName &&
     !isGenericSteamTitle;
   const showEpicImage = group.type === 'game' && isEpic && Boolean(epicAppId) && !!primaryName;
-  const diskSizeBytes =
-    primaryDownload?.gameAppId && detectionLookup?.get(primaryDownload.gameAppId)?.total_size_bytes;
+  const detection = resolveGameDetection(
+    primaryDownload?.gameAppId,
+    primaryDownload?.gameName,
+    detectionLookup,
+    detectionByName
+  );
+  const diskSizeBytes = detection?.total_size_bytes;
   const artworkId = showSteamImage ? steamAppId : showEpicImage ? `epic-${epicAppId}` : null;
   const hasArtwork = artworkId !== null && !imageErrors.has(artworkId);
   const storeLink = primaryDownload?.gameAppId
@@ -1435,11 +1447,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
                     {t('downloads.tab.normal.stats.cacheFiles', 'Cache Files')}
                   </span>
                   <span className="text-sm font-bold text-[var(--theme-text-secondary)]">
-                    {(primaryDownload?.gameAppId &&
-                      detectionLookup
-                        ?.get(primaryDownload.gameAppId)
-                        ?.cache_files_found?.toLocaleString()) ??
-                      '—'}
+                    {detection?.cache_files_found?.toLocaleString() ?? '—'}
                   </span>
                 </div>
               </div>
@@ -1734,7 +1742,8 @@ const NormalView: React.FC<NormalViewProps> = ({
   showCacheHitBar = true,
   showEventBadges = true,
   bannerOnly = false,
-  detectionLookup = null
+  detectionLookup = null,
+  detectionByName = null
 }) => {
   const { t } = useTranslation();
   const labels = { ...getDefaultSectionLabels(t), ...sectionLabels };
@@ -1769,6 +1778,7 @@ const NormalView: React.FC<NormalViewProps> = ({
       showCacheHitBar={showCacheHitBar}
       showEventBadges={showEventBadges}
       detectionLookup={detectionLookup}
+      detectionByName={detectionByName}
     />
   );
 
@@ -1891,6 +1901,7 @@ const NormalView: React.FC<NormalViewProps> = ({
               startHoldTimer={startHoldTimer}
               stopHoldTimer={stopHoldTimer}
               detectionLookup={detectionLookup}
+              detectionByName={detectionByName}
             />
           )}
         </Drawer>

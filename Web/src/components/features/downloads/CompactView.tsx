@@ -12,6 +12,7 @@ import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import DownloadBadges from './DownloadBadges';
 import { useSessionFilters } from './useSessionFilters';
 import SessionFilterBar from './SessionFilterBar';
+import { resolveGameDetection } from '@utils/gameDetection';
 import type { Download, DownloadGroup, GameCacheInfo } from '../../../types';
 
 interface CompactViewSectionLabels {
@@ -43,6 +44,7 @@ interface CompactViewProps {
   showDatasourceLabels?: boolean;
   hasMultipleDatasources?: boolean;
   detectionLookup?: Map<number, GameCacheInfo> | null;
+  detectionByName?: Map<string, GameCacheInfo> | null;
 }
 
 interface GroupRowProps {
@@ -61,6 +63,7 @@ interface GroupRowProps {
   showDatasourceLabels: boolean;
   hasMultipleDatasources: boolean;
   detectionLookup?: Map<number, GameCacheInfo> | null;
+  detectionByName?: Map<string, GameCacheInfo> | null;
 }
 
 const GroupRow: React.FC<GroupRowProps> = ({
@@ -77,7 +80,8 @@ const GroupRow: React.FC<GroupRowProps> = ({
   enableScrollIntoView,
   showDatasourceLabels,
   hasMultipleDatasources,
-  detectionLookup
+  detectionLookup,
+  detectionByName
 }) => {
   const { t } = useTranslation();
   const { fetchAssociations, getAssociations, refreshVersion } = useDownloadAssociations();
@@ -156,8 +160,13 @@ const GroupRow: React.FC<GroupRowProps> = ({
       ? `https://store.steampowered.com/app/${primaryDownload.gameAppId}`
       : null;
   const isEvicted = group.downloads.some((d: Download) => d.isEvicted);
-  const diskSizeBytes =
-    primaryDownload?.gameAppId && detectionLookup?.get(primaryDownload.gameAppId)?.total_size_bytes;
+  const detection = resolveGameDetection(
+    primaryDownload?.gameAppId,
+    primaryDownload?.gameName,
+    detectionLookup,
+    detectionByName
+  );
+  const diskSizeBytes = detection?.total_size_bytes;
 
   return (
     <div
@@ -671,7 +680,8 @@ const CompactView = React.memo(function CompactView({
   enableScrollIntoView = true,
   showDatasourceLabels = true,
   hasMultipleDatasources = false,
-  detectionLookup = null
+  detectionLookup = null,
+  detectionByName = null
 }: CompactViewProps) {
   const { t } = useTranslation();
   const labels = { ...getDefaultSectionLabels(t), ...sectionLabels };
@@ -700,6 +710,7 @@ const CompactView = React.memo(function CompactView({
       showDatasourceLabels={showDatasourceLabels}
       hasMultipleDatasources={hasMultipleDatasources}
       detectionLookup={detectionLookup}
+      detectionByName={detectionByName}
     />
   );
 

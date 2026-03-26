@@ -44,6 +44,9 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   const [gameDetectionLookup, setGameDetectionLookup] = useState<Map<number, GameCacheInfo> | null>(
     null
   );
+  const [gameDetectionByName, setGameDetectionByName] = useState<Map<string, GameCacheInfo> | null>(
+    null
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [connectionStatus, setConnectionStatus] = useState('checking');
@@ -239,13 +242,20 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
           ) {
             const detectionResult = detection.value as CachedDetectionResponse;
             setGameDetectionData(detectionResult);
-            // Build lookup map keyed by game_app_id
+            // Build lookup maps: primary by game_app_id, fallback by game_name
             if (detectionResult.games && detectionResult.games.length > 0) {
-              const lookup = new Map<number, GameCacheInfo>();
+              const byAppId = new Map<number, GameCacheInfo>();
+              const byName = new Map<string, GameCacheInfo>();
               for (const game of detectionResult.games) {
-                lookup.set(game.game_app_id, game);
+                if (game.game_app_id) {
+                  byAppId.set(game.game_app_id, game);
+                }
+                if (game.game_name) {
+                  byName.set(game.game_name.toLowerCase(), game);
+                }
               }
-              setGameDetectionLookup(lookup);
+              setGameDetectionLookup(byAppId);
+              setGameDetectionByName(byName);
             }
           }
 
@@ -360,11 +370,17 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       const mockData = MockDataService.generateMockData('unlimited');
       const mockDetection = MockDataService.generateMockGameDetection();
 
-      // Build detection lookup map keyed by game_app_id
+      // Build detection lookup maps: primary by game_app_id, fallback by game_name
       const lookup = new Map<number, GameCacheInfo>();
+      const nameLookup = new Map<string, GameCacheInfo>();
       if (mockDetection.games) {
         for (const game of mockDetection.games) {
-          lookup.set(game.game_app_id, game);
+          if (game.game_app_id) {
+            lookup.set(game.game_app_id, game);
+          }
+          if (game.game_name) {
+            nameLookup.set(game.game_name.toLowerCase(), game);
+          }
         }
       }
 
@@ -379,6 +395,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         setLatestDownloads(mockData.latestDownloads);
         setGameDetectionData(mockDetection);
         setGameDetectionLookup(lookup);
+        setGameDetectionByName(nameLookup);
         setError(null);
         setLoading(false);
       });
@@ -506,6 +523,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       latestDownloads,
       gameDetectionData,
       gameDetectionLookup,
+      gameDetectionByName,
       loading,
       error,
       connectionStatus,
@@ -520,6 +538,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       latestDownloads,
       gameDetectionData,
       gameDetectionLookup,
+      gameDetectionByName,
       loading,
       error,
       connectionStatus,
