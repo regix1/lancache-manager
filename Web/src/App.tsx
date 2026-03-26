@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { NotificationsProvider } from '@contexts/notifications';
 import { CacheSizeProvider } from '@contexts/CacheSizeContext';
@@ -48,18 +48,16 @@ import { isAbortError } from '@utils/error';
 import themeService from '@services/theme.service';
 import preferencesService from '@services/preferences.service';
 
-const Dashboard = lazy(() => import('@components/features/dashboard/Dashboard'));
-const DownloadsTab = lazy(() => import('@components/features/downloads/DownloadsTab'));
-const ClientsTab = lazy(() => import('@components/features/clients/ClientsTab'));
-const ServicesTab = lazy(() => import('@components/features/services/ServicesTab'));
-const AuthenticateTab = lazy(() => import('@components/features/auth/AuthenticateTab'));
-const UserTab = lazy(() => import('@components/features/user/UserTab'));
-const EventsTab = lazy(() => import('@components/features/events'));
-const ManagementTab = lazy(() => import('@components/features/management/ManagementTab'));
-const MemoryDiagnostics = lazy(() => import('@components/features/memory/MemoryDiagnostics'));
-const PrefillPanel = lazy(() =>
-  import('@components/features/prefill').then((m) => ({ default: m.PrefillPanel }))
-);
+import Dashboard from '@components/features/dashboard/Dashboard';
+import DownloadsTab from '@components/features/downloads/DownloadsTab';
+import ClientsTab from '@components/features/clients/ClientsTab';
+import ServicesTab from '@components/features/services/ServicesTab';
+import AuthenticateTab from '@components/features/auth/AuthenticateTab';
+import UserTab from '@components/features/user/UserTab';
+import EventsTab from '@components/features/events';
+import ManagementTab from '@components/features/management/ManagementTab';
+import MemoryDiagnostics from '@components/features/memory/MemoryDiagnostics';
+import { PrefillPanel } from '@components/features/prefill';
 import ActiveEventBorder from '@components/common/ActiveEventBorder';
 // Wrapper components to inject mockMode from context into providers
 const DashboardDataProviderWithMockMode: React.FC<{ children: React.ReactNode }> = ({
@@ -667,11 +665,7 @@ const AppContent: React.FC = () => {
 
   // Handle special routes like /memory
   if (isMemoryRoute) {
-    return (
-      <Suspense fallback={<LoadingSpinner fullScreen={false} />}>
-        <MemoryDiagnostics />
-      </Suspense>
-    );
+    return <MemoryDiagnostics />;
   }
 
   return (
@@ -704,9 +698,7 @@ const AppContent: React.FC = () => {
         />
         {/* Only show Universal Notification Bar to authenticated users */}
         {authMode === 'authenticated' && <UniversalNotificationBar />}
-        <main className="container mx-auto px-4 py-6 flex-grow">
-          <Suspense fallback={<LoadingSpinner fullScreen={false} />}>{renderContent()}</Suspense>
-        </main>
+        <main className="container mx-auto px-4 py-6 flex-grow">{renderContent()}</main>
         <Footer />
       </div>
     </>
