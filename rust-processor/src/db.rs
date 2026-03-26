@@ -10,7 +10,23 @@ pub async fn create_pool() -> PgPool {
         .max_connections(10)
         .connect(&database_url)
         .await
-        .expect("Failed to connect to PostgreSQL")
+        .unwrap_or_else(|e| {
+            // Redact password from URL for safe logging
+            let safe_url = if let Some(at_pos) = database_url.find('@') {
+                if let Some(colon_pos) = database_url[..at_pos].rfind(':') {
+                    format!("{}:***{}", &database_url[..colon_pos], &database_url[at_pos..])
+                } else {
+                    database_url.clone()
+                }
+            } else {
+                database_url.clone()
+            };
+            panic!(
+                "Failed to connect to PostgreSQL: {e}\n  URL: {safe_url}\n  \
+                 Hint: Ensure DATABASE_URL is set, or POSTGRES_USER/POSTGRES_PASSWORD are configured, \
+                 or /var/run/postgresql socket exists"
+            )
+        })
 }
 
 fn build_database_url() -> String {
@@ -32,7 +48,7 @@ fn build_database_url() -> String {
         )
     } else {
         format!(
-            "postgres://{}:{}@/lancache?host=/var/run/postgresql",
+            "postgres:///lancache?host=/var/run/postgresql&user={}&password={}",
             user, password
         )
     }
