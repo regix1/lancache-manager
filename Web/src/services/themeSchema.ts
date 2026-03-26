@@ -1,209 +1,188 @@
-import { z } from 'zod';
-
 // ---------------------------------------------------------------------------
-// Zod schema for ALL theme color properties.
-// Defaults are the dark-default built-in theme values.
+// Theme color defaults (dark-default built-in theme values).
 // This is the single source of truth for colour keys and their defaults.
 // ---------------------------------------------------------------------------
 
-const themeColorsSchema = z.object({
+const themeColorDefaults: Record<string, string> = {
   // ── Core colors ──────────────────────────────────────────────────────
-  primaryColor: z.string().default('#3b82f6'),
-  secondaryColor: z.string().default('#8b5cf6'),
-  accentColor: z.string().default('#06b6d4'),
+  primaryColor: '#3b82f6',
+  secondaryColor: '#8b5cf6',
+  accentColor: '#06b6d4',
 
   // ── Backgrounds ──────────────────────────────────────────────────────
-  bgPrimary: z.string().default('#111827'),
-  bgSecondary: z.string().default('#283649'),
-  bgTertiary: z.string().default('#313e52'),
-  bgHover: z.string().default('#4b5563'),
-  bgElevated: z.string().default('#1c2a3a'),
-  bgSurface: z.string().default('#223044'),
-  bgSurfaceHover: z.string().default('#2a3a4e'),
-  bgSurfaceActive: z.string().default('#324458'),
-  bgOverlay: z.string().default('rgba(0,0,0,0.6)'),
+  bgPrimary: '#111827',
+  bgSecondary: '#283649',
+  bgTertiary: '#313e52',
+  bgHover: '#4b5563',
+  bgElevated: '#1c2a3a',
+  bgSurface: '#223044',
+  bgSurfaceHover: '#2a3a4e',
+  bgSurfaceActive: '#324458',
+  bgOverlay: 'rgba(0,0,0,0.6)',
 
   // ── Text ─────────────────────────────────────────────────────────────
-  textPrimary: z.string().default('#ffffff'),
-  textSecondary: z.string().default('#d1d5db'),
-  textMuted: z.string().default('#9ca3af'),
-  textAccent: z.string().default('#60a5fa'),
-  textPlaceholder: z.string().default('#6b7280'),
+  textPrimary: '#ffffff',
+  textSecondary: '#d1d5db',
+  textMuted: '#9ca3af',
+  textAccent: '#60a5fa',
+  textPlaceholder: '#6b7280',
 
   // ── Drag handle ──────────────────────────────────────────────────────
-  dragHandleColor: z.string().default('#6b7280'),
-  dragHandleHover: z.string().default('#60a5fa'),
+  dragHandleColor: '#6b7280',
+  dragHandleHover: '#60a5fa',
 
   // ── Borders ──────────────────────────────────────────────────────────
-  borderPrimary: z.string().default('#374151'),
-  borderSecondary: z.string().default('#4b5563'),
-  borderFocus: z.string().optional(),
-  borderElevated: z.string().default('#3a4d63'),
-  borderHover: z.string().default('#4a5f78'),
+  borderPrimary: '#374151',
+  borderSecondary: '#4b5563',
+  borderElevated: '#3a4d63',
+  borderHover: '#4a5f78',
 
   // ── Navigation ───────────────────────────────────────────────────────
-  navBg: z.string().default('#1f2937'),
-  navBorder: z.string().default('#374151'),
-  navTabActive: z.string().default('#3b82f6'),
-  navTabInactive: z.string().default('#9ca3af'),
-  navTabHover: z.string().default('#ffffff'),
-  navTabActiveBorder: z.string().default('#3b82f6'),
-  navMobileMenuBg: z.string().default('#1f2937'),
-  navMobileItemHover: z.string().default('#374151'),
+  navBg: '#1f2937',
+  navBorder: '#374151',
+  navTabActive: '#3b82f6',
+  navTabInactive: '#9ca3af',
+  navTabHover: '#ffffff',
+  navTabActiveBorder: '#3b82f6',
+  navMobileMenuBg: '#1f2937',
+  navMobileItemHover: '#374151',
 
   // ── Status colors ────────────────────────────────────────────────────
-  success: z.string().default('#10b981'),
-  successBg: z.string().default('#064e3b'),
-  successText: z.string().default('#34d399'),
-  warning: z.string().default('#fb923c'),
-  warningBg: z.string().default('#44403c'),
-  warningText: z.string().default('#fcd34d'),
-  error: z.string().default('#ef4444'),
-  errorBg: z.string().default('#7f1d1d'),
-  errorText: z.string().default('#fca5a5'),
-  info: z.string().default('#3b82f6'),
-  infoBg: z.string().default('#1e3a8a'),
-  infoText: z.string().default('#93c5fd'),
+  success: '#10b981',
+  successBg: '#064e3b',
+  successText: '#34d399',
+  warning: '#fb923c',
+  warningBg: '#44403c',
+  warningText: '#fcd34d',
+  error: '#ef4444',
+  errorBg: '#7f1d1d',
+  errorText: '#fca5a5',
+  info: '#3b82f6',
+  infoBg: '#1e3a8a',
+  infoText: '#93c5fd',
 
   // ── Service / platform colors ────────────────────────────────────────
-  steamColor: z.string().default('#10b981'),
-  epicColor: z.string().default('#8b5cf6'),
-  originColor: z.string().default('#fb923c'),
-  blizzardColor: z.string().default('#3b82f6'),
-  wsusColor: z.string().default('#06b6d4'),
-  riotColor: z.string().default('#ef4444'),
-  xboxColor: z.string().default('#107C10'),
-  ubisoftColor: z.string().optional(),
-
-  // ── Steam variants ───────────────────────────────────────────────────
-  steamFaint: z.string().optional(),
-  steamOnBorder: z.string().optional(),
-  steamStrong: z.string().optional(),
-
-  // ── Epic variants ────────────────────────────────────────────────────
-  epicFaint: z.string().optional(),
-  epicOnBorder: z.string().optional(),
-  epicStrong: z.string().optional(),
+  steamColor: '#10b981',
+  epicColor: '#8b5cf6',
+  originColor: '#fb923c',
+  blizzardColor: '#3b82f6',
+  wsusColor: '#06b6d4',
+  riotColor: '#ef4444',
+  xboxColor: '#107C10',
 
   // ── Components ───────────────────────────────────────────────────────
-  cardBg: z.string().default('#1e2938'),
-  cardBorder: z.string().default('#374151'),
-  cardOutline: z.string().optional(),
-  buttonBg: z.string().default('#3b82f6'),
-  buttonHover: z.string().default('#2563eb'),
-  buttonText: z.string().default('#ffffff'),
-  inputBg: z.string().default('#374151'),
-  inputBorder: z.string().default('#4b5563'),
-  inputFocus: z.string().optional(),
+  cardBg: '#1e2938',
+  cardBorder: '#374151',
+  buttonBg: '#3b82f6',
+  buttonHover: '#2563eb',
+  buttonText: '#ffffff',
+  inputBg: '#374151',
+  inputBorder: '#4b5563',
 
   // ── Checkboxes ───────────────────────────────────────────────────────
-  checkboxAccent: z.string().default('#3b82f6'),
-  checkboxBorder: z.string().default('#4b5563'),
-  checkboxBg: z.string().default('#1f2937'),
-  checkboxCheckmark: z.string().default('#ffffff'),
-  checkboxShadow: z.string().default('none'),
-  checkboxHoverShadow: z.string().default('0 0 0 3px rgba(59, 130, 246, 0.1)'),
-  checkboxHoverBg: z.string().default('#374151'),
-  checkboxFocus: z.string().optional(),
+  checkboxAccent: '#3b82f6',
+  checkboxBorder: '#4b5563',
+  checkboxBg: '#1f2937',
+  checkboxCheckmark: '#ffffff',
+  checkboxShadow: 'none',
+  checkboxHoverShadow: '0 0 0 3px rgba(59, 130, 246, 0.1)',
+  checkboxHoverBg: '#374151',
 
   // ── Sliders ──────────────────────────────────────────────────────────
-  sliderAccent: z.string().default('#3b82f6'),
-  sliderThumb: z.string().default('#3b82f6'),
-  sliderTrack: z.string().default('#374151'),
+  sliderAccent: '#3b82f6',
+  sliderThumb: '#3b82f6',
+  sliderTrack: '#374151',
 
   // ── Progress ─────────────────────────────────────────────────────────
-  progressBg: z.string().default('#374151'),
-
-  // ── Floating icon ────────────────────────────────────────────────────
-  floatingIconColor: z.string().optional(),
+  progressBg: '#374151',
 
   // ── Hit rate ─────────────────────────────────────────────────────────
-  hitRateHighBg: z.string().default('#064e3b'),
-  hitRateHighText: z.string().default('#34d399'),
-  hitRateMediumBg: z.string().default('#1e3a8a'),
-  hitRateMediumText: z.string().default('#93c5fd'),
-  hitRateLowBg: z.string().default('#44403c'),
-  hitRateLowText: z.string().default('#fbbf24'),
-  hitRateWarningBg: z.string().default('#44403c'),
-  hitRateWarningText: z.string().default('#fcd34d'),
+  hitRateHighBg: '#064e3b',
+  hitRateHighText: '#34d399',
+  hitRateMediumBg: '#1e3a8a',
+  hitRateMediumText: '#93c5fd',
+  hitRateLowBg: '#44403c',
+  hitRateLowText: '#fbbf24',
+  hitRateWarningBg: '#44403c',
+  hitRateWarningText: '#fcd34d',
 
   // ── Action buttons ───────────────────────────────────────────────────
-  actionResetBg: z.string().default('#f59e0b'),
-  actionResetHover: z.string().default('#d97706'),
-  actionProcessBg: z.string().default('#10b981'),
-  actionProcessHover: z.string().default('#059669'),
-  actionDeleteBg: z.string().default('#ef4444'),
-  actionDeleteHover: z.string().default('#dc2626'),
+  actionResetBg: '#f59e0b',
+  actionResetHover: '#d97706',
+  actionProcessBg: '#10b981',
+  actionProcessHover: '#059669',
+  actionDeleteBg: '#ef4444',
+  actionDeleteHover: '#dc2626',
 
   // ── Icon backgrounds ─────────────────────────────────────────────────
-  iconBgBlue: z.string().default('#3b82f6'),
-  iconBgGreen: z.string().default('#10b981'),
-  iconBgEmerald: z.string().default('#10b981'),
-  iconBgPurple: z.string().default('#8b5cf6'),
-  iconBgIndigo: z.string().default('#6366f1'),
-  iconBgOrange: z.string().default('#f97316'),
-  iconBgYellow: z.string().default('#eab308'),
-  iconBgCyan: z.string().default('#06b6d4'),
-  iconBgRed: z.string().default('#ef4444'),
+  iconBgBlue: '#3b82f6',
+  iconBgGreen: '#10b981',
+  iconBgEmerald: '#10b981',
+  iconBgPurple: '#8b5cf6',
+  iconBgIndigo: '#6366f1',
+  iconBgOrange: '#f97316',
+  iconBgYellow: '#eab308',
+  iconBgCyan: '#06b6d4',
+  iconBgRed: '#ef4444',
 
   // ── Chart colors ─────────────────────────────────────────────────────
-  chartColor1: z.string().default('#3b82f6'),
-  chartColor2: z.string().default('#10b981'),
-  chartColor3: z.string().default('#f59e0b'),
-  chartColor4: z.string().default('#ef4444'),
-  chartColor5: z.string().default('#8b5cf6'),
-  chartColor6: z.string().default('#06b6d4'),
-  chartColor7: z.string().default('#f97316'),
-  chartColor8: z.string().default('#ec4899'),
-  chartBorderColor: z.string().default('#1f2937'),
-  chartGridColor: z.string().default('#374151'),
-  chartTextColor: z.string().default('#9ca3af'),
-  chartCacheHitColor: z.string().default('#10b981'),
-  chartCacheMissColor: z.string().default('#f59e0b'),
+  chartColor1: '#3b82f6',
+  chartColor2: '#10b981',
+  chartColor3: '#f59e0b',
+  chartColor4: '#ef4444',
+  chartColor5: '#8b5cf6',
+  chartColor6: '#06b6d4',
+  chartColor7: '#f97316',
+  chartColor8: '#ec4899',
+  chartBorderColor: '#1f2937',
+  chartGridColor: '#374151',
+  chartTextColor: '#9ca3af',
+  chartCacheHitColor: '#10b981',
+  chartCacheMissColor: '#f59e0b',
 
   // ── Scrollbar ────────────────────────────────────────────────────────
-  scrollbarTrack: z.string().default('#374151'),
-  scrollbarThumb: z.string().default('#6B7280'),
-  scrollbarHover: z.string().default('#9CA3AF'),
+  scrollbarTrack: '#374151',
+  scrollbarThumb: '#6B7280',
+  scrollbarHover: '#9CA3AF',
 
   // ── Access control indicators ────────────────────────────────────────
-  publicAccessBg: z.string().default('rgba(16, 185, 129, 0.2)'),
-  publicAccessText: z.string().default('#34d399'),
-  publicAccessBorder: z.string().default('rgba(16, 185, 129, 0.3)'),
-  securedAccessBg: z.string().default('rgba(245, 158, 11, 0.2)'),
-  securedAccessText: z.string().default('#fbbf24'),
-  securedAccessBorder: z.string().default('rgba(245, 158, 11, 0.3)'),
+  publicAccessBg: 'rgba(16, 185, 129, 0.2)',
+  publicAccessText: '#34d399',
+  publicAccessBorder: 'rgba(16, 185, 129, 0.3)',
+  securedAccessBg: 'rgba(245, 158, 11, 0.2)',
+  securedAccessText: '#fbbf24',
+  securedAccessBorder: 'rgba(245, 158, 11, 0.3)',
 
   // ── Sessions ─────────────────────────────────────────────────────────
-  userSessionColor: z.string().default('#3b82f6'),
-  userSessionBg: z.string().default('rgba(59, 130, 246, 0.15)'),
-  guestSessionColor: z.string().default('#06b6d4'),
-  guestSessionBg: z.string().default('rgba(6, 182, 212, 0.15)'),
-  activeSessionColor: z.string().default('#f97316'),
-  activeSessionBg: z.string().default('rgba(249, 115, 22, 0.15)'),
+  userSessionColor: '#3b82f6',
+  userSessionBg: 'rgba(59, 130, 246, 0.15)',
+  guestSessionColor: '#06b6d4',
+  guestSessionBg: 'rgba(6, 182, 212, 0.15)',
+  activeSessionColor: '#f97316',
+  activeSessionBg: 'rgba(249, 115, 22, 0.15)',
 
   // ── Events ───────────────────────────────────────────────────────────
-  eventColor1: z.string().default('#3b82f6'),
-  eventColor2: z.string().default('#10b981'),
-  eventColor3: z.string().default('#f59e0b'),
-  eventColor4: z.string().default('#ef4444'),
-  eventColor5: z.string().default('#8b5cf6'),
-  eventColor6: z.string().default('#ec4899'),
-  eventColor7: z.string().default('#06b6d4'),
-  eventColor8: z.string().default('#f97316'),
+  eventColor1: '#3b82f6',
+  eventColor2: '#10b981',
+  eventColor3: '#f59e0b',
+  eventColor4: '#ef4444',
+  eventColor5: '#8b5cf6',
+  eventColor6: '#ec4899',
+  eventColor7: '#06b6d4',
+  eventColor8: '#f97316',
 
   // ── Fireworks / celebration ──────────────────────────────────────────
-  fireworkColor1: z.string().default('#3b82f6'),
-  fireworkColor2: z.string().default('#60a5fa'),
-  fireworkColor3: z.string().default('#06b6d4'),
-  fireworkColor4: z.string().default('#8b5cf6'),
-  fireworkColor5: z.string().default('#22d3ee'),
-  fireworkColor6: z.string().default('#a78bfa'),
-  fireworkColor7: z.string().default('#38bdf8'),
-  fireworkColor8: z.string().default('#ffffff'),
-  fireworkRocketColor: z.string().default('#3b82f6'),
-  fireworkGlowColor: z.string().default('#60a5fa')
-});
+  fireworkColor1: '#3b82f6',
+  fireworkColor2: '#60a5fa',
+  fireworkColor3: '#06b6d4',
+  fireworkColor4: '#8b5cf6',
+  fireworkColor5: '#22d3ee',
+  fireworkColor6: '#a78bfa',
+  fireworkColor7: '#38bdf8',
+  fireworkColor8: '#ffffff',
+  fireworkRocketColor: '#3b82f6',
+  fireworkGlowColor: '#60a5fa'
+};
 
 // ---------------------------------------------------------------------------
 // Utility: convert hex colour to rgba string
@@ -247,16 +226,14 @@ function normalizeThemeColors(colors: Record<string, string>): Record<string, st
 }
 
 // ---------------------------------------------------------------------------
-// Parse a partial colour map, fill defaults via Zod, then normalise.
+// Parse a partial colour map, fill defaults, then normalise.
 // ---------------------------------------------------------------------------
 export function parseThemeColors(partial: Record<string, unknown>): Record<string, string> {
-  const parsed = themeColorsSchema.parse(partial);
-  // Filter out undefined values (optional derived keys) before normalizing
-  const filtered: Record<string, string> = {};
-  for (const [key, value] of Object.entries(parsed)) {
-    if (value !== undefined) {
-      filtered[key] = value;
+  const result: Record<string, string> = { ...themeColorDefaults };
+  for (const [key, value] of Object.entries(partial)) {
+    if (typeof value === 'string' && value !== '') {
+      result[key] = value;
     }
   }
-  return normalizeThemeColors(filtered);
+  return normalizeThemeColors(result);
 }

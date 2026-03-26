@@ -26,8 +26,7 @@
     "react-colorful": "^5.6.1",
     "react-dom": "^19.2.0",
     "react-i18next": "^15.7.4",
-    "toml": "^3.0.0",
-    "zod": "^4.3.6"
+    "toml": "^3.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",

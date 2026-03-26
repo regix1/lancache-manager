@@ -71,15 +71,17 @@ export default defineConfig({
         manualChunks: (id) => {
           if (id.includes('node_modules')) {
             if (id.includes('chart.js') || id.includes('react-chartjs-2')) return 'charts';
-            // Keep use-callback-ref and use-sidecar with React since they import React directly
-            if (id.includes('use-callback-ref') || id.includes('use-sidecar')) return 'react-vendor';
-            if (id.includes('react-colorful')) return 'vendor';
-            if (id.includes('react')) return 'react-vendor';
-            if (id.includes('@tanstack')) return 'tanstack';
-            if (id.includes('lucide-react')) return 'icons';
+            // Keep React and tightly coupled runtime packages together to avoid
+            // cross-chunk circular initialization in production bundles.
+            if (
+              id.includes('react') ||
+              id.includes('scheduler') ||
+              id.includes('number-flow')
+            ) {
+              return 'react-vendor';
+            }
             if (id.includes('@microsoft/signalr')) return 'signalr';
             if (id.includes('zod')) return 'vendor';
-            if (id.includes('@number-flow')) return 'vendor';
             return 'vendor';
           }
         }
