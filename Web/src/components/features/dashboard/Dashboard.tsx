@@ -649,11 +649,7 @@ const Dashboard: React.FC = () => {
                   className="hover-btn-trigger flex items-center gap-2 px-3 py-2 text-sm themed-border-radius border text-themed-secondary bg-themed-secondary border-themed-primary"
                 >
                   <EyeOff className="w-4 h-4" />
-                  <span className="hidden sm:inline">
-                    {t('dashboard.hiddenCount', { count: hiddenCardsCount })}{' '}
-                    {t('dashboard.hidden')}
-                  </span>
-                  <span className="sm:hidden">{hiddenCardsCount}</span>
+                  <span>{t('dashboard.hidden')}</span>
                   <ChevronDown
                     className={`w-3 h-3 transition-transform duration-200 ${dropdownOpen ? 'rotate-180' : ''}`}
                   />
