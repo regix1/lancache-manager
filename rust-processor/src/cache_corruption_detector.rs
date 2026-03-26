@@ -485,8 +485,10 @@ impl CorruptionDetector {
         }
 
         let parser = LogParser::new(timezone);
-        // Track (service, url, client_ip) -> list of timestamps
-        let mut hit_timestamps: HashMap<(String, String, String), Vec<NaiveDateTime>> = HashMap::new();
+        // Track (service, url, client_ip, http_range) -> list of timestamps
+        // Including http_range prevents false positives from WSUS/BITS Range requests,
+        // where the same URL is requested with different byte ranges during normal downloads.
+        let mut hit_timestamps: HashMap<(String, String, String, String), Vec<NaiveDateTime>> = HashMap::new();
         let mut entries_processed = 0usize;
 
         for (file_index, log_file) in log_files.iter().enumerate() {
@@ -534,9 +536,9 @@ impl CorruptionDetector {
                         continue;
                     }
 
-                    // Collect HIT timestamps per (service, url, client_ip)
+                    // Collect HIT timestamps per (service, url, client_ip, http_range)
                     if entry.cache_status == "HIT" {
-                        let key = (entry.service.clone(), entry.url.clone(), entry.client_ip.clone());
+                        let key = (entry.service.clone(), entry.url.clone(), entry.client_ip.clone(), entry.http_range.clone());
                         hit_timestamps.entry(key).or_default().push(entry.timestamp);
                         entries_processed += 1;
 

@@ -1,5 +1,4 @@
 use anyhow::{Context, Result};
-use chrono::Utc;
 use serde::Serialize;
 use std::env;
 use std::fs;
@@ -7,6 +6,7 @@ use std::path::Path;
 use std::time::Instant;
 
 mod db;
+mod progress_utils;
 
 #[derive(Serialize)]
 struct ProgressData {
@@ -43,15 +43,13 @@ impl ProgressData {
             tables_cleared,
             total_tables,
             files_deleted,
-            timestamp: Utc::now().to_rfc3339(),
+            timestamp: progress_utils::current_timestamp(),
         }
     }
 }
 
 fn write_progress(progress_path: &Path, progress: &ProgressData) -> Result<()> {
-    let json = serde_json::to_string_pretty(progress)?;
-    fs::write(progress_path, json)?;
-    Ok(())
+    progress_utils::write_progress_json(progress_path, progress)
 }
 
 async fn reset_database(

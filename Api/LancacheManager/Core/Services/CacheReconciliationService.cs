@@ -233,8 +233,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// <summary>
     /// Computes the expected nginx cache file path for a given service + URL combination.
     /// Lancache nginx uses proxy_cache_key "$cacheidentifier$uri" and stores files at:
-    ///   cachePath/X/Y/MD5HASH
-    /// where X = last hex char of hash, Y = second-to-last hex char of hash (nginx cache levels 1:1).
+    ///   cachePath/XX/YY/MD5HASH
+    /// where XX = last 2 hex chars, YY = next 2 hex chars (nginx cache levels 2:2).
     /// </summary>
     private static string ComputeCacheFilePath(string cachePath, string service, string url)
     {
@@ -246,12 +246,12 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         #pragma warning restore CA5351
         var hash = Convert.ToHexStringLower(hashBytes);
 
-        // nginx cache levels "1:2" means:
-        // - last 1 hex char as first directory level
+        // nginx cache levels "2:2" means:
+        // - last 2 hex chars as first directory level
         // - next 2 hex chars as second directory level
-        // File path: cachePath/X/YY/FULL_HASH
-        var level1 = hash[^1..];          // last 1 char
-        var level2 = hash[^3..^1];        // next 2 chars
+        // File path: cachePath/XX/YY/FULL_HASH
+        var level1 = hash[^2..];          // last 2 chars
+        var level2 = hash[^4..^2];        // next 2 chars
 
         return Path.Combine(cachePath, level1, level2, hash);
     }

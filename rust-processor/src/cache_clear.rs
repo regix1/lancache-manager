@@ -1,5 +1,4 @@
 use anyhow::Result;
-use chrono::Utc;
 use clap::Parser;
 use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
@@ -14,8 +13,7 @@ use std::sync::{Arc, Mutex};
 use std::sync::OnceLock;
 use std::time::Instant;
 
-#[cfg(windows)]
-use std::os::windows::fs::OpenOptionsExt;
+mod progress_utils;
 
 #[cfg(unix)]
 use std::os::unix::ffi::OsStrExt;
@@ -96,38 +94,13 @@ impl ProgressData {
             files_deleted,
             active_directories,
             active_count,
-            timestamp: Utc::now().to_rfc3339(),
+            timestamp: progress_utils::current_timestamp(),
         }
     }
 }
 
 fn write_progress(progress_path: &Path, progress: &ProgressData) -> Result<()> {
-    let json = serde_json::to_string_pretty(progress)?;
-
-    #[cfg(windows)]
-    {
-        use std::fs::OpenOptions;
-        use std::io::Write;
-
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .share_mode(0x07) // FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE
-            .open(progress_path)?;
-
-        file.write_all(json.as_bytes())?;
-        file.flush()?;
-    }
-
-    #[cfg(not(windows))]
-    {
-        let temp_path = progress_path.with_extension("json.tmp");
-        fs::write(&temp_path, &json)?;
-        fs::rename(&temp_path, progress_path)?;
-    }
-
-    Ok(())
+    progress_utils::write_progress_json(progress_path, progress)
 }
 
 fn is_hex(value: &str) -> bool {

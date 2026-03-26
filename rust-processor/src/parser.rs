@@ -78,6 +78,9 @@ impl LogParser {
         // Extract cache status from rest
         let cache_status = self.extract_cache_status(rest);
 
+        // Extract HTTP Range header from rest (5th quoted field, quotes 9-10)
+        let http_range = self.extract_quoted_field(rest, 5);
+
         // Extract depot ID for Steam service
         let depot_id = if service.to_lowercase() == "steam" {
             self.extract_depot_id(&url)
@@ -94,6 +97,7 @@ impl LogParser {
             bytes_served,
             cache_status,
             depot_id,
+            http_range,
         })
     }
 
@@ -150,6 +154,35 @@ impl LogParser {
         }
         // Fallback: assume UTC if conversion fails
         naive_dt
+    }
+
+    /// Extract the Nth quoted field from the rest string (1-indexed).
+    /// Returns empty string if the field doesn't exist or is "-".
+    fn extract_quoted_field(&self, rest: &str, field_number: usize) -> String {
+        let target_open = (field_number - 1) * 2 + 1; // Quote that opens the field
+        let target_close = target_open + 1;            // Quote that closes the field
+        let mut quote_count = 0usize;
+        let mut start_idx = None;
+
+        for (i, ch) in rest.char_indices() {
+            if ch == '"' {
+                quote_count += 1;
+                if quote_count == target_open {
+                    start_idx = Some(i + 1);
+                } else if quote_count == target_close {
+                    if let Some(start) = start_idx {
+                        let value = &rest[start..i];
+                        if value == "-" {
+                            return String::new();
+                        }
+                        return value.to_string();
+                    }
+                    break;
+                }
+            }
+        }
+
+        String::new()
     }
 
     fn extract_cache_status(&self, rest: &str) -> String {

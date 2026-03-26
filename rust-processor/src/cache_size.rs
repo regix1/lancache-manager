@@ -1,5 +1,4 @@
 use anyhow::Result;
-use chrono::Utc;
 use jwalk::WalkDir;
 use rayon::prelude::*;
 use serde::Serialize;
@@ -10,10 +9,8 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
-#[cfg(windows)]
-use std::os::windows::fs::OpenOptionsExt;
-
 mod cache_utils;
+mod progress_utils;
 use cache_utils::detect_filesystem_type;
 
 #[derive(Serialize)]
@@ -164,61 +161,11 @@ fn print_deletion_time_recommendations(estimates: &EstimatedDeletionTimes, is_ne
 }
 
 fn write_progress(progress_path: &Path, progress: &ProgressData) -> Result<()> {
-    let json = serde_json::to_string_pretty(progress)?;
-
-    #[cfg(windows)]
-    {
-        use std::fs::OpenOptions;
-        use std::io::Write;
-
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .share_mode(0x07)
-            .open(progress_path)?;
-
-        file.write_all(json.as_bytes())?;
-        file.flush()?;
-    }
-
-    #[cfg(not(windows))]
-    {
-        let temp_path = progress_path.with_extension("json.tmp");
-        fs::write(&temp_path, &json)?;
-        fs::rename(&temp_path, progress_path)?;
-    }
-
-    Ok(())
+    progress_utils::write_progress_json(progress_path, progress)
 }
 
 fn write_result(result_path: &Path, result: &CacheSizeResult) -> Result<()> {
-    let json = serde_json::to_string_pretty(result)?;
-
-    #[cfg(windows)]
-    {
-        use std::fs::OpenOptions;
-        use std::io::Write;
-
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .share_mode(0x07)
-            .open(result_path)?;
-
-        file.write_all(json.as_bytes())?;
-        file.flush()?;
-    }
-
-    #[cfg(not(windows))]
-    {
-        let temp_path = result_path.with_extension("json.tmp");
-        fs::write(&temp_path, &json)?;
-        fs::rename(&temp_path, result_path)?;
-    }
-
-    Ok(())
+    progress_utils::write_progress_json(result_path, result)
 }
 
 fn is_hex(value: &str) -> bool {
@@ -947,7 +894,7 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path) -> Result<CacheS
             scan_duration_ms: start_time.elapsed().as_millis() as u64,
             estimated_deletion_times: estimates,
             formatted_size: "0 bytes".to_string(),
-            timestamp: Utc::now().to_rfc3339(),
+            timestamp: progress_utils::current_timestamp(),
         };
         write_result(progress_path, &result)?;
         return Ok(result);
@@ -981,7 +928,7 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path) -> Result<CacheS
         total_directories: total_hex_dirs,
         total_bytes: 0,
         total_files: 0,
-        timestamp: Utc::now().to_rfc3339(),
+        timestamp: progress_utils::current_timestamp(),
     };
     write_progress(progress_path, &progress)?;
 
@@ -1014,7 +961,7 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path) -> Result<CacheS
                 total_directories: total_hex_dirs,
                 total_bytes: bytes,
                 total_files: files,
-                timestamp: Utc::now().to_rfc3339(),
+                timestamp: progress_utils::current_timestamp(),
             };
             
             if let Err(e) = write_progress(&progress_path_clone, &progress) {
@@ -1134,7 +1081,7 @@ fn calculate_cache_size(cache_path: &str, progress_path: &Path) -> Result<CacheS
         scan_duration_ms: scan_duration.as_millis() as u64,
         estimated_deletion_times: estimates,
         formatted_size: format_bytes(final_bytes),
-        timestamp: Utc::now().to_rfc3339(),
+        timestamp: progress_utils::current_timestamp(),
     };
 
     write_result(progress_path, &result)?;
@@ -1165,7 +1112,7 @@ fn calculate_cache_size_network(
         total_directories: hex_dir_count,
         total_bytes: 0,
         total_files: 0,
-        timestamp: Utc::now().to_rfc3339(),
+        timestamp: progress_utils::current_timestamp(),
     };
     write_progress(progress_path, &progress)?;
 
@@ -1226,7 +1173,7 @@ fn calculate_cache_size_network(
         total_directories: hex_dir_count,
         total_bytes,
         total_files: 0,
-        timestamp: Utc::now().to_rfc3339(),
+        timestamp: progress_utils::current_timestamp(),
     };
     write_progress(progress_path, &progress)?;
 
@@ -1305,7 +1252,7 @@ fn calculate_cache_size_network(
         scan_duration_ms: scan_duration.as_millis() as u64,
         estimated_deletion_times: estimates,
         formatted_size: format_bytes(total_bytes),
-        timestamp: Utc::now().to_rfc3339(),
+        timestamp: progress_utils::current_timestamp(),
     };
 
     write_result(progress_path, &result)?;
@@ -1341,7 +1288,7 @@ fn main() {
             let error_data = serde_json::json!({
                 "error": e.to_string(),
                 "status": "failed",
-                "timestamp": Utc::now().to_rfc3339()
+                "timestamp": progress_utils::current_timestamp()
             });
             let _ = fs::write(output_path, serde_json::to_string_pretty(&error_data).unwrap());
             
