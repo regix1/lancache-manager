@@ -54,7 +54,7 @@ public class DataMigrationImportRequest
 
 public class BatchDownloadEventsRequest
 {
-    public List<int> DownloadIds { get; set; } = new();
+    public List<long> DownloadIds { get; set; } = new();
 }
 
 #endregion

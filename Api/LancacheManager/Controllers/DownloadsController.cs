@@ -73,12 +73,11 @@ public class DownloadsController : ControllerBase
                 {
                     // Use subquery to atomically fetch downloads with event associations
                     // This eliminates the race condition by using a single query
-                    var eventIdListInt = eventIdList.Select(id => (int)id).ToList();
                     var eventQuery = ApplyEvictedFilter(
                         _context.Downloads
                             .AsNoTracking()
                             .Where(d => _context.EventDownloads
-                                .Where(ed => eventIdListInt.Contains(ed.EventId))
+                                .Where(ed => eventIdList.Contains(ed.EventId))
                                 .Select(ed => ed.DownloadId)
                                 .Contains(d.Id))
                             .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate),

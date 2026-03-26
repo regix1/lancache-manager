@@ -335,7 +335,7 @@ public class GameCacheDetectionService : IDisposable
             // Aggregate results from all datasources
             var aggregatedGames = new List<GameCacheInfo>();
             var aggregatedServices = new List<ServiceCacheInfo>();
-            var gameAppIdSet = new HashSet<uint>(); // Track unique game app IDs across datasources
+            var gameAppIdSet = new HashSet<long>(); // Track unique game app IDs across datasources
             var serviceNameSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase); // Track unique services
 
             // Scan each datasource
@@ -911,7 +911,7 @@ public class GameCacheDetectionService : IDisposable
             _logger.LogInformation("[GameDetection] Found {Count} unknown games in cache, attempting to resolve", unknownGames.Count);
 
             // First tier: Build a lookup from Downloads table (already has correct names from Rust processor)
-            var unknownDepotIds = unknownGames.Select(g => (int)g.GameAppId).ToHashSet();
+            var unknownDepotIds = unknownGames.Select(g => g.GameAppId).ToHashSet();
             var downloadsLookup = await dbContext.Downloads
                 .Where(d => d.GameName != null && d.GameAppId != null && d.GameAppId > 0 && d.DepotId != null)
                 .Select(d => new { d.GameAppId, d.GameName, d.DepotId })
@@ -919,8 +919,8 @@ public class GameCacheDetectionService : IDisposable
                 .ToListAsync();
 
             var depotToGameFromDownloads = downloadsLookup
-                .Where(d => d.DepotId.HasValue && unknownDepotIds.Contains((int)d.DepotId.Value))
-                .GroupBy(d => (int)d.DepotId!.Value)
+                .Where(d => d.DepotId.HasValue && unknownDepotIds.Contains(d.DepotId.Value))
+                .GroupBy(d => d.DepotId!.Value)
                 .ToDictionary(g => g.Key, g => g.First());
 
             if (depotToGameFromDownloads.Count > 0)
@@ -929,12 +929,12 @@ public class GameCacheDetectionService : IDisposable
             }
 
             int resolvedCount = 0;
-            var newlyFailedDepots = new List<uint>();
+            var newlyFailedDepots = new List<long>();
             var entriesToRemove = new List<CachedGameDetection>();
 
             // Track AppIds we've already resolved to in this batch to prevent UNIQUE constraint violations
             // Key: AppId, Value: the CachedGameDetection entity that will have this AppId after save
-            var pendingAppIdAssignments = new Dictionary<uint, CachedGameDetection>();
+            var pendingAppIdAssignments = new Dictionary<long, CachedGameDetection>();
 
             foreach (var unknownGame in unknownGames)
             {
@@ -942,7 +942,7 @@ public class GameCacheDetectionService : IDisposable
                 var depotId = unknownGame.GameAppId;
 
                 // First tier: Try to resolve from Downloads table (has correct names from Rust processor)
-                if (depotToGameFromDownloads.TryGetValue((int)depotId, out var downloadsMatch))
+                if (depotToGameFromDownloads.TryGetValue(depotId, out var downloadsMatch))
                 {
                     var resolvedAppId = downloadsMatch.GameAppId!.Value;
                     var resolvedName = downloadsMatch.GameName!;

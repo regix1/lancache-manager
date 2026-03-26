@@ -1042,7 +1042,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             return new CacheStatusResult { Apps = new List<AppCacheStatus>(), Message = "No app IDs provided" };
         }
 
-        var numericAppIds = appIds.Where(id => uint.TryParse(id, out _)).Select(uint.Parse);
+        var numericAppIds = appIds.Where(id => long.TryParse(id, out _)).Select(long.Parse);
         var cachedData = await _cacheService.GetCachedDepotsForAppsAsync(numericAppIds);
         if (cachedData.Count == 0)
         {

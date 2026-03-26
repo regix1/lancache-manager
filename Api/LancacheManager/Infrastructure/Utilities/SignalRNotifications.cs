@@ -22,7 +22,7 @@ public static class SignalRNotifications
     /// </summary>
     public record GameRemovalStarted(
         string OperationId,
-        uint GameAppId,
+        long GameAppId,
         string GameName,
         string Message,
         DateTime Timestamp
@@ -33,7 +33,7 @@ public static class SignalRNotifications
     /// </summary>
     public record GameRemovalProgress(
         string OperationId,
-        uint GameAppId,
+        long GameAppId,
         string GameName,
         string Status,
         string Message,
@@ -48,7 +48,7 @@ public static class SignalRNotifications
     public record GameRemovalComplete(
         bool Success,
         string OperationId,
-        uint GameAppId,
+        long GameAppId,
         string? GameName = null,
         string? Message = null,
         int FilesDeleted = 0,
@@ -228,12 +228,12 @@ public static class SignalRNotifications
     /// <summary>
     /// Notification when a member is added to a client group.
     /// </summary>
-    public record ClientGroupMemberAdded(int GroupId, string ClientIp);
+    public record ClientGroupMemberAdded(long GroupId, string ClientIp);
 
     /// <summary>
     /// Notification when a member is removed from a client group.
     /// </summary>
-    public record ClientGroupMemberRemoved(int GroupId, string ClientIp);
+    public record ClientGroupMemberRemoved(long GroupId, string ClientIp);
 
     #endregion
 
@@ -242,7 +242,7 @@ public static class SignalRNotifications
     /// <summary>
     /// Notification when a download is tagged with an event.
     /// </summary>
-    public record DownloadTagged(int EventId, int DownloadId);
+    public record DownloadTagged(long EventId, long DownloadId);
 
     #endregion
 }

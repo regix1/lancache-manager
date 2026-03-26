@@ -129,24 +129,27 @@ public partial class SteamKit2Service
 
             foreach (var mapping in existingMappings)
             {
-                var set = _depotToAppMappings.GetOrAdd(mapping.DepotId, _ => new HashSet<uint>());
-                set.Add(mapping.AppId);
+                var depotIdUint = (uint)mapping.DepotId;
+                var appIdUint = (uint)mapping.AppId;
+
+                var set = _depotToAppMappings.GetOrAdd(depotIdUint, _ => new HashSet<uint>());
+                set.Add(appIdUint);
 
                 // Track owner apps from database
                 if (mapping.IsOwner)
                 {
-                    _depotOwners.TryAdd(mapping.DepotId, mapping.AppId);
+                    _depotOwners.TryAdd(depotIdUint, appIdUint);
                 }
 
                 if (!string.IsNullOrEmpty(mapping.AppName) && mapping.AppName != $"App {mapping.AppId}")
                 {
-                    _appNames[mapping.AppId] = mapping.AppName;
+                    _appNames[appIdUint] = mapping.AppName;
                 }
 
                 // Load depot names from database
                 if (!string.IsNullOrEmpty(mapping.DepotName))
                 {
-                    _depotNames.TryAdd(mapping.DepotId, mapping.DepotName);
+                    _depotNames.TryAdd(depotIdUint, mapping.DepotName);
                 }
             }
 

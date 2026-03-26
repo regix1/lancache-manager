@@ -475,8 +475,9 @@ public partial class SteamKit2Service
 
                 // Mark orphan-resolved mappings with distinct source so GitHub import preserves them
                 using var scopedDb = _scopeFactory.CreateScopedDbContext();
+                var orphanDepotIdsLong = orphanDepotIds.Select(id => (long)id).ToList();
                 await scopedDb.DbContext.SteamDepotMappings
-                    .Where(m => orphanDepotIds.Contains(m.DepotId))
+                    .Where(m => orphanDepotIdsLong.Contains(m.DepotId))
                     .ExecuteUpdateAsync(s => s.SetProperty(m => m.Source, "orphan-resolved"), ct);
                 _logger.LogInformation("Tagged {Count} orphan depot mapping(s) with source 'orphan-resolved'", orphanDepotIds.Count);
             }
@@ -841,7 +842,7 @@ public partial class SteamKit2Service
                 status.Version, apps.Count);
 
             // Convert to app IDs only
-            var appIds = apps.Select(a => a.AppId).OrderBy(id => id).ToList();
+            var appIds = apps.Select(a => (uint)a.AppId).OrderBy(id => id).ToList();
             return appIds;
         }
         catch (Exception ex)

@@ -77,11 +77,10 @@ public class StatsController : ControllerBase
         if (eventIds.Count == 0)
             return new HashSet<long>();
 
-        var eventIdsInt = eventIds.Select(id => (int)id).ToList();
         var downloadIds = await _context.EventDownloads
             .AsNoTracking()
-            .Where(ed => eventIdsInt.Contains(ed.EventId))
-            .Select(ed => (long)ed.DownloadId)
+            .Where(ed => eventIds.Contains(ed.EventId))
+            .Select(ed => ed.DownloadId)
             .Distinct()
             .ToListAsync();
         return downloadIds.ToHashSet();
@@ -324,7 +323,7 @@ public class StatsController : ControllerBase
             .ToDictionary(g => g.Key, g => g.First());
 
         // IMPROVEMENT #8: Single-pass partitioning (grouped vs ungrouped)
-        var groupedStats = new Dictionary<int, List<(string Ip, long Hit, long Miss, int Downloads, double Duration, DateTime LastActivity)>>();
+        var groupedStats = new Dictionary<long, List<(string Ip, long Hit, long Miss, int Downloads, double Duration, DateTime LastActivity)>>();
         var ungroupedStats = new List<ClientStatsWithGroup>();
 
         foreach (var stat in ipStatsWithDuration)
@@ -493,7 +492,7 @@ public class StatsController : ControllerBase
         double totalDurationSeconds,
         DateTime lastActivityUtc,
         string? displayName = null,
-        int? groupId = null,
+        long? groupId = null,
         List<string>? groupMemberIps = null)
     {
         var totalBytes = totalCacheHitBytes + totalCacheMissBytes;

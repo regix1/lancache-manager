@@ -68,7 +68,7 @@ public class RetroDownloadDto
     public int RequestCount { get; set; }
 
     /// <summary>List of original download IDs for event association lookups</summary>
-    public List<int> DownloadIds { get; set; } = new();
+    public List<long> DownloadIds { get; set; } = new();
 }
 
 /// <summary>

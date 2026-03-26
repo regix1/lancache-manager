@@ -22,7 +22,7 @@ public partial class SteamKit2Service
                 .ExecuteUpdateAsync(s => s
                     .SetProperty(d => d.GameName, (string?)null)
                     .SetProperty(d => d.GameImageUrl, (string?)null)
-                    .SetProperty(d => d.GameAppId, (uint?)null));
+                    .SetProperty(d => d.GameAppId, (long?)null));
 
             _logger.LogInformation("Cleared game information from all downloads - ready for fresh mapping");
         }
@@ -129,13 +129,13 @@ public partial class SteamKit2Service
             using var scopedDb = _scopeFactory.CreateScopedDbContext();
 
             // Find depot IDs that have no GameAppId, are not in _depotOwners, and have no DB mapping with IsOwner=true
-            var unmappedDepotIds = await scopedDb.DbContext.Downloads
+            var unmappedDepotIdsLong = await scopedDb.DbContext.Downloads
                 .Where(d => d.DepotId.HasValue && d.GameAppId == null)
                 .Select(d => d.DepotId!.Value)
                 .Distinct()
                 .ToListAsync(ct);
 
-            if (unmappedDepotIds.Count == 0)
+            if (unmappedDepotIdsLong.Count == 0)
             {
                 _logger.LogDebug("No orphan depots to resolve");
                 return new List<uint>();
@@ -143,11 +143,12 @@ public partial class SteamKit2Service
 
             // Filter out depots that are already mapped in memory or database
             var dbMappedDepotsList = await scopedDb.DbContext.SteamDepotMappings
-                .Where(m => unmappedDepotIds.Contains(m.DepotId) && m.IsOwner)
+                .Where(m => unmappedDepotIdsLong.Contains(m.DepotId) && m.IsOwner)
                 .Select(m => m.DepotId)
                 .ToListAsync(ct);
-            var dbMappedDepots = new HashSet<uint>(dbMappedDepotsList);
+            var dbMappedDepots = new HashSet<uint>(dbMappedDepotsList.Select(id => (uint)id));
 
+            var unmappedDepotIds = unmappedDepotIdsLong.Select(id => (uint)id).ToList();
             var orphanDepotIds = unmappedDepotIds
                 .Where(depotId => !_depotOwners.ContainsKey(depotId) && !dbMappedDepots.Contains(depotId))
                 .ToList();
@@ -352,13 +353,14 @@ public partial class SteamKit2Service
             {
                 try
                 {
-                    uint? appId = download.GameAppId; // Use existing appId if available
+                    uint? appId = download.GameAppId.HasValue ? (uint)download.GameAppId.Value : null; // Use existing appId if available
 
                     // If no AppId yet, use owner ID from PICS data
                     if (!appId.HasValue && download.DepotId.HasValue)
                     {
+                        var depotIdUint = (uint)download.DepotId.Value;
                         // First, check in-memory owner mapping from PICS scan
-                        if (_depotOwners.TryGetValue(download.DepotId.Value, out var ownerId))
+                        if (_depotOwners.TryGetValue(depotIdUint, out var ownerId))
                         {
                             appId = ownerId;
                             _logger.LogTrace($"Using PICS owner app {appId} for depot {download.DepotId}");
@@ -368,13 +370,13 @@ public partial class SteamKit2Service
                             // Fallback to pre-loaded database owner lookup (batch loaded above)
                             if (depotMappingsFromDb.TryGetValue(download.DepotId.Value, out var dbMapping) && dbMapping.AppId != 0)
                             {
-                                appId = dbMapping.AppId;
+                                appId = (uint)dbMapping.AppId;
                                 _logger.LogTrace($"Using database owner app {appId} for depot {download.DepotId}");
                             }
                             else
                             {
                                 // Last resort fallback: Try common depot->app ID patterns
-                                var potentialAppId = download.DepotId.Value;
+                                var potentialAppId = depotIdUint;
 
                                 // Pattern 1: depot ID = app ID (some apps have this)
                                 if (_appNames.ContainsKey(potentialAppId))
@@ -401,7 +403,7 @@ public partial class SteamKit2Service
                         string? depotName = null;
                         if (download.DepotId.HasValue)
                         {
-                            _depotNames.TryGetValue(download.DepotId.Value, out depotName);
+                            _depotNames.TryGetValue((uint)download.DepotId.Value, out depotName);
                         }
 
                         // Get game info from Steam API

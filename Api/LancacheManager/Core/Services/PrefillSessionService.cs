@@ -94,7 +94,7 @@ public class PrefillSessionService
     /// <summary>
     /// Lifts a ban for a Steam user.
     /// </summary>
-    public async Task<BannedSteamUser?> LiftBanAsync(int banId, string? liftedBy = null)
+    public async Task<BannedSteamUser?> LiftBanAsync(long banId, string? liftedBy = null)
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
 

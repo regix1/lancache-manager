@@ -95,7 +95,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             var totalEvicted = 0;
             var totalUnEvicted = 0;
             var totalProcessed = 0;
-            var lastProcessedId = 0;
+            var lastProcessedId = 0L;
 
             while (!stoppingToken.IsCancellationRequested)
             {

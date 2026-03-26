@@ -17,7 +17,7 @@ public class ClientStatsWithGroup
 {
     public string ClientIp { get; set; } = string.Empty;
     public string? DisplayName { get; set; } // Nickname if grouped, null if not
-    public int? GroupId { get; set; }
+    public long? GroupId { get; set; }
     public bool IsGrouped { get; set; }
     public List<string>? GroupMemberIps { get; set; } // All IPs in group (if aggregated)
     public long TotalCacheHitBytes { get; set; }
