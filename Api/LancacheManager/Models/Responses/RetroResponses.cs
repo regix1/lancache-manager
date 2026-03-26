@@ -29,13 +29,13 @@ public class RetroDownloadDto
     public DateTime EndTimeUtc { get; set; }
 
     /// <summary>Steam depot ID, null if non-Steam</summary>
-    public uint? DepotId { get; set; }
+    public long? DepotId { get; set; }
 
     /// <summary>Resolved game/app name from depot mapping or download record</summary>
     public string AppName { get; set; } = string.Empty;
 
     /// <summary>Steam app ID for game image lookup</summary>
-    public uint? SteamAppId { get; set; }
+    public long? SteamAppId { get; set; }
 
     /// <summary>Epic Games app ID for game image lookup</summary>
     public string? EpicAppId { get; set; }

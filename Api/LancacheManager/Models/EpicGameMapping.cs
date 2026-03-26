@@ -9,7 +9,7 @@ namespace LancacheManager.Models;
 public class EpicGameMapping
 {
     [Key]
-    public int Id { get; set; }
+    public long Id { get; set; }
 
     /// <summary>
     /// The Epic Games app ID (string, e.g., "Fortnite", "9d2d0eb64d5c44529cece33fe2a46482").

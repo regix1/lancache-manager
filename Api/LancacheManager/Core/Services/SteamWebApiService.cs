@@ -372,7 +372,7 @@ public class SteamWebApiService
         }
 
         var allApps = new List<SteamApp>();
-        uint lastAppId = 0;
+        long lastAppId = 0;
         int pageCount = 0;
         const int maxPages = 20; // Safety limit (50k per page = 1M max apps)
 
@@ -462,7 +462,7 @@ public class SteamWebApiService
                 if (app.TryGetProperty("appid", out var appIdElement) &&
                     app.TryGetProperty("name", out var nameElement))
                 {
-                    var appId = appIdElement.GetUInt32();
+                    var appId = appIdElement.GetInt64();
                     var name = nameElement.GetString() ?? $"App {appId}";
 
                     appList.Add(new SteamApp
@@ -486,7 +486,7 @@ public class SteamWebApiService
     /// Parse a single page of V1 API response and extract pagination info
     /// </summary>
     /// <returns>Tuple of (apps, hasMore, lastAppId)</returns>
-    private (List<SteamApp>? apps, bool hasMore, uint lastAppId) ParseV1AppListPage(string json)
+    private (List<SteamApp>? apps, bool hasMore, long lastAppId) ParseV1AppListPage(string json)
     {
         try
         {
@@ -499,7 +499,7 @@ public class SteamWebApiService
 
             // Check if there are more results
             bool hasMore = false;
-            uint lastAppId = 0;
+            long lastAppId = 0;
 
             if (response.TryGetProperty("have_more_results", out var haveMoreElement))
             {
@@ -508,7 +508,7 @@ public class SteamWebApiService
 
             if (response.TryGetProperty("last_appid", out var lastAppIdElement))
             {
-                lastAppId = lastAppIdElement.GetUInt32();
+                lastAppId = lastAppIdElement.GetInt64();
             }
 
             // Parse the apps array
@@ -523,7 +523,7 @@ public class SteamWebApiService
                 if (app.TryGetProperty("appid", out var appIdElement) &&
                     app.TryGetProperty("name", out var nameElement))
                 {
-                    var appId = appIdElement.GetUInt32();
+                    var appId = appIdElement.GetInt64();
                     var name = nameElement.GetString() ?? $"App {appId}";
 
                     appList.Add(new SteamApp
@@ -615,7 +615,7 @@ public class SteamWebApiService
 
     public class SteamApp
     {
-        public uint AppId { get; set; }
+        public long AppId { get; set; }
         public string Name { get; set; } = string.Empty;
     }
 }

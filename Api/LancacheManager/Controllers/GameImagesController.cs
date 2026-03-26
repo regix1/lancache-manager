@@ -27,7 +27,7 @@ public class GameImagesController : ControllerBase
     private readonly EpicMappingService? _epicMappingService;
 
     // Cache of failed image fetches to avoid repeated 404 warnings (AppId -> timestamp)
-    private static readonly ConcurrentDictionary<uint, DateTime> _failedImageCache = new();
+    private static readonly ConcurrentDictionary<long, DateTime> _failedImageCache = new();
     private static readonly TimeSpan _failedCacheDuration = TimeSpan.FromHours(24);
 
     // Bumped on cache clear so the frontend can build cache-busted image URLs
@@ -57,7 +57,7 @@ public class GameImagesController : ControllerBase
     /// </summary>
     [HttpGet("{appId}/header")]
     public async Task<IActionResult> GetGameHeaderImageAsync(
-        uint appId,
+        long appId,
         [FromQuery] string? type = null,
         CancellationToken cancellationToken = default)
     {
@@ -274,7 +274,7 @@ public class GameImagesController : ControllerBase
     /// <summary>
     /// Get the stored image URL from the database for a game
     /// </summary>
-    private async Task<string?> GetDatabaseImageUrlAsync(uint appId, CancellationToken cancellationToken)
+    private async Task<string?> GetDatabaseImageUrlAsync(long appId, CancellationToken cancellationToken)
     {
         var download = await _context.Downloads
             .Where(d => d.GameAppId == appId && !string.IsNullOrEmpty(d.GameImageUrl))
@@ -288,7 +288,7 @@ public class GameImagesController : ControllerBase
     /// Try to get an image from cache or download it
     /// </summary>
     private async Task<(byte[] ImageBytes, string ContentType)?> TryGetImageAsync(
-        uint cacheKey,
+        long cacheKey,
         string imageUrl,
         CancellationToken cancellationToken)
     {

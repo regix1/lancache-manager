@@ -5,8 +5,8 @@ namespace LancacheManager.Models;
 
 public class ClientGroupMember : IUtcMarkable
 {
-    public int Id { get; set; }
-    public int ClientGroupId { get; set; }
+    public long Id { get; set; }
+    public long ClientGroupId { get; set; }
     public string ClientIp { get; set; } = string.Empty;
     public DateTime AddedAtUtc { get; set; }
 

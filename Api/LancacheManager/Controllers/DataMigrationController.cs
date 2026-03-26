@@ -358,8 +358,8 @@ public class DataMigrationController : ControllerBase
                     var cacheHitBytes = reader.GetInt64(6);
                     var cacheMissBytes = reader.GetInt64(7);
                     var isActive = reader.IsDBNull(8) ? 0 : reader.GetInt32(8);
-                    var depotId = reader.IsDBNull(9) ? (int?)null : reader.GetInt32(9);
-                    var gameAppId = reader.IsDBNull(10) ? (int?)null : reader.GetInt32(10);
+                    var depotId = reader.IsDBNull(9) ? (long?)null : reader.GetInt64(9);
+                    var gameAppId = reader.IsDBNull(10) ? (long?)null : reader.GetInt64(10);
                     var datasource = reader.IsDBNull(11) ? "default" : reader.GetString(11);
 
                     try

@@ -9,7 +9,7 @@ namespace LancacheManager.Models;
 public class PrefillSession
 {
     [Key]
-    public int Id { get; set; }
+    public long Id { get; set; }
 
     /// <summary>
     /// The daemon session ID (GUID format)

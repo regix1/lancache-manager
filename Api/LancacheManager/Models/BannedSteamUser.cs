@@ -8,7 +8,7 @@ namespace LancacheManager.Models;
 public class BannedSteamUser
 {
     [Key]
-    public int Id { get; set; }
+    public long Id { get; set; }
 
     /// <summary>
     /// The Steam username that was banned (stored lowercase for case-insensitive matching).

@@ -17,7 +17,7 @@ namespace LancacheManager.Controllers;
 [ApiController]
 [Route("api/client-groups")]
 [Authorize]
-public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGroupDto, CreateClientGroupRequest, UpdateClientGroupRequest, int>
+public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGroupDto, CreateClientGroupRequest, UpdateClientGroupRequest, long>
 {
     private readonly IClientGroupsService _clientGroupsRepository;
 
@@ -70,7 +70,7 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
     /// Basic validation (required fields, format) is handled by FluentValidation.
     /// This method handles business logic validation that requires database access.
     /// </remarks>
-    protected override async Task ValidateUpdateRequestAsync(int id, UpdateClientGroupRequest request, ClientGroup existingEntity, CancellationToken ct)
+    protected override async Task ValidateUpdateRequestAsync(long id, UpdateClientGroupRequest request, ClientGroup existingEntity, CancellationToken ct)
     {
         // Basic validation is handled automatically by FluentValidation (see UpdateClientGroupRequestValidator)
         // Check for duplicate nickname (excluding self) - business logic validation
@@ -93,7 +93,7 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
         await _notifications.NotifyAllAsync(SignalREvents.ClientGroupUpdated, dto);
     }
 
-    protected override async Task OnDeletedAsync(int id)
+    protected override async Task OnDeletedAsync(long id)
     {
         await _notifications.NotifyAllAsync(SignalREvents.ClientGroupDeleted, id);
     }
@@ -149,9 +149,9 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
     /// <remarks>
     /// Validation is handled automatically by FluentValidation (see AddMemberRequestValidator)
     /// </remarks>
-    [HttpPost("{id:int}/members")]
+    [HttpPost("{id:long}/members")]
     [Authorize(Policy = "AdminOnly")]
-    public async Task<IActionResult> AddMemberAsync(int id, [FromBody] AddMemberRequest request, CancellationToken ct = default)
+    public async Task<IActionResult> AddMemberAsync(long id, [FromBody] AddMemberRequest request, CancellationToken ct = default)
     {
         // Validation is handled automatically by FluentValidation
         var group = await _clientGroupsRepository.GetByIdOrThrowAsync(id, "Client group", ct);
@@ -171,9 +171,9 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
     /// <summary>
     /// Remove an IP from a client group
     /// </summary>
-    [HttpDelete("{id:int}/members/{ip}")]
+    [HttpDelete("{id:long}/members/{ip}")]
     [Authorize(Policy = "AdminOnly")]
-    public async Task<IActionResult> RemoveMemberAsync(int id, string ip, CancellationToken ct = default)
+    public async Task<IActionResult> RemoveMemberAsync(long id, string ip, CancellationToken ct = default)
     {
         var group = await _clientGroupsRepository.GetByIdOrThrowAsync(id, "Client group", ct);
 
@@ -204,7 +204,7 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
     /// </summary>
     [HttpPut("{id}")]
     [Authorize(Policy = "AdminOnly")]
-    public override Task<IActionResult> UpdateAsync(int id, [FromBody] UpdateClientGroupRequest request, CancellationToken ct = default)
+    public override Task<IActionResult> UpdateAsync(long id, [FromBody] UpdateClientGroupRequest request, CancellationToken ct = default)
         => base.UpdateAsync(id, request, ct);
 
     /// <summary>
@@ -212,6 +212,6 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
     /// </summary>
     [HttpDelete("{id}")]
     [Authorize(Policy = "AdminOnly")]
-    public override Task<IActionResult> DeleteAsync(int id, CancellationToken ct = default)
+    public override Task<IActionResult> DeleteAsync(long id, CancellationToken ct = default)
         => base.DeleteAsync(id, ct);
 }

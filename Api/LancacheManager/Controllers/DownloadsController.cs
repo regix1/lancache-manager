@@ -39,12 +39,12 @@ public class DownloadsController : ControllerBase
     }
 
     [HttpGet("latest")]
-    public async Task<IActionResult> GetLatestAsync([FromQuery] int count = int.MaxValue, [FromQuery] long? startTime = null, [FromQuery] long? endTime = null, [FromQuery] int? eventId = null)
+    public async Task<IActionResult> GetLatestAsync([FromQuery] int count = int.MaxValue, [FromQuery] long? startTime = null, [FromQuery] long? endTime = null, [FromQuery] long? eventId = null)
     {
         // Convert single eventId to list for filtering
         var eventIdList = eventId.HasValue
-            ? new List<int> { eventId.Value }
-            : new List<int>();
+            ? new List<long> { eventId.Value }
+            : new List<long>();
         var excludedClientIps = _stateRepository.GetExcludedClientIps();
         var evictedMode = _stateRepository.GetEvictedDataMode();
 
@@ -73,11 +73,12 @@ public class DownloadsController : ControllerBase
                 {
                     // Use subquery to atomically fetch downloads with event associations
                     // This eliminates the race condition by using a single query
+                    var eventIdListInt = eventIdList.Select(id => (int)id).ToList();
                     var eventQuery = ApplyEvictedFilter(
                         _context.Downloads
                             .AsNoTracking()
                             .Where(d => _context.EventDownloads
-                                .Where(ed => eventIdList.Contains(ed.EventId))
+                                .Where(ed => eventIdListInt.Contains(ed.EventId))
                                 .Select(ed => ed.DownloadId)
                                 .Contains(d.Id))
                             .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate),
@@ -136,8 +137,8 @@ public class DownloadsController : ControllerBase
     /// <summary>
     /// Get a download by ID with its tags and events
     /// </summary>
-    [HttpGet("{id:int}")]
-    public async Task<IActionResult> GetByIdAsync(int id)
+    [HttpGet("{id:long}")]
+    public async Task<IActionResult> GetByIdAsync(long id)
     {
         var download = await _context.Downloads
             .AsNoTracking()
@@ -198,7 +199,7 @@ public class DownloadsController : ControllerBase
     {
         if (request.DownloadIds == null || request.DownloadIds.Count == 0)
         {
-            return Ok(new Dictionary<int, object>());
+            return Ok(new Dictionary<long, object>());
         }
 
         // Limit to prevent abuse

@@ -389,28 +389,28 @@ public class PicsDataService
     /// <summary>
     /// Get app IDs for a depot from JSON data
     /// </summary>
-    public async Task<List<uint>> GetAppIdsForDepotFromJsonAsync(uint depotId)
+    public async Task<List<long>> GetAppIdsForDepotFromJsonAsync(long depotId)
     {
         try
         {
             var picsData = await LoadPicsDataFromJsonAsync();
             if (picsData?.DepotMappings == null)
             {
-                return new List<uint>();
+                return new List<long>();
             }
 
             var depotKey = depotId.ToString();
             if (picsData.DepotMappings.TryGetValue(depotKey, out var mapping))
             {
-                return mapping.AppIds ?? new List<uint>();
+                return mapping.AppIds?.Select(id => (long)id).ToList() ?? new List<long>();
             }
 
-            return new List<uint>();
+            return new List<long>();
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, $"Error getting app IDs for depot {depotId} from JSON");
-            return new List<uint>();
+            return new List<long>();
         }
     }
 

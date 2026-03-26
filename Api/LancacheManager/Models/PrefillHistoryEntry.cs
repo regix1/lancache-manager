@@ -10,7 +10,7 @@ namespace LancacheManager.Models;
 public class PrefillHistoryEntry
 {
     [Key]
-    public int Id { get; set; }
+    public long Id { get; set; }
 
     /// <summary>
     /// The session ID this entry belongs to

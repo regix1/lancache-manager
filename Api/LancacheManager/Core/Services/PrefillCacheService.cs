@@ -26,8 +26,8 @@ public class PrefillCacheService
     /// Called after a successful prefill download.
     /// </summary>
     public async Task RecordCachedDepotAsync(
-        uint appId,
-        uint depotId,
+        long appId,
+        long depotId,
         ulong manifestId,
         string? appName,
         long totalBytes,
@@ -88,7 +88,7 @@ public class PrefillCacheService
     /// Ensures a depot mapping exists in SteamDepotMappings for download resolution.
     /// This is called when prefill records a cached depot, capturing mappings that PICS may not provide.
     /// </summary>
-    private async Task EnsureDepotMappingExistsAsync(AppDbContext context, uint appId, uint depotId, string? appName)
+    private async Task EnsureDepotMappingExistsAsync(AppDbContext context, long appId, long depotId, string? appName)
     {
         try
         {
@@ -141,9 +141,9 @@ public class PrefillCacheService
     /// Records multiple depots as cached (batch operation after app download).
     /// </summary>
     public async Task RecordCachedDepotsAsync(
-        uint appId,
+        long appId,
         string? appName,
-        IEnumerable<(uint DepotId, ulong ManifestId, long TotalBytes)> depots,
+        IEnumerable<(long DepotId, ulong ManifestId, long TotalBytes)> depots,
         string? cachedBy)
     {
         foreach (var (depotId, manifestId, totalBytes) in depots)
@@ -158,7 +158,7 @@ public class PrefillCacheService
     /// <param name="appId">The app ID to check</param>
     /// <param name="depotManifests">Dictionary of depot ID to manifest ID that need to be cached</param>
     /// <returns>True if all depots are cached with matching manifests</returns>
-    public async Task<bool> IsAppCachedAsync(uint appId, Dictionary<uint, ulong> depotManifests)
+    public async Task<bool> IsAppCachedAsync(long appId, Dictionary<long, ulong> depotManifests)
     {
         if (depotManifests == null || depotManifests.Count == 0)
             return false;
@@ -194,10 +194,10 @@ public class PrefillCacheService
     /// </summary>
     /// <param name="appManifests">Dictionary of app ID to (depot ID -> manifest ID) mappings</param>
     /// <returns>Dictionary of app ID to (isCached, cachedAtUtc)</returns>
-    public async Task<Dictionary<uint, (bool IsCached, DateTime? CachedAtUtc)>> GetAppsCacheStatusAsync(
-        Dictionary<uint, Dictionary<uint, ulong>> appManifests)
+    public async Task<Dictionary<long, (bool IsCached, DateTime? CachedAtUtc)>> GetAppsCacheStatusAsync(
+        Dictionary<long, Dictionary<long, ulong>> appManifests)
     {
-        var result = new Dictionary<uint, (bool IsCached, DateTime? CachedAtUtc)>();
+        var result = new Dictionary<long, (bool IsCached, DateTime? CachedAtUtc)>();
 
         await using var context = await _contextFactory.CreateDbContextAsync();
 
@@ -265,7 +265,7 @@ public class PrefillCacheService
     /// <summary>
     /// Clears the cache for a specific app (for force re-download).
     /// </summary>
-    public async Task ClearAppCacheAsync(uint appId)
+    public async Task ClearAppCacheAsync(long appId)
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
 
@@ -297,7 +297,7 @@ public class PrefillCacheService
     /// Gets all cached depots in the format needed for the prefill daemon.
     /// Returns the complete list of depot/manifest pairs that are currently cached.
     /// </summary>
-    public async Task<List<(uint AppId, uint DepotId, ulong ManifestId)>> GetAllCachedDepotsAsync()
+    public async Task<List<(long AppId, long DepotId, ulong ManifestId)>> GetAllCachedDepotsAsync()
     {
         await using var context = await _contextFactory.CreateDbContextAsync();
 
@@ -308,18 +308,18 @@ public class PrefillCacheService
 
         _logger.LogDebug("Retrieved {Count} cached depot manifests from database", cachedDepots.Count);
 
-        return cachedDepots.Select(d => (d.AppId, d.DepotId, d.ManifestId)).ToList();
+        return cachedDepots.Select(d => ((long)d.AppId, (long)d.DepotId, d.ManifestId)).ToList();
     }
 
     /// <summary>
     /// Gets cached depots for specific apps in the format needed for the prefill daemon.
     /// </summary>
-    public async Task<List<(uint AppId, uint DepotId, ulong ManifestId)>> GetCachedDepotsForAppsAsync(IEnumerable<uint> appIds)
+    public async Task<List<(long AppId, long DepotId, ulong ManifestId)>> GetCachedDepotsForAppsAsync(IEnumerable<long> appIds)
     {
-        var appIdList = appIds?.Distinct().ToList() ?? new List<uint>();
+        var appIdList = appIds?.Distinct().ToList() ?? new List<long>();
         if (appIdList.Count == 0)
         {
-            return new List<(uint AppId, uint DepotId, ulong ManifestId)>();
+            return new List<(long AppId, long DepotId, ulong ManifestId)>();
         }
 
         await using var context = await _contextFactory.CreateDbContextAsync();
@@ -332,7 +332,7 @@ public class PrefillCacheService
 
         _logger.LogDebug("Retrieved {Count} cached depot manifests for {AppCount} apps", cachedDepots.Count, appIdList.Count);
 
-        return cachedDepots.Select(d => (d.AppId, d.DepotId, d.ManifestId)).ToList();
+        return cachedDepots.Select(d => ((long)d.AppId, (long)d.DepotId, d.ManifestId)).ToList();
     }
 }
 
@@ -341,7 +341,7 @@ public class PrefillCacheService
 /// </summary>
 public class CachedAppInfo
 {
-    public uint AppId { get; set; }
+    public long AppId { get; set; }
     public string? AppName { get; set; }
     public int DepotCount { get; set; }
     public long TotalBytes { get; set; }

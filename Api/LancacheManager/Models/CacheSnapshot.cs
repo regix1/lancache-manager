@@ -6,7 +6,7 @@ namespace LancacheManager.Models;
 /// </summary>
 public class CacheSnapshot
 {
-    public int Id { get; set; }
+    public long Id { get; set; }
 
     /// <summary>
     /// Timestamp when this snapshot was recorded (UTC)

@@ -325,7 +325,7 @@ public class PrefillAdminController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpPost("bans/{banId}/lift")]
-    public async Task<ActionResult> LiftBanAsync(int banId)
+    public async Task<ActionResult> LiftBanAsync(long banId)
     {
         var adminSessionId = GetSessionId();
 
@@ -380,7 +380,7 @@ public class PrefillAdminController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AnyPrefillAccess")]
     [HttpPost("cache/check")]
-    public async Task<ActionResult<CacheCheckResponse>> CheckAppsCachedAsync([FromBody] List<uint> appIds)
+    public async Task<ActionResult<CacheCheckResponse>> CheckAppsCachedAsync([FromBody] List<long> appIds)
     {
         if (appIds == null || appIds.Count == 0)
         {
@@ -416,7 +416,7 @@ public class PrefillAdminController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AnyPrefillAccess")]
     [HttpDelete("cache/{appId}")]
-    public async Task<ActionResult> ClearAppCacheAsync(uint appId)
+    public async Task<ActionResult> ClearAppCacheAsync(long appId)
     {
         await _cacheService.ClearAppCacheAsync(appId);
         _logger.LogInformation("Cache cleared for app {AppId} by session {SessionId}", appId, GetSessionId());

@@ -13,7 +13,7 @@ public interface IImageCacheService
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Image bytes and content type, or null if not cached or URL changed</returns>
     Task<(byte[] imageBytes, string contentType)?> GetCachedImageAsync(
-        uint appId,
+        long appId,
         string? currentImageUrl = null,
         CancellationToken cancellationToken = default);
 
@@ -25,7 +25,7 @@ public interface IImageCacheService
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Image bytes and content type, or null if not available</returns>
     Task<(byte[] imageBytes, string contentType)?> GetOrDownloadImageAsync(
-        uint appId,
+        long appId,
         string imageUrl,
         CancellationToken cancellationToken = default);
 

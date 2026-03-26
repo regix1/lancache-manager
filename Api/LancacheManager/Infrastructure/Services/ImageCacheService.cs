@@ -26,7 +26,7 @@ public class ImageCacheService : IImageCacheService
     }
 
     public async Task<(byte[] imageBytes, string contentType)?> GetCachedImageAsync(
-        uint appId,
+        long appId,
         string? currentImageUrl = null,
         CancellationToken cancellationToken = default)
     {
@@ -83,7 +83,7 @@ public class ImageCacheService : IImageCacheService
     }
 
     public async Task<(byte[] imageBytes, string contentType)?> GetOrDownloadImageAsync(
-        uint appId,
+        long appId,
         string imageUrl,
         CancellationToken cancellationToken = default)
     {

@@ -6,7 +6,7 @@ namespace LancacheManager.Models;
 public class UserPreferences
 {
     [Key]
-    public int Id { get; set; }
+    public long Id { get; set; }
 
     // Foreign key to UserSession
     public Guid SessionId { get; set; }

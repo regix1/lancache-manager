@@ -8,7 +8,7 @@ namespace LancacheManager.Models;
 public class LogEntryRecord
 {
     [Key]
-    public int Id { get; set; }
+    public long Id { get; set; }
 
     public DateTime Timestamp { get; set; }
 
@@ -33,7 +33,7 @@ public class LogEntryRecord
     [MaxLength(10)]
     public string CacheStatus { get; set; } = string.Empty;
 
-    public uint? DepotId { get; set; }
+    public long? DepotId { get; set; }
 
     /// <summary>
     /// The datasource this log entry belongs to (for multi-datasource support).
@@ -43,7 +43,7 @@ public class LogEntryRecord
     public string Datasource { get; set; } = "default";
 
     // Foreign key to associate with download session
-    public int? DownloadId { get; set; }
+    public long? DownloadId { get; set; }
     public virtual Download? Download { get; set; }
 
     // Index hints for performance

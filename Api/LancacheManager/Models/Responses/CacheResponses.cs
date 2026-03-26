@@ -169,7 +169,7 @@ public class ActiveGameRemovalsResponse : ActiveOperationsResponse<GameRemovalIn
 
 public class GameRemovalInfo
 {
-    public uint GameAppId { get; set; }
+    public long GameAppId { get; set; }
     public string GameName { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
     public string? Message { get; set; }

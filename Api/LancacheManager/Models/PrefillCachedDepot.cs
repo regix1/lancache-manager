@@ -13,17 +13,17 @@ namespace LancacheManager.Models;
 public class PrefillCachedDepot
 {
     [Key]
-    public int Id { get; set; }
+    public long Id { get; set; }
 
     /// <summary>
     /// Steam App ID of the game
     /// </summary>
-    public uint AppId { get; set; }
+    public long AppId { get; set; }
 
     /// <summary>
     /// Steam Depot ID (games have multiple depots)
     /// </summary>
-    public uint DepotId { get; set; }
+    public long DepotId { get; set; }
 
     /// <summary>
     /// Manifest ID - unique identifier for the depot version.

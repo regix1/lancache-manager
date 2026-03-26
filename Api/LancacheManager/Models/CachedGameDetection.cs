@@ -9,9 +9,9 @@ namespace LancacheManager.Models;
 public class CachedGameDetection
 {
     [Key]
-    public int Id { get; set; }
+    public long Id { get; set; }
 
-    public uint GameAppId { get; set; }
+    public long GameAppId { get; set; }
 
     public string GameName { get; set; } = string.Empty;
 

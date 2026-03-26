@@ -101,7 +101,7 @@ async fn get_game_name_from_db(pool: &PgPool, game_app_id: u32) -> Result<String
     let row = sqlx::query(
         "SELECT DISTINCT \"GameName\" FROM \"Downloads\" WHERE \"GameAppId\" = $1 LIMIT 1"
     )
-    .bind(game_app_id as i32)
+    .bind(game_app_id as i64)
     .fetch_optional(pool)
     .await?;
 
@@ -123,7 +123,7 @@ async fn get_game_urls_from_db(pool: &PgPool, game_app_id: u32) -> Result<HashMa
          INNER JOIN \"SteamDepotMappings\" sdm ON le.\"DepotId\" = sdm.\"DepotId\"
          WHERE sdm.\"AppId\" = $1 AND le.\"Url\" IS NOT NULL"
     )
-    .bind(game_app_id as i32)
+    .bind(game_app_id as i64)
     .fetch_all(pool)
     .await?;
 
@@ -165,7 +165,7 @@ async fn get_game_urls_from_db(pool: &PgPool, game_app_id: u32) -> Result<HashMa
          AND le.\"DepotId\" = $1
          AND le.\"DepotId\" NOT IN (SELECT \"DepotId\" FROM \"SteamDepotMappings\")"
     )
-    .bind(game_app_id as i32)
+    .bind(game_app_id as i64)
     .fetch_all(pool)
     .await?;
 
@@ -209,24 +209,24 @@ async fn get_game_depot_ids(pool: &PgPool, game_app_id: u32) -> Result<HashSet<u
     let mapped_rows = sqlx::query(
         "SELECT DISTINCT \"DepotId\" FROM \"SteamDepotMappings\" WHERE \"AppId\" = $1"
     )
-    .bind(game_app_id as i32)
+    .bind(game_app_id as i64)
     .fetch_all(pool)
     .await?;
 
     let mut depot_ids: HashSet<u32> = mapped_rows.iter()
-        .map(|r| r.get::<i32, _>("DepotId") as u32)
+        .map(|r| r.get::<i64, _>("DepotId") as u32)
         .collect();
 
     // Also check Downloads table for any additional depot IDs
     let download_rows = sqlx::query(
         "SELECT DISTINCT \"DepotId\" FROM \"Downloads\" WHERE \"GameAppId\" = $1 AND \"DepotId\" IS NOT NULL"
     )
-    .bind(game_app_id as i32)
+    .bind(game_app_id as i64)
     .fetch_all(pool)
     .await?;
 
     for row in download_rows {
-        let depot_id: i32 = row.get("DepotId");
+        let depot_id: i64 = row.get("DepotId");
         depot_ids.insert(depot_id as u32);
     }
 
@@ -240,7 +240,7 @@ async fn delete_game_from_database(pool: &PgPool, game_app_id: u32) -> Result<u6
     let log_result = sqlx::query(
         "DELETE FROM \"LogEntries\" WHERE \"DownloadId\" IN (SELECT \"Id\" FROM \"Downloads\" WHERE \"GameAppId\" = $1)"
     )
-    .bind(game_app_id as i32)
+    .bind(game_app_id as i64)
     .execute(pool)
     .await?;
     let log_entries_deleted = log_result.rows_affected();
@@ -248,7 +248,7 @@ async fn delete_game_from_database(pool: &PgPool, game_app_id: u32) -> Result<u6
 
     // Now safe to delete the downloads
     let downloads_result = sqlx::query("DELETE FROM \"Downloads\" WHERE \"GameAppId\" = $1")
-        .bind(game_app_id as i32)
+        .bind(game_app_id as i64)
         .execute(pool)
         .await?;
     let downloads_deleted = downloads_result.rows_affected();

@@ -52,7 +52,7 @@ public class EventsService : IEventsService
             .WithUtcMarking();
     }
 
-    public async Task<Event?> GetEventByIdAsync(int id, CancellationToken cancellationToken = default)
+    public async Task<Event?> GetEventByIdAsync(long id, CancellationToken cancellationToken = default)
     {
         return (await _context.Events
             .AsNoTracking()
@@ -93,7 +93,7 @@ public class EventsService : IEventsService
         return existing.WithUtcMarking();
     }
 
-    public async Task DeleteEventAsync(int id, CancellationToken cancellationToken = default)
+    public async Task DeleteEventAsync(long id, CancellationToken cancellationToken = default)
     {
         var evt = await _context.Events.FindAsync(new object[] { id }, cancellationToken);
         if (evt != null)
@@ -104,7 +104,7 @@ public class EventsService : IEventsService
         }
     }
 
-    public async Task<List<Download>> GetDownloadsForEventAsync(int eventId, bool taggedOnly, CancellationToken cancellationToken = default)
+    public async Task<List<Download>> GetDownloadsForEventAsync(long eventId, bool taggedOnly, CancellationToken cancellationToken = default)
     {
         var evt = await _context.Events
             .AsNoTracking()
@@ -144,7 +144,7 @@ public class EventsService : IEventsService
         return downloads.WithUtcMarking();
     }
 
-    public async Task TagDownloadAsync(int eventId, int downloadId, bool autoTagged, CancellationToken cancellationToken = default)
+    public async Task TagDownloadAsync(long eventId, long downloadId, bool autoTagged, CancellationToken cancellationToken = default)
     {
         // Check if already tagged
         var existing = await _context.EventDownloads
@@ -169,7 +169,7 @@ public class EventsService : IEventsService
         _logger.LogDebug("Tagged download {DownloadId} to event {EventId} (auto: {AutoTagged})", downloadId, eventId, autoTagged);
     }
 
-    public async Task UntagDownloadAsync(int eventId, int downloadId, CancellationToken cancellationToken = default)
+    public async Task UntagDownloadAsync(long eventId, long downloadId, CancellationToken cancellationToken = default)
     {
         var eventDownload = await _context.EventDownloads
             .FirstOrDefaultAsync(ed => ed.EventId == eventId && ed.DownloadId == downloadId, cancellationToken);
@@ -239,7 +239,7 @@ public class EventsService : IEventsService
     public Task<List<Event>> GetAllAsync(CancellationToken ct = default)
         => GetAllEventsAsync(ct);
 
-    public Task<Event?> GetByIdAsync(int id, CancellationToken ct = default)
+    public Task<Event?> GetByIdAsync(long id, CancellationToken ct = default)
         => GetEventByIdAsync(id, ct);
 
     public Task<Event> CreateAsync(Event entity, CancellationToken ct = default)
@@ -251,6 +251,6 @@ public class EventsService : IEventsService
     public async Task DeleteAsync(Event entity, CancellationToken ct = default)
         => await DeleteEventAsync(entity.Id, ct);
 
-    public async Task<bool> ExistsAsync(int id, CancellationToken ct = default)
+    public async Task<bool> ExistsAsync(long id, CancellationToken ct = default)
         => await _context.Events.AnyAsync(e => e.Id == id, ct);
 }

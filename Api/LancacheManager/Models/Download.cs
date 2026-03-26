@@ -6,7 +6,7 @@ namespace LancacheManager.Models;
 
 public class Download : IUtcMarkable
 {
-    public int Id { get; set; }
+    public long Id { get; set; }
     public string Service { get; set; } = string.Empty;
     public string ClientIp { get; set; } = string.Empty;
 
@@ -25,11 +25,11 @@ public class Download : IUtcMarkable
     public bool IsEvicted { get; set; } = false;
 
     // New fields for game information
-    public uint? GameAppId { get; set; }
+    public long? GameAppId { get; set; }
     public string? GameName { get; set; }
     public string? GameImageUrl { get; set; }
     public string? LastUrl { get; set; } // Store the last URL to extract game info
-    public uint? DepotId { get; set; } // Steam depot ID extracted from URLs
+    public long? DepotId { get; set; } // Steam depot ID extracted from URLs
     public string? EpicAppId { get; set; } // Epic Games app ID (string, unlike Steam's uint)
 
     /// <summary>

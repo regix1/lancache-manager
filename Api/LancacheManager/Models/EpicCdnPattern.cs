@@ -10,7 +10,7 @@ namespace LancacheManager.Models;
 public class EpicCdnPattern
 {
     [Key]
-    public int Id { get; set; }
+    public long Id { get; set; }
 
     /// <summary>
     /// The Epic Games app ID (links to EpicGameMapping.AppId)

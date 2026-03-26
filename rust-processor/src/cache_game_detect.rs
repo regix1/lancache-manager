@@ -227,10 +227,10 @@ async fn query_game_downloads(pool: &PgPool, max_urls_per_game: Option<usize>, e
 
     for row in rows {
         let service: String = row.get(0);
-        let game_app_id: i32 = row.get(1);
+        let game_app_id: i64 = row.get(1);
         let game_name: String = row.get(2);
         let url: String = row.get(3);
-        let depot_id: Option<i32> = row.get(4);
+        let depot_id: Option<i64> = row.get(4);
 
         let record = DownloadRecord {
             service,
@@ -305,7 +305,7 @@ async fn query_game_downloads(pool: &PgPool, max_urls_per_game: Option<usize>, e
 
     for row in unknown_rows {
         let service: String = row.get(0);
-        let depot_id: i32 = row.get(1);
+        let depot_id: i64 = row.get(1);
         let url: String = row.get(2);
         let depot_id_u32 = depot_id as u32;
 

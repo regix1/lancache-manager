@@ -2,7 +2,7 @@ namespace LancacheManager.Models;
 
 public class ClientGroupDto
 {
-    public int Id { get; set; }
+    public long Id { get; set; }
     public string Nickname { get; set; } = string.Empty;
     public string? Description { get; set; }
     public DateTime CreatedAtUtc { get; set; }

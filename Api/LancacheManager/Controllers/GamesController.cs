@@ -69,7 +69,7 @@ public class GamesController : ControllerBase
     /// RESTful: DELETE is proper method for removing resources
     /// </summary>
     [HttpDelete("{appId}")]
-    public async Task<IActionResult> RemoveGameFromCacheAsync(uint appId)
+    public async Task<IActionResult> RemoveGameFromCacheAsync(long appId)
     {
         // CRITICAL: Check write permissions BEFORE starting the operation
         var permissionError = EnsureDirectoriesWritable("remove game from cache");
@@ -92,7 +92,7 @@ public class GamesController : ControllerBase
             appId: appId,
             removeFunc: (CancellationToken ct, Func<double, string, int, long, Task> onProgress) =>
                 _cacheManagementService.RemoveGameFromCacheAsync(appId, ct, onProgress),
-            onSuccess: async (uint _) => await _gameCacheDetectionService.RemoveGameFromCacheAsync(appId),
+            onSuccess: async (long _) => await _gameCacheDetectionService.RemoveGameFromCacheAsync(appId),
             responseMessage: $"Started removal of game {appId} from cache");
     }
 
@@ -140,9 +140,9 @@ public class GamesController : ControllerBase
         string entityKey,
         string displayName,
         string operationLabel,
-        uint appId,
+        long appId,
         Func<CancellationToken, Func<double, string, int, long, Task>, Task<CacheManagementService.GameCacheRemovalReport>> removeFunc,
-        Func<uint, Task>? onSuccess,
+        Func<long, Task>? onSuccess,
         string responseMessage)
     {
         var cancellationTokenSource = new CancellationTokenSource();
@@ -257,7 +257,7 @@ public class GamesController : ControllerBase
     /// Used for restoring progress on page refresh
     /// </summary>
     [HttpGet("{appId}/removal-status")]
-    public IActionResult GetGameRemovalStatus(uint appId)
+    public IActionResult GetGameRemovalStatus(long appId)
     {
         var operation = _operationTracker.GetOperationByEntityKey(OperationType.GameRemoval, appId.ToString());
         if (operation == null)
@@ -295,7 +295,7 @@ public class GamesController : ControllerBase
                 var metrics = op.Metadata as RemovalMetrics;
                 return new GameRemovalInfo
                 {
-                    GameAppId = uint.TryParse(metrics?.EntityKey, out var parsedAppId) ? parsedAppId : 0,
+                    GameAppId = long.TryParse(metrics?.EntityKey, out var parsedAppId) ? parsedAppId : 0,
                     GameName = metrics?.EntityName ?? op.Name,
                     Status = op.Status,
                     Message = op.Message,

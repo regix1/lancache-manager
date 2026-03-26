@@ -1013,7 +1013,7 @@ public class SocketPrefillProgress
 public class SocketDepotManifestInfo
 {
     [JsonPropertyName("depotId")]
-    public uint DepotId { get; set; }
+    public long DepotId { get; set; }
 
     [JsonPropertyName("manifestId")]
     public ulong ManifestId { get; set; }

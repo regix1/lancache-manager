@@ -820,7 +820,7 @@ public class CacheManagementService
     public class GameCacheRemovalReport
     {
         [System.Text.Json.Serialization.JsonPropertyName("game_app_id")]
-        public uint GameAppId { get; set; }
+        public long GameAppId { get; set; }
 
         [System.Text.Json.Serialization.JsonPropertyName("game_name")]
         public string GameName { get; set; } = string.Empty;
@@ -838,7 +838,7 @@ public class CacheManagementService
         public ulong LogEntriesRemoved { get; set; }
 
         [System.Text.Json.Serialization.JsonPropertyName("depot_ids")]
-        public List<uint> DepotIds { get; set; } = new List<uint>();
+        public List<long> DepotIds { get; set; } = new List<long>();
     }
 
     public class ServiceCacheRemovalReport
@@ -862,7 +862,7 @@ public class CacheManagementService
     /// <summary>
     /// Remove all cache files for a specific game across all datasources
     /// </summary>
-    public async Task<GameCacheRemovalReport> RemoveGameFromCacheAsync(uint gameAppId, CancellationToken cancellationToken = default, Func<double, string, int, long, Task>? onProgress = null)
+    public async Task<GameCacheRemovalReport> RemoveGameFromCacheAsync(long gameAppId, CancellationToken cancellationToken = default, Func<double, string, int, long, Task>? onProgress = null)
     {
         await _cacheLock.WaitAsync();
         try
@@ -1016,7 +1016,7 @@ public class CacheManagementService
                     {
                         aggregatedReport.GameName = dsReport.GameName;
                     }
-                    foreach (uint depotId in dsReport.DepotIds)
+                    foreach (long depotId in dsReport.DepotIds)
                     {
                         if (!aggregatedReport.DepotIds.Contains(depotId))
                         {

@@ -531,13 +531,13 @@ impl SpeedTracker {
         let result = sqlx::query(
             "SELECT \"AppId\", \"AppName\" FROM \"SteamDepotMappings\" WHERE \"DepotId\" = $1 AND \"IsOwner\" = true LIMIT 1"
         )
-        .bind(depot_id as i32)
+        .bind(depot_id as i64)
         .fetch_optional(&self.pool)
         .await;
 
         match result {
             Ok(Some(row)) => {
-                let app_id: i32 = row.get("AppId");
+                let app_id: i64 = row.get("AppId");
                 let app_name: Option<String> = row.get("AppName");
                 (app_name, Some(app_id as u32))
             }

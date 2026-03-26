@@ -20,18 +20,18 @@ public class SteamService : IHostedService, IDisposable
     private readonly Timer? _refreshTimer;
 
     // Caches for performance
-    private readonly ConcurrentDictionary<uint, GameInfo> _gameCache = new();
-    private readonly ConcurrentDictionary<uint, uint> _depotToAppCache = new();
+    private readonly ConcurrentDictionary<long, GameInfo> _gameCache = new();
+    private readonly ConcurrentDictionary<long, long> _depotToAppCache = new();
 
     // Steam API data
-    private Dictionary<uint, SteamAppInfo> _steamApps = new();
-    private Dictionary<uint, HashSet<uint>> _depotMappings = new();
+    private Dictionary<long, SteamAppInfo> _steamApps = new();
+    private Dictionary<long, HashSet<long>> _depotMappings = new();
     private DateTime _lastRefresh = DateTime.MinValue;
     private bool _isReady = false;
 
     public class GameInfo
     {
-        public uint AppId { get; set; }
+        public long AppId { get; set; }
         public string Name { get; set; } = "Unknown Game";
         public string Type { get; set; } = "game";
         public string? HeaderImage { get; set; }
@@ -42,13 +42,13 @@ public class SteamService : IHostedService, IDisposable
 
     public class SteamAppInfo
     {
-        public uint AppId { get; set; }
+        public long AppId { get; set; }
         public string Name { get; set; } = string.Empty;
         public string Type { get; set; } = "game";
         public string? HeaderImage { get; set; }
         public string? Description { get; set; }
         public DateTime CacheTime { get; set; } = DateTime.UtcNow;
-        public List<uint> Depots { get; set; } = new();
+        public List<long> Depots { get; set; } = new();
     }
 
     public SteamService(
@@ -155,12 +155,12 @@ public class SteamService : IHostedService, IDisposable
             // Load depot mappings from database and bucket by depot
             var depotMappings = await scopedDb.DbContext.SteamDepotMappings.AsNoTracking().ToListAsync();
 
-            var grouped = new Dictionary<uint, HashSet<uint>>();
+            var grouped = new Dictionary<long, HashSet<long>>();
             foreach (var mapping in depotMappings)
             {
                 if (!grouped.TryGetValue(mapping.DepotId, out var set))
                 {
-                    set = new HashSet<uint>();
+                    set = new HashSet<long>();
                     grouped[mapping.DepotId] = set;
                 }
 
@@ -259,7 +259,7 @@ public class SteamService : IHostedService, IDisposable
     /// <summary>
     /// Get app ID from depot using real Steam API relationships
     /// </summary>
-    public uint? GetAppIdFromDepot(uint depotId)
+    public long? GetAppIdFromDepot(long depotId)
     {
         try
         {
@@ -290,7 +290,7 @@ public class SteamService : IHostedService, IDisposable
     /// Get all app IDs associated with a depot.
     /// Queries database directly for authoritative data.
     /// </summary>
-    public IReadOnlyCollection<uint> GetAppIdsForDepot(uint depotId)
+    public IReadOnlyCollection<long> GetAppIdsForDepot(long depotId)
     {
         try
         {
@@ -300,7 +300,7 @@ public class SteamService : IHostedService, IDisposable
             var appIds = scopedDb.DbContext.SteamDepotMappings
                 .AsNoTracking()
                 .Where(m => m.DepotId == depotId && m.IsOwner)  // Owner apps only
-                .Select(m => m.AppId)
+                .Select(m => (long)m.AppId)
                 .ToList();
 
             return appIds;
@@ -308,14 +308,14 @@ public class SteamService : IHostedService, IDisposable
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to query database for depot {DepotId}", depotId);
-            return Array.Empty<uint>();
+            return Array.Empty<long>();
         }
     }
 
     /// <summary>
     /// Get game information using real Steam API data
     /// </summary>
-    public async Task<GameInfo?> GetGameInfoAsync(uint appId)
+    public async Task<GameInfo?> GetGameInfoAsync(long appId)
     {
         try
         {
@@ -357,7 +357,7 @@ public class SteamService : IHostedService, IDisposable
         }
     }
 
-    private async Task<GameInfo?> GetDetailedGameInfoAsync(uint appId, string? knownName = null)
+    private async Task<GameInfo?> GetDetailedGameInfoAsync(long appId, string? knownName = null)
     {
         await _apiSemaphore.WaitAsync();
         try
@@ -396,7 +396,7 @@ public class SteamService : IHostedService, IDisposable
         }
     }
 
-    private GameInfo? ParseStoreApiResponse(string json, uint appId, string? knownName = null)
+    private GameInfo? ParseStoreApiResponse(string json, long appId, string? knownName = null)
     {
         try
         {
@@ -431,7 +431,7 @@ public class SteamService : IHostedService, IDisposable
         }
     }
 
-    private static GameInfo CreateFallbackGameInfo(uint appId, string? knownName = null)
+    private static GameInfo CreateFallbackGameInfo(long appId, string? knownName = null)
     {
         return new GameInfo
         {

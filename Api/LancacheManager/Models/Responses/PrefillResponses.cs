@@ -26,7 +26,7 @@ public class PrefillSessionsResponse
 /// </summary>
 public class PrefillSessionDto
 {
-    public int Id { get; set; }
+    public long Id { get; set; }
     public string SessionId { get; set; } = string.Empty;
     public string CreatedBySessionId { get; set; } = string.Empty;
     public string? ContainerId { get; set; }
@@ -50,7 +50,7 @@ public class PrefillSessionDto
 /// </summary>
 public class BannedSteamUserDto
 {
-    public int Id { get; set; }
+    public long Id { get; set; }
     public string Username { get; set; } = string.Empty;
     public string? BanReason { get; set; }
     public string? BannedBySessionId { get; set; }
@@ -68,7 +68,7 @@ public class BannedSteamUserDto
 /// </summary>
 public class PrefillHistoryEntryDto
 {
-    public int Id { get; set; }
+    public long Id { get; set; }
     public string SessionId { get; set; } = string.Empty;
     public string AppId { get; set; } = string.Empty;
     public string? AppName { get; set; }

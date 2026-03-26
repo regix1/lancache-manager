@@ -861,7 +861,7 @@ public class GameCacheDetectionService : IDisposable
         _logger.LogInformation("[GameDetection] Cache invalidated - all cached games and services deleted from database");
     }
 
-    public async Task RemoveGameFromCacheAsync(uint gameAppId)
+    public async Task RemoveGameFromCacheAsync(long gameAppId)
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
         var game = await dbContext.CachedGameDetections.FirstOrDefaultAsync(g => g.GameAppId == gameAppId);

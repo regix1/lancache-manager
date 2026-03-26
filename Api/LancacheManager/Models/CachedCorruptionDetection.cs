@@ -9,7 +9,7 @@ namespace LancacheManager.Models;
 public class CachedCorruptionDetection
 {
     [Key]
-    public int Id { get; set; }
+    public long Id { get; set; }
 
     /// <summary>
     /// Service name (e.g., "steam", "epic", etc.)

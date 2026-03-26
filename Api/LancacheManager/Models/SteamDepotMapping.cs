@@ -5,9 +5,9 @@ namespace LancacheManager.Models;
 public class SteamDepotMapping
 {
     [Key]
-    public int Id { get; set; }
+    public long Id { get; set; }
 
-    public uint DepotId { get; set; }
+    public long DepotId { get; set; }
 
     /// <summary>
     /// The name of the depot from PICS data (e.g., "Ubisoft Connect PC Client Content")
@@ -15,7 +15,7 @@ public class SteamDepotMapping
     /// </summary>
     public string? DepotName { get; set; }
 
-    public uint AppId { get; set; }
+    public long AppId { get; set; }
 
     public string? AppName { get; set; }
 

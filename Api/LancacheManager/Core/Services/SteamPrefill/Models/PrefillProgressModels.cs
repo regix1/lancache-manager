@@ -74,7 +74,7 @@ public class PrefillProgress
 /// </summary>
 public class DepotManifestProgressInfo
 {
-    public uint DepotId { get; set; }
+    public long DepotId { get; set; }
     public ulong ManifestId { get; set; }
     public long TotalBytes { get; set; }
 }
@@ -152,7 +152,7 @@ internal class DaemonPrefillProgressDto
 internal class DaemonDepotManifestDto
 {
     [JsonPropertyName("depotId")]
-    public uint DepotId { get; set; }
+    public long DepotId { get; set; }
 
     [JsonPropertyName("manifestId")]
     public ulong ManifestId { get; set; }

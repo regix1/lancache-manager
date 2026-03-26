@@ -232,7 +232,7 @@ public class AppCacheStatus
 public class OutdatedDepot
 {
     [JsonPropertyName("depotId")]
-    public uint DepotId { get; set; }
+    public long DepotId { get; set; }
 
     [JsonPropertyName("cachedManifest")]
     public ulong CachedManifest { get; set; }
@@ -248,10 +248,10 @@ public class OutdatedDepot
 public class CachedDepotInput
 {
     [JsonPropertyName("appId")]
-    public uint AppId { get; set; }
+    public long AppId { get; set; }
 
     [JsonPropertyName("depotId")]
-    public uint DepotId { get; set; }
+    public long DepotId { get; set; }
 
     [JsonPropertyName("manifestId")]
     public ulong ManifestId { get; set; }
