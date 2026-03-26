@@ -267,6 +267,41 @@ class ApiService {
     }
   }
 
+  static async getEvictionSettings(signal?: AbortSignal): Promise<{ evictedDataMode: string }> {
+    try {
+      const res = await fetch(`${API_BASE}/stats/eviction`, this.getFetchOptions({ signal }));
+      return await this.handleResponse<{ evictedDataMode: string }>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else {
+        console.error('getEvictionSettings error:', error);
+      }
+      throw error;
+    }
+  }
+
+  static async updateEvictionSettings(
+    evictedDataMode: string
+  ): Promise<{ evictedDataMode: string }> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/stats/eviction`,
+        this.getFetchOptions({
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ evictedDataMode })
+        })
+      );
+      return await this.handleResponse<{ evictedDataMode: string }>(res);
+    } catch (error: unknown) {
+      {
+        console.error('updateEvictionSettings error:', error);
+      }
+      throw error;
+    }
+  }
+
   static async getServiceStats(
     signal?: AbortSignal,
     startTime?: number,

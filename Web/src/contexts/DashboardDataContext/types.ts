@@ -1,5 +1,21 @@
 import { createContext, type ReactNode } from 'react';
-import type { CacheInfo, ClientStat, ServiceStat, DashboardStats, Download } from '../../types';
+import type {
+  CacheInfo,
+  ClientStat,
+  ServiceStat,
+  DashboardStats,
+  Download,
+  GameCacheInfo
+} from '../../types';
+
+export interface CachedDetectionResponse {
+  hasCachedResults: boolean;
+  games?: GameCacheInfo[];
+  services?: { service_name: string; cache_files_found: number; total_size_bytes: number }[];
+  totalGamesDetected?: number;
+  totalServicesDetected?: number;
+  lastDetectionTime?: string;
+}
 
 interface DashboardDataContextType {
   // Cache info
@@ -12,6 +28,10 @@ interface DashboardDataContextType {
 
   // Downloads
   latestDownloads: Download[];
+
+  // Game detection
+  gameDetectionData: CachedDetectionResponse | null;
+  gameDetectionLookup: Map<number, GameCacheInfo> | null;
 
   // Loading & Error states
   loading: boolean;

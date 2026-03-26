@@ -28,7 +28,7 @@ import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import DownloadBadges from './DownloadBadges';
 import { useSessionFilters } from './useSessionFilters';
 import SessionFilterBar from './SessionFilterBar';
-import type { Download, DownloadGroup } from '../../../types';
+import type { Download, DownloadGroup, GameCacheInfo } from '../../../types';
 
 interface NormalViewSectionLabels {
   multipleDownloads: string;
@@ -60,6 +60,7 @@ interface NormalViewProps {
   showCacheHitBar?: boolean;
   showEventBadges?: boolean;
   bannerOnly?: boolean;
+  detectionLookup?: Map<number, GameCacheInfo> | null;
 }
 
 interface GroupCardProps {
@@ -80,6 +81,7 @@ interface GroupCardProps {
   hasMultipleDatasources: boolean;
   showCacheHitBar: boolean;
   showEventBadges: boolean;
+  detectionLookup?: Map<number, GameCacheInfo> | null;
 }
 
 const GroupCard: React.FC<GroupCardProps> = ({
@@ -99,7 +101,8 @@ const GroupCard: React.FC<GroupCardProps> = ({
   showDatasourceLabels,
   hasMultipleDatasources,
   showCacheHitBar,
-  showEventBadges
+  showEventBadges,
+  detectionLookup
 }) => {
   const { t } = useTranslation();
   const { fetchAssociations, getAssociations, refreshVersion } = useDownloadAssociations();
@@ -133,6 +136,9 @@ const GroupCard: React.FC<GroupCardProps> = ({
   const steamAppId = primaryDownload?.gameAppId ? String(primaryDownload.gameAppId) : null;
   const epicAppId = primaryDownload?.epicAppId ?? null;
   const primaryName = primaryDownload?.gameName ?? '';
+  const isEvicted = group.downloads.some((d: Download) => d.isEvicted);
+  const diskSizeBytes =
+    primaryDownload?.gameAppId && detectionLookup?.get(primaryDownload.gameAppId)?.total_size_bytes;
   const isGenericSteamTitle =
     primaryName === 'Unknown Steam Game' || /^Steam App \d+$/.test(primaryName);
   const showSteamImage =
@@ -296,6 +302,14 @@ const GroupCard: React.FC<GroupCardProps> = ({
                     {group.name}
                   </h3>
                 )}
+                {isEvicted && (
+                  <span className="themed-badge status-badge-error">{t('common.evicted')}</span>
+                )}
+                {diskSizeBytes ? (
+                  <span className="text-themed-muted text-xs ml-2">
+                    {t('dashboard.downloadsPanel.onDisk', { size: formatBytes(diskSizeBytes) })}
+                  </span>
+                ) : null}
               </div>
 
               {/* Mobile Stats - Stacked layout for better spacing */}
@@ -363,6 +377,14 @@ const GroupCard: React.FC<GroupCardProps> = ({
                     {group.name}
                   </h3>
                 )}
+                {isEvicted && (
+                  <span className="themed-badge status-badge-error">{t('common.evicted')}</span>
+                )}
+                {diskSizeBytes ? (
+                  <span className="text-themed-muted text-xs ml-2">
+                    {t('dashboard.downloadsPanel.onDisk', { size: formatBytes(diskSizeBytes) })}
+                  </span>
+                ) : null}
                 {hasMultipleDatasources &&
                   showDatasourceLabels &&
                   group.downloads[0]?.datasource && (
@@ -477,7 +499,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
       ref={cardRef}
       className={`rounded-lg border overflow-hidden shadow-sm bg-[var(--theme-bg-secondary)] ${
         isExpanded ? 'ring-2 border-[var(--theme-primary)]' : 'border-[var(--theme-border-primary)]'
-      } ${!fullHeightBanners && !isExpanded ? 'sm:max-h-[160px]' : ''}`}
+      } ${!fullHeightBanners && !isExpanded ? 'sm:max-h-[160px]' : ''}${isEvicted ? ' opacity-60' : ''}`}
     >
       {fullHeightBanners ? (
         <div
@@ -520,7 +542,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                 )}
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
                 {/* Efficiency & Savings */}
                 <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)]">
                   <h5 className="text-xs font-semibold text-[var(--theme-text-muted)] mb-3 uppercase tracking-wide">
@@ -554,10 +576,41 @@ const GroupCard: React.FC<GroupCardProps> = ({
                   </div>
                 </div>
 
-                {/* Data Volume */}
+                {/* Disk Usage */}
+                {diskSizeBytes ? (
+                  <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)]">
+                    <h5 className="text-xs font-semibold text-[var(--theme-text-muted)] mb-3 uppercase tracking-wide">
+                      {t('downloads.tab.normal.stats.diskUsage', 'Disk Usage')}
+                    </h5>
+                    <div className="flex flex-col gap-4">
+                      <div className="flex items-baseline justify-between">
+                        <span className="text-sm text-[var(--theme-text-secondary)]">
+                          {t('downloads.tab.normal.stats.dataOnDisk', 'Data on Disk')}
+                        </span>
+                        <span className="text-xl font-bold text-[var(--theme-primary)]">
+                          {formatBytes(diskSizeBytes)}
+                        </span>
+                      </div>
+                      <div className="flex items-baseline justify-between pt-2 border-t border-[var(--theme-border-secondary)]">
+                        <span className="text-xs text-[var(--theme-text-muted)]">
+                          {t('downloads.tab.normal.stats.cacheFiles', 'Cache Files')}
+                        </span>
+                        <span className="text-sm font-bold text-[var(--theme-text-secondary)]">
+                          {(primaryDownload?.gameAppId &&
+                            detectionLookup
+                              ?.get(primaryDownload.gameAppId)
+                              ?.cache_files_found?.toLocaleString()) ??
+                            '—'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                {/* Network Traffic */}
                 <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)]">
                   <h5 className="text-xs font-semibold text-[var(--theme-text-muted)] mb-3 uppercase tracking-wide">
-                    Data Volume
+                    {t('downloads.tab.normal.stats.networkTraffic', 'Network Traffic')}
                   </h5>
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
@@ -947,6 +1000,7 @@ const GridCard: React.FC<GridCardProps> = ({
   showDatasourceLabels,
   hasMultipleDatasources
 }) => {
+  const { t } = useTranslation();
   const { fetchAssociations, getAssociations, refreshVersion } = useDownloadAssociations();
   const cardRef = React.useRef<HTMLDivElement>(null);
   const hitPercent = group.totalBytes > 0 ? (group.cacheHitBytes / group.totalBytes) * 100 : 0;
@@ -976,6 +1030,7 @@ const GridCard: React.FC<GridCardProps> = ({
   const showEpicImage = group.type === 'game' && isEpic && Boolean(epicAppId) && !!primaryName;
   const artworkId = showSteamImage ? steamAppId : showEpicImage ? `epic-${epicAppId}` : null;
   const hasArtwork = artworkId !== null && !imageErrors.has(artworkId);
+  const isEvicted = group.downloads.some((d: Download) => d.isEvicted);
   const placeholderIconSize = 48;
 
   React.useEffect(() => {
@@ -1054,7 +1109,7 @@ const GridCard: React.FC<GridCardProps> = ({
   return (
     <div
       ref={cardRef}
-      className={`card-grid-item ${bannerOnly ? 'banner-only' : ''}`}
+      className={`card-grid-item ${bannerOnly ? 'banner-only' : ''}${isEvicted ? ' opacity-60' : ''}`}
       onClick={() => onItemClick(group.id)}
       title={bannerOnly ? group.name : undefined}
     >
@@ -1079,6 +1134,9 @@ const GridCard: React.FC<GridCardProps> = ({
           </div>
           <div className="card-grid-item-name" title={group.name}>
             {group.name}
+            {isEvicted && (
+              <span className="themed-badge status-badge-error ml-1">{t('common.evicted')}</span>
+            )}
           </div>
           <div className="card-grid-item-stats">
             <span className="font-semibold text-[var(--theme-text-primary)]">
@@ -1124,6 +1182,7 @@ interface GridCardDrawerContentProps {
   setGroupPages: React.Dispatch<React.SetStateAction<Record<string, number>>>;
   startHoldTimer: (callback: () => void) => void;
   stopHoldTimer: () => void;
+  detectionLookup?: Map<number, GameCacheInfo> | null;
 }
 
 const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
@@ -1136,7 +1195,8 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
   groupPages,
   setGroupPages,
   startHoldTimer,
-  stopHoldTimer
+  stopHoldTimer,
+  detectionLookup
 }) => {
   const { t } = useTranslation();
   const { fetchAssociations, getAssociations, refreshVersion } = useDownloadAssociations();
@@ -1176,6 +1236,8 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
     !!primaryName &&
     !isGenericSteamTitle;
   const showEpicImage = group.type === 'game' && isEpic && Boolean(epicAppId) && !!primaryName;
+  const diskSizeBytes =
+    primaryDownload?.gameAppId && detectionLookup?.get(primaryDownload.gameAppId)?.total_size_bytes;
   const artworkId = showSteamImage ? steamAppId : showEpicImage ? `epic-${epicAppId}` : null;
   const hasArtwork = artworkId !== null && !imageErrors.has(artworkId);
   const storeLink = primaryDownload?.gameAppId
@@ -1353,10 +1415,41 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
             </div>
           </div>
 
-          {/* Data Volume */}
+          {/* Disk Usage */}
+          {diskSizeBytes ? (
+            <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)]">
+              <h5 className="text-xs font-semibold text-[var(--theme-text-muted)] mb-3 uppercase tracking-wide">
+                {t('downloads.tab.normal.stats.diskUsage', 'Disk Usage')}
+              </h5>
+              <div className="flex flex-col gap-4">
+                <div className="flex items-baseline justify-between">
+                  <span className="text-sm text-[var(--theme-text-secondary)]">
+                    {t('downloads.tab.normal.stats.dataOnDisk', 'Data on Disk')}
+                  </span>
+                  <span className="text-xl font-bold text-[var(--theme-primary)]">
+                    {formatBytes(diskSizeBytes)}
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between pt-2 border-t border-[var(--theme-border-secondary)]">
+                  <span className="text-xs text-[var(--theme-text-muted)]">
+                    {t('downloads.tab.normal.stats.cacheFiles', 'Cache Files')}
+                  </span>
+                  <span className="text-sm font-bold text-[var(--theme-text-secondary)]">
+                    {(primaryDownload?.gameAppId &&
+                      detectionLookup
+                        ?.get(primaryDownload.gameAppId)
+                        ?.cache_files_found?.toLocaleString()) ??
+                      '—'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {/* Network Traffic */}
           <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)]">
             <h5 className="text-xs font-semibold text-[var(--theme-text-muted)] mb-3 uppercase tracking-wide">
-              Data Volume
+              {t('downloads.tab.normal.stats.networkTraffic', 'Network Traffic')}
             </h5>
             <div className="space-y-3">
               <div className="flex items-center justify-between">
@@ -1640,7 +1733,8 @@ const NormalView: React.FC<NormalViewProps> = ({
   cardSize = 'medium',
   showCacheHitBar = true,
   showEventBadges = true,
-  bannerOnly = false
+  bannerOnly = false,
+  detectionLookup = null
 }) => {
   const { t } = useTranslation();
   const labels = { ...getDefaultSectionLabels(t), ...sectionLabels };
@@ -1674,6 +1768,7 @@ const NormalView: React.FC<NormalViewProps> = ({
       hasMultipleDatasources={hasMultipleDatasources}
       showCacheHitBar={showCacheHitBar}
       showEventBadges={showEventBadges}
+      detectionLookup={detectionLookup}
     />
   );
 
@@ -1795,6 +1890,7 @@ const NormalView: React.FC<NormalViewProps> = ({
               setGroupPages={setGroupPages}
               startHoldTimer={startHoldTimer}
               stopHoldTimer={stopHoldTimer}
+              detectionLookup={detectionLookup}
             />
           )}
         </Drawer>

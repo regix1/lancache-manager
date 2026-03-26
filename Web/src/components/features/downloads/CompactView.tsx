@@ -12,7 +12,7 @@ import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import DownloadBadges from './DownloadBadges';
 import { useSessionFilters } from './useSessionFilters';
 import SessionFilterBar from './SessionFilterBar';
-import type { Download, DownloadGroup } from '../../../types';
+import type { Download, DownloadGroup, GameCacheInfo } from '../../../types';
 
 interface CompactViewSectionLabels {
   multipleDownloads: string;
@@ -42,6 +42,7 @@ interface CompactViewProps {
   enableScrollIntoView?: boolean;
   showDatasourceLabels?: boolean;
   hasMultipleDatasources?: boolean;
+  detectionLookup?: Map<number, GameCacheInfo> | null;
 }
 
 interface GroupRowProps {
@@ -59,6 +60,7 @@ interface GroupRowProps {
   enableScrollIntoView: boolean;
   showDatasourceLabels: boolean;
   hasMultipleDatasources: boolean;
+  detectionLookup?: Map<number, GameCacheInfo> | null;
 }
 
 const GroupRow: React.FC<GroupRowProps> = ({
@@ -74,7 +76,8 @@ const GroupRow: React.FC<GroupRowProps> = ({
   stopHoldTimer,
   enableScrollIntoView,
   showDatasourceLabels,
-  hasMultipleDatasources
+  hasMultipleDatasources,
+  detectionLookup
 }) => {
   const { t } = useTranslation();
   const { fetchAssociations, getAssociations, refreshVersion } = useDownloadAssociations();
@@ -152,6 +155,9 @@ const GroupRow: React.FC<GroupRowProps> = ({
     showSteamImage && primaryDownload?.gameAppId
       ? `https://store.steampowered.com/app/${primaryDownload.gameAppId}`
       : null;
+  const isEvicted = group.downloads.some((d: Download) => d.isEvicted);
+  const diskSizeBytes =
+    primaryDownload?.gameAppId && detectionLookup?.get(primaryDownload.gameAppId)?.total_size_bytes;
 
   return (
     <div
@@ -160,7 +166,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
         isExpanded
           ? 'bg-[var(--theme-bg-secondary)] border-[var(--theme-primary)]'
           : 'hover:bg-[var(--theme-bg-tertiary)] border-transparent'
-      }`}
+      }${isEvicted ? ' opacity-60' : ''}`}
     >
       <button
         type="button"
@@ -200,6 +206,14 @@ const GroupRow: React.FC<GroupRowProps> = ({
                       {group.name}
                     </span>
                   )}
+                  {isEvicted && (
+                    <span className="themed-badge status-badge-error">{t('common.evicted')}</span>
+                  )}
+                  {diskSizeBytes ? (
+                    <span className="text-themed-muted text-xs ml-2">
+                      {t('dashboard.downloadsPanel.onDisk', { size: formatBytes(diskSizeBytes) })}
+                    </span>
+                  ) : null}
                 </div>
                 <div className="flex items-center justify-between pl-6 text-xs">
                   <div className="flex items-center gap-2">
@@ -261,6 +275,14 @@ const GroupRow: React.FC<GroupRowProps> = ({
                       {group.name}
                     </span>
                   )}
+                  {isEvicted && (
+                    <span className="themed-badge status-badge-error">{t('common.evicted')}</span>
+                  )}
+                  {diskSizeBytes ? (
+                    <span className="text-themed-muted text-xs ml-2">
+                      {t('dashboard.downloadsPanel.onDisk', { size: formatBytes(diskSizeBytes) })}
+                    </span>
+                  ) : null}
                   {shouldShowDatasource && (
                     <Tooltip
                       content={t('downloads.tab.compact.datasourceTooltip', {
@@ -442,7 +464,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                     )}
 
                     {/* Sessions header with count and pagination */}
-                    <div className="flex items-center justify-between mb-1.5">
+                    <div className="flex flex-wrap items-center justify-between mb-1.5">
                       <span className="text-[10px] uppercase tracking-wide font-semibold text-[var(--theme-text-muted)]">
                         {t('downloads.tab.compact.labels.sessions', { count: group.count })}
                         {excludedSessions > 0 && (
@@ -648,7 +670,8 @@ const CompactView = React.memo(function CompactView({
   groupByFrequency = true,
   enableScrollIntoView = true,
   showDatasourceLabels = true,
-  hasMultipleDatasources = false
+  hasMultipleDatasources = false,
+  detectionLookup = null
 }: CompactViewProps) {
   const { t } = useTranslation();
   const labels = { ...getDefaultSectionLabels(t), ...sectionLabels };
@@ -676,6 +699,7 @@ const CompactView = React.memo(function CompactView({
       enableScrollIntoView={enableScrollIntoView}
       showDatasourceLabels={showDatasourceLabels}
       hasMultipleDatasources={hasMultipleDatasources}
+      detectionLookup={detectionLookup}
     />
   );
 

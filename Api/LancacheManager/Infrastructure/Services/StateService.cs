@@ -114,6 +114,9 @@ public class StateService : IStateService
         // Client IP exclusion rules (mode controls stats-only vs hide)
         public List<ClientExclusionRule> ExcludedClientRules { get; set; } = new();
 
+        // Evicted data display mode (show/hide/remove)
+        public string EvictedDataMode { get; set; } = EvictedDataModes.Show;
+
         // LEGACY: SteamAuth migrated to separate file - kept for reading old state.json during migration
         // JsonIgnore(Condition = WhenWritingNull) excludes it when saving (always null after migration)
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -763,6 +766,8 @@ public class StateService : IStateService
             // Client IPs excluded from stats
             ExcludedClientIps = persisted.ExcludedClientIps ?? new List<string>(),
             ExcludedClientRules = ResolveExcludedClientRules(persisted),
+            // Evicted data display mode
+            EvictedDataMode = persisted.EvictedDataMode ?? EvictedDataModes.Show,
             // LEGACY: Only load SteamAuth if present (for migration from old state.json)
             SteamAuth = persisted.SteamAuth != null ? new SteamAuthState
             {
@@ -830,6 +835,8 @@ public class StateService : IStateService
             // Client IPs excluded from stats (legacy)
             ExcludedClientIps = BuildExcludedIpList(state.ExcludedClientRules, state.ExcludedClientIps),
             ExcludedClientRules = state.ExcludedClientRules ?? new List<ClientExclusionRule>(),
+            // Evicted data display mode
+            EvictedDataMode = state.EvictedDataMode ?? EvictedDataModes.Show,
             // LEGACY: Only persist SteamAuth if not null (will be null after migration)
             // JsonIgnore(WhenWritingNull) on property will exclude from JSON when null
             SteamAuth = state.SteamAuth != null ? new SteamAuthState
@@ -1074,6 +1081,16 @@ public class StateService : IStateService
     public List<string> GetHiddenClientIps()
     {
         return GetExcludedClientIps();
+    }
+
+    public string GetEvictedDataMode()
+    {
+        return GetState().EvictedDataMode;
+    }
+
+    public void SetEvictedDataMode(string mode)
+    {
+        UpdateState(state => state.EvictedDataMode = mode);
     }
 
     private static List<ClientExclusionRule> ResolveExcludedClientRules(PersistedState persisted)

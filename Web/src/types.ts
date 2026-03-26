@@ -58,6 +58,8 @@ export interface Download {
   durationSeconds?: number;
   /** Average download speed in bytes per second, calculated from total bytes and duration. */
   averageBytesPerSecond?: number;
+  /** Whether this download's cache files have been evicted from the lancache. */
+  isEvicted?: boolean;
 }
 
 export interface DownloadGroup {

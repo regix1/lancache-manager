@@ -8,8 +8,10 @@ import type {
   HourlyActivityResponse,
   HourlyActivityItem,
   CacheGrowthResponse,
-  CacheGrowthDataPoint
+  CacheGrowthDataPoint,
+  GameCacheInfo
 } from '../types';
+import type { CachedDetectionResponse } from '../contexts/DashboardDataContext/types';
 
 interface MockData {
   cacheInfo: CacheInfo;
@@ -189,6 +191,9 @@ class MockDataService {
         const durationMs = (totalBytes / downloadSpeed) * 1000;
         const endTime = new Date(startTime.getTime() + durationMs);
 
+        // ~8% of older downloads are evicted (only non-active, older ones)
+        const isEvicted = !!(hoursAgo > 200 && Math.random() < 0.08);
+
         download = {
           id: i + 1,
           service,
@@ -203,7 +208,8 @@ class MockDataService {
           cacheHitPercent: (cacheHitBytes / totalBytes) * 100,
           isActive: i < 3 && hoursAgo < 0.5, // First 3 recent downloads are active
           gameName,
-          gameAppId
+          gameAppId,
+          isEvicted
         };
       }
 
@@ -514,6 +520,48 @@ class MockDataService {
       hasDataDeletion: false,
       estimatedBytesDeleted: 0,
       cacheWasCleared: false
+    };
+  }
+
+  /**
+   * Generate mock game detection data matching the CachedDetectionResponse shape.
+   * The game_app_id values match STEAM_GAMES appIds so the detectionLookup Map
+   * can resolve "on disk" sizes for mock downloads.
+   */
+  static generateMockGameDetection(): CachedDetectionResponse {
+    const games: GameCacheInfo[] = STEAM_GAMES.map((game) => {
+      const appId = parseInt(game.appId, 10);
+      // Simulate on-disk size as 70-100% of full game size (some updates not fully cached)
+      const totalSizeBytes = Math.floor(game.size * (0.7 + Math.random() * 0.3));
+      const filesCount = Math.max(1, Math.floor(totalSizeBytes / (64 * 1024 * 1024))); // ~64MB per file
+
+      return {
+        game_app_id: appId,
+        game_name: game.name,
+        cache_files_found: filesCount,
+        total_size_bytes: totalSizeBytes,
+        depot_ids: [appId + 1],
+        sample_urls: [],
+        cache_file_paths: [],
+        datasources: ['Default'],
+        service: 'steam',
+        image_url: undefined
+      };
+    });
+
+    return {
+      hasCachedResults: true,
+      games,
+      services: [
+        {
+          service_name: 'steam',
+          cache_files_found: games.reduce((s, g) => s + g.cache_files_found, 0),
+          total_size_bytes: games.reduce((s, g) => s + g.total_size_bytes, 0)
+        }
+      ],
+      totalGamesDetected: games.length,
+      totalServicesDetected: 1,
+      lastDetectionTime: new Date().toISOString()
     };
   }
 

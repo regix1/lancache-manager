@@ -93,6 +93,10 @@ public interface IStateService
     bool? GetRequireAuthForMetrics();
     void SetRequireAuthForMetrics(bool? value);
 
+    // Evicted Data Mode Methods
+    string GetEvictedDataMode();
+    void SetEvictedDataMode(string mode);
+
     // Stats Exclusion Methods
     List<string> GetExcludedClientIps();
     void SetExcludedClientIps(List<string> ips);

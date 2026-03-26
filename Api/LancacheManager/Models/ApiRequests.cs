@@ -305,6 +305,11 @@ public class UpdateStatsExclusionsRequest
     public List<string> Ips { get; set; } = new();
 }
 
+public class UpdateEvictionSettingsRequest
+{
+    public string EvictedDataMode { get; set; } = string.Empty;
+}
+
 #endregion
 
 #region Theme Requests

@@ -66,7 +66,6 @@ public class CacheController : ControllerBase
     /// <summary>
     /// GET /api/cache - Get cache information (size, path, etc.)
     /// </summary>
-    [Authorize(Policy = "AdminOnly")]
     [HttpGet]
     public async Task<IActionResult> GetCacheInfoAsync()
     {

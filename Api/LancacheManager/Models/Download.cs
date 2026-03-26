@@ -22,6 +22,7 @@ public class Download : IUtcMarkable
     public long CacheHitBytes { get; set; }
     public long CacheMissBytes { get; set; }
     public bool IsActive { get; set; }
+    public bool IsEvicted { get; set; } = false;
 
     // New fields for game information
     public uint? GameAppId { get; set; }

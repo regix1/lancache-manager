@@ -2,6 +2,7 @@ import React from 'react';
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { EnhancedDropdown } from './EnhancedDropdown';
+import { useMediaQuery } from '../../hooks/useMediaQuery';
 
 interface PaginationProps {
   currentPage: number;
@@ -35,8 +36,12 @@ export const Pagination: React.FC<PaginationProps> = React.memo(
     totalDownloads
   }) => {
     const { t } = useTranslation();
+    const isMobile = useMediaQuery('(max-width: 639px)');
 
-    // Calculate offset based on parent padding
+    // Force compact mode on mobile viewports
+    const effectiveCompact = compact || isMobile;
+
+    // CSS class for parent padding offset (applied via CSS custom property)
     const paddingValues = {
       none: '0',
       sm: '0.75rem', // p-3
@@ -49,8 +54,8 @@ export const Pagination: React.FC<PaginationProps> = React.memo(
     const startItem = (currentPage - 1) * itemsPerPage + 1;
     const endItem = Math.min(currentPage * itemsPerPage, totalItems);
 
-    // Compact mode - simplified layout for narrow containers
-    if (compact) {
+    // Compact mode - simplified layout for narrow containers and mobile
+    if (effectiveCompact) {
       const compactContent = (
         <div className={`flex items-center justify-between gap-2 ${!showCard ? className : ''}`}>
           {/* Page info */}
@@ -91,15 +96,8 @@ export const Pagination: React.FC<PaginationProps> = React.memo(
 
       return (
         <div
-          className={`relative mt-4 z-20 pt-3 bg-[var(--theme-card-bg)] border-t border-[var(--theme-border-primary)] rounded-b-xl ${className}`}
-          style={{
-            marginLeft: `-${offset}`,
-            marginRight: `-${offset}`,
-            marginBottom: `-${offset}`,
-            paddingLeft: offset,
-            paddingRight: offset,
-            paddingBottom: offset
-          }}
+          className={`pagination-card-bleed relative mt-4 z-20 pt-3 bg-[var(--theme-card-bg)] border-t border-[var(--theme-border-primary)] rounded-b-xl overflow-x-auto ${className}`}
+          style={{ '--pagination-offset': offset } as React.CSSProperties}
         >
           {compactContent}
         </div>
@@ -347,16 +345,8 @@ export const Pagination: React.FC<PaginationProps> = React.memo(
 
     return (
       <div
-        className={`relative mt-4 z-20 pt-4 bg-[var(--theme-card-bg)] border-t border-[var(--theme-border-primary)] rounded-b-xl ${className}`}
-        style={{
-          // Use negative margins to extend beyond parent padding and cover rounded corners
-          marginLeft: `-${offset}`,
-          marginRight: `-${offset}`,
-          marginBottom: `-${offset}`,
-          paddingLeft: offset,
-          paddingRight: offset,
-          paddingBottom: offset
-        }}
+        className={`pagination-card-bleed relative mt-4 z-20 pt-4 bg-[var(--theme-card-bg)] border-t border-[var(--theme-border-primary)] rounded-b-xl overflow-x-auto ${className}`}
+        style={{ '--pagination-offset': offset } as React.CSSProperties}
       >
         {content}
       </div>

@@ -60,6 +60,11 @@ public class GameSpeedInfo
     /// </summary>
     public double CacheHitPercent => TotalBytes > 0 ? (double)CacheHitBytes / TotalBytes * 100 : 0;
 
+    /// <summary>
+    /// Whether this game's cache data has been evicted by nginx
+    /// </summary>
+    public bool IsEvicted { get; set; }
+
 }
 
 /// <summary>

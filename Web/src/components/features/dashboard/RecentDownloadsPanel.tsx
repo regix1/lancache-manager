@@ -15,7 +15,7 @@ import { useSpeed } from '@contexts/SpeedContext/useSpeed';
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import EventBadge from '../downloads/EventBadge';
-import type { Download, EventSummary, GameSpeedInfo } from '@/types';
+import type { Download, EventSummary, GameSpeedInfo, GameCacheInfo } from '@/types';
 
 interface DownloadGroup {
   id: string;
@@ -37,6 +37,7 @@ interface RecentDownloadsPanelProps {
   downloads?: Download[];
   timeRange?: string;
   glassmorphism?: boolean;
+  detectionLookup?: Map<number, GameCacheInfo> | null;
 }
 
 // Active download item component using real-time speed data
@@ -93,9 +94,16 @@ interface RecentDownloadItemProps {
   item: DownloadGroup | Download;
   events?: EventSummary[];
   index: number;
+  detectionLookup?: Map<number, GameCacheInfo> | null;
 }
 
-const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({ item, events = [], index }) => {
+const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({
+  item,
+  events = [],
+  index,
+  detectionLookup
+}) => {
+  const { t } = useTranslation();
   const isGroup = 'downloads' in item;
   const display = isGroup
     ? {
@@ -113,7 +121,9 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({ item, events = 
             d.gameName &&
             d.gameName !== 'Unknown Steam Game' &&
             !d.gameName.match(/^Steam App \d+$/)
-        )
+        ),
+        isEvicted: item.downloads.some((d: Download) => d.isEvicted),
+        gameAppId: item.downloads.find((d: Download) => d.gameAppId)?.gameAppId ?? null
       }
     : {
         service: item.service,
@@ -132,13 +142,21 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({ item, events = 
         hasGameName:
           item.gameName &&
           item.gameName !== 'Unknown Steam Game' &&
-          !item.gameName.match(/^Steam App \d+$/)
+          !item.gameName.match(/^Steam App \d+$/),
+        isEvicted: item.isEvicted ?? false,
+        gameAppId: item.gameAppId ?? null
       };
 
   const formattedTime = useFormattedDateTime(display.startTime);
 
+  const diskSizeBytes =
+    display.gameAppId && detectionLookup?.get(display.gameAppId)?.total_size_bytes;
+
   return (
-    <div className="download-item recent-item" style={{ animationDelay: `${index * 30}ms` }}>
+    <div
+      className={`download-item recent-item${display.isEvicted ? ' evicted-row' : ''}`}
+      style={{ animationDelay: `${index * 30}ms` }}
+    >
       <div className="item-left">
         <div className="item-icon">
           <HardDrive size={16} />
@@ -147,6 +165,9 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({ item, events = 
           <div className="item-name">
             {display.name}
             {isGroup && display.count > 1 && <span className="count-badge">{display.count}×</span>}
+            {display.isEvicted && (
+              <span className="themed-badge status-badge-error">{t('common.evicted')}</span>
+            )}
           </div>
           <div className="item-meta">
             <span
@@ -162,6 +183,14 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({ item, events = 
                 display.clientInfo
               )}
             </span>
+            {diskSizeBytes && diskSizeBytes > 0 && (
+              <>
+                <span className="meta-separator">•</span>
+                <span className="meta-text">
+                  {t('dashboard.downloadsPanel.onDisk', { size: formatBytes(diskSizeBytes) })}
+                </span>
+              </>
+            )}
             {events.length > 0 &&
               events
                 .slice(0, 1)

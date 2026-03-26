@@ -1,6 +1,13 @@
 import { useContext } from 'react';
 import { DashboardDataContext } from './types';
-import type { CacheInfo, ClientStat, ServiceStat, DashboardStats, Download } from '../../types';
+import type {
+  CacheInfo,
+  ClientStat,
+  ServiceStat,
+  DashboardStats,
+  Download,
+  GameCacheInfo
+} from '../../types';
 
 export const useStats = () => {
   const context = useContext(DashboardDataContext);
@@ -37,5 +44,25 @@ export const useDownloads = () => {
     refreshDownloads: async () => context.refreshData(true),
     updateDownloads: (updater: { latestDownloads?: (prev: Download[]) => Download[] }) =>
       context.updateData(updater)
+  };
+};
+
+export const useGameDetection = (): {
+  detectionLookup: Map<number, GameCacheInfo> | null;
+  gameDetectionData: {
+    hasCachedResults: boolean;
+    games?: GameCacheInfo[];
+    lastDetectionTime?: string;
+  } | null;
+  isLoading: boolean;
+} => {
+  const context = useContext(DashboardDataContext);
+  if (!context) {
+    throw new Error('useGameDetection must be used within DashboardDataProvider');
+  }
+  return {
+    detectionLookup: context.gameDetectionLookup,
+    gameDetectionData: context.gameDetectionData,
+    isLoading: context.loading
   };
 };

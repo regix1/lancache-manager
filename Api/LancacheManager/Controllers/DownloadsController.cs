@@ -46,6 +46,7 @@ public class DownloadsController : ControllerBase
             ? new List<int> { eventId.Value }
             : new List<int>();
         var excludedClientIps = _stateRepository.GetExcludedClientIps();
+        var evictedMode = _stateRepository.GetEvictedDataMode();
 
         try
         {
@@ -72,22 +73,28 @@ public class DownloadsController : ControllerBase
                 {
                     // Use subquery to atomically fetch downloads with event associations
                     // This eliminates the race condition by using a single query
-                    downloads = await _context.Downloads
-                        .AsNoTracking()
-                        .Where(d => _context.EventDownloads
-                            .Where(ed => eventIdList.Contains(ed.EventId))
-                            .Select(ed => ed.DownloadId)
-                            .Contains(d.Id))
-                        .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate)
+                    var eventQuery = ApplyEvictedFilter(
+                        _context.Downloads
+                            .AsNoTracking()
+                            .Where(d => _context.EventDownloads
+                                .Where(ed => eventIdList.Contains(ed.EventId))
+                                .Select(ed => ed.DownloadId)
+                                .Contains(d.Id))
+                            .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate),
+                        evictedMode);
+                    downloads = await eventQuery
                         .OrderByDescending(d => d.StartTimeUtc)
                         .Take(count)
                         .ToListAsync();
                 }
                 else
                 {
-                    downloads = await _context.Downloads
-                        .AsNoTracking()
-                        .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate)
+                    var baseQuery = ApplyEvictedFilter(
+                        _context.Downloads
+                            .AsNoTracking()
+                            .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate),
+                        evictedMode);
+                    downloads = await baseQuery
                         .OrderByDescending(d => d.StartTimeUtc)
                         .Take(count)
                         .ToListAsync();
@@ -109,6 +116,12 @@ public class DownloadsController : ControllerBase
                 .Where(d => !string.Equals(d.ClientIp, PrefillToken, StringComparison.OrdinalIgnoreCase))
                 .Where(d => !string.Equals(d.Datasource, PrefillToken, StringComparison.OrdinalIgnoreCase))
                 .ToList();
+
+            // Apply eviction filter (hide/remove modes exclude evicted downloads)
+            if (evictedMode == EvictedDataModes.Hide || evictedMode == EvictedDataModes.Remove)
+            {
+                downloads = downloads.Where(d => !d.IsEvicted).ToList();
+            }
 
             // Return just the array - frontend will use array.length for actual count
             return Ok(downloads);
@@ -139,6 +152,13 @@ public class DownloadsController : ControllerBase
 
         if (string.Equals(download.ClientIp, PrefillToken, StringComparison.OrdinalIgnoreCase) ||
             string.Equals(download.Datasource, PrefillToken, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new NotFoundException("Download");
+        }
+
+        // Hide evicted downloads in hide/remove mode
+        var evictedMode = _stateRepository.GetEvictedDataMode();
+        if ((evictedMode == EvictedDataModes.Hide || evictedMode == EvictedDataModes.Remove) && download.IsEvicted)
         {
             throw new NotFoundException("Download");
         }
@@ -223,6 +243,7 @@ public class DownloadsController : ControllerBase
         [FromQuery] long? endTime = null)
     {
         var excludedClientIps = _stateRepository.GetExcludedClientIps();
+        var evictedMode = _stateRepository.GetEvictedDataMode();
         var startDate = startTime.HasValue
             ? startTime.Value.FromUnixSeconds()
             : DateTime.MinValue;
@@ -232,12 +253,16 @@ public class DownloadsController : ControllerBase
 
         // Use a single query with projection to atomically fetch downloads and their event associations
         // This eliminates the race condition by avoiding separate queries
-        var downloadsWithEvents = await _context.Downloads
+        var baseQuery = _context.Downloads
             .AsNoTracking()
             .Where(d => excludedClientIps.Count == 0 || !excludedClientIps.Contains(d.ClientIp))
             .Where(d => d.ClientIp != PrefillToken && d.ClientIp != "Prefill")
             .Where(d => d.Datasource != PrefillToken && d.Datasource != "Prefill")
-            .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate)
+            .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate);
+
+        baseQuery = ApplyEvictedFilter(baseQuery, evictedMode);
+
+        var downloadsWithEvents = await baseQuery
             .OrderByDescending(d => d.StartTimeUtc)
             .Take(count)
             .Select(d => new
@@ -306,6 +331,10 @@ public class DownloadsController : ControllerBase
                 {
                     baseQuery = baseQuery.Where(d => !excludedClientIps.Contains(d.ClientIp));
                 }
+
+                // Apply eviction filter (hide/remove modes exclude evicted downloads)
+                var evictedMode = _stateRepository.GetEvictedDataMode();
+                baseQuery = ApplyEvictedFilter(baseQuery, evictedMode);
 
                 // Filter: hide localhost
                 if (query.HideLocalhost)
@@ -500,5 +529,14 @@ public class DownloadsController : ControllerBase
             _logger.LogError(ex, "Error getting retro downloads");
             return Ok(new RetroDownloadResponse());
         }
+    }
+
+    private static IQueryable<Download> ApplyEvictedFilter(IQueryable<Download> query, string evictedMode)
+    {
+        if (evictedMode == EvictedDataModes.Hide || evictedMode == EvictedDataModes.Remove)
+        {
+            return query.Where(d => !d.IsEvicted);
+        }
+        return query;
     }
 }

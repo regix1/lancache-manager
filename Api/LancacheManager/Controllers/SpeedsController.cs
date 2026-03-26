@@ -40,10 +40,7 @@ public class SpeedsController : ControllerBase
         var snapshot = _speedTrackerService.GetCurrentSnapshot();
 
         var excludedClientIps = _stateRepository.GetExcludedClientIps();
-        if (excludedClientIps.Count == 0)
-        {
-            return Ok(snapshot);
-        }
+        var evictedMode = _stateRepository.GetEvictedDataMode();
 
         var filteredClients = snapshot.ClientSpeeds
             .Where(c => !excludedClientIps.Contains(c.ClientIp))
@@ -52,6 +49,12 @@ public class SpeedsController : ControllerBase
         var filteredGames = snapshot.GameSpeeds
             .Where(g => string.IsNullOrWhiteSpace(g.ClientIp) || !excludedClientIps.Contains(g.ClientIp))
             .ToList();
+
+        // Apply eviction filter (hide/remove modes exclude evicted entries from speed data)
+        if (evictedMode == EvictedDataModes.Hide || evictedMode == EvictedDataModes.Remove)
+        {
+            filteredGames = filteredGames.Where(g => !g.IsEvicted).ToList();
+        }
 
         var totalBytesPerSecond = filteredClients.Sum(c => c.BytesPerSecond);
         var entriesInWindow = filteredGames.Sum(g => g.RequestCount);
@@ -85,12 +88,17 @@ public class SpeedsController : ControllerBase
 
         await using var context = await _contextFactory.CreateDbContextAsync();
         var excludedClientIps = _stateRepository.GetExcludedClientIps();
+        var evictedMode = _stateRepository.GetEvictedDataMode();
 
         // Query downloads within the time period
-        var downloads = await context.Downloads
+        var query = context.Downloads
             .Where(d => d.EndTimeUtc >= periodStart && d.StartTimeUtc <= periodEnd)
-            .Where(d => excludedClientIps.Count == 0 || !excludedClientIps.Contains(d.ClientIp))
-            .ToListAsync();
+            .Where(d => excludedClientIps.Count == 0 || !excludedClientIps.Contains(d.ClientIp));
+
+        // Apply eviction filter (hide/remove modes exclude evicted downloads)
+        query = ApplyEvictedFilter(query, evictedMode);
+
+        var downloads = await query.ToListAsync();
 
         if (downloads.Count == 0)
         {
@@ -118,4 +126,12 @@ public class SpeedsController : ControllerBase
         });
     }
 
+    private static IQueryable<Download> ApplyEvictedFilter(IQueryable<Download> query, string evictedMode)
+    {
+        if (evictedMode == EvictedDataModes.Hide || evictedMode == EvictedDataModes.Remove)
+        {
+            return query.Where(d => !d.IsEvicted);
+        }
+        return query;
+    }
 }

@@ -1436,4 +1436,30 @@
     font-size: 0.875rem;
     color: var(--theme-text-muted);
   }
+
+  /* ===== PAGINATION - CARD BLEED & MOBILE ===== */
+
+  /*
+   * Pagination card bleed: extends pagination bar to parent card edges.
+   * Uses CSS custom property --pagination-offset set inline by the component.
+   * Negative margins only apply on md+ screens to avoid mobile overflow.
+   */
+  .pagination-card-bleed {
+    padding-left: var(--pagination-offset, 1.5rem);
+    padding-right: var(--pagination-offset, 1.5rem);
+    padding-bottom: var(--pagination-offset, 1.5rem);
+  }
+
+  @media (min-width: 768px) {
+    .pagination-card-bleed {
+      margin-left: calc(-1 * var(--pagination-offset, 1.5rem));
+      margin-right: calc(-1 * var(--pagination-offset, 1.5rem));
+      margin-bottom: calc(-1 * var(--pagination-offset, 1.5rem));
+    }
+  }
+
+  /* Evicted row dimming for dashboard recent downloads */
+  .evicted-row {
+    opacity: 0.6;
+  }
 }

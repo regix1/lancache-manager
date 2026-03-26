@@ -38,7 +38,12 @@ import { UnknownServiceIcon } from '@components/ui/UnknownServiceIcon';
 import { GameImage } from '@components/common/GameImage';
 import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import DownloadBadges from './DownloadBadges';
-import type { Download as DownloadType, DownloadGroup, EventSummary } from '../../../types';
+import type {
+  Download as DownloadType,
+  DownloadGroup,
+  EventSummary,
+  GameCacheInfo
+} from '../../../types';
 
 type SortOrder =
   | 'latest'
@@ -85,6 +90,7 @@ interface RetroViewProps {
   aestheticMode?: boolean;
   showDatasourceLabels?: boolean;
   hasMultipleDatasources?: boolean;
+  detectionLookup?: Map<number, GameCacheInfo> | null;
 }
 
 const STORAGE_KEY = 'retro-view-column-widths';
@@ -248,6 +254,7 @@ interface DepotGroupedData {
   datasource?: string;
   averageBytesPerSecond: number;
   downloadIds: number[]; // Track original download IDs for event associations
+  isEvicted?: boolean;
 }
 
 // Group items by depot ID for retro view display
@@ -286,12 +293,14 @@ const groupByDepot = (
             datasource: download.datasource,
             averageBytesPerSecond: 0,
             downloadIds: [],
+            isEvicted: download.isEvicted,
             _weightedSpeedSum: 0,
             _speedBytesSum: 0
           };
         }
 
         const group = depotGroups[depotKey];
+        if (download.isEvicted) group.isEvicted = true;
         group.downloadIds.push(download.id);
         group.cacheHitBytes += download.cacheHitBytes || 0;
         group.cacheMissBytes += download.cacheMissBytes || 0;
@@ -339,12 +348,14 @@ const groupByDepot = (
           datasource: download.datasource,
           averageBytesPerSecond: 0,
           downloadIds: [],
+          isEvicted: download.isEvicted,
           _weightedSpeedSum: 0,
           _speedBytesSum: 0
         };
       }
 
       const group = depotGroups[depotKey];
+      if (download.isEvicted) group.isEvicted = true;
       group.downloadIds.push(download.id);
       group.cacheHitBytes += download.cacheHitBytes || 0;
       group.cacheMissBytes += download.cacheMissBytes || 0;
@@ -600,7 +611,8 @@ const RetroView = memo(
         showBannerColumn,
         aestheticMode = false,
         showDatasourceLabels = true,
-        hasMultipleDatasources = false
+        hasMultipleDatasources = false,
+        detectionLookup = null
       },
       ref
     ) => {
@@ -1192,6 +1204,7 @@ const RetroView = memo(
                   onPageChange={onPageChange}
                   itemLabel="depot groups"
                   showCard={false}
+                  compact={!isDesktop}
                 />
               </div>
             </div>
@@ -1200,7 +1213,7 @@ const RetroView = memo(
           <div ref={fadeContainerRef} className="page-content-transition">
             <div
               ref={containerRef}
-              className="rounded-lg border border-[var(--theme-border-primary)] overflow-hidden retro-table-container bg-[var(--theme-card-bg)]"
+              className="rounded-lg border border-[var(--theme-border-primary)] overflow-x-auto retro-table-container bg-[var(--theme-card-bg)]"
             >
               {/* Keyframe styles for animations - only float animation for empty state */}
               <style>{`
@@ -1354,7 +1367,9 @@ const RetroView = memo(
 
                       return (
                         <div key={data.id}>
-                          <div className="w-full hover:bg-[var(--theme-bg-tertiary)]/50 group relative border-b border-[var(--theme-border-secondary)]">
+                          <div
+                            className={`w-full hover:bg-[var(--theme-bg-tertiary)]/50 group relative border-b border-[var(--theme-border-secondary)]${data.isEvicted ? ' opacity-60' : ''}`}
+                          >
                             {/* Left accent border based on efficiency */}
                             <div
                               className="absolute left-0 top-0 bottom-0 w-1 opacity-70"
@@ -1413,6 +1428,20 @@ const RetroView = memo(
                                     >
                                       {data.gameName || data.service}
                                     </span>
+                                    {data.isEvicted && (
+                                      <span className="themed-badge status-badge-error">
+                                        {t('common.evicted')}
+                                      </span>
+                                    )}
+                                    {detectionLookup?.get(data.gameAppId!)?.total_size_bytes ? (
+                                      <span className="text-themed-muted text-xs ml-2">
+                                        {t('dashboard.downloadsPanel.onDisk', {
+                                          size: formatBytes(
+                                            detectionLookup.get(data.gameAppId!)!.total_size_bytes
+                                          )
+                                        })}
+                                      </span>
+                                    ) : null}
                                     {data.requestCount > 1 && (
                                       <span className="text-xs text-[var(--theme-text-muted)] truncate">
                                         {t('downloads.tab.retro.clientCount', {
@@ -1552,6 +1581,20 @@ const RetroView = memo(
                                   <div className="flex-1 min-w-0 overflow-hidden">
                                     <div className="text-sm font-medium text-[var(--theme-text-primary)] truncate">
                                       {data.gameName || data.service}
+                                      {data.isEvicted && (
+                                        <span className="themed-badge status-badge-error">
+                                          {t('common.evicted')}
+                                        </span>
+                                      )}
+                                      {detectionLookup?.get(data.gameAppId!)?.total_size_bytes ? (
+                                        <span className="text-themed-muted text-xs ml-2">
+                                          {t('dashboard.downloadsPanel.onDisk', {
+                                            size: formatBytes(
+                                              detectionLookup.get(data.gameAppId!)!.total_size_bytes
+                                            )
+                                          })}
+                                        </span>
+                                      ) : null}
                                       {data.requestCount > 1 && (
                                         <span className="ml-2 text-xs text-[var(--theme-text-muted)]">
                                           (

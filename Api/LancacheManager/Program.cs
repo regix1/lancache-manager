@@ -405,6 +405,7 @@ builder.Services.AddSingletonHostedService<OperationStateService>();
 // Register background services
 builder.Services.AddHostedService<LiveLogMonitorService>();
 builder.Services.AddHostedService<DownloadCleanupService>();
+builder.Services.AddHostedService<CacheReconciliationService>();
 builder.Services.AddHostedService<DirectoryPermissionMonitorService>();
 
 // Register RustSpeedTrackerService for real-time per-game download speed monitoring (uses Rust for faster parsing)

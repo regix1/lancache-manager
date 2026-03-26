@@ -60,8 +60,15 @@
 
   /* Badge Base Class */
   .themed-badge {
-    @apply text-xs px-2 py-1 font-medium;
-    border-radius: var(--theme-border-radius);
+    @apply px-1.5 py-0.5 font-medium;
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    flex-shrink: 0;
+    font-size: 0.65rem;
+    line-height: 1.2;
+    border-radius: 3px;
+    white-space: nowrap;
   }
 
   /* Responsive Hit Rate Badge Helper */
@@ -89,31 +96,26 @@
   .session-badge-user {
     background-color: var(--theme-user-session-bg);
     color: var(--theme-user-session);
-    border-radius: var(--theme-border-radius-xl);
   }
 
   .session-badge-guest {
     background-color: var(--theme-guest-session-bg);
     color: var(--theme-guest-session);
-    border-radius: var(--theme-border-radius-xl);
   }
 
   /* Status badges */
   .status-badge-warning {
     background-color: var(--theme-warning-bg);
     color: var(--theme-warning-text);
-    border-radius: var(--theme-border-radius-xl);
   }
 
   .status-badge-error {
     background-color: var(--theme-error-bg);
     color: var(--theme-error-text);
-    border-radius: var(--theme-border-radius-xl);
   }
 
   .status-badge-success {
     background-color: var(--theme-success-bg);
     color: var(--theme-success-text);
-    border-radius: var(--theme-border-radius-xl);
   }
 }

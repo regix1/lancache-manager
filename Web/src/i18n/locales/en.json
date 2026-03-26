@@ -77,6 +77,7 @@
     "jumpTo": "Jump to...",
     "hideThisHint": "Hide this hint",
     "remove": "Remove",
+    "evicted": "Evicted",
     "bytes": {
       "units": ["B", "KB", "MB", "GB", "TB"],
       "zero": "0 {{unit}}"
@@ -409,7 +410,10 @@
       "startedAt": "started at {{size}}",
       "snapshots": "{{count}} snapshot",
       "snapshots_plural": "{{count}} snapshots",
-      "noSnapshotsYet": "No snapshots yet"
+      "noSnapshotsYet": "No snapshots yet",
+      "gamesOnDisk": "Games on Disk",
+      "gamesDetected": "{{count}} games detected",
+      "onDisk": "{{size}} on disk"
     },
     "statCards": {
       "totalCache": {
@@ -443,6 +447,10 @@
       "cacheHitRatio": {
         "term": "Cache Hit Ratio",
         "description": "How much of the data came from cache vs. the internet. 100% means everything was already cached."
+      },
+      "gamesOnDisk": {
+        "term": "Games on Disk",
+        "description": "Total size of cache files that belong to identified games. This is a subset of Used Space — it only counts files matched to a known game during a Game Cache Detection scan. Unidentified cache files (updates, non-game content) are not included."
       }
     },
     "downloadsPanel": {
@@ -460,6 +468,7 @@
       "game_plural": "games",
       "client": "client",
       "client_plural": "clients",
+      "onDisk": "{{size}} on disk",
       "downloading": "downloading",
       "refresh": "Refresh",
       "showing": "Showing <strong>{{displayed}}</strong> of <strong>{{total}}</strong>",
@@ -1090,7 +1099,18 @@
       "activeTab": "Active",
       "recentTab": "Recent",
       "todayLabel": "Today:",
-      "disabled": "Disabled"
+      "disabled": "Disabled",
+      "hitRateLabel": "Hit Rate:",
+      "help": {
+        "totalBytes": {
+          "title": "Total Bytes Served",
+          "description": "Total bytes served by the cache (hits + misses combined across all clients). This is not disk usage on the cache machine."
+        },
+        "hitRate": {
+          "title": "Cache Hit Rate",
+          "description": "Cache hit ratio — percentage of data served from cache vs. downloaded from the internet."
+        }
+      }
     },
     "active": {
       "empty": {
@@ -1361,6 +1381,19 @@
           "noUnresolved": "No unresolved Epic downloads found"
         },
         "dataImport": "Data Import",
+        "evictedCacheData": "Evicted Cache Data",
+        "evictedCacheDescription": "Controls how games that have been evicted from the nginx cache are handled. Eviction happens automatically when the cache disk fills up.",
+        "evictionModes": {
+          "show": "Show",
+          "showDescription": "Evicted games remain visible on all pages with an 'Evicted' badge and are included in stat calculations",
+          "hide": "Hide",
+          "hideDescription": "Evicted games are hidden from all pages and excluded from all stat calculations",
+          "remove": "Remove",
+          "removeDescription": "Evicted games are permanently deleted from the database"
+        },
+        "evictionSaveSuccess": "Eviction mode updated successfully",
+        "evictionSaveError": "Failed to update eviction mode",
+        "evictionLoadError": "Failed to load eviction settings",
         "databaseManagement": "Database Management",
         "selectedTables": "{{count}} table(s) selected",
         "noTablesSelected": "No tables selected",

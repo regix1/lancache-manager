@@ -125,6 +125,15 @@ public class StatsController : ControllerBase
         return query.Where(d => !hiddenClientIps.Contains(d.ClientIp));
     }
 
+    private static IQueryable<Download> ApplyEvictedFilter(IQueryable<Download> query, string evictedMode)
+    {
+        if (evictedMode == EvictedDataModes.Hide || evictedMode == EvictedDataModes.Remove)
+        {
+            return query.Where(d => !d.IsEvicted);
+        }
+        return query;
+    }
+
     private static IQueryable<Download> ApplyPrefillFilter(IQueryable<Download> query)
     {
         return query
@@ -256,6 +265,9 @@ public class StatsController : ControllerBase
         // Filter out hidden IPs completely, but include excluded IPs so they can be shown with a badge.
         var hiddenClientIps = includeExcluded ? new List<string>() : _stateRepository.GetHiddenClientIps();
         query = ApplyHiddenClientFilter(query, hiddenClientIps);
+
+        var evictedMode = _stateRepository.GetEvictedDataMode();
+        query = ApplyEvictedFilter(query, evictedMode);
 
         if (startTime.HasValue)
         {
@@ -410,6 +422,36 @@ public class StatsController : ControllerBase
         });
     }
 
+    [HttpGet("eviction")]
+    public IActionResult GetEvictionSettings()
+    {
+        var evictedDataMode = _stateRepository.GetEvictedDataMode();
+        return Ok(new { evictedDataMode });
+    }
+
+    [HttpPut("eviction")]
+    [Authorize(Policy = "AdminOnly")]
+    public async Task<IActionResult> UpdateEvictionSettingsAsync([FromBody] UpdateEvictionSettingsRequest request)
+    {
+        var validModes = new[] { EvictedDataModes.Show, EvictedDataModes.Hide, EvictedDataModes.Remove };
+        if (string.IsNullOrEmpty(request.EvictedDataMode) || !validModes.Contains(request.EvictedDataMode))
+        {
+            return BadRequest(new
+            {
+                error = "Invalid eviction mode",
+                message = $"Mode must be one of: {string.Join(", ", validModes)}",
+            });
+        }
+
+        _stateRepository.SetEvictedDataMode(request.EvictedDataMode);
+        // Notify clients to refresh downloads/stats since eviction mode affects all tabs
+        await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, new
+        {
+            reason = "eviction-updated"
+        });
+        return Ok(new { evictedDataMode = request.EvictedDataMode });
+    }
+
     /// <summary>
     /// Creates a ClientStatsWithGroup object with calculated metrics
     /// </summary>
@@ -463,6 +505,9 @@ public class StatsController : ControllerBase
         var hiddenClientIps = _stateRepository.GetHiddenClientIps();
         var statsExcludedOnlyIps = _stateRepository.GetStatsExcludedOnlyClientIps();
         query = ApplyHiddenClientFilter(query, hiddenClientIps);
+
+        var evictedMode = _stateRepository.GetEvictedDataMode();
+        query = ApplyEvictedFilter(query, evictedMode);
 
         // Apply event filter if provided (filters to only tagged downloads)
         HashSet<int>? eventDownloadIds = eventIdList.Count > 0 ? await GetEventDownloadIdsAsync(eventIdList) : null;
@@ -521,6 +566,7 @@ public class StatsController : ControllerBase
         var eventIdList = ParseEventId(eventId);
         var hiddenClientIps = _stateRepository.GetHiddenClientIps();
         var statsExcludedOnlyIps = _stateRepository.GetStatsExcludedOnlyClientIps();
+        var evictedMode = _stateRepository.GetEvictedDataMode();
 
         // Use Unix timestamps if provided, otherwise return ALL data (no time filter)
         // This ensures consistency: frontend always provides timestamps for time-filtered queries
@@ -542,7 +588,7 @@ public class StatsController : ControllerBase
 
         // Build the base query for period-specific metrics
         // Filter out hidden IPs completely, but include excluded IPs (they'll be excluded from calculations)
-        var downloadsQuery = ApplyHiddenClientFilter(_context.Downloads.AsNoTracking(), hiddenClientIps);
+        var downloadsQuery = ApplyEvictedFilter(ApplyHiddenClientFilter(_context.Downloads.AsNoTracking(), hiddenClientIps), evictedMode);
 
         // Apply event filter if provided (filters to only tagged downloads)
         HashSet<int>? eventDownloadIds = eventIdList.Count > 0 ? await GetEventDownloadIdsAsync(eventIdList) : null;
@@ -560,7 +606,7 @@ public class StatsController : ControllerBase
         // Calculate ALL-TIME totals from Downloads table directly (no cache)
         // Note: All-time totals should NOT be filtered by event - they represent overall system stats
         // Filter out hidden IPs, but exclude stats-excluded IPs from calculations
-        var allTimeQuery = ApplyHiddenClientFilter(_context.Downloads.AsNoTracking(), hiddenClientIps);
+        var allTimeQuery = ApplyEvictedFilter(ApplyHiddenClientFilter(_context.Downloads.AsNoTracking(), hiddenClientIps), evictedMode);
         var totalHitBytes = await SumCacheHitBytesExcludingAsync(allTimeQuery, statsExcludedOnlyIps);
         var totalMissBytes = await SumCacheMissBytesExcludingAsync(allTimeQuery, statsExcludedOnlyIps);
 
@@ -571,7 +617,7 @@ public class StatsController : ControllerBase
 
         // Get top service from Downloads table (not cached ServiceStats)
         // Exclude stats-excluded IPs from the sum calculation
-        var topServiceQuery = ApplyHiddenClientFilter(_context.Downloads.AsNoTracking(), hiddenClientIps);
+        var topServiceQuery = ApplyEvictedFilter(ApplyHiddenClientFilter(_context.Downloads.AsNoTracking(), hiddenClientIps), evictedMode);
         var topServiceGroups = await topServiceQuery
             .GroupBy(d => d.Service)
             .Select(g => new { Service = g.Key, TotalBytes = g.Sum(d => (long?)(d.CacheHitBytes + d.CacheMissBytes)) ?? 0L })
@@ -602,7 +648,7 @@ public class StatsController : ControllerBase
             .FirstOrDefault();
 
         // Active downloads and unique clients (exclude stats-excluded IPs from counts)
-        var activeDownloadsQuery = ApplyHiddenClientFilter(_context.Downloads.AsNoTracking(), hiddenClientIps)
+        var activeDownloadsQuery = ApplyEvictedFilter(ApplyHiddenClientFilter(_context.Downloads.AsNoTracking(), hiddenClientIps), evictedMode)
             .Where(d => d.IsActive && d.EndTimeUtc > DateTime.UtcNow.AddMinutes(-5));
         var activeDownloads = await CountExcludingAsync(activeDownloadsQuery, statsExcludedOnlyIps);
 
@@ -620,7 +666,7 @@ public class StatsController : ControllerBase
         else
         {
             // For all-time, count distinct IPs excluding stats-excluded
-            var allIps = await ApplyHiddenClientFilter(_context.Downloads.AsNoTracking(), hiddenClientIps)
+            var allIps = await ApplyEvictedFilter(ApplyHiddenClientFilter(_context.Downloads.AsNoTracking(), hiddenClientIps), evictedMode)
                 .Select(d => d.ClientIp)
                 .Distinct()
                 .ToListAsync();
@@ -720,6 +766,9 @@ public class StatsController : ControllerBase
         var hiddenClientIps = _stateRepository.GetHiddenClientIps();
         var statsExcludedOnlyIps = _stateRepository.GetStatsExcludedOnlyClientIps();
         query = ApplyHiddenClientFilter(query, hiddenClientIps);
+
+        var evictedMode = _stateRepository.GetEvictedDataMode();
+        query = ApplyEvictedFilter(query, evictedMode);
 
         // Apply event filter if provided (filters to only tagged downloads)
         HashSet<int>? eventDownloadIds = eventIdList.Count > 0 ? await GetEventDownloadIdsAsync(eventIdList) : null;
@@ -836,6 +885,7 @@ public class StatsController : ControllerBase
         var eventIdList = ParseEventId(eventId);
             var hiddenClientIps = _stateRepository.GetHiddenClientIps();
             var statsExcludedOnlyIps = _stateRepository.GetStatsExcludedOnlyClientIps();
+            var evictedMode = _stateRepository.GetEvictedDataMode();
 
             DateTime? cutoffTime = startTime.HasValue
                 ? startTime.Value.FromUnixSeconds()
@@ -851,13 +901,13 @@ public class StatsController : ControllerBase
 
             // Try to get cache info from the system controller's cache service
             // For now, we'll calculate from downloads data (exclude stats-excluded IPs from calculations)
-            var allTimeQuery = ApplyHiddenClientFilter(_context.Downloads.AsNoTracking(), hiddenClientIps);
+            var allTimeQuery = ApplyEvictedFilter(ApplyHiddenClientFilter(_context.Downloads.AsNoTracking(), hiddenClientIps), evictedMode);
             var totalCacheMiss = await SumCacheMissBytesExcludingAsync(allTimeQuery, statsExcludedOnlyIps);
 
             currentCacheSize = totalCacheMiss; // Approximation: total cache misses = data added to cache
 
             // Build base query with time filtering (filter out hidden IPs, exclude stats-excluded from calculations)
-            var baseQuery = ApplyHiddenClientFilter(_context.Downloads.AsNoTracking(), hiddenClientIps);
+            var baseQuery = ApplyEvictedFilter(ApplyHiddenClientFilter(_context.Downloads.AsNoTracking(), hiddenClientIps), evictedMode);
 
             // Apply event filter if provided (filters to only tagged downloads)
             HashSet<int>? eventDownloadIds = eventIdList.Count > 0 ? await GetEventDownloadIdsAsync(eventIdList) : null;
@@ -977,7 +1027,7 @@ public class StatsController : ControllerBase
             {
                 // Total cumulative downloads (all data ever added to cache)
                 // Exclude stats-excluded IPs from calculations
-                var allTimeQueryForCumulative = ApplyHiddenClientFilter(_context.Downloads.AsNoTracking(), hiddenClientIps);
+                var allTimeQueryForCumulative = ApplyEvictedFilter(ApplyHiddenClientFilter(_context.Downloads.AsNoTracking(), hiddenClientIps), evictedMode);
                 var cumulativeDownloads = await SumCacheMissBytesExcludingAsync(allTimeQueryForCumulative, statsExcludedOnlyIps);
 
                 // If actual cache is smaller than cumulative downloads, data was deleted
@@ -1064,6 +1114,9 @@ public class StatsController : ControllerBase
             var hiddenClientIps = _stateRepository.GetHiddenClientIps();
             var statsExcludedOnlyIps = _stateRepository.GetStatsExcludedOnlyClientIps();
             query = ApplyHiddenClientFilter(query, hiddenClientIps);
+
+            var evictedMode = _stateRepository.GetEvictedDataMode();
+            query = ApplyEvictedFilter(query, evictedMode);
 
             HashSet<int>? eventDownloadIds = eventIdList.Count > 0 ? await GetEventDownloadIdsAsync(eventIdList) : null;
             query = ApplyEventFilter(query, eventIdList, eventDownloadIds);

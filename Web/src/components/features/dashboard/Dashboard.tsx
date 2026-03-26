@@ -19,7 +19,8 @@ import {
   Check
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useStats, useDownloads } from '@contexts/DashboardDataContext/hooks';
+import { useStats, useDownloads, useGameDetection } from '@contexts/DashboardDataContext/hooks';
+import { useAuth } from '@contexts/useAuth';
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import { useEvents } from '@contexts/useEvents';
 import { useSpeed } from '@contexts/SpeedContext/useSpeed';
@@ -54,7 +55,8 @@ const DEFAULT_CARD_VISIBILITY: CardVisibility = {
   totalServed: true,
   activeDownloads: true,
   activeClients: true,
-  cacheHitRatio: true
+  cacheHitRatio: true,
+  gamesOnDisk: false
 };
 
 const DEFAULT_CARD_ORDER: string[] = [
@@ -65,7 +67,8 @@ const DEFAULT_CARD_ORDER: string[] = [
   'totalServed',
   'activeDownloads',
   'activeClients',
-  'cacheHitRatio'
+  'cacheHitRatio',
+  'gamesOnDisk'
 ];
 
 const getStatTooltips = (t: (key: string) => string): Record<string, React.ReactNode> => ({
@@ -108,6 +111,11 @@ const getStatTooltips = (t: (key: string) => string): Record<string, React.React
     <HelpSection title={t('dashboard.statCards.cacheHitRatio.term')}>
       {t('dashboard.statCards.cacheHitRatio.description')}
     </HelpSection>
+  ),
+  gamesOnDisk: (
+    <HelpSection title={t('dashboard.statCards.gamesOnDisk.term')}>
+      {t('dashboard.statCards.gamesOnDisk.description')}
+    </HelpSection>
   )
 });
 
@@ -115,6 +123,9 @@ const Dashboard: React.FC = () => {
   const { t } = useTranslation();
   const { cacheInfo, clientStats, serviceStats, dashboardStats, loading } = useStats();
   const { latestDownloads } = useDownloads();
+  const { gameDetectionData, detectionLookup: _detectionLookup } = useGameDetection();
+  const { authMode } = useAuth();
+  const isAdmin = authMode === 'authenticated';
   const { timeRange, getTimeRangeParams, customStartDate, customEndDate, selectedEventIds } =
     useTimeFilter();
   const { selectedEvent: _selectedEvent } = useEvents();
@@ -431,6 +442,16 @@ const Dashboard: React.FC = () => {
     activeDownloadCount
   ]);
 
+  // Compute "Games on Disk" aggregate from detection data
+  const gamesOnDiskStats = useMemo(() => {
+    if (!isAdmin || !gameDetectionData?.hasCachedResults || !gameDetectionData.games) {
+      return null;
+    }
+    const games = gameDetectionData.games;
+    const totalSize = games.reduce((sum, game) => sum + game.total_size_bytes, 0);
+    return { totalSize, gameCount: games.length };
+  }, [isAdmin, gameDetectionData]);
+
   const allStatCards = useMemo<AllStatCards>(
     () => ({
       totalCache: {
@@ -538,7 +559,21 @@ const Dashboard: React.FC = () => {
         color: 'cyan' as const,
         visible: cardVisibility.cacheHitRatio,
         tooltip: statTooltips.cacheHitRatio
-      }
+      },
+      ...(gamesOnDiskStats
+        ? {
+            gamesOnDisk: {
+              key: 'gamesOnDisk',
+              title: t('dashboard.cards.gamesOnDisk'),
+              value: formatBytes(gamesOnDiskStats.totalSize),
+              subtitle: t('dashboard.cards.gamesDetected', { count: gamesOnDiskStats.gameCount }),
+              icon: HardDrive,
+              color: 'cyan' as const,
+              visible: cardVisibility.gamesOnDisk ?? true,
+              tooltip: statTooltips.gamesOnDisk
+            }
+          }
+        : {})
     }),
     [
       t,
@@ -550,7 +585,8 @@ const Dashboard: React.FC = () => {
       dashboardStats,
       filteredLatestDownloads,
       isHistoricalView,
-      statTooltips
+      statTooltips,
+      gamesOnDiskStats
     ]
   );
 

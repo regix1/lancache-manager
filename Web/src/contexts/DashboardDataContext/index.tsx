@@ -8,8 +8,19 @@ import { useRefreshRate } from '../useRefreshRate';
 import { useSignalR } from '../SignalRContext/useSignalR';
 import { useAuth } from '../useAuth';
 import { SIGNALR_REFRESH_EVENTS } from '../SignalRContext/types';
-import type { CacheInfo, ClientStat, ServiceStat, DashboardStats, Download } from '../../types';
-import { DashboardDataContext, type DashboardDataProviderProps } from './types';
+import type {
+  CacheInfo,
+  ClientStat,
+  ServiceStat,
+  DashboardStats,
+  Download,
+  GameCacheInfo
+} from '../../types';
+import {
+  DashboardDataContext,
+  type DashboardDataProviderProps,
+  type CachedDetectionResponse
+} from './types';
 
 export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   children,
@@ -29,6 +40,10 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   const [serviceStats, setServiceStats] = useState<ServiceStat[]>([]);
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
   const [latestDownloads, setLatestDownloads] = useState<Download[]>([]);
+  const [gameDetectionData, setGameDetectionData] = useState<CachedDetectionResponse | null>(null);
+  const [gameDetectionLookup, setGameDetectionLookup] = useState<Map<number, GameCacheInfo> | null>(
+    null
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [connectionStatus, setConnectionStatus] = useState('checking');
@@ -175,23 +190,26 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         const timeoutId = setTimeout(() => abortControllerRef.current?.abort(), timeout);
 
         // Fetch all data in parallel using Promise.allSettled
-        // getCacheInfo is admin-only — skip for guest users to avoid 403
-        const [cache, clients, services, dashboard, downloads] = await Promise.allSettled([
-          isAdminRef.current
-            ? ApiService.getCacheInfo(signal)
-            : Promise.resolve(undefined as unknown as CacheInfo),
-          ApiService.getClientStats(signal, startTime, endTime, eventIds, undefined, cacheBust),
-          ApiService.getServiceStats(signal, startTime, endTime, eventIds, cacheBust),
-          ApiService.getDashboardStats(signal, startTime, endTime, eventIds, cacheBust),
-          ApiService.getLatestDownloads(
-            signal,
-            'unlimited',
-            startTime,
-            endTime,
-            eventIds,
-            cacheBust
-          )
-        ]);
+        // getCacheInfo is always fetched (guest users need Total Cache / Used Space)
+        // getCachedGameDetection is admin-only — skip for guest users to avoid 403
+        const [cache, clients, services, dashboard, downloads, detection] =
+          await Promise.allSettled([
+            ApiService.getCacheInfo(signal),
+            ApiService.getClientStats(signal, startTime, endTime, eventIds, undefined, cacheBust),
+            ApiService.getServiceStats(signal, startTime, endTime, eventIds, cacheBust),
+            ApiService.getDashboardStats(signal, startTime, endTime, eventIds, cacheBust),
+            ApiService.getLatestDownloads(
+              signal,
+              'unlimited',
+              startTime,
+              endTime,
+              eventIds,
+              cacheBust
+            ),
+            isAdminRef.current
+              ? ApiService.getCachedGameDetection()
+              : Promise.resolve(null as CachedDetectionResponse | null)
+          ]);
 
         clearTimeout(timeoutId);
 
@@ -211,6 +229,24 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
           // Cache info is not time-range dependent, always apply
           if (cache.status === 'fulfilled' && cache.value !== undefined) {
             setCacheInfo(cache.value);
+          }
+
+          // Game detection data is not time-range dependent, always apply
+          if (
+            detection.status === 'fulfilled' &&
+            detection.value !== null &&
+            detection.value !== undefined
+          ) {
+            const detectionResult = detection.value as CachedDetectionResponse;
+            setGameDetectionData(detectionResult);
+            // Build lookup map keyed by game_app_id
+            if (detectionResult.games && detectionResult.games.length > 0) {
+              const lookup = new Map<number, GameCacheInfo>();
+              for (const game of detectionResult.games) {
+                lookup.set(game.game_app_id, game);
+              }
+              setGameDetectionLookup(lookup);
+            }
           }
 
           // All other data depends on time range AND event filter
@@ -322,6 +358,15 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   useEffect(() => {
     if (mockMode) {
       const mockData = MockDataService.generateMockData('unlimited');
+      const mockDetection = MockDataService.generateMockGameDetection();
+
+      // Build detection lookup map keyed by game_app_id
+      const lookup = new Map<number, GameCacheInfo>();
+      if (mockDetection.games) {
+        for (const game of mockDetection.games) {
+          lookup.set(game.game_app_id, game);
+        }
+      }
 
       // Batch all state updates to prevent multiple re-renders
       unstable_batchedUpdates(() => {
@@ -332,6 +377,8 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         setServiceStats(mockData.serviceStats);
         setDashboardStats(mockData.dashboardStats);
         setLatestDownloads(mockData.latestDownloads);
+        setGameDetectionData(mockDetection);
+        setGameDetectionLookup(lookup);
         setError(null);
         setLoading(false);
       });
@@ -457,6 +504,8 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       serviceStats,
       dashboardStats,
       latestDownloads,
+      gameDetectionData,
+      gameDetectionLookup,
       loading,
       error,
       connectionStatus,
@@ -469,6 +518,8 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       serviceStats,
       dashboardStats,
       latestDownloads,
+      gameDetectionData,
+      gameDetectionLookup,
       loading,
       error,
       connectionStatus,

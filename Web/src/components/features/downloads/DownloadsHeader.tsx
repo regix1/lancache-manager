@@ -6,6 +6,7 @@ import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useSpeed } from '@contexts/SpeedContext/useSpeed';
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import { Tooltip } from '@components/ui/Tooltip';
+import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
 import { formatBytes, formatSpeedWithSeparatedUnit } from '@utils/formatters';
 import ApiService from '@services/api.service';
 import type { SpeedHistorySnapshot } from '../../../types';
@@ -60,6 +61,11 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
   const activeClientsCount = totalActiveClients;
   const todayTotal = historySnapshot?.totalBytes || 0;
   const { value: speedValue, unit: speedUnit } = formatSpeedWithSeparatedUnit(totalSpeed);
+
+  // Compute overall cache hit rate from latestDownloads
+  const totalBytesAll = latestDownloads.reduce((sum, d) => sum + d.totalBytes, 0);
+  const totalHitBytes = latestDownloads.reduce((sum, d) => sum + d.cacheHitBytes, 0);
+  const overallHitPercent = totalBytesAll > 0 ? (totalHitBytes / totalBytesAll) * 100 : 0;
 
   return (
     <div className="downloads-header">
@@ -154,7 +160,27 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
             <span className="today-value">
               {isHistoricalView ? t('downloads.header.disabled') : formatBytes(todayTotal)}
             </span>
+            <HelpPopover position="left" width={320}>
+              <HelpSection title={t('downloads.header.help.totalBytes.title')} variant="subtle">
+                {t('downloads.header.help.totalBytes.description')}
+              </HelpSection>
+            </HelpPopover>
             {isActive && !isHistoricalView && <div className="active-dot" />}
+          </div>
+
+          <div className={`today-stat ${isHistoricalView ? 'disabled' : ''}`}>
+            <TrendingUp />
+            <span className="today-label">{t('downloads.header.hitRateLabel')}</span>
+            <span className="today-value">
+              {isHistoricalView
+                ? t('downloads.header.disabled')
+                : `${overallHitPercent.toFixed(1)}%`}
+            </span>
+            <HelpPopover position="left" width={320}>
+              <HelpSection title={t('downloads.header.help.hitRate.title')} variant="subtle">
+                {t('downloads.header.help.hitRate.description')}
+              </HelpSection>
+            </HelpPopover>
           </div>
         </div>
       </div>

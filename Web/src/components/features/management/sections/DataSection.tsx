@@ -1,7 +1,7 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import './DataSection.css';
 import { useTranslation } from 'react-i18next';
-import { Database, AlertTriangle } from 'lucide-react';
+import { Database, AlertTriangle, Loader2 } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
@@ -48,6 +48,54 @@ const DataSection: React.FC<DataSectionProps> = ({
 
   // Depot Manager State
   const [depotActionLoading, setDepotActionLoading] = useState(false);
+
+  // Eviction Settings State
+  const [evictionMode, setEvictionMode] = useState<string>('show');
+  const [savedEvictionMode, setSavedEvictionMode] = useState<string>('show');
+  const [evictionLoading, setEvictionLoading] = useState(false);
+  const [evictionSaving, setEvictionSaving] = useState(false);
+  const isEvictionDirty = evictionMode !== savedEvictionMode;
+
+  const loadEvictionSettings = useCallback(
+    async (signal?: AbortSignal) => {
+      setEvictionLoading(true);
+      try {
+        const response = await ApiService.getEvictionSettings(signal);
+        setEvictionMode(response.evictedDataMode);
+        setSavedEvictionMode(response.evictedDataMode);
+      } catch (err: unknown) {
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        onError(t('management.sections.data.evictionLoadError'));
+      } finally {
+        setEvictionLoading(false);
+      }
+    },
+    [onError, t]
+  );
+
+  useEffect(() => {
+    const controller = new AbortController();
+    loadEvictionSettings(controller.signal);
+    return () => controller.abort();
+  }, [loadEvictionSettings]);
+
+  const handleSaveEviction = async () => {
+    setEvictionSaving(true);
+    try {
+      const response = await ApiService.updateEvictionSettings(evictionMode);
+      setEvictionMode(response.evictedDataMode);
+      setSavedEvictionMode(response.evictedDataMode);
+      onSuccess(t('management.sections.data.evictionSaveSuccess'));
+      onDataRefresh();
+    } catch (err: unknown) {
+      onError(
+        (err instanceof Error ? err.message : String(err)) ||
+          t('management.sections.data.evictionSaveError')
+      );
+    } finally {
+      setEvictionSaving(false);
+    }
+  };
 
   // Get table definitions from translations
   const tables = [
@@ -332,6 +380,72 @@ const DataSection: React.FC<DataSectionProps> = ({
           onSuccess={onSuccess}
           onDataRefresh={onDataRefresh}
         />
+      </div>
+
+      {/* Subsection: Evicted Cache Data */}
+      <div className="mb-8">
+        <div className="flex items-center gap-2 mb-4">
+          <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-orange)]" />
+          <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
+            {t('management.sections.data.evictedCacheData')}
+          </h3>
+        </div>
+
+        <Card>
+          <div className="mb-4">
+            <h3 className="text-lg font-semibold text-themed-primary mb-2">
+              {t('management.sections.data.evictedCacheData')}
+            </h3>
+            <p className="text-themed-secondary text-sm">
+              {t('management.sections.data.evictedCacheDescription')}
+            </p>
+          </div>
+
+          {evictionLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-4 h-4 animate-spin" />
+            </div>
+          ) : (
+            <>
+              <div className="space-y-2 mb-4">
+                {(['show', 'hide', 'remove'] as const).map((mode) => (
+                  <label
+                    key={mode}
+                    className={`eviction-mode-option p-3 rounded-lg cursor-pointer flex items-start gap-3 transition-all duration-150 bg-themed-secondary${evictionMode === mode ? ' eviction-mode-option-selected' : ''}`}
+                  >
+                    <input
+                      type="radio"
+                      name="evictionMode"
+                      value={mode}
+                      checked={evictionMode === mode}
+                      onChange={() => setEvictionMode(mode)}
+                      className="eviction-radio mt-1"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-themed-primary">
+                        {t(`management.sections.data.evictionModes.${mode}`)}
+                      </div>
+                      <div className="text-sm text-themed-secondary mt-1">
+                        {t(`management.sections.data.evictionModes.${mode}Description`)}
+                      </div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-3 pt-4 border-t border-themed-primary">
+                <Button
+                  onClick={handleSaveEviction}
+                  disabled={!isEvictionDirty || evictionSaving}
+                  loading={evictionSaving}
+                  className="sm:w-40"
+                >
+                  {t('management.sections.clients.saveChanges')}
+                </Button>
+              </div>
+            </>
+          )}
+        </Card>
       </div>
 
       {/* Subsection: Database Management */}

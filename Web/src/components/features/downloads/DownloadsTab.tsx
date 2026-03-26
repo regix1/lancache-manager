@@ -24,7 +24,7 @@ import {
   RefreshCw,
   Loader2
 } from 'lucide-react';
-import { useDownloads } from '@contexts/DashboardDataContext/hooks';
+import { useDownloads, useGameDetection } from '@contexts/DashboardDataContext/hooks';
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import { useClientGroups } from '@contexts/useClientGroups';
 import { storage } from '@utils/storage';
@@ -280,6 +280,7 @@ const convertDownloadsToCSV = (downloads: Download[]): string => {
 const DownloadsTab: React.FC = () => {
   const { t } = useTranslation();
   const { latestDownloads = [], loading } = useDownloads();
+  const { detectionLookup } = useGameDetection();
   const { timeRange, selectedEventIds } = useTimeFilter();
   const { getGroupForIp } = useClientGroups();
 
@@ -1883,6 +1884,7 @@ const DownloadsTab: React.FC = () => {
                     aestheticMode={settings.aestheticMode}
                     showDatasourceLabels={showDatasourceLabels}
                     hasMultipleDatasources={hasMultipleDatasources}
+                    detectionLookup={detectionLookup}
                   />
                 )}
               </Suspense>
@@ -1903,6 +1905,7 @@ const DownloadsTab: React.FC = () => {
                       enableScrollIntoView={settings.enableScrollIntoView && !suppressExpandScroll}
                       showDatasourceLabels={showDatasourceLabels}
                       hasMultipleDatasources={hasMultipleDatasources}
+                      detectionLookup={detectionLookup}
                     />
                   )}
                 </div>
@@ -1924,6 +1927,7 @@ const DownloadsTab: React.FC = () => {
                       showCacheHitBar={settings.showCacheHitBar}
                       showEventBadges={settings.showEventBadges}
                       bannerOnly={settings.bannerOnly}
+                      detectionLookup={detectionLookup}
                     />
                   )}
                 </div>
@@ -1945,6 +1949,7 @@ const DownloadsTab: React.FC = () => {
                       showCacheHitBar={settings.showCacheHitBar}
                       showEventBadges={settings.showEventBadges}
                       bannerOnly={settings.bannerOnly}
+                      detectionLookup={detectionLookup}
                     />
                   )}
                 </div>
