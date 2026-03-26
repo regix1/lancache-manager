@@ -33,6 +33,10 @@ interface DashboardDataContextType {
   gameDetectionData: CachedDetectionResponse | null;
   gameDetectionLookup: Map<number, GameCacheInfo> | null;
   gameDetectionByName: Map<string, GameCacheInfo> | null;
+  gameDetectionByService: Map<
+    string,
+    { service_name: string; cache_files_found: number; total_size_bytes: number }
+  > | null;
 
   // Loading & Error states
   loading: boolean;

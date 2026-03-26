@@ -45,6 +45,10 @@ interface CompactViewProps {
   hasMultipleDatasources?: boolean;
   detectionLookup?: Map<number, GameCacheInfo> | null;
   detectionByName?: Map<string, GameCacheInfo> | null;
+  detectionByService?: Map<
+    string,
+    { service_name: string; cache_files_found: number; total_size_bytes: number }
+  > | null;
 }
 
 interface GroupRowProps {
@@ -64,6 +68,10 @@ interface GroupRowProps {
   hasMultipleDatasources: boolean;
   detectionLookup?: Map<number, GameCacheInfo> | null;
   detectionByName?: Map<string, GameCacheInfo> | null;
+  detectionByService?: Map<
+    string,
+    { service_name: string; cache_files_found: number; total_size_bytes: number }
+  > | null;
 }
 
 const GroupRow: React.FC<GroupRowProps> = ({
@@ -81,7 +89,8 @@ const GroupRow: React.FC<GroupRowProps> = ({
   showDatasourceLabels,
   hasMultipleDatasources,
   detectionLookup,
-  detectionByName
+  detectionByName,
+  detectionByService
 }) => {
   const { t } = useTranslation();
   const { fetchAssociations, getAssociations, refreshVersion } = useDownloadAssociations();
@@ -164,7 +173,9 @@ const GroupRow: React.FC<GroupRowProps> = ({
     primaryDownload?.gameAppId,
     primaryDownload?.gameName,
     detectionLookup,
-    detectionByName
+    detectionByName,
+    group.service,
+    detectionByService
   );
   const diskSizeBytes = detection?.total_size_bytes;
 
@@ -681,7 +692,8 @@ const CompactView = React.memo(function CompactView({
   showDatasourceLabels = true,
   hasMultipleDatasources = false,
   detectionLookup = null,
-  detectionByName = null
+  detectionByName = null,
+  detectionByService = null
 }: CompactViewProps) {
   const { t } = useTranslation();
   const labels = { ...getDefaultSectionLabels(t), ...sectionLabels };
@@ -711,6 +723,7 @@ const CompactView = React.memo(function CompactView({
       hasMultipleDatasources={hasMultipleDatasources}
       detectionLookup={detectionLookup}
       detectionByName={detectionByName}
+      detectionByService={detectionByService}
     />
   );
 

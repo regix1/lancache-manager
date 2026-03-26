@@ -491,6 +491,15 @@ using (var scope = app.Services.CreateScope())
         await dbContext.Database.MigrateAsync();
         await DatabaseSchemaFixer.ApplyPostMigrationFixesAsync(dbContext, logger);
 
+        // Reset any incorrectly set eviction flags from initial reconciliation run
+        var evictedCount = await dbContext.Downloads
+            .Where(d => d.IsEvicted)
+            .ExecuteUpdateAsync(s => s.SetProperty(d => d.IsEvicted, false));
+        if (evictedCount > 0)
+        {
+            logger.LogInformation("Reset {Count} incorrectly evicted downloads", evictedCount);
+        }
+
         logger.LogInformation("Database migrations applied successfully");
 
         // Verify connection

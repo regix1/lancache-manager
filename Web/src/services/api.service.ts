@@ -1013,11 +1013,12 @@ class ApiService {
   // Start background corruption detection scan
   static async startCorruptionDetection(
     threshold = 3,
-    compareToCacheLogs = true
+    compareToCacheLogs = true,
+    detectionMode = 'miss_count'
   ): Promise<{ operationId: string; message: string; status: string }> {
     try {
       const res = await fetch(
-        `${API_BASE}/cache/corruption/detect?threshold=${threshold}&compareToCacheLogs=${compareToCacheLogs}`,
+        `${API_BASE}/cache/corruption/detect?threshold=${threshold}&compareToCacheLogs=${compareToCacheLogs}&detectionMode=${detectionMode}`,
         this.getFetchOptions({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' }
@@ -1038,11 +1039,12 @@ class ApiService {
   static async removeCorruptedChunks(
     service: string,
     threshold = 3,
-    compareToCacheLogs = true
+    compareToCacheLogs = true,
+    detectionMode = 'miss_count'
   ): Promise<{ message: string; service: string }> {
     try {
       const res = await fetch(
-        `${API_BASE}/cache/services/${encodeURIComponent(service)}/corruption?threshold=${threshold}&compareToCacheLogs=${compareToCacheLogs}`,
+        `${API_BASE}/cache/services/${encodeURIComponent(service)}/corruption?threshold=${threshold}&compareToCacheLogs=${compareToCacheLogs}&detectionMode=${detectionMode}`,
         this.getFetchOptions({
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' }
@@ -1058,11 +1060,12 @@ class ApiService {
 
   static async removeAllCorruptedChunks(
     threshold = 3,
-    compareToCacheLogs = true
+    compareToCacheLogs = true,
+    detectionMode = 'miss_count'
   ): Promise<{ message: string }> {
     try {
       const res = await fetch(
-        `${API_BASE}/cache/corruption?threshold=${threshold}&compareToCacheLogs=${compareToCacheLogs}`,
+        `${API_BASE}/cache/corruption?threshold=${threshold}&compareToCacheLogs=${compareToCacheLogs}&detectionMode=${detectionMode}`,
         this.getFetchOptions({
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' }
@@ -1080,13 +1083,15 @@ class ApiService {
     service: string,
     forceRefresh = false,
     threshold = 3,
-    compareToCacheLogs = true
+    compareToCacheLogs = true,
+    detectionMode = 'miss_count'
   ): Promise<CorruptedChunkDetail[]> {
     try {
       const params = new URLSearchParams();
       if (forceRefresh) params.set('forceRefresh', 'true');
       params.set('threshold', String(threshold));
       params.set('compareToCacheLogs', String(compareToCacheLogs));
+      params.set('detectionMode', detectionMode);
       const url = `${API_BASE}/cache/services/${encodeURIComponent(service)}/corruption?${params.toString()}`;
       const res = await fetch(
         url,

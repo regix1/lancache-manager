@@ -21,7 +21,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
     protected override string ServiceName => "CacheReconciliationService";
     protected override TimeSpan Interval => TimeSpan.FromHours(6);
-    protected override bool RunOnStartup => true;
+    protected override bool RunOnStartup => false;
 
     public CacheReconciliationService(
         IServiceProvider serviceProvider,

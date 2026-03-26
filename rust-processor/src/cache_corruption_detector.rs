@@ -4,6 +4,7 @@ use crate::parser::LogParser;
 use crate::progress_utils;
 use crate::service_utils;
 use anyhow::Result;
+use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -439,6 +440,232 @@ impl CorruptionDetector {
         Ok(CorruptionSummary {
             service_counts,
             total_corrupted,
+        })
+    }
+
+    /// Detect re-downloaded chunks by analyzing log files for HIT entries requested
+    /// multiple times by the same client within a short time window. This catches corruption
+    /// invisible to MISS-based detection: cached files that serve bad data (e.g., Steam SHA1
+    /// validation failures cause immediate retries within seconds).
+    ///
+    /// Uses a 5-minute time window to distinguish corruption retries (seconds apart) from
+    /// legitimate re-downloads like verify-game-files or reinstalls (hours/days apart).
+    /// Returns a map of (service, url) -> max_hit_count for chunks exceeding threshold.
+    pub fn detect_redownloaded_chunks_with_progress<P: AsRef<Path>>(
+        &self,
+        log_dir: P,
+        log_base_name: &str,
+        timezone: chrono_tz::Tz,
+        progress_path: Option<&Path>,
+    ) -> Result<HashMap<(String, String), usize>> {
+        let log_dir = log_dir.as_ref();
+
+        let log_files = crate::log_discovery::discover_log_files(log_dir, log_base_name)?;
+
+        if log_files.is_empty() {
+            if let Some(progress_file) = progress_path {
+                self.write_detection_progress(progress_file, "completed", "No log files found", 0, 0, 100.0, None)?;
+            }
+            return Ok(HashMap::new());
+        }
+
+        let total_files = log_files.len();
+        eprintln!("Scanning {} log file(s) for re-downloaded chunks (HIT retries within 5min window)...", total_files);
+
+        if let Some(progress_file) = progress_path {
+            self.write_detection_progress(
+                progress_file, "scanning",
+                &format!("Scanning {} log files for re-download patterns...", total_files),
+                0, total_files, 0.0, None,
+            )?;
+        }
+
+        let parser = LogParser::new(timezone);
+        // Track (service, url, client_ip) -> list of timestamps
+        let mut hit_timestamps: HashMap<(String, String, String), Vec<NaiveDateTime>> = HashMap::new();
+        let mut entries_processed = 0usize;
+
+        for (file_index, log_file) in log_files.iter().enumerate() {
+            let file_name = log_file.path.file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| "unknown".to_string());
+
+            eprintln!("Processing ({}/{}): {}", file_index + 1, total_files, log_file.path.display());
+
+            if let Some(progress_file) = progress_path {
+                let percent = (file_index as f64 / total_files as f64) * 80.0;
+                let _ = self.write_detection_progress(
+                    progress_file, "scanning",
+                    &format!("Scanning file {}/{}: {}", file_index + 1, total_files, file_name),
+                    file_index, total_files, percent, Some(file_name.clone()),
+                );
+            }
+
+            let mut reader = match LogFileReader::open(&log_file.path) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("WARNING: Skipping corrupted file {}: {}", log_file.path.display(), e);
+                    continue;
+                }
+            };
+
+            let mut line = String::new();
+
+            loop {
+                line.clear();
+                let bytes_read = match reader.read_line(&mut line) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        eprintln!("WARNING: Error reading file {}: {}", log_file.path.display(), e);
+                        break;
+                    }
+                };
+
+                if bytes_read == 0 {
+                    break;
+                }
+
+                if let Some(entry) = parser.parse_line(line.trim()) {
+                    if service_utils::should_skip_url(&entry.url) {
+                        continue;
+                    }
+
+                    // Collect HIT timestamps per (service, url, client_ip)
+                    if entry.cache_status == "HIT" {
+                        let key = (entry.service.clone(), entry.url.clone(), entry.client_ip.clone());
+                        hit_timestamps.entry(key).or_default().push(entry.timestamp);
+                        entries_processed += 1;
+
+                        if entries_processed % 500_000 == 0 {
+                            eprintln!("  Processed {} HIT entries, tracking {} unique (URL, client) pairs",
+                                entries_processed, hit_timestamps.len());
+                        }
+                    }
+                }
+            }
+        }
+
+        eprintln!("Analyzing {} unique (URL, client) pairs for retry patterns...", hit_timestamps.len());
+
+        if let Some(progress_file) = progress_path {
+            let _ = self.write_detection_progress(
+                progress_file, "analyzing",
+                "Analyzing HIT patterns for retry bursts within 5-minute windows...",
+                total_files, total_files, 85.0, None,
+            );
+        }
+
+        // For each (service, url, client_ip), find the max number of HITs within any 5-minute window.
+        // Corruption retries happen within seconds; legitimate re-downloads are hours/days apart.
+        let window_seconds: i64 = 300; // 5 minutes
+        let mut result: HashMap<(String, String), usize> = HashMap::new();
+
+        for ((service, url, _client_ip), mut timestamps) in hit_timestamps {
+            // Need at least threshold timestamps to be worth checking
+            if timestamps.len() < self.miss_threshold {
+                continue;
+            }
+
+            // Sort timestamps chronologically
+            timestamps.sort();
+
+            // Sliding window: find max count of timestamps within any 5-minute window
+            let mut max_in_window = 1usize;
+            let mut window_start = 0usize;
+
+            for window_end in 1..timestamps.len() {
+                // Advance window_start until within 5 minutes of window_end
+                while timestamps[window_end].signed_duration_since(timestamps[window_start]).num_seconds() > window_seconds {
+                    window_start += 1;
+                }
+                let count_in_window = window_end - window_start + 1;
+                if count_in_window > max_in_window {
+                    max_in_window = count_in_window;
+                }
+            }
+
+            if max_in_window >= self.miss_threshold {
+                let key = (service, url);
+                let entry = result.entry(key).or_insert(0);
+                *entry = (*entry).max(max_in_window);
+            }
+        }
+
+        eprintln!("Found {} unique URLs with {}+ HIT retries within 5-minute windows (suspected corruption)", result.len(), self.miss_threshold);
+
+        if let Some(progress_file) = progress_path {
+            self.write_detection_progress(
+                progress_file, "completed",
+                &format!("Re-download scan complete. Found {} suspected corrupt URLs.", result.len()),
+                total_files, total_files, 100.0, None,
+            )?;
+        }
+
+        Ok(result)
+    }
+
+    /// Generate quick summary of re-downloaded chunks with progress reporting
+    pub fn generate_redownload_summary_with_progress<P: AsRef<Path>>(
+        &self,
+        log_dir: P,
+        log_base_name: &str,
+        timezone: chrono_tz::Tz,
+        progress_path: Option<&Path>,
+    ) -> Result<CorruptionSummary> {
+        let redownload_map = self.detect_redownloaded_chunks_with_progress(
+            log_dir, log_base_name, timezone, progress_path
+        )?;
+
+        let mut service_counts: HashMap<String, usize> = HashMap::new();
+        for ((service, _url), _count) in redownload_map.iter() {
+            *service_counts.entry(service.clone()).or_insert(0) += 1;
+        }
+
+        let total_corrupted = redownload_map.len();
+
+        Ok(CorruptionSummary {
+            service_counts,
+            total_corrupted,
+        })
+    }
+
+    /// Generate full re-download corruption report with cache file paths
+    pub fn generate_redownload_report<P: AsRef<Path>>(
+        &self,
+        log_dir: P,
+        log_base_name: &str,
+        timezone: chrono_tz::Tz,
+    ) -> Result<CorruptionReport> {
+        let redownload_map = self.detect_redownloaded_chunks_with_progress(
+            log_dir, log_base_name, timezone, None
+        )?;
+
+        let mut corrupted_chunks = Vec::new();
+        let mut service_counts: HashMap<String, usize> = HashMap::new();
+
+        for ((service, url), hit_count) in redownload_map {
+            let cache_file_path = cache_utils::calculate_cache_path_no_range(&self.cache_dir, &service, &url)
+                .display()
+                .to_string();
+
+            corrupted_chunks.push(CorruptedChunk {
+                service: service.clone(),
+                url,
+                miss_count: hit_count, // Reuse field for re-download count
+                cache_file_path,
+            });
+
+            *service_counts.entry(service).or_insert(0) += 1;
+        }
+
+        let total_corrupted = corrupted_chunks.len();
+
+        Ok(CorruptionReport {
+            corrupted_chunks,
+            summary: CorruptionSummary {
+                service_counts,
+                total_corrupted,
+            },
         })
     }
 

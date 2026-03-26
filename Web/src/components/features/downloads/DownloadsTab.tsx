@@ -280,7 +280,7 @@ const convertDownloadsToCSV = (downloads: Download[]): string => {
 const DownloadsTab: React.FC = () => {
   const { t } = useTranslation();
   const { latestDownloads = [], loading } = useDownloads();
-  const { detectionLookup, detectionByName } = useGameDetection();
+  const { detectionLookup, detectionByName, detectionByService } = useGameDetection();
   const { timeRange, selectedEventIds } = useTimeFilter();
   const { getGroupForIp } = useClientGroups();
 
@@ -1886,6 +1886,7 @@ const DownloadsTab: React.FC = () => {
                     hasMultipleDatasources={hasMultipleDatasources}
                     detectionLookup={detectionLookup}
                     detectionByName={detectionByName}
+                    detectionByService={detectionByService}
                   />
                 )}
               </Suspense>
@@ -1908,6 +1909,7 @@ const DownloadsTab: React.FC = () => {
                       hasMultipleDatasources={hasMultipleDatasources}
                       detectionLookup={detectionLookup}
                       detectionByName={detectionByName}
+                      detectionByService={detectionByService}
                     />
                   )}
                 </div>
@@ -1931,6 +1933,7 @@ const DownloadsTab: React.FC = () => {
                       bannerOnly={settings.bannerOnly}
                       detectionLookup={detectionLookup}
                       detectionByName={detectionByName}
+                      detectionByService={detectionByService}
                     />
                   )}
                 </div>
@@ -1954,6 +1957,7 @@ const DownloadsTab: React.FC = () => {
                       bannerOnly={settings.bannerOnly}
                       detectionLookup={detectionLookup}
                       detectionByName={detectionByName}
+                      detectionByService={detectionByService}
                     />
                   )}
                 </div>

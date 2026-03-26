@@ -47,6 +47,10 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   const [gameDetectionByName, setGameDetectionByName] = useState<Map<string, GameCacheInfo> | null>(
     null
   );
+  const [gameDetectionByService, setGameDetectionByService] = useState<Map<
+    string,
+    { service_name: string; cache_files_found: number; total_size_bytes: number }
+  > | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [connectionStatus, setConnectionStatus] = useState('checking');
@@ -256,6 +260,20 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
               }
               setGameDetectionLookup(byAppId);
               setGameDetectionByName(byName);
+
+              // Build service-level lookup
+              if (detectionResult.services) {
+                const bySvc = new Map<
+                  string,
+                  { service_name: string; cache_files_found: number; total_size_bytes: number }
+                >();
+                for (const svc of detectionResult.services) {
+                  if (svc.service_name) {
+                    bySvc.set(svc.service_name.toLowerCase(), svc);
+                  }
+                }
+                setGameDetectionByService(bySvc);
+              }
             }
           }
 
@@ -524,6 +542,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       gameDetectionData,
       gameDetectionLookup,
       gameDetectionByName,
+      gameDetectionByService,
       loading,
       error,
       connectionStatus,
@@ -539,6 +558,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       gameDetectionData,
       gameDetectionLookup,
       gameDetectionByName,
+      gameDetectionByService,
       loading,
       error,
       connectionStatus,

@@ -692,14 +692,14 @@ public class CacheManagementService
     /// <summary>
     /// Get detailed corruption information for a specific service
     /// </summary>
-    public async Task<List<CorruptedChunkDetail>> GetCorruptionDetailsAsync(string service, bool forceRefresh = false, int threshold = 3, bool compareToCacheLogs = true, CancellationToken cancellationToken = default)
+    public async Task<List<CorruptedChunkDetail>> GetCorruptionDetailsAsync(string service, bool forceRefresh = false, int threshold = 3, bool compareToCacheLogs = true, CancellationToken cancellationToken = default, bool detectRedownloads = false)
     {
         // Use semaphore to ensure only one Rust process runs at a time
         await _cacheLock.WaitAsync();
         try
         {
-            _logger.LogInformation("[CorruptionDetection] GetCorruptionDetails for service: {Service}, forceRefresh: {ForceRefresh}",
-                service, forceRefresh);
+            _logger.LogInformation("[CorruptionDetection] GetCorruptionDetails for service: {Service}, forceRefresh: {ForceRefresh}, detectRedownloads: {DetectRedownloads}",
+                service, forceRefresh, detectRedownloads);
 
             var logDir = _pathResolver.GetLogsDirectory();
             var cacheDir = _cachePath;
@@ -714,9 +714,10 @@ public class CacheManagementService
             try
             {
                 var noCacheCheckFlag = !compareToCacheLogs ? " --no-cache-check" : "";
+                var redownloadFlag = detectRedownloads ? " --detect-redownloads" : "";
                 var startInfo = _rustProcessHelper.CreateProcessStartInfo(
                     rustBinaryPath,
-                    $"detect \"{logDir}\" \"{cacheDir}\" \"{outputJson}\" \"{timezone}\" {threshold}{noCacheCheckFlag}");
+                    $"detect \"{logDir}\" \"{cacheDir}\" \"{outputJson}\" \"{timezone}\" {threshold}{noCacheCheckFlag}{redownloadFlag}");
 
                 _logger.LogInformation("[CorruptionDetection] Running detect command: {Command} {Args}",
                     rustBinaryPath, startInfo.Arguments);

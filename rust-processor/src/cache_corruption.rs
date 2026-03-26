@@ -56,6 +56,9 @@ enum Commands {
         /// Skip cache file existence check (logs-only mode)
         #[arg(long, default_value = "false")]
         no_cache_check: bool,
+        /// Detect re-downloaded chunks (HIT retries) instead of MISS-based corruption
+        #[arg(long, default_value = "false")]
+        detect_redownloads: bool,
     },
     /// Quick JSON summary of corrupted chunk counts per service
     Summary {
@@ -75,6 +78,9 @@ enum Commands {
         /// Skip cache file existence check (logs-only mode)
         #[arg(long, default_value = "false")]
         no_cache_check: bool,
+        /// Detect re-downloaded chunks (HIT retries) instead of MISS-based corruption
+        #[arg(long, default_value = "false")]
+        detect_redownloads: bool,
     },
     /// Delete database records, cache files, and log entries for corrupted chunks
     Remove {
@@ -267,7 +273,7 @@ async fn main() -> Result<()> {
     let reporter = ProgressReporter::new(args.progress);
 
     match args.command {
-        Commands::Detect { log_dir, cache_dir, output_json, timezone, threshold, no_cache_check } => {
+        Commands::Detect { log_dir, cache_dir, output_json, timezone, threshold, no_cache_check, detect_redownloads } => {
             reporter.emit_started();
 
             let log_dir = PathBuf::from(&log_dir);
@@ -276,23 +282,39 @@ async fn main() -> Result<()> {
             let timezone = timezone.map(|tz| parse_timezone(&tz)).unwrap_or(chrono_tz::UTC);
             let threshold = threshold.unwrap_or(3);
 
-            eprintln!("Detecting corrupted chunks...");
+            if detect_redownloads {
+                eprintln!("Detecting re-downloaded chunks (HIT retries)...");
+            } else {
+                eprintln!("Detecting corrupted chunks...");
+            }
             eprintln!("  Log directory: {}", log_dir.display());
             eprintln!("  Cache directory: {}", cache_dir.display());
             eprintln!("  Timezone: {}", timezone);
-            eprintln!("  Miss threshold: {}", threshold);
+            eprintln!("  Threshold: {}", threshold);
             eprintln!("  Skip cache check: {}", no_cache_check);
+            eprintln!("  Detect redownloads: {}", detect_redownloads);
 
-            reporter.emit_progress(10.0, "Scanning log files for corrupted chunks...");
+            reporter.emit_progress(10.0, "Scanning log files...");
 
             let detector = CorruptionDetector::new(&cache_dir, threshold)
                 .with_skip_cache_check(no_cache_check);
-            let report = match detector.generate_report(&log_dir, "access.log", timezone) {
-                Ok(r) => r,
-                Err(e) => {
-                    let msg = format!("Failed to generate corruption report: {}", e);
-                    reporter.emit_failed(&msg);
-                    anyhow::bail!("{}", msg);
+            let report = if detect_redownloads {
+                match detector.generate_redownload_report(&log_dir, "access.log", timezone) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        let msg = format!("Failed to generate re-download report: {}", e);
+                        reporter.emit_failed(&msg);
+                        anyhow::bail!("{}", msg);
+                    }
+                }
+            } else {
+                match detector.generate_report(&log_dir, "access.log", timezone) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        let msg = format!("Failed to generate corruption report: {}", e);
+                        reporter.emit_failed(&msg);
+                        anyhow::bail!("{}", msg);
+                    }
                 }
             };
 
@@ -312,7 +334,7 @@ async fn main() -> Result<()> {
             reporter.emit_complete(&format!("Report saved to: {}", output_json.display()));
         }
 
-        Commands::Summary { log_dir, cache_dir, progress_json, timezone, threshold, no_cache_check } => {
+        Commands::Summary { log_dir, cache_dir, progress_json, timezone, threshold, no_cache_check, detect_redownloads } => {
             reporter.emit_started();
 
             let log_dir = PathBuf::from(&log_dir);
@@ -327,29 +349,44 @@ async fn main() -> Result<()> {
             let threshold = threshold.unwrap_or(3);
 
             // All diagnostic output to stderr so stdout only contains JSON
-            eprintln!("Generating corruption summary...");
+            if detect_redownloads {
+                eprintln!("Generating re-download detection summary...");
+            } else {
+                eprintln!("Generating corruption summary...");
+            }
             eprintln!("  Log directory: {}", log_dir.display());
             eprintln!("  Cache directory: {}", cache_dir.display());
             eprintln!("  Progress file: {}", progress_path.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "none".to_string()));
             eprintln!("  Timezone: {}", timezone);
-            eprintln!("  Miss threshold: {}", threshold);
+            eprintln!("  Threshold: {}", threshold);
             eprintln!("  Skip cache check: {}", no_cache_check);
+            eprintln!("  Detect redownloads: {}", detect_redownloads);
 
             reporter.emit_progress(10.0, "Scanning log files...");
 
             let detector = CorruptionDetector::new(&cache_dir, threshold)
                 .with_skip_cache_check(no_cache_check);
-            let summary = match detector.generate_summary_with_progress(
-                &log_dir,
-                "access.log",
-                timezone,
-                progress_path.as_deref()
-            ) {
-                Ok(s) => s,
-                Err(e) => {
-                    let msg = format!("Failed to generate corruption summary: {}", e);
-                    reporter.emit_failed(&msg);
-                    anyhow::bail!("{}", msg);
+            let summary = if detect_redownloads {
+                match detector.generate_redownload_summary_with_progress(
+                    &log_dir, "access.log", timezone, progress_path.as_deref()
+                ) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        let msg = format!("Failed to generate re-download summary: {}", e);
+                        reporter.emit_failed(&msg);
+                        anyhow::bail!("{}", msg);
+                    }
+                }
+            } else {
+                match detector.generate_summary_with_progress(
+                    &log_dir, "access.log", timezone, progress_path.as_deref()
+                ) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        let msg = format!("Failed to generate corruption summary: {}", e);
+                        reporter.emit_failed(&msg);
+                        anyhow::bail!("{}", msg);
+                    }
                 }
             };
 

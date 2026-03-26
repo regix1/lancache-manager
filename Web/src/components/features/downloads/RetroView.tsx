@@ -93,6 +93,10 @@ interface RetroViewProps {
   hasMultipleDatasources?: boolean;
   detectionLookup?: Map<number, GameCacheInfo> | null;
   detectionByName?: Map<string, GameCacheInfo> | null;
+  detectionByService?: Map<
+    string,
+    { service_name: string; cache_files_found: number; total_size_bytes: number }
+  > | null;
 }
 
 const STORAGE_KEY = 'retro-view-column-widths';
@@ -615,7 +619,8 @@ const RetroView = memo(
         showDatasourceLabels = true,
         hasMultipleDatasources = false,
         detectionLookup = null,
-        detectionByName = null
+        detectionByName = null,
+        detectionByService = null
       },
       ref
     ) => {
@@ -1440,7 +1445,9 @@ const RetroView = memo(
                                       data.gameAppId,
                                       data.gameName,
                                       detectionLookup,
-                                      detectionByName
+                                      detectionByName,
+                                      data.service,
+                                      detectionByService
                                     )?.total_size_bytes ? (
                                       <span className="text-themed-muted text-xs ml-2">
                                         {t('dashboard.downloadsPanel.onDisk', {
@@ -1449,7 +1456,9 @@ const RetroView = memo(
                                               data.gameAppId,
                                               data.gameName,
                                               detectionLookup,
-                                              detectionByName
+                                              detectionByName,
+                                              data.service,
+                                              detectionByService
                                             )!.total_size_bytes
                                           )
                                         })}
@@ -1603,7 +1612,9 @@ const RetroView = memo(
                                         data.gameAppId,
                                         data.gameName,
                                         detectionLookup,
-                                        detectionByName
+                                        detectionByName,
+                                        data.service,
+                                        detectionByService
                                       )?.total_size_bytes ? (
                                         <span className="text-themed-muted text-xs ml-2">
                                           {t('dashboard.downloadsPanel.onDisk', {
@@ -1612,7 +1623,9 @@ const RetroView = memo(
                                                 data.gameAppId,
                                                 data.gameName,
                                                 detectionLookup,
-                                                detectionByName
+                                                detectionByName,
+                                                data.service,
+                                                detectionByService
                                               )!.total_size_bytes
                                             )
                                           })}

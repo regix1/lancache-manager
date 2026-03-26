@@ -297,9 +297,9 @@ public class CacheController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpPost("corruption/detect")]
-    public async Task<IActionResult> StartCorruptionDetectionAsync([FromQuery] int threshold = 3, [FromQuery] bool compareToCacheLogs = true)
+    public async Task<IActionResult> StartCorruptionDetectionAsync([FromQuery] int threshold = 3, [FromQuery] bool compareToCacheLogs = true, [FromQuery] string detectionMode = "miss_count")
     {
-        var operationId = await _corruptionDetectionService.StartDetectionAsync(threshold, compareToCacheLogs);
+        var operationId = await _corruptionDetectionService.StartDetectionAsync(threshold, compareToCacheLogs, detectionMode);
         return Accepted(new { operationId, message = "Corruption detection started", status = "running" });
     }
 
@@ -332,9 +332,10 @@ public class CacheController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpGet("services/{service}/corruption")]
-    public async Task<IActionResult> GetCorruptionDetailsAsync(string service, [FromQuery] bool forceRefresh = false, [FromQuery] int threshold = 3, [FromQuery] bool compareToCacheLogs = true)
+    public async Task<IActionResult> GetCorruptionDetailsAsync(string service, [FromQuery] bool forceRefresh = false, [FromQuery] int threshold = 3, [FromQuery] bool compareToCacheLogs = true, [FromQuery] string detectionMode = "miss_count")
     {
-        var details = await _cacheService.GetCorruptionDetailsAsync(service, forceRefresh, threshold, compareToCacheLogs);
+        var detectRedownloads = detectionMode == "redownload";
+        var details = await _cacheService.GetCorruptionDetailsAsync(service, forceRefresh, threshold, compareToCacheLogs, detectRedownloads: detectRedownloads);
         return Ok(details);
     }
 

@@ -63,6 +63,10 @@ interface NormalViewProps {
   bannerOnly?: boolean;
   detectionLookup?: Map<number, GameCacheInfo> | null;
   detectionByName?: Map<string, GameCacheInfo> | null;
+  detectionByService?: Map<
+    string,
+    { service_name: string; cache_files_found: number; total_size_bytes: number }
+  > | null;
 }
 
 interface GroupCardProps {
@@ -85,6 +89,10 @@ interface GroupCardProps {
   showEventBadges: boolean;
   detectionLookup?: Map<number, GameCacheInfo> | null;
   detectionByName?: Map<string, GameCacheInfo> | null;
+  detectionByService?: Map<
+    string,
+    { service_name: string; cache_files_found: number; total_size_bytes: number }
+  > | null;
 }
 
 const GroupCard: React.FC<GroupCardProps> = ({
@@ -106,7 +114,8 @@ const GroupCard: React.FC<GroupCardProps> = ({
   showCacheHitBar,
   showEventBadges,
   detectionLookup,
-  detectionByName
+  detectionByName,
+  detectionByService
 }) => {
   const { t } = useTranslation();
   const { fetchAssociations, getAssociations, refreshVersion } = useDownloadAssociations();
@@ -145,7 +154,9 @@ const GroupCard: React.FC<GroupCardProps> = ({
     primaryDownload?.gameAppId,
     primaryDownload?.gameName,
     detectionLookup,
-    detectionByName
+    detectionByName,
+    group.service,
+    detectionByService
   );
   const diskSizeBytes = detection?.total_size_bytes;
   const isGenericSteamTitle =
@@ -551,7 +562,9 @@ const GroupCard: React.FC<GroupCardProps> = ({
                 )}
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+              <div
+                className={`grid grid-cols-1 sm:grid-cols-2 ${diskSizeBytes ? 'md:grid-cols-4' : 'md:grid-cols-3'} gap-4`}
+              >
                 {/* Efficiency & Savings */}
                 <div className="p-4 rounded-lg bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)]">
                   <h5 className="text-xs font-semibold text-[var(--theme-text-muted)] mb-3 uppercase tracking-wide">
@@ -1189,6 +1202,10 @@ interface GridCardDrawerContentProps {
   stopHoldTimer: () => void;
   detectionLookup?: Map<number, GameCacheInfo> | null;
   detectionByName?: Map<string, GameCacheInfo> | null;
+  detectionByService?: Map<
+    string,
+    { service_name: string; cache_files_found: number; total_size_bytes: number }
+  > | null;
 }
 
 const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
@@ -1203,7 +1220,8 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
   startHoldTimer,
   stopHoldTimer,
   detectionLookup,
-  detectionByName
+  detectionByName,
+  detectionByService
 }) => {
   const { t } = useTranslation();
   const { fetchAssociations, getAssociations, refreshVersion } = useDownloadAssociations();
@@ -1247,7 +1265,9 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
     primaryDownload?.gameAppId,
     primaryDownload?.gameName,
     detectionLookup,
-    detectionByName
+    detectionByName,
+    group.service,
+    detectionByService
   );
   const diskSizeBytes = detection?.total_size_bytes;
   const artworkId = showSteamImage ? steamAppId : showEpicImage ? `epic-${epicAppId}` : null;
@@ -1743,7 +1763,8 @@ const NormalView: React.FC<NormalViewProps> = ({
   showEventBadges = true,
   bannerOnly = false,
   detectionLookup = null,
-  detectionByName = null
+  detectionByName = null,
+  detectionByService = null
 }) => {
   const { t } = useTranslation();
   const labels = { ...getDefaultSectionLabels(t), ...sectionLabels };
@@ -1779,6 +1800,7 @@ const NormalView: React.FC<NormalViewProps> = ({
       showEventBadges={showEventBadges}
       detectionLookup={detectionLookup}
       detectionByName={detectionByName}
+      detectionByService={detectionByService}
     />
   );
 
@@ -1902,6 +1924,7 @@ const NormalView: React.FC<NormalViewProps> = ({
               stopHoldTimer={stopHoldTimer}
               detectionLookup={detectionLookup}
               detectionByName={detectionByName}
+              detectionByService={detectionByService}
             />
           )}
         </Drawer>

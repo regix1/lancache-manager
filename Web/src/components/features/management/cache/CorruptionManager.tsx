@@ -65,11 +65,15 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   const [lastDetectionTime, setLastDetectionTime] = useState<string | null>(null);
   const [hasCachedResults, setHasCachedResults] = useState(false);
   const [missThreshold, setMissThreshold] = useState(3);
-  const [compareToCacheLogs, setCompareToCacheLogs] = useState(true);
+  const [detectionMode, setDetectionMode] = useState('cache_and_logs');
+
+  // Derive legacy boolean from detection mode for backward-compatible API calls
+  const compareToCacheLogs = detectionMode === 'cache_and_logs';
+  const isRedownloadMode = detectionMode === 'redownload';
 
   const detectionModeOptions = [
     {
-      value: 'false',
+      value: 'logs_only',
       label: t('management.corruption.detectionModeLogsOnly'),
       shortLabel: t('management.corruption.detectionModeLogsOnlyShort'),
       description: t('management.corruption.detectionModeLogsOnlyDesc', {
@@ -77,10 +81,18 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
       })
     },
     {
-      value: 'true',
+      value: 'cache_and_logs',
       label: t('management.corruption.detectionModeCacheLogs'),
       shortLabel: t('management.corruption.detectionModeCacheLogsShort'),
       description: t('management.corruption.detectionModeCacheLogsDesc', {
+        threshold: missThreshold
+      })
+    },
+    {
+      value: 'redownload',
+      label: t('management.corruption.detectionModeRedownload'),
+      shortLabel: t('management.corruption.detectionModeRedownloadShort'),
+      description: t('management.corruption.detectionModeRedownloadDesc', {
         threshold: missThreshold
       })
     }
@@ -193,13 +205,13 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
 
     try {
       // Start background detection - SignalR will send CorruptionDetectionStarted event
-      await ApiService.startCorruptionDetection(missThreshold, compareToCacheLogs);
+      await ApiService.startCorruptionDetection(missThreshold, compareToCacheLogs, detectionMode);
       // Note: NotificationsContext will create a notification via SignalR (CorruptionDetectionStarted event)
     } catch (err: unknown) {
       console.error('Failed to start corruption scan:', err);
       setIsStartingScan(false);
     }
-  }, [isScanning, mockMode, missThreshold, compareToCacheLogs]);
+  }, [isScanning, mockMode, missThreshold, compareToCacheLogs, detectionMode]);
 
   // Listen for corruption detection completion via notifications
   useEffect(() => {
@@ -304,7 +316,12 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     setStartingCorruptionRemoval(service);
 
     try {
-      await ApiService.removeCorruptedChunks(service, missThreshold, compareToCacheLogs);
+      await ApiService.removeCorruptedChunks(
+        service,
+        missThreshold,
+        compareToCacheLogs,
+        detectionMode
+      );
     } catch (err: unknown) {
       console.error('Removal failed:', err);
       onError?.(
@@ -331,7 +348,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     setStartingRemoveAll(true);
 
     try {
-      await ApiService.removeAllCorruptedChunks(missThreshold, compareToCacheLogs);
+      await ApiService.removeAllCorruptedChunks(missThreshold, compareToCacheLogs, detectionMode);
     } catch (err: unknown) {
       console.error('Remove all corrupted failed:', err);
       onError?.(
@@ -358,7 +375,8 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
           service,
           false,
           missThreshold,
-          compareToCacheLogs
+          compareToCacheLogs,
+          detectionMode
         );
         setCorruptionDetails((prev) => ({ ...prev, [service]: details }));
       } catch (err: unknown) {
@@ -426,8 +444,8 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     <div className="flex items-center gap-2">
       <EnhancedDropdown
         options={detectionModeOptions}
-        value={String(compareToCacheLogs)}
-        onChange={(val: string) => setCompareToCacheLogs(val === 'true')}
+        value={detectionMode}
+        onChange={(val: string) => setDetectionMode(val)}
         disabled={isLoading || isScanning || isAnyRemovalRunning}
         dropdownWidth="w-72"
         alignRight={true}
@@ -586,6 +604,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                       onClick={handleRemoveAll}
                       disabled={
                         mockMode ||
+                        isRedownloadMode ||
                         isAnyRemovalRunning ||
                         !!startingCorruptionRemoval ||
                         startingRemoveAll ||
@@ -637,11 +656,18 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                           </div>
                         </div>
                       </div>
-                      <Tooltip content={t('management.corruption.deleteCorrupted')}>
+                      <Tooltip
+                        content={
+                          isRedownloadMode
+                            ? t('management.corruption.redownloadRemovalUnavailable')
+                            : t('management.corruption.deleteCorrupted')
+                        }
+                      >
                         <Button
                           onClick={() => handleRemoveCorruption(service)}
                           disabled={
                             mockMode ||
+                            isRedownloadMode ||
                             isAnyRemovalRunning ||
                             !!startingCorruptionRemoval ||
                             authMode !== 'authenticated' ||
@@ -689,7 +715,9 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                                     </div>
                                     <div className="flex items-center gap-3 text-xs text-themed-muted">
                                       <span>
-                                        {t('management.corruption.missCount')}{' '}
+                                        {isRedownloadMode
+                                          ? t('management.corruption.redownloadCount')
+                                          : t('management.corruption.missCount')}{' '}
                                         <strong className="text-themed-error">
                                           {chunk.miss_count || 0}
                                         </strong>

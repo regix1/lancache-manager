@@ -379,7 +379,8 @@ public partial class RustProcessHelper
         string? databasePath = null,
         CancellationToken cancellationToken = default,
         int threshold = 3,
-        bool compareToCacheLogs = true)
+        bool compareToCacheLogs = true,
+        bool detectRedownloads = false)
     {
         try
         {
@@ -396,9 +397,10 @@ public partial class RustProcessHelper
 
             // Build arguments based on command
             var noCacheCheckFlag = !compareToCacheLogs ? " --no-cache-check" : "";
+            var redownloadFlag = detectRedownloads ? " --detect-redownloads" : "";
             var arguments = command switch
             {
-                "summary" => $"summary \"{logsPath}\" \"{cachePath}\" UTC {threshold}{noCacheCheckFlag}",
+                "summary" => $"summary \"{logsPath}\" \"{cachePath}\" UTC {threshold}{noCacheCheckFlag}{redownloadFlag}",
                 "remove" when !string.IsNullOrEmpty(service) && !string.IsNullOrEmpty(databasePath) =>
                     $"remove \"{databasePath}\" \"{logsPath}\" \"{cachePath}\" \"{service}\" \"{outputFile}\" {threshold}{noCacheCheckFlag}",
                 _ => throw new ArgumentException($"Invalid command or missing parameters: {command}")
