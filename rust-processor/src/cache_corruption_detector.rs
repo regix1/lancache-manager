@@ -568,7 +568,7 @@ impl CorruptionDetector {
         let window_seconds: i64 = 60;
         let mut result: HashMap<(String, String), usize> = HashMap::new();
 
-        for ((service, url, _client_ip), mut timestamps) in hit_timestamps {
+        for ((service, url, _client_ip, _http_range), mut timestamps) in hit_timestamps {
             // Need at least threshold timestamps to be worth checking
             if timestamps.len() < self.miss_threshold {
                 continue;
