@@ -402,7 +402,7 @@ public partial class RustProcessHelper
             {
                 "summary" => $"summary \"{logsPath}\" \"{cachePath}\" UTC {threshold}{noCacheCheckFlag}{redownloadFlag}",
                 "remove" when !string.IsNullOrEmpty(service) && !string.IsNullOrEmpty(databasePath) =>
-                    $"remove \"{databasePath}\" \"{logsPath}\" \"{cachePath}\" \"{service}\" \"{outputFile}\" {threshold}{noCacheCheckFlag}",
+                    $"remove \"{databasePath}\" \"{logsPath}\" \"{cachePath}\" \"{service}\" \"{outputFile}\" {threshold}{noCacheCheckFlag}{redownloadFlag}",
                 _ => throw new ArgumentException($"Invalid command or missing parameters: {command}")
             };
 

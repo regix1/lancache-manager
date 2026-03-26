@@ -100,6 +100,9 @@ enum Commands {
         /// Skip cache file existence check (logs-only mode)
         #[arg(long, default_value = "false")]
         no_cache_check: bool,
+        /// Detect re-downloaded chunks (HIT retries) and delete only cache files (not logs/DB)
+        #[arg(long, default_value = "false")]
+        detect_redownloads: bool,
     },
 }
 
@@ -396,14 +399,18 @@ async fn main() -> Result<()> {
             reporter.emit_complete("Corruption summary generated");
         }
 
-        Commands::Remove { database_path: _, log_dir, cache_dir, service, progress_json, threshold, no_cache_check } => {
+        Commands::Remove { database_path: _, log_dir, cache_dir, service, progress_json, threshold, no_cache_check, detect_redownloads } => {
             reporter.emit_started();
 
             let log_dir = PathBuf::from(&log_dir);
             let cache_dir = PathBuf::from(&cache_dir);
             let progress_path = PathBuf::from(&progress_json);
 
-            eprintln!("Removing corrupted chunks for service: {}", service);
+            if detect_redownloads {
+                eprintln!("Removing re-download corrupted cache files for service: {}", service);
+            } else {
+                eprintln!("Removing corrupted chunks for service: {}", service);
+            }
             eprintln!("  Log directory: {}", log_dir.display());
             eprintln!("  Cache directory: {}", cache_dir.display());
 
@@ -414,6 +421,112 @@ async fn main() -> Result<()> {
             use std::io::Write as IoWrite;
             use parser::LogParser;
             use std::collections::HashMap;
+
+            // Re-download mode: detect via HIT retries within 5-min window, then only delete cache files
+            if detect_redownloads {
+                let miss_threshold: usize = threshold.unwrap_or(3);
+                let service_lower = service.to_lowercase();
+
+                eprintln!("Step 1: Detecting re-downloaded URLs for {}...", service);
+                write_progress(&progress_path, "scanning", "Scanning log files for re-download patterns...", 5.0, 0, 0)?;
+                reporter.emit_progress(5.0, "Scanning log files for re-download patterns...");
+
+                let detector = CorruptionDetector::new(&cache_dir, miss_threshold);
+                let timezone_tz: chrono_tz::Tz = "UTC".parse().unwrap_or(chrono_tz::UTC);
+                let redownload_map = detector.detect_redownloaded_chunks_with_progress(
+                    &log_dir, "access.log", timezone_tz, Some(&progress_path)
+                )?;
+
+                // Filter to the requested service
+                let service_urls: Vec<(String, usize)> = redownload_map
+                    .into_iter()
+                    .filter(|((svc, _url), _count)| svc.to_lowercase() == service_lower)
+                    .map(|((_svc, url), count)| (url, count))
+                    .collect();
+
+                if service_urls.is_empty() {
+                    eprintln!("No re-download corrupted chunks found for {}, nothing to remove", service);
+                    write_progress(&progress_path, "completed", "No re-download corrupted chunks found", 100.0, 0, 0)?;
+                    reporter.emit_complete("No re-download corrupted chunks found");
+                    return Ok(());
+                }
+
+                eprintln!("Found {} re-download corrupted URLs for {}", service_urls.len(), service);
+
+                // Only delete cache files — no log filtering, no DB cleanup
+                eprintln!("Step 2: Deleting cache files for {} corrupted URLs...", service_urls.len());
+                let total_urls = service_urls.len();
+                write_progress(&progress_path, "removing_cache", &format!("Removing cache files for {} corrupted URLs", total_urls), 50.0, 0, total_urls)?;
+                reporter.emit_progress(50.0, &format!("Removing cache files for {} corrupted URLs", total_urls));
+
+                let mut deleted_count = 0usize;
+                let mut permission_errors = 0usize;
+                let mut not_found = 0usize;
+
+                for (url_index, (url, _count)) in service_urls.iter().enumerate() {
+                    if url_index % 50 == 0 || url_index == total_urls - 1 {
+                        let percent = 50.0 + (url_index as f64 / total_urls.max(1) as f64) * 45.0;
+                        write_progress(&progress_path, "removing_cache", &format!("Removing cache file {}/{}", url_index + 1, total_urls), percent, url_index, total_urls)?;
+                        reporter.emit_progress(percent, &format!("Removing cache file {}/{}", url_index + 1, total_urls));
+                    }
+
+                    let cache_path = cache_utils::calculate_cache_path_no_range(&cache_dir, &service_lower, url);
+                    if cache_path.exists() {
+                        match std::fs::remove_file(&cache_path) {
+                            Ok(_) => deleted_count += 1,
+                            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                                permission_errors += 1;
+                                if permission_errors <= 5 {
+                                    eprintln!("  ERROR: Permission denied deleting {}: {}", cache_path.display(), e);
+                                }
+                            }
+                            Err(e) => eprintln!("  Warning: Failed to delete {}: {}", cache_path.display(), e),
+                        }
+                    } else {
+                        // Try range format fallback
+                        let range_path = cache_utils::calculate_cache_path(&cache_dir, &service_lower, url, 0, 1_048_575);
+                        if range_path.exists() {
+                            match std::fs::remove_file(&range_path) {
+                                Ok(_) => deleted_count += 1,
+                                Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                                    permission_errors += 1;
+                                    if permission_errors <= 5 {
+                                        eprintln!("  ERROR: Permission denied deleting {}: {}", range_path.display(), e);
+                                    }
+                                }
+                                Err(e) => eprintln!("  Warning: Failed to delete {}: {}", range_path.display(), e),
+                            }
+                        } else {
+                            not_found += 1;
+                        }
+                    }
+                }
+
+                if permission_errors > 0 {
+                    let error_msg = format!(
+                        "ABORTED: {} cache files could not be deleted due to permission errors. \
+                        Check PUID/PGID settings in docker-compose.yml.",
+                        permission_errors
+                    );
+                    eprintln!("\n{}", error_msg);
+                    write_progress(&progress_path, "failed", &error_msg, 0.0, 0, 0)?;
+                    reporter.emit_failed(&error_msg);
+                    std::process::exit(1);
+                }
+
+                let summary_msg = format!(
+                    "Removed {} re-download corrupted URLs for {} ({} cache files deleted, {} not found on disk)",
+                    service_urls.len(), service, deleted_count, not_found
+                );
+                write_progress(&progress_path, "completed", &summary_msg, 100.0, 0, 0)?;
+                reporter.emit_complete(&summary_msg);
+                eprintln!("\n=== Re-download Corruption Removal Summary ===");
+                eprintln!("Corrupted URLs detected: {}", service_urls.len());
+                eprintln!("Cache files deleted: {}", deleted_count);
+                eprintln!("Cache files not found: {}", not_found);
+                eprintln!("Removal completed successfully (logs and database untouched)");
+                return Ok(());
+            }
 
             eprintln!("Step 1: Detecting corrupted URLs for {}...", service);
 

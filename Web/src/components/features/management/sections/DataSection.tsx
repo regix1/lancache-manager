@@ -54,6 +54,12 @@ const DataSection: React.FC<DataSectionProps> = ({
   const [savedEvictionMode, setSavedEvictionMode] = useState<string>('show');
   const [evictionLoading, setEvictionLoading] = useState(false);
   const [evictionSaving, setEvictionSaving] = useState(false);
+  const [reconciling, setReconciling] = useState(false);
+  const [reconcileResult, setReconcileResult] = useState<{
+    processed: number;
+    evicted: number;
+    unEvicted: number;
+  } | null>(null);
   const isEvictionDirty = evictionMode !== savedEvictionMode;
 
   const loadEvictionSettings = useCallback(
@@ -94,6 +100,30 @@ const DataSection: React.FC<DataSectionProps> = ({
       );
     } finally {
       setEvictionSaving(false);
+    }
+  };
+
+  const handleRunReconciliation = async () => {
+    setReconciling(true);
+    setReconcileResult(null);
+    try {
+      const result = await ApiService.runReconciliation();
+      setReconcileResult(result);
+      onSuccess(
+        t('management.sections.data.reconcileSuccess', {
+          processed: result.processed,
+          evicted: result.evicted,
+          unEvicted: result.unEvicted
+        })
+      );
+      onDataRefresh();
+    } catch (err: unknown) {
+      onError(
+        (err instanceof Error ? err.message : String(err)) ||
+          t('management.sections.data.reconcileError')
+      );
+    } finally {
+      setReconciling(false);
     }
   };
 
@@ -433,7 +463,27 @@ const DataSection: React.FC<DataSectionProps> = ({
                 ))}
               </div>
 
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-3 pt-4 border-t border-themed-primary">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-4 border-t border-themed-primary">
+                <div className="flex items-center gap-3">
+                  <Button
+                    onClick={handleRunReconciliation}
+                    disabled={reconciling}
+                    loading={reconciling}
+                    variant="subtle"
+                    className="sm:w-48"
+                  >
+                    {t('management.sections.data.runReconciliation')}
+                  </Button>
+                  {reconcileResult && (
+                    <span className="text-xs text-themed-muted">
+                      {t('management.sections.data.reconcileResult', {
+                        processed: reconcileResult.processed,
+                        evicted: reconcileResult.evicted,
+                        unEvicted: reconcileResult.unEvicted
+                      })}
+                    </span>
+                  )}
+                </div>
                 <Button
                   onClick={handleSaveEviction}
                   disabled={!isEvictionDirty || evictionSaving}

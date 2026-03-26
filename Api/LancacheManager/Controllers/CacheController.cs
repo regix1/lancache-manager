@@ -345,7 +345,7 @@ public class CacheController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpDelete("services/{service}/corruption")]
-    public IActionResult RemoveCorruptedChunks(string service, [FromQuery] int threshold = 3, [FromQuery] bool compareToCacheLogs = true)
+    public IActionResult RemoveCorruptedChunks(string service, [FromQuery] int threshold = 3, [FromQuery] bool compareToCacheLogs = true, [FromQuery] string detectionMode = "miss_count")
     {
         // Check if ANY removal operation is already in progress (they share a lock)
         var activeGameOps = _operationTracker.GetActiveOperations(OperationType.GameRemoval);
@@ -492,7 +492,8 @@ public class CacheController : ControllerBase
                                 databasePath: dbPath,
                                 cancellationToken: cts.Token,
                                 threshold: threshold,
-                                compareToCacheLogs: compareToCacheLogs
+                                compareToCacheLogs: compareToCacheLogs,
+                                detectRedownloads: detectionMode == "redownload"
                             );
 
                             // Stop progress monitoring for this datasource
@@ -585,7 +586,7 @@ public class CacheController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpDelete("corruption")]
-    public async Task<IActionResult> RemoveAllCorruptedChunksAsync([FromQuery] int threshold = 3, [FromQuery] bool compareToCacheLogs = true)
+    public async Task<IActionResult> RemoveAllCorruptedChunksAsync([FromQuery] int threshold = 3, [FromQuery] bool compareToCacheLogs = true, [FromQuery] string detectionMode = "miss_count")
     {
         // Check if ANY removal operation is already in progress (they share a lock)
         var activeGameOps = _operationTracker.GetActiveOperations(OperationType.GameRemoval);
@@ -744,7 +745,8 @@ public class CacheController : ControllerBase
                                         databasePath: dbPath,
                                         cancellationToken: cts.Token,
                                         threshold: threshold,
-                                        compareToCacheLogs: compareToCacheLogs
+                                        compareToCacheLogs: compareToCacheLogs,
+                                        detectRedownloads: detectionMode == "redownload"
                                     );
 
                                     await dsProgressCts.CancelAsync();

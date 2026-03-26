@@ -103,8 +103,8 @@ PG_CONFIG="/data/postgres-credentials.json"
 
 # If no env var password, check config file
 if [ -z "$PGPASSWORD" ] && [ -f "$PG_CONFIG" ]; then
-    PGPASSWORD=$(grep -o '"password":"[^"]*"' "$PG_CONFIG" | cut -d'"' -f4)
-    PGUSER_FROM_CONFIG=$(grep -o '"username":"[^"]*"' "$PG_CONFIG" | cut -d'"' -f4)
+    PGPASSWORD=$(grep -oE '"password":[[:space:]]*"[^"]*"' "$PG_CONFIG" | cut -d'"' -f4)
+    PGUSER_FROM_CONFIG=$(grep -oE '"username":[[:space:]]*"[^"]*"' "$PG_CONFIG" | cut -d'"' -f4)
     PGUSER="${PGUSER_FROM_CONFIG:-$PGUSER}"
 fi
 

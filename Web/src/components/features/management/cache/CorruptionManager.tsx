@@ -656,18 +656,11 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                           </div>
                         </div>
                       </div>
-                      <Tooltip
-                        content={
-                          isRedownloadMode
-                            ? t('management.corruption.redownloadRemovalUnavailable')
-                            : t('management.corruption.deleteCorrupted')
-                        }
-                      >
+                      <Tooltip content={t('management.corruption.deleteCorrupted')}>
                         <Button
                           onClick={() => handleRemoveCorruption(service)}
                           disabled={
                             mockMode ||
-                            isRedownloadMode ||
                             isAnyRemovalRunning ||
                             !!startingCorruptionRemoval ||
                             authMode !== 'authenticated' ||

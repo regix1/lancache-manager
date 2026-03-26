@@ -33,6 +33,7 @@ public class StatsController : ControllerBase
     private readonly ILogger<StatsController> _logger;
     private readonly IOptions<ApiOptions> _apiOptions;
     private readonly ISignalRNotificationService _notifications;
+    private readonly CacheReconciliationService _reconciliationService;
 
     public StatsController(
         AppDbContext context,
@@ -42,7 +43,8 @@ public class StatsController : ControllerBase
         IStateService stateRepository,
         ILogger<StatsController> logger,
         IOptions<ApiOptions> apiOptions,
-        ISignalRNotificationService notifications)
+        ISignalRNotificationService notifications,
+        CacheReconciliationService reconciliationService)
     {
         _context = context;
         _statsService = statsService;
@@ -52,6 +54,7 @@ public class StatsController : ControllerBase
         _logger = logger;
         _apiOptions = apiOptions;
         _notifications = notifications;
+        _reconciliationService = reconciliationService;
     }
 
     /// <summary>
@@ -450,6 +453,20 @@ public class StatsController : ControllerBase
             reason = "eviction-updated"
         });
         return Ok(new { evictedDataMode = request.EvictedDataMode });
+    }
+
+    [HttpPost("eviction/reconcile")]
+    [Authorize(Policy = "AdminOnly")]
+    public async Task<IActionResult> RunReconciliationAsync(CancellationToken ct)
+    {
+        var (started, processed, evicted, unEvicted) = await _reconciliationService.RunManualAsync(ct);
+        if (!started)
+        {
+            return Conflict(new { error = "Reconciliation is already running" });
+        }
+
+        await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, new { reason = "reconciliation-complete" });
+        return Ok(new { processed, evicted, unEvicted });
     }
 
     /// <summary>

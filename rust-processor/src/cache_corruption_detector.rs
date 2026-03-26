@@ -448,8 +448,12 @@ impl CorruptionDetector {
     /// invisible to MISS-based detection: cached files that serve bad data (e.g., Steam SHA1
     /// validation failures cause immediate retries within seconds).
     ///
-    /// Uses a 5-minute time window to distinguish corruption retries (seconds apart) from
-    /// legitimate re-downloads like verify-game-files or reinstalls (hours/days apart).
+    /// Uses a 60-second time window to distinguish corruption retries (seconds apart) from
+    /// legitimate re-downloads like verify-game-files or reinstalls (minutes/hours apart).
+    /// This works universally across all services (Steam, Epic, WSUS, etc.) because:
+    /// - Corruption retries happen within 1-5 seconds (client validates cached data, fails, retries)
+    /// - HTTP failure retries (e.g., Epic backoff) don't show as HIT (they get non-200 responses)
+    /// - Legitimate re-downloads (verify/repair) are spread over minutes or hours
     /// Returns a map of (service, url) -> max_hit_count for chunks exceeding threshold.
     pub fn detect_redownloaded_chunks_with_progress<P: AsRef<Path>>(
         &self,
@@ -470,7 +474,7 @@ impl CorruptionDetector {
         }
 
         let total_files = log_files.len();
-        eprintln!("Scanning {} log file(s) for re-downloaded chunks (HIT retries within 5min window)...", total_files);
+        eprintln!("Scanning {} log file(s) for re-downloaded chunks (HIT retries within 60s window)...", total_files);
 
         if let Some(progress_file) = progress_path {
             self.write_detection_progress(
@@ -555,9 +559,11 @@ impl CorruptionDetector {
             );
         }
 
-        // For each (service, url, client_ip), find the max number of HITs within any 5-minute window.
-        // Corruption retries happen within seconds; legitimate re-downloads are hours/days apart.
-        let window_seconds: i64 = 300; // 5 minutes
+        // For each (service, url, client_ip), find the max number of HITs within any 60-second window.
+        // Corruption retries happen within seconds (client gets HIT, validates, fails, retries immediately).
+        // HTTP failure retries (non-200) don't appear as HITs so they're already excluded.
+        // Legitimate re-downloads (verify/repair/reinstall) are spread over minutes or hours.
+        let window_seconds: i64 = 60;
         let mut result: HashMap<(String, String), usize> = HashMap::new();
 
         for ((service, url, _client_ip), mut timestamps) in hit_timestamps {
@@ -591,7 +597,7 @@ impl CorruptionDetector {
             }
         }
 
-        eprintln!("Found {} unique URLs with {}+ HIT retries within 5-minute windows (suspected corruption)", result.len(), self.miss_threshold);
+        eprintln!("Found {} unique URLs with {}+ HIT retries within 60-second windows (suspected corruption)", result.len(), self.miss_threshold);
 
         if let Some(progress_file) = progress_path {
             self.write_detection_progress(

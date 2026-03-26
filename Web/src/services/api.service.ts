@@ -302,6 +302,25 @@ class ApiService {
     }
   }
 
+  static async runReconciliation(): Promise<{
+    processed: number;
+    evicted: number;
+    unEvicted: number;
+  }> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/stats/eviction/reconcile`,
+        this.getFetchOptions({ method: 'POST' })
+      );
+      return await this.handleResponse<{ processed: number; evicted: number; unEvicted: number }>(
+        res
+      );
+    } catch (error: unknown) {
+      console.error('runReconciliation error:', error);
+      throw error;
+    }
+  }
+
   static async getServiceStats(
     signal?: AbortSignal,
     startTime?: number,

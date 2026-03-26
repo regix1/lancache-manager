@@ -18,10 +18,35 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 {
     private readonly DatasourceService _datasourceService;
     private readonly StateService _stateService;
+    private bool _isRunning;
 
     protected override string ServiceName => "CacheReconciliationService";
     protected override TimeSpan Interval => TimeSpan.FromHours(6);
     protected override bool RunOnStartup => false;
+
+    public bool IsRunning => _isRunning;
+
+    /// <summary>
+    /// Run reconciliation manually (called from API endpoint).
+    /// Returns false if already running.
+    /// </summary>
+    public async Task<(bool started, int processed, int evicted, int unEvicted)> RunManualAsync(CancellationToken ct)
+    {
+        if (_isRunning) return (false, 0, 0, 0);
+        _isRunning = true;
+        try
+        {
+            using var scope = _serviceProvider.CreateScope();
+            await ExecuteScopedWorkAsync(scope.ServiceProvider, ct);
+            return (true, _lastProcessed, _lastEvicted, _lastUnEvicted);
+        }
+        finally
+        {
+            _isRunning = false;
+        }
+    }
+
+    private int _lastProcessed, _lastEvicted, _lastUnEvicted;
 
     public CacheReconciliationService(
         IServiceProvider serviceProvider,
@@ -149,6 +174,10 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 if (downloads.Count == batchSize)
                     await Task.Delay(50, stoppingToken);
             }
+
+            _lastProcessed = totalProcessed;
+            _lastEvicted = totalEvicted;
+            _lastUnEvicted = totalUnEvicted;
 
             _logger.LogInformation(
                 "[CacheReconciliation] Reconciliation complete: processed {Total} downloads, {Evicted} newly evicted, {UnEvicted} un-evicted (re-cached)",
