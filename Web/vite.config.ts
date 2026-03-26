@@ -78,7 +78,6 @@ export default defineConfig({
             if (id.includes('@tanstack')) return 'tanstack';
             if (id.includes('lucide-react')) return 'icons';
             if (id.includes('@microsoft/signalr')) return 'signalr';
-            if (id.includes('i18next') || id.includes('react-i18next')) return 'i18n';
             if (id.includes('zod')) return 'vendor';
             if (id.includes('@number-flow')) return 'vendor';
             return 'vendor';
