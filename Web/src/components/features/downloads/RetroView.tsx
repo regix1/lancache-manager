@@ -306,7 +306,7 @@ const groupByDepot = (
         }
 
         const group = depotGroups[depotKey];
-        if (download.isEvicted) group.isEvicted = true;
+        if (!download.isEvicted) group.isEvicted = false;
         group.downloadIds.push(download.id);
         group.cacheHitBytes += download.cacheHitBytes || 0;
         group.cacheMissBytes += download.cacheMissBytes || 0;

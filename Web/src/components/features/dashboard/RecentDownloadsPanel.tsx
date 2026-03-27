@@ -116,7 +116,7 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({ item, events = 
             d.gameName !== 'Unknown Steam Game' &&
             !d.gameName.match(/^Steam App \d+$/)
         ),
-        isEvicted: item.downloads.some((d: Download) => d.isEvicted),
+        isEvicted: item.downloads.every((d: Download) => d.isEvicted),
         gameAppId: item.downloads.find((d: Download) => d.gameAppId)?.gameAppId ?? null
       }
     : {

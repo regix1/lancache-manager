@@ -149,7 +149,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
   const steamAppId = primaryDownload?.gameAppId ? String(primaryDownload.gameAppId) : null;
   const epicAppId = primaryDownload?.epicAppId ?? null;
   const primaryName = primaryDownload?.gameName ?? '';
-  const isEvicted = group.downloads.some((d: Download) => d.isEvicted);
+  const isEvicted = group.downloads.every((d: Download) => d.isEvicted);
   const detection = resolveGameDetection(
     primaryDownload?.gameAppId,
     primaryDownload?.gameName,
@@ -1048,7 +1048,7 @@ const GridCard: React.FC<GridCardProps> = ({
   const showEpicImage = group.type === 'game' && isEpic && Boolean(epicAppId) && !!primaryName;
   const artworkId = showSteamImage ? steamAppId : showEpicImage ? `epic-${epicAppId}` : null;
   const hasArtwork = artworkId !== null && !imageErrors.has(artworkId);
-  const isEvicted = group.downloads.some((d: Download) => d.isEvicted);
+  const isEvicted = group.downloads.every((d: Download) => d.isEvicted);
   const placeholderIconSize = 48;
 
   React.useEffect(() => {

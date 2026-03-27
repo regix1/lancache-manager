@@ -168,7 +168,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
     showSteamImage && primaryDownload?.gameAppId
       ? `https://store.steampowered.com/app/${primaryDownload.gameAppId}`
       : null;
-  const isEvicted = group.downloads.some((d: Download) => d.isEvicted);
+  const isEvicted = group.downloads.every((d: Download) => d.isEvicted);
   const detection = resolveGameDetection(
     primaryDownload?.gameAppId,
     primaryDownload?.gameName,
