@@ -134,4 +134,56 @@
   .bg-themed-card {
     background-color: var(--theme-card-bg);
   }
+
+  /* ===== STATCARD SKELETON LOADING ===== */
+
+  .stat-card-skeleton-value {
+    height: 1.75rem;
+    width: 60%;
+    border-radius: 0.375rem;
+    background: linear-gradient(
+      90deg,
+      var(--theme-skeleton-base, rgba(255, 255, 255, 0.06)) 25%,
+      var(--theme-skeleton-highlight, rgba(255, 255, 255, 0.12)) 50%,
+      var(--theme-skeleton-base, rgba(255, 255, 255, 0.06)) 75%
+    );
+    background-size: 200% 100%;
+    animation: stat-card-shimmer 1.5s ease-in-out infinite;
+  }
+
+  .stat-card-skeleton-subtitle {
+    height: 0.875rem;
+    width: 40%;
+    border-radius: 0.25rem;
+    background: linear-gradient(
+      90deg,
+      var(--theme-skeleton-base, rgba(255, 255, 255, 0.06)) 25%,
+      var(--theme-skeleton-highlight, rgba(255, 255, 255, 0.12)) 50%,
+      var(--theme-skeleton-base, rgba(255, 255, 255, 0.06)) 75%
+    );
+    background-size: 200% 100%;
+    animation: stat-card-shimmer 1.5s ease-in-out infinite;
+  }
+
+  .stat-card-skeleton-sparkline {
+    width: 100%;
+    border-radius: 0.25rem;
+    background: linear-gradient(
+      90deg,
+      var(--theme-skeleton-base, rgba(255, 255, 255, 0.06)) 25%,
+      var(--theme-skeleton-highlight, rgba(255, 255, 255, 0.12)) 50%,
+      var(--theme-skeleton-base, rgba(255, 255, 255, 0.06)) 75%
+    );
+    background-size: 200% 100%;
+    animation: stat-card-shimmer 1.5s ease-in-out infinite;
+  }
+
+  @keyframes stat-card-shimmer {
+    0% {
+      background-position: 200% 0;
+    }
+    100% {
+      background-position: -200% 0;
+    }
+  }
 }

@@ -340,13 +340,13 @@ async fn query_service_downloads(pool: &PgPool) -> Result<HashMap<String, Vec<(S
     eprintln!("Querying LogEntries for non-game services...");
 
     // Services to detect (these typically don't have game AppIds)
-    // We'll exclude 'steam' since it's covered by game detection
+    // We exclude 'unknown' and 'localhost' from service aggregation
     let query = "
         SELECT DISTINCT le.\"Service\", le.\"Url\"
         FROM \"LogEntries\" le
         WHERE le.\"Service\" IS NOT NULL
         AND le.\"Url\" IS NOT NULL
-        AND LOWER(le.\"Service\") NOT IN ('steam', 'unknown', 'localhost')
+        AND LOWER(le.\"Service\") NOT IN ('unknown', 'localhost')
         AND le.\"Service\" != ''
         ORDER BY le.\"Service\", le.\"BytesServed\" DESC
     ";

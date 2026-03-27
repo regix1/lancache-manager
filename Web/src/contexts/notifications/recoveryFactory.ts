@@ -453,41 +453,48 @@ function recoverOperations(
       });
     }
   } else {
-    // Clear stale state
+    // Clear stale state — always clean up any running notification of this type,
+    // regardless of whether localStorage still has the key. This prevents a stuck
+    // "running" notification when the completion event cleared localStorage before
+    // the app restarted (e.g. SignalR fired completion → removeItem, then page
+    // reloaded from an in-memory running state added by a prior recovery call).
     const saved = localStorage.getItem(storageKey);
     if (saved) {
       localStorage.removeItem(storageKey);
+    }
 
-      let parsed: UnifiedNotification;
-      try {
-        parsed = JSON.parse(saved);
-      } catch {
-        return;
+    setNotifications((prev: UnifiedNotification[]) => {
+      const existing = prev.find((n) => n.type === type && n.status === 'running');
+      if (!existing) return prev;
+
+      let recoveryId: string;
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved) as UnifiedNotification;
+          recoveryId = getIdFromSaved(parsed);
+        } catch {
+          recoveryId = existing.id;
+        }
+      } else {
+        recoveryId = existing.id;
       }
 
-      const recoveryId = getIdFromSaved(parsed);
-
-      setNotifications((prev: UnifiedNotification[]) => {
-        const existing = prev.find((n) => n.type === type && n.status === 'running');
-        if (existing) {
-          return prev.map((n) => {
-            if (n.type === type && n.status === 'running') {
-              return {
-                ...n,
-                id: recoveryId,
-                status: 'completed' as NotificationStatus,
-                message: staleMessage,
-                progress: 100
-              };
-            }
-            return n;
-          });
+      const updated = prev.map((n) => {
+        if (n.type === type && n.status === 'running') {
+          return {
+            ...n,
+            id: recoveryId,
+            status: 'completed' as NotificationStatus,
+            message: staleMessage,
+            progress: 100
+          };
         }
-        return prev;
+        return n;
       });
 
       scheduleAutoDismiss(recoveryId);
-    }
+      return updated;
+    });
   }
 }
 

@@ -54,6 +54,12 @@ interface DashboardDataContextType {
   }) => void;
 }
 
+export interface DashboardCacheEnvelope<T> {
+  data: T;
+  cachedAt: number;
+  version: string;
+}
+
 export interface DashboardDataProviderProps {
   children: ReactNode;
   mockMode?: boolean;

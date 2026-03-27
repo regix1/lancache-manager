@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { unstable_batchedUpdates } from 'react-dom';
 import ApiService from '@services/api.service';
 import { isAbortError } from '@utils/error';
+import { storage } from '@utils/storage';
+import { STORAGE_KEYS } from '@utils/constants';
 import MockDataService from '../../test/mockData.service';
 import { useTimeFilter } from '../useTimeFilter';
 import { useRefreshRate } from '../useRefreshRate';
@@ -19,8 +21,36 @@ import type {
 import {
   DashboardDataContext,
   type DashboardDataProviderProps,
-  type CachedDetectionResponse
+  type CachedDetectionResponse,
+  type DashboardCacheEnvelope
 } from './types';
+
+const CACHE_VERSION = '1';
+
+function readCache<T>(key: string, defaultValue: T): T {
+  try {
+    const envelope = storage.getJSON<DashboardCacheEnvelope<T>>(key);
+    if (envelope && envelope.version === CACHE_VERSION) {
+      return envelope.data;
+    }
+  } catch {
+    // Corrupted cache — ignore
+  }
+  return defaultValue;
+}
+
+function writeCache<T>(key: string, data: T): void {
+  try {
+    const envelope: DashboardCacheEnvelope<T> = {
+      data,
+      cachedAt: Date.now(),
+      version: CACHE_VERSION
+    };
+    storage.setJSON(key, envelope);
+  } catch {
+    // QuotaExceededError or other — silently skip
+  }
+}
 
 export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   children,
@@ -35,11 +65,21 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   const isAdmin = authMode === 'authenticated';
 
   // State
-  const [cacheInfo, setCacheInfo] = useState<CacheInfo | null>(null);
-  const [clientStats, setClientStats] = useState<ClientStat[]>([]);
-  const [serviceStats, setServiceStats] = useState<ServiceStat[]>([]);
-  const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
-  const [latestDownloads, setLatestDownloads] = useState<Download[]>([]);
+  const [cacheInfo, setCacheInfo] = useState<CacheInfo | null>(() =>
+    readCache<CacheInfo | null>(STORAGE_KEYS.DASHBOARD_CACHE_INFO, null)
+  );
+  const [clientStats, setClientStats] = useState<ClientStat[]>(() =>
+    readCache<ClientStat[]>(STORAGE_KEYS.DASHBOARD_CLIENT_STATS, [])
+  );
+  const [serviceStats, setServiceStats] = useState<ServiceStat[]>(() =>
+    readCache<ServiceStat[]>(STORAGE_KEYS.DASHBOARD_SERVICE_STATS, [])
+  );
+  const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(() =>
+    readCache<DashboardStats | null>(STORAGE_KEYS.DASHBOARD_STATS, null)
+  );
+  const [latestDownloads, setLatestDownloads] = useState<Download[]>(() =>
+    readCache<Download[]>(STORAGE_KEYS.DASHBOARD_LATEST_DOWNLOADS, [])
+  );
   const [gameDetectionData, setGameDetectionData] = useState<CachedDetectionResponse | null>(null);
   const [gameDetectionLookup, setGameDetectionLookup] = useState<Map<number, GameCacheInfo> | null>(
     null
@@ -51,7 +91,9 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
     string,
     { service_name: string; cache_files_found: number; total_size_bytes: number }
   > | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(
+    () => readCache<CacheInfo | null>(STORAGE_KEYS.DASHBOARD_CACHE_INFO, null) === null
+  );
   const [error, setError] = useState<string | null>(null);
   const [connectionStatus, setConnectionStatus] = useState('checking');
 
@@ -236,6 +278,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
           // Cache info is not time-range dependent, always apply
           if (cache.status === 'fulfilled' && cache.value !== undefined) {
             setCacheInfo(cache.value);
+            writeCache(STORAGE_KEYS.DASHBOARD_CACHE_INFO, cache.value);
           }
 
           // Game detection data is not time-range dependent, always apply
@@ -281,16 +324,20 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
           if (filtersStillValid) {
             if (clients.status === 'fulfilled' && clients.value !== undefined) {
               setClientStats(clients.value);
+              writeCache(STORAGE_KEYS.DASHBOARD_CLIENT_STATS, clients.value);
             }
             if (services.status === 'fulfilled' && services.value !== undefined) {
               setServiceStats(services.value);
+              writeCache(STORAGE_KEYS.DASHBOARD_SERVICE_STATS, services.value);
             }
             if (dashboard.status === 'fulfilled' && dashboard.value !== undefined) {
               setDashboardStats(dashboard.value);
+              writeCache(STORAGE_KEYS.DASHBOARD_STATS, dashboard.value);
               hasData.current = true;
             }
             if (downloads.status === 'fulfilled' && downloads.value !== undefined) {
               setLatestDownloads(downloads.value);
+              writeCache(STORAGE_KEYS.DASHBOARD_LATEST_DOWNLOADS, downloads.value);
             }
             setError(null);
           }
@@ -438,7 +485,10 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   // Initial load
   useEffect(() => {
     if (!mockMode && !authLoading && hasAccess) {
-      fetchAllData({ showLoading: true, isInitial: true, trigger: 'initial' });
+      // Only show loading skeleton if there is no cached data to display immediately
+      const hasCachedData =
+        readCache<CacheInfo | null>(STORAGE_KEYS.DASHBOARD_CACHE_INFO, null) !== null;
+      fetchAllData({ showLoading: !hasCachedData, isInitial: true, trigger: 'initial' });
     } else if (!mockMode && !authLoading && !hasAccess) {
       // Auth completed but user has no access — stop loading to prevent infinite skeleton
       setLoading(false);

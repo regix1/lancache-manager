@@ -39,6 +39,7 @@ export interface ServiceAnalyticsChartProps {
   serviceStats: ServiceStat[];
   timeRange?: string;
   glassmorphism?: boolean;
+  loading?: boolean;
 }
 
 export interface DoughnutChartProps {

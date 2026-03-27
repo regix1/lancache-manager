@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { PieChart, Zap, Database } from 'lucide-react';
+import { PieChart, Zap, Database, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { formatBytes, formatPercent } from '@utils/formatters';
 import { Card } from '@components/ui/Card';
@@ -9,7 +9,7 @@ import { useChartData } from './useChartData';
 import type { ServiceAnalyticsChartProps, TabConfig, TabId, LegendItem } from './types';
 
 const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
-  ({ serviceStats, glassmorphism = false }) => {
+  ({ serviceStats, glassmorphism = false, loading = false }) => {
     const { t } = useTranslation();
     const [activeTab, setActiveTab] = useState<TabId>('service');
 
@@ -99,7 +99,11 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
           </div>
         </div>
 
-        {!chartData.isEmpty ? (
+        {loading && chartData.isEmpty ? (
+          <div className="service-analytics-loading">
+            <Loader2 className="widget-loading-spinner" />
+          </div>
+        ) : !chartData.isEmpty ? (
           <>
             {/* Main content - side by side */}
             <div className="chart-body">

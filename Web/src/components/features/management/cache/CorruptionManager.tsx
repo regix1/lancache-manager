@@ -598,13 +598,12 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
               <LoadingState message={t('management.corruption.loadingCachedData')} />
             ) : hasCachedResults && corruptionList.length > 0 ? (
               <div className="space-y-3">
-                {corruptionList.length >= 2 && (
+                {corruptionList.length >= 1 && (
                   <div className="flex justify-end">
                     <Button
                       onClick={handleRemoveAll}
                       disabled={
                         mockMode ||
-                        isRedownloadMode ||
                         isAnyRemovalRunning ||
                         !!startingCorruptionRemoval ||
                         startingRemoveAll ||

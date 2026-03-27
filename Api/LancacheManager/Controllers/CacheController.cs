@@ -345,7 +345,7 @@ public class CacheController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpDelete("services/{service}/corruption")]
-    public IActionResult RemoveCorruptedChunks(string service, [FromQuery] int threshold = 3, [FromQuery] bool compareToCacheLogs = true, [FromQuery] string detectionMode = "miss_count")
+    public async Task<IActionResult> RemoveCorruptedChunks(string service, [FromQuery] int threshold = 3, [FromQuery] bool compareToCacheLogs = true, [FromQuery] string detectionMode = "miss_count")
     {
         // Check if ANY removal operation is already in progress (they share a lock)
         var activeGameOps = _operationTracker.GetActiveOperations(OperationType.GameRemoval);
@@ -401,6 +401,9 @@ public class CacheController : ControllerBase
         // Send start notification via SignalR
         _notifications.NotifyAllFireAndForget(SignalREvents.CorruptionRemovalStarted,
             new CorruptionRemovalStarted(service, operationId, $"Starting corruption removal for {service}...", DateTime.UtcNow));
+
+        // Optimistically delete the cached detection row immediately so app restarts don't resurface stale data
+        await _corruptionDetectionService.RemoveCachedServiceAsync(service);
 
         _ = Task.Run(async () =>
         {
@@ -527,9 +530,6 @@ public class CacheController : ControllerBase
                         // Signal nginx to reopen log files (prevents monolithic container from losing log access)
                         await _nginxLogRotationService.ReopenNginxLogsAsync();
 
-                        // Clear cached detection result so page reload doesn't show stale data
-                        await _corruptionDetectionService.RemoveCachedServiceAsync(service);
-
                         // Invalidate service count cache since corruption removal affects counts
                         await _cacheService.InvalidateServiceCountsCacheAsync();
 
@@ -640,6 +640,9 @@ public class CacheController : ControllerBase
                 return BadRequest(new ErrorResponse { Error = errorMessage });
             }
         }
+
+        // Optimistically delete ALL cached detection rows immediately so app restarts don't resurface stale data
+        await _corruptionDetectionService.InvalidateCacheAsync();
 
         _ = Task.Run(async () =>
         {
@@ -776,7 +779,6 @@ public class CacheController : ControllerBase
                                 _logger.LogInformation("Corruption removal completed for service: {Service} across all datasources", service);
 
                                 await _nginxLogRotationService.ReopenNginxLogsAsync();
-                                await _corruptionDetectionService.RemoveCachedServiceAsync(service);
                                 await _cacheService.InvalidateServiceCountsCacheAsync();
 
                                 _operationTracker.CompleteOperation(operationId, success: true);

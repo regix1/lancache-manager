@@ -34,6 +34,8 @@ interface StatCardProps {
   glassmorphism?: boolean;
   // Stagger index for entrance animation
   staggerIndex?: number;
+  // Loading skeleton
+  loading?: boolean;
 }
 
 // Color → CSS variable mapping used for sparkline colors (icon backgrounds use CSS data-color selectors)
@@ -60,7 +62,8 @@ const StatCard: React.FC<StatCardProps> = ({
   tooltip,
   animateValue = false,
   glassmorphism = false,
-  staggerIndex
+  staggerIndex,
+  loading = false
 }) => {
   const { t } = useTranslation();
   // Determine sparkline color
@@ -113,7 +116,9 @@ const StatCard: React.FC<StatCardProps> = ({
 
           {/* Main value with optional animation */}
           <div className="flex items-baseline gap-2 mt-1">
-            {animateValue ? (
+            {loading ? (
+              <div className="stat-card-skeleton-value" />
+            ) : animateValue ? (
               <AnimatedValue
                 value={value}
                 className="text-2xl font-bold transition-all duration-300"
@@ -126,9 +131,11 @@ const StatCard: React.FC<StatCardProps> = ({
             )}
           </div>
 
-          {subtitle && (
+          {loading ? (
+            <div className="stat-card-skeleton-subtitle mt-1" />
+          ) : subtitle ? (
             <p className="text-xs mt-1 text-[var(--theme-text-secondary)]">{subtitle}</p>
-          )}
+          ) : null}
         </div>
         <div className="stat-card-icon p-3 rounded-lg flex-shrink-0" data-color={color}>
           <Icon className="w-6 h-6 text-[var(--theme-button-text)]" />
@@ -137,7 +144,9 @@ const StatCard: React.FC<StatCardProps> = ({
 
       {/* Sparkline or placeholder for consistent card height - mt-auto pushes to bottom */}
       <div className="mt-auto">
-        {sparklineData && sparklineData.length >= 1 ? (
+        {loading ? (
+          <div className="stat-card-skeleton-sparkline h-8 mt-2" />
+        ) : sparklineData && sparklineData.length >= 1 ? (
           <Sparkline
             data={sparklineData.length === 1 ? [sparklineData[0], sparklineData[0]] : sparklineData}
             color={resolvedSparklineColor}

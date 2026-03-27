@@ -862,6 +862,7 @@ const Dashboard: React.FC = () => {
                 color={card.color}
                 tooltip={card.tooltip}
                 glassmorphism={true}
+                loading={loading}
                 animateValue={!loading}
                 sparklineData={
                   card.key === 'bandwidthSaved'
@@ -907,6 +908,7 @@ const Dashboard: React.FC = () => {
           serviceStats={filteredServiceStats || []}
           timeRange={timeRange}
           glassmorphism={true}
+          loading={loading}
         />
         <RecentDownloadsPanel
           downloads={filteredLatestDownloads || []}

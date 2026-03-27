@@ -1382,15 +1382,15 @@
           "noUnresolved": "No unresolved Epic downloads found"
         },
         "dataImport": "Data Import",
-        "evictedCacheData": "Evicted Cache Data",
+        "evictedCacheData": "Evicted Game Data",
         "evictedCacheDescription": "Controls how games that have been evicted from the nginx cache are handled. Eviction happens automatically when the cache disk fills up.",
         "evictionModes": {
           "show": "Show",
-          "showDescription": "Evicted games remain visible on all pages with an 'Evicted' badge and are included in stat calculations",
+          "showDescription": "Evicted game data remains visible on all pages with an 'Evicted' badge and are included in stat calculations",
           "hide": "Hide",
-          "hideDescription": "Evicted games are hidden from all pages and excluded from all stat calculations",
+          "hideDescription": "Evicted game data is hidden from all pages and excluded from all stat calculations",
           "remove": "Remove",
-          "removeDescription": "Evicted games are permanently deleted from the database"
+          "removeDescription": "Evicted game data is permanently deleted from the database"
         },
         "evictionSaveSuccess": "Eviction mode updated successfully",
         "evictionSaveError": "Failed to update eviction mode",

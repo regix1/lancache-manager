@@ -426,7 +426,7 @@ const DataSection: React.FC<DataSectionProps> = ({
         />
       </div>
 
-      {/* Subsection: Evicted Cache Data */}
+      {/* Subsection: Evicted Game Data */}
       <div className="mb-8">
         <div className="flex items-center gap-2 mb-4">
           <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-orange)]" />
