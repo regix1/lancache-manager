@@ -39,5 +39,7 @@ export const STORAGE_KEYS = {
   DASHBOARD_CLIENT_STATS: 'lancache_dashboard_client_stats',
   DASHBOARD_SERVICE_STATS: 'lancache_dashboard_service_stats',
   DASHBOARD_STATS: 'lancache_dashboard_stats',
-  DASHBOARD_LATEST_DOWNLOADS: 'lancache_dashboard_latest_downloads'
+  DASHBOARD_LATEST_DOWNLOADS: 'lancache_dashboard_latest_downloads',
+  WIDGET_PEAK_USAGE: 'lancache_widget_peak_usage',
+  WIDGET_CACHE_GROWTH: 'lancache_widget_cache_growth'
 } as const;

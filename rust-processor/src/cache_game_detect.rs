@@ -348,7 +348,7 @@ async fn query_service_downloads(pool: &PgPool) -> Result<HashMap<String, Vec<(S
         AND le.\"Url\" IS NOT NULL
         AND LOWER(le.\"Service\") NOT IN ('unknown', 'localhost')
         AND le.\"Service\" != ''
-        ORDER BY le.\"Service\", le.\"BytesServed\" DESC
+        ORDER BY le.\"Service\"
     ";
 
     let rows = sqlx::query(query).fetch_all(pool).await?;

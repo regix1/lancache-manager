@@ -11,6 +11,16 @@ import { useMockMode } from '@contexts/useMockMode';
 import { getCurrentHour } from '@utils/timezone';
 import ApiService from '@services/api.service';
 import MockDataService from '../../../../test/mockData.service';
+import { storage } from '@utils/storage';
+import { STORAGE_KEYS } from '@utils/constants';
+
+const WIDGET_CACHE_VERSION = '1';
+
+interface WidgetCacheEnvelope<T> {
+  data: T;
+  cachedAt: number;
+  version: string;
+}
 
 interface PeakUsageHoursProps {
   /** Whether to use glassmorphism style */
@@ -30,8 +40,28 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(
     const { t } = useTranslation();
     const { timeRange, getTimeRangeParams, selectedEventIds } = useTimeFilter();
     const { mockMode } = useMockMode();
-    const [data, setData] = useState<HourlyActivityResponse | null>(null);
-    const [loading, setLoading] = useState(true);
+    const [data, setData] = useState<HourlyActivityResponse | null>(() => {
+      try {
+        const envelope = storage.getJSON<WidgetCacheEnvelope<HourlyActivityResponse>>(
+          STORAGE_KEYS.WIDGET_PEAK_USAGE
+        );
+        if (envelope?.version === WIDGET_CACHE_VERSION) return envelope.data;
+      } catch {
+        /* ignore storage errors */
+      }
+      return null;
+    });
+    const [loading, setLoading] = useState(() => {
+      try {
+        const envelope = storage.getJSON<WidgetCacheEnvelope<HourlyActivityResponse>>(
+          STORAGE_KEYS.WIDGET_PEAK_USAGE
+        );
+        return !envelope?.version || envelope.version !== WIDGET_CACHE_VERSION;
+      } catch {
+        /* ignore storage errors */
+      }
+      return true;
+    });
     const [error, setError] = useState<string | null>(null);
     const { use24HourFormat, useLocalTimezone } = useTimezone();
     const prevDataRef = useRef<HourlyActivityResponse | null>(null);
@@ -89,7 +119,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(
       const fetchData = async () => {
         try {
           // Only show loading on initial load when we have no data
-          if (!data && !prevDataRef.current) {
+          if (!prevDataRef.current) {
             setLoading(true);
           }
           setError(null);
@@ -102,6 +132,15 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(
             eventId
           );
           setData(response);
+          try {
+            storage.setJSON(STORAGE_KEYS.WIDGET_PEAK_USAGE, {
+              data: response,
+              cachedAt: Date.now(),
+              version: WIDGET_CACHE_VERSION
+            });
+          } catch {
+            /* ignore storage errors */
+          }
         } catch (err) {
           if (!controller.signal.aborted) {
             setError('Failed to load hourly data');

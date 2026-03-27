@@ -337,7 +337,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
             }
             if (downloads.status === 'fulfilled' && downloads.value !== undefined) {
               setLatestDownloads(downloads.value);
-              writeCache(STORAGE_KEYS.DASHBOARD_LATEST_DOWNLOADS, downloads.value);
+              writeCache(STORAGE_KEYS.DASHBOARD_LATEST_DOWNLOADS, downloads.value.slice(0, 50));
             }
             setError(null);
           }

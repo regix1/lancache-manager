@@ -609,6 +609,9 @@ async fn main() -> Result<()> {
             let candidate_count = candidates.len();
             eprintln!("Found {} URLs with {}+ MISS/UNKNOWN entries for {}", candidate_count, miss_threshold, service);
 
+            // Save all candidate URLs before filtering — needed for log/DB cleanup even when cache files are gone
+            let all_candidate_urls: std::collections::HashSet<String> = candidates.keys().cloned().collect();
+
             let corrupted_urls_with_sizes: HashMap<String, i64> = if no_cache_check {
                 eprintln!("Skipping cache file existence check (logs-only mode)");
                 eprintln!("Using all {} candidate URLs", candidate_count);
@@ -635,18 +638,23 @@ async fn main() -> Result<()> {
             };
             reporter.emit_progress(30.0, &format!("Found {} corrupted URLs for {}", corrupted_urls_with_sizes.len(), service));
 
-            if corrupted_urls_with_sizes.is_empty() {
+            if corrupted_urls_with_sizes.is_empty() && all_candidate_urls.is_empty() {
                 eprintln!("No corrupted chunks found, nothing to remove");
                 write_progress(&progress_path, "completed", "No corrupted chunks found", 100.0, 0, 0)?;
                 reporter.emit_complete("No corrupted chunks found, nothing to remove");
                 return Ok(());
             }
 
-            // Build set for fast lookup during log filtering
-            let corrupted_urls: std::collections::HashSet<String> = corrupted_urls_with_sizes
-                .keys()
-                .cloned()
-                .collect();
+            if corrupted_urls_with_sizes.is_empty() {
+                eprintln!("No cache files found on disk, but {} stale log entries detected — cleaning up logs and database", all_candidate_urls.len());
+            }
+
+            // Use all candidates for log/DB cleanup (includes stale entries where cache files are gone)
+            let corrupted_urls: std::collections::HashSet<String> = if corrupted_urls_with_sizes.is_empty() {
+                all_candidate_urls
+            } else {
+                corrupted_urls_with_sizes.keys().cloned().collect()
+            };
 
             // PASS 2: Filter log files, removing MISS/UNKNOWN lines for corrupted URLs
             eprintln!("Step 2: Filtering log files to remove corrupted chunks...");
