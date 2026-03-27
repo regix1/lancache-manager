@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, memo, useRef } from 'react';
-import { get as idbGet, set as idbSet } from 'idb-keyval';
+import { getCachedValue, setCachedValue, IDB_KEYS } from '@utils/idbCache';
 import { TrendingUp, TrendingDown } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { formatBytes } from '@utils/formatters';
@@ -10,8 +10,6 @@ import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import { useMockMode } from '@contexts/useMockMode';
 import MockDataService from '../../../../test/mockData.service';
-
-const IDB_KEY_CACHE_GROWTH = 'widget_cache_growth';
 
 interface CacheGrowthTrendProps {
   /** Current used cache size in bytes (from cacheInfo) */
@@ -37,31 +35,16 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
     // Any non-live mode should disable real-time only stats
     const isHistoricalView = timeRange !== 'live';
     const { mockMode } = useMockMode();
-    const [data, setData] = useState<CacheGrowthResponse | null>(null);
-    const [loading, setLoading] = useState(true);
+    const [data, setData] = useState<CacheGrowthResponse | null>(
+      () => getCachedValue<CacheGrowthResponse>(IDB_KEYS.CACHE_GROWTH) ?? null
+    );
+    const [loading, setLoading] = useState(
+      () => getCachedValue(IDB_KEYS.CACHE_GROWTH) === undefined
+    );
     const [error, setError] = useState<string | null>(null);
-    const prevDataRef = useRef<CacheGrowthResponse | null>(null);
-
-    // Hydrate from IndexedDB cache on mount
-    useEffect(() => {
-      let cancelled = false;
-      (async () => {
-        try {
-          const cached = await idbGet<CacheGrowthResponse>(IDB_KEY_CACHE_GROWTH);
-          if (cancelled || !cached) return;
-          if (loading && !data) {
-            setData(cached);
-            prevDataRef.current = cached;
-            setLoading(false);
-          }
-        } catch {
-          /* IndexedDB unavailable */
-        }
-      })();
-      return () => {
-        cancelled = true;
-      };
-    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    const prevDataRef = useRef<CacheGrowthResponse | null>(
+      getCachedValue<CacheGrowthResponse>(IDB_KEYS.CACHE_GROWTH) ?? null
+    );
 
     // Fetch cache growth data from API
     // In mock mode, use generated mock data instead
@@ -100,7 +83,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
             eventId
           );
           setData(response);
-          idbSet(IDB_KEY_CACHE_GROWTH, response).catch(() => undefined);
+          setCachedValue(IDB_KEYS.CACHE_GROWTH, response);
         } catch (err) {
           if (!controller.signal.aborted) {
             setError('Failed to load growth data');

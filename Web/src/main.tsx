@@ -4,6 +4,7 @@ import './index.css';
 import './i18n';
 import themeService from './services/theme.service';
 import { initializeFavicon } from './utils/favicon';
+import { preloadDashboardCache } from './utils/idbCache';
 
 // Bootstrap the UI with cached/default theme values only.
 // Authenticated preference hydration happens after auth settles inside the app.
@@ -38,8 +39,11 @@ const renderApp = () => {
     return;
   }
 
-  const root = ReactDOM.createRoot(rootEl);
-  root.render(<App />);
+  // Pre-load cached dashboard data before React renders to eliminate skeleton flash
+  preloadDashboardCache().finally(() => {
+    const root = ReactDOM.createRoot(rootEl);
+    root.render(<App />);
+  });
 };
 
 renderApp();

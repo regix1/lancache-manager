@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { unstable_batchedUpdates } from 'react-dom';
-import { get as idbGet, set as idbSet } from 'idb-keyval';
+import { getCachedValue, setCachedValue, IDB_KEYS } from '@utils/idbCache';
 import ApiService from '@services/api.service';
 import { isAbortError } from '@utils/error';
 import MockDataService from '../../test/mockData.service';
@@ -23,14 +23,6 @@ import {
   type CachedDetectionResponse
 } from './types';
 
-const IDB_KEYS = {
-  CACHE_INFO: 'dashboard_cache_info',
-  CLIENT_STATS: 'dashboard_client_stats',
-  SERVICE_STATS: 'dashboard_service_stats',
-  DASHBOARD_STATS: 'dashboard_stats',
-  LATEST_DOWNLOADS: 'dashboard_latest_downloads'
-} as const;
-
 export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   children,
   mockMode = false
@@ -43,12 +35,22 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   const hasAccess = hasSession;
   const isAdmin = authMode === 'authenticated';
 
-  // State
-  const [cacheInfo, setCacheInfo] = useState<CacheInfo | null>(null);
-  const [clientStats, setClientStats] = useState<ClientStat[]>([]);
-  const [serviceStats, setServiceStats] = useState<ServiceStat[]>([]);
-  const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
-  const [latestDownloads, setLatestDownloads] = useState<Download[]>([]);
+  // State — initializers read from pre-loaded IDB cache (synchronous, no skeleton flash)
+  const [cacheInfo, setCacheInfo] = useState<CacheInfo | null>(
+    () => getCachedValue<CacheInfo>(IDB_KEYS.CACHE_INFO) ?? null
+  );
+  const [clientStats, setClientStats] = useState<ClientStat[]>(
+    () => getCachedValue<ClientStat[]>(IDB_KEYS.CLIENT_STATS) ?? []
+  );
+  const [serviceStats, setServiceStats] = useState<ServiceStat[]>(
+    () => getCachedValue<ServiceStat[]>(IDB_KEYS.SERVICE_STATS) ?? []
+  );
+  const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(
+    () => getCachedValue<DashboardStats>(IDB_KEYS.DASHBOARD_STATS) ?? null
+  );
+  const [latestDownloads, setLatestDownloads] = useState<Download[]>(
+    () => getCachedValue<Download[]>(IDB_KEYS.LATEST_DOWNLOADS) ?? []
+  );
   const [gameDetectionData, setGameDetectionData] = useState<CachedDetectionResponse | null>(null);
   const [gameDetectionLookup, setGameDetectionLookup] = useState<Map<number, GameCacheInfo> | null>(
     null
@@ -60,7 +62,8 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
     string,
     { service_name: string; cache_files_found: number; total_size_bytes: number }
   > | null>(null);
-  const [loading, setLoading] = useState(true);
+  // loading is false if we have cached data (pre-loaded before render)
+  const [loading, setLoading] = useState(() => getCachedValue(IDB_KEYS.CACHE_INFO) === undefined);
   const [error, setError] = useState<string | null>(null);
   const [connectionStatus, setConnectionStatus] = useState('checking');
 
@@ -99,47 +102,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   authLoadingRef.current = authLoading;
   hasAccessRef.current = hasAccess;
   isAdminRef.current = isAdmin;
-
-  // Hydrate from IndexedDB cache on mount
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const [
-          cachedCacheInfo,
-          cachedClientStats,
-          cachedServiceStats,
-          cachedDashboardStats,
-          cachedDownloads
-        ] = await Promise.all([
-          idbGet<CacheInfo>(IDB_KEYS.CACHE_INFO),
-          idbGet<ClientStat[]>(IDB_KEYS.CLIENT_STATS),
-          idbGet<ServiceStat[]>(IDB_KEYS.SERVICE_STATS),
-          idbGet<DashboardStats>(IDB_KEYS.DASHBOARD_STATS),
-          idbGet<Download[]>(IDB_KEYS.LATEST_DOWNLOADS)
-        ]);
-
-        if (cancelled) return;
-
-        // Only hydrate if we got data and haven't already loaded fresh data
-        if (cachedCacheInfo && loading) {
-          unstable_batchedUpdates(() => {
-            setCacheInfo(cachedCacheInfo);
-            if (cachedClientStats) setClientStats(cachedClientStats);
-            if (cachedServiceStats) setServiceStats(cachedServiceStats);
-            if (cachedDashboardStats) setDashboardStats(cachedDashboardStats);
-            if (cachedDownloads) setLatestDownloads(cachedDownloads);
-            setLoading(false);
-          });
-        }
-      } catch {
-        // IndexedDB unavailable — fall through to normal fetch
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const getApiUrl = (): string => {
     if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) {
@@ -352,19 +314,18 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
           setLoading(false);
         });
 
-        // Write to IndexedDB cache (fire-and-forget, errors are silently ignored)
+        // Write to in-memory cache and IndexedDB (fire-and-forget)
         if (cache.status === 'fulfilled' && cache.value) {
-          idbSet(IDB_KEYS.CACHE_INFO, cache.value).catch(() => undefined);
+          setCachedValue(IDB_KEYS.CACHE_INFO, cache.value);
         }
         if (filtersStillValid) {
-          if (clients.status === 'fulfilled')
-            idbSet(IDB_KEYS.CLIENT_STATS, clients.value).catch(() => undefined);
+          if (clients.status === 'fulfilled') setCachedValue(IDB_KEYS.CLIENT_STATS, clients.value);
           if (services.status === 'fulfilled')
-            idbSet(IDB_KEYS.SERVICE_STATS, services.value).catch(() => undefined);
+            setCachedValue(IDB_KEYS.SERVICE_STATS, services.value);
           if (dashboard.status === 'fulfilled')
-            idbSet(IDB_KEYS.DASHBOARD_STATS, dashboard.value).catch(() => undefined);
+            setCachedValue(IDB_KEYS.DASHBOARD_STATS, dashboard.value);
           if (downloads.status === 'fulfilled')
-            idbSet(IDB_KEYS.LATEST_DOWNLOADS, downloads.value).catch(() => undefined);
+            setCachedValue(IDB_KEYS.LATEST_DOWNLOADS, downloads.value);
         }
       } catch (err: unknown) {
         // Check if we're still the current request before setting error state
@@ -503,7 +464,8 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   // Initial load
   useEffect(() => {
     if (!mockMode && !authLoading && hasAccess) {
-      fetchAllData({ showLoading: true, isInitial: true, trigger: 'initial' });
+      const hasCachedData = getCachedValue(IDB_KEYS.CACHE_INFO) !== undefined;
+      fetchAllData({ showLoading: !hasCachedData, isInitial: true, trigger: 'initial' });
     } else if (!mockMode && !authLoading && !hasAccess) {
       // Auth completed but user has no access — stop loading to prevent infinite skeleton
       setLoading(false);

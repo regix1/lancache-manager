@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, memo, useRef } from 'react';
-import { get as idbGet, set as idbSet } from 'idb-keyval';
+import { getCachedValue, setCachedValue, IDB_KEYS } from '@utils/idbCache';
 import { Clock, TrendingUp, Zap, Calendar } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { formatBytes } from '@utils/formatters';
@@ -12,8 +12,6 @@ import { useMockMode } from '@contexts/useMockMode';
 import { getCurrentHour } from '@utils/timezone';
 import ApiService from '@services/api.service';
 import MockDataService from '../../../../test/mockData.service';
-
-const IDB_KEY_PEAK_USAGE = 'widget_peak_usage';
 
 interface PeakUsageHoursProps {
   /** Whether to use glassmorphism style */
@@ -33,32 +31,15 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(
     const { t } = useTranslation();
     const { timeRange, getTimeRangeParams, selectedEventIds } = useTimeFilter();
     const { mockMode } = useMockMode();
-    const [data, setData] = useState<HourlyActivityResponse | null>(null);
-    const [loading, setLoading] = useState(true);
+    const [data, setData] = useState<HourlyActivityResponse | null>(
+      () => getCachedValue<HourlyActivityResponse>(IDB_KEYS.PEAK_USAGE) ?? null
+    );
+    const [loading, setLoading] = useState(() => getCachedValue(IDB_KEYS.PEAK_USAGE) === undefined);
     const [error, setError] = useState<string | null>(null);
     const { use24HourFormat, useLocalTimezone } = useTimezone();
-    const prevDataRef = useRef<HourlyActivityResponse | null>(null);
-
-    // Hydrate from IndexedDB cache on mount
-    useEffect(() => {
-      let cancelled = false;
-      (async () => {
-        try {
-          const cached = await idbGet<HourlyActivityResponse>(IDB_KEY_PEAK_USAGE);
-          if (cancelled || !cached) return;
-          if (loading && !data) {
-            setData(cached);
-            prevDataRef.current = cached;
-            setLoading(false);
-          }
-        } catch {
-          /* IndexedDB unavailable */
-        }
-      })();
-      return () => {
-        cancelled = true;
-      };
-    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    const prevDataRef = useRef<HourlyActivityResponse | null>(
+      getCachedValue<HourlyActivityResponse>(IDB_KEYS.PEAK_USAGE) ?? null
+    );
 
     // Get current hour based on timezone preference
     const currentHour = useMemo(() => {
@@ -124,7 +105,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(
             eventId
           );
           setData(response);
-          idbSet(IDB_KEY_PEAK_USAGE, response).catch(() => undefined);
+          setCachedValue(IDB_KEYS.PEAK_USAGE, response);
         } catch (err) {
           if (!controller.signal.aborted) {
             setError('Failed to load hourly data');
