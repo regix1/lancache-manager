@@ -345,7 +345,7 @@ public class CacheController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpDelete("services/{service}/corruption")]
-    public async Task<IActionResult> RemoveCorruptedChunks(string service, [FromQuery] int threshold = 3, [FromQuery] bool compareToCacheLogs = true, [FromQuery] string detectionMode = "miss_count")
+    public async Task<IActionResult> RemoveCorruptedChunksAsync(string service, [FromQuery] int threshold = 3, [FromQuery] bool compareToCacheLogs = true, [FromQuery] string detectionMode = "miss_count")
     {
         // Check if ANY removal operation is already in progress (they share a lock)
         var activeGameOps = _operationTracker.GetActiveOperations(OperationType.GameRemoval);
