@@ -89,6 +89,11 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             // Auto-detect nginx cache directory levels from actual file paths on disk
             var (level1Size, level2Size) = DetectCacheLevels(filesOnDisk);
 
+            // Auto-detect nginx slice range from cache file headers
+            // When slice module is active (e.g., slice 1m), cache key = "$cacheidentifier$uri$slice_range"
+            // When slice is 0 (disabled), cache key = "$cacheidentifier$uri"
+            var firstSliceSuffix = DetectFirstSliceSuffix(filesOnDisk);
+
             // Step 2: Get all inactive (completed) Downloads that have associated LogEntries
             // Process in batches to avoid loading the entire table into memory
             const int batchSize = 100;
@@ -148,8 +153,19 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         if (datasource == null)
                             continue;
 
-                        var cacheFilePath = ComputeCacheFilePath(datasource.CachePath, entry.Service, entry.Url, level1Size, level2Size);
+                        // Try with detected slice suffix first (covers most files)
+                        var cacheFilePath = ComputeCacheFilePath(datasource.CachePath, entry.Service, entry.Url, level1Size, level2Size, firstSliceSuffix);
                         if (filesOnDisk.Contains(cacheFilePath))
+                        {
+                            hasCacheFile = true;
+                            break;
+                        }
+
+                        // Fallback: try the opposite variant (sliced vs non-sliced)
+                        // This handles mixed configurations or detection edge cases
+                        var fallbackSuffix = string.IsNullOrEmpty(firstSliceSuffix) ? "bytes=0-1048575" : "";
+                        var fallbackPath = ComputeCacheFilePath(datasource.CachePath, entry.Service, entry.Url, level1Size, level2Size, fallbackSuffix);
+                        if (filesOnDisk.Contains(fallbackPath))
                         {
                             hasCacheFile = true;
                             break;
@@ -273,6 +289,74 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         return (2, 2);
     }
 
+    /// <summary>
+    /// Auto-detects the nginx slice range by reading the KEY header from a sample cache file.
+    /// nginx cache files contain a "KEY: " line with the actual cache key used.
+    /// When the slice module is active, the key ends with e.g. "bytes=0-1048575".
+    /// When slice is 0 (disabled), there is no bytes suffix.
+    /// Returns the first-slice suffix (e.g., "bytes=0-1048575") or empty string if no slicing.
+    /// </summary>
+    private string DetectFirstSliceSuffix(HashSet<string> filesOnDisk)
+    {
+        foreach (var filePath in filesOnDisk.Take(20))
+        {
+            try
+            {
+                var buffer = new byte[4096];
+                int bytesRead;
+                using (var stream = File.OpenRead(filePath))
+                {
+                    bytesRead = stream.Read(buffer, 0, buffer.Length);
+                }
+
+                // Use Latin1 to preserve all byte values (binary header + text KEY line)
+                var content = Encoding.Latin1.GetString(buffer, 0, bytesRead);
+
+                var keyIndex = content.IndexOf("\nKEY: ", StringComparison.Ordinal);
+                if (keyIndex < 0)
+                    continue;
+
+                var keyStart = keyIndex + 6; // length of "\nKEY: "
+                var keyEnd = content.IndexOf('\n', keyStart);
+                if (keyEnd < 0)
+                    continue;
+
+                var cacheKey = content[keyStart..keyEnd].Trim();
+
+                // Check if the key contains a bytes= range suffix (slice module active)
+                var bytesIdx = cacheKey.LastIndexOf("bytes=", StringComparison.Ordinal);
+                if (bytesIdx >= 0)
+                {
+                    var rangeStr = cacheKey[(bytesIdx + 6)..]; // after "bytes="
+                    var dashIndex = rangeStr.IndexOf('-');
+                    if (dashIndex >= 0
+                        && long.TryParse(rangeStr[..dashIndex], out var startByte)
+                        && long.TryParse(rangeStr[(dashIndex + 1)..], out var endByte))
+                    {
+                        // Compute slice size from any slice, then derive the first-slice suffix
+                        var sliceSize = endByte - startByte + 1;
+                        var firstSliceSuffix = $"bytes=0-{sliceSize - 1}";
+                        _logger.LogInformation(
+                            "[CacheReconciliation] Auto-detected nginx slice range: {Suffix} (slice size: {Size} bytes)",
+                            firstSliceSuffix, sliceSize);
+                        return firstSliceSuffix;
+                    }
+                }
+
+                // KEY found but no bytes= suffix → slice module is disabled (slice 0)
+                _logger.LogInformation("[CacheReconciliation] No slice range detected in cache file header — nginx slice is disabled (slice 0)");
+                return string.Empty;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[CacheReconciliation] Could not read cache file header: {Path}", filePath);
+            }
+        }
+
+        _logger.LogWarning("[CacheReconciliation] Could not detect slice range from any cache file, defaulting to no slice suffix");
+        return string.Empty;
+    }
+
     private static bool IsHexString(string value)
     {
         foreach (char c in value)
@@ -285,12 +369,13 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
     /// <summary>
     /// Computes the expected nginx cache file path for a given service + URL combination.
-    /// nginx proxy_cache_key = "$cacheidentifier$uri", stored at cachePath/L1/L2/MD5HASH
-    /// where L1 and L2 directory sizes are determined by the nginx levels configuration.
+    /// nginx proxy_cache_key = "$cacheidentifier$uri$slice_range", stored at cachePath/L1/L2/MD5HASH
+    /// When slice module is active, sliceSuffix is e.g. "bytes=0-1048575" (first 1 MiB slice).
+    /// When slice is disabled (0), sliceSuffix is empty.
     /// </summary>
-    private static string ComputeCacheFilePath(string cachePath, string service, string url, int level1Size, int level2Size)
+    private static string ComputeCacheFilePath(string cachePath, string service, string url, int level1Size, int level2Size, string sliceSuffix)
     {
-        var cacheKey = service + url;
+        var cacheKey = service + url + sliceSuffix;
         #pragma warning disable CA5351 // MD5 is required here to match nginx's cache file naming convention
         var hashBytes = MD5.HashData(Encoding.UTF8.GetBytes(cacheKey));
         #pragma warning restore CA5351
