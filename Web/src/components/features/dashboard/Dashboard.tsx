@@ -881,7 +881,7 @@ const Dashboard: React.FC = () => {
               <Tooltip
                 content={t('tooltips.hideThisCard')}
                 strategy="overlay"
-                className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                className="absolute top-2 right-2 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
               >
                 <button
                   onClick={() => toggleCardVisibility(card.key)}

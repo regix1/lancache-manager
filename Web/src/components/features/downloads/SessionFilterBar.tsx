@@ -42,7 +42,14 @@ const SORT_OPTIONS: { value: SessionSortBy; label: string }[] = [
   { value: 'worstCache', label: 'Worst Cache' }
 ];
 
-const PER_PAGE_OPTIONS: { value: string; label: string }[] = [
+const SESSIONS_PER_PAGE_OPTIONS: { value: string; label: string }[] = [
+  { value: '3', label: '3' },
+  { value: '5', label: '5' },
+  { value: '10', label: '10' },
+  { value: '99999', label: 'All' }
+];
+
+const ITEMS_PER_SESSION_OPTIONS: { value: string; label: string }[] = [
   { value: '10', label: '10' },
   { value: '25', label: '25' },
   { value: '50', label: '50' },
@@ -82,7 +89,12 @@ const SessionFilterBar: React.FC<SessionFilterBarProps> = ({
     label: opt.label
   }));
 
-  const perPageDropdownOptions = PER_PAGE_OPTIONS.map((opt) => ({
+  const sessionsPerPageDropdownOptions = SESSIONS_PER_PAGE_OPTIONS.map((opt) => ({
+    value: opt.value,
+    label: opt.label
+  }));
+
+  const itemsPerSessionDropdownOptions = ITEMS_PER_SESSION_OPTIONS.map((opt) => ({
     value: opt.value,
     label: opt.label
   }));
@@ -197,11 +209,21 @@ const SessionFilterBar: React.FC<SessionFilterBarProps> = ({
         </div>
 
         <div className="session-filter-group">
-          <span className="session-filter-label">Per page</span>
+          <span className="session-filter-label">IPs/page</span>
           <EnhancedDropdown
-            options={perPageDropdownOptions}
+            options={sessionsPerPageDropdownOptions}
             value={String(filters.sessionsPerPage)}
             onChange={(value: string) => updateFilter('sessionsPerPage', Number(value))}
+            compactMode
+          />
+        </div>
+
+        <div className="session-filter-group">
+          <span className="session-filter-label">Items/IP</span>
+          <EnhancedDropdown
+            options={itemsPerSessionDropdownOptions}
+            value={String(filters.itemsPerSession)}
+            onChange={(value: string) => updateFilter('itemsPerSession', Number(value))}
             compactMode
           />
         </div>

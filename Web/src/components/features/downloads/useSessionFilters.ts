@@ -17,6 +17,7 @@ export interface SessionFilters {
   timeRange: TimeRangeFilter;
   sortBy: SessionSortBy;
   sessionsPerPage: number;
+  itemsPerSession: number;
 }
 
 export interface UseSessionFiltersReturn {
@@ -35,7 +36,8 @@ const DEFAULT_FILTERS: SessionFilters = {
   cacheStatus: 'all',
   timeRange: 'all',
   sortBy: 'newest',
-  sessionsPerPage: 10
+  sessionsPerPage: 5,
+  itemsPerSession: 10
 };
 
 const TIME_RANGE_MS: Record<Exclude<TimeRangeFilter, 'all'>, number> = {
@@ -116,7 +118,8 @@ function isDefaultFilters(filters: SessionFilters): boolean {
     filters.cacheStatus === DEFAULT_FILTERS.cacheStatus &&
     filters.timeRange === DEFAULT_FILTERS.timeRange &&
     filters.sortBy === DEFAULT_FILTERS.sortBy &&
-    filters.sessionsPerPage === DEFAULT_FILTERS.sessionsPerPage
+    filters.sessionsPerPage === DEFAULT_FILTERS.sessionsPerPage &&
+    filters.itemsPerSession === DEFAULT_FILTERS.itemsPerSession
   );
 }
 

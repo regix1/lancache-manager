@@ -8,7 +8,8 @@ import {
   ExternalLink,
   CheckCircle,
   AlertCircle,
-  ChevronLeft
+  ChevronLeft,
+  HardDrive
 } from 'lucide-react';
 import { formatBytes, formatPercent, formatRelativeTime } from '@utils/formatters';
 import { getServiceBadgeStyles } from '@utils/serviceColors';
@@ -349,6 +350,20 @@ const GroupCard: React.FC<GroupCardProps> = ({
                     <span className="text-[var(--theme-text-muted)]">{group.count} req</span>
                   )}
                 </div>
+                {/* Disk usage row */}
+                {diskSizeBytes ? (
+                  <div className="flex items-center gap-1 text-[var(--theme-text-muted)]">
+                    <HardDrive size={10} className="flex-shrink-0" />
+                    <span>
+                      {t('dashboard.downloadsPanel.onDisk', { size: formatBytes(diskSizeBytes) })}
+                    </span>
+                    {detection?.cache_files_found ? (
+                      <span className="ml-1">
+                        · {detection.cache_files_found.toLocaleString()} files
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
                 {/* Secondary stats row */}
                 <div className="flex items-center gap-1 text-[var(--theme-text-muted)]">
                   <Clock size={10} className="flex-shrink-0" />
@@ -704,13 +719,35 @@ const GroupCard: React.FC<GroupCardProps> = ({
                   return count <= 5;
                 };
 
+                const excludedSessions = Math.max(0, group.downloads.length - group.count);
+
+                // Group ALL filtered downloads by IP first
+                const allIpGroups = filteredDownloads.reduce(
+                  (acc, d) => {
+                    if (!acc[d.clientIp]) acc[d.clientIp] = [];
+                    acc[d.clientIp].push(d);
+                    return acc;
+                  },
+                  {} as Record<string, typeof group.downloads>
+                );
+                const allIpEntries = Object.entries(allIpGroups);
+
+                // Paginate IP groups
                 const sessionsPerPage = filters.sessionsPerPage;
                 const currentPage = groupPages[group.id] || 1;
-                const totalPages = Math.ceil(filteredDownloads.length / sessionsPerPage);
+                const totalPages = Math.ceil(allIpEntries.length / sessionsPerPage);
                 const startIndex = (currentPage - 1) * sessionsPerPage;
                 const endIndex = startIndex + sessionsPerPage;
-                const paginatedDownloads = filteredDownloads.slice(startIndex, endIndex);
-                const excludedSessions = Math.max(0, group.downloads.length - group.count);
+                const paginatedIpEntries = allIpEntries.slice(startIndex, endIndex);
+
+                // Limit items within each IP group
+                const itemsPerSession = filters.itemsPerSession;
+                const ipGroups = Object.fromEntries(
+                  paginatedIpEntries.map(([ip, downloads]) => [
+                    ip,
+                    downloads.slice(0, itemsPerSession)
+                  ])
+                ) as Record<string, typeof group.downloads>;
 
                 const handlePageChange = (newPage: number) => {
                   setGroupPages((prev) => ({ ...prev, [group.id]: newPage }));
@@ -747,16 +784,6 @@ const GroupCard: React.FC<GroupCardProps> = ({
                   event.currentTarget.releasePointerCapture?.(event.pointerId);
                   stopHoldTimer();
                 };
-
-                // Group paginated downloads by client IP
-                const ipGroups = paginatedDownloads.reduce(
-                  (acc, d) => {
-                    if (!acc[d.clientIp]) acc[d.clientIp] = [];
-                    acc[d.clientIp].push(d);
-                    return acc;
-                  },
-                  {} as Record<string, typeof group.downloads>
-                );
 
                 return (
                   <div className="mt-2">
@@ -1329,13 +1356,32 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
     return count <= 5;
   };
 
+  const excludedSessions = Math.max(0, group.downloads.length - group.count);
+
+  // Group ALL filtered downloads by IP first
+  const allIpGroups = filteredDownloads.reduce(
+    (acc, d) => {
+      if (!acc[d.clientIp]) acc[d.clientIp] = [];
+      acc[d.clientIp].push(d);
+      return acc;
+    },
+    {} as Record<string, typeof group.downloads>
+  );
+  const allIpEntries = Object.entries(allIpGroups);
+
+  // Paginate IP groups
   const sessionsPerPage = filters.sessionsPerPage;
   const currentPage = groupPages[group.id] || 1;
-  const totalPages = Math.ceil(filteredDownloads.length / sessionsPerPage);
+  const totalPages = Math.ceil(allIpEntries.length / sessionsPerPage);
   const startIndex = (currentPage - 1) * sessionsPerPage;
   const endIndex = startIndex + sessionsPerPage;
-  const paginatedDownloads = filteredDownloads.slice(startIndex, endIndex);
-  const excludedSessions = Math.max(0, group.downloads.length - group.count);
+  const paginatedIpEntries = allIpEntries.slice(startIndex, endIndex);
+
+  // Limit items within each IP group
+  const itemsPerSession = filters.itemsPerSession;
+  const ipGroups = Object.fromEntries(
+    paginatedIpEntries.map(([ip, downloads]) => [ip, downloads.slice(0, itemsPerSession)])
+  ) as Record<string, typeof group.downloads>;
 
   const handlePageChange = (newPage: number) => {
     setGroupPages((prev) => ({ ...prev, [group.id]: newPage }));
@@ -1364,15 +1410,6 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
     event.currentTarget.releasePointerCapture?.(event.pointerId);
     stopHoldTimer();
   };
-
-  const ipGroups = paginatedDownloads.reduce(
-    (acc, d) => {
-      if (!acc[d.clientIp]) acc[d.clientIp] = [];
-      acc[d.clientIp].push(d);
-      return acc;
-    },
-    {} as Record<string, typeof group.downloads>
-  );
 
   return (
     <div className="drawer-detail-content">

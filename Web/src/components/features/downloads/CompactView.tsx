@@ -1,6 +1,6 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronRight, ExternalLink, ChevronLeft } from 'lucide-react';
+import { ChevronRight, ExternalLink, ChevronLeft, HardDrive } from 'lucide-react';
 import { formatBytes, formatPercent, formatRelativeTime } from '@utils/formatters';
 import { getServiceBadgeStyles } from '@utils/serviceColors';
 import { Tooltip } from '@components/ui/Tooltip';
@@ -235,37 +235,54 @@ const GroupRow: React.FC<GroupRowProps> = ({
                     </span>
                   ) : null}
                 </div>
-                <div className="flex items-center justify-between pl-6 text-xs">
-                  <div className="flex items-center gap-2">
-                    <span className="text-themed-muted">
-                      {t('downloads.tab.compact.counts.clients', { count: group.clientsSet.size })}{' '}
-                      · {t('downloads.tab.compact.counts.requests', { count: group.count })}
-                    </span>
-                    {shouldShowDatasource && (
-                      <Tooltip
-                        content={t('downloads.tab.compact.datasourceTooltip', {
-                          datasource: primaryDatasource
-                        })}
-                      >
-                        <span className="px-1.5 py-0.5 text-xs font-medium rounded flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)]">
-                          {primaryDatasource}
+                <div className="flex flex-col gap-1 pl-6 text-xs">
+                  {diskSizeBytes ? (
+                    <div className="flex items-center gap-1 text-themed-muted">
+                      <HardDrive size={10} className="flex-shrink-0" />
+                      <span>
+                        {t('dashboard.downloadsPanel.onDisk', { size: formatBytes(diskSizeBytes) })}
+                      </span>
+                      {detection?.cache_files_found ? (
+                        <span className="ml-1">
+                          · {detection.cache_files_found.toLocaleString()} files
                         </span>
-                      </Tooltip>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-[var(--theme-text-primary)] font-mono">
-                      {formatBytes(group.totalBytes)}
-                    </span>
-                    {group.cacheHitBytes > 0 ? (
-                      <span className="cache-hit font-medium font-mono">
-                        {formatPercent(hitPercent)}
+                      ) : null}
+                    </div>
+                  ) : null}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="text-themed-muted">
+                        {t('downloads.tab.compact.counts.clients', {
+                          count: group.clientsSet.size
+                        })}{' '}
+                        · {t('downloads.tab.compact.counts.requests', { count: group.count })}
                       </span>
-                    ) : (
-                      <span className="font-medium font-mono text-[var(--theme-error-text)]">
-                        0%
+                      {shouldShowDatasource && (
+                        <Tooltip
+                          content={t('downloads.tab.compact.datasourceTooltip', {
+                            datasource: primaryDatasource
+                          })}
+                        >
+                          <span className="px-1.5 py-0.5 text-xs font-medium rounded flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)]">
+                            {primaryDatasource}
+                          </span>
+                        </Tooltip>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-[var(--theme-text-primary)] font-mono">
+                        {formatBytes(group.totalBytes)}
                       </span>
-                    )}
+                      {group.cacheHitBytes > 0 ? (
+                        <span className="cache-hit font-medium font-mono">
+                          {formatPercent(hitPercent)}
+                        </span>
+                      ) : (
+                        <span className="font-medium font-mono text-[var(--theme-error-text)]">
+                          0%
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -410,14 +427,36 @@ const GroupRow: React.FC<GroupRowProps> = ({
 
               {/* Sessions list */}
               {(() => {
+                const excludedSessions = Math.max(0, group.downloads.length - group.count);
+
+                // Group ALL filtered downloads by IP first
+                const allIpGroups = filteredDownloads.reduce(
+                  (acc, d) => {
+                    if (!acc[d.clientIp]) acc[d.clientIp] = [];
+                    acc[d.clientIp].push(d);
+                    return acc;
+                  },
+                  {} as Record<string, typeof filteredDownloads>
+                );
+                const allIpEntries = Object.entries(allIpGroups);
+
+                // Paginate IP groups
                 const sessionsPerPage = filters.sessionsPerPage;
-                const totalFilteredPages = Math.ceil(filteredDownloads.length / sessionsPerPage);
                 const currentPage = groupPages[group.id] || 1;
+                const totalFilteredPages = Math.ceil(allIpEntries.length / sessionsPerPage);
                 const safePage = Math.min(currentPage, Math.max(1, totalFilteredPages));
                 const startIndex = (safePage - 1) * sessionsPerPage;
                 const endIndex = startIndex + sessionsPerPage;
-                const paginatedDownloads = filteredDownloads.slice(startIndex, endIndex);
-                const excludedSessions = Math.max(0, group.downloads.length - group.count);
+                const paginatedIpEntries = allIpEntries.slice(startIndex, endIndex);
+
+                // Limit items within each IP group
+                const itemsPerSession = filters.itemsPerSession;
+                const ipGroups = Object.fromEntries(
+                  paginatedIpEntries.map(([ip, downloads]) => [
+                    ip,
+                    downloads.slice(0, itemsPerSession)
+                  ])
+                ) as Record<string, typeof filteredDownloads>;
 
                 const handlePageChange = (newPage: number): void => {
                   setGroupPages((prev) => ({ ...prev, [group.id]: newPage }));
@@ -456,15 +495,6 @@ const GroupRow: React.FC<GroupRowProps> = ({
                   event.currentTarget.releasePointerCapture?.(event.pointerId);
                   stopHoldTimer();
                 };
-
-                const ipGroups = paginatedDownloads.reduce(
-                  (acc, d) => {
-                    if (!acc[d.clientIp]) acc[d.clientIp] = [];
-                    acc[d.clientIp].push(d);
-                    return acc;
-                  },
-                  {} as Record<string, typeof paginatedDownloads>
-                );
 
                 return (
                   <div>
