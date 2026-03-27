@@ -487,6 +487,9 @@ using (var scope = app.Services.CreateScope())
     {
         logger.LogInformation("Checking database migrations...");
 
+        // Allow long-running migrations (e.g., column type changes that rewrite large tables)
+        dbContext.Database.SetCommandTimeout(TimeSpan.FromMinutes(30));
+
         // This will create the database if it doesn't exist and apply all pending migrations
         await dbContext.Database.MigrateAsync();
         await DatabaseSchemaFixer.ApplyPostMigrationFixesAsync(dbContext, logger);

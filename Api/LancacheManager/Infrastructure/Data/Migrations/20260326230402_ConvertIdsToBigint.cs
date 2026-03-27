@@ -11,6 +11,10 @@ namespace LancacheManager.Infrastructure.Data.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
+            // Large tables (Downloads, LogEntries) require full rewrite for integer→bigint
+            // Disable timeouts — rewrite can take minutes on large tables
+            migrationBuilder.Sql("SET statement_timeout = 0;");
+
             migrationBuilder.AlterColumn<long>(
                 name: "Id",
                 table: "UserPreferences",
@@ -223,6 +227,21 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                 oldType: "integer")
                 .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn)
                 .OldAnnotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn);
+
+            // PostgreSQL does NOT auto-update identity sequences when column type changes.
+            // Without this, sequences stay AS integer (max ~2.1B) even though columns are bigint.
+            var tablesWithIdentity = new[]
+            {
+                "BannedSteamUsers", "CachedCorruptionDetections", "CachedGameDetections",
+                "CachedServiceDetections", "CacheSnapshots", "ClientGroupMembers", "ClientGroups",
+                "Downloads", "EpicCdnPatterns", "EpicGameMappings", "EventDownloads", "Events",
+                "LogEntries", "PrefillCachedDepots", "PrefillHistoryEntries", "PrefillSessions",
+                "SteamDepotMappings", "UserPreferences"
+            };
+            foreach (var table in tablesWithIdentity)
+            {
+                migrationBuilder.Sql($"ALTER SEQUENCE \"{table}_Id_seq\" AS bigint;");
+            }
         }
 
         /// <inheritdoc />
