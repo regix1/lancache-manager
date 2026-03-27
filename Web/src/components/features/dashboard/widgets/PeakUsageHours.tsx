@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, memo, useRef } from 'react';
+import { get as idbGet, set as idbSet } from 'idb-keyval';
 import { Clock, TrendingUp, Zap, Calendar } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { formatBytes } from '@utils/formatters';
@@ -11,15 +12,9 @@ import { useMockMode } from '@contexts/useMockMode';
 import { getCurrentHour } from '@utils/timezone';
 import ApiService from '@services/api.service';
 import MockDataService from '../../../../test/mockData.service';
-import { storage } from '@utils/storage';
-import { STORAGE_KEYS } from '@utils/constants';
 
-const WIDGET_CACHE_VERSION = '1';
-interface WidgetCacheEnvelope<T> {
-  data: T;
-  cachedAt: number;
-  version: string;
-}
+const IDB_KEY_PEAK_USAGE = 'widget_peak_usage';
+
 interface PeakUsageHoursProps {
   /** Whether to use glassmorphism style */
   glassmorphism?: boolean;
@@ -38,31 +33,32 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(
     const { t } = useTranslation();
     const { timeRange, getTimeRangeParams, selectedEventIds } = useTimeFilter();
     const { mockMode } = useMockMode();
-    const [data, setData] = useState<HourlyActivityResponse | null>(() => {
-      try {
-        const envelope = storage.getJSON<WidgetCacheEnvelope<HourlyActivityResponse>>(
-          STORAGE_KEYS.WIDGET_PEAK_USAGE
-        );
-        if (envelope?.version === WIDGET_CACHE_VERSION) return envelope.data;
-      } catch {
-        /* ignore corrupted cache */
-      }
-      return null;
-    });
-    const [loading, setLoading] = useState(() => {
-      try {
-        const envelope = storage.getJSON<WidgetCacheEnvelope<HourlyActivityResponse>>(
-          STORAGE_KEYS.WIDGET_PEAK_USAGE
-        );
-        return !envelope?.version || envelope.version !== WIDGET_CACHE_VERSION;
-      } catch {
-        /* ignore corrupted cache */
-      }
-      return true;
-    });
+    const [data, setData] = useState<HourlyActivityResponse | null>(null);
+    const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const { use24HourFormat, useLocalTimezone } = useTimezone();
     const prevDataRef = useRef<HourlyActivityResponse | null>(null);
+
+    // Hydrate from IndexedDB cache on mount
+    useEffect(() => {
+      let cancelled = false;
+      (async () => {
+        try {
+          const cached = await idbGet<HourlyActivityResponse>(IDB_KEY_PEAK_USAGE);
+          if (cancelled || !cached) return;
+          if (loading && !data) {
+            setData(cached);
+            prevDataRef.current = cached;
+            setLoading(false);
+          }
+        } catch {
+          /* IndexedDB unavailable */
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Get current hour based on timezone preference
     const currentHour = useMemo(() => {
@@ -128,15 +124,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(
             eventId
           );
           setData(response);
-          try {
-            storage.setJSON(STORAGE_KEYS.WIDGET_PEAK_USAGE, {
-              data: response,
-              cachedAt: Date.now(),
-              version: WIDGET_CACHE_VERSION
-            });
-          } catch {
-            /* ignore storage errors */
-          }
+          idbSet(IDB_KEY_PEAK_USAGE, response).catch(() => undefined);
         } catch (err) {
           if (!controller.signal.aborted) {
             setError('Failed to load hourly data');

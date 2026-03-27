@@ -8,12 +8,6 @@ import type {
   GameCacheInfo
 } from '../../types';
 
-export interface DashboardCacheEnvelope<T> {
-  data: T;
-  cachedAt: number;
-  version: string;
-}
-
 export interface CachedDetectionResponse {
   hasCachedResults: boolean;
   games?: GameCacheInfo[];
