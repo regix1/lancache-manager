@@ -63,6 +63,7 @@ const STORAGE_KEYS = {
   SHOW_SMALL_FILES: 'lancache_downloads_show_small',
   HIDE_LOCALHOST: 'lancache_downloads_hide_localhost',
   HIDE_UNKNOWN_GAMES: 'lancache_downloads_hide_unknown',
+  HIDE_EVICTED: 'lancache_downloads_hide_evicted',
   VIEW_MODE: 'lancache_downloads_view_mode',
   SORT_ORDER: 'lancache_downloads_sort_order',
   AESTHETIC_MODE: 'lancache_downloads_aesthetic_mode',
@@ -110,6 +111,7 @@ const PRESETS = {
     showSmallFiles: false,
     hideLocalhost: true,
     hideUnknownGames: true,
+    hideEvicted: false,
     groupUnknownGames: false,
     aestheticMode: false,
     fullHeightBanners: true,
@@ -127,6 +129,7 @@ const PRESETS = {
     showSmallFiles: false,
     hideLocalhost: true,
     hideUnknownGames: true,
+    hideEvicted: false,
     groupUnknownGames: false,
     aestheticMode: true,
     fullHeightBanners: false,
@@ -144,6 +147,7 @@ const PRESETS = {
     showSmallFiles: true,
     hideLocalhost: false,
     hideUnknownGames: false,
+    hideEvicted: false,
     groupUnknownGames: true,
     aestheticMode: false,
     fullHeightBanners: false,
@@ -161,6 +165,7 @@ const PRESETS = {
     showSmallFiles: true,
     hideLocalhost: false,
     hideUnknownGames: false,
+    hideEvicted: false,
     groupUnknownGames: false,
     aestheticMode: false,
     fullHeightBanners: false,
@@ -181,6 +186,7 @@ const detectActivePreset = (settings: {
   showSmallFiles: boolean;
   hideLocalhost: boolean;
   hideUnknownGames: boolean;
+  hideEvicted: boolean;
   groupUnknownGames: boolean;
   aestheticMode: boolean;
   fullHeightBanners: boolean;
@@ -376,6 +382,7 @@ const DownloadsTab: React.FC = () => {
       showSmallFiles: storage.getItem(STORAGE_KEYS.SHOW_SMALL_FILES) !== 'false',
       hideLocalhost: storage.getItem(STORAGE_KEYS.HIDE_LOCALHOST) === 'true',
       hideUnknownGames: storage.getItem(STORAGE_KEYS.HIDE_UNKNOWN_GAMES) === 'true',
+      hideEvicted: storage.getItem(STORAGE_KEYS.HIDE_EVICTED) === 'true',
       selectedService: storage.getItem(STORAGE_KEYS.SERVICE_FILTER) || 'all',
       selectedClient: storage.getItem(STORAGE_KEYS.CLIENT_FILTER) || 'all',
       searchQuery: storage.getItem(STORAGE_KEYS.SEARCH_QUERY) || '',
@@ -423,6 +430,7 @@ const DownloadsTab: React.FC = () => {
     storage.setItem(STORAGE_KEYS.SHOW_SMALL_FILES, settings.showSmallFiles.toString());
     storage.setItem(STORAGE_KEYS.HIDE_LOCALHOST, settings.hideLocalhost.toString());
     storage.setItem(STORAGE_KEYS.HIDE_UNKNOWN_GAMES, settings.hideUnknownGames.toString());
+    storage.setItem(STORAGE_KEYS.HIDE_EVICTED, settings.hideEvicted.toString());
     storage.setItem(STORAGE_KEYS.SERVICE_FILTER, settings.selectedService);
     storage.setItem(STORAGE_KEYS.CLIENT_FILTER, settings.selectedClient);
     storage.setItem(STORAGE_KEYS.SEARCH_QUERY, settings.searchQuery);
@@ -660,6 +668,10 @@ const DownloadsTab: React.FC = () => {
       filtered = filtered.filter((d) => d.clientIp !== '127.0.0.1' && d.clientIp !== '::1');
     }
 
+    if (settings.hideEvicted) {
+      filtered = filtered.filter((d) => !d.isEvicted);
+    }
+
     if (settings.hideUnknownGames) {
       filtered = filtered.filter((d) => {
         // Always show active downloads, even if they're unknown (they may not be mapped yet)
@@ -735,6 +747,7 @@ const DownloadsTab: React.FC = () => {
     settings.showSmallFiles,
     settings.hideLocalhost,
     settings.hideUnknownGames,
+    settings.hideEvicted,
     settings.selectedService,
     settings.selectedClient,
     settings.searchQuery,
@@ -1680,6 +1693,13 @@ const DownloadsTab: React.FC = () => {
                             setSettings({ ...settings, hideUnknownGames: e.target.checked })
                           }
                           label={t('downloads.tab.filters.hideUnknownGames')}
+                        />
+                        <Checkbox
+                          checked={settings.hideEvicted}
+                          onChange={(e) =>
+                            setSettings({ ...settings, hideEvicted: e.target.checked })
+                          }
+                          label={t('downloads.tab.filters.hideEvicted')}
                         />
                       </div>
 

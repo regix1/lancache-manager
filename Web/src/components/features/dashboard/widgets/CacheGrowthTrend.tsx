@@ -9,6 +9,15 @@ import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import { useMockMode } from '@contexts/useMockMode';
 import MockDataService from '../../../../test/mockData.service';
+import { storage } from '@utils/storage';
+import { STORAGE_KEYS } from '@utils/constants';
+
+const WIDGET_CACHE_VERSION = '1';
+interface WidgetCacheEnvelope<T> {
+  data: T;
+  cachedAt: number;
+  version: string;
+}
 interface CacheGrowthTrendProps {
   /** Current used cache size in bytes (from cacheInfo) */
   usedCacheSize: number;
@@ -33,8 +42,28 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
     // Any non-live mode should disable real-time only stats
     const isHistoricalView = timeRange !== 'live';
     const { mockMode } = useMockMode();
-    const [data, setData] = useState<CacheGrowthResponse | null>(null);
-    const [loading, setLoading] = useState(true);
+    const [data, setData] = useState<CacheGrowthResponse | null>(() => {
+      try {
+        const envelope = storage.getJSON<WidgetCacheEnvelope<CacheGrowthResponse>>(
+          STORAGE_KEYS.WIDGET_CACHE_GROWTH
+        );
+        if (envelope?.version === WIDGET_CACHE_VERSION) return envelope.data;
+      } catch {
+        /* ignore corrupted cache */
+      }
+      return null;
+    });
+    const [loading, setLoading] = useState(() => {
+      try {
+        const envelope = storage.getJSON<WidgetCacheEnvelope<CacheGrowthResponse>>(
+          STORAGE_KEYS.WIDGET_CACHE_GROWTH
+        );
+        return !envelope?.version || envelope.version !== WIDGET_CACHE_VERSION;
+      } catch {
+        /* ignore corrupted cache */
+      }
+      return true;
+    });
     const [error, setError] = useState<string | null>(null);
     const prevDataRef = useRef<CacheGrowthResponse | null>(null);
 
@@ -75,6 +104,15 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
             eventId
           );
           setData(response);
+          try {
+            storage.setJSON(STORAGE_KEYS.WIDGET_CACHE_GROWTH, {
+              data: response,
+              cachedAt: Date.now(),
+              version: WIDGET_CACHE_VERSION
+            });
+          } catch {
+            /* ignore storage errors */
+          }
         } catch (err) {
           if (!controller.signal.aborted) {
             setError('Failed to load growth data');

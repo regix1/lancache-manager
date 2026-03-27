@@ -23,7 +23,8 @@ const CACHE_STATUS_OPTIONS: { value: CacheStatusFilter; label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'cached', label: 'Cached' },
   { value: 'missed', label: 'Missed' },
-  { value: 'full', label: 'Full' }
+  { value: 'full', label: 'Full' },
+  { value: 'evicted', label: 'Evicted' }
 ];
 
 const TIME_RANGE_OPTIONS: { value: TimeRangeFilter; label: string }[] = [

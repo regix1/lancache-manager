@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import type { Download } from '../../../types';
 
-export type CacheStatusFilter = 'all' | 'cached' | 'missed' | 'full';
+export type CacheStatusFilter = 'all' | 'cached' | 'missed' | 'full' | 'evicted';
 export type TimeRangeFilter = 'all' | '1h' | '24h' | '7d';
 export type SessionSortBy =
   | 'newest'
@@ -62,6 +62,8 @@ function applyFilters(downloads: Download[], filters: SessionFilters): Download[
           return d.cacheHitBytes === 0;
         case 'full':
           return d.cacheHitPercent >= 99.9;
+        case 'evicted':
+          return d.isEvicted === true;
         default:
           return true;
       }

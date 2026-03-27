@@ -1161,6 +1161,7 @@
         "showSmallFiles": "Show small files",
         "hideLocalhost": "Hide localhost",
         "hideUnknownGames": "Hide unknown games",
+        "hideEvicted": "Hide evicted games",
         "clear": "Clear Filters",
         "active": {
           "search": "• Search: \"{{query}}\"",
