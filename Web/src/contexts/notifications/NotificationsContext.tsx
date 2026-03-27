@@ -37,7 +37,10 @@ import type {
   ServiceRemovalStartedEvent,
   DatabaseResetStartedEvent,
   EpicGameMappingsUpdatedEvent,
-  EpicMappingProgressEvent
+  EpicMappingProgressEvent,
+  EvictionScanStartedEvent,
+  EvictionScanProgressEvent,
+  EvictionScanCompleteEvent
 } from '../SignalRContext/types';
 
 import type { UnifiedNotification } from './types';
@@ -189,7 +192,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         game_detection: NOTIFICATION_IDS.GAME_DETECTION,
         corruption_detection: NOTIFICATION_IDS.CORRUPTION_DETECTION,
         data_import: NOTIFICATION_IDS.DATA_IMPORT,
-        epic_game_mapping: NOTIFICATION_IDS.EPIC_GAME_MAPPING
+        epic_game_mapping: NOTIFICATION_IDS.EPIC_GAME_MAPPING,
+        eviction_scan: NOTIFICATION_IDS.EVICTION_SCAN
       };
 
       if (typeToIdMap[notification.type]) {
@@ -1016,6 +1020,56 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     // See: Web/src/components/features/prefill/hooks/prefillConstants.ts (EPIC_EVENT_MAP)
     // See: Web/src/components/features/prefill/hooks/usePrefillSignalR.ts (event handlers)
 
+    // ========== Eviction Scan (using factory pattern) ==========
+    const handleEvictionScanStarted = createStartedHandler<EvictionScanStartedEvent>(
+      {
+        type: 'eviction_scan',
+        getId: () => NOTIFICATION_IDS.EVICTION_SCAN,
+        storageKey: NOTIFICATION_STORAGE_KEYS.EVICTION_SCAN,
+        defaultMessage: 'Starting eviction scan...',
+        getMessage: (e) => e.message || 'Starting eviction scan...',
+        getDetails: (e) => ({ operationId: e.operationId })
+      },
+      setNotifications,
+      cancelAutoDismissTimer
+    );
+
+    const handleEvictionScanProgress = createStatusAwareProgressHandler<EvictionScanProgressEvent>(
+      {
+        type: 'eviction_scan',
+        getId: () => NOTIFICATION_IDS.EVICTION_SCAN,
+        storageKey: NOTIFICATION_STORAGE_KEYS.EVICTION_SCAN,
+        getMessage: (e) => e.message || 'Scanning for evictable cache entries...',
+        getProgress: (e) => e.percentComplete || 0,
+        getStatus: (e) =>
+          e.status === 'completed'
+            ? 'completed'
+            : e.status === 'failed' || e.status === 'cancelled'
+              ? 'failed'
+              : undefined,
+        getCompletedMessage: (e) => e.message || 'Eviction scan completed',
+        getErrorMessage: (e) => e.message || 'Eviction scan failed',
+        getDetails: (e) => ({ operationId: e.operationId })
+      },
+      setNotifications,
+      scheduleAutoDismiss,
+      cancelAutoDismissTimer
+    );
+
+    const handleEvictionScanComplete = createCompletionHandler<EvictionScanCompleteEvent>(
+      {
+        type: 'eviction_scan',
+        getId: () => NOTIFICATION_IDS.EVICTION_SCAN,
+        storageKey: NOTIFICATION_STORAGE_KEYS.EVICTION_SCAN,
+        getSuccessMessage: (e) => e.message || 'Eviction scan completed',
+        getFailureMessage: (e) => e.error || e.message || 'Eviction scan failed',
+        supportFastCompletion: true,
+        getFastCompletionId: () => NOTIFICATION_IDS.EVICTION_SCAN
+      },
+      setNotifications,
+      scheduleAutoDismiss
+    );
+
     // Subscribe to events
     signalR.on('LogProcessingStarted', handleLogProcessingStarted);
     signalR.on('LogProcessingProgress', handleProcessingProgress);
@@ -1052,6 +1106,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     signalR.on('SteamSessionError', handleSteamSessionError);
     signalR.on('EpicMappingProgress', handleEpicMappingProgress);
     signalR.on('EpicGameMappingsUpdated', handleEpicGameMappingsUpdated);
+    signalR.on('EvictionScanStarted', handleEvictionScanStarted);
+    signalR.on('EvictionScanProgress', handleEvictionScanProgress);
+    signalR.on('EvictionScanComplete', handleEvictionScanComplete);
 
     return () => {
       signalR.off('LogProcessingStarted', handleLogProcessingStarted);
@@ -1089,6 +1146,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       signalR.off('SteamSessionError', handleSteamSessionError);
       signalR.off('EpicMappingProgress', handleEpicMappingProgress);
       signalR.off('EpicGameMappingsUpdated', handleEpicGameMappingsUpdated);
+      signalR.off('EvictionScanStarted', handleEvictionScanStarted);
+      signalR.off('EvictionScanProgress', handleEvictionScanProgress);
+      signalR.off('EvictionScanComplete', handleEvictionScanComplete);
     };
   }, [signalR, addNotification, updateNotification, scheduleAutoDismiss, cancelAutoDismissTimer]);
 

@@ -862,7 +862,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                                   return (
                                     <div
                                       key={download.id}
-                                      className="drawer-session-row px-4 py-3 transition-colors"
+                                      className={`drawer-session-row px-4 py-3 transition-colors${download.isEvicted ? ' opacity-60' : ''}`}
                                     >
                                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                                         {/* Time & Events */}
@@ -885,6 +885,11 @@ const GroupCard: React.FC<GroupCardProps> = ({
                                             {download.depotId && (
                                               <span className="text-xs font-mono text-[var(--theme-text-muted)] bg-[var(--theme-bg-tertiary)] px-1.5 rounded">
                                                 {download.depotId}
+                                              </span>
+                                            )}
+                                            {download.isEvicted && (
+                                              <span className="themed-badge status-badge-error">
+                                                {t('common.evicted')}
                                               </span>
                                             )}
                                           </div>

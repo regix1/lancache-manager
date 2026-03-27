@@ -321,6 +321,19 @@ class ApiService {
     }
   }
 
+  static async startEvictionScan(): Promise<{ operationId: string }> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/stats/eviction/reconcile`,
+        this.getFetchOptions({ method: 'POST' })
+      );
+      return await this.handleResponse<{ operationId: string }>(res);
+    } catch (error: unknown) {
+      console.error('startEvictionScan error:', error);
+      throw error;
+    }
+  }
+
   static async resetEvictions(): Promise<{ reset: number }> {
     try {
       const res = await fetch(

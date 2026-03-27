@@ -39,7 +39,8 @@ const CANCEL_TOOLTIP_KEYS: Record<string, string> = {
   service_removal: 'common.notifications.cancelServiceRemoval',
   database_reset: 'common.notifications.cancelDatabaseReset',
   data_import: 'common.notifications.cancelDataImport',
-  epic_game_mapping: 'common.notifications.cancelEpicGameMapping'
+  epic_game_mapping: 'common.notifications.cancelEpicGameMapping',
+  eviction_scan: 'common.notifications.cancelEvictionScan'
 };
 
 // ============================================================================

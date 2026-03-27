@@ -1,5 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
+using LancacheManager.Core.Interfaces;
+using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.Base;
@@ -18,6 +20,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 {
     private readonly DatasourceService _datasourceService;
     private readonly StateService _stateService;
+    private readonly ISignalRNotificationService _notifications;
+    private readonly IUnifiedOperationTracker _operationTracker;
     private bool _isRunning;
 
     protected override string ServiceName => "CacheReconciliationService";
@@ -27,37 +31,51 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     public bool IsRunning => _isRunning;
 
     /// <summary>
-    /// Run reconciliation manually (called from API endpoint).
-    /// Returns false if already running.
+    /// Start reconciliation as a fire-and-forget background task.
+    /// Returns the operationId immediately, or null if already running.
     /// </summary>
-    public async Task<(bool started, int processed, int evicted, int unEvicted)> RunManualAsync(CancellationToken ct)
+    public string? RunManualAsync()
     {
-        if (_isRunning) return (false, 0, 0, 0);
-        _isRunning = true;
-        try
-        {
-            using var scope = _serviceProvider.CreateScope();
-            await ExecuteScopedWorkAsync(scope.ServiceProvider, ct);
-            return (true, _lastProcessed, _lastEvicted, _lastUnEvicted);
-        }
-        finally
-        {
-            _isRunning = false;
-        }
-    }
+        if (_isRunning) return null;
 
-    private int _lastProcessed, _lastEvicted, _lastUnEvicted;
+        var cts = new CancellationTokenSource();
+        var operationId = _operationTracker.RegisterOperation(
+            OperationType.EvictionScan,
+            "Eviction Scan",
+            cts);
+
+        _ = Task.Run(async () =>
+        {
+            _isRunning = true;
+            try
+            {
+                using var scope = _serviceProvider.CreateScope();
+                var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                await ReconcileCacheFilesAsync(context, operationId, cts.Token);
+            }
+            finally
+            {
+                _isRunning = false;
+            }
+        }, cts.Token);
+
+        return operationId;
+    }
 
     public CacheReconciliationService(
         IServiceProvider serviceProvider,
         ILogger<CacheReconciliationService> logger,
         IConfiguration configuration,
         DatasourceService datasourceService,
-        StateService stateService)
+        StateService stateService,
+        ISignalRNotificationService notifications,
+        IUnifiedOperationTracker operationTracker)
         : base(serviceProvider, logger, configuration)
     {
         _datasourceService = datasourceService;
         _stateService = stateService;
+        _notifications = notifications;
+        _operationTracker = operationTracker;
     }
 
     protected override async Task ExecuteScopedWorkAsync(
@@ -65,25 +83,46 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         CancellationToken stoppingToken)
     {
         var context = scopedServices.GetRequiredService<AppDbContext>();
-        await ReconcileCacheFilesAsync(context, stoppingToken);
+
+        var cts = new CancellationTokenSource();
+        // Register a linked source so the scheduled cancellation token also cancels
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, cts.Token);
+        var operationId = _operationTracker.RegisterOperation(
+            OperationType.EvictionScan,
+            "Eviction Scan",
+            cts);
+
+        await ReconcileCacheFilesAsync(context, operationId, linked.Token);
     }
 
-    private async Task ReconcileCacheFilesAsync(AppDbContext context, CancellationToken stoppingToken)
+    private async Task ReconcileCacheFilesAsync(AppDbContext context, string operationId, CancellationToken stoppingToken)
     {
         try
         {
-            _logger.LogInformation("[CacheReconciliation] Starting cache reconciliation scan");
+            _logger.LogInformation("[EvictionScan] Starting eviction scan");
+
+            await _notifications.NotifyAllAsync(SignalREvents.EvictionScanStarted, new EvictionScanStarted(
+                Message: "Starting eviction scan...",
+                OperationId: operationId));
 
             // Step 1: Build a HashSet of all files currently on disk across all datasource cache directories
             var filesOnDisk = BuildDiskFileSet();
 
             if (filesOnDisk.Count == 0)
             {
-                _logger.LogWarning("[CacheReconciliation] No cache files found on disk across any datasource - skipping reconciliation to prevent false eviction flags");
+                _logger.LogWarning("[EvictionScan] No cache files found on disk across any datasource - skipping reconciliation to prevent false eviction flags");
+                _operationTracker.CompleteOperation(operationId, success: true);
+                await _notifications.NotifyAllAsync(SignalREvents.EvictionScanComplete, new EvictionScanComplete(
+                    Success: true,
+                    OperationId: operationId,
+                    Message: "No cache files found on disk — scan skipped to prevent false eviction flags.",
+                    Processed: 0,
+                    Evicted: 0,
+                    UnEvicted: 0));
                 return;
             }
 
-            _logger.LogInformation("[CacheReconciliation] Found {FileCount} cache files on disk across {DatasourceCount} datasource(s)",
+            _logger.LogInformation("[EvictionScan] Found {FileCount} cache files on disk across {DatasourceCount} datasource(s)",
                 filesOnDisk.Count, _datasourceService.DatasourceCount);
 
             // Auto-detect nginx cache directory levels from actual file paths on disk
@@ -93,6 +132,9 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             // When slice module is active (e.g., slice 1m), cache key = "$cacheidentifier$uri$slice_range"
             // When slice is 0 (disabled), cache key = "$cacheidentifier$uri"
             var firstSliceSuffix = DetectFirstSliceSuffix(filesOnDisk);
+
+            // Estimate total for progress: count inactive downloads
+            var totalEstimate = await context.Downloads.CountAsync(d => !d.IsActive, stoppingToken);
 
             // Step 2: Get all inactive (completed) Downloads that have associated LogEntries
             // Process in batches to avoid loading the entire table into memory
@@ -189,17 +231,29 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 // Save changes for this batch
                 await context.SaveChangesAsync(stoppingToken);
 
+                // Emit progress after each batch
+                var percent = totalEstimate > 0
+                    ? Math.Min(100.0, totalProcessed / (double)totalEstimate * 100.0)
+                    : 0.0;
+                _operationTracker.UpdateProgress(operationId, percent,
+                    $"Processed {totalProcessed} of ~{totalEstimate} downloads...");
+                await _notifications.NotifyAllAsync(SignalREvents.EvictionScanProgress, new EvictionScanProgress(
+                    OperationId: operationId,
+                    Status: "running",
+                    Message: $"Processed {totalProcessed} of ~{totalEstimate} downloads...",
+                    PercentComplete: percent,
+                    Processed: totalProcessed,
+                    TotalEstimate: totalEstimate,
+                    Evicted: totalEvicted,
+                    UnEvicted: totalUnEvicted));
+
                 // Small delay between batches to reduce pressure
                 if (downloads.Count == batchSize)
                     await Task.Delay(50, stoppingToken);
             }
 
-            _lastProcessed = totalProcessed;
-            _lastEvicted = totalEvicted;
-            _lastUnEvicted = totalUnEvicted;
-
             _logger.LogInformation(
-                "[CacheReconciliation] Reconciliation complete: processed {Total} downloads, {Evicted} newly evicted, {UnEvicted} un-evicted (re-cached)",
+                "[EvictionScan] Scan complete: processed {Total} downloads, {Evicted} newly evicted, {UnEvicted} un-evicted (re-cached)",
                 totalProcessed, totalEvicted, totalUnEvicted);
 
             // Step 3: Handle evicted data mode
@@ -208,10 +262,41 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             {
                 await RemoveEvictedRecordsAsync(context, stoppingToken);
             }
+
+            _operationTracker.CompleteOperation(operationId, success: true);
+            await _notifications.NotifyAllAsync(SignalREvents.EvictionScanComplete, new EvictionScanComplete(
+                Success: true,
+                OperationId: operationId,
+                Message: $"Scan complete: {totalProcessed} processed, {totalEvicted} newly evicted, {totalUnEvicted} un-evicted.",
+                Processed: totalProcessed,
+                Evicted: totalEvicted,
+                UnEvicted: totalUnEvicted));
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (OperationCanceledException)
         {
-            _logger.LogError(ex, "[CacheReconciliation] Error during cache reconciliation");
+            _logger.LogInformation("[EvictionScan] Operation {OperationId} was cancelled", operationId);
+            _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
+            await _notifications.NotifyAllAsync(SignalREvents.EvictionScanComplete, new EvictionScanComplete(
+                Success: false,
+                OperationId: operationId,
+                Message: "Eviction scan was cancelled.",
+                Processed: 0,
+                Evicted: 0,
+                UnEvicted: 0,
+                Error: "Cancelled by user"));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[EvictionScan] Error during eviction scan");
+            _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
+            await _notifications.NotifyAllAsync(SignalREvents.EvictionScanComplete, new EvictionScanComplete(
+                Success: false,
+                OperationId: operationId,
+                Message: "Eviction scan failed with an error.",
+                Processed: 0,
+                Evicted: 0,
+                UnEvicted: 0,
+                Error: ex.Message));
         }
     }
 
@@ -227,7 +312,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         {
             if (!Directory.Exists(datasource.CachePath))
             {
-                _logger.LogDebug("[CacheReconciliation] Cache directory does not exist for datasource '{Name}': {Path}",
+                _logger.LogDebug("[EvictionScan] Cache directory does not exist for datasource '{Name}': {Path}",
                     datasource.Name, datasource.CachePath);
                 continue;
             }
@@ -241,7 +326,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "[CacheReconciliation] Error enumerating cache files for datasource '{Name}': {Path}",
+                _logger.LogWarning(ex, "[EvictionScan] Error enumerating cache files for datasource '{Name}': {Path}",
                     datasource.Name, datasource.CachePath);
             }
         }
@@ -279,13 +364,13 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
                 var l1 = parts[0].Length;
                 var l2 = parts[1].Length;
-                _logger.LogInformation("[CacheReconciliation] Auto-detected cache levels: {L1}:{L2} from file structure (sample: {Path})",
+                _logger.LogInformation("[EvictionScan] Auto-detected cache levels: {L1}:{L2} from file structure (sample: {Path})",
                     l1, l2, filePath);
                 return (l1, l2);
             }
         }
 
-        _logger.LogWarning("[CacheReconciliation] Could not auto-detect cache levels from disk, using default 2:2");
+        _logger.LogWarning("[EvictionScan] Could not auto-detect cache levels from disk, using default 2:2");
         return (2, 2);
     }
 
@@ -337,23 +422,23 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         var sliceSize = endByte - startByte + 1;
                         var firstSliceSuffix = $"bytes=0-{sliceSize - 1}";
                         _logger.LogInformation(
-                            "[CacheReconciliation] Auto-detected nginx slice range: {Suffix} (slice size: {Size} bytes)",
+                            "[EvictionScan] Auto-detected nginx slice range: {Suffix} (slice size: {Size} bytes)",
                             firstSliceSuffix, sliceSize);
                         return firstSliceSuffix;
                     }
                 }
 
                 // KEY found but no bytes= suffix → slice module is disabled (slice 0)
-                _logger.LogInformation("[CacheReconciliation] No slice range detected in cache file header — nginx slice is disabled (slice 0)");
+                _logger.LogInformation("[EvictionScan] No slice range detected in cache file header — nginx slice is disabled (slice 0)");
                 return string.Empty;
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "[CacheReconciliation] Could not read cache file header: {Path}", filePath);
+                _logger.LogDebug(ex, "[EvictionScan] Could not read cache file header: {Path}", filePath);
             }
         }
 
-        _logger.LogWarning("[CacheReconciliation] Could not detect slice range from any cache file, defaulting to no slice suffix");
+        _logger.LogWarning("[EvictionScan] Could not detect slice range from any cache file, defaulting to no slice suffix");
         return string.Empty;
     }
 
@@ -408,13 +493,13 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             if (downloadsDeleted > 0 || logEntriesDeleted > 0)
             {
                 _logger.LogInformation(
-                    "[CacheReconciliation] Remove mode: deleted {Downloads} evicted downloads and {LogEntries} associated log entries",
+                    "[EvictionScan] Remove mode: deleted {Downloads} evicted downloads and {LogEntries} associated log entries",
                     downloadsDeleted, logEntriesDeleted);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[CacheReconciliation] Error removing evicted records from database");
+            _logger.LogError(ex, "[EvictionScan] Error removing evicted records from database");
         }
     }
 }

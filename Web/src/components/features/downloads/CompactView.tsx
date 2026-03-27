@@ -590,7 +590,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                                   return (
                                     <div
                                       key={download.id}
-                                      className="text-xs px-2.5 py-2 hover:bg-[var(--theme-bg-tertiary)] transition-colors"
+                                      className={`text-xs px-2.5 py-2 hover:bg-[var(--theme-bg-tertiary)] transition-colors${download.isEvicted ? ' opacity-60' : ''}`}
                                     >
                                       {/* Mobile: Stacked layout */}
                                       <div className="sm:hidden">
@@ -618,13 +618,20 @@ const GroupRow: React.FC<GroupRowProps> = ({
                                           <span className="text-[var(--theme-text-muted)]">
                                             {formatRelativeTime(download.startTimeUtc)}
                                           </span>
-                                          {associations.events.length > 0 && (
-                                            <DownloadBadges
-                                              events={associations.events}
-                                              maxVisible={2}
-                                              size="sm"
-                                            />
-                                          )}
+                                          <div className="flex items-center gap-1">
+                                            {download.isEvicted && (
+                                              <span className="themed-badge status-badge-error">
+                                                {t('common.evicted')}
+                                              </span>
+                                            )}
+                                            {associations.events.length > 0 && (
+                                              <DownloadBadges
+                                                events={associations.events}
+                                                maxVisible={2}
+                                                size="sm"
+                                              />
+                                            )}
+                                          </div>
                                         </div>
                                       </div>
 
@@ -638,6 +645,11 @@ const GroupRow: React.FC<GroupRowProps> = ({
                                           <span className="text-[var(--theme-text-muted)]">
                                             {formatRelativeTime(download.startTimeUtc)}
                                           </span>
+                                          {download.isEvicted && (
+                                            <span className="themed-badge status-badge-error">
+                                              {t('common.evicted')}
+                                            </span>
+                                          )}
                                           {associations.events.length > 0 && (
                                             <DownloadBadges
                                               events={associations.events}

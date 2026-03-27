@@ -2,6 +2,7 @@
 @import './styles/base/reset.css';
 
 /* Layout */
+@import './styles/app.css';
 @import './styles/layout/mobile.css';
 @import './styles/layout/overlays.css';
 

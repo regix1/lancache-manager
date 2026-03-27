@@ -159,7 +159,12 @@ export const SIGNALR_EVENTS = [
 
   // Epic Game Mappings
   'EpicMappingProgress',
-  'EpicGameMappingsUpdated'
+  'EpicGameMappingsUpdated',
+
+  // Eviction Scan
+  'EvictionScanStarted',
+  'EvictionScanProgress',
+  'EvictionScanComplete'
 ] as const;
 
 /**
@@ -655,4 +660,30 @@ export interface EpicGameMappingsUpdatedEvent {
   newGames: number;
   updatedGames: number;
   lastUpdatedUtc: string;
+}
+
+export interface EvictionScanStartedEvent {
+  message: string;
+  operationId: string;
+}
+
+export interface EvictionScanProgressEvent {
+  operationId: string;
+  status: string;
+  message: string;
+  percentComplete: number;
+  processed: number;
+  totalEstimate: number;
+  evicted: number;
+  unEvicted: number;
+}
+
+export interface EvictionScanCompleteEvent {
+  success: boolean;
+  operationId: string;
+  message: string;
+  processed: number;
+  evicted: number;
+  unEvicted: number;
+  error?: string;
 }

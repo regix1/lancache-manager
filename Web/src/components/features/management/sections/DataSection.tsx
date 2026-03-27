@@ -10,6 +10,7 @@ import { Checkbox } from '@components/ui/Checkbox';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { type AuthMode } from '@services/auth.service';
 import ApiService from '@services/api.service';
+import { useNotifications } from '@contexts/notifications/useNotifications';
 import DepotMappingManager from '../depot/DepotMappingManager';
 import EpicMappingManager from '../epic/EpicMappingManager';
 import DataImporter from '../data/DataImporter';
@@ -54,14 +55,16 @@ const DataSection: React.FC<DataSectionProps> = ({
   const [savedEvictionMode, setSavedEvictionMode] = useState<string>('show');
   const [evictionLoading, setEvictionLoading] = useState(false);
   const [evictionSaving, setEvictionSaving] = useState(false);
-  const [reconciling, setReconciling] = useState(false);
+  const [isStartingEvictionScan, setIsStartingEvictionScan] = useState(false);
+  const evictionScanInFlightRef = useRef(false);
   const [resettingEvictions, setResettingEvictions] = useState(false);
-  const [reconcileResult, setReconcileResult] = useState<{
-    processed: number;
-    evicted: number;
-    unEvicted: number;
-  } | null>(null);
   const isEvictionDirty = evictionMode !== savedEvictionMode;
+
+  const { notifications } = useNotifications();
+  const evictionScanNotification = notifications.find(
+    (n) => n.type === 'eviction_scan' && n.status === 'running'
+  );
+  const isEvictionScanRunning = !!evictionScanNotification || isStartingEvictionScan;
 
   const loadEvictionSettings = useCallback(
     async (signal?: AbortSignal) => {
@@ -104,27 +107,17 @@ const DataSection: React.FC<DataSectionProps> = ({
     }
   };
 
-  const handleRunReconciliation = async () => {
-    setReconciling(true);
-    setReconcileResult(null);
+  const handleStartEvictionScan = async () => {
+    if (evictionScanInFlightRef.current) return;
+    evictionScanInFlightRef.current = true;
+    setIsStartingEvictionScan(true);
     try {
-      const result = await ApiService.runReconciliation();
-      setReconcileResult(result);
-      onSuccess(
-        t('management.sections.data.reconcileSuccess', {
-          processed: result.processed,
-          evicted: result.evicted,
-          unEvicted: result.unEvicted
-        })
-      );
-      onDataRefresh();
+      await ApiService.startEvictionScan();
     } catch (err: unknown) {
-      onError(
-        (err instanceof Error ? err.message : String(err)) ||
-          t('management.sections.data.reconcileError')
-      );
+      onError(err instanceof Error ? err.message : String(err));
     } finally {
-      setReconciling(false);
+      setIsStartingEvictionScan(false);
+      evictionScanInFlightRef.current = false;
     }
   };
 
@@ -487,32 +480,23 @@ const DataSection: React.FC<DataSectionProps> = ({
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-4 border-t border-themed-primary">
                 <div className="flex items-center gap-3 flex-wrap">
                   <Button
-                    onClick={handleRunReconciliation}
-                    disabled={reconciling || resettingEvictions}
-                    loading={reconciling}
+                    onClick={handleStartEvictionScan}
+                    disabled={isEvictionScanRunning || resettingEvictions}
                     variant="subtle"
                     className="sm:w-48"
                   >
-                    {t('management.sections.data.runReconciliation')}
+                    {isEvictionScanRunning && <Loader2 className="w-4 h-4 animate-spin" />}
+                    {t('management.sections.data.runEvictionScan')}
                   </Button>
                   <Button
                     onClick={handleResetEvictions}
-                    disabled={resettingEvictions || reconciling}
+                    disabled={resettingEvictions || isEvictionScanRunning}
                     loading={resettingEvictions}
                     variant="subtle"
                     className="sm:w-48"
                   >
                     {t('management.sections.data.resetEvictions')}
                   </Button>
-                  {reconcileResult && (
-                    <span className="text-xs text-themed-muted">
-                      {t('management.sections.data.reconcileResult', {
-                        processed: reconcileResult.processed,
-                        evicted: reconcileResult.evicted,
-                        unEvicted: reconcileResult.unEvicted
-                      })}
-                    </span>
-                  )}
                 </div>
                 <Button
                   onClick={handleSaveEviction}

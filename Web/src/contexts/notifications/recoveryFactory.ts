@@ -291,6 +291,22 @@ const RECOVERY_CONFIGS = {
       }
     }),
     staleMessage: 'Epic game mapping completed'
+  } satisfies SimpleRecoveryConfig,
+
+  evictionScan: {
+    apiEndpoint: '/api/stats/eviction/scan/status',
+    storageKey: NOTIFICATION_STORAGE_KEYS.EVICTION_SCAN,
+    type: 'eviction_scan' as NotificationType,
+    notificationId: NOTIFICATION_IDS.EVICTION_SCAN,
+    isProcessing: (data: Record<string, unknown>) => Boolean(data.isProcessing),
+    createNotification: (data: Record<string, unknown>) => ({
+      message: (data.message as string) || 'Scanning for evictable cache entries...',
+      progress: (data.percentComplete as number) || 0,
+      details: {
+        operationId: data.operationId as string
+      }
+    }),
+    staleMessage: 'Eviction scan completed'
   } satisfies SimpleRecoveryConfig
 };
 
@@ -576,6 +592,13 @@ export function createRecoveryRunner(
     scheduleAutoDismiss
   );
 
+  const recoverEvictionScan = createSimpleRecoveryFunction(
+    RECOVERY_CONFIGS.evictionScan,
+    fetchWithAuth,
+    setNotifications,
+    scheduleAutoDismiss
+  );
+
   const recoverCacheRemovals = createCacheRemovalsRecoveryFunction(
     fetchWithAuth,
     setNotifications,
@@ -594,6 +617,7 @@ export function createRecoveryRunner(
         recoverCorruptionDetection(),
         recoverDataImport(),
         recoverEpicGameMapping(),
+        recoverEvictionScan(),
         recoverCacheRemovals()
       ]);
     } catch (err) {

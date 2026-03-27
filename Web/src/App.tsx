@@ -1,4 +1,12 @@
-import React, { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  lazy,
+  Suspense,
+  useTransition
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import { NotificationsProvider } from '@contexts/notifications';
 import { CacheSizeProvider } from '@contexts/CacheSizeContext';
@@ -61,6 +69,21 @@ const PrefillPanel = lazy(() =>
   import('@components/features/prefill/PrefillPanel').then((m) => ({ default: m.PrefillPanel }))
 );
 import ActiveEventBorder from '@components/common/ActiveEventBorder';
+
+const preloadMap: Record<string, () => void> = {
+  dashboard: () => import('@components/features/dashboard/Dashboard'),
+  downloads: () => import('@components/features/downloads/DownloadsTab'),
+  clients: () => import('@components/features/clients/ClientsTab'),
+  services: () => import('@components/features/services/ServicesTab'),
+  authenticate: () => import('@components/features/auth/AuthenticateTab'),
+  prefill: () => import('@components/features/prefill/PrefillPanel'),
+  users: () => import('@components/features/user/UserTab'),
+  events: () => import('@components/features/events'),
+  management: () => import('@components/features/management/ManagementTab')
+};
+
+// Eagerly preload the default tab
+preloadMap.dashboard();
 // Wrapper components to inject mockMode from context into providers
 const DashboardDataProviderWithMockMode: React.FC<{ children: React.ReactNode }> = ({
   children
@@ -82,6 +105,17 @@ const AppContent: React.FC = () => {
   const isMemoryRoute = window.location.pathname === '/memory';
 
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [isPending, startTransition] = useTransition();
+
+  const handleTabChange = useCallback((tab: string) => {
+    startTransition(() => {
+      setActiveTab(tab);
+    });
+  }, []);
+
+  const handleTabHover = useCallback((tab: string) => {
+    preloadMap[tab]?.();
+  }, []);
   const { connectionStatus } = useStats();
   const {
     setupStatus,
@@ -115,29 +149,29 @@ const AppContent: React.FC = () => {
   // Switch away from auth-required tabs if auth is lost
   useEffect(() => {
     if (authMode !== 'authenticated' && (activeTab === 'users' || activeTab === 'management')) {
-      setActiveTab('dashboard');
+      handleTabChange('dashboard');
     }
-  }, [authMode, activeTab]);
+  }, [authMode, activeTab, handleTabChange]);
 
   // Switch away from prefill tab when guest loses prefill access (live via SignalR)
   useEffect(() => {
     if (authMode === 'guest' && !prefillEnabled && activeTab === 'prefill') {
-      setActiveTab('dashboard');
+      handleTabChange('dashboard');
     }
-  }, [authMode, prefillEnabled, activeTab]);
+  }, [authMode, prefillEnabled, activeTab, handleTabChange]);
 
   // Handle custom navigation events (used by components that can't access setActiveTab directly)
   useEffect(() => {
     const handleNavigateToTab = (event: Event) => {
       const customEvent = event as CustomEvent<{ tab: string }>;
       if (customEvent.detail?.tab) {
-        setActiveTab(customEvent.detail.tab);
+        handleTabChange(customEvent.detail.tab);
       }
     };
 
     window.addEventListener('navigate-to-tab', handleNavigateToTab);
     return () => window.removeEventListener('navigate-to-tab', handleNavigateToTab);
-  }, []);
+  }, [handleTabChange]);
 
   // Redirect banned users away from prefill tab (but keep them there to see the error message)
   // The error message is shown in renderContent() when isBanned && activeTab === 'prefill'
@@ -696,7 +730,8 @@ const AppContent: React.FC = () => {
         />
         <Navigation
           activeTab={activeTab}
-          setActiveTab={setActiveTab}
+          setActiveTab={handleTabChange}
+          onTabHover={handleTabHover}
           authMode={authMode}
           prefillEnabled={prefillEnabled}
           isBanned={isBanned}
@@ -705,7 +740,9 @@ const AppContent: React.FC = () => {
         {/* Only show Universal Notification Bar to authenticated users */}
         {authMode === 'authenticated' && <UniversalNotificationBar />}
         <main className="container mx-auto px-4 py-6 flex-grow">
-          <Suspense fallback={<LoadingSpinner fullScreen={false} />}>{renderContent()}</Suspense>
+          <div className={`app-content-area${isPending ? ' app-content-pending' : ''}`}>
+            <Suspense fallback={<LoadingSpinner fullScreen={false} />}>{renderContent()}</Suspense>
+          </div>
         </main>
         <Footer />
       </div>

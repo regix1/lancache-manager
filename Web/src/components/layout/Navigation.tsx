@@ -17,6 +17,7 @@ import type { AuthMode } from '@services/auth.service';
 interface NavigationProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
+  onTabHover?: (tab: string) => void;
   authMode?: AuthMode;
   prefillEnabled?: boolean;
   isBanned?: boolean;
@@ -27,6 +28,7 @@ const Navigation: React.FC<NavigationProps> = React.memo(
   ({
     activeTab,
     setActiveTab,
+    onTabHover,
     authMode = 'unauthenticated',
     prefillEnabled = false,
     isBanned = false,
@@ -151,9 +153,10 @@ const Navigation: React.FC<NavigationProps> = React.memo(
       tab: (typeof tabs)[0];
       isActive: boolean;
       onClick: () => void;
+      onHover?: () => void;
       className?: string;
     }> = React.memo(
-      ({ tab, isActive, onClick, className = '' }) => {
+      ({ tab, isActive, onClick, onHover, className = '' }) => {
         const Icon = tab.icon;
 
         return (
@@ -164,6 +167,7 @@ const Navigation: React.FC<NavigationProps> = React.memo(
               color: isActive ? 'var(--theme-nav-tab-active)' : 'var(--theme-nav-tab-inactive)'
             }}
             onMouseEnter={(e) => {
+              onHover?.();
               if (!isActive) {
                 e.currentTarget.style.color = 'var(--theme-nav-tab-hover)';
                 e.currentTarget.style.backgroundColor = 'var(--theme-nav-mobile-item-hover)';
@@ -202,6 +206,7 @@ const Navigation: React.FC<NavigationProps> = React.memo(
                   tab={tab}
                   isActive={activeTab === tab.id}
                   onClick={() => setActiveTab(tab.id)}
+                  onHover={() => onTabHover?.(tab.id)}
                 />
               </div>
             ))}
@@ -255,6 +260,7 @@ const Navigation: React.FC<NavigationProps> = React.memo(
                         setActiveTab(tab.id);
                         setMobileMenuOpen(false);
                       }}
+                      onHover={() => onTabHover?.(tab.id)}
                       className="w-full justify-start"
                     />
                   </div>

@@ -457,16 +457,15 @@ public class StatsController : ControllerBase
 
     [HttpPost("eviction/reconcile")]
     [Authorize(Policy = "AdminOnly")]
-    public async Task<IActionResult> RunReconciliationAsync(CancellationToken ct)
+    public IActionResult RunReconciliationAsync()
     {
-        var (started, processed, evicted, unEvicted) = await _reconciliationService.RunManualAsync(ct);
-        if (!started)
+        var operationId = _reconciliationService.RunManualAsync();
+        if (operationId == null)
         {
             return Conflict(new { error = "Reconciliation is already running" });
         }
 
-        await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, new { reason = "reconciliation-complete" });
-        return Ok(new { processed, evicted, unEvicted });
+        return Ok(new { operationId });
     }
 
     [HttpPost("eviction/reset")]

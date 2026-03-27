@@ -60,7 +60,9 @@ export const NOTIFICATION_STORAGE_KEYS = {
   /** Key for data import operation state */
   DATA_IMPORT: 'notification_data_import',
   /** Key for Epic game mapping operation state */
-  EPIC_GAME_MAPPING: 'notification_epic_game_mapping'
+  EPIC_GAME_MAPPING: 'notification_epic_game_mapping',
+  /** Key for eviction scan operation state */
+  EVICTION_SCAN: 'eviction-scan-storage'
 } as const;
 
 // ============================================================================
@@ -98,5 +100,7 @@ export const NOTIFICATION_IDS = {
   /** ID for Epic game mapping updates */
   EPIC_GAME_MAPPING: 'epic_game_mapping',
   /** ID for Steam session errors */
-  STEAM_SESSION_ERROR: 'steam_session_error'
+  STEAM_SESSION_ERROR: 'steam_session_error',
+  /** ID for eviction scan operations */
+  EVICTION_SCAN: 'eviction-scan-notification'
 } as const;

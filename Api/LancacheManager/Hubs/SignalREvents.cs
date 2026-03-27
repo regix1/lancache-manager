@@ -51,6 +51,9 @@ public static class SignalREvents
     public const string ServiceRemovalStarted = "ServiceRemovalStarted";
     public const string ServiceRemovalProgress = "ServiceRemovalProgress";
     public const string ServiceRemovalComplete = "ServiceRemovalComplete";
+    public const string EvictionScanStarted = "EvictionScanStarted";
+    public const string EvictionScanProgress = "EvictionScanProgress";
+    public const string EvictionScanComplete = "EvictionScanComplete";
 
     // Games
     public const string GameDetectionStarted = "GameDetectionStarted";

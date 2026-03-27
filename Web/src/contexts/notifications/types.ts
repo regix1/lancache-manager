@@ -20,6 +20,7 @@ export type NotificationType =
   | 'game_detection'
   | 'data_import'
   | 'epic_game_mapping'
+  | 'eviction_scan'
   | 'generic';
 
 /**
