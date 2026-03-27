@@ -33,13 +33,5 @@ export const STORAGE_KEYS = {
   GROUP_GAMES: 'lancache_downloads_group',
   SHOW_METADATA: 'lancache_downloads_metadata',
   SHOW_SMALL_FILES: 'lancache_downloads_show_small',
-  REFRESH_RATE: 'lancache_refresh_rate',
-  // Dashboard data cache
-  DASHBOARD_CACHE_INFO: 'lancache_dashboard_cache_info',
-  DASHBOARD_CLIENT_STATS: 'lancache_dashboard_client_stats',
-  DASHBOARD_SERVICE_STATS: 'lancache_dashboard_service_stats',
-  DASHBOARD_STATS: 'lancache_dashboard_stats',
-  DASHBOARD_LATEST_DOWNLOADS: 'lancache_dashboard_latest_downloads',
-  WIDGET_PEAK_USAGE: 'lancache_widget_peak_usage',
-  WIDGET_CACHE_GROWTH: 'lancache_widget_cache_growth'
+  REFRESH_RATE: 'lancache_refresh_rate'
 } as const;

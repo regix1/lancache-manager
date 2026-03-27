@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { PieChart, Zap, Database, Loader2 } from 'lucide-react';
+import { PieChart, Zap, Database } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { formatBytes, formatPercent } from '@utils/formatters';
 import { Card } from '@components/ui/Card';
@@ -100,8 +100,13 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
         </div>
 
         {loading && chartData.isEmpty ? (
-          <div className="service-analytics-loading">
-            <Loader2 className="widget-loading-spinner" />
+          <div className="service-analytics-skeleton">
+            <div className="service-analytics-skeleton-chart" />
+            <div className="service-analytics-skeleton-legend">
+              <div className="service-analytics-skeleton-item" />
+              <div className="service-analytics-skeleton-item" />
+              <div className="service-analytics-skeleton-item" />
+            </div>
           </div>
         ) : !chartData.isEmpty ? (
           <>

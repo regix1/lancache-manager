@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, memo, useRef } from 'react';
-import { TrendingUp, TrendingDown, Loader2 } from 'lucide-react';
+import { TrendingUp, TrendingDown } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { formatBytes } from '@utils/formatters';
 import { type CacheGrowthResponse } from '../../../../types';
@@ -9,17 +9,6 @@ import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import { useMockMode } from '@contexts/useMockMode';
 import MockDataService from '../../../../test/mockData.service';
-import { storage } from '@utils/storage';
-import { STORAGE_KEYS } from '@utils/constants';
-
-const WIDGET_CACHE_VERSION = '1';
-
-interface WidgetCacheEnvelope<T> {
-  data: T;
-  cachedAt: number;
-  version: string;
-}
-
 interface CacheGrowthTrendProps {
   /** Current used cache size in bytes (from cacheInfo) */
   usedCacheSize: number;
@@ -44,28 +33,8 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
     // Any non-live mode should disable real-time only stats
     const isHistoricalView = timeRange !== 'live';
     const { mockMode } = useMockMode();
-    const [data, setData] = useState<CacheGrowthResponse | null>(() => {
-      try {
-        const envelope = storage.getJSON<WidgetCacheEnvelope<CacheGrowthResponse>>(
-          STORAGE_KEYS.WIDGET_CACHE_GROWTH
-        );
-        if (envelope?.version === WIDGET_CACHE_VERSION) return envelope.data;
-      } catch {
-        /* ignore storage errors */
-      }
-      return null;
-    });
-    const [loading, setLoading] = useState(() => {
-      try {
-        const envelope = storage.getJSON<WidgetCacheEnvelope<CacheGrowthResponse>>(
-          STORAGE_KEYS.WIDGET_CACHE_GROWTH
-        );
-        return !envelope?.version || envelope.version !== WIDGET_CACHE_VERSION;
-      } catch {
-        /* ignore storage errors */
-      }
-      return true;
-    });
+    const [data, setData] = useState<CacheGrowthResponse | null>(null);
+    const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const prevDataRef = useRef<CacheGrowthResponse | null>(null);
 
@@ -106,15 +75,6 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
             eventId
           );
           setData(response);
-          try {
-            storage.setJSON(STORAGE_KEYS.WIDGET_CACHE_GROWTH, {
-              data: response,
-              cachedAt: Date.now(),
-              version: WIDGET_CACHE_VERSION
-            });
-          } catch {
-            /* ignore storage errors */
-          }
         } catch (err) {
           if (!controller.signal.aborted) {
             setError('Failed to load growth data');
@@ -192,8 +152,27 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
               {t('widgets.cacheGrowthTrend.title')}
             </h3>
           </div>
-          <div className="flex items-center justify-center h-24">
-            <Loader2 className="widget-loading-spinner" />
+          <div className="cache-growth-skeleton">
+            {/* Large stat */}
+            <div className="cache-growth-skeleton-stat" />
+
+            {/* Progress bar */}
+            <div className="cache-growth-skeleton-progress" />
+
+            {/* Sparkline area */}
+            <div className="cache-growth-skeleton-chart" />
+
+            {/* Stats grid */}
+            <div className="cache-growth-skeleton-grid">
+              <div className="cache-growth-skeleton-grid-cell">
+                <div className="cache-growth-skeleton-label" />
+                <div className="cache-growth-skeleton-value" />
+              </div>
+              <div className="cache-growth-skeleton-grid-cell">
+                <div className="cache-growth-skeleton-label" />
+                <div className="cache-growth-skeleton-value" />
+              </div>
+            </div>
           </div>
         </div>
       );

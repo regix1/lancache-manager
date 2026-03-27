@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, memo, useRef } from 'react';
-import { Clock, Loader2, TrendingUp, Zap, Calendar } from 'lucide-react';
+import { Clock, TrendingUp, Zap, Calendar } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { formatBytes } from '@utils/formatters';
 import { type HourlyActivityResponse, type HourlyActivityItem } from '../../../../types';
@@ -11,17 +11,6 @@ import { useMockMode } from '@contexts/useMockMode';
 import { getCurrentHour } from '@utils/timezone';
 import ApiService from '@services/api.service';
 import MockDataService from '../../../../test/mockData.service';
-import { storage } from '@utils/storage';
-import { STORAGE_KEYS } from '@utils/constants';
-
-const WIDGET_CACHE_VERSION = '1';
-
-interface WidgetCacheEnvelope<T> {
-  data: T;
-  cachedAt: number;
-  version: string;
-}
-
 interface PeakUsageHoursProps {
   /** Whether to use glassmorphism style */
   glassmorphism?: boolean;
@@ -40,28 +29,8 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(
     const { t } = useTranslation();
     const { timeRange, getTimeRangeParams, selectedEventIds } = useTimeFilter();
     const { mockMode } = useMockMode();
-    const [data, setData] = useState<HourlyActivityResponse | null>(() => {
-      try {
-        const envelope = storage.getJSON<WidgetCacheEnvelope<HourlyActivityResponse>>(
-          STORAGE_KEYS.WIDGET_PEAK_USAGE
-        );
-        if (envelope?.version === WIDGET_CACHE_VERSION) return envelope.data;
-      } catch {
-        /* ignore storage errors */
-      }
-      return null;
-    });
-    const [loading, setLoading] = useState(() => {
-      try {
-        const envelope = storage.getJSON<WidgetCacheEnvelope<HourlyActivityResponse>>(
-          STORAGE_KEYS.WIDGET_PEAK_USAGE
-        );
-        return !envelope?.version || envelope.version !== WIDGET_CACHE_VERSION;
-      } catch {
-        /* ignore storage errors */
-      }
-      return true;
-    });
+    const [data, setData] = useState<HourlyActivityResponse | null>(null);
+    const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const { use24HourFormat, useLocalTimezone } = useTimezone();
     const prevDataRef = useRef<HourlyActivityResponse | null>(null);
@@ -132,15 +101,6 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(
             eventId
           );
           setData(response);
-          try {
-            storage.setJSON(STORAGE_KEYS.WIDGET_PEAK_USAGE, {
-              data: response,
-              cachedAt: Date.now(),
-              version: WIDGET_CACHE_VERSION
-            });
-          } catch {
-            /* ignore storage errors */
-          }
         } catch (err) {
           if (!controller.signal.aborted) {
             setError('Failed to load hourly data');
@@ -265,8 +225,35 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(
               {t('widgets.peakUsageHours.title')}
             </h3>
           </div>
-          <div className="flex items-center justify-center h-32">
-            <Loader2 className="widget-loading-spinner" />
+          <div className="peak-usage-skeleton">
+            {/* Period totals bar */}
+            <div className="peak-usage-skeleton-bar" />
+
+            {/* Two stat cards */}
+            <div className="peak-usage-skeleton-cards">
+              <div className="peak-usage-skeleton-card">
+                <div className="peak-usage-skeleton-card-label" />
+                <div className="peak-usage-skeleton-card-value" />
+              </div>
+              <div className="peak-usage-skeleton-card">
+                <div className="peak-usage-skeleton-card-label" />
+                <div className="peak-usage-skeleton-card-value" />
+              </div>
+            </div>
+
+            {/* Heatmap grid */}
+            <div className="peak-usage-skeleton-heatmap">
+              {Array.from({ length: 24 }).map((_, i) => (
+                <div key={i} className="peak-usage-skeleton-cell" />
+              ))}
+            </div>
+
+            {/* Legend */}
+            <div className="peak-usage-skeleton-legend">
+              <div className="peak-usage-skeleton-legend-item" />
+              <div className="peak-usage-skeleton-legend-item" />
+              <div className="peak-usage-skeleton-legend-item" />
+            </div>
           </div>
         </div>
       );

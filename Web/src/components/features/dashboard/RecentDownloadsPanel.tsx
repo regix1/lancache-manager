@@ -1144,9 +1144,21 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
             </div>
           )
         ) : loading ? (
-          <div className="loading-state">
-            <Loader2 className="loading-spinner" />
-            <span>{t('dashboard.downloadsPanel.emptyStates.loading')}</span>
+          <div className="recent-downloads-skeleton">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="recent-downloads-skeleton-row">
+                <div className="recent-downloads-skeleton-icon" />
+                <div className="recent-downloads-skeleton-content">
+                  <div className="recent-downloads-skeleton-title" />
+                  <div className="recent-downloads-skeleton-meta" />
+                </div>
+                <div className="recent-downloads-skeleton-stats">
+                  <div className="recent-downloads-skeleton-size" />
+                  <div className="recent-downloads-skeleton-date" />
+                  <div className="recent-downloads-skeleton-hit-rate" />
+                </div>
+              </div>
+            ))}
           </div>
         ) : groupedItems.displayedItems.length > 0 ? (
           groupedItems.displayedItems.map((item, idx) => {
