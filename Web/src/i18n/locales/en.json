@@ -1926,7 +1926,7 @@
       }
     },
     "gameDetection": {
-      "title": "Game Cache Detection",
+      "title": "Game Cache Detection and Removal",
       "subtitle": "Scan cache to find games and services with stored files",
       "loadPreviousResults": "Load previous detection results from database",
       "processLogsFirst": "Process access logs first",
