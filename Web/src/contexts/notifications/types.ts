@@ -238,7 +238,7 @@ export interface RegistryCompleteConfig {
   /** Optional function to get success details */
 
   getSuccessDetails?: (
-    event: any,
+    event: any, // eslint-disable-line @typescript-eslint/no-explicit-any
     existing?: UnifiedNotification
   ) => UnifiedNotification['details'];
   /** Optional function to get detail message (shown below main message) */
