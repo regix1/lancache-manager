@@ -31,9 +31,8 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
     useTimeFilter();
   const { getRefreshInterval } = useRefreshRate();
   const signalR = useSignalR();
-  const { hasSession, authMode, isLoading: authLoading } = useAuth();
+  const { hasSession, isLoading: authLoading } = useAuth();
   const hasAccess = hasSession;
-  const isAdmin = authMode === 'authenticated';
 
   // State — initializers read from pre-loaded IDB cache (synchronous, no skeleton flash)
   const [cacheInfo, setCacheInfo] = useState<CacheInfo | null>(
@@ -91,7 +90,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   const selectedEventIdsRef = useRef<number[]>(selectedEventIds);
   const authLoadingRef = useRef(authLoading);
   const hasAccessRef = useRef(hasAccess);
-  const isAdminRef = useRef(isAdmin);
 
   // Update refs synchronously on every render
   currentTimeRangeRef.current = timeRange;
@@ -101,7 +99,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   selectedEventIdsRef.current = selectedEventIds;
   authLoadingRef.current = authLoading;
   hasAccessRef.current = hasAccess;
-  isAdminRef.current = isAdmin;
 
   const getApiUrl = (): string => {
     if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) {
@@ -225,9 +222,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
               eventIds,
               cacheBust
             ),
-            isAdminRef.current
-              ? ApiService.getCachedGameDetection()
-              : Promise.resolve(null as CachedDetectionResponse | null)
+            ApiService.getCachedGameDetection()
           ]);
 
         clearTimeout(timeoutId);

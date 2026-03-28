@@ -125,7 +125,6 @@ const Dashboard: React.FC = () => {
   const { latestDownloads } = useDownloads();
   const { gameDetectionData, detectionLookup: _detectionLookup } = useGameDetection();
   const { authMode } = useAuth();
-  const isAdmin = authMode === 'authenticated';
   const { timeRange, getTimeRangeParams, customStartDate, customEndDate, selectedEventIds } =
     useTimeFilter();
   const { selectedEvent: _selectedEvent } = useEvents();
@@ -444,13 +443,13 @@ const Dashboard: React.FC = () => {
 
   // Compute "Games on Disk" aggregate from detection data
   const gamesOnDiskStats = useMemo(() => {
-    if (!isAdmin || !gameDetectionData?.hasCachedResults || !gameDetectionData.games) {
+    if (!gameDetectionData?.hasCachedResults || !gameDetectionData.games) {
       return null;
     }
     const games = gameDetectionData.games;
     const totalSize = games.reduce((sum, game) => sum + game.total_size_bytes, 0);
     return { totalSize, gameCount: games.length };
-  }, [isAdmin, gameDetectionData]);
+  }, [gameDetectionData]);
 
   const allStatCards = useMemo<AllStatCards>(
     () => ({
