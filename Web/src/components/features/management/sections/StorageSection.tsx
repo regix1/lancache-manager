@@ -6,6 +6,7 @@ import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
+import { Checkbox } from '@components/ui/Checkbox';
 import { ManagerCardHeader, LoadingState } from '@components/ui/ManagerCard';
 import { type AuthMode } from '@services/auth.service';
 import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
@@ -50,13 +51,17 @@ const StorageSection: React.FC<StorageSectionProps> = ({
   // Eviction Settings State
   const [evictionMode, setEvictionMode] = useState<string>('show');
   const [savedEvictionMode, setSavedEvictionMode] = useState<string>('show');
+  const [evictionScanNotifications, setEvictionScanNotifications] = useState(false);
+  const [savedEvictionScanNotifications, setSavedEvictionScanNotifications] = useState(false);
   const [evictionLoading, setEvictionLoading] = useState(false);
   const [evictionSaving, setEvictionSaving] = useState(false);
   const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
   const [isStartingEvictionScan, setIsStartingEvictionScan] = useState(false);
   const evictionScanInFlightRef = useRef(false);
   const [resettingEvictions, setResettingEvictions] = useState(false);
-  const isEvictionDirty = evictionMode !== savedEvictionMode;
+  const isEvictionDirty =
+    evictionMode !== savedEvictionMode ||
+    evictionScanNotifications !== savedEvictionScanNotifications;
 
   const { notifications } = useNotifications();
   const evictionScanNotification = notifications.find(
@@ -71,6 +76,8 @@ const StorageSection: React.FC<StorageSectionProps> = ({
         const response = await ApiService.getEvictionSettings(signal);
         setEvictionMode(response.evictedDataMode);
         setSavedEvictionMode(response.evictedDataMode);
+        setEvictionScanNotifications(response.evictionScanNotifications);
+        setSavedEvictionScanNotifications(response.evictionScanNotifications);
       } catch (err: unknown) {
         if (err instanceof DOMException && err.name === 'AbortError') return;
         onError(t('management.sections.data.evictionLoadError'));
@@ -90,9 +97,14 @@ const StorageSection: React.FC<StorageSectionProps> = ({
   const performEvictionSave = async () => {
     setEvictionSaving(true);
     try {
-      const response = await ApiService.updateEvictionSettings(evictionMode);
+      const response = await ApiService.updateEvictionSettings(
+        evictionMode,
+        evictionScanNotifications
+      );
       setEvictionMode(response.evictedDataMode);
       setSavedEvictionMode(response.evictedDataMode);
+      setEvictionScanNotifications(response.evictionScanNotifications);
+      setSavedEvictionScanNotifications(response.evictionScanNotifications);
       onSuccess(t('management.sections.data.evictionSaveSuccess'));
       onDataRefresh();
     } catch (err: unknown) {
@@ -347,15 +359,25 @@ const StorageSection: React.FC<StorageSectionProps> = ({
                 ))}
               </div>
 
-              <div className="flex justify-end pt-4 border-t border-themed-primary">
-                <Button
-                  onClick={handleSaveEviction}
-                  disabled={!isEvictionDirty || evictionSaving}
-                  loading={evictionSaving}
-                  className="sm:w-40"
-                >
-                  {t('management.sections.clients.saveChanges')}
-                </Button>
+              <div className="pt-4 border-t border-themed-primary">
+                <div className="flex items-center justify-between">
+                  <Checkbox
+                    label={t('management.sections.data.evictionScanNotifications')}
+                    checked={evictionScanNotifications}
+                    onChange={(e) => setEvictionScanNotifications(e.target.checked)}
+                  />
+                  <Button
+                    onClick={handleSaveEviction}
+                    disabled={!isEvictionDirty || evictionSaving}
+                    loading={evictionSaving}
+                    className="sm:w-40"
+                  >
+                    {t('management.sections.clients.saveChanges')}
+                  </Button>
+                </div>
+                <p className="text-xs text-themed-muted mt-1 ml-6">
+                  {t('management.sections.data.evictionScanNotificationsDescription')}
+                </p>
               </div>
             </>
           )}

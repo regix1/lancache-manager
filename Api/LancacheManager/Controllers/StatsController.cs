@@ -435,7 +435,8 @@ public class StatsController : ControllerBase
     public IActionResult GetEvictionSettings()
     {
         var evictedDataMode = _stateRepository.GetEvictedDataMode();
-        return Ok(new { evictedDataMode });
+        var evictionScanNotifications = _stateRepository.GetEvictionScanNotifications();
+        return Ok(new { evictedDataMode, evictionScanNotifications });
     }
 
     [HttpPut("eviction")]
@@ -453,6 +454,10 @@ public class StatsController : ControllerBase
         }
 
         _stateRepository.SetEvictedDataMode(request.EvictedDataMode);
+        if (request.EvictionScanNotifications.HasValue)
+        {
+            _stateRepository.SetEvictionScanNotifications(request.EvictionScanNotifications.Value);
+        }
         // Notify clients to refresh downloads/stats since eviction mode affects all tabs
         await _notifications.NotifyAllAsync(SignalREvents.DownloadsRefresh, new
         {
@@ -503,10 +508,10 @@ public class StatsController : ControllerBase
                 }
             }, cts.Token);
 
-            return Accepted(new { evictedDataMode = request.EvictedDataMode, operationId });
+            return Accepted(new { evictedDataMode = request.EvictedDataMode, evictionScanNotifications = _stateRepository.GetEvictionScanNotifications(), operationId });
         }
 
-        return Ok(new { evictedDataMode = request.EvictedDataMode });
+        return Ok(new { evictedDataMode = request.EvictedDataMode, evictionScanNotifications = _stateRepository.GetEvictionScanNotifications() });
     }
 
     [HttpPost("eviction/reconcile")]

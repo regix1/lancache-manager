@@ -149,6 +149,11 @@ public interface IPathResolver
     string GetRustServiceRemoverPath();
 
     /// <summary>
+    /// Gets the path to the Rust eviction scanner executable
+    /// </summary>
+    string GetRustEvictionScanPath();
+
+    /// <summary>
     /// Gets the path to the Rust data migrator executable
     /// </summary>
     string GetRustDataMigratorPath();

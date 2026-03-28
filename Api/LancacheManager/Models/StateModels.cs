@@ -77,6 +77,9 @@ public class AppState
     // Evicted data display mode (show/hide/remove)
     public string EvictedDataMode { get; set; } = EvictedDataModes.Show;
 
+    // Whether the eviction scan shows the universal notification bar (false = silent/no notification)
+    public bool EvictionScanNotifications { get; set; } = false;
+
     // LEGACY: SteamAuth has been migrated to separate file (data/security/steam_auth/credentials.json)
     // This property is kept temporarily for backward compatibility during migration
     public SteamAuthState? SteamAuth { get; set; }

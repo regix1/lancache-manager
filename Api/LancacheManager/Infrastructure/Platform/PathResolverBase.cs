@@ -197,6 +197,9 @@ public abstract class PathResolverBase : IPathResolver
     public string GetRustServiceRemoverPath() =>
         Path.Combine(AppContext.BaseDirectory, "rust-processor", $"cache_service_remove{RustExecutableExtension}");
 
+    public string GetRustEvictionScanPath() =>
+        Path.Combine(AppContext.BaseDirectory, "rust-processor", $"cache_eviction_scan{RustExecutableExtension}");
+
     public string GetRustDataMigratorPath() =>
         Path.Combine(AppContext.BaseDirectory, "rust-processor", $"db_migrate{RustExecutableExtension}");
 

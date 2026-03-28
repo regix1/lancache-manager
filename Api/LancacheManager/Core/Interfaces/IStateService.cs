@@ -97,6 +97,10 @@ public interface IStateService
     string GetEvictedDataMode();
     void SetEvictedDataMode(string mode);
 
+    // Eviction Scan Notification Methods
+    bool GetEvictionScanNotifications();
+    void SetEvictionScanNotifications(bool enabled);
+
     // Stats Exclusion Methods
     List<string> GetExcludedClientIps();
     void SetExcludedClientIps(List<string> ips);

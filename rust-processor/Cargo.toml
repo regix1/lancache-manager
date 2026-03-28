@@ -66,6 +66,11 @@ path = "src/cache_epic_remove.rs"
 name = "cache_service_remove"
 path = "src/cache_service_remove.rs"
 
+# Scan cache directories and mark evicted downloads in the database
+[[bin]]
+name = "cache_eviction_scan"
+path = "src/cache_eviction_scan.rs"
+
 # --- Database Operations ---
 
 # Reset database tables (clear all data)

@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
-import { Tooltip } from '@components/ui/Tooltip';
 
 interface ExpandableListProps {
   items: string[];
@@ -10,6 +9,8 @@ interface ExpandableListProps {
   showingLabelKey: string;
 }
 
+const LOAD_MORE_BATCH = 50;
+
 const ExpandableList: React.FC<ExpandableListProps> = ({
   items,
   maxInitial,
@@ -17,11 +18,23 @@ const ExpandableList: React.FC<ExpandableListProps> = ({
   showingLabelKey
 }) => {
   const { t } = useTranslation();
-  const [showAll, setShowAll] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(maxInitial);
 
   if (items.length === 0) {
     return null;
   }
+
+  const displayedItems = items.slice(0, visibleCount);
+  const hasMore = visibleCount < items.length;
+  const remaining = items.length - visibleCount;
+
+  const handleLoadMore = () => {
+    setVisibleCount((prev: number) => Math.min(prev + LOAD_MORE_BATCH, items.length));
+  };
+
+  const handleShowLess = () => {
+    setVisibleCount(maxInitial);
+  };
 
   return (
     <div>
@@ -29,32 +42,30 @@ const ExpandableList: React.FC<ExpandableListProps> = ({
         <p className="text-xs text-themed-muted font-medium">
           {t(labelKey, { count: items.length })}
         </p>
-        {items.length > maxInitial && (
-          <Button
-            variant="subtle"
-            size="xs"
-            onClick={() => setShowAll(!showAll)}
-            className="text-xs"
-          >
-            {showAll
-              ? t('management.gameDetection.showLess')
-              : t('management.gameDetection.showAll', { count: items.length })}
+        {visibleCount > maxInitial && (
+          <Button variant="subtle" size="xs" onClick={handleShowLess} className="text-xs">
+            {t('management.gameDetection.showLess')}
           </Button>
         )}
       </div>
       <div className="space-y-1 max-h-48 overflow-y-auto">
-        {(showAll ? items : items.slice(0, maxInitial)).map((item, idx) => (
+        {displayedItems.map((item, idx) => (
           <div key={idx} className="p-2 rounded border bg-themed-secondary border-themed-primary">
-            <Tooltip content={item}>
-              <span className="text-xs font-mono text-themed-primary truncate block">{item}</span>
-            </Tooltip>
+            <span className="text-xs font-mono text-themed-primary break-all block">{item}</span>
           </div>
         ))}
       </div>
-      {!showAll && items.length > maxInitial && (
-        <p className="text-xs text-themed-muted mt-2 italic">
-          {t(showingLabelKey, { showing: maxInitial, total: items.length })}
-        </p>
+      {hasMore && (
+        <div className="flex items-center justify-between mt-2">
+          <p className="text-xs text-themed-muted italic">
+            {t(showingLabelKey, { showing: visibleCount, total: items.length })}
+          </p>
+          <Button variant="subtle" size="xs" onClick={handleLoadMore} className="text-xs">
+            {t('management.gameDetection.loadMore', {
+              count: Math.min(LOAD_MORE_BATCH, remaining)
+            })}
+          </Button>
+        </div>
       )}
     </div>
   );

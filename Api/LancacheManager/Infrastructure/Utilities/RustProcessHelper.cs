@@ -480,6 +480,59 @@ public partial class RustProcessHelper
             };
         }
     }
+
+    /// <summary>
+    /// Runs the cache_eviction_scan Rust executable
+    /// </summary>
+    public async Task<RustExecutionResult> RunEvictionScanAsync(
+        string datasourceConfigPath,
+        string? progressFile = null,
+        CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var rustBinaryPath = _pathResolver.GetRustEvictionScanPath();
+            ValidateRustBinaryExists(rustBinaryPath, "cache_eviction_scan");
+
+            var progressArg = progressFile ?? "none";
+            var arguments = $"\"{datasourceConfigPath}\" \"{progressArg}\"";
+
+            _logger.LogInformation("[cache_eviction_scan] Executing: {Binary} {Args}", rustBinaryPath, arguments);
+
+            var startInfo = CreateProcessStartInfo(rustBinaryPath, arguments);
+            var result = await ExecuteProcessAsync(startInfo, cancellationToken);
+
+            if (!string.IsNullOrEmpty(result.Error))
+            {
+                _logger.LogInformation("[cache_eviction_scan] stderr: {Error}", result.Error);
+            }
+
+            if (result.ExitCode == 0 && !string.IsNullOrEmpty(result.Output))
+            {
+                try
+                {
+                    var data = System.Text.Json.JsonSerializer.Deserialize<object>(result.Output);
+                    return new RustExecutionResult { Success = true, Data = data, Error = null };
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to parse cache_eviction_scan stdout JSON");
+                }
+            }
+
+            return new RustExecutionResult
+            {
+                Success = result.ExitCode == 0,
+                Data = null,
+                Error = result.Error
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error running cache_eviction_scan");
+            return new RustExecutionResult { Success = false, Data = null, Error = ex.Message };
+        }
+    }
 }
 
 /// <summary>

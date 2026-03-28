@@ -267,10 +267,15 @@ class ApiService {
     }
   }
 
-  static async getEvictionSettings(signal?: AbortSignal): Promise<{ evictedDataMode: string }> {
+  static async getEvictionSettings(
+    signal?: AbortSignal
+  ): Promise<{ evictedDataMode: string; evictionScanNotifications: boolean }> {
     try {
       const res = await fetch(`${API_BASE}/stats/eviction`, this.getFetchOptions({ signal }));
-      return await this.handleResponse<{ evictedDataMode: string }>(res);
+      return await this.handleResponse<{
+        evictedDataMode: string;
+        evictionScanNotifications: boolean;
+      }>(res);
     } catch (error: unknown) {
       if (isAbortError(error)) {
         // Silently ignore abort errors
@@ -282,18 +287,22 @@ class ApiService {
   }
 
   static async updateEvictionSettings(
-    evictedDataMode: string
-  ): Promise<{ evictedDataMode: string }> {
+    evictedDataMode: string,
+    evictionScanNotifications?: boolean
+  ): Promise<{ evictedDataMode: string; evictionScanNotifications: boolean }> {
     try {
       const res = await fetch(
         `${API_BASE}/stats/eviction`,
         this.getFetchOptions({
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ evictedDataMode })
+          body: JSON.stringify({ evictedDataMode, evictionScanNotifications })
         })
       );
-      return await this.handleResponse<{ evictedDataMode: string }>(res);
+      return await this.handleResponse<{
+        evictedDataMode: string;
+        evictionScanNotifications: boolean;
+      }>(res);
     } catch (error: unknown) {
       {
         console.error('updateEvictionSettings error:', error);

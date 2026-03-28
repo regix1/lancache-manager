@@ -117,6 +117,9 @@ public class StateService : IStateService
         // Evicted data display mode (show/hide/remove)
         public string EvictedDataMode { get; set; } = EvictedDataModes.Show;
 
+        // Whether the eviction scan shows the universal notification bar
+        public bool EvictionScanNotifications { get; set; } = false;
+
         // LEGACY: SteamAuth migrated to separate file - kept for reading old state.json during migration
         // JsonIgnore(Condition = WhenWritingNull) excludes it when saving (always null after migration)
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -768,6 +771,8 @@ public class StateService : IStateService
             ExcludedClientRules = ResolveExcludedClientRules(persisted),
             // Evicted data display mode
             EvictedDataMode = persisted.EvictedDataMode ?? EvictedDataModes.Show,
+            // Eviction scan on startup
+            EvictionScanNotifications = persisted.EvictionScanNotifications,
             // LEGACY: Only load SteamAuth if present (for migration from old state.json)
             SteamAuth = persisted.SteamAuth != null ? new SteamAuthState
             {
@@ -837,6 +842,8 @@ public class StateService : IStateService
             ExcludedClientRules = state.ExcludedClientRules ?? new List<ClientExclusionRule>(),
             // Evicted data display mode
             EvictedDataMode = state.EvictedDataMode ?? EvictedDataModes.Show,
+            // Eviction scan on startup
+            EvictionScanNotifications = state.EvictionScanNotifications,
             // LEGACY: Only persist SteamAuth if not null (will be null after migration)
             // JsonIgnore(WhenWritingNull) on property will exclude from JSON when null
             SteamAuth = state.SteamAuth != null ? new SteamAuthState
@@ -1091,6 +1098,16 @@ public class StateService : IStateService
     public void SetEvictedDataMode(string mode)
     {
         UpdateState(state => state.EvictedDataMode = mode);
+    }
+
+    public bool GetEvictionScanNotifications()
+    {
+        return GetState().EvictionScanNotifications;
+    }
+
+    public void SetEvictionScanNotifications(bool enabled)
+    {
+        UpdateState(state => state.EvictionScanNotifications = enabled);
     }
 
     private static List<ClientExclusionRule> ResolveExcludedClientRules(PersistedState persisted)
