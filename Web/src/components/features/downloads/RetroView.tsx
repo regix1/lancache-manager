@@ -1218,7 +1218,7 @@ const RetroView = memo(
             </div>
           )}
 
-          <div ref={fadeContainerRef} className="page-content-transition">
+          <div ref={fadeContainerRef} className="page-content-transition relative z-0">
             <div
               ref={containerRef}
               className="rounded-lg border border-[var(--theme-border-primary)] overflow-x-auto retro-table-container bg-[var(--theme-card-bg)]"

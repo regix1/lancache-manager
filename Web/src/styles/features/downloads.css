@@ -643,35 +643,8 @@
   }
 
   /* ===== GAME DETAIL DRAWER ===== */
-
-  .drawer-header {
-    background: var(--theme-bg-elevated);
-    border-bottom: 1px solid var(--theme-border-elevated);
-  }
-
-  .drawer-body {
-    background: var(--theme-bg-elevated);
-    padding: 1rem;
-  }
-
-  .drawer-content {
-    background: var(--theme-bg-elevated);
-  }
-
-  .drawer-title {
-    font-weight: 700;
-    color: var(--theme-text-primary);
-  }
-
-  /* Close button inside the drawer */
-  .drawer-header .custom-drawer-close {
-    color: var(--theme-text-secondary);
-  }
-
-  .drawer-header .custom-drawer-close:hover {
-    background-color: var(--theme-bg-hover);
-    color: var(--theme-text-primary);
-  }
+  /* Base drawer theme (bg, border, text, close-button) is in drawer.css (unlayered)
+     so it always applies regardless of @layer ordering in production builds. */
 
   .drawer-banner-wrapper {
     width: calc(100% + 2rem);
@@ -695,13 +668,6 @@
   .drawer-detail-content {
     display: flex;
     flex-direction: column;
-  }
-
-  /* Sections/cards within the drawer use surface background */
-  .drawer-detail-content .rounded-lg,
-  .drawer-detail-content .grid > div {
-    background: var(--theme-bg-surface);
-    border: 1px solid var(--theme-border-elevated);
   }
 
   /* Session IP group: expanded rows area gets a subtle elevated background

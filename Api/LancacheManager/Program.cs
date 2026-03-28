@@ -480,6 +480,9 @@ using (var scope = app.Services.CreateScope())
             migrationResult.FilesMoved, migrationResult.DirectoriesMoved);
     }
 
+    // On Windows dev, ensure PostgreSQL Docker container is running before attempting migration
+    await WindowsPostgresManager.EnsurePostgresRunningAsync(dbConnectionString, logger);
+
     var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
     try
