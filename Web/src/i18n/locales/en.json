@@ -1396,6 +1396,7 @@
         "evictionSaveSuccess": "Eviction mode updated successfully",
         "evictionSaveError": "Failed to update eviction mode",
         "evictionLoadError": "Failed to load eviction settings",
+        "evictionLoadingSettings": "Loading eviction settings...",
         "evictionRemoveConfirmTitle": "Enable Remove Mode",
         "evictionRemoveConfirmMessage": "You are about to switch to Remove mode. Any game data that has been evicted from the cache will be permanently deleted from the database.",
         "evictionRemoveConfirmWarning": "This action cannot be undone. Deleted records will not be recoverable and will be removed the next time an eviction scan is run.",

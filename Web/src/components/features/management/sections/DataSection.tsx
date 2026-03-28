@@ -1,7 +1,7 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef } from 'react';
 import './DataSection.css';
 import { useTranslation } from 'react-i18next';
-import { Database, AlertTriangle, Loader2 } from 'lucide-react';
+import { Database, AlertTriangle } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
@@ -10,7 +10,6 @@ import { Checkbox } from '@components/ui/Checkbox';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { type AuthMode } from '@services/auth.service';
 import ApiService from '@services/api.service';
-import { useNotifications } from '@contexts/notifications/useNotifications';
 import DepotMappingManager from '../depot/DepotMappingManager';
 import EpicMappingManager from '../epic/EpicMappingManager';
 import DataImporter from '../data/DataImporter';
@@ -49,111 +48,6 @@ const DataSection: React.FC<DataSectionProps> = ({
 
   // Depot Manager State
   const [depotActionLoading, setDepotActionLoading] = useState(false);
-
-  // Eviction Settings State
-  const [evictionMode, setEvictionMode] = useState<string>('show');
-  const [savedEvictionMode, setSavedEvictionMode] = useState<string>('show');
-  const [evictionLoading, setEvictionLoading] = useState(false);
-  const [evictionSaving, setEvictionSaving] = useState(false);
-  const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
-  const [isStartingEvictionScan, setIsStartingEvictionScan] = useState(false);
-  const evictionScanInFlightRef = useRef(false);
-  const [resettingEvictions, setResettingEvictions] = useState(false);
-  const isEvictionDirty = evictionMode !== savedEvictionMode;
-
-  const { notifications } = useNotifications();
-  const evictionScanNotification = notifications.find(
-    (n) => n.type === 'eviction_scan' && n.status === 'running'
-  );
-  const isEvictionScanRunning = !!evictionScanNotification || isStartingEvictionScan;
-
-  const loadEvictionSettings = useCallback(
-    async (signal?: AbortSignal) => {
-      setEvictionLoading(true);
-      try {
-        const response = await ApiService.getEvictionSettings(signal);
-        setEvictionMode(response.evictedDataMode);
-        setSavedEvictionMode(response.evictedDataMode);
-      } catch (err: unknown) {
-        if (err instanceof DOMException && err.name === 'AbortError') return;
-        onError(t('management.sections.data.evictionLoadError'));
-      } finally {
-        setEvictionLoading(false);
-      }
-    },
-    [onError, t]
-  );
-
-  useEffect(() => {
-    const controller = new AbortController();
-    loadEvictionSettings(controller.signal);
-    return () => controller.abort();
-  }, [loadEvictionSettings]);
-
-  const performEvictionSave = async () => {
-    setEvictionSaving(true);
-    try {
-      const response = await ApiService.updateEvictionSettings(evictionMode);
-      setEvictionMode(response.evictedDataMode);
-      setSavedEvictionMode(response.evictedDataMode);
-      onSuccess(t('management.sections.data.evictionSaveSuccess'));
-      onDataRefresh();
-    } catch (err: unknown) {
-      onError(
-        (err instanceof Error ? err.message : String(err)) ||
-          t('management.sections.data.evictionSaveError')
-      );
-    } finally {
-      setEvictionSaving(false);
-    }
-  };
-
-  const handleSaveEviction = async () => {
-    if (evictionMode === 'remove' && savedEvictionMode !== 'remove') {
-      setShowRemoveConfirm(true);
-      return;
-    }
-    await performEvictionSave();
-  };
-
-  const handleConfirmRemove = async () => {
-    await performEvictionSave();
-    setShowRemoveConfirm(false);
-  };
-
-  const handleStartEvictionScan = async () => {
-    if (evictionScanInFlightRef.current) return;
-    evictionScanInFlightRef.current = true;
-    setIsStartingEvictionScan(true);
-    try {
-      await ApiService.startEvictionScan();
-    } catch (err: unknown) {
-      onError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setIsStartingEvictionScan(false);
-      evictionScanInFlightRef.current = false;
-    }
-  };
-
-  const handleResetEvictions = async () => {
-    setResettingEvictions(true);
-    try {
-      const result = await ApiService.resetEvictions();
-      onSuccess(
-        t('management.sections.data.resetEvictionsSuccess', {
-          count: result.reset
-        })
-      );
-      onDataRefresh();
-    } catch (err: unknown) {
-      onError(
-        (err instanceof Error ? err.message : String(err)) ||
-          t('management.sections.data.resetEvictionsError')
-      );
-    } finally {
-      setResettingEvictions(false);
-    }
-  };
 
   // Get table definitions from translations
   const tables = [
@@ -440,92 +334,6 @@ const DataSection: React.FC<DataSectionProps> = ({
         />
       </div>
 
-      {/* Subsection: Evicted Game Data */}
-      <div className="mb-8">
-        <div className="flex items-center gap-2 mb-4">
-          <div className="w-1 h-5 rounded-full bg-[var(--theme-icon-orange)]" />
-          <h3 className="text-sm font-semibold text-themed-secondary uppercase tracking-wide">
-            {t('management.sections.data.evictedCacheData')}
-          </h3>
-        </div>
-
-        <Card>
-          <div className="mb-4">
-            <h3 className="text-lg font-semibold text-themed-primary mb-2">
-              {t('management.sections.data.evictedCacheData')}
-            </h3>
-            <p className="text-themed-secondary text-sm">
-              {t('management.sections.data.evictedCacheDescription')}
-            </p>
-          </div>
-
-          {evictionLoading ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="w-4 h-4 animate-spin" />
-            </div>
-          ) : (
-            <>
-              <div className="space-y-2 mb-4">
-                {(['show', 'hide', 'remove'] as const).map((mode) => (
-                  <label
-                    key={mode}
-                    className={`eviction-mode-option p-3 rounded-lg cursor-pointer flex items-start gap-3 transition-all duration-150 bg-themed-secondary${evictionMode === mode ? ' eviction-mode-option-selected' : ''}`}
-                  >
-                    <input
-                      type="radio"
-                      name="evictionMode"
-                      value={mode}
-                      checked={evictionMode === mode}
-                      onChange={() => setEvictionMode(mode)}
-                      className="eviction-radio mt-1"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium text-themed-primary">
-                        {t(`management.sections.data.evictionModes.${mode}`)}
-                      </div>
-                      <div className="text-sm text-themed-secondary mt-1">
-                        {t(`management.sections.data.evictionModes.${mode}Description`)}
-                      </div>
-                    </div>
-                  </label>
-                ))}
-              </div>
-
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-4 border-t border-themed-primary">
-                <div className="flex items-center gap-3 flex-wrap">
-                  <Button
-                    onClick={handleStartEvictionScan}
-                    disabled={isEvictionScanRunning || resettingEvictions}
-                    variant="subtle"
-                    className="sm:w-48"
-                  >
-                    {isEvictionScanRunning && <Loader2 className="w-4 h-4 animate-spin" />}
-                    {t('management.sections.data.runEvictionScan')}
-                  </Button>
-                  <Button
-                    onClick={handleResetEvictions}
-                    disabled={resettingEvictions || isEvictionScanRunning}
-                    loading={resettingEvictions}
-                    variant="subtle"
-                    className="sm:w-48"
-                  >
-                    {t('management.sections.data.resetEvictions')}
-                  </Button>
-                </div>
-                <Button
-                  onClick={handleSaveEviction}
-                  disabled={!isEvictionDirty || evictionSaving}
-                  loading={evictionSaving}
-                  className="sm:w-40"
-                >
-                  {t('management.sections.clients.saveChanges')}
-                </Button>
-              </div>
-            </>
-          )}
-        </Card>
-      </div>
-
       {/* Subsection: Database Management */}
       <div>
         <div className="flex items-center gap-2 mb-4">
@@ -644,44 +452,6 @@ const DataSection: React.FC<DataSectionProps> = ({
           </div>
         </Card>
       </div>
-
-      {/* Eviction Remove Confirmation Modal */}
-      <Modal
-        opened={showRemoveConfirm}
-        onClose={evictionSaving ? () => undefined : () => setShowRemoveConfirm(false)}
-        title={
-          <div className="flex items-center space-x-3">
-            <AlertTriangle className="w-6 h-6 text-themed-warning" />
-            <span>{t('management.sections.data.evictionRemoveConfirmTitle')}</span>
-          </div>
-        }
-      >
-        <div className="space-y-4">
-          <p className="text-themed-secondary">
-            {t('management.sections.data.evictionRemoveConfirmMessage')}
-          </p>
-          <Alert color="yellow">
-            <p className="text-sm">{t('management.sections.data.evictionRemoveConfirmWarning')}</p>
-          </Alert>
-          <div className="flex justify-end space-x-3 pt-2">
-            <Button
-              variant="default"
-              onClick={() => setShowRemoveConfirm(false)}
-              disabled={evictionSaving}
-            >
-              {t('management.sections.data.evictionRemoveConfirmCancel')}
-            </Button>
-            <Button
-              variant="filled"
-              color="red"
-              onClick={handleConfirmRemove}
-              loading={evictionSaving}
-            >
-              {t('management.sections.data.evictionRemoveConfirmButton')}
-            </Button>
-          </div>
-        </div>
-      </Modal>
 
       {/* Confirmation Modal */}
       <Modal

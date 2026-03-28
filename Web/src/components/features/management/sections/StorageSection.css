@@ -1,0 +1,26 @@
+.eviction-mode-option {
+  border: 1px solid var(--theme-border-primary);
+}
+
+.eviction-mode-option-selected {
+  border-color: var(--theme-primary);
+}
+
+.eviction-radio {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--theme-border-secondary);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.eviction-radio:checked {
+  border-color: var(--theme-primary);
+  background-color: var(--theme-primary);
+  box-shadow: inset 0 0 0 3px var(--theme-card-bg);
+}
