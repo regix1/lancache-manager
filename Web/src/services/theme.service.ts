@@ -230,7 +230,12 @@ class ThemeService {
     const themeIds = new Set(allThemes.map((t) => t.meta.id));
 
     apiThemes.forEach((theme) => {
-      if (!themeIds.has(theme.meta.id)) {
+      if (themeIds.has(theme.meta.id)) {
+        const existingIndex = allThemes.findIndex((t) => t.meta.id === theme.meta.id);
+        if (existingIndex !== -1) {
+          allThemes[existingIndex] = theme;
+        }
+      } else {
         allThemes.push(theme);
         themeIds.add(theme.meta.id);
       }
