@@ -9,7 +9,7 @@
 .custom-drawer-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--theme-bg-overlay);
   backdrop-filter: blur(2px);
   z-index: 200;
 }
