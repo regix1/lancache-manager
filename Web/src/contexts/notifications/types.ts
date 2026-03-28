@@ -175,3 +175,110 @@ export type ScheduleAutoDismiss = (notificationId: string, delayMs?: number) => 
  * @param notificationId - The notification ID whose timer should be cancelled
  */
 export type CancelAutoDismissTimer = (notificationId: string) => void;
+
+/**
+ * Function to remove a notification by ID.
+ * @param notificationId - The notification ID to remove
+ */
+export type RemoveNotification = (notificationId: string) => void;
+
+// ============================================================================
+// Notification Registry Types
+// ============================================================================
+
+/**
+ * Configuration for a started event handler within a registry entry.
+ */
+export interface RegistryStartedConfig {
+  /** Default message shown when the operation starts */
+  defaultMessage: string;
+  /** Optional function to get a custom message from the event */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getMessage?: (event: any) => string;
+  /** Optional function to get notification details from the event */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getDetails?: (event: any) => UnifiedNotification['details'];
+  /** If true, always replace existing notification (for restartable operations) */
+  replaceExisting?: boolean;
+}
+
+/**
+ * Configuration for a progress event handler within a registry entry.
+ */
+export interface RegistryProgressConfig {
+  /** Function to get the progress message from the event */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getMessage: (event: any) => string;
+  /** Function to get progress percentage (0-100) from the event */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getProgress: (event: any) => number;
+  /** Function to get the status from the event */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getStatus: (event: any) => string | undefined;
+  /** Message to show on completion */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getCompletedMessage?: (event: any) => string;
+  /** Message to show on error */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getErrorMessage?: (event: any) => string | undefined;
+  /** If true, support fast completion */
+  supportFastCompletion?: boolean;
+  /** Optional function to get notification details from the event */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getDetails?: (event: any) => UnifiedNotification['details'];
+}
+
+/**
+ * Configuration for a completion event handler within a registry entry.
+ */
+export interface RegistryCompleteConfig {
+  /** Optional function to get the success message */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getSuccessMessage?: (event: any, existing?: UnifiedNotification) => string;
+  /** Optional function to get success details */
+
+  getSuccessDetails?: (
+    event: any,
+    existing?: UnifiedNotification
+  ) => UnifiedNotification['details'];
+  /** Optional function to get detail message (shown below main message) */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getDetailMessage?: (event: any) => string;
+  /** Optional function to get the failure message */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getFailureMessage?: (event: any) => string;
+  /** If true, show a brief animation delay before marking complete */
+  useAnimationDelay?: boolean;
+  /** If true, support fast completion (no prior started event) */
+  supportFastCompletion?: boolean;
+  /** Optional function to get ID for fast completion (if different from getId) */
+  getFastCompletionId?: () => string;
+}
+
+/**
+ * Declarative registry entry describing the full lifecycle of a notification type.
+ * Each entry specifies the started, progress, and completion handler configs
+ * along with the SignalR event names they map to.
+ */
+export interface NotificationRegistryEntry {
+  /** The notification type */
+  type: NotificationType;
+  /** Singleton notification ID */
+  id: string;
+  /** localStorage persistence key */
+  storageKey: string;
+  /** SignalR event names for each lifecycle phase */
+  events: {
+    started: string;
+    progress: string;
+    complete: string;
+  };
+  /** Configuration for the started handler */
+  started: RegistryStartedConfig;
+  /** Configuration for the progress handler */
+  progress: RegistryProgressConfig;
+  /** Configuration for the completion handler (optional for types without a separate complete event) */
+  complete?: RegistryCompleteConfig;
+  /** Optional callback invoked after the completion handler runs (e.g., to remove related notifications) */
+  onComplete?: (removeNotification: RemoveNotification) => void;
+}

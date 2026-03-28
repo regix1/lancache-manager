@@ -1,0 +1,535 @@
+/**
+ * Declarative notification registry.
+ * Each entry describes the full lifecycle (started -> progress -> complete) of a standard
+ * notification type, including the SignalR event names and handler configurations.
+ *
+ * Types NOT in this registry (they stay manual in NotificationsContext.tsx):
+ *   - depot_mapping: special completion handler with animation/cancellation logic
+ *   - database_reset: no separate complete event (uses status-aware progress only)
+ *   - epic_game_mapping: progress-only with custom EpicGameMappingsUpdated handler
+ *   - SteamSessionError: custom one-shot error notification
+ *   - EpicGameMappingsUpdated: custom one-shot notification
+ */
+
+import type { NotificationRegistryEntry } from './types';
+import { NOTIFICATION_IDS, NOTIFICATION_STORAGE_KEYS } from './constants';
+import {
+  formatLogProcessingMessage,
+  formatLogProcessingCompletionMessage,
+  formatLogProcessingDetailMessage,
+  formatLogRemovalProgressMessage,
+  formatLogRemovalCompleteMessage,
+  formatGameRemovalProgressMessage,
+  formatServiceRemovalProgressMessage,
+  formatCorruptionRemovalStartedMessage,
+  formatCorruptionRemovalCompleteMessage,
+  formatGameDetectionStartedMessage,
+  formatGameDetectionProgressMessage,
+  formatGameDetectionCompleteMessage,
+  formatGameDetectionFailureMessage,
+  formatCorruptionDetectionStartedMessage,
+  formatCorruptionDetectionProgressMessage,
+  formatCorruptionDetectionCompleteMessage,
+  formatCorruptionDetectionFailureMessage,
+  formatCacheClearProgressMessage,
+  formatCacheClearCompleteMessage,
+  formatCacheClearFailureMessage,
+  formatDataImportStartedMessage,
+  formatDataImportProgressMessage,
+  formatDataImportCompleteMessage,
+  formatDataImportFailureMessage
+} from './detailMessageFormatters';
+
+import type {
+  LogProcessingStartedEvent,
+  ProcessingProgressEvent,
+  LogProcessingCompleteEvent,
+  LogRemovalStartedEvent,
+  LogRemovalProgressEvent,
+  LogRemovalCompleteEvent,
+  GameRemovalStartedEvent,
+  GameRemovalProgressEvent,
+  GameRemovalCompleteEvent,
+  ServiceRemovalStartedEvent,
+  ServiceRemovalProgressEvent,
+  ServiceRemovalCompleteEvent,
+  CorruptionRemovalStartedEvent,
+  CorruptionRemovalProgressEvent,
+  CorruptionRemovalCompleteEvent,
+  GameDetectionStartedEvent,
+  GameDetectionProgressEvent,
+  GameDetectionCompleteEvent,
+  CorruptionDetectionStartedEvent,
+  CorruptionDetectionProgressEvent,
+  CorruptionDetectionCompleteEvent,
+  CacheClearingStartedEvent,
+  CacheClearProgressEvent,
+  CacheClearCompleteEvent,
+  DataImportStartedEvent,
+  DataImportProgressEvent,
+  DataImportCompleteEvent,
+  EvictionScanStartedEvent,
+  EvictionScanProgressEvent,
+  EvictionScanCompleteEvent,
+  EvictionRemovalStartedEvent,
+  EvictionRemovalProgressEvent,
+  EvictionRemovalCompleteEvent
+} from '../SignalRContext/types';
+
+/**
+ * Standard three-status-pattern helper for getStatus: maps 'completed' -> 'completed',
+ * 'failed'|'cancelled' -> 'failed', everything else -> undefined.
+ */
+function standardGetStatus(event: { status?: string }): string | undefined {
+  if (event.status === 'completed') return 'completed';
+  if (event.status === 'failed' || event.status === 'cancelled') return 'failed';
+  return undefined;
+}
+
+export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
+  // ========== Log Processing ==========
+  {
+    type: 'log_processing',
+    id: NOTIFICATION_IDS.LOG_PROCESSING,
+    storageKey: NOTIFICATION_STORAGE_KEYS.LOG_PROCESSING,
+    events: {
+      started: 'LogProcessingStarted',
+      progress: 'LogProcessingProgress',
+      complete: 'LogProcessingComplete'
+    },
+    started: {
+      defaultMessage: 'Starting log processing...',
+      getMessage: (event: LogProcessingStartedEvent) =>
+        event.message || 'Starting log processing...',
+      getDetails: (event: LogProcessingStartedEvent) => ({ operationId: event.operationId })
+    },
+    progress: {
+      getMessage: (event: ProcessingProgressEvent) => formatLogProcessingMessage(event),
+      getProgress: (event: ProcessingProgressEvent) => Math.min(99.9, event.percentComplete || 0),
+      getStatus: (event: ProcessingProgressEvent) =>
+        event.status?.toLowerCase() === 'completed' ? 'completed' : undefined,
+      getCompletedMessage: (event: ProcessingProgressEvent) =>
+        formatLogProcessingCompletionMessage(event.entriesSaved),
+      getDetails: (event: ProcessingProgressEvent) => ({ operationId: event.operationId })
+    },
+    complete: {
+      getSuccessMessage: () => 'Processing Complete!',
+      getDetailMessage: (event: LogProcessingCompleteEvent) =>
+        formatLogProcessingDetailMessage(
+          event.entriesProcessed,
+          event.linesProcessed,
+          event.elapsed
+        ),
+      supportFastCompletion: true,
+      getFastCompletionId: () => NOTIFICATION_IDS.LOG_PROCESSING
+    }
+  },
+
+  // ========== Log Removal ==========
+  {
+    type: 'log_removal',
+    id: NOTIFICATION_IDS.LOG_REMOVAL,
+    storageKey: NOTIFICATION_STORAGE_KEYS.LOG_REMOVAL,
+    events: {
+      started: 'LogRemovalStarted',
+      progress: 'LogRemovalProgress',
+      complete: 'LogRemovalComplete'
+    },
+    started: {
+      defaultMessage: 'Starting log removal...',
+      getMessage: (event: LogRemovalStartedEvent) => event.message || 'Starting log removal...',
+      getDetails: (event: LogRemovalStartedEvent) => ({ operationId: event.operationId })
+    },
+    progress: {
+      getMessage: (event: LogRemovalProgressEvent) => formatLogRemovalProgressMessage(event),
+      getProgress: (event: LogRemovalProgressEvent) => event.percentComplete || 0,
+      getStatus: (event: LogRemovalProgressEvent) =>
+        event.status === 'completed'
+          ? 'completed'
+          : event.status === 'failed'
+            ? 'failed'
+            : undefined,
+      getCompletedMessage: (event: LogRemovalProgressEvent) =>
+        event.message || 'Log removal completed',
+      getErrorMessage: (event: LogRemovalProgressEvent) => event.message || 'Log removal failed',
+      getDetails: (event: LogRemovalProgressEvent) => ({ operationId: event.operationId })
+    },
+    complete: {
+      getSuccessMessage: (event: LogRemovalCompleteEvent) => formatLogRemovalCompleteMessage(event),
+      getSuccessDetails: (event: LogRemovalCompleteEvent, existing) => ({
+        ...existing?.details,
+        linesProcessed: event.linesProcessed
+      }),
+      useAnimationDelay: true
+    }
+  },
+
+  // ========== Game Removal ==========
+  {
+    type: 'game_removal',
+    id: NOTIFICATION_IDS.GAME_REMOVAL,
+    storageKey: NOTIFICATION_STORAGE_KEYS.GAME_REMOVAL,
+    events: {
+      started: 'GameRemovalStarted',
+      progress: 'GameRemovalProgress',
+      complete: 'GameRemovalComplete'
+    },
+    started: {
+      defaultMessage: 'Starting game removal...',
+      getMessage: (event: GameRemovalStartedEvent) => event.message || 'Starting game removal...',
+      getDetails: (event: GameRemovalStartedEvent) => ({
+        operationId: event.operationId,
+        gameAppId: event.gameAppId,
+        gameName: event.gameName
+      })
+    },
+    progress: {
+      getMessage: (event: GameRemovalProgressEvent) => formatGameRemovalProgressMessage(event),
+      getProgress: (event: GameRemovalProgressEvent) => event.percentComplete || 0,
+      getStatus: (event: GameRemovalProgressEvent) => standardGetStatus(event),
+      getCompletedMessage: (event: GameRemovalProgressEvent) =>
+        event.message || 'Game removal completed',
+      getErrorMessage: (event: GameRemovalProgressEvent) => event.message || 'Game removal failed',
+      getDetails: (event: GameRemovalProgressEvent) => ({
+        operationId: event.operationId,
+        gameAppId: event.gameAppId,
+        gameName: event.gameName
+      })
+    },
+    complete: {
+      getSuccessDetails: (event: GameRemovalCompleteEvent, existing) => ({
+        ...existing?.details,
+        gameAppId: event.gameAppId,
+        gameName: event.gameName,
+        filesDeleted: event.filesDeleted,
+        bytesFreed: event.bytesFreed,
+        logEntriesRemoved: event.logEntriesRemoved
+      })
+    }
+  },
+
+  // ========== Service Removal ==========
+  {
+    type: 'service_removal',
+    id: NOTIFICATION_IDS.SERVICE_REMOVAL,
+    storageKey: NOTIFICATION_STORAGE_KEYS.SERVICE_REMOVAL,
+    events: {
+      started: 'ServiceRemovalStarted',
+      progress: 'ServiceRemovalProgress',
+      complete: 'ServiceRemovalComplete'
+    },
+    started: {
+      defaultMessage: 'Starting service removal...',
+      getMessage: (event: ServiceRemovalStartedEvent) =>
+        event.message || 'Starting service removal...',
+      getDetails: (event: ServiceRemovalStartedEvent) => ({ operationId: event.operationId })
+    },
+    progress: {
+      getMessage: (event: ServiceRemovalProgressEvent) =>
+        formatServiceRemovalProgressMessage(event),
+      getProgress: (event: ServiceRemovalProgressEvent) => event.percentComplete || 0,
+      getStatus: (event: ServiceRemovalProgressEvent) => standardGetStatus(event),
+      getCompletedMessage: (event: ServiceRemovalProgressEvent) =>
+        event.message || 'Service removal completed',
+      getErrorMessage: (event: ServiceRemovalProgressEvent) =>
+        event.message || 'Service removal failed',
+      getDetails: (event: ServiceRemovalProgressEvent) => ({ operationId: event.operationId })
+    },
+    complete: {
+      getSuccessDetails: (event: ServiceRemovalCompleteEvent, existing) => ({
+        ...existing?.details,
+        filesDeleted: event.filesDeleted,
+        bytesFreed: event.bytesFreed,
+        logEntriesRemoved: event.logEntriesRemoved
+      })
+    }
+  },
+
+  // ========== Corruption Removal ==========
+  {
+    type: 'corruption_removal',
+    id: NOTIFICATION_IDS.CORRUPTION_REMOVAL,
+    storageKey: NOTIFICATION_STORAGE_KEYS.CORRUPTION_REMOVAL,
+    events: {
+      started: 'CorruptionRemovalStarted',
+      progress: 'CorruptionRemovalProgress',
+      complete: 'CorruptionRemovalComplete'
+    },
+    started: {
+      defaultMessage: 'Removing corrupted chunks...',
+      getMessage: (event: CorruptionRemovalStartedEvent) =>
+        formatCorruptionRemovalStartedMessage(event),
+      getDetails: (event: CorruptionRemovalStartedEvent) => ({
+        operationId: event.operationId,
+        service: event.service
+      })
+    },
+    progress: {
+      getMessage: (event: CorruptionRemovalProgressEvent) =>
+        event.message || `Removing corrupted chunks: ${event.status}`,
+      getProgress: (event: CorruptionRemovalProgressEvent) => event.percentComplete || 0,
+      getStatus: (event: CorruptionRemovalProgressEvent) => standardGetStatus(event),
+      getCompletedMessage: (event: CorruptionRemovalProgressEvent) =>
+        event.message || 'Corruption removal completed',
+      getErrorMessage: (event: CorruptionRemovalProgressEvent) =>
+        event.message || 'Corruption removal failed',
+      getDetails: (event: CorruptionRemovalProgressEvent) => ({
+        operationId: event.operationId,
+        service: event.service
+      })
+    },
+    complete: {
+      getSuccessMessage: (event: CorruptionRemovalCompleteEvent) =>
+        formatCorruptionRemovalCompleteMessage(event),
+      getSuccessDetails: (event: CorruptionRemovalCompleteEvent) => ({ service: event.service }),
+      useAnimationDelay: true
+    },
+    onComplete: (removeNotification) => {
+      removeNotification(NOTIFICATION_IDS.CORRUPTION_DETECTION);
+      localStorage.removeItem(NOTIFICATION_STORAGE_KEYS.CORRUPTION_DETECTION);
+    }
+  },
+
+  // ========== Game Detection ==========
+  {
+    type: 'game_detection',
+    id: NOTIFICATION_IDS.GAME_DETECTION,
+    storageKey: NOTIFICATION_STORAGE_KEYS.GAME_DETECTION,
+    events: {
+      started: 'GameDetectionStarted',
+      progress: 'GameDetectionProgress',
+      complete: 'GameDetectionComplete'
+    },
+    started: {
+      defaultMessage: 'Detecting games and services...',
+      getMessage: (event: GameDetectionStartedEvent) => formatGameDetectionStartedMessage(event),
+      getDetails: (event: GameDetectionStartedEvent) => ({
+        operationId: event.operationId,
+        scanType: event.scanType
+      })
+    },
+    progress: {
+      getMessage: (event: GameDetectionProgressEvent) => formatGameDetectionProgressMessage(event),
+      getProgress: (event: GameDetectionProgressEvent) => event.percentComplete || 0,
+      getStatus: (event: GameDetectionProgressEvent) => standardGetStatus(event),
+      getCompletedMessage: (event: GameDetectionProgressEvent) =>
+        event.message || 'Game detection completed',
+      getErrorMessage: (event: GameDetectionProgressEvent) =>
+        event.message || 'Game detection failed',
+      getDetails: (event: GameDetectionProgressEvent) => ({ operationId: event.operationId })
+    },
+    complete: {
+      getSuccessMessage: (event: GameDetectionCompleteEvent) =>
+        formatGameDetectionCompleteMessage(event),
+      getSuccessDetails: (event: GameDetectionCompleteEvent, existing) => ({
+        ...existing?.details,
+        totalGamesDetected: event.totalGamesDetected,
+        totalServicesDetected: event.totalServicesDetected
+      }),
+      getFailureMessage: (event: GameDetectionCompleteEvent) =>
+        formatGameDetectionFailureMessage(event),
+      supportFastCompletion: true,
+      getFastCompletionId: () => NOTIFICATION_IDS.GAME_DETECTION
+    }
+  },
+
+  // ========== Corruption Detection ==========
+  {
+    type: 'corruption_detection',
+    id: NOTIFICATION_IDS.CORRUPTION_DETECTION,
+    storageKey: NOTIFICATION_STORAGE_KEYS.CORRUPTION_DETECTION,
+    events: {
+      started: 'CorruptionDetectionStarted',
+      progress: 'CorruptionDetectionProgress',
+      complete: 'CorruptionDetectionComplete'
+    },
+    started: {
+      defaultMessage: 'Scanning for corrupted cache chunks...',
+      getMessage: (event: CorruptionDetectionStartedEvent) =>
+        formatCorruptionDetectionStartedMessage(event),
+      getDetails: (event: CorruptionDetectionStartedEvent) => ({
+        operationId: event.operationId
+      })
+    },
+    progress: {
+      getMessage: (event: CorruptionDetectionProgressEvent) =>
+        formatCorruptionDetectionProgressMessage(event),
+      getProgress: (event: CorruptionDetectionProgressEvent) => event.percentComplete || 0,
+      getStatus: (event: CorruptionDetectionProgressEvent) => standardGetStatus(event),
+      getCompletedMessage: (event: CorruptionDetectionProgressEvent) =>
+        event.message || 'Corruption detection completed',
+      getErrorMessage: (event: CorruptionDetectionProgressEvent) =>
+        event.message || 'Corruption detection failed',
+      getDetails: (event: CorruptionDetectionProgressEvent) => ({
+        operationId: event.operationId
+      })
+    },
+    complete: {
+      getSuccessMessage: (event: CorruptionDetectionCompleteEvent) =>
+        formatCorruptionDetectionCompleteMessage(event),
+      getFailureMessage: (event: CorruptionDetectionCompleteEvent) =>
+        formatCorruptionDetectionFailureMessage(event),
+      supportFastCompletion: true,
+      getFastCompletionId: () => NOTIFICATION_IDS.CORRUPTION_DETECTION
+    }
+  },
+
+  // ========== Cache Clearing ==========
+  {
+    type: 'cache_clearing',
+    id: NOTIFICATION_IDS.CACHE_CLEARING,
+    storageKey: NOTIFICATION_STORAGE_KEYS.CACHE_CLEARING,
+    events: {
+      started: 'CacheClearingStarted',
+      progress: 'CacheClearingProgress',
+      complete: 'CacheClearingComplete'
+    },
+    started: {
+      defaultMessage: 'Clearing cache...',
+      getMessage: (event: CacheClearingStartedEvent) => event.message || 'Clearing cache...',
+      getDetails: (event: CacheClearingStartedEvent) => ({ operationId: event.operationId })
+    },
+    progress: {
+      getMessage: (event: CacheClearProgressEvent) => formatCacheClearProgressMessage(event),
+      getProgress: (event: CacheClearProgressEvent) => event.percentComplete || 0,
+      getStatus: (event: CacheClearProgressEvent) => standardGetStatus(event),
+      getCompletedMessage: (event: CacheClearProgressEvent) =>
+        event.statusMessage || event.message || 'Cache cleared successfully',
+      getErrorMessage: (event: CacheClearProgressEvent) =>
+        event.error || event.statusMessage || event.message || 'Cache clear failed',
+      getDetails: (event: CacheClearProgressEvent) => ({
+        operationId: event.operationId,
+        filesDeleted: event.filesDeleted,
+        directoriesProcessed: event.directoriesProcessed,
+        bytesDeleted: event.bytesDeleted
+      })
+    },
+    complete: {
+      getSuccessMessage: (event: CacheClearCompleteEvent) => formatCacheClearCompleteMessage(event),
+      getSuccessDetails: (event: CacheClearCompleteEvent, existing) => ({
+        ...existing?.details,
+        filesDeleted: event.filesDeleted,
+        directoriesProcessed: event.directoriesProcessed
+      }),
+      getFailureMessage: (event: CacheClearCompleteEvent) => formatCacheClearFailureMessage(event)
+    }
+  },
+
+  // ========== Data Import ==========
+  {
+    type: 'data_import',
+    id: NOTIFICATION_IDS.DATA_IMPORT,
+    storageKey: NOTIFICATION_STORAGE_KEYS.DATA_IMPORT,
+    events: {
+      started: 'DataImportStarted',
+      progress: 'DataImportProgress',
+      complete: 'DataImportComplete'
+    },
+    started: {
+      defaultMessage: 'Starting data import...',
+      getMessage: (event: DataImportStartedEvent) => formatDataImportStartedMessage(event),
+      getDetails: (event: DataImportStartedEvent) => ({
+        operationId: event.operationId
+      })
+    },
+    progress: {
+      getMessage: (event: DataImportProgressEvent) => formatDataImportProgressMessage(event),
+      getProgress: (event: DataImportProgressEvent) => event.percentComplete || 0,
+      getStatus: (event: DataImportProgressEvent) => standardGetStatus(event),
+      getCompletedMessage: (event: DataImportProgressEvent) =>
+        event.message || 'Data import completed',
+      getErrorMessage: (event: DataImportProgressEvent) => event.message || 'Data import failed',
+      getDetails: (event: DataImportProgressEvent) => ({ operationId: event.operationId })
+    },
+    complete: {
+      getSuccessMessage: (event: DataImportCompleteEvent) => formatDataImportCompleteMessage(event),
+      getSuccessDetails: (event: DataImportCompleteEvent, existing) => ({
+        ...existing?.details,
+        recordsImported: event.recordsImported,
+        recordsSkipped: event.recordsSkipped,
+        recordsErrors: event.recordsErrors,
+        totalRecords: event.totalRecords
+      }),
+      getFailureMessage: (event: DataImportCompleteEvent) => formatDataImportFailureMessage(event),
+      supportFastCompletion: true,
+      getFastCompletionId: () => NOTIFICATION_IDS.DATA_IMPORT
+    }
+  },
+
+  // ========== Eviction Scan ==========
+  {
+    type: 'eviction_scan',
+    id: NOTIFICATION_IDS.EVICTION_SCAN,
+    storageKey: NOTIFICATION_STORAGE_KEYS.EVICTION_SCAN,
+    events: {
+      started: 'EvictionScanStarted',
+      progress: 'EvictionScanProgress',
+      complete: 'EvictionScanComplete'
+    },
+    started: {
+      defaultMessage: 'Starting eviction scan...',
+      getMessage: (event: EvictionScanStartedEvent) => event.message || 'Starting eviction scan...',
+      getDetails: (event: EvictionScanStartedEvent) => ({ operationId: event.operationId })
+    },
+    progress: {
+      getMessage: (event: EvictionScanProgressEvent) =>
+        event.message || 'Scanning for evictable cache entries...',
+      getProgress: (event: EvictionScanProgressEvent) => event.percentComplete || 0,
+      getStatus: (event: EvictionScanProgressEvent) => standardGetStatus(event),
+      getCompletedMessage: (event: EvictionScanProgressEvent) =>
+        event.message || 'Eviction scan completed',
+      getErrorMessage: (event: EvictionScanProgressEvent) =>
+        event.message || 'Eviction scan failed',
+      getDetails: (event: EvictionScanProgressEvent) => ({ operationId: event.operationId })
+    },
+    complete: {
+      getSuccessMessage: (event: EvictionScanCompleteEvent) =>
+        event.message || 'Eviction scan completed',
+      getFailureMessage: (event: EvictionScanCompleteEvent) =>
+        event.error || event.message || 'Eviction scan failed',
+      supportFastCompletion: true,
+      getFastCompletionId: () => NOTIFICATION_IDS.EVICTION_SCAN
+    }
+  },
+
+  // ========== Eviction Removal ==========
+  {
+    type: 'eviction_removal',
+    id: NOTIFICATION_IDS.EVICTION_REMOVAL,
+    storageKey: NOTIFICATION_STORAGE_KEYS.EVICTION_REMOVAL,
+    events: {
+      started: 'EvictionRemovalStarted',
+      progress: 'EvictionRemovalProgress',
+      complete: 'EvictionRemovalComplete'
+    },
+    started: {
+      defaultMessage: 'Removing evicted game data...',
+      getMessage: (event: EvictionRemovalStartedEvent) =>
+        event.message || 'Removing evicted game data...',
+      getDetails: (event: EvictionRemovalStartedEvent) => ({ operationId: event.operationId })
+    },
+    progress: {
+      getMessage: (event: EvictionRemovalProgressEvent) =>
+        event.message || 'Removing evicted data...',
+      getProgress: (event: EvictionRemovalProgressEvent) => event.percentComplete || 0,
+      getStatus: (event: EvictionRemovalProgressEvent) => standardGetStatus(event),
+      getCompletedMessage: (event: EvictionRemovalProgressEvent) =>
+        event.message || 'Eviction removal completed',
+      getErrorMessage: (event: EvictionRemovalProgressEvent) =>
+        event.message || 'Eviction removal failed',
+      getDetails: (event: EvictionRemovalProgressEvent) => ({ operationId: event.operationId })
+    },
+    complete: {
+      getSuccessMessage: (event: EvictionRemovalCompleteEvent) =>
+        event.message || 'Evicted game data removed successfully',
+      getFailureMessage: (event: EvictionRemovalCompleteEvent) =>
+        event.error || event.message || 'Eviction removal failed',
+      supportFastCompletion: true,
+      getFastCompletionId: () => NOTIFICATION_IDS.EVICTION_REMOVAL
+    },
+    onComplete: (removeNotification) => {
+      removeNotification(NOTIFICATION_IDS.EVICTION_SCAN);
+      localStorage.removeItem(NOTIFICATION_STORAGE_KEYS.EVICTION_SCAN);
+    }
+  }
+];
