@@ -50,17 +50,52 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   const [latestDownloads, setLatestDownloads] = useState<Download[]>(
     () => getCachedValue<Download[]>(IDB_KEYS.LATEST_DOWNLOADS) ?? []
   );
-  const [gameDetectionData, setGameDetectionData] = useState<CachedDetectionResponse | null>(null);
+  const [gameDetectionData, setGameDetectionData] = useState<CachedDetectionResponse | null>(
+    () => getCachedValue<CachedDetectionResponse>(IDB_KEYS.GAME_DETECTION) ?? null
+  );
   const [gameDetectionLookup, setGameDetectionLookup] = useState<Map<number, GameCacheInfo> | null>(
-    null
+    () => {
+      const cached = getCachedValue<CachedDetectionResponse>(IDB_KEYS.GAME_DETECTION);
+      if (!cached?.games || cached.games.length === 0) return null;
+      const byAppId = new Map<number, GameCacheInfo>();
+      for (const game of cached.games) {
+        if (game.game_app_id) {
+          byAppId.set(game.game_app_id, game);
+        }
+      }
+      return byAppId;
+    }
   );
   const [gameDetectionByName, setGameDetectionByName] = useState<Map<string, GameCacheInfo> | null>(
-    null
+    () => {
+      const cached = getCachedValue<CachedDetectionResponse>(IDB_KEYS.GAME_DETECTION);
+      if (!cached?.games || cached.games.length === 0) return null;
+      const byName = new Map<string, GameCacheInfo>();
+      for (const game of cached.games) {
+        if (game.game_name) {
+          byName.set(game.game_name.toLowerCase(), game);
+        }
+      }
+      return byName;
+    }
   );
   const [gameDetectionByService, setGameDetectionByService] = useState<Map<
     string,
     { service_name: string; cache_files_found: number; total_size_bytes: number }
-  > | null>(null);
+  > | null>(() => {
+    const cached = getCachedValue<CachedDetectionResponse>(IDB_KEYS.GAME_DETECTION);
+    if (!cached?.services) return null;
+    const bySvc = new Map<
+      string,
+      { service_name: string; cache_files_found: number; total_size_bytes: number }
+    >();
+    for (const svc of cached.services) {
+      if (svc.service_name) {
+        bySvc.set(svc.service_name.toLowerCase(), svc);
+      }
+    }
+    return bySvc;
+  });
   // loading is false if we have cached data (pre-loaded before render)
   const [loading, setLoading] = useState(() => getCachedValue(IDB_KEYS.CACHE_INFO) === undefined);
   const [error, setError] = useState<string | null>(null);
@@ -310,6 +345,9 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         // Write to in-memory cache and IndexedDB (fire-and-forget)
         if (cache.status === 'fulfilled' && cache.value) {
           setCachedValue(IDB_KEYS.CACHE_INFO, cache.value);
+        }
+        if (detection.status === 'fulfilled' && detection.value) {
+          setCachedValue(IDB_KEYS.GAME_DETECTION, detection.value);
         }
         if (filtersStillValid) {
           if (clients.status === 'fulfilled') setCachedValue(IDB_KEYS.CLIENT_STATS, clients.value);
