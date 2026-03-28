@@ -86,6 +86,18 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
             progress: status.progress ?? 0,
             status: status.status ?? 'processing'
           });
+        } else if (status.status?.toLowerCase() === 'completed') {
+          // Processing already finished before component mounted (race condition)
+          setProgress({
+            isProcessing: false,
+            progress: 100,
+            status: 'completed',
+            entriesProcessed: status.entriesProcessed,
+            linesProcessed: status.linesProcessed,
+            totalLines: status.totalLines
+          });
+          setComplete(true);
+          setProcessing(false);
         }
       } catch (error) {
         console.error('[LogProcessing] Failed to check processing status:', error);

@@ -587,8 +587,9 @@ const AppContent: React.FC = () => {
     );
   };
 
-  // Show login page if not authenticated
-  if (!checkingAuth && authMode === 'unauthenticated') {
+  // Show login page if not authenticated — but only for returning users who completed setup.
+  // First-time users go straight to the wizard, which handles auth as its own step.
+  if (!checkingAuth && authMode === 'unauthenticated' && setupCompleted) {
     return <AuthenticationModal onAuthComplete={refreshAuth} />;
   }
 
