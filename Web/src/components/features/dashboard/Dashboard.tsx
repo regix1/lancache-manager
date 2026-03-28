@@ -20,7 +20,6 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useStats, useDownloads, useGameDetection } from '@contexts/DashboardDataContext/hooks';
-import { useAuth } from '@contexts/useAuth';
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import { useEvents } from '@contexts/useEvents';
 import { useSpeed } from '@contexts/SpeedContext/useSpeed';
@@ -124,7 +123,6 @@ const Dashboard: React.FC = () => {
   const { cacheInfo, clientStats, serviceStats, dashboardStats, loading } = useStats();
   const { latestDownloads } = useDownloads();
   const { gameDetectionData, detectionLookup: _detectionLookup } = useGameDetection();
-  const { authMode } = useAuth();
   const { timeRange, getTimeRangeParams, customStartDate, customEndDate, selectedEventIds } =
     useTimeFilter();
   const { selectedEvent: _selectedEvent } = useEvents();
@@ -657,7 +655,7 @@ const Dashboard: React.FC = () => {
 
               {/* Hidden Cards Dropdown */}
               {dropdownOpen && (
-                <div className="absolute right-0 mt-2 w-72 sm:w-80 themed-border-radius border shadow-xl z-50 themed-card border-themed-primary">
+                <div className="absolute left-0 sm:left-auto sm:right-0 mt-2 w-72 sm:w-80 themed-border-radius border shadow-xl z-50 themed-card border-themed-primary">
                   {/* Search - only show if more than 3 hidden cards */}
                   {hiddenCardsCount > 3 && (
                     <div className="p-3 border-b border-themed-primary">
