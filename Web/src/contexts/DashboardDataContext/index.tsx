@@ -206,8 +206,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         const timeoutId = setTimeout(() => abortControllerRef.current?.abort(), timeout);
 
         // Fetch all data in parallel using Promise.allSettled
-        // getCacheInfo is always fetched (guest users need Total Cache / Used Space)
-        // getCachedGameDetection is admin-only — skip for guest users to avoid 403
         const [cache, clients, services, dashboard, downloads, detection] =
           await Promise.allSettled([
             ApiService.getCacheInfo(signal),

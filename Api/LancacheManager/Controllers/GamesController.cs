@@ -379,6 +379,7 @@ public class GamesController : ControllerBase
     /// <summary>
     /// GET /api/games/detect/cached - Get cached detection results
     /// </summary>
+    [AllowAnonymous]
     [HttpGet("detect/cached")]
     public async Task<IActionResult> GetCachedDetectionResultsAsync()
     {
