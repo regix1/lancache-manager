@@ -422,7 +422,7 @@ async fn main() -> Result<()> {
             use parser::LogParser;
             use std::collections::HashMap;
 
-            // Re-download mode: detect via HIT retries within 5-min window, then only delete cache files
+            // Re-download mode: detect via HIT retries within 60s window, then remove cache files, log lines, and DB records
             if detect_redownloads {
                 let miss_threshold: usize = threshold.unwrap_or(3);
                 let service_lower = service.to_lowercase();
@@ -437,76 +437,252 @@ async fn main() -> Result<()> {
                     &log_dir, "access.log", timezone_tz, Some(&progress_path)
                 )?;
 
-                // Filter to the requested service
-                let service_urls: Vec<(String, usize)> = redownload_map
+                // Filter to the requested service, capturing URL and response size
+                let service_urls_with_sizes: HashMap<String, i64> = redownload_map
                     .into_iter()
-                    .filter(|((svc, _url), _count)| svc.to_lowercase() == service_lower)
-                    .map(|((_svc, url), count)| (url, count))
+                    .filter(|((svc, _url), (_count, _size))| svc.to_lowercase() == service_lower)
+                    .map(|((_svc, url), (_count, size))| (url, size))
                     .collect();
 
-                if service_urls.is_empty() {
+                if service_urls_with_sizes.is_empty() {
                     eprintln!("No re-download corrupted chunks found for {}, nothing to remove", service);
                     write_progress(&progress_path, "completed", "No re-download corrupted chunks found", 100.0, 0, 0)?;
                     reporter.emit_complete("No re-download corrupted chunks found");
                     return Ok(());
                 }
 
-                eprintln!("Found {} re-download corrupted URLs for {}", service_urls.len(), service);
+                let corrupted_urls: std::collections::HashSet<String> = service_urls_with_sizes.keys().cloned().collect();
+                eprintln!("Found {} re-download corrupted URLs for {}", corrupted_urls.len(), service);
 
-                // Only delete cache files — no log filtering, no DB cleanup
-                eprintln!("Step 2: Deleting cache files for {} corrupted URLs...", service_urls.len());
-                let total_urls = service_urls.len();
+                // PASS 2: Filter log files, removing HIT lines for corrupted URLs
+                eprintln!("Step 2: Filtering log files to remove HIT entries for corrupted URLs...");
+
+                let parser = LogParser::new(chrono_tz::UTC);
+                let log_files = crate::log_discovery::discover_log_files(&log_dir, "access.log")?;
+                let total_files = log_files.len();
+                let mut total_lines_removed: u64 = 0;
+
+                write_progress(&progress_path, "filtering", &format!("Filtering {} log files", total_files), 30.0, 0, total_files)?;
+                reporter.emit_progress(30.0, &format!("Filtering {} log files", total_files));
+
+                for (file_index, log_file) in log_files.iter().enumerate() {
+                    let filter_percent = 30.0 + (file_index as f64 / total_files as f64) * 20.0;
+                    write_progress(&progress_path, "filtering", &format!("Filtering file {}/{}", file_index + 1, total_files), filter_percent, file_index, total_files)?;
+                    reporter.emit_progress(filter_percent, &format!("Filtering file {}/{}", file_index + 1, total_files));
+                    eprintln!("  Processing file {}/{}: {}", file_index + 1, total_files, log_file.path.display());
+
+                    let file_result = (|| -> Result<u64> {
+                        use std::io::BufWriter;
+
+                        let file_dir = log_file.path.parent().context("Failed to get file directory")?;
+                        let temp_file = NamedTempFile::new_in(file_dir)?;
+
+                        let mut lines_removed: u64 = 0;
+                        let mut lines_processed: u64 = 0;
+
+                        {
+                            let mut log_reader = LogFileReader::open(&log_file.path)?;
+
+                            let mut writer: Box<dyn std::io::Write> = if log_file.is_compressed {
+                                let path_str = log_file.path.to_string_lossy();
+                                if path_str.ends_with(".gz") {
+                                    Box::new(BufWriter::with_capacity(
+                                        1024 * 1024,
+                                        GzEncoder::new(temp_file.as_file().try_clone()?, Compression::default())
+                                    ))
+                                } else if path_str.ends_with(".zst") {
+                                    Box::new(BufWriter::with_capacity(
+                                        1024 * 1024,
+                                        zstd::Encoder::new(temp_file.as_file().try_clone()?, 3)?
+                                    ))
+                                } else {
+                                    Box::new(BufWriter::with_capacity(1024 * 1024, temp_file.as_file().try_clone()?))
+                                }
+                            } else {
+                                Box::new(BufWriter::with_capacity(1024 * 1024, temp_file.as_file().try_clone()?))
+                            };
+
+                            let mut line = String::new();
+
+                            loop {
+                                line.clear();
+                                let bytes_read = log_reader.read_line(&mut line)?;
+                                if bytes_read == 0 {
+                                    break;
+                                }
+
+                                lines_processed += 1;
+                                let mut should_remove = false;
+
+                                if let Some(entry) = parser.parse_line(line.trim()) {
+                                    // Remove HIT lines for corrupted URLs (re-download corruption serves bad HITs)
+                                    if entry.service == service_lower
+                                        && corrupted_urls.contains(&entry.url)
+                                        && entry.cache_status == "HIT"
+                                    {
+                                        should_remove = true;
+                                    }
+                                }
+
+                                if !should_remove {
+                                    write!(writer, "{}", line)?;
+                                } else {
+                                    lines_removed += 1;
+                                }
+                            }
+
+                            writer.flush()?;
+                            drop(writer);
+                        }
+
+                        if lines_processed > 0 && lines_removed == lines_processed {
+                            eprintln!("  INFO: All {} lines from this file are corrupted, deleting file entirely", lines_processed);
+                            std::fs::remove_file(&log_file.path).ok();
+                            return Ok(lines_removed);
+                        }
+
+                        let temp_path = temp_file.into_temp_path();
+
+                        if let Err(persist_err) = temp_path.persist(&log_file.path) {
+                            eprintln!("    persist() failed ({}), using copy fallback...", persist_err);
+                            std::fs::copy(&persist_err.path, &log_file.path)
+                                .with_context(|| format!("Failed to copy temp file to {}", log_file.path.display()))?;
+                            std::fs::remove_file(&persist_err.path).ok();
+                        }
+
+                        Ok(lines_removed)
+                    })();
+
+                    match file_result {
+                        Ok(lines_removed) => {
+                            eprintln!("    Removed {} log lines from this file", lines_removed);
+                            total_lines_removed += lines_removed;
+                        }
+                        Err(e) => {
+                            eprintln!("  WARNING: Skipping corrupted file {}: {}", log_file.path.display(), e);
+                            continue;
+                        }
+                    }
+                }
+
+                // Step 3: Delete ALL cache file chunks from disk (multi-slice aware)
+                let total_urls = service_urls_with_sizes.len();
+                eprintln!("Step 3: Deleting cache files for {} corrupted URLs...", total_urls);
                 write_progress(&progress_path, "removing_cache", &format!("Removing cache files for {} corrupted URLs", total_urls), 50.0, 0, total_urls)?;
                 reporter.emit_progress(50.0, &format!("Removing cache files for {} corrupted URLs", total_urls));
 
                 let mut deleted_count = 0usize;
                 let mut permission_errors = 0usize;
-                let mut not_found = 0usize;
+                let mut other_errors = 0usize;
+                let slice_size: i64 = 1_048_576; // 1MB
 
-                for (url_index, (url, _count)) in service_urls.iter().enumerate() {
+                for (url_index, (url, response_size)) in service_urls_with_sizes.iter().enumerate() {
                     if url_index % 50 == 0 || url_index == total_urls - 1 {
-                        let percent = 50.0 + (url_index as f64 / total_urls.max(1) as f64) * 45.0;
+                        let percent = 50.0 + (url_index as f64 / total_urls.max(1) as f64) * 25.0;
                         write_progress(&progress_path, "removing_cache", &format!("Removing cache file {}/{}", url_index + 1, total_urls), percent, url_index, total_urls)?;
                         reporter.emit_progress(percent, &format!("Removing cache file {}/{}", url_index + 1, total_urls));
                     }
 
-                    let cache_path = cache_utils::calculate_cache_path_no_range(&cache_dir, &service_lower, url);
-                    if cache_path.exists() {
-                        match std::fs::remove_file(&cache_path) {
-                            Ok(_) => deleted_count += 1,
-                            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
-                                permission_errors += 1;
-                                if permission_errors <= 5 {
-                                    eprintln!("  ERROR: Permission denied deleting {}: {}", cache_path.display(), e);
+                    // FIRST: Try the no-range format (standard lancache format)
+                    let cache_path_no_range = cache_utils::calculate_cache_path_no_range(&cache_dir, &service_lower, url);
+
+                    if cache_path_no_range.exists() {
+                        match std::fs::remove_file(&cache_path_no_range) {
+                            Ok(_) => {
+                                deleted_count += 1;
+                                if deleted_count % 100 == 0 {
+                                    eprintln!("  Deleted {} cache files...", deleted_count);
                                 }
                             }
-                            Err(e) => eprintln!("  Warning: Failed to delete {}: {}", cache_path.display(), e),
-                        }
-                    } else {
-                        // Try range format fallback
-                        let range_path = cache_utils::calculate_cache_path(&cache_dir, &service_lower, url, 0, 1_048_575);
-                        if range_path.exists() {
-                            match std::fs::remove_file(&range_path) {
-                                Ok(_) => deleted_count += 1,
-                                Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                            Err(e) => {
+                                if e.kind() == std::io::ErrorKind::PermissionDenied {
                                     permission_errors += 1;
                                     if permission_errors <= 5 {
-                                        eprintln!("  ERROR: Permission denied deleting {}: {}", range_path.display(), e);
+                                        eprintln!("  ERROR: Permission denied deleting {}: {}", cache_path_no_range.display(), e);
+                                    }
+                                } else {
+                                    other_errors += 1;
+                                    eprintln!("  Warning: Failed to delete {}: {}", cache_path_no_range.display(), e);
+                                }
+                            }
+                        }
+                    } else {
+                        // FALLBACK: Try the chunked format with bytes range
+                        if *response_size == 0 {
+                            let cache_path = cache_utils::calculate_cache_path(&cache_dir, &service_lower, url, 0, 1_048_575);
+
+                            if cache_path.exists() {
+                                match std::fs::remove_file(&cache_path) {
+                                    Ok(_) => deleted_count += 1,
+                                    Err(e) => {
+                                        if e.kind() == std::io::ErrorKind::PermissionDenied {
+                                            permission_errors += 1;
+                                            if permission_errors <= 5 {
+                                                eprintln!("  ERROR: Permission denied deleting {}: {}", cache_path.display(), e);
+                                            }
+                                        } else {
+                                            other_errors += 1;
+                                            eprintln!("  Warning: Failed to delete {}: {}", cache_path.display(), e);
+                                        }
                                     }
                                 }
-                                Err(e) => eprintln!("  Warning: Failed to delete {}: {}", range_path.display(), e),
                             }
                         } else {
-                            not_found += 1;
+                            let mut start: i64 = 0;
+                            while start < *response_size {
+                                let end = start + slice_size - 1;
+
+                                let cache_path = cache_utils::calculate_cache_path(&cache_dir, &service_lower, url, start as u64, end as u64);
+
+                                if cache_path.exists() {
+                                    match std::fs::remove_file(&cache_path) {
+                                        Ok(_) => {
+                                            deleted_count += 1;
+                                            if deleted_count % 100 == 0 {
+                                                eprintln!("  Deleted {} cache files...", deleted_count);
+                                            }
+                                        }
+                                        Err(e) => {
+                                            if e.kind() == std::io::ErrorKind::PermissionDenied {
+                                                permission_errors += 1;
+                                                if permission_errors <= 5 {
+                                                    eprintln!("  ERROR: Permission denied deleting {}: {}", cache_path.display(), e);
+                                                }
+                                            } else {
+                                                other_errors += 1;
+                                                eprintln!("  Warning: Failed to delete {}: {}", cache_path.display(), e);
+                                            }
+                                        }
+                                    }
+                                }
+
+                                start += slice_size;
+                            }
                         }
                     }
                 }
 
+                eprintln!("Deleted {} cache files", deleted_count);
                 if permission_errors > 0 {
+                    eprintln!("ERROR: {} files could not be deleted due to permission errors", permission_errors);
+                    if permission_errors > 5 {
+                        eprintln!("  (only first 5 errors shown)");
+                    }
+                }
+                if other_errors > 0 {
+                    eprintln!("WARNING: {} files could not be deleted due to other errors", other_errors);
+                }
+                eprintln!("Removed {} total log lines across {} files", total_lines_removed, log_files.len());
+
+                // CRITICAL: If we had permission errors, do NOT delete database records
+                if permission_errors > 0 {
+                    let puid = std::env::var("PUID").unwrap_or_else(|_| "1000".to_string());
+                    let pgid = std::env::var("PGID").unwrap_or_else(|_| "1000".to_string());
                     let error_msg = format!(
-                        "ABORTED: {} cache files could not be deleted due to permission errors. \
-                        Check PUID/PGID settings in docker-compose.yml.",
-                        permission_errors
+                        "ABORTED: Cannot delete database records because {} cache files could not be deleted due to permission errors. \
+                        This is likely caused by incorrect PUID/PGID settings. The lancache container is configured to run as UID/GID {}:{}. \
+                        Please check your docker-compose.yml and ensure PUID and PGID match the cache file ownership.",
+                        permission_errors, puid, pgid
                     );
                     eprintln!("\n{}", error_msg);
                     write_progress(&progress_path, "failed", &error_msg, 0.0, 0, 0)?;
@@ -514,17 +690,27 @@ async fn main() -> Result<()> {
                     std::process::exit(1);
                 }
 
+                // Step 4: Delete database records for corrupted downloads
+                eprintln!("Step 4: Deleting database records...");
+                write_progress(&progress_path, "removing_database", "Deleting database records for corrupted chunks", 85.0, 0, 0)?;
+                reporter.emit_progress(85.0, "Deleting database records for corrupted chunks");
+
+                let pool = db::create_pool().await;
+                let (downloads_deleted, log_entries_deleted) = delete_corrupted_from_database(&pool, &service, &corrupted_urls).await?;
+
                 let summary_msg = format!(
-                    "Removed {} re-download corrupted URLs for {} ({} cache files deleted, {} not found on disk)",
-                    service_urls.len(), service, deleted_count, not_found
+                    "Removed {} re-download corrupted URLs for {} ({} cache files deleted, {} log lines removed, {} downloads deleted, {} log entries deleted)",
+                    service_urls_with_sizes.len(), service, deleted_count, total_lines_removed, downloads_deleted, log_entries_deleted
                 );
                 write_progress(&progress_path, "completed", &summary_msg, 100.0, 0, 0)?;
                 reporter.emit_complete(&summary_msg);
                 eprintln!("\n=== Re-download Corruption Removal Summary ===");
-                eprintln!("Corrupted URLs detected: {}", service_urls.len());
+                eprintln!("Corrupted URLs detected: {}", service_urls_with_sizes.len());
                 eprintln!("Cache files deleted: {}", deleted_count);
-                eprintln!("Cache files not found: {}", not_found);
-                eprintln!("Removal completed successfully (logs and database untouched)");
+                eprintln!("Log lines removed: {}", total_lines_removed);
+                eprintln!("Database downloads deleted: {}", downloads_deleted);
+                eprintln!("Database log entries deleted: {}", log_entries_deleted);
+                eprintln!("Removal completed successfully");
                 return Ok(());
             }
 

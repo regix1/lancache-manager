@@ -461,7 +461,7 @@ impl CorruptionDetector {
         log_base_name: &str,
         timezone: chrono_tz::Tz,
         progress_path: Option<&Path>,
-    ) -> Result<HashMap<(String, String), usize>> {
+    ) -> Result<HashMap<(String, String), (usize, i64)>> {
         let log_dir = log_dir.as_ref();
 
         let log_files = crate::log_discovery::discover_log_files(log_dir, log_base_name)?;
@@ -489,6 +489,7 @@ impl CorruptionDetector {
         // Including http_range prevents false positives from WSUS/BITS Range requests,
         // where the same URL is requested with different byte ranges during normal downloads.
         let mut hit_timestamps: HashMap<(String, String, String, String), Vec<NaiveDateTime>> = HashMap::new();
+        let mut url_sizes: HashMap<(String, String), i64> = HashMap::new(); // Track max response size per (service, url)
         let mut entries_processed = 0usize;
 
         for (file_index, log_file) in log_files.iter().enumerate() {
@@ -542,6 +543,12 @@ impl CorruptionDetector {
                         hit_timestamps.entry(key).or_default().push(entry.timestamp);
                         entries_processed += 1;
 
+                        // Track the maximum response size per (service, url) for multi-slice cache deletion
+                        let size_key = (entry.service.clone(), entry.url.clone());
+                        url_sizes.entry(size_key)
+                            .and_modify(|size| *size = (*size).max(entry.bytes_served))
+                            .or_insert(entry.bytes_served);
+
                         if entries_processed % 500_000 == 0 {
                             eprintln!("  Processed {} HIT entries, tracking {} unique (URL, client) pairs",
                                 entries_processed, hit_timestamps.len());
@@ -566,7 +573,7 @@ impl CorruptionDetector {
         // HTTP failure retries (non-200) don't appear as HITs so they're already excluded.
         // Legitimate re-downloads (verify/repair/reinstall) are spread over minutes or hours.
         let window_seconds: i64 = 60;
-        let mut result: HashMap<(String, String), usize> = HashMap::new();
+        let mut result: HashMap<(String, String), (usize, i64)> = HashMap::new();
 
         for ((service, url, _client_ip, _http_range), mut timestamps) in hit_timestamps {
             // Need at least threshold timestamps to be worth checking
@@ -593,13 +600,45 @@ impl CorruptionDetector {
             }
 
             if max_in_window >= self.miss_threshold {
-                let key = (service, url);
-                let entry = result.entry(key).or_insert(0);
-                *entry = (*entry).max(max_in_window);
+                let key = (service.clone(), url.clone());
+                let size = url_sizes.get(&(service, url)).copied().unwrap_or(0);
+                let entry = result.entry(key).or_insert((0, 0));
+                entry.0 = entry.0.max(max_in_window);
+                entry.1 = entry.1.max(size);
             }
         }
 
         eprintln!("Found {} unique URLs with {}+ HIT retries within 60-second windows (suspected corruption)", result.len(), self.miss_threshold);
+
+        // Filter to only URLs where the cache file actually exists on disk
+        // If the file doesn't exist, the re-downloads were for content that has since been evicted
+        // True corruption = file exists but serves bad data (repeated HIT retries despite file presence)
+        let result = if self.skip_cache_check {
+            eprintln!("Skipping cache file existence check (logs-only mode)");
+            eprintln!("Returning all {} candidate URLs as re-downloaded", result.len());
+            result
+        } else {
+            let candidate_count = result.len();
+            let filtered: HashMap<(String, String), (usize, i64)> = result
+                .into_iter()
+                .filter(|((service, url), _)| {
+                    let cache_path = cache_utils::calculate_cache_path_no_range(&self.cache_dir, service, url);
+                    if cache_path.exists() {
+                        return true;
+                    }
+                    // Fallback: check first 1MB chunk in range format (legacy lancache)
+                    let range_path = cache_utils::calculate_cache_path(&self.cache_dir, service, url, 0, 1_048_575);
+                    range_path.exists()
+                })
+                .collect();
+
+            let filtered_out = candidate_count - filtered.len();
+            if filtered_out > 0 {
+                eprintln!("Filtered out {} URLs where cache file does not exist on disk (likely evicted)", filtered_out);
+            }
+            eprintln!("Confirmed {} re-downloaded chunks (file exists on disk with {}+ HIT retries)", filtered.len(), self.miss_threshold);
+            filtered
+        };
 
         if let Some(progress_file) = progress_path {
             self.write_detection_progress(
@@ -625,7 +664,7 @@ impl CorruptionDetector {
         )?;
 
         let mut service_counts: HashMap<String, usize> = HashMap::new();
-        for ((service, _url), _count) in redownload_map.iter() {
+        for ((service, _url), (_count, _size)) in redownload_map.iter() {
             *service_counts.entry(service.clone()).or_insert(0) += 1;
         }
 
@@ -651,7 +690,7 @@ impl CorruptionDetector {
         let mut corrupted_chunks = Vec::new();
         let mut service_counts: HashMap<String, usize> = HashMap::new();
 
-        for ((service, url), hit_count) in redownload_map {
+        for ((service, url), (hit_count, _size)) in redownload_map {
             let cache_file_path = cache_utils::calculate_cache_path_no_range(&self.cache_dir, &service, &url)
                 .display()
                 .to_string();

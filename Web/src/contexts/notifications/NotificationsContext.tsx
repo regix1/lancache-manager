@@ -555,18 +555,25 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         cancelAutoDismissTimer
       );
 
-    const handleCorruptionRemovalComplete = createCompletionHandler<CorruptionRemovalCompleteEvent>(
-      {
-        type: 'corruption_removal',
-        getId: () => NOTIFICATION_IDS.CORRUPTION_REMOVAL,
-        storageKey: NOTIFICATION_STORAGE_KEYS.CORRUPTION_REMOVAL,
-        getSuccessMessage: formatCorruptionRemovalCompleteMessage,
-        getSuccessDetails: (e) => ({ service: e.service }),
-        useAnimationDelay: true
-      },
-      setNotifications,
-      scheduleAutoDismiss // Use direct scheduling - we know notification is in terminal state
-    );
+    const handleCorruptionRemovalCompleteBase =
+      createCompletionHandler<CorruptionRemovalCompleteEvent>(
+        {
+          type: 'corruption_removal',
+          getId: () => NOTIFICATION_IDS.CORRUPTION_REMOVAL,
+          storageKey: NOTIFICATION_STORAGE_KEYS.CORRUPTION_REMOVAL,
+          getSuccessMessage: formatCorruptionRemovalCompleteMessage,
+          getSuccessDetails: (e) => ({ service: e.service }),
+          useAnimationDelay: true
+        },
+        setNotifications,
+        scheduleAutoDismiss // Use direct scheduling - we know notification is in terminal state
+      );
+    const handleCorruptionRemovalComplete = (event: CorruptionRemovalCompleteEvent) => {
+      handleCorruptionRemovalCompleteBase(event);
+      // Clear the detection notification since removal is complete
+      removeNotification(NOTIFICATION_IDS.CORRUPTION_DETECTION);
+      localStorage.removeItem(NOTIFICATION_STORAGE_KEYS.CORRUPTION_DETECTION);
+    };
 
     // ========== Game Detection (using factory) ==========
     const handleGameDetectionStarted = createStartedHandler<GameDetectionStartedEvent>(
@@ -1110,7 +1117,7 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         cancelAutoDismissTimer
       );
 
-    const handleEvictionRemovalComplete = createCompletionHandler<EvictionRemovalCompleteEvent>(
+    const handleEvictionRemovalCompleteBase = createCompletionHandler<EvictionRemovalCompleteEvent>(
       {
         type: 'eviction_removal',
         getId: () => NOTIFICATION_IDS.EVICTION_REMOVAL,
@@ -1123,6 +1130,12 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       setNotifications,
       scheduleAutoDismiss
     );
+    const handleEvictionRemovalComplete = (event: EvictionRemovalCompleteEvent) => {
+      handleEvictionRemovalCompleteBase(event);
+      // Clear the eviction scan notification since removal is complete
+      removeNotification(NOTIFICATION_IDS.EVICTION_SCAN);
+      localStorage.removeItem(NOTIFICATION_STORAGE_KEYS.EVICTION_SCAN);
+    };
 
     // Subscribe to events
     signalR.on('LogProcessingStarted', handleLogProcessingStarted);
