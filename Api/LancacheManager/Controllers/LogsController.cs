@@ -490,7 +490,7 @@ public class LogsController : ControllerBase
         {
             var errorMessage = $"Cannot {operationDescription}: all logs directories are read-only. " +
                 "This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. " +
-                "The lancache container usually runs as UID/GID 33:33 (www-data).";
+                $"The lancache container is configured to run as UID/GID {ContainerEnvironment.UidGid} (configured via PUID/PGID environment variables).";
 
             _logger.LogWarning("[{Operation}] Permission check failed: {Error}", operationDescription, errorMessage);
             return BadRequest(new ErrorResponse { Error = errorMessage });

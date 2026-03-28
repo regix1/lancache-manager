@@ -1,0 +1,51 @@
+<?xml version="1.0"?>
+<Container version="2">
+    <Name>lancache-manager</Name>
+    <Repository>ghcr.io/regix1/lancache-manager:latest</Repository>
+    <Registry>https://github.com/regix1/lancache-manager/pkgs/container/lancache-manager</Registry>
+    <Network>bridge</Network>
+    <Shell>bash</Shell>
+    <Privileged>false</Privileged>
+    <Support>https://github.com/regix1/lancache-manager/issues</Support>
+    <Project>https://github.com/regix1/lancache-manager</Project>
+    <Overview>Lancache Manager - Web UI for managing your Lancache server. Monitor cache performance, manage downloads, and configure your lancache setup.</Overview>
+    <Category>Tools: Network:Other</Category>
+    <WebUI>http://[IP]:[PORT:8080]/</WebUI>
+    <Icon>https://raw.githubusercontent.com/regix1/lancache-manager/main/Web/src/assets/icon.png</Icon>
+    <ExtraParams/>
+    <Description>Lancache Manager provides a web-based dashboard for monitoring and managing your Lancache game download cache server. Includes PostgreSQL, real-time SignalR updates, Steam Prefill support, corruption detection, cache management, and more.</Description>
+
+    <!-- ===== USER / GROUP ===== -->
+    <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="User ID for file permissions. Unraid default: 99 (nobody)" Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>
+    <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Group ID for file permissions. Unraid default: 100 (users)" Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
+
+    <!-- ===== PORTS ===== -->
+    <Config Name="WebUI Port" Target="80" Default="8080" Mode="tcp" Description="Port for the Lancache Manager web interface." Type="Port" Display="always" Required="true" Mask="false">8080</Config>
+
+    <!-- ===== VOLUMES ===== -->
+    <Config Name="Data Directory" Target="/data" Default="/mnt/user/appdata/lancache-manager" Mode="rw" Description="Required: Data directory for the database, PostgreSQL data, API key, themes, and cached images." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/lancache-manager</Config>
+    <Config Name="LANCache Logs" Target="/logs" Default="/mnt/user/lancache/logs" Mode="ro" Description="Required: Path to your LANCache log directory. Use :ro for read-only (recommended for monitoring-only). Remove :ro to allow log manipulation." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/lancache/logs</Config>
+    <Config Name="LANCache Cache" Target="/cache" Default="/mnt/user/lancache/cache" Mode="ro" Description="Required: Path to your LANCache cache directory. Use :ro for read-only monitoring. Remove :ro to enable cache clearing, corruption removal, and game removal." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/lancache/cache</Config>
+    <Config Name="Docker Socket" Target="/var/run/docker.sock" Default="/var/run/docker.sock" Mode="rw" Description="Optional: Docker socket for nginx log rotation and Steam Prefill. Required for signaling nginx to reopen logs and spawning prefill containers." Type="Path" Display="advanced" Required="false" Mask="false">/var/run/docker.sock</Config>
+
+    <!-- ===== REQUIRED ENVIRONMENT VARIABLES ===== -->
+    <Config Name="Timezone" Target="TZ" Default="America/Chicago" Mode="" Description="Timezone for log timestamps and display. See: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones" Type="Variable" Display="always" Required="true" Mask="false">America/Chicago</Config>
+    <Config Name="LANCache Log Path" Target="LanCache__LogPath" Default="/logs/access.log" Mode="" Description="Path to the LANCache access log file inside the container." Type="Variable" Display="always" Required="true" Mask="false">/logs/access.log</Config>
+    <Config Name="LANCache Cache Path" Target="LanCache__CachePath" Default="/cache" Mode="" Description="Path to the LANCache cache directory inside the container." Type="Variable" Display="always" Required="true" Mask="false">/cache</Config>
+
+    <!-- ===== POSTGRESQL CREDENTIALS ===== -->
+    <Config Name="PostgreSQL Username" Target="POSTGRES_USER" Default="lancache" Mode="" Description="PostgreSQL username for the internal database." Type="Variable" Display="advanced" Required="false" Mask="false">lancache</Config>
+    <Config Name="PostgreSQL Password" Target="POSTGRES_PASSWORD" Default="" Mode="" Description="PostgreSQL password. If not set, a first-run setup page will collect credentials. Once set via the UI, they persist in /data." Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
+
+    <!-- ===== OPTIONAL ENVIRONMENT VARIABLES ===== -->
+    <Config Name="ASP.NET Core URLs" Target="ASPNETCORE_URLS" Default="http://+:80" Mode="" Description="Internal port binding. Do not change unless you know what you are doing." Type="Variable" Display="advanced" Required="false" Mask="false">http://+:80</Config>
+    <Config Name="Enable Authentication" Target="Security__EnableAuthentication" Default="true" Mode="" Description="Master switch for authentication. true = require API key for admin features (recommended). false = disable ALL authentication (development only)." Type="Variable" Display="advanced" Required="false" Mask="false">true</Config>
+    <Config Name="Max Admin Devices" Target="Security__MaxAdminDevices" Default="3" Mode="" Description="Number of devices that can share the same API key simultaneously." Type="Variable" Display="advanced" Required="false" Mask="false">3</Config>
+    <Config Name="Guest Session Duration (Hours)" Target="Security__GuestSessionDurationHours" Default="6" Mode="" Description="Default guest session duration in hours (configurable in UI after first run)." Type="Variable" Display="advanced" Required="false" Mask="false">6</Config>
+    <Config Name="Require Auth for Metrics" Target="Security__RequireAuthForMetrics" Default="false" Mode="" Description="Require API key for Prometheus /metrics endpoint. false = /metrics is publicly accessible." Type="Variable" Display="advanced" Required="false" Mask="false">false</Config>
+    <Config Name="Nginx Log Rotation Enabled" Target="NginxLogRotation__Enabled" Default="true" Mode="" Description="Automatically signal nginx to reopen logs after manipulation. Requires the Docker socket volume mount." Type="Variable" Display="advanced" Required="false" Mask="false">true</Config>
+    <Config Name="Nginx Container Name" Target="NginxLogRotation__ContainerName" Default="auto" Mode="" Description="Name of the LANCache container for log rotation. 'auto' = auto-detect containers with 'lancache' in the name." Type="Variable" Display="advanced" Required="false" Mask="false">auto</Config>
+    <Config Name="Steam Prefill Docker Image" Target="Prefill__DockerImage" Default="ghcr.io/regix1/steam-prefill-daemon:latest" Mode="" Description="Docker image for per-user Steam Prefill containers." Type="Variable" Display="advanced" Required="false" Mask="false">ghcr.io/regix1/steam-prefill-daemon:latest</Config>
+    <Config Name="LANCache Env File Path" Target="LanCache__EnvFilePath" Default="" Mode="" Description="Path to lancache .env file for reading CACHE_DISK_SIZE when Docker socket is unavailable. Leave blank to auto-search: /srv/lancache/.env, /opt/lancache/.env, /lancache/.env" Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+    <Config Name="Auto Discover Datasources" Target="LanCache__AutoDiscoverDatasources" Default="false" Mode="" Description="Auto-detect datasources by scanning /cache and /logs for matching subdirectories." Type="Variable" Display="advanced" Required="false" Mask="false">false</Config>
+</Container>

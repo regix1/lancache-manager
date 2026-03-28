@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
 using LancacheManager.Models;
+using LancacheManager.Core.Interfaces;
 
 namespace LancacheManager.Controllers;
 
@@ -8,21 +9,23 @@ namespace LancacheManager.Controllers;
 [Route("api/[controller]")]
 public class SetupController : ControllerBase
 {
-    private const string ConfigPath = "/data/postgres-credentials.json";
     private readonly ILogger<SetupController> _logger;
     private readonly IConfiguration _configuration;
+    private readonly IPathResolver _pathResolver;
 
-    public SetupController(ILogger<SetupController> logger, IConfiguration configuration)
+    public SetupController(ILogger<SetupController> logger, IConfiguration configuration, IPathResolver pathResolver)
     {
         _logger = logger;
         _configuration = configuration;
+        _pathResolver = pathResolver;
     }
 
     [HttpGet("status")]
     public IActionResult GetSetupStatus()
     {
+        var configPath = _pathResolver.GetPostgresCredentialsPath();
         var needsSetup = string.IsNullOrEmpty(Environment.GetEnvironmentVariable("POSTGRES_PASSWORD"))
-                         && !System.IO.File.Exists(ConfigPath);
+                         && !System.IO.File.Exists(configPath);
 
         return Ok(new SetupInitStatusResponse
         {
@@ -39,6 +42,8 @@ public class SetupController : ControllerBase
 
         var username = string.IsNullOrWhiteSpace(request.Username) ? "lancache" : request.Username;
 
+        var configPath = _pathResolver.GetPostgresCredentialsPath();
+
         // Save to persistent config file
         var config = new Dictionary<string, string>
         {
@@ -50,13 +55,13 @@ public class SetupController : ControllerBase
 
         try
         {
-            // Ensure /data directory exists
-            var directory = Path.GetDirectoryName(ConfigPath);
+            // Ensure config directory exists
+            var directory = Path.GetDirectoryName(configPath);
             if (!string.IsNullOrEmpty(directory))
                 Directory.CreateDirectory(directory);
 
-            await System.IO.File.WriteAllTextAsync(ConfigPath, json);
-            _logger.LogInformation("PostgreSQL credentials saved to {ConfigPath} for user {Username}", ConfigPath, username);
+            await System.IO.File.WriteAllTextAsync(configPath, json);
+            _logger.LogInformation("PostgreSQL credentials saved to {ConfigPath} for user {Username}", configPath, username);
         }
         catch (Exception ex)
         {

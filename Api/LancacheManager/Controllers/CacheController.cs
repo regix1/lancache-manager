@@ -123,7 +123,7 @@ public class CacheController : ControllerBase
         {
             var errorMessage = "Cannot clear cache: cache directory is read-only. " +
                 "This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. " +
-                "The lancache container usually runs as UID/GID 33:33 (www-data).";
+                $"The lancache container is configured to run as UID/GID {ContainerEnvironment.UidGid} (configured via PUID/PGID environment variables).";
 
             _logger.LogWarning("[ClearAllCache] Permission check failed: {Error}", errorMessage);
             return BadRequest(new ErrorResponse { Error = errorMessage });
@@ -174,7 +174,7 @@ public class CacheController : ControllerBase
         {
             var errorMessage = $"Cannot clear cache for datasource '{name}': cache directory is read-only. " +
                 "This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. " +
-                "The lancache container usually runs as UID/GID 33:33 (www-data).";
+                $"The lancache container is configured to run as UID/GID {ContainerEnvironment.UidGid} (configured via PUID/PGID environment variables).";
 
             _logger.LogWarning("[ClearDatasourceCache] Permission check failed for {Datasource}: {Error}", name, errorMessage);
             return BadRequest(new ErrorResponse { Error = errorMessage });
@@ -380,7 +380,7 @@ public class CacheController : ControllerBase
 
                 var errorMessage = $"Cannot remove corrupted chunks for datasource '{datasource.Name}': {string.Join(" and ", errors)}. " +
                     "This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. " +
-                    "The lancache container usually runs as UID/GID 33:33 (www-data).";
+                    $"The lancache container is configured to run as UID/GID {ContainerEnvironment.UidGid} (configured via PUID/PGID environment variables).";
 
                 _logger.LogWarning("[CorruptionRemoval] Permission check failed for service {Service} on datasource {Datasource}: {Error}",
                     service, datasource.Name, errorMessage);
@@ -632,7 +632,7 @@ public class CacheController : ControllerBase
 
                 var errorMessage = $"Cannot remove corrupted chunks for datasource '{datasource.Name}': {string.Join(" and ", errors)}. " +
                     "This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. " +
-                    "The lancache container usually runs as UID/GID 33:33 (www-data).";
+                    $"The lancache container is configured to run as UID/GID {ContainerEnvironment.UidGid} (configured via PUID/PGID environment variables).";
 
                 _logger.LogWarning("[CorruptionRemoval] Permission check failed on datasource {Datasource}: {Error}",
                     datasource.Name, errorMessage);
@@ -641,8 +641,11 @@ public class CacheController : ControllerBase
             }
         }
 
-        // Optimistically delete ALL cached detection rows immediately so app restarts don't resurface stale data
-        await _corruptionDetectionService.InvalidateCacheAsync();
+        // Delete cached detection rows per-service and activate grace period to prevent immediate reappearance
+        foreach (var service in servicesWithCorruption)
+        {
+            await _corruptionDetectionService.RemoveCachedServiceAsync(service);
+        }
 
         _ = Task.Run(async () =>
         {
@@ -902,7 +905,7 @@ public class CacheController : ControllerBase
 
             var errorMessage = $"Cannot remove service from cache: {string.Join(" and ", errors)}. " +
                 "This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. " +
-                "The lancache container usually runs as UID/GID 33:33 (www-data).";
+                $"The lancache container is configured to run as UID/GID {ContainerEnvironment.UidGid} (configured via PUID/PGID environment variables).";
 
             _logger.LogWarning("[ClearServiceCache] Permission check failed for service {Service}: {Error}", name, errorMessage);
             return BadRequest(new ErrorResponse { Error = errorMessage });

@@ -175,6 +175,11 @@ public interface IPathResolver
     string GetSettingsPath(string settingsFileName);
 
     /// <summary>
+    /// Gets the path to the PostgreSQL credentials file
+    /// </summary>
+    string GetPostgresCredentialsPath();
+
+    /// <summary>
     /// Checks if a directory is writable
     /// </summary>
     /// <param name="directoryPath">The directory path to check</param>

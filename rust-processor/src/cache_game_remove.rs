@@ -667,12 +667,14 @@ async fn main() -> Result<()> {
     // CRITICAL: Check for permission errors before deleting database records
     let total_permission_errors = cache_permission_errors + log_permission_errors;
     if total_permission_errors > 0 {
+        let puid = std::env::var("PUID").unwrap_or_else(|_| "1000".to_string());
+        let pgid = std::env::var("PGID").unwrap_or_else(|_| "1000".to_string());
         let error_msg = format!(
             "ABORTED: Cannot delete database records because {} file(s) could not be modified due to permission errors. \
-            This is likely caused by incorrect PUID/PGID settings in your docker-compose.yml. \
-            The lancache container usually runs as UID/GID 33:33 (www-data). \
+            This is likely caused by incorrect PUID/PGID settings. The lancache container is configured to run as UID/GID {}:{}. \
+            Please check your docker-compose.yml and ensure PUID and PGID match the cache file ownership. \
             Cache permission errors: {}, Log permission errors: {}",
-            total_permission_errors, cache_permission_errors, log_permission_errors
+            total_permission_errors, puid, pgid, cache_permission_errors, log_permission_errors
         );
         eprintln!("\n{}", error_msg);
 

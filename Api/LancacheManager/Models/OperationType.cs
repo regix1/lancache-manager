@@ -14,5 +14,6 @@ public enum OperationType
     DatabaseReset,
     LogRemoval,
     EpicMapping,
-    EvictionScan
+    EvictionScan,
+    EvictionRemoval
 }

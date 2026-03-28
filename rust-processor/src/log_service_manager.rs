@@ -457,11 +457,13 @@ fn remove_service_from_logs(
     // CRITICAL: Check for permission errors and fail if any occurred
     // This prevents the UI from showing success when files couldn't be modified
     if permission_errors > 0 {
+        let puid = std::env::var("PUID").unwrap_or_else(|_| "1000".to_string());
+        let pgid = std::env::var("PGID").unwrap_or_else(|_| "1000".to_string());
         let error_msg = format!(
             "FAILED: {} log file(s) could not be modified due to permission errors. \
-            This is likely caused by incorrect PUID/PGID settings in your docker-compose.yml. \
-            The lancache container usually runs as UID/GID 33:33 (www-data).",
-            permission_errors
+            This is likely caused by incorrect PUID/PGID settings. The lancache container is configured to run as UID/GID {}:{}. \
+            Please check your docker-compose.yml and ensure PUID and PGID match the cache file ownership.",
+            permission_errors, puid, pgid
         );
         eprintln!("\n{}", error_msg);
         

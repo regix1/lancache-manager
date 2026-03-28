@@ -164,7 +164,12 @@ export const SIGNALR_EVENTS = [
   // Eviction Scan
   'EvictionScanStarted',
   'EvictionScanProgress',
-  'EvictionScanComplete'
+  'EvictionScanComplete',
+
+  // Eviction Removal
+  'EvictionRemovalStarted',
+  'EvictionRemovalProgress',
+  'EvictionRemovalComplete'
 ] as const;
 
 /**
@@ -685,5 +690,28 @@ export interface EvictionScanCompleteEvent {
   processed: number;
   evicted: number;
   unEvicted: number;
+  error?: string;
+}
+
+export interface EvictionRemovalStartedEvent {
+  operationId: string;
+  message?: string;
+}
+
+export interface EvictionRemovalProgressEvent {
+  operationId: string;
+  status?: string;
+  message?: string;
+  percentComplete?: number;
+  downloadsRemoved?: number;
+  logEntriesRemoved?: number;
+}
+
+export interface EvictionRemovalCompleteEvent {
+  success: boolean;
+  operationId: string;
+  message?: string;
+  downloadsRemoved?: number;
+  logEntriesRemoved?: number;
   error?: string;
 }

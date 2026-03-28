@@ -34,6 +34,8 @@ public class StatsController : ControllerBase
     private readonly IOptions<ApiOptions> _apiOptions;
     private readonly ISignalRNotificationService _notifications;
     private readonly CacheReconciliationService _reconciliationService;
+    private readonly IUnifiedOperationTracker _operationTracker;
+    private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
 
     public StatsController(
         AppDbContext context,
@@ -44,7 +46,9 @@ public class StatsController : ControllerBase
         ILogger<StatsController> logger,
         IOptions<ApiOptions> apiOptions,
         ISignalRNotificationService notifications,
-        CacheReconciliationService reconciliationService)
+        CacheReconciliationService reconciliationService,
+        IUnifiedOperationTracker operationTracker,
+        IDbContextFactory<AppDbContext> dbContextFactory)
     {
         _context = context;
         _statsService = statsService;
@@ -55,6 +59,8 @@ public class StatsController : ControllerBase
         _apiOptions = apiOptions;
         _notifications = notifications;
         _reconciliationService = reconciliationService;
+        _operationTracker = operationTracker;
+        _dbContextFactory = dbContextFactory;
     }
 
     /// <summary>
@@ -452,6 +458,54 @@ public class StatsController : ControllerBase
         {
             reason = "eviction-updated"
         });
+
+        if (request.EvictedDataMode == EvictedDataModes.Remove)
+        {
+            // Check for an already-running removal operation
+            var activeOps = _operationTracker.GetActiveOperations(OperationType.EvictionRemoval);
+            if (activeOps.Any())
+            {
+                return Conflict(new
+                {
+                    error = "Eviction removal already in progress",
+                    operationId = activeOps.First().Id
+                });
+            }
+
+            var cts = new CancellationTokenSource();
+            var operationId = _operationTracker.RegisterOperation(
+                OperationType.EvictionRemoval,
+                "Eviction Removal",
+                cts);
+
+            await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalStarted,
+                new EvictionRemovalStarted("Removing evicted records from database...", operationId));
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cts.Token);
+                    await _reconciliationService.RemoveEvictedRecordsAsync(dbContext, cts.Token, operationId);
+                }
+                catch (Exception ex)
+                {
+                    // RemoveEvictedRecordsAsync handles its own error signalling; this catches only
+                    // unexpected failures before the method is entered (e.g. DbContext creation failure).
+                    _logger.LogError(ex, "[EvictionRemoval] Unhandled error before removal started");
+                    _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
+                    await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalComplete,
+                        new EvictionRemovalComplete(false, operationId, "Eviction removal failed to start.", 0, 0, ex.Message));
+                }
+                finally
+                {
+                    cts.Dispose();
+                }
+            }, cts.Token);
+
+            return Accepted(new { evictedDataMode = request.EvictedDataMode, operationId });
+        }
+
         return Ok(new { evictedDataMode = request.EvictedDataMode });
     }
 

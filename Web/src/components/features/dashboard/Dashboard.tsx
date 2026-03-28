@@ -607,7 +607,7 @@ const Dashboard: React.FC = () => {
   );
 
   return (
-    <div className={`space-y-4 ${isEditMode ? 'edit-mode-active' : ''}`}>
+    <div className={`space-y-4 animate-fadeIn ${isEditMode ? 'edit-mode-active' : ''}`}>
       {/* Dashboard Header */}
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
         <h2 className="text-2xl font-bold text-themed-primary tracking-tight hidden md:block">

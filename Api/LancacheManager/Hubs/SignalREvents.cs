@@ -54,6 +54,9 @@ public static class SignalREvents
     public const string EvictionScanStarted = "EvictionScanStarted";
     public const string EvictionScanProgress = "EvictionScanProgress";
     public const string EvictionScanComplete = "EvictionScanComplete";
+    public const string EvictionRemovalStarted = "EvictionRemovalStarted";
+    public const string EvictionRemovalProgress = "EvictionRemovalProgress";
+    public const string EvictionRemovalComplete = "EvictionRemovalComplete";
 
     // Games
     public const string GameDetectionStarted = "GameDetectionStarted";

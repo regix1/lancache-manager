@@ -55,8 +55,9 @@ fn build_database_url() -> String {
 }
 
 fn read_password_from_config() -> Option<String> {
-    let config_path = "/data/postgres-credentials.json";
-    let content = fs::read_to_string(config_path).ok()?;
+    let config_path = std::env::var("POSTGRES_CREDENTIALS_PATH")
+        .unwrap_or_else(|_| "/data/config/postgres-credentials.json".to_string());
+    let content = fs::read_to_string(&config_path).ok()?;
     let config: serde_json::Value = serde_json::from_str(&content).ok()?;
     config.get("password")?.as_str().map(|s| s.to_string())
 }

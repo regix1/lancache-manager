@@ -43,9 +43,11 @@ services:
 
       # User ID the application runs as (match your filesystem permissions)
       # Common values: 33 (www-data on Debian/Ubuntu), 1000 (default user)
+      # For Unraid, use 99
       - PUID=33
 
       # Group ID the application runs as
+      # For Unraid, use 100
       - PGID=33
 
       # Timezone for log timestamps and display

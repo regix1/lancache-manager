@@ -2,7 +2,6 @@ using System.Diagnostics;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
-using LancacheManager.Infrastructure.Platform;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
@@ -175,7 +174,7 @@ public class CacheClearingService : IHostedService
             {
                 var errorMessage = "Cannot clear cache: all cache directories are read-only. " +
                     "This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. " +
-                    "The lancache container usually runs as UID/GID 33:33 (www-data).";
+                    $"The lancache container is configured to run as UID/GID {ContainerEnvironment.UidGid} (configured via PUID/PGID environment variables).";
 
                 _logger.LogWarning("[CacheClear] Permission check failed: {Error}", errorMessage);
 
@@ -1007,8 +1006,8 @@ public class CacheClearingService : IHostedService
 
     public bool IsRsyncAvailable()
     {
-        // Rsync only available on Linux (check using existing IPathResolver detection)
-        if (_pathResolver is not LinuxPathResolver)
+        // Rsync only available on Linux
+        if (!OperatingSystemDetector.IsLinux)
         {
             return false;
         }

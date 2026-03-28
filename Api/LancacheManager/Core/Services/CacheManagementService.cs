@@ -122,7 +122,7 @@ public class CacheManagementService
         // Initialize Docker client for reading container configuration
         try
         {
-            if (!OperatingSystem.IsWindows())
+            if (!OperatingSystemDetector.IsWindows)
             {
                 var dockerUri = new Uri("unix:///var/run/docker.sock");
                 if (File.Exists("/var/run/docker.sock"))
@@ -149,7 +149,7 @@ public class CacheManagementService
         try
         {
             // For Windows development, skip drive info
-            if (Environment.OSVersion.Platform == PlatformID.Win32NT)
+            if (OperatingSystemDetector.IsWindows)
             {
                 return info;
             }

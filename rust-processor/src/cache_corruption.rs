@@ -650,11 +650,7 @@ async fn main() -> Result<()> {
             }
 
             // Use all candidates for log/DB cleanup (includes stale entries where cache files are gone)
-            let corrupted_urls: std::collections::HashSet<String> = if corrupted_urls_with_sizes.is_empty() {
-                all_candidate_urls
-            } else {
-                corrupted_urls_with_sizes.keys().cloned().collect()
-            };
+            let corrupted_urls: std::collections::HashSet<String> = all_candidate_urls;
 
             // PASS 2: Filter log files, removing MISS/UNKNOWN lines for corrupted URLs
             eprintln!("Step 2: Filtering log files to remove corrupted chunks...");
@@ -893,11 +889,13 @@ async fn main() -> Result<()> {
 
             // CRITICAL: If we had permission errors, do NOT delete database records
             if permission_errors > 0 {
+                let puid = std::env::var("PUID").unwrap_or_else(|_| "1000".to_string());
+                let pgid = std::env::var("PGID").unwrap_or_else(|_| "1000".to_string());
                 let error_msg = format!(
                     "ABORTED: Cannot delete database records because {} cache files could not be deleted due to permission errors. \
-                    This is likely caused by incorrect PUID/PGID settings. The lancache container typically runs as UID/GID 33:33 (www-data). \
+                    This is likely caused by incorrect PUID/PGID settings. The lancache container is configured to run as UID/GID {}:{}. \
                     Please check your docker-compose.yml and ensure PUID and PGID match the cache file ownership.",
-                    permission_errors
+                    permission_errors, puid, pgid
                 );
                 eprintln!("\n{}", error_msg);
                 write_progress(&progress_path, "failed", &error_msg, 0.0, 0, 0)?;

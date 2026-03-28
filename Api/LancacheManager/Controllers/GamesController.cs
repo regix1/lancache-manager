@@ -59,7 +59,7 @@ public class GamesController : ControllerBase
 
         var errorMessage = $"Cannot {operationDescription}: {string.Join(" and ", errors)}. " +
             "This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. " +
-            "The lancache container usually runs as UID/GID 33:33 (www-data).";
+            $"The lancache container is configured to run as UID/GID {ContainerEnvironment.UidGid} (configured via PUID/PGID environment variables).";
 
         return BadRequest(new ErrorResponse { Error = errorMessage });
     }

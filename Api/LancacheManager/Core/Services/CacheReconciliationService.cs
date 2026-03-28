@@ -474,18 +474,43 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
     /// <summary>
     /// Deletes all evicted Download records and their associated LogEntries from the database.
-    /// Called when evicted data mode is set to "remove".
+    /// Called when evicted data mode is set to "remove", either from the scan flow (no operationId)
+    /// or from the controller with a pre-registered operationId.
+    /// When operationId is null, a new operation is registered and Started is emitted internally.
+    /// In both cases Progress and Complete events are always emitted.
     /// </summary>
-    private async Task RemoveEvictedRecordsAsync(AppDbContext context, CancellationToken stoppingToken)
+    public async Task RemoveEvictedRecordsAsync(AppDbContext context, CancellationToken stoppingToken, string? operationId = null)
     {
+        CancellationTokenSource? cts = null;
+
+        if (operationId == null)
+        {
+            cts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+            operationId = _operationTracker.RegisterOperation(
+                OperationType.EvictionRemoval,
+                "Eviction Removal",
+                cts);
+
+            await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalStarted,
+                new EvictionRemovalStarted("Removing evicted records from database...", operationId));
+        }
+
         try
         {
-            // Delete LogEntries for evicted downloads first (foreign key constraint)
+            // Step 1: Delete LogEntries for evicted downloads first (foreign key constraint)
+            _operationTracker.UpdateProgress(operationId, 0, "Removing associated log entries...");
+            await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
+                new EvictionRemovalProgress(operationId, "removing_log_entries", "Removing associated log entries...", 0, 0, 0));
+
             var logEntriesDeleted = await context.LogEntries
                 .Where(le => le.DownloadId != null && le.Download != null && le.Download.IsEvicted)
                 .ExecuteDeleteAsync(stoppingToken);
 
-            // Delete evicted Downloads
+            // Step 2: Delete evicted Downloads
+            _operationTracker.UpdateProgress(operationId, 50, "Removing evicted download records...");
+            await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
+                new EvictionRemovalProgress(operationId, "removing_downloads", "Removing evicted download records...", 50, 0, logEntriesDeleted));
+
             var downloadsDeleted = await context.Downloads
                 .Where(d => d.IsEvicted)
                 .ExecuteDeleteAsync(stoppingToken);
@@ -496,10 +521,22 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     "[EvictionScan] Remove mode: deleted {Downloads} evicted downloads and {LogEntries} associated log entries",
                     downloadsDeleted, logEntriesDeleted);
             }
+
+            _operationTracker.UpdateProgress(operationId, 100, "Eviction removal complete.");
+            _operationTracker.CompleteOperation(operationId, success: true);
+            await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalComplete,
+                new EvictionRemovalComplete(true, operationId, "Eviction removal complete.", downloadsDeleted, logEntriesDeleted));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[EvictionScan] Error removing evicted records from database");
+            _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
+            await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalComplete,
+                new EvictionRemovalComplete(false, operationId, "Eviction removal failed.", 0, 0, ex.Message));
+        }
+        finally
+        {
+            cts?.Dispose();
         }
     }
 }

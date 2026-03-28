@@ -215,7 +215,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         try
         {
             Uri dockerUri;
-            if (OperatingSystem.IsWindows())
+            if (OperatingSystemDetector.IsWindows)
             {
                 dockerUri = new Uri("npipe://./pipe/docker_engine");
             }
@@ -225,7 +225,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             }
 
             // Check if Docker socket exists
-            if (!OperatingSystem.IsWindows() && !File.Exists("/var/run/docker.sock"))
+            if (!OperatingSystemDetector.IsWindows && !File.Exists("/var/run/docker.sock"))
             {
                 _logger.LogWarning("Docker socket not found at /var/run/docker.sock. " +
                     "Mount the Docker socket to enable prefill containers: -v /var/run/docker.sock:/var/run/docker.sock");
@@ -1540,7 +1540,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         {
             if (string.Equals(configured, "auto", StringComparison.OrdinalIgnoreCase))
             {
-                return OperatingSystem.IsWindows();
+                return OperatingSystemDetector.IsWindows;
             }
 
             if (bool.TryParse(configured, out var parsed))
@@ -1551,7 +1551,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             _logger.LogWarning("Invalid Prefill:UseTcp value '{Value}', falling back to auto.", configured);
         }
 
-        return OperatingSystem.IsWindows();
+        return OperatingSystemDetector.IsWindows;
     }
 
     private int GetContainerTcpPort()
@@ -1597,7 +1597,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             return _cachedHostDataPath;
         }
 
-        if (OperatingSystem.IsWindows())
+        if (OperatingSystemDetector.IsWindows)
         {
             _cachedHostDataPath = _pathResolver.GetDataDirectory();
             return _cachedHostDataPath;

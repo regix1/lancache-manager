@@ -94,7 +94,7 @@ COPY --from=frontend-builder /app/dist /app/publish/wwwroot
 # Copy Rust binaries to the publish directory
 COPY --from=rust-builder /build/output/* /app/publish/rust-processor/
 
-# Stage 3: Runtime
+# Stage 4: Runtime
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
 ARG VERSION
 WORKDIR /app
@@ -128,6 +128,8 @@ RUN apt-get update && \
     gnupg \
     lsb-release \
     gosu \
+    acl \
+    jq \
     && install -m 0755 -d /etc/apt/keyrings \
     && curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
     && chmod a+r /etc/apt/keyrings/docker.gpg \

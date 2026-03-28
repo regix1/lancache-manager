@@ -133,23 +133,7 @@ else if (OperatingSystemDetector.IsLinux)
     builder.Services.AddSingleton<IPathResolver, LinuxPathResolver>();
     builder.Services.AddSingleton<IMemoryManager, LinuxMemoryManager>();
     Console.WriteLine("Platform: Linux - Using LinuxMemoryManager with glibc malloc optimizations");
-
-    // Log environment variable overrides if present
-    var mallocArenaMax = Environment.GetEnvironmentVariable("MALLOC_ARENA_MAX");
-    var mallocTrimThreshold = Environment.GetEnvironmentVariable("MALLOC_TRIM_THRESHOLD_");
-
-    if (!string.IsNullOrEmpty(mallocArenaMax))
-    {
-        Console.WriteLine($"  MALLOC_ARENA_MAX environment override detected: {mallocArenaMax}");
-    }
-    if (!string.IsNullOrEmpty(mallocTrimThreshold))
-    {
-        Console.WriteLine($"  MALLOC_TRIM_THRESHOLD_ environment override detected: {mallocTrimThreshold}");
-    }
-    if (string.IsNullOrEmpty(mallocArenaMax) && string.IsNullOrEmpty(mallocTrimThreshold))
-    {
-        Console.WriteLine("  Using automatic malloc configuration (M_ARENA_MAX=4, M_TRIM_THRESHOLD=128KB)");
-    }
+    // Malloc configuration details are logged by LinuxMemoryManager
 }
 else
 {
@@ -182,12 +166,25 @@ MigrateDataProtectionKeys(legacyKeyPath, securityDir, dataProtectionKeyPath);
 // Ensure the directory exists
 Directory.CreateDirectory(dataProtectionKeyPath);
 
+if (OperatingSystemDetector.IsLinux)
+{
+    try
+    {
+        File.SetUnixFileMode(dataProtectionKeyPath, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+    }
+    catch (Exception ex)
+    {
+        // Log but don't fail startup
+        Console.WriteLine($"Warning: Could not set permissions on DataProtection keys directory: {ex.Message}");
+    }
+}
+
 var dataProtection = builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionKeyPath));
 
 // On Windows, use DPAPI to encrypt keys at rest
 // On Linux/Docker, keys are protected by filesystem permissions (chmod 700)
-if (OperatingSystem.IsWindows())
+if (OperatingSystemDetector.IsWindows)
 {
     dataProtection.ProtectKeysWithDpapi();
 }
@@ -236,9 +233,11 @@ var pgUser = Environment.GetEnvironmentVariable("POSTGRES_USER");
 var pgPassword = Environment.GetEnvironmentVariable("POSTGRES_PASSWORD");
 
 // Check persistent config file if no env var credentials (production Docker setup page flow)
+// Runs pre-DI; cannot use IPathResolver. Uses dataRoot computed above.
+const string PostgresCredentialsFileName = "postgres-credentials.json";
 if (string.IsNullOrEmpty(pgPassword))
 {
-    var configPath = "/data/postgres-credentials.json";
+    var configPath = Path.Combine(dataRoot, "config", PostgresCredentialsFileName);
     if (File.Exists(configPath))
     {
         try
@@ -672,7 +671,7 @@ _ = Task.Run(async () =>
 
 app.Run();
 
-// Helper function to find project root for Data Protection setup (before DI is available)
+// Runs pre-DI; cannot use IPathResolver. Mirrors PathResolverBase.GetDataProtectionKeysPath()
 static string FindProjectRootForDataProtection()
 {
     var currentDir = Directory.GetCurrentDirectory().Replace('/', '\\');

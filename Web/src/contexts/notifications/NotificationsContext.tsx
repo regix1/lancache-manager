@@ -40,7 +40,10 @@ import type {
   EpicMappingProgressEvent,
   EvictionScanStartedEvent,
   EvictionScanProgressEvent,
-  EvictionScanCompleteEvent
+  EvictionScanCompleteEvent,
+  EvictionRemovalStartedEvent,
+  EvictionRemovalProgressEvent,
+  EvictionRemovalCompleteEvent
 } from '../SignalRContext/types';
 
 import type { UnifiedNotification } from './types';
@@ -193,7 +196,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
         corruption_detection: NOTIFICATION_IDS.CORRUPTION_DETECTION,
         data_import: NOTIFICATION_IDS.DATA_IMPORT,
         epic_game_mapping: NOTIFICATION_IDS.EPIC_GAME_MAPPING,
-        eviction_scan: NOTIFICATION_IDS.EVICTION_SCAN
+        eviction_scan: NOTIFICATION_IDS.EVICTION_SCAN,
+        eviction_removal: NOTIFICATION_IDS.EVICTION_REMOVAL
       };
 
       if (typeToIdMap[notification.type]) {
@@ -1070,6 +1074,56 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       scheduleAutoDismiss
     );
 
+    const handleEvictionRemovalStarted = createStartedHandler<EvictionRemovalStartedEvent>(
+      {
+        type: 'eviction_removal',
+        getId: () => NOTIFICATION_IDS.EVICTION_REMOVAL,
+        storageKey: NOTIFICATION_STORAGE_KEYS.EVICTION_REMOVAL,
+        defaultMessage: 'Removing evicted game data...',
+        getMessage: (e) => e.message || 'Removing evicted game data...',
+        getDetails: (e) => ({ operationId: e.operationId })
+      },
+      setNotifications,
+      cancelAutoDismissTimer
+    );
+
+    const handleEvictionRemovalProgress =
+      createStatusAwareProgressHandler<EvictionRemovalProgressEvent>(
+        {
+          type: 'eviction_removal',
+          getId: () => NOTIFICATION_IDS.EVICTION_REMOVAL,
+          storageKey: NOTIFICATION_STORAGE_KEYS.EVICTION_REMOVAL,
+          getMessage: (e) => e.message || 'Removing evicted data...',
+          getProgress: (e) => e.percentComplete || 0,
+          getStatus: (e) =>
+            e.status === 'completed'
+              ? 'completed'
+              : e.status === 'failed' || e.status === 'cancelled'
+                ? 'failed'
+                : undefined,
+          getCompletedMessage: (e) => e.message || 'Eviction removal completed',
+          getErrorMessage: (e) => e.message || 'Eviction removal failed',
+          getDetails: (e) => ({ operationId: e.operationId })
+        },
+        setNotifications,
+        scheduleAutoDismiss,
+        cancelAutoDismissTimer
+      );
+
+    const handleEvictionRemovalComplete = createCompletionHandler<EvictionRemovalCompleteEvent>(
+      {
+        type: 'eviction_removal',
+        getId: () => NOTIFICATION_IDS.EVICTION_REMOVAL,
+        storageKey: NOTIFICATION_STORAGE_KEYS.EVICTION_REMOVAL,
+        getSuccessMessage: (e) => e.message || 'Evicted game data removed successfully',
+        getFailureMessage: (e) => e.error || e.message || 'Eviction removal failed',
+        supportFastCompletion: true,
+        getFastCompletionId: () => NOTIFICATION_IDS.EVICTION_REMOVAL
+      },
+      setNotifications,
+      scheduleAutoDismiss
+    );
+
     // Subscribe to events
     signalR.on('LogProcessingStarted', handleLogProcessingStarted);
     signalR.on('LogProcessingProgress', handleProcessingProgress);
@@ -1109,6 +1163,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     signalR.on('EvictionScanStarted', handleEvictionScanStarted);
     signalR.on('EvictionScanProgress', handleEvictionScanProgress);
     signalR.on('EvictionScanComplete', handleEvictionScanComplete);
+    signalR.on('EvictionRemovalStarted', handleEvictionRemovalStarted);
+    signalR.on('EvictionRemovalProgress', handleEvictionRemovalProgress);
+    signalR.on('EvictionRemovalComplete', handleEvictionRemovalComplete);
 
     return () => {
       signalR.off('LogProcessingStarted', handleLogProcessingStarted);
@@ -1149,6 +1206,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       signalR.off('EvictionScanStarted', handleEvictionScanStarted);
       signalR.off('EvictionScanProgress', handleEvictionScanProgress);
       signalR.off('EvictionScanComplete', handleEvictionScanComplete);
+      signalR.off('EvictionRemovalStarted', handleEvictionRemovalStarted);
+      signalR.off('EvictionRemovalProgress', handleEvictionRemovalProgress);
+      signalR.off('EvictionRemovalComplete', handleEvictionRemovalComplete);
     };
   }, [signalR, addNotification, updateNotification, scheduleAutoDismiss, cancelAutoDismissTimer]);
 

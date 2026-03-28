@@ -55,6 +55,7 @@ const DataSection: React.FC<DataSectionProps> = ({
   const [savedEvictionMode, setSavedEvictionMode] = useState<string>('show');
   const [evictionLoading, setEvictionLoading] = useState(false);
   const [evictionSaving, setEvictionSaving] = useState(false);
+  const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
   const [isStartingEvictionScan, setIsStartingEvictionScan] = useState(false);
   const evictionScanInFlightRef = useRef(false);
   const [resettingEvictions, setResettingEvictions] = useState(false);
@@ -89,7 +90,7 @@ const DataSection: React.FC<DataSectionProps> = ({
     return () => controller.abort();
   }, [loadEvictionSettings]);
 
-  const handleSaveEviction = async () => {
+  const performEvictionSave = async () => {
     setEvictionSaving(true);
     try {
       const response = await ApiService.updateEvictionSettings(evictionMode);
@@ -105,6 +106,19 @@ const DataSection: React.FC<DataSectionProps> = ({
     } finally {
       setEvictionSaving(false);
     }
+  };
+
+  const handleSaveEviction = async () => {
+    if (evictionMode === 'remove' && savedEvictionMode !== 'remove') {
+      setShowRemoveConfirm(true);
+      return;
+    }
+    await performEvictionSave();
+  };
+
+  const handleConfirmRemove = async () => {
+    await performEvictionSave();
+    setShowRemoveConfirm(false);
   };
 
   const handleStartEvictionScan = async () => {
@@ -630,6 +644,44 @@ const DataSection: React.FC<DataSectionProps> = ({
           </div>
         </Card>
       </div>
+
+      {/* Eviction Remove Confirmation Modal */}
+      <Modal
+        opened={showRemoveConfirm}
+        onClose={evictionSaving ? () => undefined : () => setShowRemoveConfirm(false)}
+        title={
+          <div className="flex items-center space-x-3">
+            <AlertTriangle className="w-6 h-6 text-themed-warning" />
+            <span>{t('management.sections.data.evictionRemoveConfirmTitle')}</span>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-themed-secondary">
+            {t('management.sections.data.evictionRemoveConfirmMessage')}
+          </p>
+          <Alert color="yellow">
+            <p className="text-sm">{t('management.sections.data.evictionRemoveConfirmWarning')}</p>
+          </Alert>
+          <div className="flex justify-end space-x-3 pt-2">
+            <Button
+              variant="default"
+              onClick={() => setShowRemoveConfirm(false)}
+              disabled={evictionSaving}
+            >
+              {t('management.sections.data.evictionRemoveConfirmCancel')}
+            </Button>
+            <Button
+              variant="filled"
+              color="red"
+              onClick={handleConfirmRemove}
+              loading={evictionSaving}
+            >
+              {t('management.sections.data.evictionRemoveConfirmButton')}
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Confirmation Modal */}
       <Modal
