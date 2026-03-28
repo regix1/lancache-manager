@@ -334,7 +334,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
           ) : (
             <>
               <div className="space-y-2 mb-4">
-                {(['show', 'hide', 'remove'] as const).map((mode) => (
+                {(['show', 'showClean', 'hide', 'remove'] as const).map((mode) => (
                   <label
                     key={mode}
                     className={`eviction-mode-option p-3 rounded-lg cursor-pointer flex items-start gap-3 transition-all duration-150 bg-themed-secondary${evictionMode === mode ? ' eviction-mode-option-selected' : ''}`}

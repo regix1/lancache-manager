@@ -443,7 +443,7 @@ public class StatsController : ControllerBase
     [Authorize(Policy = "AdminOnly")]
     public async Task<IActionResult> UpdateEvictionSettingsAsync([FromBody] UpdateEvictionSettingsRequest request)
     {
-        var validModes = new[] { EvictedDataModes.Show, EvictedDataModes.Hide, EvictedDataModes.Remove };
+        var validModes = new[] { EvictedDataModes.Show, EvictedDataModes.ShowClean, EvictedDataModes.Hide, EvictedDataModes.Remove };
         if (string.IsNullOrEmpty(request.EvictedDataMode) || !validModes.Contains(request.EvictedDataMode))
         {
             return BadRequest(new

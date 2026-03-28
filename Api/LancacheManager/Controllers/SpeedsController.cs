@@ -55,6 +55,10 @@ public class SpeedsController : ControllerBase
         {
             filteredGames = filteredGames.Where(g => !g.IsEvicted).ToList();
         }
+        else if (evictedMode == EvictedDataModes.ShowClean)
+        {
+            foreach (var g in filteredGames) g.IsEvicted = false;
+        }
 
         var totalBytesPerSecond = filteredClients.Sum(c => c.BytesPerSecond);
         var entriesInWindow = filteredGames.Sum(g => g.RequestCount);

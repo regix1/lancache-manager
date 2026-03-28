@@ -1387,8 +1387,10 @@
         "evictedCacheData": "Evicted Game Data",
         "evictedCacheDescription": "Controls how games that have been evicted from the nginx cache are handled. Eviction happens automatically when the cache disk fills up.",
         "evictionModes": {
-          "show": "Show",
-          "showDescription": "Evicted game data remains visible on all pages with an 'Evicted' badge and are included in stat calculations",
+          "show": "Show with Badge",
+          "showDescription": "Evicted game data remains visible on all pages with an 'Evicted' badge and dimmed appearance, included in stat calculations",
+          "showClean": "Show",
+          "showCleanDescription": "Evicted game data is shown normally without any badge or dimming, included in stat calculations",
           "hide": "Hide",
           "hideDescription": "Evicted game data is hidden from all pages and excluded from all stat calculations",
           "remove": "Remove",

@@ -122,6 +122,11 @@ public class DownloadsController : ControllerBase
             {
                 downloads = downloads.Where(d => !d.IsEvicted).ToList();
             }
+            // ShowClean: include evicted downloads but mask the flag (no badge/dimming on frontend)
+            else if (evictedMode == EvictedDataModes.ShowClean)
+            {
+                foreach (var d in downloads) d.IsEvicted = false;
+            }
 
             // Return just the array - frontend will use array.length for actual count
             return Ok(downloads);
@@ -161,6 +166,11 @@ public class DownloadsController : ControllerBase
         if ((evictedMode == EvictedDataModes.Hide || evictedMode == EvictedDataModes.Remove) && download.IsEvicted)
         {
             throw new NotFoundException("Download");
+        }
+        // ShowClean: mask the evicted flag so frontend shows no badge/dimming
+        if (evictedMode == EvictedDataModes.ShowClean)
+        {
+            download.IsEvicted = false;
         }
 
         download.WithUtcMarking();
