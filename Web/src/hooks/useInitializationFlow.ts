@@ -188,10 +188,23 @@ export function useInitializationFlow({
   onAuthChanged
 }: UseInitializationFlowOptions): UseInitializationFlowResult {
   const { t } = useTranslation();
-  const { setupStatus, refreshSetupStatus, updateWizardState } = useSetupStatus();
+  const {
+    setupStatus,
+    isLoading: setupStatusLoading,
+    refreshSetupStatus,
+    updateWizardState
+  } = useSetupStatus();
 
   // Track whether we've done the initial hydration from server state
   const hydratedRef = useRef(false);
+
+  // Track last-persisted values to avoid redundant API calls.
+  // Without these guards, the persistence effects fire even when the value
+  // hasn't changed (e.g., after setupStatus re-renders with the same data),
+  // which could still produce unnecessary PATCH requests.
+  const lastPersistedStep = useRef<string | null>(null);
+  const lastPersistedDataSource = useRef<string | null>(null);
+  const lastPersistedPlatforms = useRef<string | null>(null);
 
   // --- State ---
   const [currentStep, setCurrentStep] = useState<InitStep>(() => {
@@ -290,20 +303,29 @@ export function useInitializationFlow({
   });
 
   // --- Persist state changes to server ---
+  // Each effect guards against redundant calls by comparing with the last-persisted value.
+  // This prevents feedback loops even if updateWizardState or setupStatus causes re-renders.
   useEffect(() => {
-    // Skip persistence until initial hydration is complete
     if (!hydratedRef.current) return;
+    if (currentStep === lastPersistedStep.current) return;
+    lastPersistedStep.current = currentStep;
     updateWizardState({ currentSetupStep: currentStep });
   }, [currentStep, updateWizardState]);
 
   useEffect(() => {
     if (!hydratedRef.current) return;
-    updateWizardState({ dataSourceChoice: dataSourceChoice ?? null });
+    const value = dataSourceChoice ?? null;
+    if (value === lastPersistedDataSource.current) return;
+    lastPersistedDataSource.current = value;
+    updateWizardState({ dataSourceChoice: value });
   }, [dataSourceChoice, updateWizardState]);
 
   useEffect(() => {
     if (!hydratedRef.current) return;
-    updateWizardState({ completedPlatforms: JSON.stringify(completedPlatforms) });
+    const value = JSON.stringify(completedPlatforms);
+    if (value === lastPersistedPlatforms.current) return;
+    lastPersistedPlatforms.current = value;
+    updateWizardState({ completedPlatforms: value });
   }, [completedPlatforms, updateWizardState]);
 
   // --- Initial setup status check ---
@@ -330,6 +352,9 @@ export function useInitializationFlow({
         // Not authenticated -> show database-setup step (will auto-skip if not needed)
         if (!authCheck.isAuthenticated) {
           setCurrentStep('database-setup');
+          lastPersistedStep.current = 'database-setup';
+          lastPersistedDataSource.current = null;
+          lastPersistedPlatforms.current = JSON.stringify({ steam: null, epic: false });
           hydratedRef.current = true;
           setIsCheckingAuth(false);
           return;
@@ -357,6 +382,11 @@ export function useInitializationFlow({
             await checkPicsDataStatus();
           }
           setCurrentStep(serverStep as InitStep);
+          lastPersistedStep.current = serverStep;
+          lastPersistedDataSource.current = setupStatus?.dataSourceChoice ?? null;
+          lastPersistedPlatforms.current = setupStatus?.completedPlatforms
+            ? JSON.stringify(parseCompletedPlatforms(setupStatus.completedPlatforms))
+            : JSON.stringify({ steam: null, epic: false });
           hydratedRef.current = true;
           setIsCheckingAuth(false);
           return;
@@ -386,12 +416,18 @@ export function useInitializationFlow({
   useEffect(() => {
     if (currentStep !== 'database-setup') return;
 
+    // Wait until setupStatus is definitively loaded from the server.
+    // Without this guard, setupStatus could be populated from error/fallback
+    // defaults (which set needsPostgresCredentials: false), causing the step
+    // to be skipped before the real server response arrives.
+    if (setupStatusLoading) return;
+
     // Use setupStatus from context — needsPostgresCredentials drives this
     if (setupStatus && !setupStatus.needsPostgresCredentials) {
       // Database already configured, skip to api-key
       setCurrentStep('api-key');
     }
-  }, [currentStep, setupStatus]);
+  }, [currentStep, setupStatus, setupStatusLoading]);
 
   // --- Navigation handlers ---
   const handleDatabaseSetupComplete = useCallback((): void => {

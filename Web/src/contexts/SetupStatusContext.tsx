@@ -37,11 +37,12 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
           completedPlatforms: data.completedPlatforms ?? null
         });
       } else {
-        // Non-OK response: set reasonable defaults
+        // Non-OK response: default to showing the database-setup step so the
+        // wizard doesn't silently skip it when credentials are actually needed.
         setSetupStatus({
           isCompleted: false,
           hasProcessedLogs: false,
-          needsPostgresCredentials: false,
+          needsPostgresCredentials: true,
           currentSetupStep: null,
           dataSourceChoice: null,
           completedPlatforms: null
@@ -53,11 +54,12 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
       } else {
         console.error('[SetupStatus] Failed to fetch setup status:', error);
       }
-      // On error/timeout: set reasonable defaults
+      // On error/timeout: default to showing the database-setup step so the
+      // wizard doesn't silently skip it when credentials are actually needed.
       setSetupStatus({
         isCompleted: false,
         hasProcessedLogs: false,
-        needsPostgresCredentials: false,
+        needsPostgresCredentials: true,
         currentSetupStep: null,
         dataSourceChoice: null,
         completedPlatforms: null
@@ -98,7 +100,27 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
         })
       );
       if (response.ok) {
-        await fetchSetupStatus();
+        // Optimistically update local state instead of re-fetching.
+        // Re-fetching created an infinite loop: PATCH -> fetchSetupStatus -> new
+        // setupStatus object reference -> useInitializationFlow effects re-fire ->
+        // another PATCH -> repeat. localStorage writes were synchronous and never
+        // triggered re-renders; this mirrors that behavior.
+        setSetupStatus((prev) =>
+          prev
+            ? {
+                ...prev,
+                ...(updates.currentSetupStep !== undefined && {
+                  currentSetupStep: updates.currentSetupStep ?? null
+                }),
+                ...(updates.dataSourceChoice !== undefined && {
+                  dataSourceChoice: updates.dataSourceChoice ?? null
+                }),
+                ...(updates.completedPlatforms !== undefined && {
+                  completedPlatforms: updates.completedPlatforms ?? null
+                })
+              }
+            : prev
+        );
       }
     } catch (error) {
       console.error('[SetupStatus] Failed to update wizard state:', error);
