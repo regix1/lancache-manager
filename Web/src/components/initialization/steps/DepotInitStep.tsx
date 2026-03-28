@@ -87,19 +87,14 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
       }
     };
 
+    // Register SignalR handlers BEFORE checking status to prevent race condition.
+    // If handlers were registered in a separate effect, a DepotMappingComplete event
+    // could fire between the status check (which sees isRebuildRunning: true) and handler
+    // registration, causing the event to be lost and the UI to be stuck forever.
     signalR.on('DepotMappingStarted', handleDepotMappingStarted);
     signalR.on('DepotMappingProgress', handleDepotMappingProgress);
     signalR.on('DepotMappingComplete', handleDepotMappingComplete);
 
-    return () => {
-      signalR.off('DepotMappingStarted', handleDepotMappingStarted);
-      signalR.off('DepotMappingProgress', handleDepotMappingProgress);
-      signalR.off('DepotMappingComplete', handleDepotMappingComplete);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signalR, selectedMethod, onComplete]);
-
-  useEffect(() => {
     const checkActiveOperation = async () => {
       try {
         const status = await ApiService.getPicsStatus();
@@ -112,8 +107,14 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
       }
     };
     checkActiveOperation();
+
+    return () => {
+      signalR.off('DepotMappingStarted', handleDepotMappingStarted);
+      signalR.off('DepotMappingProgress', handleDepotMappingProgress);
+      signalR.off('DepotMappingComplete', handleDepotMappingComplete);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [signalR, selectedMethod, onComplete]);
 
   useEffect(() => {
     if (hideOptions && !initializing && !selectedMethod && !error) {

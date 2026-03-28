@@ -76,37 +76,6 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
   }, [processing, onProcessingStateChange]);
 
   useEffect(() => {
-    const checkActiveProcessing = async () => {
-      try {
-        const status = await ApiService.getProcessingStatus();
-        if (status.isProcessing) {
-          setProcessing(true);
-          setProgress({
-            ...status,
-            progress: status.progress ?? 0,
-            status: status.status ?? 'processing'
-          });
-        } else if (status.status?.toLowerCase() === 'completed') {
-          // Processing already finished before component mounted (race condition)
-          setProgress({
-            isProcessing: false,
-            progress: 100,
-            status: 'completed',
-            entriesProcessed: status.entriesProcessed,
-            linesProcessed: status.linesProcessed,
-            totalLines: status.totalLines
-          });
-          setComplete(true);
-          setProcessing(false);
-        }
-      } catch (error) {
-        console.error('[LogProcessing] Failed to check processing status:', error);
-      }
-    };
-    checkActiveProcessing();
-  }, []);
-
-  useEffect(() => {
     const handleProcessingProgress = (progress: ProcessingProgressEvent) => {
       const currentProgress = progress.percentComplete || 0;
       const status = progress.status || 'processing';
@@ -166,8 +135,41 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
       setProcessing(false);
     };
 
+    // Register SignalR handlers BEFORE checking status to prevent race condition.
+    // If handlers were registered in a separate effect, a LogProcessingComplete event
+    // could fire between the status check (which sees isProcessing: true) and handler
+    // registration, causing the event to be lost and the UI to be stuck forever.
     signalR.on('LogProcessingProgress', handleProcessingProgress);
     signalR.on('LogProcessingComplete', handleLogProcessingComplete);
+
+    const checkActiveProcessing = async () => {
+      try {
+        const status = await ApiService.getProcessingStatus();
+        if (status.isProcessing) {
+          setProcessing(true);
+          setProgress({
+            ...status,
+            progress: status.progress ?? 0,
+            status: status.status ?? 'processing'
+          });
+        } else if (status.status?.toLowerCase() === 'completed') {
+          // Processing already finished before component mounted
+          setProgress({
+            isProcessing: false,
+            progress: 100,
+            status: 'completed',
+            entriesProcessed: status.entriesProcessed,
+            linesProcessed: status.linesProcessed,
+            totalLines: status.totalLines
+          });
+          setComplete(true);
+          setProcessing(false);
+        }
+      } catch (error) {
+        console.error('[LogProcessing] Failed to check processing status:', error);
+      }
+    };
+    checkActiveProcessing();
 
     return () => {
       signalR.off('LogProcessingProgress', handleProcessingProgress);
