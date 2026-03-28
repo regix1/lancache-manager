@@ -75,7 +75,7 @@ public class LinuxPathResolver : PathResolverBase
             // Check if directory exists
             if (!Directory.Exists(directoryPath))
             {
-                Logger.LogWarning("Directory does not exist: {Path}", directoryPath);
+                _logger.LogWarning("Directory does not exist: {Path}", directoryPath);
                 return false;
             }
 
@@ -86,7 +86,7 @@ public class LinuxPathResolver : PathResolverBase
             if (isReadOnlyMount.HasValue && isReadOnlyMount.Value)
             {
                 // Mount is definitely read-only - no need to test further
-                Logger.LogDebug("Directory is mounted read-only (from /proc/mounts): {Path}", directoryPath);
+                _logger.LogDebug("Directory is mounted read-only (from /proc/mounts): {Path}", directoryPath);
                 return false;
             }
 
@@ -96,7 +96,7 @@ public class LinuxPathResolver : PathResolverBase
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error testing write access to directory: {Path}", directoryPath);
+            _logger.LogError(ex, "Error testing write access to directory: {Path}", directoryPath);
             return false;
         }
     }
@@ -112,16 +112,16 @@ public class LinuxPathResolver : PathResolverBase
             // Check if docker socket exists at the standard location
             if (File.Exists("/var/run/docker.sock"))
             {
-                Logger.LogDebug("Docker socket found at /var/run/docker.sock");
+                _logger.LogDebug("Docker socket found at /var/run/docker.sock");
                 return true;
             }
 
-            Logger.LogDebug("Docker socket not found at /var/run/docker.sock");
+            _logger.LogDebug("Docker socket not found at /var/run/docker.sock");
             return false;
         }
         catch (Exception ex)
         {
-            Logger.LogWarning(ex, "Error checking Docker socket availability");
+            _logger.LogWarning(ex, "Error checking Docker socket availability");
             return false;
         }
     }
@@ -240,7 +240,7 @@ public class LinuxPathResolver : PathResolverBase
                 // Check if 'ro' is in the mount options
                 var options = matchingOptions.Split(',');
                 var isReadOnly = options.Contains("ro");
-                Logger.LogDebug("Mount options for {Path}: {Options} (read-only: {IsReadOnly})",
+                _logger.LogDebug("Mount options for {Path}: {Options} (read-only: {IsReadOnly})",
                     directoryPath, matchingOptions, isReadOnly);
                 return isReadOnly;
             }
@@ -249,7 +249,7 @@ public class LinuxPathResolver : PathResolverBase
         }
         catch (Exception ex)
         {
-            Logger.LogWarning(ex, "Failed to check Linux mount options for {Path}", directoryPath);
+            _logger.LogWarning(ex, "Failed to check Linux mount options for {Path}", directoryPath);
             return null;
         }
     }

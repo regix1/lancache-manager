@@ -1,6 +1,5 @@
 using System.Text.Json;
 using LancacheManager.Core.Interfaces;
-using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 
 namespace LancacheManager.Infrastructure.Services;
@@ -50,11 +49,11 @@ public class SteamAuthStorageService : ISteamAuthStorageService
                 _logger.LogInformation("Created steam_auth directory: {Directory}", _steamAuthDirectory);
 
                 // Set directory permissions (Windows: restrict to current user, Linux: 700)
-                if (OperatingSystemDetector.IsWindows)
+                if (OperatingSystem.IsWindows())
                 {
                     // On Windows, the directory inherits ACLs from parent, which is fine for most cases
                 }
-                else
+                else if (OperatingSystem.IsLinux())
                 {
                     // On Linux/Unix, set permissions to 700 (owner only)
                     try
@@ -202,7 +201,7 @@ public class SteamAuthStorageService : ISteamAuthStorageService
                 File.Move(tempFile, _steamAuthFilePath, true);
 
                 // Set file permissions (Windows: current user only, Linux: 600)
-                if (!OperatingSystemDetector.IsWindows)
+                if (OperatingSystem.IsLinux())
                 {
                     try
                     {

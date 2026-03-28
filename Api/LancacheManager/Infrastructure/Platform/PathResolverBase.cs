@@ -7,11 +7,11 @@ namespace LancacheManager.Infrastructure.Platform;
 /// </summary>
 public abstract class PathResolverBase : IPathResolver
 {
-    protected readonly ILogger Logger;
+    protected readonly ILogger _logger;
 
     protected PathResolverBase(ILogger logger)
     {
-        Logger = logger;
+        _logger = logger;
     }
 
     /// <summary>
@@ -94,23 +94,23 @@ public abstract class PathResolverBase : IPathResolver
                     {
                         File.Delete(file);
                         deletedCount++;
-                        Logger.LogDebug("Deleted old operation file: {File}", file);
+                        _logger.LogDebug("Deleted old operation file: {File}", file);
                     }
                 }
                 catch (Exception ex)
                 {
-                    Logger.LogWarning(ex, "Failed to delete operation file: {File}", file);
+                    _logger.LogWarning(ex, "Failed to delete operation file: {File}", file);
                 }
             }
 
             if (deletedCount > 0)
             {
-                Logger.LogInformation("Cleaned up {Count} old operation files from {Dir}", deletedCount, operationsDir);
+                _logger.LogInformation("Cleaned up {Count} old operation files from {Dir}", deletedCount, operationsDir);
             }
         }
         catch (Exception ex)
         {
-            Logger.LogWarning(ex, "Error cleaning up operations directory: {Dir}", operationsDir);
+            _logger.LogWarning(ex, "Error cleaning up operations directory: {Dir}", operationsDir);
         }
 
         return deletedCount;
@@ -145,23 +145,23 @@ public abstract class PathResolverBase : IPathResolver
                         // Move the file
                         File.Move(file, destPath, overwrite: true);
                         migratedCount++;
-                        Logger.LogDebug("Migrated operation file: {File} -> {Dest}", file, destPath);
+                        _logger.LogDebug("Migrated operation file: {File} -> {Dest}", file, destPath);
                     }
                     catch (Exception ex)
                     {
-                        Logger.LogWarning(ex, "Failed to migrate operation file: {File}", file);
+                        _logger.LogWarning(ex, "Failed to migrate operation file: {File}", file);
                     }
                 }
             }
 
             if (migratedCount > 0)
             {
-                Logger.LogInformation("Migrated {Count} operation files to {Dir}", migratedCount, operationsDir);
+                _logger.LogInformation("Migrated {Count} operation files to {Dir}", migratedCount, operationsDir);
             }
         }
         catch (Exception ex)
         {
-            Logger.LogWarning(ex, "Error migrating operation files to {Dir}", operationsDir);
+            _logger.LogWarning(ex, "Error migrating operation files to {Dir}", operationsDir);
         }
 
         return migratedCount;
@@ -235,7 +235,7 @@ public abstract class PathResolverBase : IPathResolver
         {
             if (!Directory.Exists(directoryPath))
             {
-                Logger.LogWarning("Directory does not exist: {Path}", directoryPath);
+                _logger.LogWarning("Directory does not exist: {Path}", directoryPath);
                 return false;
             }
 
@@ -243,7 +243,7 @@ public abstract class PathResolverBase : IPathResolver
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error testing write access to directory: {Path}", directoryPath);
+            _logger.LogError(ex, "Error testing write access to directory: {Path}", directoryPath);
             return false;
         }
     }
@@ -272,7 +272,7 @@ public abstract class PathResolverBase : IPathResolver
                 .Take(20) // Check up to 20 files for a representative sample
                 .ToList();
 
-            Logger.LogDebug("Found {Count} files to test in {Path}", existingFiles.Count, directoryPath);
+            _logger.LogDebug("Found {Count} files to test in {Path}", existingFiles.Count, directoryPath);
 
             if (existingFiles.Count > 0)
             {
@@ -280,20 +280,20 @@ public abstract class PathResolverBase : IPathResolver
                 {
                     try
                     {
-                        Logger.LogDebug("Testing write access on existing file: {Path}", existingFile);
+                        _logger.LogDebug("Testing write access on existing file: {Path}", existingFile);
                         // Try to open the file for write access WITHOUT modifying it
                         // FileShare.None is the definitive access check for write permission
                         using (var fs = new FileStream(existingFile, FileMode.Open, FileAccess.Write, FileShare.None))
                         {
                             // Successfully opened for write - we have permission
-                            Logger.LogDebug("Write access confirmed for file: {Path}", existingFile);
+                            _logger.LogDebug("Write access confirmed for file: {Path}", existingFile);
                             return true;
                         }
                     }
                     catch (UnauthorizedAccessException)
                     {
                         // Cannot modify this file - permission issue (likely PUID/PGID mismatch)
-                        Logger.LogWarning(
+                        _logger.LogWarning(
                             "Permission denied on existing file: {Path}. " +
                             "This typically indicates PUID/PGID mismatch - update docker-compose.yml to match lancache container ownership.",
                             existingFile);
@@ -302,13 +302,13 @@ public abstract class PathResolverBase : IPathResolver
                     catch (IOException ex)
                     {
                         // File might be locked, try the next one
-                        Logger.LogDebug(ex, "File locked or inaccessible, trying next: {Path}", existingFile);
+                        _logger.LogDebug(ex, "File locked or inaccessible, trying next: {Path}", existingFile);
                         continue;
                     }
                 }
 
                 // BUG 8 FIX: All sampled files were locked - log a warning before falling back
-                Logger.LogWarning(
+                _logger.LogWarning(
                     "All {Count} sampled files in {Path} were locked/inaccessible. " +
                     "Falling back to create-test, which may not detect PUID/PGID mismatches on existing cache files. " +
                     "This can happen when the cache is under heavy load.",
@@ -316,18 +316,18 @@ public abstract class PathResolverBase : IPathResolver
             }
             else
             {
-                Logger.LogDebug("No existing files found in {Path}, using create test", directoryPath);
+                _logger.LogDebug("No existing files found in {Path}, using create test", directoryPath);
             }
         }
         catch (UnauthorizedAccessException ex)
         {
             // Can't even enumerate files - definitely no access
-            Logger.LogWarning(ex, "Cannot enumerate files in directory (permission denied): {Path}", directoryPath);
+            _logger.LogWarning(ex, "Cannot enumerate files in directory (permission denied): {Path}", directoryPath);
             return false;
         }
         catch (Exception ex)
         {
-            Logger.LogDebug(ex, "Error checking existing files in {Path}, falling back to create test", directoryPath);
+            _logger.LogDebug(ex, "Error checking existing files in {Path}, falling back to create test", directoryPath);
         }
 
         // Step 2: Fallback - test if we can create/delete files in the directory
@@ -338,17 +338,17 @@ public abstract class PathResolverBase : IPathResolver
         {
             File.WriteAllText(testFilePath, "permission check");
             File.Delete(testFilePath);
-            Logger.LogDebug("Create/delete test passed in {Path}", directoryPath);
+            _logger.LogDebug("Create/delete test passed in {Path}", directoryPath);
             return true;
         }
         catch (UnauthorizedAccessException)
         {
-            Logger.LogDebug("Directory is read-only (cannot create files): {Path}", directoryPath);
+            _logger.LogDebug("Directory is read-only (cannot create files): {Path}", directoryPath);
             return false;
         }
         catch (IOException)
         {
-            Logger.LogDebug("Directory is read-only or inaccessible: {Path}", directoryPath);
+            _logger.LogDebug("Directory is read-only or inaccessible: {Path}", directoryPath);
             return false;
         }
     }

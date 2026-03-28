@@ -1,6 +1,5 @@
 using System.Text.Json;
 using LancacheManager.Core.Interfaces;
-using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
 
 namespace LancacheManager.Infrastructure.Services;
@@ -50,11 +49,11 @@ public class EpicAuthStorageService
                 _logger.LogInformation("Created epic_auth directory: {Directory}", _epicAuthDirectory);
 
                 // Set directory permissions (Windows: restrict to current user, Linux: 700)
-                if (OperatingSystemDetector.IsWindows)
+                if (OperatingSystem.IsWindows())
                 {
                     // On Windows, the directory inherits ACLs from parent, which is fine for most cases
                 }
-                else
+                else if (OperatingSystem.IsLinux())
                 {
                     // On Linux/Unix, set permissions to 700 (owner only)
                     try
@@ -183,7 +182,7 @@ public class EpicAuthStorageService
                 File.Move(tempFile, _epicAuthFilePath, true);
 
                 // Set file permissions (Windows: current user only, Linux: 600)
-                if (!OperatingSystemDetector.IsWindows)
+                if (OperatingSystem.IsLinux())
                 {
                     try
                     {

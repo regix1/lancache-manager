@@ -64,7 +64,7 @@ public class WindowsPathResolver : PathResolverBase
     {
         // Windows is development-only, Docker socket is a Linux/Docker concept
         // Return true to allow testing of features that would require docker socket in production
-        Logger.LogDebug("Docker socket check skipped on Windows (development environment)");
+        _logger.LogDebug("Docker socket check skipped on Windows (development environment)");
         return true;
     }
 

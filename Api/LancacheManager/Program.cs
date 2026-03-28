@@ -166,7 +166,7 @@ MigrateDataProtectionKeys(legacyKeyPath, securityDir, dataProtectionKeyPath);
 // Ensure the directory exists
 Directory.CreateDirectory(dataProtectionKeyPath);
 
-if (OperatingSystemDetector.IsLinux)
+if (OperatingSystem.IsLinux())
 {
     try
     {
@@ -184,7 +184,7 @@ var dataProtection = builder.Services.AddDataProtection()
 
 // On Windows, use DPAPI to encrypt keys at rest
 // On Linux/Docker, keys are protected by filesystem permissions (chmod 700)
-if (OperatingSystemDetector.IsWindows)
+if (OperatingSystem.IsWindows())
 {
     dataProtection.ProtectKeysWithDpapi();
 }
