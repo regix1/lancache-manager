@@ -1,10 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import authService from '@services/auth.service';
 import ApiService from '@services/api.service';
-import { storage } from '@utils/storage';
 import { useInitializationAuth } from '@hooks/useInitializationAuth';
-import { API_BASE } from '@utils/constants';
+import { useSetupStatus } from '@contexts/useSetupStatus';
 import type { PicsStatus } from '@/types';
 
 export type InitStep =
@@ -86,8 +85,6 @@ interface UseInitializationFlowOptions {
   onInitialized: () => void;
   onAuthChanged?: () => void;
 }
-
-const INIT_VERSION = '1.0';
 
 const buildStepInfoMap = (
   t: (key: string) => string,
@@ -175,44 +172,44 @@ const buildStepInfoMap = (
   return result;
 };
 
-const clearAllLocalStorage = (): void => {
-  storage.removeItem('initializationCurrentStep');
-  storage.removeItem('dataSourceChoice');
-  storage.removeItem('completedPlatforms');
-  storage.removeItem('steamApiKey');
-  storage.removeItem('importConnectionString');
-  storage.removeItem('importBatchSize');
-  storage.removeItem('importOverwriteExisting');
-  storage.removeItem('initializationVersion');
-};
+function parseCompletedPlatforms(raw: string | null): CompletedPlatforms {
+  if (raw) {
+    try {
+      return JSON.parse(raw) as CompletedPlatforms;
+    } catch {
+      /* fall through */
+    }
+  }
+  return { steam: null, epic: false };
+}
 
 export function useInitializationFlow({
   onInitialized,
   onAuthChanged
 }: UseInitializationFlowOptions): UseInitializationFlowResult {
   const { t } = useTranslation();
+  const { setupStatus, refreshSetupStatus, updateWizardState } = useSetupStatus();
+
+  // Track whether we've done the initial hydration from server state
+  const hydratedRef = useRef(false);
 
   // --- State ---
   const [currentStep, setCurrentStep] = useState<InitStep>(() => {
-    const stored = storage.getItem('initializationCurrentStep');
-    return (stored as InitStep) || 'database-setup';
+    if (setupStatus?.currentSetupStep) {
+      return setupStatus.currentSetupStep as InitStep;
+    }
+    return 'database-setup';
   });
 
   const [dataSourceChoice, setDataSourceChoice] = useState<DataSourceChoice>(() => {
-    const stored = storage.getItem('dataSourceChoice');
-    return (stored as DataSourceChoice) || null;
+    if (setupStatus?.dataSourceChoice) {
+      return setupStatus.dataSourceChoice as DataSourceChoice;
+    }
+    return null;
   });
 
   const [completedPlatforms, setCompletedPlatforms] = useState<CompletedPlatforms>(() => {
-    const stored = storage.getItem('completedPlatforms');
-    if (stored) {
-      try {
-        return JSON.parse(stored) as CompletedPlatforms;
-      } catch {
-        /* fall through */
-      }
-    }
-    return { steam: null, epic: false };
+    return parseCompletedPlatforms(setupStatus?.completedPlatforms ?? null);
   });
 
   const [apiKey, setApiKey] = useState('');
@@ -263,10 +260,22 @@ export function useInitializationFlow({
     }
   }, []);
 
+  const clearServerWizardState = useCallback(async (): Promise<void> => {
+    try {
+      await updateWizardState({
+        currentSetupStep: null,
+        dataSourceChoice: null,
+        completedPlatforms: null
+      });
+    } catch (error) {
+      console.warn('Failed to clear wizard state on server:', error);
+    }
+  }, [updateWizardState]);
+
   const handleInitializationComplete = useCallback((): void => {
-    clearAllLocalStorage();
+    clearServerWizardState();
     onInitialized();
-  }, [onInitialized]);
+  }, [onInitialized, clearServerWizardState]);
 
   // --- Auth hook integration ---
   const { authenticate } = useInitializationAuth({
@@ -280,32 +289,26 @@ export function useInitializationFlow({
     onInitializationComplete: handleInitializationComplete
   });
 
-  // --- Effects ---
+  // --- Persist state changes to server ---
   useEffect(() => {
-    storage.setItem('initializationCurrentStep', currentStep);
-  }, [currentStep]);
+    // Skip persistence until initial hydration is complete
+    if (!hydratedRef.current) return;
+    updateWizardState({ currentSetupStep: currentStep });
+  }, [currentStep, updateWizardState]);
 
   useEffect(() => {
-    if (dataSourceChoice) {
-      storage.setItem('dataSourceChoice', dataSourceChoice);
-    } else {
-      storage.removeItem('dataSourceChoice');
-    }
-  }, [dataSourceChoice]);
+    if (!hydratedRef.current) return;
+    updateWizardState({ dataSourceChoice: dataSourceChoice ?? null });
+  }, [dataSourceChoice, updateWizardState]);
 
   useEffect(() => {
-    storage.setItem('completedPlatforms', JSON.stringify(completedPlatforms));
-  }, [completedPlatforms]);
+    if (!hydratedRef.current) return;
+    updateWizardState({ completedPlatforms: JSON.stringify(completedPlatforms) });
+  }, [completedPlatforms, updateWizardState]);
 
+  // --- Initial setup status check ---
   useEffect(() => {
     const checkSetupStatus = async (): Promise<void> => {
-      const storedVersion = storage.getItem('initializationVersion');
-
-      if (storedVersion !== INIT_VERSION) {
-        clearAllLocalStorage();
-        storage.setItem('initializationVersion', INIT_VERSION);
-      }
-
       await checkDataAvailability();
 
       try {
@@ -313,11 +316,13 @@ export function useInitializationFlow({
         // Auth is always available (either admin or guest sessions)
         setAuthDisabled(false);
 
+        // Refresh to get latest server-side wizard state
+        await refreshSetupStatus();
         const setupData = await ApiService.getSetupStatus();
 
         // Setup complete and authenticated -> go to app
         if (setupData.isCompleted && authCheck.isAuthenticated) {
-          clearAllLocalStorage();
+          clearServerWizardState();
           onInitialized();
           return;
         }
@@ -325,36 +330,34 @@ export function useInitializationFlow({
         // Not authenticated -> show database-setup step (will auto-skip if not needed)
         if (!authCheck.isAuthenticated) {
           setCurrentStep('database-setup');
+          hydratedRef.current = true;
           setIsCheckingAuth(false);
           return;
         }
 
-        // Authenticated but setup not complete -> continue from stored step
-        const storedStep = storage.getItem('initializationCurrentStep');
-        if (storedStep && storedStep !== 'database-setup' && storedStep !== 'api-key') {
-          const storedChoice = storage.getItem('dataSourceChoice');
-          if (storedChoice) {
-            setDataSourceChoice(storedChoice as DataSourceChoice);
+        // Authenticated but setup not complete -> restore from server state
+        const serverStep = setupStatus?.currentSetupStep;
+        if (serverStep && serverStep !== 'database-setup' && serverStep !== 'api-key') {
+          const serverChoice = setupStatus?.dataSourceChoice;
+          if (serverChoice) {
+            setDataSourceChoice(serverChoice as DataSourceChoice);
           }
 
-          const storedCompleted = storage.getItem('completedPlatforms');
-          if (storedCompleted) {
-            try {
-              setCompletedPlatforms(JSON.parse(storedCompleted) as CompletedPlatforms);
-            } catch {
-              /* ignore parse errors */
-            }
+          const serverCompleted = setupStatus?.completedPlatforms;
+          if (serverCompleted) {
+            setCompletedPlatforms(parseCompletedPlatforms(serverCompleted));
           }
 
           if (
-            storedStep === 'depot-init' ||
-            storedStep === 'pics-progress' ||
-            storedStep === 'log-processing' ||
-            storedStep === 'depot-mapping'
+            serverStep === 'depot-init' ||
+            serverStep === 'pics-progress' ||
+            serverStep === 'log-processing' ||
+            serverStep === 'depot-mapping'
           ) {
             await checkPicsDataStatus();
           }
-          setCurrentStep(storedStep as InitStep);
+          setCurrentStep(serverStep as InitStep);
+          hydratedRef.current = true;
           setIsCheckingAuth(false);
           return;
         }
@@ -370,6 +373,7 @@ export function useInitializationFlow({
         console.error('Failed to check setup status:', error);
         setCurrentStep('database-setup');
       } finally {
+        hydratedRef.current = true;
         setIsCheckingAuth(false);
       }
     };
@@ -382,32 +386,18 @@ export function useInitializationFlow({
   useEffect(() => {
     if (currentStep !== 'database-setup') return;
 
-    const checkDatabaseSetup = async (): Promise<void> => {
-      try {
-        const response = await fetch(`${API_BASE}/setup/status`, { credentials: 'include' });
-        if (response.ok) {
-          const data = await response.json();
-          if (data.needsSetup !== true) {
-            // Database already configured, skip to api-key
-            setCurrentStep('api-key');
-          }
-        } else {
-          // Endpoint doesn't exist or errors — skip this step
-          setCurrentStep('api-key');
-        }
-      } catch {
-        // Network error — skip this step
-        setCurrentStep('api-key');
-      }
-    };
-
-    checkDatabaseSetup();
-  }, [currentStep]);
+    // Use setupStatus from context — needsPostgresCredentials drives this
+    if (setupStatus && !setupStatus.needsPostgresCredentials) {
+      // Database already configured, skip to api-key
+      setCurrentStep('api-key');
+    }
+  }, [currentStep, setupStatus]);
 
   // --- Navigation handlers ---
   const handleDatabaseSetupComplete = useCallback((): void => {
+    refreshSetupStatus();
     setCurrentStep('api-key');
-  }, []);
+  }, [refreshSetupStatus]);
 
   const handlePermissionsCheckComplete = useCallback((): void => {
     setCurrentStep('import-historical-data');

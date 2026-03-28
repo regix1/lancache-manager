@@ -2,13 +2,7 @@ import React, { useEffect, useState, type ReactNode } from 'react';
 import { useAuth } from '@contexts/useAuth';
 import ApiService from '@services/api.service';
 import { API_BASE } from '@utils/constants';
-import { SetupStatusContext } from './SetupStatusContext.types';
-
-interface SetupStatus {
-  isCompleted: boolean;
-  hasProcessedLogs: boolean;
-  needsPostgresCredentials: boolean;
-}
+import { SetupStatusContext, type SetupStatus } from './SetupStatusContext.types';
 
 interface SetupStatusProviderProps {
   children: ReactNode;
@@ -37,14 +31,20 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
         setSetupStatus({
           isCompleted,
           hasProcessedLogs: data.hasProcessedLogs === true,
-          needsPostgresCredentials: data.needsPostgresCredentials === true
+          needsPostgresCredentials: data.needsPostgresCredentials === true,
+          currentSetupStep: data.currentSetupStep ?? null,
+          dataSourceChoice: data.dataSourceChoice ?? null,
+          completedPlatforms: data.completedPlatforms ?? null
         });
       } else {
         // Non-OK response: set reasonable defaults
         setSetupStatus({
           isCompleted: false,
           hasProcessedLogs: false,
-          needsPostgresCredentials: false
+          needsPostgresCredentials: false,
+          currentSetupStep: null,
+          dataSourceChoice: null,
+          completedPlatforms: null
         });
       }
     } catch (error) {
@@ -57,7 +57,10 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
       setSetupStatus({
         isCompleted: false,
         hasProcessedLogs: false,
-        needsPostgresCredentials: false
+        needsPostgresCredentials: false,
+        currentSetupStep: null,
+        dataSourceChoice: null,
+        completedPlatforms: null
       });
     } finally {
       clearTimeout(timeoutId);
@@ -80,6 +83,28 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
     );
   };
 
+  const updateWizardState = async (updates: {
+    currentSetupStep?: string | null;
+    dataSourceChoice?: string | null;
+    completedPlatforms?: string | null;
+  }) => {
+    try {
+      const response = await fetch(
+        `${API_BASE}/system/setup`,
+        ApiService.getFetchOptions({
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updates)
+        })
+      );
+      if (response.ok) {
+        await fetchSetupStatus();
+      }
+    } catch (error) {
+      console.error('[SetupStatus] Failed to update wizard state:', error);
+    }
+  };
+
   // Initial fetch - setup status is public so we can check before auth
   useEffect(() => {
     // Wait for auth loading to settle, but don't require auth for setup check
@@ -93,7 +118,7 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
 
   return (
     <SetupStatusContext.Provider
-      value={{ setupStatus, isLoading, refreshSetupStatus, markSetupCompleted }}
+      value={{ setupStatus, isLoading, refreshSetupStatus, markSetupCompleted, updateWizardState }}
     >
       {children}
     </SetupStatusContext.Provider>

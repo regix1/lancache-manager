@@ -120,6 +120,11 @@ public class StateService : IStateService
         // Whether the eviction scan shows the universal notification bar
         public bool EvictionScanNotifications { get; set; } = false;
 
+        // Setup wizard state
+        public string? CurrentSetupStep { get; set; }
+        public string? DataSourceChoice { get; set; }
+        public string? CompletedPlatforms { get; set; }
+
         // LEGACY: SteamAuth migrated to separate file - kept for reading old state.json during migration
         // JsonIgnore(Condition = WhenWritingNull) excludes it when saving (always null after migration)
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -582,6 +587,37 @@ public class StateService : IStateService
         UpdateState(state => state.SetupCompleted = completed);
     }
 
+    // Setup Wizard State Methods
+    public string? GetCurrentSetupStep()
+    {
+        return GetState().CurrentSetupStep;
+    }
+
+    public void SetCurrentSetupStep(string? step)
+    {
+        UpdateState(state => state.CurrentSetupStep = step);
+    }
+
+    public string? GetDataSourceChoice()
+    {
+        return GetState().DataSourceChoice;
+    }
+
+    public void SetDataSourceChoice(string? choice)
+    {
+        UpdateState(state => state.DataSourceChoice = choice);
+    }
+
+    public string? GetCompletedPlatforms()
+    {
+        return GetState().CompletedPlatforms;
+    }
+
+    public void SetCompletedPlatforms(string? platforms)
+    {
+        UpdateState(state => state.CompletedPlatforms = platforms);
+    }
+
     // Data Availability Methods
     public bool HasDataLoaded()
     {
@@ -773,6 +809,10 @@ public class StateService : IStateService
             EvictedDataMode = persisted.EvictedDataMode ?? EvictedDataModes.Show,
             // Eviction scan on startup
             EvictionScanNotifications = persisted.EvictionScanNotifications,
+            // Setup wizard state
+            CurrentSetupStep = persisted.CurrentSetupStep,
+            DataSourceChoice = persisted.DataSourceChoice,
+            CompletedPlatforms = persisted.CompletedPlatforms,
             // LEGACY: Only load SteamAuth if present (for migration from old state.json)
             SteamAuth = persisted.SteamAuth != null ? new SteamAuthState
             {
@@ -844,6 +884,10 @@ public class StateService : IStateService
             EvictedDataMode = state.EvictedDataMode ?? EvictedDataModes.Show,
             // Eviction scan on startup
             EvictionScanNotifications = state.EvictionScanNotifications,
+            // Setup wizard state
+            CurrentSetupStep = state.CurrentSetupStep,
+            DataSourceChoice = state.DataSourceChoice,
+            CompletedPlatforms = state.CompletedPlatforms,
             // LEGACY: Only persist SteamAuth if not null (will be null after migration)
             // JsonIgnore(WhenWritingNull) on property will exclude from JSON when null
             SteamAuth = state.SteamAuth != null ? new SteamAuthState

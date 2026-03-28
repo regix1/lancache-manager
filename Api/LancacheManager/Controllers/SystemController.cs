@@ -174,7 +174,10 @@ public class SystemController : ControllerBase
             IsCompleted = isCompleted,
             HasProcessedLogs = hasProcessedLogs,
             SetupCompleted = isCompleted, // For backward compatibility
-            NeedsPostgresCredentials = needsPostgresCredentials
+            NeedsPostgresCredentials = needsPostgresCredentials,
+            CurrentSetupStep = _stateService.GetCurrentSetupStep(),
+            DataSourceChoice = _stateService.GetDataSourceChoice(),
+            CompletedPlatforms = _stateService.GetCompletedPlatforms()
         });
     }
 
@@ -187,15 +190,54 @@ public class SystemController : ControllerBase
     [HttpPatch("setup")]
     public IActionResult UpdateSetupStatus([FromBody] UpdateSetupRequest request)
     {
+        var hasUpdate = false;
+
+        // Persist wizard state fields if provided
+        if (request.CurrentSetupStep != null)
+        {
+            _stateService.SetCurrentSetupStep(request.CurrentSetupStep);
+            hasUpdate = true;
+        }
+
+        if (request.DataSourceChoice != null)
+        {
+            _stateService.SetDataSourceChoice(request.DataSourceChoice);
+            hasUpdate = true;
+        }
+
+        if (request.CompletedPlatforms != null)
+        {
+            _stateService.SetCompletedPlatforms(request.CompletedPlatforms);
+            hasUpdate = true;
+        }
+
         if (request.Completed.HasValue)
         {
             _stateService.SetSetupCompleted(request.Completed.Value);
+
+            // Always clear wizard state fields when Completed is explicitly set (true = done, false = reset)
+            {
+                _stateService.SetCurrentSetupStep(null);
+                _stateService.SetDataSourceChoice(null);
+                _stateService.SetCompletedPlatforms(null);
+            }
+
             _logger.LogInformation("Setup status updated: {Completed}", request.Completed.Value);
+            hasUpdate = true;
 
             return Ok(new SetupUpdateResponse
             {
                 Message = "Setup status updated",
                 SetupCompleted = request.Completed.Value
+            });
+        }
+
+        if (hasUpdate)
+        {
+            return Ok(new SetupUpdateResponse
+            {
+                Message = "Setup status updated",
+                SetupCompleted = _stateService.GetSetupCompleted()
             });
         }
 

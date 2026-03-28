@@ -245,6 +245,9 @@ public class SetBoolPreferenceRequest
 public class UpdateSetupRequest
 {
     public bool? Completed { get; set; }
+    public string? CurrentSetupStep { get; set; }
+    public string? DataSourceChoice { get; set; }
+    public string? CompletedPlatforms { get; set; }
 }
 
 public class SetCacheDeleteModeRequest

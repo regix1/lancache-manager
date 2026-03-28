@@ -80,6 +80,11 @@ public class AppState
     // Whether the eviction scan shows the universal notification bar (false = silent/no notification)
     public bool EvictionScanNotifications { get; set; } = false;
 
+    // Setup wizard state (persisted for resumption across page refreshes)
+    public string? CurrentSetupStep { get; set; }
+    public string? DataSourceChoice { get; set; }
+    public string? CompletedPlatforms { get; set; } // JSON string: {"steam":"github"|"steam"|null,"epic":true|false}
+
     // LEGACY: SteamAuth has been migrated to separate file (data/security/steam_auth/credentials.json)
     // This property is kept temporarily for backward compatibility during migration
     public SteamAuthState? SteamAuth { get; set; }

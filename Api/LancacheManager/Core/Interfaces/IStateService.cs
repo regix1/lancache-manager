@@ -125,6 +125,14 @@ public interface IStateService
     string GetDefaultPrefillMaxConcurrency();
     void SetDefaultPrefillMaxConcurrency(string value);
 
+    // Setup Wizard State Methods
+    string? GetCurrentSetupStep();
+    void SetCurrentSetupStep(string? step);
+    string? GetDataSourceChoice();
+    void SetDataSourceChoice(string? choice);
+    string? GetCompletedPlatforms();
+    void SetCompletedPlatforms(string? platforms);
+
     // Epic Guest Prefill Permission Methods
     bool GetEpicGuestPrefillEnabledByDefault();
     void SetEpicGuestPrefillEnabledByDefault(bool enabled);

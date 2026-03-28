@@ -22,6 +22,7 @@ interface FormErrors {
 interface CredentialsResponse {
   success: boolean;
   message: string;
+  error?: string;
 }
 
 export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupComplete }) => {
@@ -41,6 +42,23 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [setupSuccess, setSetupSuccess] = useState(false);
 
+  const getPasswordStrength = useCallback((password: string): 'weak' | 'medium' | 'strong' => {
+    const hasUppercase = /[A-Z]/.test(password);
+    const hasLowercase = /[a-z]/.test(password);
+    const hasNumbers = /[0-9]/.test(password);
+    const hasSymbols = /[^A-Za-z0-9]/.test(password);
+    const hasMixedCase = hasUppercase && hasLowercase;
+    const hasNumbersOrSymbols = hasNumbers || hasSymbols;
+
+    if (password.length >= 15 && hasMixedCase && hasNumbersOrSymbols) {
+      return 'strong';
+    }
+    if (password.length >= 10 && (hasMixedCase || hasNumbers)) {
+      return 'medium';
+    }
+    return 'weak';
+  }, []);
+
   const validateForm = useCallback((): boolean => {
     const newErrors: FormErrors = {
       username: null,
@@ -56,6 +74,24 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
       newErrors.password = 'Password is required';
     } else if (form.password.length < 8) {
       newErrors.password = 'Password must be at least 8 characters';
+    } else {
+      const blockedPasswords = [
+        'lancache',
+        'password',
+        '12345678',
+        'admin123',
+        'qwerty123',
+        'lancache1',
+        'lancache123'
+      ];
+      if (blockedPasswords.includes(form.password.toLowerCase())) {
+        newErrors.password = 'This password is too common. Please choose a more secure password.';
+      }
+
+      const username = form.username?.trim() || 'lancache';
+      if (form.password.toLowerCase() === username.toLowerCase()) {
+        newErrors.password = 'Password cannot be the same as the username';
+      }
     }
 
     if (!form.confirmPassword) {
@@ -104,7 +140,9 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
           onSetupComplete();
         }, 1500);
       } else {
-        setSubmitError(data.message || 'Failed to save credentials. Please try again.');
+        setSubmitError(
+          data.error || data.message || 'Failed to save credentials. Please try again.'
+        );
       }
     } catch (error: unknown) {
       const message =
@@ -183,6 +221,36 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
           </button>
         </div>
         {errors.password && <p className="text-xs text-themed-error mt-1">{errors.password}</p>}
+        {form.password && (
+          <div className="flex items-center gap-2 mt-1">
+            <div className="flex-1 h-1.5 rounded-full bg-themed-tertiary overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${
+                  getPasswordStrength(form.password) === 'weak'
+                    ? 'w-1/3 bg-red-500'
+                    : getPasswordStrength(form.password) === 'medium'
+                      ? 'w-2/3 bg-yellow-500'
+                      : 'w-full bg-green-500'
+                }`}
+              />
+            </div>
+            <span
+              className={`text-xs ${
+                getPasswordStrength(form.password) === 'weak'
+                  ? 'text-themed-error'
+                  : getPasswordStrength(form.password) === 'medium'
+                    ? 'text-themed-warning'
+                    : 'text-themed-success'
+              }`}
+            >
+              {getPasswordStrength(form.password) === 'weak'
+                ? 'Weak'
+                : getPasswordStrength(form.password) === 'medium'
+                  ? 'Medium'
+                  : 'Strong'}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Confirm Password Input */}

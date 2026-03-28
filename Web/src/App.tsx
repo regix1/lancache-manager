@@ -46,12 +46,10 @@ import ErrorBoundary from '@components/common/ErrorBoundary';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import UniversalNotificationBar from '@components/common/UniversalNotificationBar';
 import DepotInitializationModal from '@components/modals/setup/DepotInitializationModal';
-import { DatabaseSetupStep } from '@components/initialization/steps';
 import AuthenticationModal from '@components/modals/auth/AuthenticationModal';
 import { FullScanRequiredModal } from '@components/modals/setup/FullScanRequiredModal';
 import ApiService from '@services/api.service';
 import { setServerTimezone } from '@utils/timezone';
-import { storage } from '@utils/storage';
 import { isAbortError } from '@utils/error';
 import themeService from '@services/theme.service';
 import preferencesService from '@services/preferences.service';
@@ -117,12 +115,7 @@ const AppContent: React.FC = () => {
     preloadMap[tab]?.();
   }, []);
   const { connectionStatus } = useStats();
-  const {
-    setupStatus,
-    isLoading: checkingSetupStatus,
-    markSetupCompleted,
-    refreshSetupStatus
-  } = useSetupStatus();
+  const { setupStatus, isLoading: checkingSetupStatus, markSetupCompleted } = useSetupStatus();
   const {
     authMode,
     sessionId,
@@ -305,53 +298,17 @@ const AppContent: React.FC = () => {
   // The manual trigger endpoint (/api/gc/trigger) bypasses threshold checks and
   // is only intended for the "Run GC Now" button in the management UI.
 
-  // Handle initialization flow based on setup status from context
+  // Derive initialization flow state from server setup status
   useEffect(() => {
     if (checkingAuth || checkingSetupStatus) {
       return; // Don't proceed until both checks are complete
     }
 
-    const storedFlow = storage.getItem('initializationFlowActive');
-    const storedStep = storage.getItem('initializationCurrentStep');
-
-    // IMPORTANT: If user has an active initialization flow in localStorage, respect that first
-    // This ensures that page refreshes during initialization don't kick the user to the dashboard
-    if (storedFlow === 'true' || storedStep) {
-      setIsInitializationFlowActive(true);
-      return;
-    }
-
-    // If setup is complete OR logs have been processed, clear any stale initialization flow
-    if (setupCompleted || hasProcessedLogs) {
+    // Setup flow is entirely server-driven
+    if (setupCompleted && !setupStatus?.needsPostgresCredentials) {
       setIsInitializationFlowActive(false);
-      storage.removeItem('initializationFlowActive');
-      storage.removeItem('initializationCurrentStep');
-      storage.removeItem('dataSourceChoice');
-    } else {
-      // Backend shows setup is NOT complete
-      // Check if we have stale initialization state that needs clearing
-
-      // If backend was reset (setup not complete) but we have advanced initialization state,
-      // this indicates /data was deleted while browser was open - clear everything
-      if (
-        storedStep &&
-        storedStep !== 'database-setup' &&
-        storedStep !== 'api-key' &&
-        storedStep !== 'import-historical-data' &&
-        setupCompleted === false &&
-        hasProcessedLogs === false
-      ) {
-        storage.removeItem('initializationFlowActive');
-        storage.removeItem('initializationCurrentStep');
-        storage.removeItem('initializationInProgress');
-        storage.removeItem('initializationMethod');
-        storage.removeItem('initializationDownloadStatus');
-        storage.removeItem('usingSteamAuth');
-        storage.removeItem('dataSourceChoice');
-        setIsInitializationFlowActive(false);
-      }
     }
-  }, [checkingAuth, checkingSetupStatus, setupCompleted, hasProcessedLogs]);
+  }, [checkingAuth, checkingSetupStatus, setupCompleted, setupStatus?.needsPostgresCredentials]);
 
   // Check if depot data exists (only after auth check is done)
   useEffect(() => {
@@ -413,7 +370,6 @@ const AppContent: React.FC = () => {
   const handleDepotInitialized = async () => {
     // Initialization flow is complete
     setIsInitializationFlowActive(false);
-    storage.removeItem('initializationFlowActive');
 
     // Mark setup as completed
     markSetupCompleted();
@@ -500,26 +456,14 @@ const AppContent: React.FC = () => {
     // Close modal WITHOUT marking as dismissed (allow retry if it fails)
     setShowFullScanRequiredModal(false);
 
-    // Set downloading flag in localStorage for UniversalNotificationBar
-    storage.setItem('githubDownloading', 'true');
-    storage.removeItem('githubDownloadComplete');
-
     // Trigger download from GitHub
     try {
       await ApiService.downloadPrecreatedDepotData();
-
-      // Update localStorage flags on success
-      storage.removeItem('githubDownloading');
-      storage.setItem('githubDownloadComplete', 'true');
-      storage.setItem('githubDownloadTime', new Date().toISOString());
     } catch (error) {
       // Don't log abort errors (user cancelled)
       if (!isAbortError(error)) {
         console.error('Failed to download from GitHub:', error);
       }
-
-      // Clear downloading flag on error/cancel
-      storage.removeItem('githubDownloading');
     }
   };
 
@@ -662,17 +606,6 @@ const AppContent: React.FC = () => {
     );
   }
 
-  // Force PostgreSQL credential setup (blocks migrating users who already have setupCompleted=true)
-  if (!checkingSetupStatus && setupStatus?.needsPostgresCredentials) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-themed-primary">
-        <div className="w-full max-w-md p-6 bg-themed-secondary rounded-lg">
-          <DatabaseSetupStep onSetupComplete={refreshSetupStatus} />
-        </div>
-      </div>
-    );
-  }
-
   // Show initialization modal if user is authenticated and in the middle of setup
   if (isInitializationFlowActive) {
     return (
@@ -684,11 +617,14 @@ const AppContent: React.FC = () => {
   }
 
   // Show initialization modal if user hasn't completed first-time setup
-  if (setupCompleted === false && !depotInitialized && hasProcessedLogs === false) {
+  if (
+    (!setupCompleted || setupStatus?.needsPostgresCredentials) &&
+    !depotInitialized &&
+    !hasProcessedLogs
+  ) {
     // Mark initialization flow as active
     if (!isInitializationFlowActive) {
       setIsInitializationFlowActive(true);
-      storage.setItem('initializationFlowActive', 'true');
     }
 
     return (

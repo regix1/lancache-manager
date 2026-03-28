@@ -40,7 +40,17 @@ public class SetupController : ControllerBase
         if (string.IsNullOrWhiteSpace(request.Password))
             return BadRequest(new SetupErrorResponse { Error = "Password is required" });
 
+        if (request.Password.Length < 8)
+            return BadRequest(new SetupErrorResponse { Error = "Password must be at least 8 characters" });
+
+        var blockedPasswords = new[] { "lancache", "password", "12345678", "admin123", "qwerty123", "lancache1", "lancache123" };
+        if (blockedPasswords.Contains(request.Password.ToLowerInvariant()))
+            return BadRequest(new SetupErrorResponse { Error = "This password is too common. Please choose a more secure password." });
+
         var username = string.IsNullOrWhiteSpace(request.Username) ? "lancache" : request.Username;
+
+        if (string.Equals(request.Password, username, StringComparison.OrdinalIgnoreCase))
+            return BadRequest(new SetupErrorResponse { Error = "Password cannot be the same as the username" });
 
         var configPath = _pathResolver.GetPostgresCredentialsPath();
 

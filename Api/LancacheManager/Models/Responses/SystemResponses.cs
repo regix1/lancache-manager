@@ -134,6 +134,9 @@ public class SetupStatusResponse
     public bool HasProcessedLogs { get; set; }
     public bool SetupCompleted { get; set; } // Legacy field for backward compatibility
     public bool NeedsPostgresCredentials { get; set; }
+    public string? CurrentSetupStep { get; set; }
+    public string? DataSourceChoice { get; set; }
+    public string? CompletedPlatforms { get; set; }
 }
 
 /// <summary>
