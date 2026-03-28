@@ -1,6 +1,6 @@
 import { createContext } from 'react';
 
-export interface WizardStateUpdate {
+interface WizardStateUpdate {
   currentSetupStep?: string | null;
   dataSourceChoice?: string | null;
   completedPlatforms?: string | null;
