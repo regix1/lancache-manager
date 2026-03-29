@@ -76,8 +76,13 @@ public class DataMigrationController : ControllerBase
             return BadRequest(new ErrorResponse { Error = "Source database file not found at specified path" });
         }
 
-        // Get target database path
-        var targetDatabasePath = _pathResolver.GetDatabasePath();
+        // Get target PostgreSQL connection string from app configuration
+        var targetConnectionString = _configuration.GetConnectionString("DefaultConnection");
+        if (string.IsNullOrWhiteSpace(targetConnectionString))
+        {
+            _operationTracker.CompleteOperation(operationId, false, "Target database connection string not configured");
+            return StatusCode(500, new ErrorResponse { Error = "Target database connection string not configured" });
+        }
 
         // Get data migrator binary path
         var dataMigratorPath = _pathResolver.GetRustDataMigratorPath();
@@ -100,9 +105,10 @@ public class DataMigrationController : ControllerBase
             // Build arguments for data_migrator
             // Sanitize the user-provided database path to prevent process argument injection
             var sanitizedSourcePath = RustProcessHelper.SanitizeProcessArgument(sourceDatabasePath);
+            var sanitizedTargetConnStr = RustProcessHelper.SanitizeProcessArgument(targetConnectionString);
             var batchSize = request.BatchSize ?? 1000;
             var overwriteFlag = request.OverwriteExisting ? "1" : "0";
-            var arguments = $"\"{sanitizedSourcePath}\" \"{targetDatabasePath}\" \"{progressPath}\" {overwriteFlag} {batchSize}";
+            var arguments = $"\"{sanitizedSourcePath}\" \"{sanitizedTargetConnStr}\" \"{progressPath}\" {overwriteFlag} {batchSize}";
 
             _logger.LogInformation("[data_migrator] Executing: {Binary} {Args}", dataMigratorPath, arguments);
 
@@ -600,12 +606,21 @@ public class DataMigrationController : ControllerBase
                 var isSqliteFile = bytesRead >= 16 &&
                                    System.Text.Encoding.ASCII.GetString(header, 0, 16) == "SQLite format 3\0";
 
+                if (!isSqliteFile)
+                {
+                    return Ok(new ConnectionValidationResponse
+                    {
+                        Valid = false,
+                        Message = "Source file exists but is not a valid SQLite database"
+                    });
+                }
+
+                var fileInfo = new System.IO.FileInfo(sourcePath);
                 return Ok(new ConnectionValidationResponse
                 {
-                    Valid = isSqliteFile,
-                    Message = isSqliteFile
-                        ? "SQLite source database file found"
-                        : "Source file exists but is not a valid SQLite database"
+                    Valid = true,
+                    Message = "SQLite source database file found",
+                    RecordCount = (int)(fileInfo.Length / 1024)
                 });
             }
 
