@@ -59,7 +59,7 @@ use models::*;
 use parser::LogParser;
 use session::SessionTracker;
 
-const BULK_BATCH_SIZE: usize = 1_000; // Reduced from 2000 to lower memory spikes
+const BULK_BATCH_SIZE: usize = 5_000; // Raised for bulk performance
 const SESSION_GAP_MINUTES: i64 = 5;
 const LINE_BUFFER_CAPACITY: usize = 1024; // Reduced from 2048 for better memory efficiency
 
@@ -93,6 +93,7 @@ struct Processor {
     last_logged_percent: AtomicU64, // Store as integer (0-100) for atomic operations
     logged_depots: HashSet<u32>, // Track depots that have already been logged
     datasource_name: String, // Datasource identifier for multi-datasource support
+    depot_map: HashMap<u32, (u32, Option<String>)>, // Pre-loaded depot->app mappings for zero per-session DB lookups
 }
 
 impl Processor {
@@ -104,6 +105,7 @@ impl Processor {
         start_position: u64,
         auto_map_depots: bool,
         datasource_name: String,
+        depot_map: HashMap<u32, (u32, Option<String>)>,
     ) -> Self {
         // Get timezone from environment variable (same as C# uses)
         let tz_str = env::var("TZ").unwrap_or_else(|_| "UTC".to_string());
@@ -128,6 +130,7 @@ impl Processor {
             last_logged_percent: AtomicU64::new(0),
             logged_depots: HashSet::new(),
             datasource_name,
+            depot_map,
         }
     }
 
@@ -459,24 +462,8 @@ impl Processor {
         Ok(())
     }
 
-    async fn lookup_depot_mapping(&self, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, depot_id: u32) -> Result<Option<(u32, Option<String>)>> {
-        // Only use owner apps (IsOwner = true) - matches C# behavior
-        // No fallback to non-owner apps to avoid incorrect mappings
-        let row = sqlx::query(
-            "SELECT \"AppId\", \"AppName\" FROM \"SteamDepotMappings\" WHERE \"DepotId\" = $1 AND \"IsOwner\" = true LIMIT 1"
-        )
-        .bind(depot_id as i64)
-        .fetch_optional(&mut **tx)
-        .await?;
-
-        match row {
-            Some(r) => {
-                let app_id: i64 = r.get("AppId");
-                let app_name: Option<String> = r.get("AppName");
-                Ok(Some((app_id as u32, app_name)))
-            }
-            None => Ok(None),
-        }
+    fn lookup_depot_mapping(&self, depot_id: u32) -> Option<(u32, Option<String>)> {
+        self.depot_map.get(&depot_id).cloned()
     }
 
     async fn process_session_group(
@@ -489,27 +476,60 @@ impl Processor {
             return Ok(0);
         }
 
-        // Simple duplicate detection
-        let mut new_entries = Vec::with_capacity(entries.len());
-        let mut skipped = 0;
+        // Bulk duplicate detection — single query for the whole group instead of per-row SELECTs
+        let mut check_client_ips: Vec<&str> = Vec::with_capacity(entries.len());
+        let mut check_services: Vec<&str> = Vec::with_capacity(entries.len());
+        let mut check_timestamps: Vec<chrono::DateTime<Utc>> = Vec::with_capacity(entries.len());
+        let mut check_urls: Vec<&str> = Vec::with_capacity(entries.len());
+        let mut check_bytes: Vec<i64> = Vec::with_capacity(entries.len());
 
         for entry in entries {
-            // Convert NaiveDateTime to proper UTC DateTime for PostgreSQL timestamptz comparison
-            let timestamp_utc = Utc.from_utc_datetime(&entry.timestamp);
+            check_client_ips.push(&entry.client_ip);
+            check_services.push(&entry.service);
+            check_timestamps.push(Utc.from_utc_datetime(&entry.timestamp));
+            check_urls.push(&entry.url);
+            check_bytes.push(entry.bytes_served);
+        }
 
-            let exists = sqlx::query(
-                "SELECT 1 FROM \"LogEntries\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"Timestamp\" = $3 AND \"Url\" = $4 AND \"BytesServed\" = $5 LIMIT 1"
-            )
-            .bind(&entry.client_ip)
-            .bind(&entry.service)
-            .bind(timestamp_utc)
-            .bind(&entry.url)
-            .bind(entry.bytes_served)
-            .fetch_optional(&mut **tx)
-            .await?
-            .is_some();
+        let existing_rows = sqlx::query(
+            r#"SELECT "ClientIp", "Service", "Timestamp", "Url", "BytesServed"
+               FROM "LogEntries"
+               WHERE ("ClientIp", "Service", "Timestamp", "Url", "BytesServed")
+               IN (SELECT * FROM UNNEST($1::text[], $2::text[], $3::timestamptz[], $4::text[], $5::bigint[]))"#
+        )
+        .bind(&check_client_ips)
+        .bind(&check_services)
+        .bind(&check_timestamps)
+        .bind(&check_urls)
+        .bind(&check_bytes)
+        .fetch_all(&mut **tx)
+        .await?;
 
-            if exists {
+        let existing_keys: HashSet<(String, String, i64, String, i64)> = existing_rows
+            .iter()
+            .map(|row| {
+                let client_ip: String = row.get("ClientIp");
+                let service: String = row.get("Service");
+                let ts: chrono::DateTime<Utc> = row.get("Timestamp");
+                let url: String = row.get("Url");
+                let bytes: i64 = row.get("BytesServed");
+                (client_ip, service, ts.timestamp_nanos_opt().unwrap_or(0), url, bytes)
+            })
+            .collect();
+
+        let mut new_entries: Vec<&LogEntry> = Vec::with_capacity(entries.len());
+        let mut skipped = 0usize;
+
+        for entry in entries {
+            let ts_nanos = Utc.from_utc_datetime(&entry.timestamp).timestamp_nanos_opt().unwrap_or(0);
+            let key = (
+                entry.client_ip.clone(),
+                entry.service.clone(),
+                ts_nanos,
+                entry.url.clone(),
+                entry.bytes_served,
+            );
+            if existing_keys.contains(&key) {
                 skipped += 1;
             } else {
                 new_entries.push(*entry);
@@ -560,8 +580,8 @@ impl Processor {
         // This ensures Downloads have GameAppId/GameName set immediately, avoiding "Unknown Game" in UI
         let (game_app_id, game_name) = if self.auto_map_depots && service.to_lowercase() == "steam" {
             if let Some(depot_id) = primary_depot_id {
-                match self.lookup_depot_mapping(tx, depot_id).await {
-                    Ok(Some((app_id, app_name))) => {
+                match self.lookup_depot_mapping(depot_id) {
+                    Some((app_id, app_name)) => {
                         // Only log each depot mapping once to avoid log spam
                         if !self.logged_depots.contains(&depot_id) {
                             let game_display = app_name.as_ref().map(|n| n.as_str()).unwrap_or("Unknown");
@@ -570,13 +590,9 @@ impl Processor {
                         }
                         (Some(app_id), app_name)
                     },
-                    Ok(None) => {
+                    None => {
                         (None, None)
                     },
-                    Err(e) => {
-                        println!("Warning: Failed to lookup depot mapping for {}: {}", depot_id, e);
-                        (None, None)
-                    }
                 }
             } else {
                 (None, None)
@@ -634,69 +650,43 @@ impl Processor {
 
             let download_id: i64 = row.get("Id");
 
-            // Update or create client stats
-            let client_count: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM \"ClientStats\" WHERE \"ClientIp\" = $1"
+            // Upsert client stats — no pre-check SELECT needed
+            sqlx::query(
+                r#"INSERT INTO "ClientStats" ("ClientIp", "TotalCacheHitBytes", "TotalCacheMissBytes", "LastActivityUtc", "LastActivityLocal", "TotalDownloads", "TotalDurationSeconds")
+                   VALUES ($1, $2, $3, $4, $5, 1, 0.0)
+                   ON CONFLICT ("ClientIp") DO UPDATE SET
+                       "TotalCacheHitBytes" = "ClientStats"."TotalCacheHitBytes" + EXCLUDED."TotalCacheHitBytes",
+                       "TotalCacheMissBytes" = "ClientStats"."TotalCacheMissBytes" + EXCLUDED."TotalCacheMissBytes",
+                       "LastActivityUtc" = EXCLUDED."LastActivityUtc",
+                       "LastActivityLocal" = EXCLUDED."LastActivityLocal",
+                       "TotalDownloads" = "ClientStats"."TotalDownloads" + 1"#
             )
             .bind(client_ip)
-            .fetch_one(&mut **tx)
+            .bind(total_hit_bytes)
+            .bind(total_miss_bytes)
+            .bind(last_utc_dt)
+            .bind(last_local_dt)
+            .execute(&mut **tx)
             .await?;
 
-            if client_count > 0 {
-                sqlx::query(
-                    "UPDATE \"ClientStats\" SET \"TotalCacheHitBytes\" = \"TotalCacheHitBytes\" + $1, \"TotalCacheMissBytes\" = \"TotalCacheMissBytes\" + $2, \"LastActivityUtc\" = $3, \"LastActivityLocal\" = $4, \"TotalDownloads\" = \"TotalDownloads\" + 1 WHERE \"ClientIp\" = $5"
-                )
-                .bind(total_hit_bytes)
-                .bind(total_miss_bytes)
-                .bind(last_utc_dt)
-                .bind(last_local_dt)
-                .bind(client_ip)
-                .execute(&mut **tx)
-                .await?;
-            } else {
-                sqlx::query(
-                    "INSERT INTO \"ClientStats\" (\"ClientIp\", \"TotalCacheHitBytes\", \"TotalCacheMissBytes\", \"LastActivityUtc\", \"LastActivityLocal\", \"TotalDownloads\", \"TotalDurationSeconds\") VALUES ($1, $2, $3, $4, $5, 1, 0.0)"
-                )
-                .bind(client_ip)
-                .bind(total_hit_bytes)
-                .bind(total_miss_bytes)
-                .bind(last_utc_dt)
-                .bind(last_local_dt)
-                .execute(&mut **tx)
-                .await?;
-            }
-
-            // Update or create service stats
-            let service_count: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM \"ServiceStats\" WHERE \"Service\" = $1"
+            // Upsert service stats — no pre-check SELECT needed
+            sqlx::query(
+                r#"INSERT INTO "ServiceStats" ("Service", "TotalCacheHitBytes", "TotalCacheMissBytes", "LastActivityUtc", "LastActivityLocal", "TotalDownloads")
+                   VALUES ($1, $2, $3, $4, $5, 1)
+                   ON CONFLICT ("Service") DO UPDATE SET
+                       "TotalCacheHitBytes" = "ServiceStats"."TotalCacheHitBytes" + EXCLUDED."TotalCacheHitBytes",
+                       "TotalCacheMissBytes" = "ServiceStats"."TotalCacheMissBytes" + EXCLUDED."TotalCacheMissBytes",
+                       "LastActivityUtc" = EXCLUDED."LastActivityUtc",
+                       "LastActivityLocal" = EXCLUDED."LastActivityLocal",
+                       "TotalDownloads" = "ServiceStats"."TotalDownloads" + 1"#
             )
             .bind(service)
-            .fetch_one(&mut **tx)
+            .bind(total_hit_bytes)
+            .bind(total_miss_bytes)
+            .bind(last_utc_dt)
+            .bind(last_local_dt)
+            .execute(&mut **tx)
             .await?;
-
-            if service_count > 0 {
-                sqlx::query(
-                    "UPDATE \"ServiceStats\" SET \"TotalCacheHitBytes\" = \"TotalCacheHitBytes\" + $1, \"TotalCacheMissBytes\" = \"TotalCacheMissBytes\" + $2, \"LastActivityUtc\" = $3, \"LastActivityLocal\" = $4, \"TotalDownloads\" = \"TotalDownloads\" + 1 WHERE \"Service\" = $5"
-                )
-                .bind(total_hit_bytes)
-                .bind(total_miss_bytes)
-                .bind(last_utc_dt)
-                .bind(last_local_dt)
-                .bind(service)
-                .execute(&mut **tx)
-                .await?;
-            } else {
-                sqlx::query(
-                    "INSERT INTO \"ServiceStats\" (\"Service\", \"TotalCacheHitBytes\", \"TotalCacheMissBytes\", \"LastActivityUtc\", \"LastActivityLocal\", \"TotalDownloads\") VALUES ($1, $2, $3, $4, $5, 1)"
-                )
-                .bind(service)
-                .bind(total_hit_bytes)
-                .bind(total_miss_bytes)
-                .bind(last_utc_dt)
-                .bind(last_local_dt)
-                .execute(&mut **tx)
-                .await?;
-            }
 
             download_id
         } else {
@@ -831,31 +821,67 @@ impl Processor {
         self.session_tracker
             .update_session(session_key, last_timestamp);
 
-        // Insert ONLY the new (non-duplicate) entries
+        // Bulk INSERT for new (non-duplicate) entries using UNNEST — one query per batch
         let now = Utc::now();
         let inserted = new_entries.len();
 
-        for entry in &new_entries {
-            let entry_timestamp_utc = Utc.from_utc_datetime(&entry.timestamp);
+        if !new_entries.is_empty() {
+            // Collect column vectors for UNNEST
+            let mut ts_vec: Vec<chrono::DateTime<Utc>> = Vec::with_capacity(new_entries.len());
+            let mut client_ip_vec: Vec<&str> = Vec::with_capacity(new_entries.len());
+            let mut service_vec: Vec<&str> = Vec::with_capacity(new_entries.len());
+            let mut method_vec: Vec<&str> = Vec::with_capacity(new_entries.len());
+            let mut url_vec: Vec<&str> = Vec::with_capacity(new_entries.len());
+            let mut status_code_vec: Vec<i32> = Vec::with_capacity(new_entries.len());
+            let mut bytes_served_vec: Vec<i64> = Vec::with_capacity(new_entries.len());
+            let mut cache_status_vec: Vec<&str> = Vec::with_capacity(new_entries.len());
+            let mut depot_id_vec: Vec<Option<i64>> = Vec::with_capacity(new_entries.len());
+            let mut download_id_vec: Vec<i64> = Vec::with_capacity(new_entries.len());
+            let mut created_at_vec: Vec<chrono::DateTime<Utc>> = Vec::with_capacity(new_entries.len());
+            let mut datasource_vec: Vec<&str> = Vec::with_capacity(new_entries.len());
 
-            sqlx::query(
-                "INSERT INTO \"LogEntries\" (\"Timestamp\", \"ClientIp\", \"Service\", \"Method\", \"Url\", \"StatusCode\", \"BytesServed\", \"CacheStatus\", \"DepotId\", \"DownloadId\", \"CreatedAt\", \"Datasource\")
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)"
-            )
-            .bind(entry_timestamp_utc)
-            .bind(&entry.client_ip)
-            .bind(&entry.service)
-            .bind("GET")
-            .bind(&entry.url)
-            .bind(entry.status_code as i32)
-            .bind(entry.bytes_served)
-            .bind(&entry.cache_status)
-            .bind(entry.depot_id.map(|d| d as i64))
-            .bind(download_id)
-            .bind(now)
-            .bind(&self.datasource_name)
-            .execute(&mut **tx)
-            .await?;
+            for entry in &new_entries {
+                ts_vec.push(Utc.from_utc_datetime(&entry.timestamp));
+                client_ip_vec.push(&entry.client_ip);
+                service_vec.push(&entry.service);
+                method_vec.push("GET");
+                url_vec.push(&entry.url);
+                status_code_vec.push(entry.status_code);
+                bytes_served_vec.push(entry.bytes_served);
+                cache_status_vec.push(&entry.cache_status);
+                depot_id_vec.push(entry.depot_id.map(|d| d as i64));
+                download_id_vec.push(download_id);
+                created_at_vec.push(now);
+                datasource_vec.push(&self.datasource_name);
+            }
+
+            // PostgreSQL parameter limit is 65535; 12 columns → max 5461 rows per call.
+            // BULK_BATCH_SIZE=5000 fits comfortably but we chunk defensively anyway.
+            const MAX_ROWS_PER_INSERT: usize = 5000;
+            let n = new_entries.len();
+            let mut offset = 0usize;
+            while offset < n {
+                let end = std::cmp::min(offset + MAX_ROWS_PER_INSERT, n);
+                sqlx::query(
+                    r#"INSERT INTO "LogEntries" ("Timestamp", "ClientIp", "Service", "Method", "Url", "StatusCode", "BytesServed", "CacheStatus", "DepotId", "DownloadId", "CreatedAt", "Datasource")
+                       SELECT * FROM UNNEST($1::timestamptz[], $2::text[], $3::text[], $4::text[], $5::text[], $6::int[], $7::bigint[], $8::text[], $9::bigint[], $10::bigint[], $11::timestamptz[], $12::text[])"#
+                )
+                .bind(&ts_vec[offset..end])
+                .bind(&client_ip_vec[offset..end])
+                .bind(&service_vec[offset..end])
+                .bind(&method_vec[offset..end])
+                .bind(&url_vec[offset..end])
+                .bind(&status_code_vec[offset..end])
+                .bind(&bytes_served_vec[offset..end])
+                .bind(&cache_status_vec[offset..end])
+                .bind(&depot_id_vec[offset..end])
+                .bind(&download_id_vec[offset..end])
+                .bind(&created_at_vec[offset..end])
+                .bind(&datasource_vec[offset..end])
+                .execute(&mut **tx)
+                .await?;
+                offset = end;
+            }
         }
 
         // Log if duplicates were skipped
@@ -892,6 +918,34 @@ async fn main() -> Result<()> {
 
     let pool = db::create_pool().await;
 
+    // Pre-load all SteamDepotMappings into a HashMap so no per-session DB lookups are needed.
+    // Only owner apps (IsOwner = true) — matches prior C# behavior.
+    let depot_map: HashMap<u32, (u32, Option<String>)> = if auto_map_depots {
+        println!("Pre-loading Steam depot mappings...");
+        let rows = sqlx::query(
+            r#"SELECT "DepotId", "AppId", "AppName" FROM "SteamDepotMappings" WHERE "IsOwner" = true"#
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap_or_else(|e| {
+            eprintln!("Warning: Failed to load depot mappings: {}", e);
+            vec![]
+        });
+        let map: HashMap<u32, (u32, Option<String>)> = rows
+            .into_iter()
+            .map(|row| {
+                let depot_id: i64 = row.get("DepotId");
+                let app_id: i64 = row.get("AppId");
+                let app_name: Option<String> = row.get("AppName");
+                (depot_id as u32, (app_id as u32, app_name))
+            })
+            .collect();
+        println!("Loaded {} depot mappings", map.len());
+        map
+    } else {
+        HashMap::new()
+    };
+
     let mut processor = Processor::new(
         pool,
         log_dir,
@@ -900,6 +954,7 @@ async fn main() -> Result<()> {
         start_position,
         auto_map_depots,
         datasource_name,
+        depot_map,
     );
 
     match processor.process().await {

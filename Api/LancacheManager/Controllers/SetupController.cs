@@ -26,8 +26,9 @@ public class SetupController : ControllerBase
     public IActionResult GetSetupStatus()
     {
         var configPath = _pathResolver.GetPostgresCredentialsPath();
-        var needsSetup = string.IsNullOrEmpty(Environment.GetEnvironmentVariable("POSTGRES_PASSWORD"))
-                         && !System.IO.File.Exists(configPath);
+        // The credentials file is what proves the user completed the setup step.
+        // The POSTGRES_PASSWORD env var alone (set by Docker) should NOT skip the wizard.
+        var needsSetup = !System.IO.File.Exists(configPath);
 
         return Ok(new SetupInitStatusResponse
         {

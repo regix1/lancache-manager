@@ -166,8 +166,9 @@ public class SystemController : ControllerBase
 
         var isCompleted = _stateService.GetSetupCompleted();
         var hasProcessedLogs = _stateService.GetHasProcessedLogs();
-        var needsPostgresCredentials = string.IsNullOrEmpty(Environment.GetEnvironmentVariable("POSTGRES_PASSWORD"))
-                                       && !System.IO.File.Exists(_pathResolver.GetPostgresCredentialsPath());
+        // The credentials file is what proves the user completed the setup step.
+        // The POSTGRES_PASSWORD env var alone (set by Docker) should NOT skip the wizard.
+        var needsPostgresCredentials = !System.IO.File.Exists(_pathResolver.GetPostgresCredentialsPath());
 
         return Ok(new SetupStatusResponse
         {

@@ -74,7 +74,7 @@ interface UseInitializationFlowResult {
   handleDepotInitContinue: () => void;
   handlePicsProgressComplete: () => void;
   handlePicsProgressCancel: () => void;
-  handleLogProcessingComplete: () => void;
+  handleLogProcessingComplete: () => Promise<void>;
   handleLogProcessingSkip: () => Promise<void>;
   handleDepotMappingComplete: () => Promise<void>;
   handleDepotMappingSkip: () => Promise<void>;
@@ -524,9 +524,15 @@ export function useInitializationFlow({
     setCurrentStep('platform-setup');
   }, []);
 
-  const handleLogProcessingComplete = useCallback((): void => {
+  const handleLogProcessingComplete = useCallback(async (): Promise<void> => {
+    // Skip depot mapping if user didn't select any platform in step 4
+    if (dataSourceChoice === 'skip' || dataSourceChoice === null) {
+      await markSetupCompleted();
+      handleInitializationComplete();
+      return;
+    }
     setCurrentStep('depot-mapping');
-  }, []);
+  }, [dataSourceChoice, markSetupCompleted, handleInitializationComplete]);
 
   const handleLogProcessingSkip = useCallback(async (): Promise<void> => {
     await markSetupCompleted();
