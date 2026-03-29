@@ -12,7 +12,7 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
   const [setupStatus, setSetupStatus] = useState<SetupStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [syncError, setSyncError] = useState<string | null>(null);
-  const { isLoading: authLoading } = useAuth();
+  const { isLoading: authLoading, authMode } = useAuth();
 
   const fetchSetupStatus = async () => {
     const controller = new AbortController();
@@ -154,16 +154,17 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
     return false;
   };
 
-  // Initial fetch - setup status is public so we can check before auth
+  // Fetch setup status whenever auth settles or auth mode changes.
+  // authMode is included so that re-authentication on a stale browser tab
+  // (e.g. after data-folder deletion) re-fetches fresh setup status from
+  // the backend instead of keeping the old React state.
   useEffect(() => {
-    // Wait for auth loading to settle, but don't require auth for setup check
-    // The /api/system/setup endpoint is public so we can determine if setup wizard is needed
     if (authLoading) {
       return;
     }
 
     fetchSetupStatus();
-  }, [authLoading]);
+  }, [authLoading, authMode]);
 
   return (
     <SetupStatusContext.Provider
