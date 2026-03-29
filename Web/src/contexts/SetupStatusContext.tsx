@@ -155,12 +155,17 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
   };
 
   // Fetch setup status whenever auth settles or auth mode changes.
-  // authMode is included so that re-authentication on a stale browser tab
-  // (e.g. after data-folder deletion) re-fetches fresh setup status from
-  // the backend instead of keeping the old React state.
+  // When auth is lost (e.g. data-folder deletion + restart), immediately
+  // clear the cached setupStatus so the wizard gate in App.tsx activates
+  // synchronously — don't wait for the async re-fetch.
   useEffect(() => {
     if (authLoading) {
       return;
+    }
+
+    if (authMode === 'unauthenticated') {
+      setSetupStatus(null);
+      setIsLoading(true);
     }
 
     fetchSetupStatus();
