@@ -90,23 +90,24 @@ const buildStepInfoMap = (
   t: (key: string) => string,
   choice: DataSourceChoice
 ): Record<InitStep, StepInfo> => {
-  // Main flow: database-setup(1), api-key(2), permissions-check(3), import(4), platform-setup(5), log-processing(6), depot-mapping(7)
-  // Sub-flows extend from the hub (platform-setup = step 5)
-  const BASE_TOTAL = 7;
+  // Main flow: database-setup(1), permissions-check(2), import(3), platform-setup(4), log-processing(5), depot-mapping(6)
+  // api-key step is skipped since auth modal handles authentication before the wizard starts
+  // Sub-flows extend from the hub (platform-setup = step 4)
+  const BASE_TOTAL = 6;
 
   const getSubFlowInfo = (step: InitStep): { number: number; total: number } | null => {
     switch (choice) {
       case 'github':
-        if (step === 'depot-init') return { number: 5, total: BASE_TOTAL + 1 };
+        if (step === 'depot-init') return { number: 4, total: BASE_TOTAL + 1 };
         break;
       case 'steam':
-        if (step === 'steam-api-key') return { number: 5, total: BASE_TOTAL + 4 };
-        if (step === 'steam-auth') return { number: 6, total: BASE_TOTAL + 4 };
-        if (step === 'depot-init') return { number: 7, total: BASE_TOTAL + 4 };
-        if (step === 'pics-progress') return { number: 8, total: BASE_TOTAL + 4 };
+        if (step === 'steam-api-key') return { number: 4, total: BASE_TOTAL + 4 };
+        if (step === 'steam-auth') return { number: 5, total: BASE_TOTAL + 4 };
+        if (step === 'depot-init') return { number: 6, total: BASE_TOTAL + 4 };
+        if (step === 'pics-progress') return { number: 7, total: BASE_TOTAL + 4 };
         break;
       case 'epic':
-        if (step === 'epic-auth') return { number: 5, total: BASE_TOTAL + 1 };
+        if (step === 'epic-auth') return { number: 4, total: BASE_TOTAL + 1 };
         break;
     }
     return null;
@@ -115,12 +116,12 @@ const buildStepInfoMap = (
   const getStepInfo = (step: InitStep): { number: number; total: number } => {
     const commonSteps: Record<string, number> = {
       'database-setup': 1,
-      'api-key': 2,
-      'permissions-check': 3,
-      'import-historical-data': 4,
-      'platform-setup': 5,
-      'log-processing': 6,
-      'depot-mapping': 7
+      'api-key': 1, // fallback only — normally skipped
+      'permissions-check': 2,
+      'import-historical-data': 3,
+      'platform-setup': 4,
+      'log-processing': 5,
+      'depot-mapping': 6
     };
 
     if (commonSteps[step] !== undefined) {
@@ -131,7 +132,7 @@ const buildStepInfoMap = (
     if (subFlow) return subFlow;
 
     // Fallback for steps not on the current path
-    return { number: 5, total: BASE_TOTAL };
+    return { number: 4, total: BASE_TOTAL };
   };
 
   const steps: InitStep[] = [
@@ -424,15 +425,17 @@ export function useInitializationFlow({
 
     // Use setupStatus from context — needsPostgresCredentials drives this
     if (setupStatus && !setupStatus.needsPostgresCredentials) {
-      // Database already configured, skip to api-key
-      setCurrentStep('api-key');
+      // Database already configured, skip to permissions-check
+      // (api-key step is skipped — auth modal already handled authentication)
+      setCurrentStep('permissions-check');
     }
   }, [currentStep, setupStatus, setupStatusLoading]);
 
   // --- Navigation handlers ---
   const handleDatabaseSetupComplete = useCallback((): void => {
     refreshSetupStatus();
-    setCurrentStep('api-key');
+    // Skip api-key step — auth modal already handled authentication
+    setCurrentStep('permissions-check');
   }, [refreshSetupStatus]);
 
   const handlePermissionsCheckComplete = useCallback((): void => {
@@ -551,7 +554,8 @@ export function useInitializationFlow({
         setCurrentStep('database-setup');
         break;
       case 'permissions-check':
-        setCurrentStep('api-key');
+        // Skip back over api-key — auth modal handles authentication
+        setCurrentStep('database-setup');
         break;
       case 'import-historical-data':
         setCurrentStep('permissions-check');
