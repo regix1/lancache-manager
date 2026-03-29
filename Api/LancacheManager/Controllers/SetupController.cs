@@ -22,7 +22,7 @@ public class SetupController : ControllerBase
         _pathResolver = pathResolver;
     }
 
-    [AllowAnonymous]
+    [Authorize]
     [HttpPost("credentials")]
     public async Task<IActionResult> SetCredentialsAsync([FromBody] SetupCredentialsRequest request)
     {
@@ -54,9 +54,23 @@ public class SetupController : ControllerBase
             var connStr = _configuration.GetConnectionString("DefaultConnection");
             using var conn = new Npgsql.NpgsqlConnection(connStr);
             await conn.OpenAsync();
+
+            string alterUserSql;
+            using (var buildSql = conn.CreateCommand())
+            {
+                // ALTER USER is a PostgreSQL utility statement, so bind parameters can't be
+                // used directly for PASSWORD. Build the statement server-side with format()
+                // so both the identifier and literal are escaped safely.
+                buildSql.CommandText =
+                    "SELECT format('ALTER USER %I WITH PASSWORD %L', @username, @password)";
+                buildSql.Parameters.AddWithValue("username", username);
+                buildSql.Parameters.AddWithValue("password", request.Password);
+                alterUserSql = (string?)await buildSql.ExecuteScalarAsync()
+                    ?? throw new InvalidOperationException("Failed to build ALTER USER statement.");
+            }
+
             using var cmd = conn.CreateCommand();
-            cmd.CommandText = $"ALTER USER \"{username}\" WITH PASSWORD @password";
-            cmd.Parameters.AddWithValue("password", request.Password);
+            cmd.CommandText = alterUserSql;
             await cmd.ExecuteNonQueryAsync();
             _logger.LogInformation("PostgreSQL password updated for user {Username}", username);
         }
