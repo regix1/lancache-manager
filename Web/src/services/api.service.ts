@@ -1207,12 +1207,7 @@ class ApiService {
     lastDetectionTime?: string;
   }> {
     try {
-      const res = await fetch(
-        `${API_BASE}/games/detect/cached`,
-        this.getFetchOptions({
-          signal: AbortSignal.timeout(30000) // 30 seconds for large datasets
-        })
-      );
+      const res = await fetch(`${API_BASE}/games/detect/cached`, this.getFetchOptions({}));
       return await this.handleResponse<{
         hasCachedResults: boolean;
         games?: GameCacheInfo[];

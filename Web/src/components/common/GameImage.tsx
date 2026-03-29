@@ -35,7 +35,6 @@ export const GameImage: React.FC<GameImageProps> = ({
   const [retryTrigger, setRetryTrigger] = useState(0);
   const cacheBuster = useContext(ImageCacheContext);
 
-  // Reset state when gameAppId/epicAppId changes
   useEffect(() => {
     setUseCapsule(false);
     setHasTriedFallback(false);
@@ -45,8 +44,6 @@ export const GameImage: React.FC<GameImageProps> = ({
 
   const handleError = useCallback(() => {
     if (epicAppId) {
-      // Epic: retry up to 2 times with increasing delays (3s, 6s)
-      // This handles the race where auto-reconnect hasn't populated URLs yet
       if (epicRetryCount < 2) {
         const delay = (epicRetryCount + 1) * 3000;
         setTimeout(() => {
@@ -57,18 +54,14 @@ export const GameImage: React.FC<GameImageProps> = ({
         onFinalError(imageKey);
       }
     } else if (!useCapsule && !hasTriedFallback) {
-      // Steam: first failure - try capsule image as fallback
       setUseCapsule(true);
       setHasTriedFallback(true);
     } else {
-      // Capsule also failed: notify parent to show placeholder
       onFinalError(imageKey);
     }
   }, [epicAppId, useCapsule, hasTriedFallback, imageKey, onFinalError, epicRetryCount]);
 
-  // Build cache-bust suffix
   const cbParam = cacheBuster > 0 ? `_cb=${cacheBuster}` : '';
-  // Add retry trigger to force re-fetch on retry
   const retryParam = retryTrigger > 0 ? `_rt=${retryTrigger}` : '';
   const extraParams = [cbParam, retryParam].filter(Boolean).join('&');
 

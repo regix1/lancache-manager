@@ -814,6 +814,8 @@ public class GameCacheDetectionService : IDisposable
             games.AddRange(epicGames);
         }
 
+        await EnrichGameImageUrlsFromDatabaseAsync(dbContext, games);
+
         if (games.Count == 0 && services.Count == 0)
         {
             return null;
@@ -1220,9 +1222,97 @@ public class GameCacheDetectionService : IDisposable
             DepotIds = JsonSerializer.Deserialize<List<uint>>(cached.DepotIdsJson) ?? new List<uint>(),
             SampleUrls = DeserializeStringList(cached.SampleUrlsJson),
             CacheFilePaths = DeserializeStringList(cached.CacheFilePathsJson),
-            Datasources = DeserializeStringList(datasourcesJson),
-            ImageUrl = null
+            Datasources = DeserializeStringList(datasourcesJson)
         };
+    }
+
+    /// <summary>
+    /// Fills ImageUrl from Downloads (Steam/Epic hits) and EpicGameMappings so the UI can use stored CDN URLs
+    /// instead of proxying every banner through /api/game-images.
+    /// </summary>
+    private static async Task EnrichGameImageUrlsFromDatabaseAsync(AppDbContext db, List<GameCacheInfo> games)
+    {
+        if (games.Count == 0)
+        {
+            return;
+        }
+
+        var steamAppIds = games
+            .Where(g => !string.Equals(g.Service, "epicgames", StringComparison.OrdinalIgnoreCase)
+                        && g.GameAppId > 0)
+            .Select(g => g.GameAppId)
+            .Distinct()
+            .ToList();
+
+        if (steamAppIds.Count > 0)
+        {
+            var rows = await db.Downloads
+                .AsNoTracking()
+                .Where(d => d.GameAppId != null
+                    && steamAppIds.Contains(d.GameAppId.Value)
+                    && !string.IsNullOrEmpty(d.GameImageUrl))
+                .Select(d => new { d.GameAppId, d.GameImageUrl, d.StartTimeUtc })
+                .ToListAsync();
+
+            var bestUrlBySteamApp = rows
+                .GroupBy(x => x.GameAppId!.Value)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.OrderByDescending(x => x.StartTimeUtc).First().GameImageUrl!);
+
+            foreach (var game in games.Where(g =>
+                         !string.Equals(g.Service, "epicgames", StringComparison.OrdinalIgnoreCase)
+                         && g.GameAppId > 0))
+            {
+                if (!string.IsNullOrEmpty(game.ImageUrl))
+                {
+                    continue;
+                }
+
+                if (bestUrlBySteamApp.TryGetValue(game.GameAppId, out var url))
+                {
+                    game.ImageUrl = url;
+                }
+            }
+        }
+
+        var epicIdsMissingUrl = games
+            .Where(g => string.Equals(g.Service, "epicgames", StringComparison.OrdinalIgnoreCase)
+                        && !string.IsNullOrEmpty(g.EpicAppId)
+                        && string.IsNullOrEmpty(g.ImageUrl))
+            .Select(g => g.EpicAppId!)
+            .Distinct()
+            .ToList();
+
+        if (epicIdsMissingUrl.Count == 0)
+        {
+            return;
+        }
+
+        var mappings = await db.EpicGameMappings
+            .AsNoTracking()
+            .Where(m => epicIdsMissingUrl.Contains(m.AppId))
+            .Select(m => new { m.AppId, m.ImageUrl })
+            .ToListAsync();
+
+        var epicUrlByCatalogId = mappings
+            .Where(m => !string.IsNullOrEmpty(m.ImageUrl))
+            .GroupBy(m => m.AppId)
+            .ToDictionary(g => g.Key, g => g.First().ImageUrl!);
+
+        foreach (var game in games.Where(g =>
+                     string.Equals(g.Service, "epicgames", StringComparison.OrdinalIgnoreCase)))
+        {
+            if (!string.IsNullOrEmpty(game.ImageUrl) || string.IsNullOrEmpty(game.EpicAppId))
+            {
+                continue;
+            }
+
+            if (epicUrlByCatalogId.TryGetValue(game.EpicAppId, out var u))
+            {
+                game.ImageUrl = EpicApiDirectClient.EnsureResizeParams(u);
+            }
+        }
     }
 
     private static ServiceCacheInfo ConvertToServiceCacheInfo(CachedServiceDetection cached)
@@ -1270,7 +1360,7 @@ public class GameCacheDetectionService : IDisposable
                     SampleUrls = g.Where(d => d.LastUrl != null).Select(d => d.LastUrl!).Take(3).ToList(),
                     CacheFilePaths = new List<string>(),
                     Datasources = g.Select(d => d.Datasource).Distinct().ToList(),
-                    ImageUrl = null,
+                    ImageUrl = g.Select(d => d.GameImageUrl).FirstOrDefault(u => !string.IsNullOrEmpty(u)),
                     EpicAppId = g.Key
                 })
                 .ToList();

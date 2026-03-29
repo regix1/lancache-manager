@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader2, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@components/ui/Button';
@@ -20,6 +20,8 @@ interface ExpandableItemCardProps {
   gameAppId?: string | number;
   epicAppId?: string;
   service?: string;
+  /** CDN URL from Downloads / Epic mappings (game detection API); avoids /api/game-images when present. */
+  storedImageUrl?: string;
   stats: ExpandableItemStat[];
   datasources?: string[];
   isExpanded: boolean;
@@ -44,6 +46,7 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
   gameAppId,
   epicAppId,
   service,
+  storedImageUrl,
   stats,
   datasources,
   isExpanded,
@@ -61,12 +64,18 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
 }) => {
   const { t } = useTranslation();
   const [imageError, setImageError] = useState(false);
+  const [storedBannerFailed, setStoredBannerFailed] = useState(false);
 
   const handleImageFinalError = (_gameAppId: string) => {
     setImageError(true);
   };
 
   const isEpic = service === 'epicgames';
+  const trimmedStoredUrl = storedImageUrl?.trim();
+  useEffect(() => {
+    setStoredBannerFailed(false);
+  }, [gameAppId, trimmedStoredUrl]);
+
   const showImage = !!gameAppId && !imageError;
   const isUnknownGame = title.startsWith('Unknown Game');
 
@@ -88,16 +97,25 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
             <ChevronDown className="w-4 h-4" />
           )}
         </Button>
-        {showImage && (
-          <GameImage
-            gameAppId={gameAppId}
-            epicAppId={isEpic ? epicAppId : undefined}
-            alt={title}
-            className="game-card-image"
-            loading="lazy"
-            onFinalError={handleImageFinalError}
-          />
-        )}
+        {showImage &&
+          (trimmedStoredUrl && !storedBannerFailed ? (
+            <img
+              src={trimmedStoredUrl}
+              alt={title}
+              className="game-card-image"
+              loading="lazy"
+              onError={() => setStoredBannerFailed(true)}
+            />
+          ) : (
+            <GameImage
+              gameAppId={gameAppId}
+              epicAppId={isEpic ? epicAppId : undefined}
+              alt={title}
+              className="game-card-image"
+              loading="lazy"
+              onFinalError={handleImageFinalError}
+            />
+          ))}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1 flex-wrap">
             <h4 className={titleClassName || 'text-themed-primary font-semibold break-words'}>

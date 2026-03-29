@@ -169,7 +169,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         }
       } catch (err) {
         console.error('[GameCacheDetector] Failed to load cached games and services:', err);
-        // Silent fail - not critical
       } finally {
         // Clear the initial loading state after the fetch completes (success or failure)
         setIsLoadingData(false);

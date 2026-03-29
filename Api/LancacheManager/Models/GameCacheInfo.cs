@@ -37,8 +37,7 @@ public class GameCacheInfo
     public string Service { get; set; } = "steam";
 
     /// <summary>
-    /// URL to the game's image art.
-    /// For Steam: constructed from AppID. For Epic: stored in EpicGameMappings.
+    /// Banner URL from Downloads.GameImageUrl (and EpicGameMappings when needed), set when serving cached detection.
     /// </summary>
     [System.Text.Json.Serialization.JsonPropertyName("image_url")]
     public string? ImageUrl { get; set; }
