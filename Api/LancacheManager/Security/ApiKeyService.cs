@@ -12,6 +12,12 @@ public class ApiKeyService
     private string? _apiKey;
     private readonly object _keyLock = new object();
 
+    /// <summary>
+    /// True if a new API key was generated during this startup (i.e. api_key.txt did not exist).
+    /// Used by startup code to invalidate all existing sessions.
+    /// </summary>
+    public bool WasNewKeyGenerated { get; private set; }
+
     public ApiKeyService(ILogger<ApiKeyService> logger, IConfiguration configuration, IPathResolver pathResolver)
     {
         _logger = logger;
@@ -63,8 +69,9 @@ public class ApiKeyService
                 }
             }
 
-            // Generate new API key
+            // Generate new API key (file didn't exist or was unreadable)
             _apiKey = GenerateApiKey();
+            WasNewKeyGenerated = true;
 
             try
             {

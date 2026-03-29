@@ -161,6 +161,22 @@ public class SessionService
         return count;
     }
 
+    /// <summary>
+    /// Deletes all sessions from PostgreSQL. Called when a new API key is generated on startup
+    /// (e.g. after data folder deletion) so old browser cookies can no longer authenticate.
+    /// </summary>
+    public async Task<int> ClearAllSessionsAsync()
+    {
+        using var context = _dbContextFactory.CreateDbContext();
+        var count = await context.UserSessions.ExecuteDeleteAsync();
+
+        if (count > 0)
+        {
+            _logger.LogWarning("Cleared all {Count} sessions from the database because a new API key was generated. All clients must log in again.", count);
+        }
+        return count;
+    }
+
     public async Task<List<UserSession>> GetActiveSessionsAsync()
     {
         var now = DateTime.UtcNow;

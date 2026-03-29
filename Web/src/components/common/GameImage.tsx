@@ -4,7 +4,7 @@ import { ImageCacheContext } from './ImageCacheContext';
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 interface GameImageProps {
-  gameAppId: string | number;
+  gameAppId?: string | number;
   alt: string;
   className?: string;
   loading?: 'lazy' | 'eager';
@@ -28,7 +28,7 @@ export const GameImage: React.FC<GameImageProps> = ({
   epicAppId,
   imageUrl
 }) => {
-  const appId = String(gameAppId);
+  const appId = gameAppId != null ? String(gameAppId) : '';
   const imageKey = epicAppId ? `epic-${epicAppId}` : appId;
   const [failed, setFailed] = useState(false);
   const cacheBuster = useContext(ImageCacheContext);
@@ -40,19 +40,22 @@ export const GameImage: React.FC<GameImageProps> = ({
   const src = useMemo(() => {
     if (imageUrl?.trim()) return imageUrl.trim();
     if (epicAppId) return `${API_BASE}/game-images/epic/${epicAppId}/header`;
-    return `${API_BASE}/game-images/${appId}/header`;
+    if (appId) return `${API_BASE}/game-images/${appId}/header`;
+    return null;
   }, [imageUrl, epicAppId, appId]);
 
   const finalSrc =
-    cacheBuster > 0 ? `${src}${src.includes('?') ? '&' : '?'}_cb=${cacheBuster}` : src;
+    src && cacheBuster > 0
+      ? `${src}${src.includes('?') ? '&' : '?'}_cb=${cacheBuster}`
+      : (src ?? undefined);
 
   useEffect(() => {
-    if (failed) {
+    if (failed || !src) {
       onError(imageKey);
     }
-  }, [failed, imageKey, onError]);
+  }, [failed, src, imageKey, onError]);
 
-  if (failed) return null;
+  if (failed || !src) return null;
 
   return (
     <img

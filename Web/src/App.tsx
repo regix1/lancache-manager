@@ -127,7 +127,7 @@ const AppContent: React.FC = () => {
   const { status: steamApiStatus, refresh: refreshSteamWebApiStatus } = useSteamWebApiStatus();
   const { refreshSteamAuth } = useSteamAuth();
   const { isDockerAvailable } = useDockerSocket();
-  const [depotInitialized, setDepotInitialized] = useState<boolean | null>(null);
+  const [_depotInitialized, setDepotInitialized] = useState<boolean | null>(null);
   const [checkingDepotStatus, setCheckingDepotStatus] = useState(true);
   const [showFullScanRequiredModal, setShowFullScanRequiredModal] = useState(false);
   const [fullScanModalChangeGap, setFullScanModalChangeGap] = useState(0);
@@ -137,11 +137,8 @@ const AppContent: React.FC = () => {
   // Derive setup state from context
   const setupCompleted = setupStatus?.isCompleted ?? null;
   const hasProcessedLogs = setupStatus?.hasProcessedLogs ?? null;
-  const shouldShowInitializationFlow = Boolean(
-    (!setupCompleted || setupStatus?.needsPostgresCredentials) &&
-    !depotInitialized &&
-    !hasProcessedLogs
-  );
+  const shouldShowInitializationFlow =
+    !setupCompleted || Boolean(setupStatus?.needsPostgresCredentials);
 
   // Switch away from auth-required tabs if auth is lost
   useEffect(() => {

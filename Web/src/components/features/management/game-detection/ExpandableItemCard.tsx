@@ -70,7 +70,7 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
   };
 
   const isEpic = service === 'epicgames';
-  const showImage = !!gameAppId && !imageError;
+  const showImage = (!!gameAppId || !!epicAppId) && !imageError && !!imageUrl;
   const isUnknownGame = title.startsWith('Unknown Game');
 
   return (

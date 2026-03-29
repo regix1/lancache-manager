@@ -549,6 +549,15 @@ using (var scope = app.Services.CreateScope())
 var apiKeyService = app.Services.GetRequiredService<ApiKeyService>();
 apiKeyService.DisplayApiKey(app.Configuration);
 
+// If a new API key was generated (data folder was deleted), invalidate all old sessions
+// so existing browser cookies cannot authenticate against the new key.
+if (apiKeyService.WasNewKeyGenerated)
+{
+    using var startupScope = app.Services.CreateScope();
+    var sessionService = startupScope.ServiceProvider.GetRequiredService<SessionService>();
+    await sessionService.ClearAllSessionsAsync();
+}
+
 // MUST be first: Handle forwarded headers from reverse proxies (nginx, Cloudflare, etc.)
 // This ensures HttpContext.Connection.RemoteIpAddress returns the real client IP
 app.UseForwardedHeaders();
