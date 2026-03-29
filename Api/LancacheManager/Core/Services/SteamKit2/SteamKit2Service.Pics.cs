@@ -516,6 +516,20 @@ public partial class SteamKit2Service
             isLoggedOn = IsSteamAuthenticated,
             timestamp = DateTime.UtcNow
         });
+
+        // Trigger incremental game cache detection after successful depot mapping rebuild
+        // so newly mapped games are immediately detected without waiting for scheduled runs
+        _logger.LogInformation("Triggering incremental game cache detection after successful depot mapping rebuild");
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var detectionService = scope.ServiceProvider.GetRequiredService<GameCacheDetectionService>();
+            await detectionService.StartDetectionAsync(incremental: true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to trigger incremental game cache detection after depot mapping rebuild (non-fatal)");
+        }
     }
 
     private List<uint> ProcessAppDepots(SteamApps.PICSProductInfoCallback.PICSProductInfo app)

@@ -402,5 +402,18 @@ public partial class EpicMappingService
             lastUpdatedUtc = DateTime.UtcNow,
             source = "scheduled-refresh"
         });
+
+        // Trigger incremental game cache detection after successful Epic catalog refresh
+        try
+        {
+            using var scope = _scopeFactory.CreateScope();
+            var detectionService = scope.ServiceProvider.GetRequiredService<GameCacheDetectionService>();
+            await detectionService.StartDetectionAsync(incremental: true);
+            _logger.LogInformation("Triggered incremental game cache detection after successful Epic game mapping refresh");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to trigger game cache detection after Epic mapping refresh");
+        }
     }
 }

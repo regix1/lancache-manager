@@ -10,6 +10,7 @@ import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { useNotifications, NOTIFICATION_IDS } from '@contexts/notifications';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useDockerSocket } from '@contexts/useDockerSocket';
 import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
 import { useInvalidateImageCache } from '@components/common/ImageCacheContext';
@@ -41,6 +42,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const { t } = useTranslation();
   const { addNotification, updateNotification, notifications, isAnyRemovalRunning } =
     useNotifications();
+  const { on, off } = useSignalR();
   const { isDockerAvailable } = useDockerSocket();
   const { cacheReadOnly, checkingPermissions } = useDirectoryPermissions();
   const invalidateImageCache = useInvalidateImageCache();
@@ -54,7 +56,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   // Track local starting state for immediate UI feedback before SignalR events arrive
   const [isStartingDetection, setIsStartingDetection] = useState(false);
   // Track local loading state for loading cached data (quick synchronous operation)
-  const [isLoadingData, setIsLoadingData] = useState(false);
+  // Starts true so there is a visible Loader2 spinner while the initial getCachedGameDetection() fetch completes
+  const [isLoadingData, setIsLoadingData] = useState(true);
   // Ref to prevent duplicate API calls (handles rapid button clicks before state updates)
   const detectionInFlightRef = useRef(false);
   // Combined loading state: either notification says running OR we're in starting phase OR loading cached data
@@ -167,6 +170,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       } catch (err) {
         console.error('[GameCacheDetector] Failed to load cached games and services:', err);
         // Silent fail - not critical
+      } finally {
+        // Clear the initial loading state after the fetch completes (success or failure)
+        setIsLoadingData(false);
       }
     };
 
@@ -323,6 +329,40 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       }
     }
   }, [notifications, isStartingDetection, invalidateImageCache]);
+
+  // Direct SignalR listener for GameDetectionComplete — reloads results regardless of who started the scan.
+  // This handles the case where an external process (e.g., a scheduled scan or another browser tab)
+  // triggers a scan while isStartingDetection is false, so the notification-based flow above would not reload.
+  useEffect(() => {
+    const handleDetectionComplete = () => {
+      // Small delay to allow backend to finish writing cached results before we fetch
+      setTimeout(() => {
+        ApiService.getCachedGameDetection()
+          .then((result) => {
+            if (result.hasCachedResults) {
+              if (result.games && result.games.length > 0) {
+                setGames(result.games);
+              }
+              if (result.services && result.services.length > 0) {
+                setServices(result.services);
+              }
+              if (result.lastDetectionTime) {
+                setLastDetectionTime(result.lastDetectionTime);
+              }
+              invalidateImageCache?.();
+            }
+          })
+          .catch((err) => {
+            console.error('[GameCacheDetector] Failed to reload results after external scan:', err);
+          });
+      }, 500);
+    };
+
+    on('GameDetectionComplete', handleDetectionComplete);
+    return () => {
+      off('GameDetectionComplete', handleDetectionComplete);
+    };
+  }, [on, off, invalidateImageCache]);
 
   const startDetection = useCallback(
     async (forceRefresh: boolean, scanTypeLabel: 'full' | 'incremental') => {
