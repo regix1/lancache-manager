@@ -257,16 +257,16 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
             : `game-${download.gameName}`;
           groupName = download.gameName!;
           groupType = 'game';
-        } else if (download.service.toLowerCase() !== 'steam') {
+        } else {
+          // Group by service for all platforms (including unmapped Steam)
           groupKey = `service-${download.service.toLowerCase()}`;
           groupName =
             download.service.toLowerCase() === 'epicgames'
               ? 'Epic Games'
-              : `${download.service.charAt(0).toUpperCase() + download.service.slice(1)} Downloads`;
+              : download.service.toLowerCase() === 'steam'
+                ? 'Steam Downloads'
+                : `${download.service.charAt(0).toUpperCase() + download.service.slice(1)} Downloads`;
           groupType = download.totalBytes === 0 ? 'metadata' : 'content';
-        } else {
-          individuals.push(download);
-          return;
         }
 
         if (!groups[groupKey]) {
