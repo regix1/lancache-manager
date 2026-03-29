@@ -655,7 +655,7 @@ impl Processor {
                 .await?;
             } else {
                 sqlx::query(
-                    "INSERT INTO \"ClientStats\" (\"ClientIp\", \"TotalCacheHitBytes\", \"TotalCacheMissBytes\", \"LastActivityUtc\", \"LastActivityLocal\", \"TotalDownloads\") VALUES ($1, $2, $3, $4, $5, 1)"
+                    "INSERT INTO \"ClientStats\" (\"ClientIp\", \"TotalCacheHitBytes\", \"TotalCacheMissBytes\", \"LastActivityUtc\", \"LastActivityLocal\", \"TotalDownloads\", \"TotalDurationSeconds\") VALUES ($1, $2, $3, $4, $5, 1, 0.0)"
                 )
                 .bind(client_ip)
                 .bind(total_hit_bytes)

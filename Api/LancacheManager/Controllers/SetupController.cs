@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
 using LancacheManager.Models;
@@ -20,6 +21,7 @@ public class SetupController : ControllerBase
         _pathResolver = pathResolver;
     }
 
+    [AllowAnonymous]
     [HttpGet("status")]
     public IActionResult GetSetupStatus()
     {
@@ -34,6 +36,7 @@ public class SetupController : ControllerBase
         });
     }
 
+    [AllowAnonymous]
     [HttpPost("credentials")]
     public async Task<IActionResult> SetCredentialsAsync([FromBody] SetupCredentialsRequest request)
     {
