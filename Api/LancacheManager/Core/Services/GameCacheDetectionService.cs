@@ -1246,19 +1246,8 @@ public class GameCacheDetectionService : IDisposable
 
         if (steamAppIds.Count > 0)
         {
-            var rows = await db.Downloads
-                .AsNoTracking()
-                .Where(d => d.GameAppId != null
-                    && steamAppIds.Contains(d.GameAppId.Value)
-                    && !string.IsNullOrEmpty(d.GameImageUrl))
-                .Select(d => new { d.GameAppId, d.GameImageUrl, d.StartTimeUtc })
-                .ToListAsync();
-
-            var bestUrlBySteamApp = rows
-                .GroupBy(x => x.GameAppId!.Value)
-                .ToDictionary(
-                    g => g.Key,
-                    g => g.OrderByDescending(x => x.StartTimeUtc).First().GameImageUrl!);
+            var bestUrlBySteamApp =
+                await DownloadGameImageUrlQueries.GetLatestUrlsForSteamAppsAsync(db, steamAppIds);
 
             foreach (var game in games.Where(g =>
                          !string.Equals(g.Service, "epicgames", StringComparison.OrdinalIgnoreCase)

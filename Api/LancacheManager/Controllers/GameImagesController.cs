@@ -79,7 +79,8 @@ public class GameImagesController : ControllerBase
             }
 
             // Get stored image URL from database (populated from Steam API/PICS)
-            var dbImageUrl = await GetDatabaseImageUrlAsync(appId, cancellationToken);
+            var dbImageUrl = await DownloadGameImageUrlQueries.GetLatestUrlForSteamAppAsync(
+                _context, appId, cancellationToken);
 
             // Build list of URLs to try in order
             var urlsToTry = new List<string>();
@@ -269,19 +270,6 @@ public class GameImagesController : ControllerBase
             epicImageUrlsRefreshed = epicUrlsRefreshed,
             cacheGeneration = _cacheGeneration
         });
-    }
-
-    /// <summary>
-    /// Get the stored image URL from the database for a game
-    /// </summary>
-    private async Task<string?> GetDatabaseImageUrlAsync(long appId, CancellationToken cancellationToken)
-    {
-        var download = await _context.Downloads
-            .Where(d => d.GameAppId == appId && !string.IsNullOrEmpty(d.GameImageUrl))
-            .OrderByDescending(d => d.StartTimeUtc)
-            .FirstOrDefaultAsync(cancellationToken);
-
-        return download?.GameImageUrl;
     }
 
     /// <summary>
