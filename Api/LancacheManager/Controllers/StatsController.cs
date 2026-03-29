@@ -539,6 +539,34 @@ public class StatsController : ControllerBase
         return Ok(new { reset = resetCount });
     }
 
+    [HttpGet("eviction/scan/status")]
+    public IActionResult GetEvictionScanStatus()
+    {
+        var activeScan = _operationTracker.GetActiveOperations(OperationType.EvictionScan).FirstOrDefault();
+        if (activeScan == null)
+        {
+            return Ok(new
+            {
+                isProcessing = false,
+                status = OperationStatus.Completed,
+                percentComplete = 0.0,
+                message = string.Empty,
+                operationId = (string?)null
+            });
+        }
+
+        return Ok(new
+        {
+            isProcessing = true,
+            status = activeScan.Status,
+            percentComplete = activeScan.PercentComplete,
+            message = string.IsNullOrWhiteSpace(activeScan.Message)
+                ? "Scanning for evictable cache entries..."
+                : activeScan.Message,
+            operationId = activeScan.Id
+        });
+    }
+
     /// <summary>
     /// Creates a ClientStatsWithGroup object with calculated metrics
     /// </summary>

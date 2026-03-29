@@ -348,6 +348,7 @@ public class AuthController : ControllerBase
 
     [AllowAnonymous]
     [HttpGet("guest/epic-prefill/config")]
+    [HttpGet("guest/prefill/config/epic")]
     public IActionResult GetEpicGuestPrefillConfig()
     {
         return Ok(new
@@ -360,6 +361,7 @@ public class AuthController : ControllerBase
 
     [Authorize(Policy = "AdminOnly")]
     [HttpPost("guest/epic-prefill/config")]
+    [HttpPost("guest/prefill/config/epic")]
     public async Task<IActionResult> SetEpicGuestPrefillConfigAsync([FromBody] EpicGuestPrefillConfigRequest request)
     {
         if (request.DurationHours != 1 && request.DurationHours != 2)

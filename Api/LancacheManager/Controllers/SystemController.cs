@@ -185,6 +185,20 @@ public class SystemController : ControllerBase
         });
     }
 
+    [Authorize(Policy = "AdminOnly")]
+    [HttpGet("gc-management/status")]
+    public IActionResult GetGcManagementStatus()
+    {
+        var isEnabled = _configuration.GetValue<bool>(
+            "Optimizations:EnableGarbageCollectionManagement",
+            false);
+
+        return Ok(new
+        {
+            enabled = isEnabled
+        });
+    }
+
     /// <summary>
     /// PATCH /api/system/setup - Update setup status
     /// RESTful: PATCH is proper method for partial updates
@@ -192,8 +206,13 @@ public class SystemController : ControllerBase
     /// </summary>
     [Authorize]
     [HttpPatch("setup")]
-    public IActionResult UpdateSetupStatus([FromBody] UpdateSetupRequest request)
+    public IActionResult UpdateSetupStatus([FromBody] JsonElement request)
     {
+        if (request.ValueKind != JsonValueKind.Object)
+        {
+            return BadRequest(new ErrorResponse { Error = "Invalid setup update request body" });
+        }
+
         var validSteps = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "database-setup",
@@ -218,17 +237,22 @@ public class SystemController : ControllerBase
 
         var hasUpdate = false;
 
-        if (!TryReadOptionalString(request.CurrentSetupStep, out var currentSetupStep, out var currentStepError))
+        if (!TryReadOptionalBoolean(request, "completed", out var hasCompleted, out var completed, out var completedError))
+        {
+            return BadRequest(new ErrorResponse { Error = completedError ?? "Invalid completed value" });
+        }
+
+        if (!TryReadOptionalString(request, "currentSetupStep", out var hasCurrentSetupStep, out var currentSetupStep, out var currentStepError))
         {
             return BadRequest(new ErrorResponse { Error = currentStepError ?? "Invalid currentSetupStep value" });
         }
 
-        if (!TryReadOptionalString(request.DataSourceChoice, out var dataSourceChoice, out var dataSourceError))
+        if (!TryReadOptionalString(request, "dataSourceChoice", out var hasDataSourceChoice, out var dataSourceChoice, out var dataSourceError))
         {
             return BadRequest(new ErrorResponse { Error = dataSourceError ?? "Invalid dataSourceChoice value" });
         }
 
-        if (!TryReadOptionalString(request.CompletedPlatforms, out var completedPlatforms, out var completedPlatformsError))
+        if (!TryReadOptionalString(request, "completedPlatforms", out var hasCompletedPlatforms, out var completedPlatforms, out var completedPlatformsError))
         {
             return BadRequest(new ErrorResponse { Error = completedPlatformsError ?? "Invalid completedPlatforms value" });
         }
@@ -246,27 +270,27 @@ public class SystemController : ControllerBase
         _stateService.UpdateState(state =>
         {
             // Persist wizard state fields if provided
-            if (request.CurrentSetupStep.HasValue)
+            if (hasCurrentSetupStep)
             {
                 state.CurrentSetupStep = currentSetupStep;
                 hasUpdate = true;
             }
 
-            if (request.DataSourceChoice.HasValue)
+            if (hasDataSourceChoice)
             {
                 state.DataSourceChoice = dataSourceChoice;
                 hasUpdate = true;
             }
 
-            if (request.CompletedPlatforms.HasValue)
+            if (hasCompletedPlatforms)
             {
                 state.CompletedPlatforms = completedPlatforms;
                 hasUpdate = true;
             }
 
-            if (request.Completed.HasValue)
+            if (hasCompleted)
             {
-                state.SetupCompleted = request.Completed.Value;
+                state.SetupCompleted = completed!.Value;
                 // Always clear wizard state fields when completion is explicitly set.
                 state.CurrentSetupStep = null;
                 state.DataSourceChoice = null;
@@ -283,10 +307,10 @@ public class SystemController : ControllerBase
             });
         }
 
-        if (request.Completed.HasValue)
+        if (hasCompleted)
         {
-            _logger.LogInformation("Setup status updated: {Completed}", request.Completed.Value);
-            return Ok(new SetupUpdateResponse { Message = "Setup status updated", SetupCompleted = request.Completed.Value });
+            _logger.LogInformation("Setup status updated: {Completed}", completed!.Value);
+            return Ok(new SetupUpdateResponse { Message = "Setup status updated", SetupCompleted = completed.Value });
         }
 
         if (hasUpdate)
@@ -301,31 +325,64 @@ public class SystemController : ControllerBase
         return BadRequest(new ErrorResponse { Error = "No update provided" });
     }
 
-    private static bool TryReadOptionalString(
-        JsonElement? value,
-        out string? parsedValue,
+    private static bool TryReadOptionalBoolean(
+        JsonElement request,
+        string propertyName,
+        out bool hasProperty,
+        out bool? parsedValue,
         out string? error)
     {
+        hasProperty = false;
         parsedValue = null;
         error = null;
 
-        if (!value.HasValue)
+        if (!request.TryGetProperty(propertyName, out var property))
         {
             return true;
         }
 
-        if (value.Value.ValueKind == JsonValueKind.Null)
+        hasProperty = true;
+
+        if (property.ValueKind == JsonValueKind.True || property.ValueKind == JsonValueKind.False)
+        {
+            parsedValue = property.GetBoolean();
+            return true;
+        }
+
+        error = "Expected a boolean value";
+        return false;
+    }
+
+    private static bool TryReadOptionalString(
+        JsonElement request,
+        string propertyName,
+        out bool hasProperty,
+        out string? parsedValue,
+        out string? error)
+    {
+        hasProperty = false;
+        parsedValue = null;
+        error = null;
+
+        if (!request.TryGetProperty(propertyName, out var property))
         {
             return true;
         }
 
-        if (value.Value.ValueKind != JsonValueKind.String)
+        hasProperty = true;
+
+        if (property.ValueKind == JsonValueKind.Null)
+        {
+            return true;
+        }
+
+        if (property.ValueKind != JsonValueKind.String)
         {
             error = "Expected a string or null value";
             return false;
         }
 
-        parsedValue = value.Value.GetString();
+        parsedValue = property.GetString();
         return true;
     }
 

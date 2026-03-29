@@ -762,7 +762,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
       try {
         const [steamRes, epicRes] = await Promise.all([
           fetch('/api/auth/guest/prefill/config', ApiService.getFetchOptions()),
-          fetch('/api/auth/guest/prefill/config/epic', ApiService.getFetchOptions())
+          fetch('/api/auth/guest/epic-prefill/config', ApiService.getFetchOptions())
         ]);
         if (steamRes.ok) {
           const data = await steamRes.json();

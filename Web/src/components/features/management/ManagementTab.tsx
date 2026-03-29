@@ -93,8 +93,17 @@ const ManagementTab: React.FC = () => {
   useEffect(() => {
     const checkOptimizations = async () => {
       try {
-        const response = await fetch('/api/gc/settings', ApiService.getFetchOptions());
-        setOptimizationsEnabled(response.ok);
+        const response = await fetch(
+          '/api/system/gc-management/status',
+          ApiService.getFetchOptions()
+        );
+        if (!response.ok) {
+          setOptimizationsEnabled(false);
+          return;
+        }
+
+        const data = await response.json();
+        setOptimizationsEnabled(data.enabled === true);
       } catch {
         setOptimizationsEnabled(false);
       }
