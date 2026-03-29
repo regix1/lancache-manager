@@ -13,7 +13,7 @@ import { useNotifications, NOTIFICATION_IDS } from '@contexts/notifications';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useDockerSocket } from '@contexts/useDockerSocket';
 import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
-import { useInvalidateImageCache } from '@components/common/ImageCacheContext';
+import { useInvalidateImages } from '@components/common/ImageCacheContext';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import {
   ManagerCardHeader,
@@ -45,7 +45,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const { on, off } = useSignalR();
   const { isDockerAvailable } = useDockerSocket();
   const { cacheReadOnly, checkingPermissions } = useDirectoryPermissions();
-  const invalidateImageCache = useInvalidateImageCache();
+  const invalidateImageCache = useInvalidateImages();
 
   // Derive game detection state from notifications (standardized pattern)
   const activeGameDetectionNotification = notifications.find(

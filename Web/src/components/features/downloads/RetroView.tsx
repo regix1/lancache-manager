@@ -38,6 +38,7 @@ import { UnknownServiceIcon } from '@components/ui/UnknownServiceIcon';
 import { GameImage } from '@components/common/GameImage';
 import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import { resolveGameDetection } from '@utils/gameDetection';
+import { pickGameImage } from '@utils/pickGameImage';
 import DownloadBadges from './DownloadBadges';
 import type {
   Download as DownloadType,
@@ -275,7 +276,7 @@ const groupByDepot = (
     DepotGroupedData & {
       _weightedSpeedSum: number;
       _speedBytesSum: number;
-      _bestGameImage?: { t: string; url: string };
+      _downloads: DownloadType[];
     }
   > = {};
 
@@ -307,13 +308,15 @@ const groupByDepot = (
             downloadIds: [],
             isEvicted: download.isEvicted,
             _weightedSpeedSum: 0,
-            _speedBytesSum: 0
+            _speedBytesSum: 0,
+            _downloads: []
           };
         }
 
         const group = depotGroups[depotKey];
         if (!download.isEvicted) group.isEvicted = false;
         group.downloadIds.push(download.id);
+        group._downloads.push(download);
         group.cacheHitBytes += download.cacheHitBytes || 0;
         group.cacheMissBytes += download.cacheMissBytes || 0;
         group.totalBytes += download.totalBytes || 0;
@@ -333,11 +336,6 @@ const groupByDepot = (
         const endTime = download.endTimeUtc || download.startTimeUtc;
         if (endTime > group.endTimeUtc) {
           group.endTimeUtc = endTime;
-        }
-
-        const u = download.gameImageUrl?.trim();
-        if (u && (!group._bestGameImage || download.startTimeUtc > group._bestGameImage.t)) {
-          group._bestGameImage = { t: download.startTimeUtc, url: u };
         }
       });
     } else {
@@ -367,13 +365,15 @@ const groupByDepot = (
           downloadIds: [],
           isEvicted: download.isEvicted,
           _weightedSpeedSum: 0,
-          _speedBytesSum: 0
+          _speedBytesSum: 0,
+          _downloads: []
         };
       }
 
       const group = depotGroups[depotKey];
       if (download.isEvicted) group.isEvicted = true;
       group.downloadIds.push(download.id);
+      group._downloads.push(download);
       group.cacheHitBytes += download.cacheHitBytes || 0;
       group.cacheMissBytes += download.cacheMissBytes || 0;
       group.totalBytes += download.totalBytes || 0;
@@ -394,18 +394,13 @@ const groupByDepot = (
       if (endTime > group.endTimeUtc) {
         group.endTimeUtc = endTime;
       }
-
-      const u = download.gameImageUrl?.trim();
-      if (u && (!group._bestGameImage || download.startTimeUtc > group._bestGameImage.t)) {
-        group._bestGameImage = { t: download.startTimeUtc, url: u };
-      }
     }
   });
 
   const grouped = Object.values(depotGroups).map((group) => {
-    const { _weightedSpeedSum, _speedBytesSum, _bestGameImage, ...cleanGroup } = group;
+    const { _weightedSpeedSum, _speedBytesSum, _downloads, ...cleanGroup } = group;
     cleanGroup.averageBytesPerSecond = _speedBytesSum > 0 ? _weightedSpeedSum / _speedBytesSum : 0;
-    cleanGroup.storedGameImageUrl = _bestGameImage?.url;
+    cleanGroup.storedGameImageUrl = pickGameImage(_downloads);
     return cleanGroup as DepotGroupedData;
   });
 
@@ -1433,8 +1428,8 @@ const RetroView = memo(
                                         epicAppId={data.epicAppId || undefined}
                                         alt={data.gameName || t('downloads.tab.retro.gameFallback')}
                                         className="w-[120px] h-[56px] rounded object-cover"
-                                        onFinalError={handleImageError}
-                                        storedImageUrl={data.storedGameImageUrl}
+                                        onError={handleImageError}
+                                        imageUrl={data.storedGameImageUrl}
                                       />
                                     ) : (
                                       /* Service icon placeholder */
@@ -1611,8 +1606,8 @@ const RetroView = memo(
                                       epicAppId={data.epicAppId || undefined}
                                       alt={data.gameName || t('downloads.tab.retro.gameFallback')}
                                       className="w-[120px] h-[56px] rounded object-cover flex-shrink-0"
-                                      onFinalError={handleImageError}
-                                      storedImageUrl={data.storedGameImageUrl}
+                                      onError={handleImageError}
+                                      imageUrl={data.storedGameImageUrl}
                                     />
                                   ) : (
                                     <div className="w-[120px] h-[56px] rounded flex items-center justify-center flex-shrink-0 bg-[var(--theme-bg-tertiary)]">

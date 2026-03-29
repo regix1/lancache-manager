@@ -13,7 +13,7 @@ import DownloadBadges from './DownloadBadges';
 import { useSessionFilters } from './useSessionFilters';
 import SessionFilterBar from './SessionFilterBar';
 import { resolveGameDetection } from '@utils/gameDetection';
-import { pickLatestStoredGameImageUrl } from '@utils/pickLatestStoredGameImageUrl';
+import { pickGameImage } from '@utils/pickGameImage';
 import type { Download, DownloadGroup, GameCacheInfo } from '../../../types';
 
 interface CompactViewSectionLabels {
@@ -146,10 +146,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
 
   const hitPercent = group.totalBytes > 0 ? (group.cacheHitBytes / group.totalBytes) * 100 : 0;
   const primaryDownload = group.downloads[0];
-  const storedBannerUrl = React.useMemo(
-    () => pickLatestStoredGameImageUrl(group.downloads),
-    [group.downloads]
-  );
+  const storedBannerUrl = React.useMemo(() => pickGameImage(group.downloads), [group.downloads]);
   const serviceLower = group.service.toLowerCase();
   const isEpicService = serviceLower === 'epic' || serviceLower === 'epicgames';
   const showSteamImage =
@@ -378,8 +375,8 @@ const GroupRow: React.FC<GroupRowProps> = ({
                     alt={primaryDownload.gameName || group.name}
                     className="compact-expanded-banner sm:w-[100px] sm:h-[46px] rounded object-cover border border-[var(--theme-border-secondary)]"
                     sizes="(max-width: 639px) 100%, 100px"
-                    onFinalError={handleImageError}
-                    storedImageUrl={storedBannerUrl}
+                    onError={handleImageError}
+                    imageUrl={storedBannerUrl}
                   />
                 )}
               </div>

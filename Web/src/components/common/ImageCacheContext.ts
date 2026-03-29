@@ -12,11 +12,10 @@ export const ImageCacheContext = createContext(0);
  * Call this after new game detection results are loaded to force
  * GameImage components to re-fetch images that may now be available.
  */
-export const ImageCacheInvalidateContext = createContext<(() => void) | null>(null);
+export const ImageInvalidateContext = createContext<(() => void) | null>(null);
 
 /**
  * Hook to obtain the image cache invalidation function.
- * Returns null when used outside of an ImageCacheInvalidateContext provider.
+ * Returns null when used outside of an ImageInvalidateContext provider.
  */
-export const useInvalidateImageCache = (): (() => void) | null =>
-  useContext(ImageCacheInvalidateContext);
+export const useInvalidateImages = (): (() => void) | null => useContext(ImageInvalidateContext);

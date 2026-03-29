@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useContext } from 'react';
+import React, { useState, useMemo, useEffect, useContext } from 'react';
 import { ImageCacheContext } from './ImageCacheContext';
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
@@ -8,97 +8,60 @@ interface GameImageProps {
   alt: string;
   className?: string;
   loading?: 'lazy' | 'eager';
-  onFinalError: (gameAppId: string) => void;
+  onError: (gameAppId: string) => void;
   sizes?: string;
   epicAppId?: string;
-  /** When set (e.g. from Download.gameImageUrl), load this URL first; on failure use /api/game-images proxy. */
-  storedImageUrl?: string;
+  /** When set (e.g. from Download.gameImageUrl), load this URL directly. */
+  imageUrl?: string;
 }
 
 /**
- * Game image: optional stored CDN URL from DB, then /api/game-images proxy with header→capsule (Steam) or Epic retries.
+ * Game image: single URL attempt — imageUrl if provided, otherwise /api/game-images proxy.
  */
 export const GameImage: React.FC<GameImageProps> = ({
   gameAppId,
   alt,
   className,
   loading = 'lazy',
-  onFinalError,
+  onError,
   sizes,
   epicAppId,
-  storedImageUrl
+  imageUrl
 }) => {
   const appId = String(gameAppId);
   const imageKey = epicAppId ? `epic-${epicAppId}` : appId;
-  const trimmedStored = storedImageUrl?.trim();
-  const [storedBannerFailed, setStoredBannerFailed] = useState(false);
-  const [useCapsule, setUseCapsule] = useState(false);
-  const [hasTriedFallback, setHasTriedFallback] = useState(false);
-  const [epicRetryCount, setEpicRetryCount] = useState(0);
-  const [retryTrigger, setRetryTrigger] = useState(0);
+  const [failed, setFailed] = useState(false);
   const cacheBuster = useContext(ImageCacheContext);
 
   useEffect(() => {
-    setStoredBannerFailed(false);
-    setUseCapsule(false);
-    setHasTriedFallback(false);
-    setEpicRetryCount(0);
-    setRetryTrigger(0);
-  }, [imageKey, trimmedStored]);
+    setFailed(false);
+  }, [imageKey, imageUrl]);
 
-  const handleError = useCallback(() => {
-    if (epicAppId) {
-      if (epicRetryCount < 2) {
-        const delay = (epicRetryCount + 1) * 3000;
-        setTimeout(() => {
-          setEpicRetryCount((c) => c + 1);
-          setRetryTrigger((t) => t + 1);
-        }, delay);
-      } else {
-        onFinalError(imageKey);
-      }
-    } else if (!useCapsule && !hasTriedFallback) {
-      setUseCapsule(true);
-      setHasTriedFallback(true);
-    } else {
-      onFinalError(imageKey);
+  const src = useMemo(() => {
+    if (imageUrl?.trim()) return imageUrl.trim();
+    if (epicAppId) return `${API_BASE}/game-images/epic/${epicAppId}/header`;
+    return `${API_BASE}/game-images/${appId}/header`;
+  }, [imageUrl, epicAppId, appId]);
+
+  const finalSrc =
+    cacheBuster > 0 ? `${src}${src.includes('?') ? '&' : '?'}_cb=${cacheBuster}` : src;
+
+  useEffect(() => {
+    if (failed) {
+      onError(imageKey);
     }
-  }, [epicAppId, useCapsule, hasTriedFallback, imageKey, onFinalError, epicRetryCount]);
+  }, [failed, imageKey, onError]);
 
-  const cbParam = cacheBuster > 0 ? `_cb=${cacheBuster}` : '';
-  const retryParam = retryTrigger > 0 ? `_rt=${retryTrigger}` : '';
-  const extraParams = [cbParam, retryParam].filter(Boolean).join('&');
-
-  if (trimmedStored && !storedBannerFailed) {
-    return (
-      <img
-        src={trimmedStored}
-        sizes={sizes}
-        alt={alt}
-        className={className}
-        loading={loading}
-        onError={() => setStoredBannerFailed(true)}
-      />
-    );
-  }
-
-  let src: string;
-  if (epicAppId) {
-    src = `${API_BASE}/game-images/epic/${epicAppId}/header${extraParams ? `?${extraParams}` : ''}`;
-  } else if (useCapsule) {
-    src = `${API_BASE}/game-images/${appId}/header?type=capsule${extraParams ? `&${extraParams}` : ''}`;
-  } else {
-    src = `${API_BASE}/game-images/${appId}/header${extraParams ? `?${extraParams}` : ''}`;
-  }
+  if (failed) return null;
 
   return (
     <img
-      src={src}
+      src={finalSrc}
       sizes={sizes}
       alt={alt}
       className={className}
       loading={loading}
-      onError={handleError}
+      onError={() => setFailed(true)}
     />
   );
 };

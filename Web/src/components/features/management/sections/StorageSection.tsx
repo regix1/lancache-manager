@@ -10,10 +10,7 @@ import { Checkbox } from '@components/ui/Checkbox';
 import { ManagerCardHeader, LoadingState } from '@components/ui/ManagerCard';
 import { type AuthMode } from '@services/auth.service';
 import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
-import {
-  ImageCacheContext,
-  ImageCacheInvalidateContext
-} from '@components/common/ImageCacheContext';
+import { ImageCacheContext, ImageInvalidateContext } from '@components/common/ImageCacheContext';
 import ApiService from '@services/api.service';
 import { useNotifications } from '@contexts/notifications/useNotifications';
 import DatasourcesManager from '../datasources/DatasourcesInfo';
@@ -274,14 +271,14 @@ const StorageSection: React.FC<StorageSectionProps> = ({
 
           {/* Game Detection */}
           <ImageCacheContext.Provider value={imageCacheVersion}>
-            <ImageCacheInvalidateContext.Provider value={invalidateImageCache}>
+            <ImageInvalidateContext.Provider value={invalidateImageCache}>
               <GameCacheDetector
                 mockMode={mockMode}
                 isAdmin={isAdmin}
                 onDataRefresh={onDataRefresh}
                 refreshKey={gameCacheRefreshKey}
               />
-            </ImageCacheInvalidateContext.Provider>
+            </ImageInvalidateContext.Provider>
           </ImageCacheContext.Provider>
         </div>
       </div>
