@@ -542,12 +542,14 @@ public class StatsController : ControllerBase
     [HttpGet("eviction/scan/status")]
     public IActionResult GetEvictionScanStatus()
     {
+        var silentMode = !_stateRepository.GetEvictionScanNotifications();
         var activeScan = _operationTracker.GetActiveOperations(OperationType.EvictionScan).FirstOrDefault();
         if (activeScan == null)
         {
             return Ok(new
             {
                 isProcessing = false,
+                silentMode,
                 status = OperationStatus.Completed,
                 percentComplete = 0.0,
                 message = string.Empty,
@@ -558,6 +560,7 @@ public class StatsController : ControllerBase
         return Ok(new
         {
             isProcessing = true,
+            silentMode,
             status = activeScan.Status,
             percentComplete = activeScan.PercentComplete,
             message = string.IsNullOrWhiteSpace(activeScan.Message)

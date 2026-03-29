@@ -70,32 +70,36 @@ function createSimpleRecoveryFunction(
           ];
         });
       } else {
-        // Clear stale state
+        // Clear stale localStorage entry if present
         const saved = localStorage.getItem(config.storageKey);
         if (saved) {
           localStorage.removeItem(config.storageKey);
-
-          setNotifications((prev: UnifiedNotification[]) => {
-            const existing = prev.find((n) => n.type === config.type && n.status === 'running');
-            if (existing) {
-              return prev.map((n) => {
-                if (n.type === config.type && n.status === 'running') {
-                  return {
-                    ...n,
-                    id: notificationId,
-                    status: 'completed' as NotificationStatus,
-                    message: config.staleMessage,
-                    progress: 100
-                  };
-                }
-                return n;
-              });
-            }
-            return prev;
-          });
-
-          scheduleAutoDismiss(notificationId);
         }
+
+        // Always transition any running notification of this type to completed.
+        // This handles both:
+        // 1. Notifications restored from localStorage (stale from previous session)
+        // 2. Notifications created by a previous recovery poll (when isProcessing was true)
+        //    — these don't use localStorage, so the old `if (saved)` guard missed them
+        setNotifications((prev: UnifiedNotification[]) => {
+          const existing = prev.find((n) => n.type === config.type && n.status === 'running');
+          if (!existing) return prev;
+
+          return prev.map((n) => {
+            if (n.type === config.type && n.status === 'running') {
+              return {
+                ...n,
+                id: notificationId,
+                status: 'completed' as NotificationStatus,
+                message: config.staleMessage,
+                progress: 100
+              };
+            }
+            return n;
+          });
+        });
+
+        scheduleAutoDismiss(notificationId);
       }
     } catch {
       // Silently fail - operation not running
@@ -298,7 +302,9 @@ const RECOVERY_CONFIGS = {
     storageKey: NOTIFICATION_STORAGE_KEYS.EVICTION_SCAN,
     type: 'eviction_scan' as NotificationType,
     notificationId: NOTIFICATION_IDS.EVICTION_SCAN,
-    isProcessing: (data: Record<string, unknown>) => Boolean(data.isProcessing),
+    isProcessing: (data: Record<string, unknown>) => Boolean(data.isProcessing) && !data.silentMode,
+    shouldSkip: (data: Record<string, unknown>) =>
+      Boolean(data.isProcessing) && Boolean(data.silentMode),
     createNotification: (data: Record<string, unknown>) => ({
       message: (data.message as string) || 'Scanning for evictable cache entries...',
       progress: (data.percentComplete as number) || 0,
