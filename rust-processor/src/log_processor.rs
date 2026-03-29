@@ -59,9 +59,24 @@ use models::*;
 use parser::LogParser;
 use session::SessionTracker;
 
-const BULK_BATCH_SIZE: usize = 5_000; // Raised for bulk performance
+const BULK_BATCH_SIZE: usize = 5_000;
 const SESSION_GAP_MINUTES: i64 = 5;
-const LINE_BUFFER_CAPACITY: usize = 1024; // Reduced from 2048 for better memory efficiency
+const LINE_BUFFER_CAPACITY: usize = 1024;
+
+/// Buffered log entry ready for bulk INSERT — owns its data to avoid lifetime issues across session groups
+struct PendingLogEntry {
+    timestamp: chrono::DateTime<Utc>,
+    client_ip: String,
+    service: String,
+    url: String,
+    status_code: i32,
+    bytes_served: i64,
+    cache_status: String,
+    depot_id: Option<i64>,
+    download_id: i64,
+    created_at: chrono::DateTime<Utc>,
+    datasource: String,
+}
 
 #[derive(Serialize)]
 struct Progress {
@@ -92,8 +107,9 @@ struct Processor {
     auto_map_depots: bool,
     last_logged_percent: AtomicU64, // Store as integer (0-100) for atomic operations
     logged_depots: HashSet<u32>, // Track depots that have already been logged
-    datasource_name: String, // Datasource identifier for multi-datasource support
-    depot_map: HashMap<u32, (u32, Option<String>)>, // Pre-loaded depot->app mappings for zero per-session DB lookups
+    datasource_name: String,
+    depot_map: HashMap<u32, (u32, Option<String>)>,
+    skip_dedup: bool, // True when table is empty — skip duplicate checks for max speed
 }
 
 impl Processor {
@@ -131,6 +147,7 @@ impl Processor {
             logged_depots: HashSet::new(),
             datasource_name,
             depot_map,
+            skip_dedup: false,
         }
     }
 
@@ -237,7 +254,21 @@ impl Processor {
 
         self.write_progress("counting", &format!("Counted {} lines across {} file(s)", total_lines, log_files.len()))?;
 
-        // LogEntries table already exists from C# migrations, use it for duplicate detection
+        // Check if this is a fresh database — skip dedup for maximum speed
+        if self.start_position == 0 {
+            let is_empty: bool = sqlx::query_scalar(
+                r#"SELECT NOT EXISTS(SELECT 1 FROM "LogEntries" LIMIT 1)"#
+            )
+            .fetch_one(&self.pool)
+            .await
+            .unwrap_or(false);
+            if is_empty {
+                println!("Fresh database detected — skipping duplicate checks for maximum speed");
+                self.skip_dedup = true;
+            }
+        }
+
+        // LogEntries table already exists from C# migrations
         // Index IX_LogEntries_DuplicateCheck on (ClientIp, Service, Timestamp, Url, BytesServed) exists
 
         // Process each log file in order (oldest to newest)
@@ -447,17 +478,22 @@ impl Processor {
             grouped.entry(key).or_insert_with(Vec::new).push(entry);
         }
 
-        // Process each group and count actually inserted entries
-        let mut total_inserted = 0u64;
+        // Process each group (Downloads, stats, session tracking)
+        // Collect entries to insert into a shared buffer for ONE bulk INSERT
+        let mut pending_inserts: Vec<PendingLogEntry> = Vec::with_capacity(entries.len());
         for (session_key, group_entries) in &grouped {
-            total_inserted += self.process_session_group(&mut tx, session_key, group_entries).await?;
+            self.process_session_group(&mut tx, session_key, group_entries, &mut pending_inserts).await?;
+        }
+
+        // ONE bulk INSERT for ALL entries across ALL session groups
+        if !pending_inserts.is_empty() {
+            Self::bulk_insert_log_entries(&mut tx, &pending_inserts).await?;
         }
 
         tx.commit().await?;
 
-        // Only count entries that were actually inserted (not duplicates)
         self.entries_saved
-            .fetch_add(total_inserted, Ordering::Relaxed);
+            .fetch_add(pending_inserts.len() as u64, Ordering::Relaxed);
 
         Ok(())
     }
@@ -471,74 +507,82 @@ impl Processor {
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         session_key: &str,
         entries: &[&LogEntry],
-    ) -> Result<u64> {
+        pending_inserts: &mut Vec<PendingLogEntry>,
+    ) -> Result<()> {
         if entries.is_empty() {
-            return Ok(0);
+            return Ok(());
         }
 
-        // Bulk duplicate detection — single query for the whole group instead of per-row SELECTs
-        let mut check_client_ips: Vec<&str> = Vec::with_capacity(entries.len());
-        let mut check_services: Vec<&str> = Vec::with_capacity(entries.len());
-        let mut check_timestamps: Vec<chrono::DateTime<Utc>> = Vec::with_capacity(entries.len());
-        let mut check_urls: Vec<&str> = Vec::with_capacity(entries.len());
-        let mut check_bytes: Vec<i64> = Vec::with_capacity(entries.len());
+        // Duplicate detection — skip on fresh database for maximum speed
+        let (new_entries, skipped): (Vec<&LogEntry>, usize) = if self.skip_dedup {
+            // Fresh database — all entries are new, no dedup needed
+            (entries.iter().map(|e| *e).collect(), 0)
+        } else {
+            // Bulk duplicate detection — single query for the whole group
+            let mut check_client_ips: Vec<&str> = Vec::with_capacity(entries.len());
+            let mut check_services: Vec<&str> = Vec::with_capacity(entries.len());
+            let mut check_timestamps: Vec<chrono::DateTime<Utc>> = Vec::with_capacity(entries.len());
+            let mut check_urls: Vec<&str> = Vec::with_capacity(entries.len());
+            let mut check_bytes: Vec<i64> = Vec::with_capacity(entries.len());
 
-        for entry in entries {
-            check_client_ips.push(&entry.client_ip);
-            check_services.push(&entry.service);
-            check_timestamps.push(Utc.from_utc_datetime(&entry.timestamp));
-            check_urls.push(&entry.url);
-            check_bytes.push(entry.bytes_served);
-        }
-
-        let existing_rows = sqlx::query(
-            r#"SELECT "ClientIp", "Service", "Timestamp", "Url", "BytesServed"
-               FROM "LogEntries"
-               WHERE ("ClientIp", "Service", "Timestamp", "Url", "BytesServed")
-               IN (SELECT * FROM UNNEST($1::text[], $2::text[], $3::timestamptz[], $4::text[], $5::bigint[]))"#
-        )
-        .bind(&check_client_ips)
-        .bind(&check_services)
-        .bind(&check_timestamps)
-        .bind(&check_urls)
-        .bind(&check_bytes)
-        .fetch_all(&mut **tx)
-        .await?;
-
-        let existing_keys: HashSet<(String, String, i64, String, i64)> = existing_rows
-            .iter()
-            .map(|row| {
-                let client_ip: String = row.get("ClientIp");
-                let service: String = row.get("Service");
-                let ts: chrono::DateTime<Utc> = row.get("Timestamp");
-                let url: String = row.get("Url");
-                let bytes: i64 = row.get("BytesServed");
-                (client_ip, service, ts.timestamp_nanos_opt().unwrap_or(0), url, bytes)
-            })
-            .collect();
-
-        let mut new_entries: Vec<&LogEntry> = Vec::with_capacity(entries.len());
-        let mut skipped = 0usize;
-
-        for entry in entries {
-            let ts_nanos = Utc.from_utc_datetime(&entry.timestamp).timestamp_nanos_opt().unwrap_or(0);
-            let key = (
-                entry.client_ip.clone(),
-                entry.service.clone(),
-                ts_nanos,
-                entry.url.clone(),
-                entry.bytes_served,
-            );
-            if existing_keys.contains(&key) {
-                skipped += 1;
-            } else {
-                new_entries.push(*entry);
+            for entry in entries {
+                check_client_ips.push(&entry.client_ip);
+                check_services.push(&entry.service);
+                check_timestamps.push(Utc.from_utc_datetime(&entry.timestamp));
+                check_urls.push(&entry.url);
+                check_bytes.push(entry.bytes_served);
             }
-        }
 
-        // If all entries were duplicates, skip all processing (silently)
+            let existing_rows = sqlx::query(
+                r#"SELECT "ClientIp", "Service", "Timestamp", "Url", "BytesServed"
+                   FROM "LogEntries"
+                   WHERE ("ClientIp", "Service", "Timestamp", "Url", "BytesServed")
+                   IN (SELECT * FROM UNNEST($1::text[], $2::text[], $3::timestamptz[], $4::text[], $5::bigint[]))"#
+            )
+            .bind(&check_client_ips)
+            .bind(&check_services)
+            .bind(&check_timestamps)
+            .bind(&check_urls)
+            .bind(&check_bytes)
+            .fetch_all(&mut **tx)
+            .await?;
+
+            let existing_keys: HashSet<(String, String, i64, String, i64)> = existing_rows
+                .iter()
+                .map(|row| {
+                    let client_ip: String = row.get("ClientIp");
+                    let service: String = row.get("Service");
+                    let ts: chrono::DateTime<Utc> = row.get("Timestamp");
+                    let url: String = row.get("Url");
+                    let bytes: i64 = row.get("BytesServed");
+                    (client_ip, service, ts.timestamp_nanos_opt().unwrap_or(0), url, bytes)
+                })
+                .collect();
+
+            let mut new_vec: Vec<&LogEntry> = Vec::with_capacity(entries.len());
+            let mut skip_count = 0usize;
+
+            for entry in entries {
+                let ts_nanos = Utc.from_utc_datetime(&entry.timestamp).timestamp_nanos_opt().unwrap_or(0);
+                let key = (
+                    entry.client_ip.clone(),
+                    entry.service.clone(),
+                    ts_nanos,
+                    entry.url.clone(),
+                    entry.bytes_served,
+                );
+                if existing_keys.contains(&key) {
+                    skip_count += 1;
+                } else {
+                    new_vec.push(*entry);
+                }
+            }
+            (new_vec, skip_count)
+        };
+
+        // If all entries were duplicates, skip all processing
         if new_entries.is_empty() {
-            return Ok(0);
+            return Ok(());
         }
 
         // Now process only the new (non-duplicate) entries
@@ -821,80 +865,102 @@ impl Processor {
         self.session_tracker
             .update_session(session_key, last_timestamp);
 
-        // Bulk INSERT for new (non-duplicate) entries using UNNEST — one query per batch
+        // Push entries to pending buffer — will be bulk-inserted by process_batch
         let now = Utc::now();
-        let inserted = new_entries.len();
-
-        if !new_entries.is_empty() {
-            // Collect column vectors for UNNEST
-            let mut ts_vec: Vec<chrono::DateTime<Utc>> = Vec::with_capacity(new_entries.len());
-            let mut client_ip_vec: Vec<&str> = Vec::with_capacity(new_entries.len());
-            let mut service_vec: Vec<&str> = Vec::with_capacity(new_entries.len());
-            let mut method_vec: Vec<&str> = Vec::with_capacity(new_entries.len());
-            let mut url_vec: Vec<&str> = Vec::with_capacity(new_entries.len());
-            let mut status_code_vec: Vec<i32> = Vec::with_capacity(new_entries.len());
-            let mut bytes_served_vec: Vec<i64> = Vec::with_capacity(new_entries.len());
-            let mut cache_status_vec: Vec<&str> = Vec::with_capacity(new_entries.len());
-            let mut depot_id_vec: Vec<Option<i64>> = Vec::with_capacity(new_entries.len());
-            let mut download_id_vec: Vec<i64> = Vec::with_capacity(new_entries.len());
-            let mut created_at_vec: Vec<chrono::DateTime<Utc>> = Vec::with_capacity(new_entries.len());
-            let mut datasource_vec: Vec<&str> = Vec::with_capacity(new_entries.len());
-
-            for entry in &new_entries {
-                ts_vec.push(Utc.from_utc_datetime(&entry.timestamp));
-                client_ip_vec.push(&entry.client_ip);
-                service_vec.push(&entry.service);
-                method_vec.push("GET");
-                url_vec.push(&entry.url);
-                status_code_vec.push(entry.status_code);
-                bytes_served_vec.push(entry.bytes_served);
-                cache_status_vec.push(&entry.cache_status);
-                depot_id_vec.push(entry.depot_id.map(|d| d as i64));
-                download_id_vec.push(download_id);
-                created_at_vec.push(now);
-                datasource_vec.push(&self.datasource_name);
-            }
-
-            // PostgreSQL parameter limit is 65535; 12 columns → max 5461 rows per call.
-            // BULK_BATCH_SIZE=5000 fits comfortably but we chunk defensively anyway.
-            const MAX_ROWS_PER_INSERT: usize = 5000;
-            let n = new_entries.len();
-            let mut offset = 0usize;
-            while offset < n {
-                let end = std::cmp::min(offset + MAX_ROWS_PER_INSERT, n);
-                sqlx::query(
-                    r#"INSERT INTO "LogEntries" ("Timestamp", "ClientIp", "Service", "Method", "Url", "StatusCode", "BytesServed", "CacheStatus", "DepotId", "DownloadId", "CreatedAt", "Datasource")
-                       SELECT * FROM UNNEST($1::timestamptz[], $2::text[], $3::text[], $4::text[], $5::text[], $6::int[], $7::bigint[], $8::text[], $9::bigint[], $10::bigint[], $11::timestamptz[], $12::text[])"#
-                )
-                .bind(&ts_vec[offset..end])
-                .bind(&client_ip_vec[offset..end])
-                .bind(&service_vec[offset..end])
-                .bind(&method_vec[offset..end])
-                .bind(&url_vec[offset..end])
-                .bind(&status_code_vec[offset..end])
-                .bind(&bytes_served_vec[offset..end])
-                .bind(&cache_status_vec[offset..end])
-                .bind(&depot_id_vec[offset..end])
-                .bind(&download_id_vec[offset..end])
-                .bind(&created_at_vec[offset..end])
-                .bind(&datasource_vec[offset..end])
-                .execute(&mut **tx)
-                .await?;
-                offset = end;
-            }
+        for entry in &new_entries {
+            pending_inserts.push(PendingLogEntry {
+                timestamp: Utc.from_utc_datetime(&entry.timestamp),
+                client_ip: entry.client_ip.clone(),
+                service: entry.service.clone(),
+                url: entry.url.clone(),
+                status_code: entry.status_code,
+                bytes_served: entry.bytes_served,
+                cache_status: entry.cache_status.clone(),
+                depot_id: entry.depot_id.map(|d| d as i64),
+                download_id,
+                created_at: now,
+                datasource: self.datasource_name.clone(),
+            });
         }
 
-        // Log if duplicates were skipped
         if skipped > 0 {
             println!(
-                "Skipped {} duplicate entries (inserted {}/{})",
+                "Skipped {} duplicate entries ({} new/{})",
                 skipped,
-                inserted,
+                new_entries.len(),
                 entries.len()
             );
         }
 
-        Ok(inserted as u64)
+        Ok(())
+    }
+
+    /// Bulk INSERT all pending log entries in ONE UNNEST query per chunk.
+    /// Called once per batch instead of once per session group.
+    async fn bulk_insert_log_entries(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        entries: &[PendingLogEntry],
+    ) -> Result<()> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+
+        let mut ts_vec: Vec<&chrono::DateTime<Utc>> = Vec::with_capacity(entries.len());
+        let mut client_ip_vec: Vec<&str> = Vec::with_capacity(entries.len());
+        let mut service_vec: Vec<&str> = Vec::with_capacity(entries.len());
+        let mut method_vec: Vec<&str> = Vec::with_capacity(entries.len());
+        let mut url_vec: Vec<&str> = Vec::with_capacity(entries.len());
+        let mut status_code_vec: Vec<i32> = Vec::with_capacity(entries.len());
+        let mut bytes_served_vec: Vec<i64> = Vec::with_capacity(entries.len());
+        let mut cache_status_vec: Vec<&str> = Vec::with_capacity(entries.len());
+        let mut depot_id_vec: Vec<Option<i64>> = Vec::with_capacity(entries.len());
+        let mut download_id_vec: Vec<i64> = Vec::with_capacity(entries.len());
+        let mut created_at_vec: Vec<&chrono::DateTime<Utc>> = Vec::with_capacity(entries.len());
+        let mut datasource_vec: Vec<&str> = Vec::with_capacity(entries.len());
+
+        for entry in entries {
+            ts_vec.push(&entry.timestamp);
+            client_ip_vec.push(&entry.client_ip);
+            service_vec.push(&entry.service);
+            method_vec.push("GET");
+            url_vec.push(&entry.url);
+            status_code_vec.push(entry.status_code);
+            bytes_served_vec.push(entry.bytes_served);
+            cache_status_vec.push(&entry.cache_status);
+            depot_id_vec.push(entry.depot_id);
+            download_id_vec.push(entry.download_id);
+            created_at_vec.push(&entry.created_at);
+            datasource_vec.push(&entry.datasource);
+        }
+
+        // PostgreSQL parameter limit is 65535; 12 columns → max 5461 rows per call
+        const MAX_ROWS: usize = 5000;
+        let n = entries.len();
+        let mut offset = 0usize;
+        while offset < n {
+            let end = std::cmp::min(offset + MAX_ROWS, n);
+            sqlx::query(
+                r#"INSERT INTO "LogEntries" ("Timestamp", "ClientIp", "Service", "Method", "Url", "StatusCode", "BytesServed", "CacheStatus", "DepotId", "DownloadId", "CreatedAt", "Datasource")
+                   SELECT * FROM UNNEST($1::timestamptz[], $2::text[], $3::text[], $4::text[], $5::text[], $6::int[], $7::bigint[], $8::text[], $9::bigint[], $10::bigint[], $11::timestamptz[], $12::text[])"#
+            )
+            .bind(&ts_vec[offset..end])
+            .bind(&client_ip_vec[offset..end])
+            .bind(&service_vec[offset..end])
+            .bind(&method_vec[offset..end])
+            .bind(&url_vec[offset..end])
+            .bind(&status_code_vec[offset..end])
+            .bind(&bytes_served_vec[offset..end])
+            .bind(&cache_status_vec[offset..end])
+            .bind(&depot_id_vec[offset..end])
+            .bind(&download_id_vec[offset..end])
+            .bind(&created_at_vec[offset..end])
+            .bind(&datasource_vec[offset..end])
+            .execute(&mut **tx)
+            .await?;
+            offset = end;
+        }
+
+        Ok(())
     }
 }
 
