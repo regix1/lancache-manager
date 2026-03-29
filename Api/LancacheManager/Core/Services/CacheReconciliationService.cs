@@ -25,12 +25,14 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly RustProcessHelper _rustProcessHelper;
     private bool _isRunning;
+    private bool _currentScanIsSilent = true;
 
     protected override string ServiceName => "CacheReconciliationService";
     protected override TimeSpan Interval => TimeSpan.FromHours(6);
     protected override bool RunOnStartup => true;
 
     public bool IsRunning => _isRunning;
+    public bool CurrentScanIsSilent => _currentScanIsSilent;
 
     /// <summary>
     /// Start reconciliation as a fire-and-forget background task.
@@ -127,6 +129,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
     private async Task ReconcileCacheFilesAsync(AppDbContext context, string operationId, CancellationToken stoppingToken, bool silent = false)
     {
+        _currentScanIsSilent = silent;
         string? datasourceConfigPath = null;
         string? progressFilePath = null;
 

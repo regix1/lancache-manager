@@ -542,8 +542,8 @@ public class StatsController : ControllerBase
     [HttpGet("eviction/scan/status")]
     public IActionResult GetEvictionScanStatus()
     {
-        var silentMode = !_stateRepository.GetEvictionScanNotifications();
         var activeScan = _operationTracker.GetActiveOperations(OperationType.EvictionScan).FirstOrDefault();
+        var silentMode = activeScan != null ? _reconciliationService.CurrentScanIsSilent : false;
         if (activeScan == null)
         {
             return Ok(new
