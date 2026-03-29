@@ -209,6 +209,7 @@ export interface StatsExclusionsResponse {
 
 export interface ProcessingStatus {
   isProcessing: boolean;
+  operationId?: string;
   progress?: number;
   message?: string;
   estimatedTime?: string;

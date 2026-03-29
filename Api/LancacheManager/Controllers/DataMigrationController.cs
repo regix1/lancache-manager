@@ -24,6 +24,7 @@ public class DataMigrationController : ControllerBase
     private readonly ISignalRNotificationService _notifications;
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly ProcessManager _processManager;
+    private readonly IConfiguration _configuration;
 
     public DataMigrationController(
         ILogger<DataMigrationController> logger,
@@ -31,7 +32,8 @@ public class DataMigrationController : ControllerBase
         RustProcessHelper rustProcessHelper,
         ISignalRNotificationService notifications,
         IUnifiedOperationTracker operationTracker,
-        ProcessManager processManager)
+        ProcessManager processManager,
+        IConfiguration configuration)
     {
         _logger = logger;
         _pathResolver = pathResolver;
@@ -39,6 +41,7 @@ public class DataMigrationController : ControllerBase
         _notifications = notifications;
         _operationTracker = operationTracker;
         _processManager = processManager;
+        _configuration = configuration;
     }
 
     /// <summary>
@@ -243,22 +246,27 @@ public class DataMigrationController : ControllerBase
         var cts = new CancellationTokenSource();
         var operationId = _operationTracker.RegisterOperation(OperationType.DataImport, "LancacheManager Import", cts);
 
-        // Extract the database path
-        var sourceDatabasePath = ExtractDatabasePath(request.ConnectionString);
-        if (string.IsNullOrWhiteSpace(sourceDatabasePath) || !System.IO.File.Exists(sourceDatabasePath))
+        NpgsqlConnectionStringBuilder sourceConnBuilder;
+        try
         {
-            _operationTracker.CompleteOperation(operationId, false, "Source database file not found");
-            return BadRequest(new ErrorResponse { Error = "Source database file not found at specified path" });
+            sourceConnBuilder = new NpgsqlConnectionStringBuilder(request.ConnectionString);
+            if (string.IsNullOrWhiteSpace(sourceConnBuilder.Host) || string.IsNullOrWhiteSpace(sourceConnBuilder.Database))
+            {
+                throw new InvalidOperationException("Host and Database are required");
+            }
+        }
+        catch (Exception ex)
+        {
+            _operationTracker.CompleteOperation(operationId, false, "Invalid source connection string");
+            _logger.LogWarning(ex, "Invalid source connection string for LancacheManager import");
+            return BadRequest(new ErrorResponse { Error = "Invalid source PostgreSQL connection string" });
         }
 
-        // Get target database path
-        var targetDatabasePath = _pathResolver.GetDatabasePath();
-
-        // Ensure we're not importing from the same database
-        if (Path.GetFullPath(sourceDatabasePath).Equals(Path.GetFullPath(targetDatabasePath), StringComparison.OrdinalIgnoreCase))
+        var targetConnectionString = _configuration.GetConnectionString("DefaultConnection");
+        if (string.IsNullOrWhiteSpace(targetConnectionString))
         {
-            _operationTracker.CompleteOperation(operationId, false, "Cannot import from the same database");
-            return BadRequest(new ErrorResponse { Error = "Cannot import from the same database that is currently in use" });
+            _operationTracker.CompleteOperation(operationId, false, "Target connection string is missing");
+            return StatusCode(500, new ErrorResponse { Error = "Server database connection is not configured" });
         }
 
         var batchSize = request.BatchSize ?? 1000;
@@ -281,24 +289,21 @@ public class DataMigrationController : ControllerBase
 
         try
         {
-            // Create backup of target database
-            if (System.IO.File.Exists(targetDatabasePath))
+            var targetConnBuilder = new NpgsqlConnectionStringBuilder(targetConnectionString);
+            if (string.Equals(sourceConnBuilder.Host, targetConnBuilder.Host, StringComparison.OrdinalIgnoreCase) &&
+                sourceConnBuilder.Port == targetConnBuilder.Port &&
+                string.Equals(sourceConnBuilder.Database, targetConnBuilder.Database, StringComparison.OrdinalIgnoreCase))
             {
-                var timestamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
-                backupPath = Path.Combine(
-                    Path.GetDirectoryName(targetDatabasePath) ?? ".",
-                    $"{Path.GetFileNameWithoutExtension(targetDatabasePath)}.backup.{timestamp}{Path.GetExtension(targetDatabasePath)}"
-                );
-                System.IO.File.Copy(targetDatabasePath, backupPath);
-                _logger.LogInformation("Created backup at {BackupPath}", backupPath);
+                _operationTracker.CompleteOperation(operationId, false, "Source and target databases are identical");
+                return BadRequest(new ErrorResponse { Error = "Cannot import from the same database that is currently in use" });
             }
 
             // Open source database (read-only)
-            using var sourceConn = new NpgsqlConnection(sourceDatabasePath);
+            using var sourceConn = new NpgsqlConnection(request.ConnectionString);
             await sourceConn.OpenAsync();
 
             // Open target database
-            using var targetConn = new NpgsqlConnection(targetDatabasePath);
+            using var targetConn = new NpgsqlConnection(targetConnectionString);
             await targetConn.OpenAsync();
 
             // Get total count from source
@@ -577,6 +582,33 @@ public class DataMigrationController : ControllerBase
 
         try
         {
+            if (string.Equals(importType, "develancache", StringComparison.OrdinalIgnoreCase))
+            {
+                var sourcePath = ExtractDatabasePath(connectionString);
+                if (string.IsNullOrWhiteSpace(sourcePath) || !System.IO.File.Exists(sourcePath))
+                {
+                    return Ok(new ConnectionValidationResponse
+                    {
+                        Valid = false,
+                        Message = "Source database file not found"
+                    });
+                }
+
+                await using var stream = System.IO.File.OpenRead(sourcePath);
+                var header = new byte[16];
+                var bytesRead = await stream.ReadAsync(header.AsMemory(0, header.Length));
+                var isSqliteFile = bytesRead >= 16 &&
+                                   System.Text.Encoding.ASCII.GetString(header, 0, 16) == "SQLite format 3\0";
+
+                return Ok(new ConnectionValidationResponse
+                {
+                    Valid = isSqliteFile,
+                    Message = isSqliteFile
+                        ? "SQLite source database file found"
+                        : "Source file exists but is not a valid SQLite database"
+                });
+            }
+
             using var connection = new NpgsqlConnection(connectionString);
             await connection.OpenAsync();
 
@@ -585,8 +617,8 @@ public class DataMigrationController : ControllerBase
 
             // Check for the appropriate table
             var cmd = connection.CreateCommand();
-            cmd.CommandText = "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name=@tableName";
-            cmd.Parameters.AddWithValue("@tableName", tableName.ToLower());
+            cmd.CommandText = "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND LOWER(table_name)=LOWER(@tableName)";
+            cmd.Parameters.AddWithValue("@tableName", tableName);
             var tableExists = await cmd.ExecuteScalarAsync();
 
             if (tableExists == null)

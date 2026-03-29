@@ -129,7 +129,15 @@ export function useSteamAuthentication(options: SteamAuthOptions = {}) {
       setWaitingForMobileConfirmation(true);
     }
 
+    let requestTimeout: ReturnType<typeof setTimeout> | null = null;
     try {
+      requestTimeout = setTimeout(
+        () => {
+          controller.abort();
+        },
+        5 * 60 * 1000
+      );
+
       const response = await fetch(
         '/api/steam-auth/login',
         ApiService.getFetchOptions({
@@ -243,6 +251,9 @@ export function useSteamAuthentication(options: SteamAuthOptions = {}) {
       }
       return false;
     } finally {
+      if (requestTimeout) {
+        clearTimeout(requestTimeout);
+      }
       setLoading(false);
       setAbortController(null);
     }

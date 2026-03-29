@@ -28,6 +28,9 @@ public class RustLogProcessorService
     private Process? _rustProcess;
     private CancellationTokenSource? _cancellationTokenSource;
     private string? _currentOperationId;
+    private string? _currentDatasourceName;
+    private string? _currentProgressPath;
+    private string? _currentLogDirectory;
     private Task? _progressMonitorTask;
     private readonly SemaphoreSlim _startLock = new(1, 1);
 
@@ -187,14 +190,15 @@ public class RustLogProcessorService
             {
                 isProcessing = false,
                 silentMode = false,
-                status = "idle"
+                status = "idle",
+                operationId = _currentOperationId
             };
         }
 
-        // Read progress from Rust progress file
+        // Read progress from the active datasource's progress file.
         var operationsDir = _pathResolver.GetOperationsDirectory();
-        var defaultDatasourceName = _datasourceService.GetDefaultDatasource()?.Name ?? "default";
-        var progressPath = Path.Combine(operationsDir, $"rust_progress_{defaultDatasourceName}.json");
+        var progressPath = _currentProgressPath
+            ?? Path.Combine(operationsDir, $"rust_progress_{_currentDatasourceName ?? (_datasourceService.GetDefaultDatasource()?.Name ?? "default")}.json");
         var legacyProgressPath = Path.Combine(operationsDir, "rust_progress.json");
 
         ProgressData? progress = null;
@@ -222,12 +226,13 @@ public class RustLogProcessorService
             {
                 isProcessing = true,
                 silentMode = IsSilentMode,
-                status = "starting"
+                status = "starting",
+                operationId = _currentOperationId
             };
         }
 
-        // Get log file size for MB calculations
-        var logPath = Path.Combine(_pathResolver.GetLogsDirectory(), "access.log");
+        // Get log file size for MB calculations using the active datasource log directory.
+        var logPath = Path.Combine(_currentLogDirectory ?? _pathResolver.GetLogsDirectory(), "access.log");
         var logFileInfo = new FileInfo(logPath);
         var mbTotal = logFileInfo.Exists ? logFileInfo.Length / (1024.0 * 1024.0) : 0;
         var mbProcessed = mbTotal * (progress.PercentComplete / 100.0);
@@ -236,6 +241,7 @@ public class RustLogProcessorService
         {
             isProcessing = true,
             silentMode = IsSilentMode,
+            operationId = _currentOperationId,
             status = progress.Status,
             percentComplete = progress.PercentComplete,
             mbProcessed = Math.Round(mbProcessed, 1),
@@ -341,6 +347,10 @@ public class RustLogProcessorService
             var logDirectory = Directory.Exists(logFilePath)
                 ? logFilePath  // It's already a directory
                 : (Path.GetDirectoryName(logFilePath) ?? _pathResolver.GetLogsDirectory());  // Extract from file path
+
+            _currentDatasourceName = datasourceName;
+            _currentProgressPath = progressPath;
+            _currentLogDirectory = logDirectory;
 
             // Delete old progress file
             if (File.Exists(progressPath))
@@ -525,7 +535,7 @@ public class RustLogProcessorService
                     if (!silentMode)
                     {
                         // Get log file size for MB calculation
-                        var logPath = Path.Combine(_pathResolver.GetLogsDirectory(), "access.log");
+                        var logPath = Path.Combine(_currentLogDirectory ?? _pathResolver.GetLogsDirectory(), "access.log");
                         var logFileInfo = new FileInfo(logPath);
                         var mbTotal = logFileInfo.Exists ? logFileInfo.Length / (1024.0 * 1024.0) : 0;
 
@@ -704,6 +714,9 @@ public class RustLogProcessorService
             IsSilentMode = false;
             IsCancelling = false;
             _currentOperationId = null;
+            _currentDatasourceName = null;
+            _currentProgressPath = null;
+            _currentLogDirectory = null;
             _cancellationTokenSource?.Dispose();
             _rustProcess?.Dispose();
         }
@@ -712,7 +725,7 @@ public class RustLogProcessorService
     private Task MonitorProgressAsync(string progressPath, CancellationToken cancellationToken)
     {
         // Get log file size once for MB calculations
-        var logPath = Path.Combine(_pathResolver.GetLogsDirectory(), "access.log");
+        var logPath = Path.Combine(_currentLogDirectory ?? _pathResolver.GetLogsDirectory(), "access.log");
         var logFileInfo = new FileInfo(logPath);
         var mbTotal = logFileInfo.Exists ? logFileInfo.Length / (1024.0 * 1024.0) : 0;
 

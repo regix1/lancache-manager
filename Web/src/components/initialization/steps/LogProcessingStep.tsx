@@ -55,6 +55,21 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
   const [loading, setLoading] = useState(true);
   const [expandedDatasources, setExpandedDatasources] = useState<Set<string>>(new Set());
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [activeOperationId, setActiveOperationId] = useState<string | null>(null);
+  const [lastEventAt, setLastEventAt] = useState<number>(Date.now());
+  const [isCancelling, setIsCancelling] = useState(false);
+  const completionHandledRef = React.useRef(false);
+  const sessionStartedRef = React.useRef(false);
+  const activeOperationIdRef = React.useRef<string | null>(null);
+  const processingRef = React.useRef(false);
+
+  useEffect(() => {
+    activeOperationIdRef.current = activeOperationId;
+  }, [activeOperationId]);
+
+  useEffect(() => {
+    processingRef.current = processing;
+  }, [processing]);
 
   // Load datasource config
   useEffect(() => {
@@ -76,11 +91,39 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
   }, [processing, onProcessingStateChange]);
 
   useEffect(() => {
+    const handleLogProcessingStarted = (started: { operationId?: string }) => {
+      if (!sessionStartedRef.current && !processingRef.current) {
+        return;
+      }
+      if (started.operationId) {
+        setActiveOperationId(started.operationId);
+      }
+      sessionStartedRef.current = true;
+      completionHandledRef.current = false;
+      setLastEventAt(Date.now());
+    };
+
     const handleProcessingProgress = (progress: ProcessingProgressEvent) => {
+      const currentOperationId = activeOperationIdRef.current;
+      if (currentOperationId && progress.operationId !== currentOperationId) {
+        return;
+      }
+
+      if (!currentOperationId && !sessionStartedRef.current) {
+        return;
+      }
+
+      if (progress.operationId) {
+        setActiveOperationId(progress.operationId);
+        sessionStartedRef.current = true;
+      }
+      setLastEventAt(Date.now());
       const currentProgress = progress.percentComplete || 0;
       const status = progress.status || 'processing';
 
       if (status.toLowerCase() === 'completed') {
+        if (completionHandledRef.current) return;
+        completionHandledRef.current = true;
         setProgress({
           isProcessing: false,
           progress: 100,
@@ -109,6 +152,33 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
     };
 
     const handleLogProcessingComplete = (data: LogProcessingCompleteEvent) => {
+      const currentOperationId = activeOperationIdRef.current;
+      if (currentOperationId && data.operationId !== currentOperationId) {
+        return;
+      }
+      if (!currentOperationId && !sessionStartedRef.current) {
+        return;
+      }
+      if (completionHandledRef.current) {
+        return;
+      }
+      completionHandledRef.current = true;
+      setLastEventAt(Date.now());
+
+      if (data.cancelled) {
+        setError(
+          data.message || t('initialization.logProcessing.cancelled', 'Processing cancelled')
+        );
+        setProgress({
+          isProcessing: false,
+          progress: 0,
+          status: 'cancelled'
+        });
+        setComplete(false);
+        setProcessing(false);
+        return;
+      }
+
       // Check if processing failed
       if (data.success === false) {
         setError(data.message || t('initialization.logProcessing.failedToProcess'));
@@ -139,6 +209,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
     // If handlers were registered in a separate effect, a LogProcessingComplete event
     // could fire between the status check (which sees isProcessing: true) and handler
     // registration, causing the event to be lost and the UI to be stuck forever.
+    signalR.on('LogProcessingStarted', handleLogProcessingStarted);
     signalR.on('LogProcessingProgress', handleProcessingProgress);
     signalR.on('LogProcessingComplete', handleLogProcessingComplete);
 
@@ -146,13 +217,20 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
       try {
         const status = await ApiService.getProcessingStatus();
         if (status.isProcessing) {
+          completionHandledRef.current = false;
+          sessionStartedRef.current = true;
+          const statusOperationId = (status as { operationId?: string }).operationId;
+          if (statusOperationId) {
+            setActiveOperationId(statusOperationId);
+          }
+          setLastEventAt(Date.now());
           setProcessing(true);
           setProgress({
             ...status,
             progress: status.progress ?? 0,
             status: status.status ?? 'processing'
           });
-        } else if (status.status?.toLowerCase() === 'completed') {
+        } else if (status.status?.toLowerCase() === 'completed' && sessionStartedRef.current) {
           // Processing already finished before component mounted
           setProgress({
             isProcessing: false,
@@ -174,8 +252,47 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
     return () => {
       signalR.off('LogProcessingProgress', handleProcessingProgress);
       signalR.off('LogProcessingComplete', handleLogProcessingComplete);
+      signalR.off('LogProcessingStarted', handleLogProcessingStarted);
     };
   }, [signalR, t]);
+
+  useEffect(() => {
+    if (!processing) return;
+
+    const watchdog = setInterval(async () => {
+      if (Date.now() - lastEventAt < 30000) {
+        return;
+      }
+
+      try {
+        const status = await ApiService.getProcessingStatus();
+        if (!status.isProcessing) {
+          setProcessing(false);
+          if (status.status?.toLowerCase() === 'completed') {
+            setComplete(true);
+            setProgress({
+              isProcessing: false,
+              progress: 100,
+              status: 'completed',
+              entriesProcessed: status.entriesProcessed,
+              linesProcessed: status.linesProcessed,
+              totalLines: status.totalLines
+            });
+          }
+        } else {
+          setLastEventAt(Date.now());
+          const statusOperationId = (status as { operationId?: string }).operationId;
+          if (statusOperationId) {
+            setActiveOperationId(statusOperationId);
+          }
+        }
+      } catch (err) {
+        console.error('[LogProcessing] Watchdog poll failed:', err);
+      }
+    }, 5000);
+
+    return () => clearInterval(watchdog);
+  }, [processing, lastEventAt]);
 
   const toggleExpanded = (name: string) => {
     setExpandedDatasources((prev) => {
@@ -197,11 +314,19 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
     setError(null);
     setComplete(false);
     setActionLoading('all');
+    completionHandledRef.current = false;
+    sessionStartedRef.current = true;
+    setActiveOperationId(null);
+    setLastEventAt(Date.now());
 
     try {
       // Always start from the beginning for initialization
       await ApiService.resetLogPosition('top');
       await ApiService.processAllLogs();
+      const status = await ApiService.getProcessingStatus();
+      if (status.operationId) {
+        setActiveOperationId(status.operationId);
+      }
     } catch (err: unknown) {
       setError(getErrorMessage(err) || t('initialization.logProcessing.failedToProcess'));
       setProcessing(false);
@@ -218,16 +343,40 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
     setError(null);
     setComplete(false);
     setActionLoading(datasourceName);
+    completionHandledRef.current = false;
+    sessionStartedRef.current = true;
+    setActiveOperationId(null);
+    setLastEventAt(Date.now());
 
     try {
       // Always start from the beginning for initialization
       await ApiService.resetDatasourceLogPosition(datasourceName, 'top');
       await ApiService.processDatasourceLogs(datasourceName);
+      const status = await ApiService.getProcessingStatus();
+      if (status.operationId) {
+        setActiveOperationId(status.operationId);
+      }
     } catch (err: unknown) {
       setError(getErrorMessage(err) || t('initialization.logProcessing.failedToProcessDatasource'));
       setProcessing(false);
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  const handleCancelProcessing = async () => {
+    try {
+      setIsCancelling(true);
+      await ApiService.forceKillLogProcessing();
+      setProcessing(false);
+      setError(t('initialization.logProcessing.cancelled', 'Processing cancelled'));
+    } catch (err: unknown) {
+      setError(
+        getErrorMessage(err) ||
+          t('initialization.logProcessing.cancelFailed', 'Failed to cancel processing')
+      );
+    } finally {
+      setIsCancelling(false);
     }
   };
 
@@ -529,6 +678,19 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
         {complete && (
           <Button variant="filled" color="green" onClick={onComplete} fullWidth>
             {t('initialization.logProcessing.continue')}
+          </Button>
+        )}
+        {processing && !complete && (
+          <Button
+            variant="outline"
+            color="red"
+            onClick={handleCancelProcessing}
+            disabled={isCancelling}
+            fullWidth
+          >
+            {isCancelling
+              ? t('initialization.logProcessing.cancelling', 'Cancelling...')
+              : t('initialization.logProcessing.cancel', 'Cancel processing')}
           </Button>
         )}
       </div>

@@ -672,42 +672,6 @@ const DownloadsTab: React.FC = () => {
       filtered = filtered.filter((d) => !d.isEvicted);
     }
 
-    if (settings.hideUnknownGames) {
-      filtered = filtered.filter((d) => {
-        // Always show active downloads, even if they're unknown (they may not be mapped yet)
-        if (d.isActive) {
-          return true;
-        }
-
-        // Non-Steam services (like wsus, epic, etc.) don't use game names, so don't filter them
-        const serviceLower = d.service.toLowerCase();
-        if (serviceLower !== 'steam') {
-          return true; // Keep all non-Steam services
-        }
-
-        // For Steam downloads, check the game name
-        const rawName = typeof d.gameName === 'string' ? d.gameName : '';
-        const trimmedName = rawName.trim();
-        const gameNameLower = trimmedName.toLowerCase();
-
-        if (!trimmedName) {
-          return false; // Hide Steam downloads without a game name
-        }
-
-        // Hide "Unknown Steam Game" or any variation with "unknown" in the name
-        if (gameNameLower.includes('unknown')) {
-          return false;
-        }
-
-        // Hide unmapped Steam apps (e.g., "Steam App 12345")
-        if (/^steam app \d+$/i.test(trimmedName)) {
-          return false;
-        }
-
-        return true;
-      });
-    }
-
     if (settings.selectedService !== 'all') {
       filtered = filtered.filter((d) => d.service.toLowerCase() === settings.selectedService);
     }
@@ -746,7 +710,6 @@ const DownloadsTab: React.FC = () => {
     settings.showZeroBytes,
     settings.showSmallFiles,
     settings.hideLocalhost,
-    settings.hideUnknownGames,
     settings.hideEvicted,
     settings.selectedService,
     settings.selectedClient,
@@ -759,7 +722,8 @@ const DownloadsTab: React.FC = () => {
   // Grouping logic for different view modes
   const createGroups = (
     downloads: Download[],
-    groupUnknown = false
+    groupUnknown = false,
+    hideUnknownGames = false
   ): { groups: DownloadGroup[]; individuals: Download[] } => {
     const groups: Record<string, DownloadGroup> = {};
     const individuals: Download[] = [];
@@ -793,14 +757,11 @@ const DownloadsTab: React.FC = () => {
           : `game-${download.gameName}`;
         groupName = download.gameName || `Steam App ${download.gameAppId}`;
         groupType = 'game';
-      } else if (groupUnknown && isUnknownGame) {
+      } else if (!hideUnknownGames && groupUnknown && isUnknownGame) {
         // Group all unknown games together when the setting is enabled
+        // (skip when hideUnknownGames is true - those go to service-level group instead)
         groupKey = 'unknown-steam-games';
         groupName = 'Unknown Games';
-        groupType = 'content';
-      } else if (download.gameName && download.gameName.match(/^Steam App \d+$/)) {
-        groupKey = 'unmapped-steam-apps';
-        groupName = 'Unmapped Steam Apps';
         groupType = 'content';
       } else if (download.service.toLowerCase() !== 'steam') {
         groupKey = `service-${download.service.toLowerCase()}`;
@@ -810,8 +771,10 @@ const DownloadsTab: React.FC = () => {
             : `${download.service.charAt(0).toUpperCase() + download.service.slice(1)} Downloads`;
         groupType = download.totalBytes === 0 ? 'metadata' : 'content';
       } else {
-        individuals.push(download);
-        return;
+        // Unmapped Steam downloads - group at service level like other services
+        groupKey = 'service-steam';
+        groupName = 'Steam Downloads';
+        groupType = 'content';
       }
 
       if (!groups[groupKey]) {
@@ -852,7 +815,11 @@ const DownloadsTab: React.FC = () => {
   };
 
   const normalViewItems = useMemo((): (Download | DownloadGroup)[] => {
-    const { groups, individuals } = createGroups(filteredDownloads, settings.groupUnknownGames);
+    const { groups, individuals } = createGroups(
+      filteredDownloads,
+      settings.groupUnknownGames,
+      settings.hideUnknownGames
+    );
 
     // Filter out groups with "unknown" in the name if hideUnknownGames is enabled
     let filteredGroups = groups;

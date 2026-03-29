@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using System.Text.Json;
 using LancacheManager.Models;
 using LancacheManager.Core.Interfaces;
+using System.Text.RegularExpressions;
 
 namespace LancacheManager.Controllers;
 
@@ -22,22 +23,6 @@ public class SetupController : ControllerBase
     }
 
     [AllowAnonymous]
-    [HttpGet("status")]
-    public IActionResult GetSetupStatus()
-    {
-        var configPath = _pathResolver.GetPostgresCredentialsPath();
-        // The credentials file is what proves the user completed the setup step.
-        // The POSTGRES_PASSWORD env var alone (set by Docker) should NOT skip the wizard.
-        var needsSetup = !System.IO.File.Exists(configPath);
-
-        return Ok(new SetupInitStatusResponse
-        {
-            NeedsSetup = needsSetup,
-            Configured = !needsSetup
-        });
-    }
-
-    [AllowAnonymous]
     [HttpPost("credentials")]
     public async Task<IActionResult> SetCredentialsAsync([FromBody] SetupCredentialsRequest request)
     {
@@ -51,14 +36,37 @@ public class SetupController : ControllerBase
         if (blockedPasswords.Contains(request.Password.ToLowerInvariant()))
             return BadRequest(new SetupErrorResponse { Error = "This password is too common. Please choose a more secure password." });
 
-        var username = string.IsNullOrWhiteSpace(request.Username) ? "lancache" : request.Username;
+        var username = string.IsNullOrWhiteSpace(request.Username) ? "lancache" : request.Username.Trim();
+        if (!Regex.IsMatch(username, "^[A-Za-z0-9_]+$"))
+        {
+            return BadRequest(new SetupErrorResponse { Error = "Username may only contain letters, numbers, and underscores" });
+        }
 
         if (string.Equals(request.Password, username, StringComparison.OrdinalIgnoreCase))
             return BadRequest(new SetupErrorResponse { Error = "Password cannot be the same as the username" });
 
         var configPath = _pathResolver.GetPostgresCredentialsPath();
 
-        // Save to persistent config file
+        // Update the PostgreSQL user password first. Persisting credentials before this
+        // can leave the system in a broken partial state if ALTER USER fails.
+        try
+        {
+            var connStr = _configuration.GetConnectionString("DefaultConnection");
+            using var conn = new Npgsql.NpgsqlConnection(connStr);
+            await conn.OpenAsync();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = $"ALTER USER \"{username}\" WITH PASSWORD @password";
+            cmd.Parameters.AddWithValue("password", request.Password);
+            await cmd.ExecuteNonQueryAsync();
+            _logger.LogInformation("PostgreSQL password updated for user {Username}", username);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to set PostgreSQL password for user {Username}", username);
+            return StatusCode(500, new SetupErrorResponse { Error = "Failed to set PostgreSQL password" });
+        }
+
+        // Save credentials only after ALTER USER succeeds.
         var config = new Dictionary<string, string>
         {
             ["username"] = username,
@@ -69,37 +77,22 @@ public class SetupController : ControllerBase
 
         try
         {
-            // Ensure config directory exists
             var directory = Path.GetDirectoryName(configPath);
             if (!string.IsNullOrEmpty(directory))
+            {
                 Directory.CreateDirectory(directory);
+            }
 
-            await System.IO.File.WriteAllTextAsync(configPath, json);
+            var tempPath = configPath + ".tmp";
+            await System.IO.File.WriteAllTextAsync(tempPath, json);
+            System.IO.File.Move(tempPath, configPath, true);
+
             _logger.LogInformation("PostgreSQL credentials saved to {ConfigPath} for user {Username}", configPath, username);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to write credentials config file");
-            return StatusCode(500, new SetupErrorResponse { Error = $"Failed to save config file: {ex.Message}" });
-        }
-
-        // Update the PostgreSQL user password via raw SQL using the app's connection string
-        try
-        {
-            var connStr = _configuration.GetConnectionString("DefaultConnection");
-            var connBuilder = new Npgsql.NpgsqlConnectionStringBuilder(connStr);
-            connBuilder.Username = username;
-            using var conn = new Npgsql.NpgsqlConnection(connBuilder.ConnectionString);
-            await conn.OpenAsync();
-            using var cmd = conn.CreateCommand();
-            cmd.CommandText = $"ALTER USER \"{username}\" WITH PASSWORD '{request.Password.Replace("'", "''")}'";
-            await cmd.ExecuteNonQueryAsync();
-            _logger.LogInformation("PostgreSQL password updated for user {Username}", username);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to set PostgreSQL password for user {Username}", username);
-            return StatusCode(500, new SetupErrorResponse { Error = $"Failed to set PostgreSQL password: {ex.Message}" });
+            return StatusCode(500, new SetupErrorResponse { Error = "Failed to save credentials file" });
         }
 
         return Ok(new SetupCredentialsResponse

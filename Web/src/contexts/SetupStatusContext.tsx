@@ -11,6 +11,7 @@ interface SetupStatusProviderProps {
 export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ children }) => {
   const [setupStatus, setSetupStatus] = useState<SetupStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [syncError, setSyncError] = useState<string | null>(null);
   const { isLoading: authLoading } = useAuth();
 
   const fetchSetupStatus = async () => {
@@ -28,6 +29,7 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
       if (response.ok) {
         const data = await response.json();
         const isCompleted = data.isCompleted === true || data.setupCompleted === true;
+        setSyncError(null);
         setSetupStatus({
           isCompleted,
           hasProcessedLogs: data.hasProcessedLogs === true,
@@ -79,7 +81,11 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
       prev
         ? {
             ...prev,
-            isCompleted: true
+            isCompleted: true,
+            needsPostgresCredentials: false,
+            currentSetupStep: null,
+            dataSourceChoice: null,
+            completedPlatforms: null
           }
         : null
     );
@@ -89,22 +95,26 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
     currentSetupStep?: string | null;
     dataSourceChoice?: string | null;
     completedPlatforms?: string | null;
-  }) => {
-    try {
-      const response = await fetch(
-        `${API_BASE}/system/setup`,
-        ApiService.getFetchOptions({
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(updates)
-        })
-      );
-      if (response.ok) {
-        // Optimistically update local state instead of re-fetching.
-        // Re-fetching created an infinite loop: PATCH -> fetchSetupStatus -> new
-        // setupStatus object reference -> useInitializationFlow effects re-fire ->
-        // another PATCH -> repeat. localStorage writes were synchronous and never
-        // triggered re-renders; this mirrors that behavior.
+  }): Promise<boolean> => {
+    const maxAttempts = 3;
+    const baseDelayMs = 250;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        const response = await fetch(
+          `${API_BASE}/system/setup`,
+          ApiService.getFetchOptions({
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(updates)
+          })
+        );
+        if (!response.ok) {
+          throw new Error(`PATCH /system/setup failed with status ${response.status}`);
+        }
+
+        // Optimistically update local state only after server confirms success.
+        setSyncError(null);
         setSetupStatus((prev) =>
           prev
             ? {
@@ -121,10 +131,27 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
               }
             : prev
         );
+        return true;
+      } catch (error) {
+        const isLastAttempt = attempt === maxAttempts;
+        if (isLastAttempt) {
+          console.error(
+            '[SetupStatus] Failed to update wizard state after retries:',
+            error,
+            updates
+          );
+          setSyncError(
+            'Failed to sync setup progress to the server. Your current step may not be saved.'
+          );
+          return false;
+        }
+
+        const waitMs = baseDelayMs * Math.pow(2, attempt - 1);
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
       }
-    } catch (error) {
-      console.error('[SetupStatus] Failed to update wizard state:', error);
     }
+
+    return false;
   };
 
   // Initial fetch - setup status is public so we can check before auth
@@ -140,7 +167,14 @@ export const SetupStatusProvider: React.FC<SetupStatusProviderProps> = ({ childr
 
   return (
     <SetupStatusContext.Provider
-      value={{ setupStatus, isLoading, refreshSetupStatus, markSetupCompleted, updateWizardState }}
+      value={{
+        setupStatus,
+        isLoading,
+        syncError,
+        refreshSetupStatus,
+        markSetupCompleted,
+        updateWizardState
+      }}
     >
       {children}
     </SetupStatusContext.Provider>

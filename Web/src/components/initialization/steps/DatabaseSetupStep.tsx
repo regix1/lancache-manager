@@ -1,6 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import { Database, Eye, EyeOff, CheckCircle } from 'lucide-react';
 import { Button } from '@components/ui/Button';
+import ApiService from '@services/api.service';
 import { API_BASE } from '@utils/constants';
 
 interface DatabaseSetupStepProps {
@@ -58,6 +59,7 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
     }
     return 'weak';
   }, []);
+  const passwordStrength = form.password ? getPasswordStrength(form.password) : null;
 
   const validateForm = useCallback((): boolean => {
     const newErrors: FormErrors = {
@@ -123,12 +125,13 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
 
     try {
       const response = await fetch(`${API_BASE}/setup/credentials`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          username: form.username.trim(),
-          password: form.password
+        ...ApiService.getFetchOptions({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: form.username.trim(),
+            password: form.password
+          })
         })
       });
 
@@ -171,7 +174,13 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
   }
 
   return (
-    <div className="space-y-5">
+    <form
+      className="space-y-5"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void handleSubmit();
+      }}
+    >
       {/* Header */}
       <div className="flex flex-col items-center text-center">
         <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3 bg-themed-info">
@@ -221,14 +230,14 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
           </button>
         </div>
         {errors.password && <p className="text-xs text-themed-error mt-1">{errors.password}</p>}
-        {form.password && (
+        {passwordStrength && (
           <div className="flex items-center gap-2 mt-1">
             <div className="flex-1 h-1.5 rounded-full bg-themed-tertiary overflow-hidden">
               <div
                 className={`h-full rounded-full transition-all ${
-                  getPasswordStrength(form.password) === 'weak'
+                  passwordStrength === 'weak'
                     ? 'w-1/3 bg-red-500'
-                    : getPasswordStrength(form.password) === 'medium'
+                    : passwordStrength === 'medium'
                       ? 'w-2/3 bg-yellow-500'
                       : 'w-full bg-green-500'
                 }`}
@@ -236,16 +245,16 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
             </div>
             <span
               className={`text-xs ${
-                getPasswordStrength(form.password) === 'weak'
+                passwordStrength === 'weak'
                   ? 'text-themed-error'
-                  : getPasswordStrength(form.password) === 'medium'
+                  : passwordStrength === 'medium'
                     ? 'text-themed-warning'
                     : 'text-themed-success'
               }`}
             >
-              {getPasswordStrength(form.password) === 'weak'
+              {passwordStrength === 'weak'
                 ? 'Weak'
-                : getPasswordStrength(form.password) === 'medium'
+                : passwordStrength === 'medium'
                   ? 'Medium'
                   : 'Strong'}
             </span>
@@ -287,7 +296,7 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
         <Button
           variant="filled"
           color="blue"
-          onClick={handleSubmit}
+          type="submit"
           loading={isSubmitting}
           disabled={isSubmitting}
           fullWidth
@@ -311,6 +320,6 @@ export const DatabaseSetupStep: React.FC<DatabaseSetupStepProps> = ({ onSetupCom
           <p className="text-sm text-themed-error">{submitError}</p>
         </div>
       )}
-    </div>
+    </form>
   );
 };

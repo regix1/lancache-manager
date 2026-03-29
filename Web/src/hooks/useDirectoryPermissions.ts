@@ -13,6 +13,7 @@ interface DirectoryPermissions {
   logsPath: string;
   dockerSocketAvailable: boolean;
   checkingPermissions: boolean;
+  timedOut: boolean;
   error: string | null;
   reload: () => Promise<void>;
 }
@@ -34,13 +35,24 @@ export const useDirectoryPermissions = (): DirectoryPermissions => {
   const [logsPath, setLogsPath] = useState('');
   const [dockerSocketAvailable, setDockerSocketAvailable] = useState(false);
   const [checkingPermissions, setCheckingPermissions] = useState(true);
+  const [timedOut, setTimedOut] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const loadDirectoryPermissions = useCallback(async () => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
     try {
       setCheckingPermissions(true);
+      setTimedOut(false);
       setError(null);
-      const data = await ApiService.getDirectoryPermissions();
+      const response = await fetch(
+        '/api/system/permissions',
+        ApiService.getFetchOptions({ cache: 'no-store', signal: controller.signal })
+      );
+      if (!response.ok) {
+        throw new Error(`Permissions request failed (${response.status})`);
+      }
+      const data = await response.json();
       setLogsReadOnly(data.logs.readOnly);
       setCacheReadOnly(data.cache.readOnly);
       setLogsExist(data.logs.exists);
@@ -51,8 +63,13 @@ export const useDirectoryPermissions = (): DirectoryPermissions => {
       setLogsPath(data.logs.path);
       setDockerSocketAvailable(data.dockerSocket.available);
     } catch (err) {
-      console.error('Failed to check directory permissions:', err);
-      setError('Failed to check permissions');
+      if (err instanceof Error && err.name === 'AbortError') {
+        setTimedOut(true);
+        setError('Permissions check timed out');
+      } else {
+        console.error('Failed to check directory permissions:', err);
+        setError('Failed to check permissions');
+      }
       // Fallback values on error
       setLogsReadOnly(false);
       setCacheReadOnly(false);
@@ -64,6 +81,7 @@ export const useDirectoryPermissions = (): DirectoryPermissions => {
       setLogsPath('');
       setDockerSocketAvailable(false);
     } finally {
+      clearTimeout(timeoutId);
       setCheckingPermissions(false);
     }
   }, []);
@@ -94,6 +112,7 @@ export const useDirectoryPermissions = (): DirectoryPermissions => {
     logsPath,
     dockerSocketAvailable,
     checkingPermissions,
+    timedOut,
     error,
     reload: loadDirectoryPermissions
   };

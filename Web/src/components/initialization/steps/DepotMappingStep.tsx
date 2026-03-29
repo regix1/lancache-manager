@@ -11,9 +11,14 @@ import { useSteamWebApiStatus } from '@contexts/useSteamWebApiStatus';
 interface DepotMappingStepProps {
   onComplete: () => void;
   onSkip?: () => void;
+  onProcessingStateChange?: (isProcessing: boolean) => void;
 }
 
-export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, onSkip }) => {
+export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({
+  onComplete,
+  onSkip,
+  onProcessingStateChange
+}) => {
   const { t } = useTranslation();
   const { progress: picsProgress } = usePicsProgress();
   const { status: steamApiStatus } = useSteamWebApiStatus();
@@ -29,11 +34,13 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
   const [applyingMappings, setApplyingMappings] = useState(false);
   const applyMappingsTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const downloadTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const activeRequestRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     return () => {
       if (applyMappingsTimeoutRef.current) clearTimeout(applyMappingsTimeoutRef.current);
       if (downloadTimeoutRef.current) clearTimeout(downloadTimeoutRef.current);
+      activeRequestRef.current?.abort();
     };
   }, []);
 
@@ -42,12 +49,15 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
   const isRunning = picsProgress?.isProcessing || false;
 
   useEffect(() => {
-    if (picsProgress?.isProcessing && picsProgress.progressPercent < 100) {
+    onProcessingStateChange?.(mapping);
+  }, [mapping, onProcessingStateChange]);
+
+  useEffect(() => {
+    if (picsProgress?.isProcessing && (picsProgress.progressPercent ?? 0) < 100) {
       setMapping(true);
       setPhase('scanning');
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [picsProgress?.isProcessing, picsProgress?.progressPercent]);
 
   useEffect(() => {
     const applyMappingsAfterScan = async () => {
@@ -86,7 +96,9 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
 
     try {
       const useIncremental = !forceFull;
-      const response = await ApiService.triggerSteamKitRebuild(useIncremental);
+      const controller = new AbortController();
+      activeRequestRef.current = controller;
+      const response = await ApiService.triggerSteamKitRebuild(useIncremental, controller.signal);
 
       if (response.requiresFullScan) {
         setChangeGapWarning({
@@ -110,10 +122,13 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({ onComplete, 
     setMapping(true);
 
     try {
-      await ApiService.downloadPrecreatedDepotData();
+      const controller = new AbortController();
+      activeRequestRef.current = controller;
+      await ApiService.downloadPrecreatedDepotData(controller.signal);
       downloadTimeoutRef.current = setTimeout(() => {
         setComplete(true);
         setMapping(false);
+        setPhase(null);
       }, 2000);
     } catch (err: unknown) {
       // Don't show error for user-initiated cancellation

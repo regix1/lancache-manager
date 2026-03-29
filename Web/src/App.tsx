@@ -115,7 +115,7 @@ const AppContent: React.FC = () => {
     preloadMap[tab]?.();
   }, []);
   const { connectionStatus } = useStats();
-  const { setupStatus, isLoading: checkingSetupStatus, markSetupCompleted } = useSetupStatus();
+  const { setupStatus, isLoading: checkingSetupStatus } = useSetupStatus();
   const {
     authMode,
     sessionId,
@@ -129,7 +129,6 @@ const AppContent: React.FC = () => {
   const { isDockerAvailable } = useDockerSocket();
   const [depotInitialized, setDepotInitialized] = useState<boolean | null>(null);
   const [checkingDepotStatus, setCheckingDepotStatus] = useState(true);
-  const [isInitializationFlowActive, setIsInitializationFlowActive] = useState(false);
   const [showFullScanRequiredModal, setShowFullScanRequiredModal] = useState(false);
   const [fullScanModalChangeGap, setFullScanModalChangeGap] = useState(0);
   const signalR = useSignalR();
@@ -138,6 +137,11 @@ const AppContent: React.FC = () => {
   // Derive setup state from context
   const setupCompleted = setupStatus?.isCompleted ?? null;
   const hasProcessedLogs = setupStatus?.hasProcessedLogs ?? null;
+  const shouldShowInitializationFlow = Boolean(
+    (!setupCompleted || setupStatus?.needsPostgresCredentials) &&
+    !depotInitialized &&
+    !hasProcessedLogs
+  );
 
   // Switch away from auth-required tabs if auth is lost
   useEffect(() => {
@@ -298,18 +302,6 @@ const AppContent: React.FC = () => {
   // The manual trigger endpoint (/api/gc/trigger) bypasses threshold checks and
   // is only intended for the "Run GC Now" button in the management UI.
 
-  // Derive initialization flow state from server setup status
-  useEffect(() => {
-    if (checkingAuth || checkingSetupStatus) {
-      return; // Don't proceed until both checks are complete
-    }
-
-    // Setup flow is entirely server-driven
-    if (setupCompleted && !setupStatus?.needsPostgresCredentials) {
-      setIsInitializationFlowActive(false);
-    }
-  }, [checkingAuth, checkingSetupStatus, setupCompleted, setupStatus?.needsPostgresCredentials]);
-
   // Check if depot data exists (only after auth check is done)
   useEffect(() => {
     if (checkingAuth || checkingSetupStatus) {
@@ -368,12 +360,6 @@ const AppContent: React.FC = () => {
   }, [checkingAuth, checkingSetupStatus, authMode, setupCompleted, hasProcessedLogs]);
 
   const handleDepotInitialized = async () => {
-    // Initialization flow is complete
-    setIsInitializationFlowActive(false);
-
-    // Mark setup as completed
-    markSetupCompleted();
-
     // Double-check that depot is actually initialized before updating state
     try {
       const response = await fetch(
@@ -404,13 +390,6 @@ const AppContent: React.FC = () => {
     // Refresh Steam-related contexts to pick up data saved during setup
     // This ensures ManagementTab shows the correct Steam API status and auth mode
     await Promise.all([refreshSteamWebApiStatus(), refreshSteamAuth()]);
-  };
-
-  const handleAuthChanged = async () => {
-    // Immediately check auth status without delay
-    await refreshAuth();
-    // Reload theme from server after authentication changes
-    await themeService.reloadThemeAfterAuth();
   };
 
   // Hydrate session-specific theme/preferences once auth is settled for the current session.
@@ -607,32 +586,8 @@ const AppContent: React.FC = () => {
   }
 
   // Show initialization modal if user is authenticated and in the middle of setup
-  if (isInitializationFlowActive) {
-    return (
-      <DepotInitializationModal
-        onInitialized={handleDepotInitialized}
-        onAuthChanged={handleAuthChanged}
-      />
-    );
-  }
-
-  // Show initialization modal if user hasn't completed first-time setup
-  if (
-    (!setupCompleted || setupStatus?.needsPostgresCredentials) &&
-    !depotInitialized &&
-    !hasProcessedLogs
-  ) {
-    // Mark initialization flow as active
-    if (!isInitializationFlowActive) {
-      setIsInitializationFlowActive(true);
-    }
-
-    return (
-      <DepotInitializationModal
-        onInitialized={handleDepotInitialized}
-        onAuthChanged={handleAuthChanged}
-      />
-    );
+  if (shouldShowInitializationFlow) {
+    return <DepotInitializationModal onInitialized={handleDepotInitialized} />;
   }
 
   // Handle special routes like /memory

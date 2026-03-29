@@ -20,6 +20,15 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({
   const { progress } = usePicsProgress();
   const [isComplete, setIsComplete] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
+  const completeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (completeTimerRef.current) {
+        clearTimeout(completeTimerRef.current);
+      }
+    };
+  }, []);
 
   const handleCancel = async () => {
     try {
@@ -59,11 +68,11 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({
     const status = progress?.status?.toLowerCase() || '';
     const isFinished = status === 'completed';
 
-    if (progress && !progress.isProcessing && (isFinished || progress.progressPercent >= 100)) {
+    if (progress && !progress.isProcessing && (isFinished || progress.progressPercent >= 99.5)) {
       if (!isComplete) {
         setIsComplete(true);
         // Auto-advance after showing success
-        setTimeout(() => {
+        completeTimerRef.current = setTimeout(() => {
           onComplete();
         }, 1500);
       }

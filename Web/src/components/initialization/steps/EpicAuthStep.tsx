@@ -4,13 +4,19 @@ import { Loader2, CheckCircle, ExternalLink, KeyRound, Shield } from 'lucide-rea
 import { Button } from '@components/ui/Button';
 import { EpicIcon } from '@components/ui/EpicIcon';
 import { useEpicMappingAuth } from '@hooks/useEpicMappingAuth';
+import ApiService from '@services/api.service';
 
 interface EpicAuthStepProps {
   onComplete: () => void;
   onSkip: () => void;
+  onAuthStateChange?: (busy: boolean) => void;
 }
 
-export const EpicAuthStep: React.FC<EpicAuthStepProps> = ({ onComplete, onSkip }) => {
+export const EpicAuthStep: React.FC<EpicAuthStepProps> = ({
+  onComplete,
+  onSkip,
+  onAuthStateChange
+}) => {
   const { t } = useTranslation();
   const [error, setError] = useState<string | null>(null);
   const [succeeded, setSucceeded] = useState(false);
@@ -27,6 +33,28 @@ export const EpicAuthStep: React.FC<EpicAuthStepProps> = ({ onComplete, onSkip }
     onSuccess: handleSuccess,
     onError: handleError
   });
+
+  useEffect(() => {
+    const checkExistingAuth = async () => {
+      try {
+        const status = await ApiService.getEpicMappingAuthStatus();
+        if (status.isAuthenticated) {
+          setSucceeded(true);
+        }
+      } catch (err) {
+        console.error('[EpicAuthStep] Failed to check auth status:', err);
+      }
+    };
+
+    checkExistingAuth();
+  }, []);
+
+  useEffect(() => {
+    onAuthStateChange?.(state.loading);
+    return () => {
+      onAuthStateChange?.(false);
+    };
+  }, [state.loading, onAuthStateChange]);
 
   useEffect(() => {
     if (succeeded) {
@@ -115,6 +143,12 @@ export const EpicAuthStep: React.FC<EpicAuthStepProps> = ({ onComplete, onSkip }
             type="password"
             value={state.authorizationCode}
             onChange={handleAuthorizationCodeChange}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && state.authorizationCode.trim() && !state.loading) {
+                event.preventDefault();
+                void handleAuthenticate();
+              }
+            }}
             placeholder={t('initialization.epicAuth.codePlaceholder')}
             className="w-full px-3 py-2.5 themed-input"
             disabled={state.loading}

@@ -5,7 +5,6 @@ import {
   AlertTriangle,
   XCircle,
   Loader2,
-  RefreshCw,
   FolderOpen,
   FileText,
   Container
@@ -42,9 +41,24 @@ export const PermissionsCheckStep: React.FC<PermissionsCheckStepProps> = ({ onCo
     logsPath,
     dockerSocketAvailable,
     checkingPermissions,
+    timedOut,
     error,
     reload
   } = useDirectoryPermissions();
+  const [showForceContinue, setShowForceContinue] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!checkingPermissions) {
+      setShowForceContinue(false);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setShowForceContinue(true);
+    }, 15000);
+
+    return () => clearTimeout(timer);
+  }, [checkingPermissions]);
 
   const getDirectoryStatus = (
     dir: { exists: boolean; writable: boolean; readOnly: boolean },
@@ -69,7 +83,7 @@ export const PermissionsCheckStep: React.FC<PermissionsCheckStepProps> = ({ onCo
     }
     return {
       status: 'error',
-      message: t('initialization.permissionsCheck.notAccessible'),
+      message: t('initialization.permissionsCheck.checkingFailed', 'Check failed'),
       impact: t(`initialization.permissionsCheck.${impactKey}Impact`)
     };
   };
@@ -284,12 +298,7 @@ export const PermissionsCheckStep: React.FC<PermissionsCheckStepProps> = ({ onCo
       {/* Action Buttons */}
       <div className="flex flex-col sm:flex-row gap-2">
         {!isChecking && (
-          <Button
-            variant="outline"
-            onClick={reload}
-            className="sm:w-auto"
-            leftSection={<RefreshCw className="w-4 h-4" />}
-          >
+          <Button variant="outline" onClick={reload} className="sm:w-auto">
             {t('initialization.permissionsCheck.recheck')}
           </Button>
         )}
@@ -298,12 +307,25 @@ export const PermissionsCheckStep: React.FC<PermissionsCheckStepProps> = ({ onCo
           variant="filled"
           color="green"
           onClick={onComplete}
-          disabled={isChecking}
+          disabled={isChecking && !showForceContinue}
           className="flex-1"
         >
-          {t('initialization.permissionsCheck.continue')}
+          {isChecking && showForceContinue
+            ? t('initialization.permissionsCheck.continueAnyway', 'Continue anyway')
+            : t('initialization.permissionsCheck.continue')}
         </Button>
       </div>
+
+      {timedOut && (
+        <div className="p-3 rounded-lg bg-themed-warning">
+          <p className="text-sm text-themed-warning">
+            {t(
+              'initialization.permissionsCheck.timeoutMessage',
+              'Permission checks timed out. You can continue and fix permissions later.'
+            )}
+          </p>
+        </div>
+      )}
     </div>
   );
 };

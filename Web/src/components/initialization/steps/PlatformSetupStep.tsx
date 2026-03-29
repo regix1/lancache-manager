@@ -14,7 +14,7 @@ interface PlatformSetupStepProps {
   completedPlatforms: CompletedPlatforms;
 }
 
-interface SteamCardProps {
+interface PlatformCardProps {
   variant: 'github' | 'steam';
   selected: SelectedPlatform;
   completedPlatforms: CompletedPlatforms;
@@ -35,13 +35,13 @@ function getCardClassName(isSelected: boolean): string {
   return `${base} border-themed-primary bg-themed-tertiary hover:border-themed-secondary`;
 }
 
-const GithubCard: React.FC<SteamCardProps> = ({ selected, completedPlatforms, onSelect }) => {
+const GithubCard: React.FC<PlatformCardProps> = ({ selected, completedPlatforms, onSelect }) => {
   const { t } = useTranslation();
   const isSelected = selected === 'github';
   const isCompleted = completedPlatforms.steam === 'github';
 
   const handleClick = (): void => {
-    onSelect('github');
+    onSelect(isSelected ? null : 'github');
   };
 
   return (
@@ -68,13 +68,13 @@ const GithubCard: React.FC<SteamCardProps> = ({ selected, completedPlatforms, on
   );
 };
 
-const SteamPicsCard: React.FC<SteamCardProps> = ({ selected, completedPlatforms, onSelect }) => {
+const SteamPicsCard: React.FC<PlatformCardProps> = ({ selected, completedPlatforms, onSelect }) => {
   const { t } = useTranslation();
   const isSelected = selected === 'steam';
   const isCompleted = completedPlatforms.steam === 'steam';
 
   const handleClick = (): void => {
-    onSelect('steam');
+    onSelect(isSelected ? null : 'steam');
   };
 
   return (
@@ -107,7 +107,7 @@ const EpicCard: React.FC<EpicCardProps> = ({ selected, completedPlatforms, onSel
   const isCompleted = completedPlatforms.epic;
 
   const handleClick = (): void => {
-    onSelect('epic');
+    onSelect(isSelected ? null : 'epic');
   };
 
   return (

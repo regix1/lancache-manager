@@ -1,4 +1,3 @@
-export { ApiKeyStep } from './ApiKeyStep';
 export { DatabaseSetupStep } from './DatabaseSetupStep';
 export { PermissionsCheckStep } from './PermissionsCheckStep';
 export { ImportHistoricalDataStep } from './ImportHistoricalDataStep';

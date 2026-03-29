@@ -25,8 +25,8 @@ public partial class EpicMappingService
     {
         if (Interlocked.CompareExchange(ref _isProcessingInt, 1, 0) != 0)
         {
-            _logger.LogWarning("Epic auth login skipped - another operation is already in progress");
-            return;
+            _logger.LogWarning("Epic auth login rejected - another operation is already in progress");
+            throw new InvalidOperationException("Epic auth is already in progress");
         }
 
         await _sessionLock.WaitAsync();
@@ -49,6 +49,9 @@ public partial class EpicMappingService
 
             // Fetch owned games with metadata
             var games = await _epicApiClient.GetOwnedGamesAsync(tokens.AccessToken, authCts.Token);
+            _gamesDiscovered = games.Count;
+            _lastNewGames = 0;
+            _lastUpdatedGames = 0;
 
             if (games.Count > 0)
             {

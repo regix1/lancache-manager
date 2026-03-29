@@ -18,9 +18,10 @@ export interface SetupStatus {
 interface SetupStatusContextType {
   setupStatus: SetupStatus | null;
   isLoading: boolean;
+  syncError: string | null;
   refreshSetupStatus: () => Promise<void>;
   markSetupCompleted: () => void;
-  updateWizardState: (updates: WizardStateUpdate) => Promise<void>;
+  updateWizardState: (updates: WizardStateUpdate) => Promise<boolean>;
 }
 
 export const SetupStatusContext = createContext<SetupStatusContextType | undefined>(undefined);

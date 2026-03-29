@@ -719,6 +719,17 @@ class ApiService {
     }
   }
 
+  static async forceKillLogProcessing(): Promise<{ message: string }> {
+    const res = await fetch(
+      `${API_BASE}/logs/process/kill`,
+      this.getFetchOptions({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      })
+    );
+    return await this.handleResponse<{ message: string }>(res);
+  }
+
   // Get log removal status
 
   // Get counts of log entries per service, grouped by datasource
@@ -862,6 +873,10 @@ class ApiService {
     isCompleted: boolean;
     hasProcessedLogs: boolean;
     setupCompleted: boolean;
+    needsPostgresCredentials: boolean;
+    currentSetupStep: string | null;
+    dataSourceChoice: string | null;
+    completedPlatforms: string | null;
   }> {
     const response = await fetch(
       `${API_BASE}/system/setup`,
@@ -871,6 +886,10 @@ class ApiService {
       isCompleted: boolean;
       hasProcessedLogs: boolean;
       setupCompleted: boolean;
+      needsPostgresCredentials: boolean;
+      currentSetupStep: string | null;
+      dataSourceChoice: string | null;
+      completedPlatforms: string | null;
     }>(response);
   }
 
@@ -1947,10 +1966,11 @@ class ApiService {
     });
   }
 
-  static async startEpicMappingLogin(): Promise<{ authorizationUrl: string }> {
+  static async startEpicMappingLogin(signal?: AbortSignal): Promise<{ authorizationUrl: string }> {
     const response = await fetch(`${API_BASE}/epic/game-mappings/auth/login`, {
       method: 'POST',
-      credentials: 'include'
+      credentials: 'include',
+      signal
     });
     return ApiService.handleResponse<{ authorizationUrl: string }>(response);
   }
@@ -1970,12 +1990,16 @@ class ApiService {
     });
   }
 
-  static async completeEpicMappingAuth(authorizationCode: string): Promise<void> {
+  static async completeEpicMappingAuth(
+    authorizationCode: string,
+    signal?: AbortSignal
+  ): Promise<void> {
     const response = await fetch(`${API_BASE}/epic/game-mappings/auth/complete`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify({ authorizationCode })
+      body: JSON.stringify({ authorizationCode }),
+      signal
     });
     await ApiService.handleResponse(response);
   }

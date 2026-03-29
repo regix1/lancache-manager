@@ -131,7 +131,7 @@ public class EpicGameMappingController : ControllerBase
         catch (InvalidOperationException ex)
         {
             _logger.LogWarning(ex, "Epic auth code exchange failed");
-            return BadRequest(ApiResponse.Error(ex.Message));
+            return Conflict(ApiResponse.Error(ex.Message));
         }
         catch (Exception ex)
         {

@@ -1,10 +1,9 @@
 import React from 'react';
-import { Rocket, ArrowLeft } from 'lucide-react';
+import { Rocket, ArrowLeft, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useInitializationFlow, type InitStep } from '@hooks/useInitializationFlow';
 import {
   DatabaseSetupStep,
-  ApiKeyStep,
   PermissionsCheckStep,
   ImportHistoricalDataStep,
   PlatformSetupStep,
@@ -19,28 +18,17 @@ import {
 
 interface DepotInitializationModalProps {
   onInitialized: () => void;
-  onAuthChanged?: () => void;
 }
 
-const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
-  onInitialized,
-  onAuthChanged
-}) => {
+const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({ onInitialized }) => {
   const { t } = useTranslation();
 
   const {
     currentStep,
     stepInfo,
     dataSourceChoice,
-    apiKey,
-    setApiKey,
-    authenticating,
-    authError,
-    authDisabled,
-    dataAvailable,
-    checkingDataAvailability,
+    syncError,
     isCheckingAuth,
-    authenticate,
     picsData,
     usingSteamAuth,
     backButtonDisabled,
@@ -67,14 +55,14 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
     handleDepotMappingComplete,
     handleDepotMappingSkip,
     handleBackToSteamAuth
-  } = useInitializationFlow({ onInitialized, onAuthChanged });
+  } = useInitializationFlow({ onInitialized });
 
   const renderStep = (step: InitStep): React.ReactNode => {
-    // Show loading state while checking auth for steps that make API calls
-    if (isCheckingAuth && step !== 'api-key' && step !== 'database-setup') {
+    // Show loading state while hydrating wizard state from the server.
+    if (isCheckingAuth && step !== 'database-setup') {
       return (
         <div className="flex flex-col items-center justify-center py-12">
-          <div className="w-12 h-12 rounded-full border-4 border-themed-secondary border-t-primary animate-spin mb-4" />
+          <Loader2 className="w-12 h-12 animate-spin icon-primary mb-4" />
           <p className="text-themed-secondary">{t('common.loading', 'Loading...')}</p>
         </div>
       );
@@ -83,22 +71,6 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
     switch (step) {
       case 'database-setup':
         return <DatabaseSetupStep onSetupComplete={handleDatabaseSetupComplete} />;
-
-      case 'api-key':
-        return (
-          <ApiKeyStep
-            apiKey={apiKey}
-            setApiKey={setApiKey}
-            authenticating={authenticating}
-            authError={authError}
-            dataAvailable={dataAvailable}
-            checkingDataAvailability={checkingDataAvailability}
-            authDisabled={authDisabled}
-            onAuthenticate={() => authenticate('apiKey')}
-            onStartGuestMode={() => authenticate('guest')}
-            onContinueAsAdmin={() => authenticate('admin')}
-          />
-        );
 
       case 'permissions-check':
         return <PermissionsCheckStep onComplete={handlePermissionsCheckComplete} />;
@@ -150,7 +122,13 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
         );
 
       case 'epic-auth':
-        return <EpicAuthStep onComplete={handleEpicAuthComplete} onSkip={handleEpicAuthSkip} />;
+        return (
+          <EpicAuthStep
+            onComplete={handleEpicAuthComplete}
+            onSkip={handleEpicAuthSkip}
+            onAuthStateChange={setBackButtonDisabled}
+          />
+        );
 
       case 'log-processing':
         return (
@@ -166,6 +144,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
           <DepotMappingStep
             onComplete={handleDepotMappingComplete}
             onSkip={handleDepotMappingSkip}
+            onProcessingStateChange={setBackButtonDisabled}
           />
         );
 
@@ -189,7 +168,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
         {/* Header */}
         <div className="px-8 py-5 border-b flex items-center justify-between border-themed-secondary">
           <div className="flex items-center gap-3">
-            {currentStep !== 'database-setup' && currentStep !== 'api-key' && (
+            {currentStep !== 'database-setup' && (
               <button
                 onClick={backButtonDisabled ? undefined : handleGoBack}
                 disabled={backButtonDisabled}
@@ -228,7 +207,14 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({
         </div>
 
         {/* Content */}
-        <div className="p-8 overflow-y-auto min-h-0">{renderStep(currentStep)}</div>
+        <div className="p-8 overflow-y-auto min-h-0">
+          {syncError && (
+            <div className="mb-4 p-3 rounded-lg bg-themed-error">
+              <p className="text-sm text-themed-error">{syncError}</p>
+            </div>
+          )}
+          {renderStep(currentStep)}
+        </div>
       </div>
     </div>
   );

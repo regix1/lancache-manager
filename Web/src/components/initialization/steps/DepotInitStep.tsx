@@ -40,8 +40,13 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
   const [downloadStatus, setDownloadStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
+  const selectedMethodRef = useRef<'cloud' | 'generate' | 'continue' | null>(null);
   const completeTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const delayTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  useEffect(() => {
+    selectedMethodRef.current = selectedMethod;
+  }, [selectedMethod]);
 
   useEffect(() => {
     return () => {
@@ -61,7 +66,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
     };
 
     const handleDepotMappingProgress = (event: DepotMappingProgressEvent) => {
-      if (selectedMethod === 'cloud') {
+      if (selectedMethodRef.current === 'cloud') {
         setProgress(event.percentComplete || 0);
         setDownloadStatus(event.message || t('initialization.depotInit.processing'));
       }
@@ -113,8 +118,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
       signalR.off('DepotMappingProgress', handleDepotMappingProgress);
       signalR.off('DepotMappingComplete', handleDepotMappingComplete);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signalR, selectedMethod, onComplete]);
+  }, [signalR, onComplete, t]);
 
   useEffect(() => {
     if (hideOptions && !initializing && !selectedMethod && !error) {

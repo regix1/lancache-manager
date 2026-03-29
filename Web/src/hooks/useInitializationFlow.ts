@@ -1,14 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import authService from '@services/auth.service';
 import ApiService from '@services/api.service';
-import { useInitializationAuth } from '@hooks/useInitializationAuth';
 import { useSetupStatus } from '@contexts/useSetupStatus';
 import type { PicsStatus } from '@/types';
 
 export type InitStep =
   | 'database-setup'
-  | 'api-key'
   | 'permissions-check'
   | 'import-historical-data'
   | 'platform-setup'
@@ -40,16 +37,8 @@ interface UseInitializationFlowResult {
   dataSourceChoice: DataSourceChoice;
   completedPlatforms: CompletedPlatforms;
 
-  // Auth state
-  apiKey: string;
-  setApiKey: (key: string) => void;
-  authenticating: boolean;
-  authError: string | null;
-  authDisabled: boolean;
-  dataAvailable: boolean;
-  checkingDataAvailability: boolean;
+  syncError: string | null;
   isCheckingAuth: boolean;
-  authenticate: (mode: 'apiKey' | 'guest' | 'admin') => Promise<void>;
 
   // Step-specific state
   picsData: PicsStatus | null;
@@ -83,7 +72,6 @@ interface UseInitializationFlowResult {
 
 interface UseInitializationFlowOptions {
   onInitialized: () => void;
-  onAuthChanged?: () => void;
 }
 
 const buildStepInfoMap = (
@@ -91,7 +79,6 @@ const buildStepInfoMap = (
   choice: DataSourceChoice
 ): Record<InitStep, StepInfo> => {
   // Main flow: database-setup(1), permissions-check(2), import(3), platform-setup(4), log-processing(5), depot-mapping(6)
-  // api-key step is skipped since auth modal handles authentication before the wizard starts
   // Sub-flows extend from the hub (platform-setup = step 4)
   const BASE_TOTAL = 6;
 
@@ -116,7 +103,6 @@ const buildStepInfoMap = (
   const getStepInfo = (step: InitStep): { number: number; total: number } => {
     const commonSteps: Record<string, number> = {
       'database-setup': 1,
-      'api-key': 1, // fallback only — normally skipped
       'permissions-check': 2,
       'import-historical-data': 3,
       'platform-setup': 4,
@@ -137,7 +123,6 @@ const buildStepInfoMap = (
 
   const steps: InitStep[] = [
     'database-setup',
-    'api-key',
     'permissions-check',
     'import-historical-data',
     'platform-setup',
@@ -152,7 +137,6 @@ const buildStepInfoMap = (
 
   const titles: Record<InitStep, string> = {
     'database-setup': t('initialization.modal.stepTitles.databaseSetup'),
-    'api-key': t('initialization.modal.stepTitles.authentication'),
     'permissions-check': t('initialization.modal.stepTitles.permissionsCheck'),
     'import-historical-data': t('initialization.modal.stepTitles.importHistoricalData'),
     'platform-setup': t('initialization.modal.stepTitles.platformSetup'),
@@ -184,15 +168,37 @@ function parseCompletedPlatforms(raw: string | null): CompletedPlatforms {
   return { steam: null, epic: false };
 }
 
+function normalizeServerStep(raw: string | null): InitStep | null {
+  switch (raw) {
+    case 'database-setup':
+    case 'permissions-check':
+    case 'import-historical-data':
+    case 'platform-setup':
+    case 'steam-api-key':
+    case 'steam-auth':
+    case 'depot-init':
+    case 'pics-progress':
+    case 'epic-auth':
+    case 'log-processing':
+    case 'depot-mapping':
+      return raw;
+    case 'api-key':
+      return 'permissions-check';
+    default:
+      return null;
+  }
+}
+
 export function useInitializationFlow({
-  onInitialized,
-  onAuthChanged
+  onInitialized
 }: UseInitializationFlowOptions): UseInitializationFlowResult {
   const { t } = useTranslation();
   const {
     setupStatus,
     isLoading: setupStatusLoading,
+    syncError,
     refreshSetupStatus,
+    markSetupCompleted: markSetupCompletedLocally,
     updateWizardState
   } = useSetupStatus();
 
@@ -226,35 +232,33 @@ export function useInitializationFlow({
     return parseCompletedPlatforms(setupStatus?.completedPlatforms ?? null);
   });
 
-  const [apiKey, setApiKey] = useState('');
-  const [authenticating, setAuthenticating] = useState(false);
-  const [authError, setAuthError] = useState<string | null>(null);
-  const [dataAvailable, setDataAvailable] = useState(false);
-  const [checkingDataAvailability, setCheckingDataAvailability] = useState(false);
   const [picsData, setPicsData] = useState<PicsStatus | null>(null);
   const [usingSteamAuth, setUsingSteamAuth] = useState(false);
-  const [authDisabled, setAuthDisabled] = useState(false);
   const [backButtonDisabled, setBackButtonDisabled] = useState(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
+  const transitionTo = useCallback(
+    (step: InitStep): InitStep => {
+      if (
+        step === 'database-setup' &&
+        !setupStatusLoading &&
+        setupStatus &&
+        !setupStatus.needsPostgresCredentials
+      ) {
+        return 'permissions-check';
+      }
+      return step;
+    },
+    [setupStatusLoading, setupStatus]
+  );
+
+  const goToStep = useCallback(
+    (step: InitStep): void => {
+      setCurrentStep(transitionTo(step));
+    },
+    [transitionTo]
+  );
 
   // --- Helpers ---
-  const checkDataAvailability = useCallback(async (): Promise<boolean> => {
-    setCheckingDataAvailability(true);
-    try {
-      const setupData = await ApiService.getSetupStatus();
-      const hasData =
-        setupData.isCompleted || setupData.setupCompleted || setupData.hasProcessedLogs || false;
-      setDataAvailable(hasData);
-      return hasData;
-    } catch (error) {
-      console.error('Failed to check data availability:', error);
-      setDataAvailable(false);
-      return false;
-    } finally {
-      setCheckingDataAvailability(false);
-    }
-  }, []);
-
   const checkPicsDataStatus = useCallback(async (): Promise<PicsStatus | null> => {
     try {
       const data = await ApiService.getPicsStatus();
@@ -266,42 +270,33 @@ export function useInitializationFlow({
     }
   }, []);
 
-  const markSetupCompleted = useCallback(async (): Promise<void> => {
+  const markSetupCompleted = useCallback(async (): Promise<boolean> => {
     try {
       await ApiService.markSetupComplete();
+      markSetupCompletedLocally();
+      await refreshSetupStatus();
+      return true;
     } catch (error) {
-      console.warn('Failed to mark setup as completed:', error);
+      console.error('Failed to mark setup as completed:', error);
+      return false;
     }
-  }, []);
+  }, [markSetupCompletedLocally, refreshSetupStatus]);
 
-  const clearServerWizardState = useCallback(async (): Promise<void> => {
-    try {
-      await updateWizardState({
-        currentSetupStep: null,
-        dataSourceChoice: null,
-        completedPlatforms: null
-      });
-    } catch (error) {
-      console.warn('Failed to clear wizard state on server:', error);
-    }
+  const clearServerWizardState = useCallback(async (): Promise<boolean> => {
+    return await updateWizardState({
+      currentSetupStep: null,
+      dataSourceChoice: null,
+      completedPlatforms: null
+    });
   }, [updateWizardState]);
 
-  const handleInitializationComplete = useCallback((): void => {
-    clearServerWizardState();
+  const handleInitializationComplete = useCallback(async (): Promise<void> => {
+    const cleared = await clearServerWizardState();
+    if (!cleared) {
+      return;
+    }
     onInitialized();
   }, [onInitialized, clearServerWizardState]);
-
-  // --- Auth hook integration ---
-  const { authenticate } = useInitializationAuth({
-    apiKey,
-    setAuthError,
-    setAuthenticating,
-    onAuthChanged,
-    checkPicsDataStatus,
-    checkDataAvailability,
-    setCurrentStep,
-    onInitializationComplete: handleInitializationComplete
-  });
 
   // --- Persist state changes to server ---
   // Each effect guards against redundant calls by comparing with the last-persisted value.
@@ -309,67 +304,62 @@ export function useInitializationFlow({
   useEffect(() => {
     if (!hydratedRef.current) return;
     if (currentStep === lastPersistedStep.current) return;
-    lastPersistedStep.current = currentStep;
-    updateWizardState({ currentSetupStep: currentStep });
+    void (async () => {
+      const persisted = await updateWizardState({ currentSetupStep: currentStep });
+      if (persisted) {
+        lastPersistedStep.current = currentStep;
+      }
+    })();
   }, [currentStep, updateWizardState]);
 
   useEffect(() => {
     if (!hydratedRef.current) return;
     const value = dataSourceChoice ?? null;
     if (value === lastPersistedDataSource.current) return;
-    lastPersistedDataSource.current = value;
-    updateWizardState({ dataSourceChoice: value });
+    void (async () => {
+      const persisted = await updateWizardState({ dataSourceChoice: value });
+      if (persisted) {
+        lastPersistedDataSource.current = value;
+      }
+    })();
   }, [dataSourceChoice, updateWizardState]);
 
   useEffect(() => {
     if (!hydratedRef.current) return;
     const value = JSON.stringify(completedPlatforms);
     if (value === lastPersistedPlatforms.current) return;
-    lastPersistedPlatforms.current = value;
-    updateWizardState({ completedPlatforms: value });
+    void (async () => {
+      const persisted = await updateWizardState({ completedPlatforms: value });
+      if (persisted) {
+        lastPersistedPlatforms.current = value;
+      }
+    })();
   }, [completedPlatforms, updateWizardState]);
 
   // --- Initial setup status check ---
   useEffect(() => {
     const checkSetupStatus = async (): Promise<void> => {
-      await checkDataAvailability();
-
       try {
-        const authCheck = await authService.checkAuth();
-        // Auth is always available (either admin or guest sessions)
-        setAuthDisabled(false);
-
         // Refresh to get latest server-side wizard state
         await refreshSetupStatus();
         const setupData = await ApiService.getSetupStatus();
 
-        // Setup complete and authenticated -> go to app
-        if (setupData.isCompleted && authCheck.isAuthenticated) {
-          clearServerWizardState();
-          onInitialized();
+        if (setupData.isCompleted) {
+          const cleared = await clearServerWizardState();
+          if (cleared) {
+            onInitialized();
+          }
           return;
         }
 
-        // Not authenticated -> show database-setup step (will auto-skip if not needed)
-        if (!authCheck.isAuthenticated) {
-          setCurrentStep('database-setup');
-          lastPersistedStep.current = 'database-setup';
-          lastPersistedDataSource.current = null;
-          lastPersistedPlatforms.current = JSON.stringify({ steam: null, epic: false });
-          hydratedRef.current = true;
-          setIsCheckingAuth(false);
-          return;
-        }
-
-        // Authenticated but setup not complete -> restore from server state
-        const serverStep = setupStatus?.currentSetupStep;
-        if (serverStep && serverStep !== 'database-setup' && serverStep !== 'api-key') {
-          const serverChoice = setupStatus?.dataSourceChoice;
+        const serverStep = normalizeServerStep(setupData.currentSetupStep);
+        if (serverStep && serverStep !== 'database-setup') {
+          const serverChoice = setupData.dataSourceChoice;
           if (serverChoice) {
             setDataSourceChoice(serverChoice as DataSourceChoice);
           }
 
-          const serverCompleted = setupStatus?.completedPlatforms;
+          const serverCompleted = setupData.completedPlatforms;
           if (serverCompleted) {
             setCompletedPlatforms(parseCompletedPlatforms(serverCompleted));
           }
@@ -382,24 +372,23 @@ export function useInitializationFlow({
           ) {
             await checkPicsDataStatus();
           }
-          setCurrentStep(serverStep as InitStep);
+          goToStep(serverStep);
           lastPersistedStep.current = serverStep;
-          lastPersistedDataSource.current = setupStatus?.dataSourceChoice ?? null;
-          lastPersistedPlatforms.current = setupStatus?.completedPlatforms
-            ? JSON.stringify(parseCompletedPlatforms(setupStatus.completedPlatforms))
+          lastPersistedDataSource.current = setupData.dataSourceChoice ?? null;
+          lastPersistedPlatforms.current = setupData.completedPlatforms
+            ? JSON.stringify(parseCompletedPlatforms(setupData.completedPlatforms))
             : JSON.stringify({ steam: null, epic: false });
           hydratedRef.current = true;
           setIsCheckingAuth(false);
           return;
         }
 
-        // No stored step — always start at database-setup.
-        // The auto-skip effect will advance past it if credentials are already configured.
+        // No stored step - start at the first required wizard step.
         await checkPicsDataStatus();
-        setCurrentStep('database-setup');
+        goToStep('database-setup');
       } catch (error) {
         console.error('Failed to check setup status:', error);
-        setCurrentStep('database-setup');
+        goToStep('database-setup');
       } finally {
         hydratedRef.current = true;
         setIsCheckingAuth(false);
@@ -410,191 +399,181 @@ export function useInitializationFlow({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // --- Auto-skip database-setup if not needed ---
-  useEffect(() => {
-    if (currentStep !== 'database-setup') return;
-
-    // Wait until setupStatus is definitively loaded from the server.
-    // Without this guard, setupStatus could be populated from error/fallback
-    // defaults (which set needsPostgresCredentials: false), causing the step
-    // to be skipped before the real server response arrives.
-    if (setupStatusLoading) return;
-
-    // Use setupStatus from context — needsPostgresCredentials drives this
-    if (setupStatus && !setupStatus.needsPostgresCredentials) {
-      // Database already configured, skip to permissions-check
-      // (api-key step is skipped — auth modal already handled authentication)
-      setCurrentStep('permissions-check');
-    }
-  }, [currentStep, setupStatus, setupStatusLoading]);
-
   // --- Navigation handlers ---
   const handleDatabaseSetupComplete = useCallback((): void => {
     refreshSetupStatus();
-    // Skip api-key step — auth modal already handled authentication
-    setCurrentStep('permissions-check');
-  }, [refreshSetupStatus]);
+    goToStep('permissions-check');
+  }, [refreshSetupStatus, goToStep]);
 
   const handlePermissionsCheckComplete = useCallback((): void => {
-    setCurrentStep('import-historical-data');
-  }, []);
+    goToStep('import-historical-data');
+  }, [goToStep]);
 
   const handleImportComplete = useCallback((): void => {
-    setCurrentStep('platform-setup');
-  }, []);
+    goToStep('platform-setup');
+  }, [goToStep]);
 
-  const handleSelectPlatform = useCallback((platform: 'github' | 'steam' | 'epic'): void => {
-    switch (platform) {
-      case 'github':
-        setDataSourceChoice('github');
-        setCurrentStep('depot-init');
-        break;
-      case 'steam':
-        setDataSourceChoice('steam');
-        setCurrentStep('steam-api-key');
-        break;
-      case 'epic':
-        setDataSourceChoice('epic');
-        setCurrentStep('epic-auth');
-        break;
-    }
-  }, []);
+  const handleSelectPlatform = useCallback(
+    (platform: 'github' | 'steam' | 'epic'): void => {
+      switch (platform) {
+        case 'github':
+          setDataSourceChoice('github');
+          goToStep('depot-init');
+          break;
+        case 'steam':
+          setDataSourceChoice('steam');
+          goToStep('steam-api-key');
+          break;
+        case 'epic':
+          setDataSourceChoice('epic');
+          goToStep('epic-auth');
+          break;
+      }
+    },
+    [goToStep]
+  );
 
   const handlePlatformContinue = useCallback((): void => {
-    setCurrentStep('log-processing');
-  }, []);
+    goToStep('log-processing');
+  }, [goToStep]);
 
   const handlePlatformSkip = useCallback((): void => {
     setDataSourceChoice('skip');
-    setCurrentStep('log-processing');
-  }, []);
+    goToStep('log-processing');
+  }, [goToStep]);
 
   const handleEpicAuthComplete = useCallback((): void => {
     setCompletedPlatforms((prev) => ({ ...prev, epic: true }));
-    setCurrentStep('platform-setup');
-  }, []);
+    setDataSourceChoice(null);
+    goToStep('platform-setup');
+  }, [goToStep]);
 
   const handleEpicAuthSkip = useCallback((): void => {
     // User skipped Epic auth — return to hub without marking complete
-    setCurrentStep('platform-setup');
-  }, []);
+    setDataSourceChoice(null);
+    goToStep('platform-setup');
+  }, [goToStep]);
 
   const handleSteamApiKeyComplete = useCallback(async (): Promise<void> => {
     await checkPicsDataStatus();
-    setCurrentStep('steam-auth');
-  }, [checkPicsDataStatus]);
+    goToStep('steam-auth');
+  }, [checkPicsDataStatus, goToStep]);
 
   const handleSteamAuthComplete = useCallback(
     async (usingSteam: boolean): Promise<void> => {
       setUsingSteamAuth(usingSteam);
       await checkPicsDataStatus();
-      setCurrentStep('depot-init');
+      goToStep('depot-init');
     },
-    [checkPicsDataStatus]
+    [checkPicsDataStatus, goToStep]
   );
 
   const handleDepotInitComplete = useCallback((): void => {
     if (dataSourceChoice === 'github') {
       setCompletedPlatforms((prev) => ({ ...prev, steam: 'github' }));
-      setCurrentStep('platform-setup');
+      setDataSourceChoice(null);
+      goToStep('platform-setup');
     } else {
       // Steam PICS path — depot init done, go to log processing
-      setCurrentStep('log-processing');
+      setCompletedPlatforms((prev) => ({ ...prev, steam: 'steam' }));
+      goToStep('log-processing');
     }
-  }, [dataSourceChoice]);
+  }, [dataSourceChoice, goToStep]);
 
   const handleDepotInitGenerateOwn = useCallback((): void => {
-    setCurrentStep('pics-progress');
-  }, []);
+    goToStep('pics-progress');
+  }, [goToStep]);
 
   const handleDepotInitContinue = useCallback((): void => {
-    setCurrentStep('pics-progress');
-  }, []);
+    goToStep('pics-progress');
+  }, [goToStep]);
 
   const handlePicsProgressComplete = useCallback((): void => {
     setCompletedPlatforms((prev) => ({ ...prev, steam: 'steam' }));
-    setCurrentStep('platform-setup');
-  }, []);
+    setDataSourceChoice(null);
+    goToStep('platform-setup');
+  }, [goToStep]);
 
   const handlePicsProgressCancel = useCallback((): void => {
     setDataSourceChoice(null);
-    setCurrentStep('platform-setup');
-  }, []);
+    goToStep('platform-setup');
+  }, [goToStep]);
 
   const handleLogProcessingComplete = useCallback(async (): Promise<void> => {
     // Skip depot mapping if user didn't select any platform in step 4
     if (dataSourceChoice === 'skip' || dataSourceChoice === null) {
-      await markSetupCompleted();
-      handleInitializationComplete();
+      const completed = await markSetupCompleted();
+      if (!completed) return;
+      await handleInitializationComplete();
       return;
     }
-    setCurrentStep('depot-mapping');
-  }, [dataSourceChoice, markSetupCompleted, handleInitializationComplete]);
+    goToStep('depot-mapping');
+  }, [dataSourceChoice, markSetupCompleted, handleInitializationComplete, goToStep]);
 
   const handleLogProcessingSkip = useCallback(async (): Promise<void> => {
-    await markSetupCompleted();
-    handleInitializationComplete();
+    const completed = await markSetupCompleted();
+    if (!completed) return;
+    await handleInitializationComplete();
   }, [markSetupCompleted, handleInitializationComplete]);
 
   const handleDepotMappingComplete = useCallback(async (): Promise<void> => {
-    await markSetupCompleted();
-    handleInitializationComplete();
+    const completed = await markSetupCompleted();
+    if (!completed) return;
+    await handleInitializationComplete();
   }, [markSetupCompleted, handleInitializationComplete]);
 
   const handleDepotMappingSkip = useCallback(async (): Promise<void> => {
-    await markSetupCompleted();
-    handleInitializationComplete();
+    const completed = await markSetupCompleted();
+    if (!completed) return;
+    await handleInitializationComplete();
   }, [markSetupCompleted, handleInitializationComplete]);
 
   const handleBackToSteamAuth = useCallback((): void => {
     setUsingSteamAuth(false);
-    setCurrentStep('steam-auth');
-  }, []);
+    goToStep('steam-auth');
+  }, [goToStep]);
 
   const handleGoBack = useCallback((): void => {
     switch (currentStep) {
-      case 'api-key':
-        setCurrentStep('database-setup');
-        break;
       case 'permissions-check':
-        // Skip back over api-key — auth modal handles authentication
+        // Intentionally bypass transition guards so "Back" does not bounce forward.
         setCurrentStep('database-setup');
         break;
       case 'import-historical-data':
-        setCurrentStep('permissions-check');
+        goToStep('permissions-check');
         break;
       case 'platform-setup':
-        setCurrentStep('import-historical-data');
+        goToStep('import-historical-data');
         break;
       case 'steam-api-key':
-        setCurrentStep('platform-setup');
+        goToStep('platform-setup');
         break;
       case 'steam-auth':
-        setCurrentStep('steam-api-key');
+        goToStep('steam-api-key');
         break;
       case 'epic-auth':
-        setCurrentStep('platform-setup');
+        goToStep('platform-setup');
         break;
       case 'depot-init':
         if (dataSourceChoice === 'steam') {
-          setCurrentStep('steam-auth');
+          goToStep('steam-auth');
         } else {
-          setCurrentStep('platform-setup');
+          goToStep('platform-setup');
         }
         break;
       case 'pics-progress':
-        setCurrentStep('depot-init');
+        goToStep('depot-init');
         break;
       case 'log-processing':
-        setCurrentStep('platform-setup');
+        goToStep('platform-setup');
         break;
       case 'depot-mapping':
-        setCurrentStep('log-processing');
+        goToStep('log-processing');
         break;
       default:
         break;
     }
-  }, [currentStep, dataSourceChoice]);
+  }, [currentStep, dataSourceChoice, goToStep]);
 
   // --- Computed ---
   const stepInfo = buildStepInfoMap(t, dataSourceChoice)[currentStep];
@@ -605,20 +584,12 @@ export function useInitializationFlow({
     dataSourceChoice,
     completedPlatforms,
 
-    apiKey,
-    setApiKey,
-    authenticating,
-    authError,
-    authDisabled,
-    dataAvailable,
-    checkingDataAvailability,
-    isCheckingAuth,
-    authenticate,
-
+    isCheckingAuth: isCheckingAuth || setupStatusLoading,
     picsData,
     usingSteamAuth,
     backButtonDisabled,
     setBackButtonDisabled,
+    syncError,
 
     handleGoBack,
     handleDatabaseSetupComplete,

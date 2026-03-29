@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback, type ReactNode } from 'react';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useAuth } from '@contexts/useAuth';
+import ApiService from '@services/api.service';
 import type {
   DepotMappingStartedEvent,
   DepotMappingProgressEvent,
@@ -105,9 +106,7 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
     }
 
     try {
-      const response = await fetch('/api/depots/rebuild/progress', {
-        credentials: 'include'
-      });
+      const response = await fetch('/api/depots/rebuild/progress', ApiService.getFetchOptions());
       if (response.ok) {
         const data: PicsProgress = await response.json();
         setProgress(data);
@@ -129,6 +128,22 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
     (updater: (prev: PicsProgress | null) => PicsProgress | null) => {
       setProgress(updater);
     },
+    []
+  );
+
+  const createDefaultProgress = useCallback(
+    (): PicsProgress => ({
+      isProcessing: false,
+      status: 'Idle',
+      totalApps: 0,
+      processedApps: 0,
+      totalBatches: 0,
+      processedBatches: 0,
+      progressPercent: 0,
+      depotMappingsFound: 0,
+      crawlIntervalHours: 0,
+      crawlIncrementalMode: true
+    }),
     []
   );
 
@@ -160,20 +175,16 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
     if (mockMode) return;
 
     const handleDepotMappingStarted = (event: DepotMappingStartedEvent) => {
-      setProgress((prev) =>
-        prev
-          ? {
-              ...prev,
-              isProcessing: true,
-              status: event.status || 'Running',
-              totalApps: event.totalApps || prev.totalApps,
-              processedApps: event.processedApps || 0,
-              // Backend sends 'percentComplete', map it to 'progressPercent'
-              progressPercent: event.percentComplete ?? event.progressPercent ?? 0,
-              startTime: event.startTime || new Date().toISOString()
-            }
-          : null
-      );
+      setProgress((prev) => ({
+        ...(prev ?? createDefaultProgress()),
+        isProcessing: true,
+        status: event.status || 'Running',
+        totalApps: event.totalApps || prev?.totalApps || 0,
+        processedApps: event.processedApps || 0,
+        // Backend sends 'percentComplete', map it to 'progressPercent'
+        progressPercent: event.percentComplete ?? event.progressPercent ?? 0,
+        startTime: event.startTime || new Date().toISOString()
+      }));
     };
 
     const handleDepotMappingProgress = (event: DepotMappingProgressEvent) => {
@@ -237,7 +248,7 @@ export const PicsProgressProvider: React.FC<PicsProgressProviderProps> = ({
       signalR.off('DepotMappingProgress', handleDepotMappingProgress);
       signalR.off('DepotMappingComplete', handleDepotMappingComplete);
     };
-  }, [signalR, mockMode]);
+  }, [signalR, mockMode, createDefaultProgress]);
 
   return (
     <PicsProgressContext.Provider value={{ progress, isLoading, refreshProgress, updateProgress }}>

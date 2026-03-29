@@ -7,6 +7,7 @@ using LancacheManager.Middleware;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using LancacheManager.Core.Services.SteamKit2;
+using System.Text.Json;
 
 
 namespace LancacheManager.Controllers;
@@ -120,13 +121,14 @@ public class SystemController : ControllerBase
     [HttpGet("permissions")]
     public IActionResult GetPermissions()
     {
-        var cachePath = _pathResolver.GetCacheDirectory();
-        var logPath = _pathResolver.GetLogsDirectory();
+        var defaultDatasource = _datasourceService.GetDefaultDatasource();
+        var cachePath = defaultDatasource?.CachePath ?? _pathResolver.GetCacheDirectory();
+        var logPath = defaultDatasource?.LogPath ?? _pathResolver.GetLogsDirectory();
 
         var cacheExists = Directory.Exists(cachePath);
         var logsExists = Directory.Exists(logPath);
-        var cacheWritable = cacheExists && _pathResolver.IsCacheDirectoryWritable();
-        var logsWritable = logsExists && _pathResolver.IsLogsDirectoryWritable();
+        var cacheWritable = cacheExists && _pathResolver.IsDirectoryWritable(cachePath);
+        var logsWritable = logsExists && _pathResolver.IsDirectoryWritable(logPath);
         var dockerSocketAvailable = _pathResolver.IsDockerSocketAvailable();
 
         return Ok(new SystemPermissionsResponse
@@ -164,8 +166,9 @@ public class SystemController : ControllerBase
         Response.Headers["Pragma"] = "no-cache";
         Response.Headers["Expires"] = "0";
 
-        var isCompleted = _stateService.GetSetupCompleted();
-        var hasProcessedLogs = _stateService.GetHasProcessedLogs();
+        var state = _stateService.GetState();
+        var isCompleted = state.SetupCompleted;
+        var hasProcessedLogs = state.HasProcessedLogs;
         // Always show the postgres step when setup hasn't been completed.
         // The credentials file or env var should NOT skip the wizard — only completing setup does.
         var needsPostgresCredentials = !isCompleted;
@@ -176,9 +179,9 @@ public class SystemController : ControllerBase
             HasProcessedLogs = hasProcessedLogs,
             SetupCompleted = isCompleted, // For backward compatibility
             NeedsPostgresCredentials = needsPostgresCredentials,
-            CurrentSetupStep = _stateService.GetCurrentSetupStep(),
-            DataSourceChoice = _stateService.GetDataSourceChoice(),
-            CompletedPlatforms = _stateService.GetCompletedPlatforms()
+            CurrentSetupStep = state.CurrentSetupStep,
+            DataSourceChoice = state.DataSourceChoice,
+            CompletedPlatforms = state.CompletedPlatforms
         });
     }
 
@@ -187,50 +190,103 @@ public class SystemController : ControllerBase
     /// RESTful: PATCH is proper method for partial updates
     /// Request body: { "completed": true }
     /// </summary>
-    [AllowAnonymous]
+    [Authorize]
     [HttpPatch("setup")]
     public IActionResult UpdateSetupStatus([FromBody] UpdateSetupRequest request)
     {
+        var validSteps = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "database-setup",
+            "permissions-check",
+            "import-historical-data",
+            "platform-setup",
+            "steam-api-key",
+            "steam-auth",
+            "depot-init",
+            "pics-progress",
+            "epic-auth",
+            "log-processing",
+            "depot-mapping"
+        };
+        var validChoices = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "github",
+            "steam",
+            "epic",
+            "skip"
+        };
+
         var hasUpdate = false;
 
-        // Persist wizard state fields if provided
-        if (request.CurrentSetupStep != null)
+        if (!TryReadOptionalString(request.CurrentSetupStep, out var currentSetupStep, out var currentStepError))
         {
-            _stateService.SetCurrentSetupStep(request.CurrentSetupStep);
-            hasUpdate = true;
+            return BadRequest(new ErrorResponse { Error = currentStepError ?? "Invalid currentSetupStep value" });
         }
 
-        if (request.DataSourceChoice != null)
+        if (!TryReadOptionalString(request.DataSourceChoice, out var dataSourceChoice, out var dataSourceError))
         {
-            _stateService.SetDataSourceChoice(request.DataSourceChoice);
-            hasUpdate = true;
+            return BadRequest(new ErrorResponse { Error = dataSourceError ?? "Invalid dataSourceChoice value" });
         }
 
-        if (request.CompletedPlatforms != null)
+        if (!TryReadOptionalString(request.CompletedPlatforms, out var completedPlatforms, out var completedPlatformsError))
         {
-            _stateService.SetCompletedPlatforms(request.CompletedPlatforms);
-            hasUpdate = true;
+            return BadRequest(new ErrorResponse { Error = completedPlatformsError ?? "Invalid completedPlatforms value" });
+        }
+
+        if (currentSetupStep != null && !validSteps.Contains(currentSetupStep))
+        {
+            return BadRequest(new ErrorResponse { Error = "Invalid currentSetupStep value" });
+        }
+
+        if (dataSourceChoice != null && !validChoices.Contains(dataSourceChoice))
+        {
+            return BadRequest(new ErrorResponse { Error = "Invalid dataSourceChoice value" });
+        }
+
+        _stateService.UpdateState(state =>
+        {
+            // Persist wizard state fields if provided
+            if (request.CurrentSetupStep.HasValue)
+            {
+                state.CurrentSetupStep = currentSetupStep;
+                hasUpdate = true;
+            }
+
+            if (request.DataSourceChoice.HasValue)
+            {
+                state.DataSourceChoice = dataSourceChoice;
+                hasUpdate = true;
+            }
+
+            if (request.CompletedPlatforms.HasValue)
+            {
+                state.CompletedPlatforms = completedPlatforms;
+                hasUpdate = true;
+            }
+
+            if (request.Completed.HasValue)
+            {
+                state.SetupCompleted = request.Completed.Value;
+                // Always clear wizard state fields when completion is explicitly set.
+                state.CurrentSetupStep = null;
+                state.DataSourceChoice = null;
+                state.CompletedPlatforms = null;
+                hasUpdate = true;
+            }
+        });
+
+        if (!_stateService.IsPersistenceAvailable)
+        {
+            return StatusCode(503, new ErrorResponse
+            {
+                Error = "Setup state could not be persisted. Please check server logs and try again."
+            });
         }
 
         if (request.Completed.HasValue)
         {
-            _stateService.SetSetupCompleted(request.Completed.Value);
-
-            // Always clear wizard state fields when Completed is explicitly set (true = done, false = reset)
-            {
-                _stateService.SetCurrentSetupStep(null);
-                _stateService.SetDataSourceChoice(null);
-                _stateService.SetCompletedPlatforms(null);
-            }
-
             _logger.LogInformation("Setup status updated: {Completed}", request.Completed.Value);
-            hasUpdate = true;
-
-            return Ok(new SetupUpdateResponse
-            {
-                Message = "Setup status updated",
-                SetupCompleted = request.Completed.Value
-            });
+            return Ok(new SetupUpdateResponse { Message = "Setup status updated", SetupCompleted = request.Completed.Value });
         }
 
         if (hasUpdate)
@@ -243,6 +299,34 @@ public class SystemController : ControllerBase
         }
 
         return BadRequest(new ErrorResponse { Error = "No update provided" });
+    }
+
+    private static bool TryReadOptionalString(
+        JsonElement? value,
+        out string? parsedValue,
+        out string? error)
+    {
+        parsedValue = null;
+        error = null;
+
+        if (!value.HasValue)
+        {
+            return true;
+        }
+
+        if (value.Value.ValueKind == JsonValueKind.Null)
+        {
+            return true;
+        }
+
+        if (value.Value.ValueKind != JsonValueKind.String)
+        {
+            error = "Expected a string or null value";
+            return false;
+        }
+
+        parsedValue = value.Value.GetString();
+        return true;
     }
 
     /// <summary>

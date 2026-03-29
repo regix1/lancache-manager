@@ -16,7 +16,6 @@ interface DatabaseResetStatus {
 
 interface AuthenticationModalProps {
   onAuthComplete: () => void;
-  onAuthChanged?: () => void;
   title?: string;
   subtitle?: string;
   allowGuestMode?: boolean;
@@ -24,7 +23,6 @@ interface AuthenticationModalProps {
 
 const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
   onAuthComplete,
-  onAuthChanged,
   title = 'Authentication Required',
   subtitle = 'Please enter your API key to continue',
   allowGuestMode = true
@@ -161,7 +159,6 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
       // before returning, ensuring all downstream contexts react properly
       const result = await authLogin(apiKey);
       if (result.success) {
-        onAuthChanged?.();
         onAuthComplete();
       } else {
         setAuthError(result.message || t('modals.auth.errors.authenticationFailed'));
@@ -194,7 +191,6 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
       // (DashboardDataContext, RefreshRateContext, etc.) react properly
       const result = await authStartGuest();
       if (result.success) {
-        onAuthChanged?.();
         onAuthComplete();
       } else {
         setAuthError(result.message || t('modals.auth.errors.guestModeUnavailable'));

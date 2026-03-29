@@ -25,7 +25,10 @@ public class StateService : IStateService
     private List<OperationState>? _cachedOperationStates;
     private List<CacheClearOperation>? _cachedCacheClearOperations;
     private int _consecutiveFailures = 0;
+    private bool _stateSavesDisabledLogged = false;
     private bool _migrationAttempted = false;
+
+    public bool IsPersistenceAvailable => _consecutiveFailures <= 5;
 
     public StateService(
         ILogger<StateService> logger,
@@ -70,6 +73,7 @@ public class StateService : IStateService
         public string? DefaultGuestTheme { get; set; } = "dark-default";
         public string RefreshRate { get; set; } = "STANDARD";
         public string DefaultGuestRefreshRate { get; set; } = "STANDARD";
+        public bool GuestRefreshRateLocked { get; set; } = true;
 
         // Default guest preferences
         public bool DefaultGuestUseLocalTimezone { get; set; } = false;
@@ -203,6 +207,11 @@ public class StateService : IStateService
         // Skip saves if we've had too many failures
         if (_consecutiveFailures > 5)
         {
+            if (!_stateSavesDisabledLogged)
+            {
+                _logger.LogError("State persistence is disabled after repeated save failures");
+                _stateSavesDisabledLogged = true;
+            }
             return;
         }
 
@@ -232,6 +241,7 @@ public class StateService : IStateService
 
                 _cachedState = state;
                 _consecutiveFailures = 0; // Reset on success
+                _stateSavesDisabledLogged = false;
                 _logger.LogTrace("State saved successfully with encrypted sensitive data");
             }
             catch (Exception ex)
@@ -775,6 +785,7 @@ public class StateService : IStateService
             DefaultGuestTheme = persisted.DefaultGuestTheme ?? "dark-default",
             RefreshRate = persisted.RefreshRate ?? "STANDARD",
             DefaultGuestRefreshRate = persisted.DefaultGuestRefreshRate ?? "STANDARD",
+            GuestRefreshRateLocked = persisted.GuestRefreshRateLocked,
             // Default guest preferences
             DefaultGuestUseLocalTimezone = persisted.DefaultGuestUseLocalTimezone,
             DefaultGuestUse24HourFormat = persisted.DefaultGuestUse24HourFormat,
@@ -850,6 +861,7 @@ public class StateService : IStateService
             DefaultGuestTheme = state.DefaultGuestTheme,
             RefreshRate = state.RefreshRate ?? "STANDARD",
             DefaultGuestRefreshRate = state.DefaultGuestRefreshRate ?? "STANDARD",
+            GuestRefreshRateLocked = state.GuestRefreshRateLocked,
             // Default guest preferences
             DefaultGuestUseLocalTimezone = state.DefaultGuestUseLocalTimezone,
             DefaultGuestUse24HourFormat = state.DefaultGuestUse24HourFormat,
