@@ -51,7 +51,7 @@ export function DatabaseImportForm({
     host: 'localhost',
     port: 5432,
     database: 'lancache',
-    username: 'postgres',
+    username: 'lancache',
     password: ''
   });
   const [showRawConnectionString, setShowRawConnectionString] = useState(false);
