@@ -393,13 +393,10 @@ export function useInitializationFlow({
           return;
         }
 
-        // No stored step or at api-key/database-setup step
-        if (authCheck.isAuthenticated) {
-          await checkPicsDataStatus();
-          setCurrentStep('permissions-check');
-        } else {
-          setCurrentStep('database-setup');
-        }
+        // No stored step — always start at database-setup.
+        // The auto-skip effect will advance past it if credentials are already configured.
+        await checkPicsDataStatus();
+        setCurrentStep('database-setup');
       } catch (error) {
         console.error('Failed to check setup status:', error);
         setCurrentStep('database-setup');
