@@ -261,6 +261,8 @@ interface DepotGroupedData {
   averageBytesPerSecond: number;
   downloadIds: number[]; // Track original download IDs for event associations
   isEvicted?: boolean;
+  /** Best GameImageUrl across merged sessions (by startTimeUtc). */
+  storedGameImageUrl?: string;
 }
 
 // Group items by depot ID for retro view display
@@ -270,7 +272,11 @@ const groupByDepot = (
 ): DepotGroupedData[] => {
   const depotGroups: Record<
     string,
-    DepotGroupedData & { _weightedSpeedSum: number; _speedBytesSum: number }
+    DepotGroupedData & {
+      _weightedSpeedSum: number;
+      _speedBytesSum: number;
+      _bestGameImage?: { t: string; url: string };
+    }
   > = {};
 
   items.forEach((item) => {
@@ -328,6 +334,11 @@ const groupByDepot = (
         if (endTime > group.endTimeUtc) {
           group.endTimeUtc = endTime;
         }
+
+        const u = download.gameImageUrl?.trim();
+        if (u && (!group._bestGameImage || download.startTimeUtc > group._bestGameImage.t)) {
+          group._bestGameImage = { t: download.startTimeUtc, url: u };
+        }
       });
     } else {
       const download = item;
@@ -383,12 +394,18 @@ const groupByDepot = (
       if (endTime > group.endTimeUtc) {
         group.endTimeUtc = endTime;
       }
+
+      const u = download.gameImageUrl?.trim();
+      if (u && (!group._bestGameImage || download.startTimeUtc > group._bestGameImage.t)) {
+        group._bestGameImage = { t: download.startTimeUtc, url: u };
+      }
     }
   });
 
   const grouped = Object.values(depotGroups).map((group) => {
-    const { _weightedSpeedSum, _speedBytesSum, ...cleanGroup } = group;
+    const { _weightedSpeedSum, _speedBytesSum, _bestGameImage, ...cleanGroup } = group;
     cleanGroup.averageBytesPerSecond = _speedBytesSum > 0 ? _weightedSpeedSum / _speedBytesSum : 0;
+    cleanGroup.storedGameImageUrl = _bestGameImage?.url;
     return cleanGroup as DepotGroupedData;
   });
 
@@ -1417,6 +1434,7 @@ const RetroView = memo(
                                         alt={data.gameName || t('downloads.tab.retro.gameFallback')}
                                         className="w-[120px] h-[56px] rounded object-cover"
                                         onFinalError={handleImageError}
+                                        storedImageUrl={data.storedGameImageUrl}
                                       />
                                     ) : (
                                       /* Service icon placeholder */
@@ -1594,6 +1612,7 @@ const RetroView = memo(
                                       alt={data.gameName || t('downloads.tab.retro.gameFallback')}
                                       className="w-[120px] h-[56px] rounded object-cover flex-shrink-0"
                                       onFinalError={handleImageError}
+                                      storedImageUrl={data.storedGameImageUrl}
                                     />
                                   ) : (
                                     <div className="w-[120px] h-[56px] rounded flex items-center justify-center flex-shrink-0 bg-[var(--theme-bg-tertiary)]">

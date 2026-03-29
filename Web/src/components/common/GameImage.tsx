@@ -11,12 +11,12 @@ interface GameImageProps {
   onFinalError: (gameAppId: string) => void;
   sizes?: string;
   epicAppId?: string;
+  /** When set (e.g. from Download.gameImageUrl), load this URL first; on failure use /api/game-images proxy. */
+  storedImageUrl?: string;
 }
 
 /**
- * Game image component with automatic fallback to capsule image when header fails.
- * Steam: /api/game-images/{appId}/header -> ?type=capsule -> placeholder
- * Epic: /api/game-images/epic/{epicAppId}/header -> placeholder
+ * Game image: optional stored CDN URL from DB, then /api/game-images proxy with header→capsule (Steam) or Epic retries.
  */
 export const GameImage: React.FC<GameImageProps> = ({
   gameAppId,
@@ -25,10 +25,13 @@ export const GameImage: React.FC<GameImageProps> = ({
   loading = 'lazy',
   onFinalError,
   sizes,
-  epicAppId
+  epicAppId,
+  storedImageUrl
 }) => {
   const appId = String(gameAppId);
   const imageKey = epicAppId ? `epic-${epicAppId}` : appId;
+  const trimmedStored = storedImageUrl?.trim();
+  const [storedBannerFailed, setStoredBannerFailed] = useState(false);
   const [useCapsule, setUseCapsule] = useState(false);
   const [hasTriedFallback, setHasTriedFallback] = useState(false);
   const [epicRetryCount, setEpicRetryCount] = useState(0);
@@ -36,11 +39,12 @@ export const GameImage: React.FC<GameImageProps> = ({
   const cacheBuster = useContext(ImageCacheContext);
 
   useEffect(() => {
+    setStoredBannerFailed(false);
     setUseCapsule(false);
     setHasTriedFallback(false);
     setEpicRetryCount(0);
     setRetryTrigger(0);
-  }, [imageKey]);
+  }, [imageKey, trimmedStored]);
 
   const handleError = useCallback(() => {
     if (epicAppId) {
@@ -64,6 +68,19 @@ export const GameImage: React.FC<GameImageProps> = ({
   const cbParam = cacheBuster > 0 ? `_cb=${cacheBuster}` : '';
   const retryParam = retryTrigger > 0 ? `_rt=${retryTrigger}` : '';
   const extraParams = [cbParam, retryParam].filter(Boolean).join('&');
+
+  if (trimmedStored && !storedBannerFailed) {
+    return (
+      <img
+        src={trimmedStored}
+        sizes={sizes}
+        alt={alt}
+        className={className}
+        loading={loading}
+        onError={() => setStoredBannerFailed(true)}
+      />
+    );
+  }
 
   let src: string;
   if (epicAppId) {
