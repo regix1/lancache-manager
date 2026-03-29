@@ -488,6 +488,28 @@ public class RustLogProcessorService
 
             if (exitCode == 0)
             {
+                // Check if Rust reported a failure status despite exit code 0
+                // This catches edge cases where errors were logged but the process still exited cleanly
+                if (finalProgress?.Status == "failed")
+                {
+                    _logger.LogError("Rust processor exited with code 0 but reported failure: {Message}", finalProgress.Message);
+
+                    if (!silentMode)
+                    {
+                        await _notifications.SendOperationCompleteAsync(
+                            SignalREvents.LogProcessingComplete, _currentOperationId,
+                            success: false, message: finalProgress.Message ?? "Log processing failed", cancelled: false,
+                            new { EntriesProcessed = 0, LinesProcessed = finalProgress.LinesParsed });
+                    }
+
+                    if (_currentOperationId != null)
+                    {
+                        _operationTracker.CompleteOperation(_currentOperationId, false, finalProgress.Message);
+                    }
+
+                    return false;
+                }
+
                 // Normal completion - send completion with actual data
                 if (finalProgress != null)
                 {

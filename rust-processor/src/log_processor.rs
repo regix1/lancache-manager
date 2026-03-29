@@ -240,20 +240,67 @@ impl Processor {
         // Process each log file in order (oldest to newest)
         let mut lines_to_skip = self.start_position;
 
+        let mut files_with_errors = Vec::new();
+        let mut files_processed = 0u64;
+
         for (file_index, log_file) in log_files.iter().enumerate() {
             println!("\nProcessing file {}/{}: {}", file_index + 1, log_files.len(), log_file.path.display());
 
-            // Try to process the file, but skip if it's corrupted (e.g., invalid gzip)
             let file_result = self.process_single_file(log_file, &mut lines_to_skip, total_lines).await;
 
             if let Err(e) = file_result {
-                eprintln!("⚠ Warning: Skipping corrupted file {}: {}", log_file.path.display(), e);
-                eprintln!("  Continuing with remaining files...");
-                continue;
+                let error_str = format!("{}", e);
+                // Classify the error: IO/decompression errors are "corrupted file",
+                // database errors are infrastructure failures that should not be silenced
+                let is_db_error = error_str.contains("error returned from database")
+                    || error_str.contains("pool timed out")
+                    || error_str.contains("connection refused")
+                    || error_str.contains("operator does not exist");
+
+                if is_db_error {
+                    eprintln!("ERROR: Database error processing {}: {}", log_file.path.display(), e);
+                    files_with_errors.push((log_file.path.display().to_string(), error_str));
+                    // Database errors affect ALL files, no point continuing
+                    break;
+                } else {
+                    eprintln!("⚠ Warning: Skipping corrupted file {}: {}", log_file.path.display(), e);
+                    eprintln!("  Continuing with remaining files...");
+                    files_with_errors.push((log_file.path.display().to_string(), error_str));
+                    continue;
+                }
+            } else {
+                files_processed += 1;
             }
         }
 
-        println!("\nAll files processed successfully!");
+        let entries_saved = self.entries_saved.load(Ordering::Relaxed);
+
+        // If we had errors and processed zero entries, this is a failure
+        if !files_with_errors.is_empty() && entries_saved == 0 && total_lines > 0 {
+            let error_summary: Vec<String> = files_with_errors
+                .iter()
+                .map(|(path, err)| format!("{}: {}", path, err))
+                .collect();
+            let msg = format!(
+                "Log processing failed - 0 entries processed from {} lines. Errors: {}",
+                total_lines,
+                error_summary.join("; ")
+            );
+            eprintln!("{}", msg);
+            self.write_progress("failed", &msg)?;
+            return Err(anyhow::anyhow!(msg));
+        }
+
+        if files_with_errors.is_empty() {
+            println!("\nAll files processed successfully!");
+        } else {
+            println!(
+                "\nProcessing completed with {} error(s) in {} file(s), {} entries saved",
+                files_with_errors.len(),
+                files_with_errors.len(),
+                entries_saved
+            );
+        }
         self.write_progress("completed", "Log processing finished")?;
 
         Ok(())
@@ -447,14 +494,15 @@ impl Processor {
         let mut skipped = 0;
 
         for entry in entries {
-            let timestamp_str = entry.timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
+            // Convert NaiveDateTime to proper UTC DateTime for PostgreSQL timestamptz comparison
+            let timestamp_utc = Utc.from_utc_datetime(&entry.timestamp);
 
             let exists = sqlx::query(
                 "SELECT 1 FROM \"LogEntries\" WHERE \"ClientIp\" = $1 AND \"Service\" = $2 AND \"Timestamp\" = $3 AND \"Url\" = $4 AND \"BytesServed\" = $5 LIMIT 1"
             )
             .bind(&entry.client_ip)
             .bind(&entry.service)
-            .bind(&timestamp_str)
+            .bind(timestamp_utc)
             .bind(&entry.url)
             .bind(entry.bytes_served)
             .fetch_optional(&mut **tx)
@@ -556,11 +604,11 @@ impl Processor {
             // Create new download session with depot mapping
             let game_image_url: Option<String> = None;
 
-            // Convert timestamps to both UTC and local timezone - format once and reuse
-            let first_utc = first_timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
-            let last_utc = last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
-            let first_local = self.utc_to_local(first_timestamp).format("%Y-%m-%d %H:%M:%S").to_string();
-            let last_local = self.utc_to_local(last_timestamp).format("%Y-%m-%d %H:%M:%S").to_string();
+            // Convert NaiveDateTime to proper UTC DateTime for PostgreSQL timestamptz columns
+            let first_utc_dt = Utc.from_utc_datetime(&first_timestamp);
+            let last_utc_dt = Utc.from_utc_datetime(&last_timestamp);
+            let first_local_dt = Utc.from_utc_datetime(&self.utc_to_local(first_timestamp));
+            let last_local_dt = Utc.from_utc_datetime(&self.utc_to_local(last_timestamp));
 
             let row = sqlx::query(
                 "INSERT INTO \"Downloads\" (\"Service\", \"ClientIp\", \"StartTimeUtc\", \"EndTimeUtc\", \"StartTimeLocal\", \"EndTimeLocal\", \"CacheHitBytes\", \"CacheMissBytes\", \"IsActive\", \"LastUrl\", \"DepotId\", \"GameAppId\", \"GameName\", \"GameImageUrl\", \"Datasource\")
@@ -569,10 +617,10 @@ impl Processor {
             )
             .bind(service)
             .bind(client_ip)
-            .bind(&first_utc)
-            .bind(&last_utc)
-            .bind(&first_local)
-            .bind(&last_local)
+            .bind(first_utc_dt)
+            .bind(last_utc_dt)
+            .bind(first_local_dt)
+            .bind(last_local_dt)
             .bind(total_hit_bytes)
             .bind(total_miss_bytes)
             .bind(last_url)
@@ -600,8 +648,8 @@ impl Processor {
                 )
                 .bind(total_hit_bytes)
                 .bind(total_miss_bytes)
-                .bind(&last_utc)
-                .bind(&last_local)
+                .bind(last_utc_dt)
+                .bind(last_local_dt)
                 .bind(client_ip)
                 .execute(&mut **tx)
                 .await?;
@@ -612,8 +660,8 @@ impl Processor {
                 .bind(client_ip)
                 .bind(total_hit_bytes)
                 .bind(total_miss_bytes)
-                .bind(&last_utc)
-                .bind(&last_local)
+                .bind(last_utc_dt)
+                .bind(last_local_dt)
                 .execute(&mut **tx)
                 .await?;
             }
@@ -632,8 +680,8 @@ impl Processor {
                 )
                 .bind(total_hit_bytes)
                 .bind(total_miss_bytes)
-                .bind(&last_utc)
-                .bind(&last_local)
+                .bind(last_utc_dt)
+                .bind(last_local_dt)
                 .bind(service)
                 .execute(&mut **tx)
                 .await?;
@@ -644,8 +692,8 @@ impl Processor {
                 .bind(service)
                 .bind(total_hit_bytes)
                 .bind(total_miss_bytes)
-                .bind(&last_utc)
-                .bind(&last_local)
+                .bind(last_utc_dt)
+                .bind(last_local_dt)
                 .execute(&mut **tx)
                 .await?;
             }
@@ -702,21 +750,21 @@ impl Processor {
             let (download_id, is_new) = if let Some(id) = download_id_opt {
                 (id, false)
             } else {
-                // Convert timestamps to both UTC and local timezone
-                let first_utc = first_timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
-                let last_utc = last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
-                let first_local = self.utc_to_local(first_timestamp).format("%Y-%m-%d %H:%M:%S").to_string();
-                let last_local = self.utc_to_local(last_timestamp).format("%Y-%m-%d %H:%M:%S").to_string();
+                // Convert NaiveDateTime to proper UTC DateTime for PostgreSQL timestamptz columns
+                let first_utc_dt = Utc.from_utc_datetime(&first_timestamp);
+                let last_utc_dt = Utc.from_utc_datetime(&last_timestamp);
+                let first_local_dt = Utc.from_utc_datetime(&self.utc_to_local(first_timestamp));
+                let last_local_dt = Utc.from_utc_datetime(&self.utc_to_local(last_timestamp));
 
                 let row = sqlx::query(
                     "INSERT INTO \"Downloads\" (\"ClientIp\", \"Service\", \"StartTimeUtc\", \"EndTimeUtc\", \"StartTimeLocal\", \"EndTimeLocal\", \"CacheHitBytes\", \"CacheMissBytes\", \"IsActive\", \"GameAppId\", \"GameName\", \"GameImageUrl\", \"LastUrl\", \"DepotId\", \"Datasource\") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, $9, $10, $11, $12, $13, $14) RETURNING \"Id\""
                 )
                 .bind(client_ip)
                 .bind(service)
-                .bind(&first_utc)
-                .bind(&last_utc)
-                .bind(&first_local)
-                .bind(&last_local)
+                .bind(first_utc_dt)
+                .bind(last_utc_dt)
+                .bind(first_local_dt)
+                .bind(last_local_dt)
                 .bind(total_hit_bytes)
                 .bind(total_miss_bytes)
                 .bind(game_app_id.map(|id| id as i64))
@@ -730,17 +778,17 @@ impl Processor {
                 (row.get::<i64, _>("Id"), true)
             };
 
-            // Convert timestamps once for reuse in updates
-            let last_utc = last_timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
-            let last_local = self.utc_to_local(last_timestamp).format("%Y-%m-%d %H:%M:%S").to_string();
+            // Convert NaiveDateTime to proper UTC DateTime for PostgreSQL timestamptz columns
+            let last_utc_dt = Utc.from_utc_datetime(&last_timestamp);
+            let last_local_dt = Utc.from_utc_datetime(&self.utc_to_local(last_timestamp));
 
             // Only update if we found existing download (not if we just created it)
             if !is_new {
                 sqlx::query(
                     "UPDATE \"Downloads\" SET \"EndTimeUtc\" = $1, \"EndTimeLocal\" = $2, \"CacheHitBytes\" = \"CacheHitBytes\" + $3, \"CacheMissBytes\" = \"CacheMissBytes\" + $4, \"LastUrl\" = $5, \"DepotId\" = COALESCE($6, \"DepotId\"), \"GameAppId\" = COALESCE($7, \"GameAppId\"), \"GameName\" = COALESCE($8, \"GameName\"), \"GameImageUrl\" = COALESCE($9, \"GameImageUrl\") WHERE \"Id\" = $10"
                 )
-                .bind(&last_utc)
-                .bind(&last_local)
+                .bind(last_utc_dt)
+                .bind(last_local_dt)
                 .bind(total_hit_bytes)
                 .bind(total_miss_bytes)
                 .bind(last_url)
@@ -759,8 +807,8 @@ impl Processor {
             )
             .bind(total_hit_bytes)
             .bind(total_miss_bytes)
-            .bind(&last_utc)
-            .bind(&last_local)
+            .bind(last_utc_dt)
+            .bind(last_local_dt)
             .bind(client_ip)
             .execute(&mut **tx)
             .await?;
@@ -770,8 +818,8 @@ impl Processor {
             )
             .bind(total_hit_bytes)
             .bind(total_miss_bytes)
-            .bind(&last_utc)
-            .bind(&last_local)
+            .bind(last_utc_dt)
+            .bind(last_local_dt)
             .bind(service)
             .execute(&mut **tx)
             .await?;
@@ -784,17 +832,17 @@ impl Processor {
             .update_session(session_key, last_timestamp);
 
         // Insert ONLY the new (non-duplicate) entries
-        let now = Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let now = Utc::now();
         let inserted = new_entries.len();
 
         for entry in &new_entries {
-            let timestamp_str = entry.timestamp.format("%Y-%m-%d %H:%M:%S").to_string();
+            let entry_timestamp_utc = Utc.from_utc_datetime(&entry.timestamp);
 
             sqlx::query(
                 "INSERT INTO \"LogEntries\" (\"Timestamp\", \"ClientIp\", \"Service\", \"Method\", \"Url\", \"StatusCode\", \"BytesServed\", \"CacheStatus\", \"DepotId\", \"DownloadId\", \"CreatedAt\", \"Datasource\")
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)"
             )
-            .bind(&timestamp_str)
+            .bind(entry_timestamp_utc)
             .bind(&entry.client_ip)
             .bind(&entry.service)
             .bind("GET")
@@ -804,7 +852,7 @@ impl Processor {
             .bind(&entry.cache_status)
             .bind(entry.depot_id.map(|d| d as i64))
             .bind(download_id)
-            .bind(&now)
+            .bind(now)
             .bind(&self.datasource_name)
             .execute(&mut **tx)
             .await?;
