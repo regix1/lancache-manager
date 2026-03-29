@@ -161,7 +161,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
   );
   const diskSizeBytes = detection?.total_size_bytes;
   const isGenericSteamTitle =
-    primaryName === 'Unknown Steam Game' || /^Steam App \d+$/.test(primaryName);
+    !primaryName || primaryName === group.service || /^Steam App \d+$/.test(primaryName);
   const showSteamImage =
     group.type === 'game' &&
     isSteam &&
@@ -315,9 +315,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                 </span>
                 {group.downloads.some(
                   (d: Download) =>
-                    d.gameName &&
-                    d.gameName !== 'Unknown Steam Game' &&
-                    !d.gameName.match(/^Steam App \d+$/)
+                    d.gameName && d.gameName !== d.service && !d.gameName.match(/^Steam App \d+$/)
                 ) && (
                   <h3 className="text-sm font-bold text-[var(--theme-text-primary)] truncate flex-1 min-w-0">
                     {group.name}
@@ -402,9 +400,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                 </span>
                 {group.downloads.some(
                   (d: Download) =>
-                    d.gameName &&
-                    d.gameName !== 'Unknown Steam Game' &&
-                    !d.gameName.match(/^Steam App \d+$/)
+                    d.gameName && d.gameName !== d.service && !d.gameName.match(/^Steam App \d+$/)
                 ) && (
                   <h3
                     className={`${fullHeightBanners ? 'text-lg' : 'text-xl'} font-bold text-[var(--theme-text-primary)] truncate`}
@@ -1070,7 +1066,7 @@ const GridCard: React.FC<GridCardProps> = ({
   const epicAppId = primaryDownload?.epicAppId ?? null;
   const primaryName = primaryDownload?.gameName ?? '';
   const isGenericSteamTitle =
-    primaryName === 'Unknown Steam Game' || /^Steam App \d+$/.test(primaryName);
+    !primaryName || primaryName === group.service || /^Steam App \d+$/.test(primaryName);
   const showSteamImage =
     group.type === 'game' &&
     isSteam &&
@@ -1285,7 +1281,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
   const epicAppId = primaryDownload?.epicAppId ?? null;
   const primaryName = primaryDownload?.gameName ?? '';
   const isGenericSteamTitle =
-    primaryName === 'Unknown Steam Game' || /^Steam App \d+$/.test(primaryName);
+    !primaryName || primaryName === group.service || /^Steam App \d+$/.test(primaryName);
   const showSteamImage =
     group.type === 'game' &&
     isSteam &&

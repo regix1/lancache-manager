@@ -56,10 +56,10 @@ const ActiveDownloadItem: React.FC<{ game: GameSpeedInfo; index: number; t: TFun
         <div className="item-info">
           <div className="item-name">
             {game.gameName &&
-            game.gameName !== 'Unknown Steam Game' &&
+            game.gameName !== game.service &&
             !game.gameName.match(/^Steam App \d+$/)
               ? game.gameName
-              : game.gameName || `Depot ${game.depotId}`}
+              : game.gameName || (game.depotId ? `Depot ${game.depotId}` : game.service)}
           </div>
           <div className="item-meta">
             <span className={`service-badge service-badge--${getServiceColorClass(game.service)}`}>
@@ -112,9 +112,7 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({ item, events = 
         count: item.count,
         hasGameName: item.downloads.some(
           (d: Download) =>
-            d.gameName &&
-            d.gameName !== 'Unknown Steam Game' &&
-            !d.gameName.match(/^Steam App \d+$/)
+            d.gameName && d.gameName !== d.service && !d.gameName.match(/^Steam App \d+$/)
         ),
         isEvicted: item.downloads.every((d: Download) => d.isEvicted),
         gameAppId: item.downloads.find((d: Download) => d.gameAppId)?.gameAppId ?? null
@@ -122,9 +120,7 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({ item, events = 
     : {
         service: item.service,
         name:
-          item.gameName &&
-          item.gameName !== 'Unknown Steam Game' &&
-          !item.gameName.match(/^Steam App \d+$/)
+          item.gameName && item.gameName !== item.service && !item.gameName.match(/^Steam App \d+$/)
             ? item.gameName
             : item.gameName || (item.depotId ? `Depot ${item.depotId}` : item.service),
         totalBytes: item.totalBytes,
@@ -135,7 +131,7 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({ item, events = 
         count: 1,
         hasGameName:
           item.gameName &&
-          item.gameName !== 'Unknown Steam Game' &&
+          item.gameName !== item.service &&
           !item.gameName.match(/^Steam App \d+$/),
         isEvicted: item.isEvicted ?? false,
         gameAppId: item.gameAppId ?? null
@@ -251,7 +247,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
         const hasValidGameAppId = !!download.gameAppId;
         const hasValidGameName =
           download.gameName &&
-          download.gameName !== 'Unknown Steam Game' &&
+          download.gameName !== download.service &&
           !download.gameName.match(/^Steam App \d+$/);
 
         if (hasValidGameName) {
@@ -402,7 +398,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
     const filteredIndividuals = individuals.filter((download) => {
       if (
         download.gameName &&
-        download.gameName !== 'Unknown Steam Game' &&
+        download.gameName !== download.service &&
         !download.gameName.match(/^Steam App \d+$/)
       ) {
         return true;

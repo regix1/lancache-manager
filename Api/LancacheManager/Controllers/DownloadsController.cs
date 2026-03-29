@@ -128,6 +128,63 @@ public class DownloadsController : ControllerBase
                 foreach (var d in downloads) d.IsEvicted = false;
             }
 
+            // Resolve game names via SteamDepotMappings LEFT JOIN + Epic lookup
+            if (downloads.Count > 0)
+            {
+                // Build Steam depot mapping lookup for downloads with a DepotId
+                var depotIds = downloads
+                    .Where(d => d.DepotId.HasValue)
+                    .Select(d => d.DepotId!.Value)
+                    .Distinct()
+                    .ToList();
+
+                var steamMappings = depotIds.Count > 0
+                    ? await _context.SteamDepotMappings
+                        .AsNoTracking()
+                        .Where(m => m.IsOwner && depotIds.Contains(m.DepotId))
+                        .ToDictionaryAsync(m => m.DepotId, m => m)
+                    : new Dictionary<long, SteamDepotMapping>();
+
+                // Build Epic game name lookup for Epic downloads
+                var epicAppIds = downloads
+                    .Where(d => !string.IsNullOrEmpty(d.EpicAppId))
+                    .Select(d => d.EpicAppId!)
+                    .Distinct()
+                    .ToList();
+
+                var epicMappings = epicAppIds.Count > 0
+                    ? await _context.EpicGameMappings
+                        .AsNoTracking()
+                        .Where(m => epicAppIds.Contains(m.AppId))
+                        .ToDictionaryAsync(m => m.AppId, m => m.Name)
+                    : new Dictionary<string, string>();
+
+                // Apply name resolution priority: existing GameName → Steam AppName → Epic Name → fallback to Service
+                foreach (var d in downloads)
+                {
+                    // Fill from Steam mapping if game name is missing
+                    if (string.IsNullOrEmpty(d.GameName) && d.DepotId.HasValue
+                        && steamMappings.TryGetValue(d.DepotId.Value, out var steamMapping))
+                    {
+                        d.GameName = steamMapping.AppName;
+                        d.GameAppId = steamMapping.AppId;
+                    }
+
+                    // Fill from Epic mapping if still missing
+                    if (string.IsNullOrEmpty(d.GameName) && !string.IsNullOrEmpty(d.EpicAppId)
+                        && epicMappings.TryGetValue(d.EpicAppId, out var epicName))
+                    {
+                        d.GameName = epicName;
+                    }
+
+                    // Final fallback: use service name
+                    if (string.IsNullOrEmpty(d.GameName))
+                    {
+                        d.GameName = d.Service;
+                    }
+                }
+            }
+
             // Return just the array - frontend will use array.length for actual count
             return Ok(downloads);
         }

@@ -152,7 +152,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
     serviceLower === 'steam' &&
     primaryDownload?.gameAppId &&
     primaryDownload?.gameName &&
-    primaryDownload.gameName !== 'Unknown Steam Game' &&
+    primaryDownload.gameName !== primaryDownload.service &&
     !primaryDownload.gameName.match(/^Steam App \d+$/);
   const showEpicImage =
     group.type === 'game' &&
@@ -218,9 +218,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                   </span>
                   {group.downloads.some(
                     (d: Download) =>
-                      d.gameName &&
-                      d.gameName !== 'Unknown Steam Game' &&
-                      !d.gameName.match(/^Steam App \d+$/)
+                      d.gameName && d.gameName !== d.service && !d.gameName.match(/^Steam App \d+$/)
                   ) && (
                     <span className="text-sm font-medium text-[var(--theme-text-primary)] truncate flex-1">
                       {group.name}
@@ -304,9 +302,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                   </span>
                   {group.downloads.some(
                     (d: Download) =>
-                      d.gameName &&
-                      d.gameName !== 'Unknown Steam Game' &&
-                      !d.gameName.match(/^Steam App \d+$/)
+                      d.gameName && d.gameName !== d.service && !d.gameName.match(/^Steam App \d+$/)
                   ) && (
                     <span className="text-sm font-medium text-[var(--theme-text-primary)] truncate">
                       {group.name}

@@ -1150,7 +1150,7 @@ const RetroView = memo(
             isSteam &&
             data.gameAppId &&
             data.gameName &&
-            data.gameName !== 'Unknown Steam Game' &&
+            data.gameName !== data.service &&
             !data.gameName.match(/^Steam App \d+$/) &&
             !imageErrors.has(String(data.gameAppId));
           const hasEpicImage =

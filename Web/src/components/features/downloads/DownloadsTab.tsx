@@ -110,7 +110,7 @@ const PRESETS = {
     showZeroBytes: false,
     showSmallFiles: false,
     hideLocalhost: true,
-    hideUnknownGames: true,
+    hideUnknownGames: false,
     hideEvicted: false,
     groupUnknownGames: false,
     aestheticMode: false,
@@ -128,7 +128,7 @@ const PRESETS = {
     showZeroBytes: false,
     showSmallFiles: false,
     hideLocalhost: true,
-    hideUnknownGames: true,
+    hideUnknownGames: false,
     hideEvicted: false,
     groupUnknownGames: false,
     aestheticMode: true,
@@ -733,21 +733,16 @@ const DownloadsTab: React.FC = () => {
       let groupName: string;
       let groupType: 'game' | 'metadata' | 'content';
 
-      // Check if this is an unknown game
+      // Check if this is an unknown game (platform-agnostic)
+      // Catches: null/undefined gameName (Rust processor), empty string, or gameName === service name (backend fallback)
       const isUnknownGame =
-        download.service.toLowerCase() === 'steam' &&
-        (!download.gameName ||
-          download.gameName.trim() === '' ||
-          download.gameName === 'Unknown Steam Game' ||
-          download.gameName.toLowerCase().includes('unknown') ||
-          download.gameName.match(/^Steam App \d+$/));
+        !download.gameName ||
+        download.gameName.trim() === '' ||
+        download.gameName.toLowerCase() === download.service.toLowerCase();
 
       // Check if we have a valid game (either by appId or by name)
       const hasValidGameAppId = !!download.gameAppId;
-      const hasValidGameName =
-        download.gameName &&
-        download.gameName !== 'Unknown Steam Game' &&
-        !download.gameName.match(/^Steam App \d+$/);
+      const hasValidGameName = !isUnknownGame && !!download.gameName;
 
       if (hasValidGameAppId || hasValidGameName) {
         // Use gameAppId for grouping when available (prevents duplicates from name variations)
