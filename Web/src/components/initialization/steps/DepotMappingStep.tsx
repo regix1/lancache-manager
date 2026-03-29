@@ -7,17 +7,20 @@ import { isAbortError, getErrorMessage } from '@utils/error';
 import { FullScanRequiredModal } from '@components/modals/setup/FullScanRequiredModal';
 import { usePicsProgress } from '@contexts/usePicsProgress';
 import { useSteamWebApiStatus } from '@contexts/useSteamWebApiStatus';
+import { type CompletedPlatforms } from '@hooks/useInitializationFlow';
 
 interface DepotMappingStepProps {
   onComplete: () => void;
   onSkip?: () => void;
   onProcessingStateChange?: (isProcessing: boolean) => void;
+  completedPlatforms?: CompletedPlatforms;
 }
 
 export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({
   onComplete,
   onSkip,
-  onProcessingStateChange
+  onProcessingStateChange,
+  completedPlatforms
 }) => {
   const { t } = useTranslation();
   const { progress: picsProgress } = usePicsProgress();
@@ -47,6 +50,10 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({
   const progress = picsProgress?.progressPercent || 0;
   const statusMessage = picsProgress?.status || '';
   const isRunning = picsProgress?.isProcessing || false;
+
+  const hasConfiguredPlatforms =
+    completedPlatforms !== undefined &&
+    (completedPlatforms.steam !== null || completedPlatforms.epic === true);
 
   useEffect(() => {
     onProcessingStateChange?.(mapping);
@@ -176,6 +183,23 @@ export const DepotMappingStep: React.FC<DepotMappingStepProps> = ({
             : t('initialization.depotMapping.subtitle')}
         </p>
       </div>
+
+      {/* Contextual Banner */}
+      {!mapping &&
+        !complete &&
+        (hasConfiguredPlatforms ? (
+          <div className="p-3 rounded-lg text-sm bg-themed-info">
+            <p className="text-themed-secondary">
+              {t('initialization.depotMapping.platformsConfigured')}
+            </p>
+          </div>
+        ) : (
+          <div className="p-3 rounded-lg text-sm bg-themed-warning">
+            <p className="text-themed-secondary">
+              {t('initialization.depotMapping.noPlatformsWarning')}
+            </p>
+          </div>
+        ))}
 
       {/* Content */}
       {!mapping && !complete && (

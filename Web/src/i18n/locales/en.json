@@ -4807,7 +4807,9 @@
       "goToDashboard": "Go to Dashboard",
       "failedToApply": "Failed to apply depot mappings",
       "failedToStart": "Failed to start depot scan",
-      "failedToDownload": "Failed to download from GitHub"
+      "failedToDownload": "Failed to download from GitHub",
+      "platformsConfigured": "Depot mapping will use your configured platform connections to resolve game information.",
+      "noPlatformsWarning": "No platforms were configured. Depot mapping will use GitHub data only, which may not include the latest game information. You can configure Steam and Epic later in Settings."
     },
     "logProcessing": {
       "title": "Process Cache Logs",
@@ -4912,7 +4914,13 @@
       "completed": "Completed",
       "setUp": "Set Up",
       "finishSetup": "Continue",
-      "override": "This will replace your current Steam setup"
+      "override": "This will replace your current Steam setup",
+      "requirementsInfo": {
+        "label": "GitHub only:",
+        "body": "GitHub depot mappings are always available without a login. For the latest Steam and Epic game information (names, icons, and depot details), you'll need to authenticate with those platforms."
+      },
+      "recommendedNote": "Recommended",
+      "softRequirement": "Setting up at least one platform is recommended to see game names and icons in your dashboard."
     },
     "epicAuth": {
       "title": "Epic Games Authentication",

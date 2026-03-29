@@ -184,6 +184,19 @@ export const PlatformSetupStep: React.FC<PlatformSetupStepProps> = ({
         </p>
       </div>
 
+      {/* Info Banner */}
+      <div className="p-3 rounded-lg text-sm bg-themed-tertiary">
+        <p className="text-themed-secondary">
+          <strong className="text-themed-primary">
+            {t('initialization.platformSetup.requirementsInfo.label')}
+          </strong>{' '}
+          {t('initialization.platformSetup.requirementsInfo.body')}
+        </p>
+        <p className="text-themed-muted mt-1.5">
+          {t('initialization.platformSetup.softRequirement')}
+        </p>
+      </div>
+
       {/* Steam Group */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">

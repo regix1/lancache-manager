@@ -145,6 +145,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({ onI
             onComplete={handleDepotMappingComplete}
             onSkip={handleDepotMappingSkip}
             onProcessingStateChange={setBackButtonDisabled}
+            completedPlatforms={completedPlatforms}
           />
         );
 
