@@ -14,15 +14,26 @@ namespace LancacheManager.Infrastructure.Services;
 public class GameImageFetchService : ScopedScheduledBackgroundService
 {
     protected override string ServiceName => "GameImageFetch";
-    protected override TimeSpan Interval => TimeSpan.FromHours(6);
+    protected override TimeSpan Interval => TimeSpan.FromMinutes(30);
     protected override bool RunOnStartup => true;
-    protected override TimeSpan StartupDelay => TimeSpan.FromSeconds(30);
+    protected override TimeSpan StartupDelay => TimeSpan.FromMinutes(3);
 
     public GameImageFetchService(
         IServiceProvider serviceProvider,
         ILogger<GameImageFetchService> logger,
         IConfiguration configuration)
         : base(serviceProvider, logger, configuration) { }
+
+    /// <summary>
+    /// Public trigger so other services (e.g. RustLogProcessorService) can request
+    /// an immediate image fetch after populating downloads.
+    /// </summary>
+    public async Task FetchImagesNowAsync(CancellationToken ct = default)
+    {
+        _logger.LogInformation("[GameImageFetch] Triggered by external service");
+        using var scope = _serviceProvider.CreateScope();
+        await ExecuteScopedWorkAsync(scope.ServiceProvider, ct);
+    }
 
     protected override async Task ExecuteScopedWorkAsync(
         IServiceProvider scopedServices,
@@ -33,6 +44,13 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         var client = httpClientFactory.CreateClient("SteamImages");
 
         // 1. STEAM: Get all unique GameAppIds that don't have a GameImage yet
+        var totalDownloads = await db.Downloads.CountAsync(stoppingToken);
+        if (totalDownloads == 0)
+        {
+            _logger.LogInformation("[GameImageFetch] Downloads table is empty — log processing hasn't completed yet, will retry next cycle");
+            return;
+        }
+
         var steamAppIds = await db.Downloads
             .Where(d => d.GameAppId != null && d.GameAppId != 0)
             .Select(d => d.GameAppId!.Value)

@@ -605,6 +605,17 @@ public class RustLogProcessorService
                     // Fetch images for resolved Epic downloads unconditionally - new resolutions
                     // may have occurred above even without new log entries
                     await FetchMissingEpicGameImagesAsync();
+
+                    // Trigger background service to download actual image binaries into DB
+                    try
+                    {
+                        var imageService = _serviceProvider.GetRequiredService<GameImageFetchService>();
+                        await imageService.FetchImagesNowAsync();
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to trigger image binary fetch - images will be fetched on next scheduled cycle");
+                    }
                 });
 
                 if (!silentMode)
