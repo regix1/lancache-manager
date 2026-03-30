@@ -202,8 +202,6 @@ public partial class EpicMappingService
     /// </summary>
     public async Task<int> RefreshImageUrlsAsync(CancellationToken ct = default)
     {
-        _logger.LogInformation("=== RefreshImageUrlsAsync START ===");
-
         if (!_isAuthenticated || _currentTokens == null)
         {
             _logger.LogWarning("Cannot refresh image URLs - not authenticated");
