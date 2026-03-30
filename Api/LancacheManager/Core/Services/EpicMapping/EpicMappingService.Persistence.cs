@@ -165,11 +165,15 @@ public partial class EpicMappingService
                             .Where(d => d.EpicAppId == game.AppId && (d.GameImageUrl == null || d.GameImageUrl != game.ImageUrl))
                             .ToListAsync(ct);
 
+                        if (downloadsToUpdate.Count > 0)
+                        {
+                            _logger.LogInformation("Propagating Epic image to {Count} downloads: EpicAppId={AppId}, ImageUrl={Url}",
+                                downloadsToUpdate.Count, game.AppId, game.ImageUrl);
+                        }
+
                         foreach (var download in downloadsToUpdate)
                         {
                             download.GameImageUrl = game.ImageUrl;
-                            _logger.LogInformation("Propagating Epic image to Download: EpicAppId={AppId}, ImageUrl={Url}",
-                                game.AppId, game.ImageUrl);
                             updated++;
                         }
                     }

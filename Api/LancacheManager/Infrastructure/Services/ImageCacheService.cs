@@ -46,11 +46,18 @@ public class ImageCacheService : IImageCacheService
         }
     }
 
-    public Task ClearCacheAsync()
+    public async Task ClearCacheAsync()
     {
-        // Images are managed by GameImageFetchService in the database.
-        // Clearing is not supported via this service.
-        _logger.LogInformation("[ImageCache] ClearCacheAsync called — images are stored in DB and managed by GameImageFetchService");
-        return Task.CompletedTask;
+        try
+        {
+            await using var db = await _dbContextFactory.CreateDbContextAsync();
+            var deletedCount = await db.GameImages.ExecuteDeleteAsync();
+            _logger.LogInformation("[ImageCache] Cleared {Count} cached images from the database", deletedCount);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[ImageCache] Error clearing cached images from the database");
+            throw;
+        }
     }
 }

@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using LancacheManager.Models;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services.EpicMapping;
+using LancacheManager.Infrastructure.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -20,6 +21,7 @@ public class GameImagesController : ControllerBase
     private readonly ILogger<GameImagesController> _logger;
     private readonly IImageCacheService _imageCacheService;
     private readonly EpicMappingService? _epicMappingService;
+    private readonly GameImageFetchService _gameImageFetchService;
 
     // Bumped on cache clear so the frontend can build cache-busted image URLs
     private static long _cacheGeneration = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
@@ -27,10 +29,12 @@ public class GameImagesController : ControllerBase
     public GameImagesController(
         ILogger<GameImagesController> logger,
         IImageCacheService imageCacheService,
+        GameImageFetchService gameImageFetchService,
         EpicMappingService? epicMappingService = null)
     {
         _logger = logger;
         _imageCacheService = imageCacheService;
+        _gameImageFetchService = gameImageFetchService;
         _epicMappingService = epicMappingService;
     }
 
@@ -115,11 +119,22 @@ public class GameImagesController : ControllerBase
 
         _cacheGeneration = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
+        _logger.LogInformation("Triggering immediate image re-fetch after cache clear");
+        try
+        {
+            await _gameImageFetchService.FetchImagesNowAsync(cancellationToken);
+            _logger.LogInformation("Image re-fetch completed successfully");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Image re-fetch after cache clear failed");
+        }
+
         _logger.LogInformation("=== ClearImageCache END === Epic URLs refreshed: {Epic}", epicUrlsRefreshed);
 
         return Ok(new
         {
-            message = "Image cache cleared",
+            message = "Image cache cleared and re-fetch triggered",
             epicImageUrlsRefreshed = epicUrlsRefreshed,
             cacheGeneration = _cacheGeneration
         });
