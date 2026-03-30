@@ -161,48 +161,52 @@ public class DatabaseService : IDatabaseService
 
             // Count total rows for progress calculation - wrap in transaction for consistent snapshot
             int totalRows = 0;
-            using (var transaction = await context.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken))
+            var countStrategy = context.Database.CreateExecutionStrategy();
+            await countStrategy.ExecuteAsync(async () =>
             {
-                try
+                using (var transaction = await context.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken))
                 {
-                    foreach (var tableName in tablesToClear)
+                    try
                     {
-                        var count = tableName switch
+                        foreach (var tableName in tablesToClear)
                         {
-                            "LogEntries" => await context.LogEntries.CountAsync(cancellationToken),
-                            "Downloads" => await context.Downloads.CountAsync(cancellationToken),
-                            "ClientStats" => await context.ClientStats.CountAsync(cancellationToken),
-                            "ServiceStats" => await context.ServiceStats.CountAsync(cancellationToken),
-                            "SteamDepotMappings" => await context.SteamDepotMappings.CountAsync(cancellationToken),
-                            "CachedGameDetections" => await context.CachedGameDetections.CountAsync(cancellationToken),
-                            "CachedServiceDetections" => await context.CachedServiceDetections.CountAsync(cancellationToken),
-                            "CachedCorruptionDetections" => await context.CachedCorruptionDetections.CountAsync(cancellationToken),
-                            "ClientGroups" => await context.ClientGroups.CountAsync(cancellationToken),
-                            "UserSessions" => await context.UserSessions.CountAsync(cancellationToken),
-                            "UserPreferences" => await context.UserPreferences.CountAsync(cancellationToken),
-                            "Events" => await context.Events.CountAsync(cancellationToken),
-                            "EventDownloads" => await context.EventDownloads.CountAsync(cancellationToken),
-                            "PrefillSessions" => await context.PrefillSessions.CountAsync(cancellationToken),
-                            "PrefillHistoryEntries" => await context.PrefillHistoryEntries.CountAsync(cancellationToken),
-                            "PrefillCachedDepots" => await context.PrefillCachedDepots.CountAsync(cancellationToken),
-                            "BannedSteamUsers" => await context.BannedSteamUsers.CountAsync(cancellationToken),
-                            "CacheSnapshots" => await context.CacheSnapshots.CountAsync(cancellationToken),
-                            "EpicGameMappings" => await context.EpicGameMappings.CountAsync(cancellationToken),
-                            "EpicCdnPatterns" => await context.EpicCdnPatterns.CountAsync(cancellationToken),
-                            _ => 0
-                        };
-                        totalRows += count;
-                    }
+                            var count = tableName switch
+                            {
+                                "LogEntries" => await context.LogEntries.CountAsync(cancellationToken),
+                                "Downloads" => await context.Downloads.CountAsync(cancellationToken),
+                                "ClientStats" => await context.ClientStats.CountAsync(cancellationToken),
+                                "ServiceStats" => await context.ServiceStats.CountAsync(cancellationToken),
+                                "SteamDepotMappings" => await context.SteamDepotMappings.CountAsync(cancellationToken),
+                                "CachedGameDetections" => await context.CachedGameDetections.CountAsync(cancellationToken),
+                                "CachedServiceDetections" => await context.CachedServiceDetections.CountAsync(cancellationToken),
+                                "CachedCorruptionDetections" => await context.CachedCorruptionDetections.CountAsync(cancellationToken),
+                                "ClientGroups" => await context.ClientGroups.CountAsync(cancellationToken),
+                                "UserSessions" => await context.UserSessions.CountAsync(cancellationToken),
+                                "UserPreferences" => await context.UserPreferences.CountAsync(cancellationToken),
+                                "Events" => await context.Events.CountAsync(cancellationToken),
+                                "EventDownloads" => await context.EventDownloads.CountAsync(cancellationToken),
+                                "PrefillSessions" => await context.PrefillSessions.CountAsync(cancellationToken),
+                                "PrefillHistoryEntries" => await context.PrefillHistoryEntries.CountAsync(cancellationToken),
+                                "PrefillCachedDepots" => await context.PrefillCachedDepots.CountAsync(cancellationToken),
+                                "BannedSteamUsers" => await context.BannedSteamUsers.CountAsync(cancellationToken),
+                                "CacheSnapshots" => await context.CacheSnapshots.CountAsync(cancellationToken),
+                                "EpicGameMappings" => await context.EpicGameMappings.CountAsync(cancellationToken),
+                                "EpicCdnPatterns" => await context.EpicCdnPatterns.CountAsync(cancellationToken),
+                                _ => 0
+                            };
+                            totalRows += count;
+                        }
 
-                    await transaction.CommitAsync(cancellationToken);
+                        await transaction.CommitAsync(cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Error getting consistent counts, rolling back transaction");
+                        await transaction.RollbackAsync();
+                        throw;
+                    }
                 }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Error getting consistent counts, rolling back transaction");
-                    await transaction.RollbackAsync();
-                    throw;
-                }
-            }
+            });
 
             _logger.LogInformation($"Clearing {totalRows:N0} total rows from {tablesToClear.Count} table(s)");
 
@@ -219,9 +223,12 @@ public class DatabaseService : IDatabaseService
             await context.Database.ExecuteSqlRawAsync("SET session_replication_role = replica;");
 
             // Wrap all deletion operations in a transaction for atomicity
-            using var deleteTransaction = await context.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
-            try
+            var deleteStrategy = context.Database.CreateExecutionStrategy();
+            await deleteStrategy.ExecuteAsync(async () =>
             {
+                using var deleteTransaction = await context.Database.BeginTransactionAsync(IsolationLevel.ReadCommitted, cancellationToken);
+                try
+                {
                 // Delete tables based on selection
                 // PRIORITY ORDER:
                 // 1. UserSessions - ALWAYS FIRST to immediately invalidate all sessions
@@ -830,6 +837,7 @@ public class DatabaseService : IDatabaseService
                 _logger.LogInformation("Re-enabling foreign key triggers");
                 await context.Database.ExecuteSqlRawAsync("SET session_replication_role = DEFAULT;");
             }
+            }); // end deleteStrategy.ExecuteAsync
 
             // Broadcast preference reset event AFTER all database operations complete
             // Note: UserSessionsCleared is now broadcast IMMEDIATELY after UserSessions deletion (not here)

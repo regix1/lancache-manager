@@ -372,36 +372,41 @@ public class CorruptionDetectionService
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
 
         // Use a transaction for atomicity - delete and insert as a single unit
-        await using var transaction = await dbContext.Database.BeginTransactionAsync();
-        try
+        // Wrap in execution strategy so EF Core can replay the transaction on transient failures
+        var strategy = dbContext.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
         {
-            // Use ExecuteDeleteAsync for bulk delete - avoids tracking and concurrency issues
-            // This is immune to DbUpdateConcurrencyException since it doesn't track entities
-            await dbContext.CachedCorruptionDetections.ExecuteDeleteAsync();
-
-            // Add new corruption data
-            var now = DateTime.UtcNow;
-            foreach (var kvp in corruptionCounts)
+            await using var transaction = await dbContext.Database.BeginTransactionAsync();
+            try
             {
-                dbContext.CachedCorruptionDetections.Add(new CachedCorruptionDetection
-                {
-                    ServiceName = kvp.Key,
-                    CorruptedChunkCount = kvp.Value,
-                    LastDetectedUtc = now,
-                    CreatedAtUtc = now
-                });
-            }
+                // Use ExecuteDeleteAsync for bulk delete - avoids tracking and concurrency issues
+                // This is immune to DbUpdateConcurrencyException since it doesn't track entities
+                await dbContext.CachedCorruptionDetections.ExecuteDeleteAsync();
 
-            await dbContext.SaveChangesAsync();
-            await transaction.CommitAsync();
-            _logger.LogInformation("[CorruptionDetection] Saved {Count} corruption records to database", corruptionCounts.Count);
-        }
-        catch (Exception ex)
-        {
-            await transaction.RollbackAsync();
-            _logger.LogError(ex, "[CorruptionDetection] Failed to save corruption records to database, rolling back");
-            throw;
-        }
+                // Add new corruption data
+                var now = DateTime.UtcNow;
+                foreach (var kvp in corruptionCounts)
+                {
+                    dbContext.CachedCorruptionDetections.Add(new CachedCorruptionDetection
+                    {
+                        ServiceName = kvp.Key,
+                        CorruptedChunkCount = kvp.Value,
+                        LastDetectedUtc = now,
+                        CreatedAtUtc = now
+                    });
+                }
+
+                await dbContext.SaveChangesAsync();
+                await transaction.CommitAsync();
+                _logger.LogInformation("[CorruptionDetection] Saved {Count} corruption records to database", corruptionCounts.Count);
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                _logger.LogError(ex, "[CorruptionDetection] Failed to save corruption records to database, rolling back");
+                throw;
+            }
+        });
     }
 
     /// <summary>

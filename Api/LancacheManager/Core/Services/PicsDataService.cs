@@ -551,43 +551,46 @@ public class PicsDataService
                 var totalBatches = (allMappings.Count + batchSize - 1) / batchSize;
                 var batchIndex = 0;
 
-                await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
-
-                // Reduce WAL write overhead — depot mappings are idempotent so this is safe
-                await db.Database.ExecuteSqlRawAsync("SET LOCAL synchronous_commit = 'off'", cancellationToken);
-
-                foreach (var batch in allMappings.Chunk(batchSize))
+                var strategy = db.Database.CreateExecutionStrategy();
+                await strategy.ExecuteAsync(async () =>
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
+                    await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
-                    var depotIds      = batch.Select(m => m.DepotId).ToArray();
-                    var depotNames    = batch.Select(m => m.DepotName).ToArray();
-                    var appIds        = batch.Select(m => m.AppId).ToArray();
-                    var appNames      = batch.Select(m => m.AppName).ToArray();
-                    var isOwners      = batch.Select(m => m.IsOwner).ToArray();
-                    var discoveredAts = batch.Select(m => m.DiscoveredAt).ToArray();
-                    var sources       = batch.Select(m => m.Source).ToArray();
+                    // Reduce WAL write overhead — depot mappings are idempotent so this is safe
+                    await db.Database.ExecuteSqlRawAsync("SET LOCAL synchronous_commit = 'off'", cancellationToken);
 
-                    var pDepotIds      = new NpgsqlParameter("p0", NpgsqlDbType.Array | NpgsqlDbType.Bigint)     { Value = depotIds };
-                    var pDepotNames    = new NpgsqlParameter("p1", NpgsqlDbType.Array | NpgsqlDbType.Text)        { Value = depotNames.Select(v => (object?)(v ?? (object)DBNull.Value)).ToArray() };
-                    var pAppIds        = new NpgsqlParameter("p2", NpgsqlDbType.Array | NpgsqlDbType.Bigint)     { Value = appIds };
-                    var pAppNames      = new NpgsqlParameter("p3", NpgsqlDbType.Array | NpgsqlDbType.Text)        { Value = appNames.Select(v => (object?)(v ?? (object)DBNull.Value)).ToArray() };
-                    var pIsOwners      = new NpgsqlParameter("p4", NpgsqlDbType.Array | NpgsqlDbType.Boolean)    { Value = isOwners };
-                    var pDiscoveredAts = new NpgsqlParameter("p5", NpgsqlDbType.Array | NpgsqlDbType.TimestampTz) { Value = discoveredAts };
-                    var pSources       = new NpgsqlParameter("p6", NpgsqlDbType.Array | NpgsqlDbType.Text)        { Value = sources };
-
-                    if (tableIsEmpty)
+                    foreach (var batch in allMappings.Chunk(batchSize))
                     {
-                        // First-run: plain INSERT — no conflict resolution overhead
-                        await db.Database.ExecuteSqlRawAsync(@"
+                        cancellationToken.ThrowIfCancellationRequested();
+
+                        var depotIds      = batch.Select(m => m.DepotId).ToArray();
+                        var depotNames    = batch.Select(m => m.DepotName).ToArray();
+                        var appIds        = batch.Select(m => m.AppId).ToArray();
+                        var appNames      = batch.Select(m => m.AppName).ToArray();
+                        var isOwners      = batch.Select(m => m.IsOwner).ToArray();
+                        var discoveredAts = batch.Select(m => m.DiscoveredAt).ToArray();
+                        var sources       = batch.Select(m => m.Source).ToArray();
+
+                        var pDepotIds      = new NpgsqlParameter("p0", NpgsqlDbType.Array | NpgsqlDbType.Bigint)     { Value = depotIds };
+                        var pDepotNames    = new NpgsqlParameter("p1", NpgsqlDbType.Array | NpgsqlDbType.Text)        { Value = depotNames.Select(v => (object?)(v ?? (object)DBNull.Value)).ToArray() };
+                        var pAppIds        = new NpgsqlParameter("p2", NpgsqlDbType.Array | NpgsqlDbType.Bigint)     { Value = appIds };
+                        var pAppNames      = new NpgsqlParameter("p3", NpgsqlDbType.Array | NpgsqlDbType.Text)        { Value = appNames.Select(v => (object?)(v ?? (object)DBNull.Value)).ToArray() };
+                        var pIsOwners      = new NpgsqlParameter("p4", NpgsqlDbType.Array | NpgsqlDbType.Boolean)    { Value = isOwners };
+                        var pDiscoveredAts = new NpgsqlParameter("p5", NpgsqlDbType.Array | NpgsqlDbType.TimestampTz) { Value = discoveredAts };
+                        var pSources       = new NpgsqlParameter("p6", NpgsqlDbType.Array | NpgsqlDbType.Text)        { Value = sources };
+
+                        if (tableIsEmpty)
+                        {
+                            // First-run: plain INSERT — no conflict resolution overhead
+                            await db.Database.ExecuteSqlRawAsync(@"
                             INSERT INTO ""SteamDepotMappings"" (""DepotId"", ""DepotName"", ""AppId"", ""AppName"", ""IsOwner"", ""DiscoveredAt"", ""Source"")
                             SELECT * FROM UNNEST(@p0::bigint[], @p1::text[], @p2::bigint[], @p3::text[], @p4::boolean[], @p5::timestamptz[], @p6::text[])",
-                            pDepotIds, pDepotNames, pAppIds, pAppNames, pIsOwners, pDiscoveredAts, pSources);
-                    }
-                    else
-                    {
-                        // Upsert: ON CONFLICT on unique (DepotId, AppId) index — dedup server-side
-                        await db.Database.ExecuteSqlRawAsync(@"
+                                pDepotIds, pDepotNames, pAppIds, pAppNames, pIsOwners, pDiscoveredAts, pSources);
+                        }
+                        else
+                        {
+                            // Upsert: ON CONFLICT on unique (DepotId, AppId) index — dedup server-side
+                            await db.Database.ExecuteSqlRawAsync(@"
                             INSERT INTO ""SteamDepotMappings"" (""DepotId"", ""DepotName"", ""AppId"", ""AppName"", ""IsOwner"", ""DiscoveredAt"", ""Source"")
                             SELECT * FROM UNNEST(@p0::bigint[], @p1::text[], @p2::bigint[], @p3::text[], @p4::boolean[], @p5::timestamptz[], @p6::text[])
                             ON CONFLICT (""DepotId"", ""AppId"") DO UPDATE SET
@@ -596,23 +599,24 @@ public class PicsDataService
                                 ""IsOwner""      = EXCLUDED.""IsOwner"",
                                 ""DiscoveredAt"" = EXCLUDED.""DiscoveredAt"",
                                 ""Source""       = EXCLUDED.""Source""",
-                            pDepotIds, pDepotNames, pAppIds, pAppNames, pIsOwners, pDiscoveredAts, pSources);
+                                pDepotIds, pDepotNames, pAppIds, pAppNames, pIsOwners, pDiscoveredAts, pSources);
+                        }
+
+                        batchIndex++;
+                        if (progressCallback != null)
+                        {
+                            var insertProgress = 20 + (int)(75.0 * batchIndex / Math.Max(1, totalBatches));
+                            var insertedCount = Math.Min(batchIndex * batchSize, allMappings.Count);
+                            await progressCallback($"Inserting mappings... ({insertedCount:N0}/{allMappings.Count:N0})", insertProgress);
+                        }
+
+                        await Task.Yield();
                     }
 
-                    batchIndex++;
-                    if (progressCallback != null)
-                    {
-                        var insertProgress = 20 + (int)(75.0 * batchIndex / Math.Max(1, totalBatches));
-                        var insertedCount = Math.Min(batchIndex * batchSize, allMappings.Count);
-                        await progressCallback($"Inserting mappings... ({insertedCount:N0}/{allMappings.Count:N0})", insertProgress);
-                    }
+                    await transaction.CommitAsync(cancellationToken);
 
-                    await Task.Yield();
-                }
-
-                await transaction.CommitAsync(cancellationToken);
-
-                _logger.LogInformation($"Imported PICS data: {allMappings.Count} mappings upserted (tableWasEmpty={tableIsEmpty})");
+                    _logger.LogInformation($"Imported PICS data: {allMappings.Count} mappings upserted (tableWasEmpty={tableIsEmpty})");
+                });
             }
             finally
             {
