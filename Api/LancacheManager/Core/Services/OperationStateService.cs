@@ -2,36 +2,40 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using LancacheManager.Models;
 using LancacheManager.Infrastructure.Services;
+using LancacheManager.Infrastructure.Services.Base;
 using ModelOperationState = LancacheManager.Models.OperationState;
 
 namespace LancacheManager.Core.Services;
 
-public class OperationStateService : IHostedService
+public class OperationStateService : ScheduledBackgroundService
 {
-    private readonly ILogger<OperationStateService> _logger;
     private readonly StateService _stateService;
     private readonly ConcurrentDictionary<string, OperationState> _states = new();
-    private Timer? _cleanupTimer;
 
-    public OperationStateService(ILogger<OperationStateService> logger, StateService stateService)
+    protected override string ServiceName => "OperationStateService";
+    protected override TimeSpan Interval => TimeSpan.FromMinutes(5);
+    protected override TimeSpan StartupDelay => TimeSpan.FromSeconds(2);
+    protected override bool RunOnStartup => true;
+
+    public OperationStateService(
+        ILogger<OperationStateService> logger,
+        IConfiguration configuration,
+        StateService stateService)
+        : base(logger, configuration)
     {
-        _logger = logger;
         _stateService = stateService;
     }
 
-    public Task StartAsync(CancellationToken cancellationToken)
+    protected override Task OnStartupAsync(CancellationToken stoppingToken)
     {
         LoadStatesFromStateService();
-        // Cleanup expired operations every 5 minutes
-        _cleanupTimer = new Timer(CleanupExpired, null, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
         return Task.CompletedTask;
     }
 
-    public Task StopAsync(CancellationToken cancellationToken)
+    public override async Task StopAsync(CancellationToken cancellationToken)
     {
-        _cleanupTimer?.Dispose();
+        await base.StopAsync(cancellationToken);
         SaveAllStatesToStateService();
-        return Task.CompletedTask;
     }
 
     public OperationState? GetState(string key)
@@ -332,35 +336,29 @@ public class OperationStateService : IHostedService
         }
     }
 
-    private void CleanupExpired(object? state)
+    protected override Task ExecuteWorkAsync(CancellationToken stoppingToken)
     {
-        try
-        {
-            var now = DateTime.UtcNow;
-            var expired = _states
-                .Where(kvp => kvp.Value.ExpiresAt <= now)
-                .Select(kvp => kvp.Key)
-                .ToList();
+        var now = DateTime.UtcNow;
+        var expired = _states
+            .Where(kvp => kvp.Value.ExpiresAt <= now)
+            .Select(kvp => kvp.Key)
+            .ToList();
 
+        foreach (var key in expired)
+        {
+            _states.TryRemove(key, out _);
+        }
+
+        if (expired.Count > 0)
+        {
+            // Remove from state service as well
             foreach (var key in expired)
             {
-                _states.TryRemove(key, out _);
-            }
-
-            if (expired.Count > 0)
-            {
-
-                // Remove from state service as well
-                foreach (var key in expired)
-                {
-                    _stateService.RemoveOperationState(key);
-                }
+                _stateService.RemoveOperationState(key);
             }
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error cleaning up expired states");
-        }
+
+        return Task.CompletedTask;
     }
 
     /// <summary>

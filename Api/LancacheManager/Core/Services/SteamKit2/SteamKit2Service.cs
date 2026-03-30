@@ -3,6 +3,7 @@ using System.Text.Json;
 using LancacheManager.Extensions;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
+using LancacheManager.Infrastructure.Services.Base;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
@@ -12,12 +13,11 @@ using SteamKit2;
 namespace LancacheManager.Core.Services.SteamKit2;
 
 /// <summary>
-/// SteamKit2 service for real-time Steam depot mapping using PICS
-/// Based on DepotDownloader approach - properly queries Steam for depot-to-app mappings
+/// SteamKit2 service for real-time Steam depot mapping using PICS.
+/// Extends ConfigurableScheduledService for runtime-adjustable periodic PICS crawls.
 /// </summary>
-public partial class SteamKit2Service : IHostedService, IDisposable
+public partial class SteamKit2Service : ConfigurableScheduledService, IDisposable
 {
-    private readonly ILogger<SteamKit2Service> _logger;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly SteamService _steamService;
     private readonly IPathResolver _pathResolver;
@@ -49,9 +49,7 @@ public partial class SteamKit2Service : IHostedService, IDisposable
     private const int MaxReconnectDelaySeconds = 60; // Cap at 60 seconds
 
     // Scheduling for periodic PICS crawls
-    private Timer? _periodicTimer;
     private DateTime _lastCrawlTime = DateTime.MinValue;
-    private TimeSpan _crawlInterval = TimeSpan.FromHours(1); // Default: Run incremental updates every hour
     private object _crawlIncrementalMode = true; // Default: Run incremental scans (true/false/"github")
     private readonly PicsDataService _picsDataService;
     private uint _lastChangeNumberSeen;
@@ -89,6 +87,9 @@ public partial class SteamKit2Service : IHostedService, IDisposable
     private string? _lastErrorMessage = null;
     private int _sessionStartDepotCount = 0;  // Track depot count at start of session
 
+    protected override string ServiceName => "SteamKit2Service";
+    protected override TimeSpan StartupDelay => TimeSpan.Zero; // We handle our own initialization in InitializeAsync
+
     /// <summary>
     /// Check if we're truly using Steam authenticated mode (not just connected)
     /// </summary>
@@ -114,8 +115,8 @@ public partial class SteamKit2Service : IHostedService, IDisposable
         SteamWebApiService steamWebApiService,
         SteamAuthStorageService steamAuthRepository,
         IUnifiedOperationTracker operationTracker)
+        : base(logger, TimeSpan.FromHours(1)) // Default: 1 hour crawl interval
     {
-        _logger = logger;
         _scopeFactory = scopeFactory;
         _steamService = steamService;
         _picsDataService = picsDataService;
@@ -130,7 +131,6 @@ public partial class SteamKit2Service : IHostedService, IDisposable
         // Use range 16384-65535 to avoid collision with steam-prefill-daemon (0-16383)
         _steamLoginId = (uint)new Random().Next(16384, 65536);
         _logger.LogInformation("Generated unique Steam LoginID: {LoginID} (0x{LoginIDHex:X8})", _steamLoginId, _steamLoginId);
-
     }
 
     /// <summary>
@@ -153,7 +153,7 @@ public partial class SteamKit2Service : IHostedService, IDisposable
         }
     }
 
-    public async Task StartAsync(CancellationToken cancellationToken)
+    protected override async Task InitializeAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("Starting SteamKit2Service with PICS depot mapping");
 
@@ -165,11 +165,11 @@ public partial class SteamKit2Service : IHostedService, IDisposable
             // Initialize session tracking to current count (so session shows 0 when idle)
             _sessionStartDepotCount = _depotToAppMappings.Count;
 
-            // Load saved crawl interval from state
+            // Load saved crawl interval from state and update the base class interval
             var savedInterval = _stateService.GetCrawlIntervalHours();
             if (savedInterval > 0)
             {
-                _crawlInterval = TimeSpan.FromHours(savedInterval);
+                UpdateInterval(TimeSpan.FromHours(savedInterval));
                 _logger.LogInformation("Loaded crawl interval from state: {Hours} hour(s)", savedInterval);
             }
 
@@ -213,11 +213,9 @@ public partial class SteamKit2Service : IHostedService, IDisposable
             // Start callback handling loop
             _ = Task.Run(() => HandleCallbacksAsync(_cancellationTokenSource.Token), CancellationToken.None);
 
-            // Enable periodic crawls if interval is configured (not 0)
-            if (_crawlInterval.TotalHours > 0)
+            if (ConfiguredInterval.TotalHours > 0)
             {
-                SetupPeriodicCrawls();
-                _logger.LogInformation("Enabled automatic PICS crawls every {Hours} hour(s)", _crawlInterval.TotalHours);
+                _logger.LogInformation("Enabled automatic PICS crawls every {Hours} hour(s)", ConfiguredInterval.TotalHours);
             }
             else
             {
@@ -231,15 +229,11 @@ public partial class SteamKit2Service : IHostedService, IDisposable
         }
     }
 
-    public async Task StopAsync(CancellationToken cancellationToken)
+    protected override async Task CleanupAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("Stopping SteamKit2Service");
 
         _isRunning = false;
-
-        // Stop the periodic timer
-        _periodicTimer?.Dispose();
-        _periodicTimer = null;
 
         try
         {
@@ -295,7 +289,7 @@ public partial class SteamKit2Service : IHostedService, IDisposable
         }
     }
 
-    public void Dispose()
+    public new void Dispose()
     {
         if (_disposed)
         {
@@ -307,10 +301,6 @@ public partial class SteamKit2Service : IHostedService, IDisposable
 
         // Unsubscribe from prefill daemon events
         UnsubscribeFromDaemonEvents();
-
-        // Clean up timers
-        _periodicTimer?.Dispose();
-        _periodicTimer = null;
 
         try
         {
@@ -332,6 +322,8 @@ public partial class SteamKit2Service : IHostedService, IDisposable
         {
             _cancellationTokenSource.Dispose();
         }
+
+        base.Dispose();
     }
 
     // ===== Consolidated Helper Methods =====
@@ -506,51 +498,27 @@ public partial class SteamKit2Service : IHostedService, IDisposable
     public bool IsRebuildRunning => Interlocked.CompareExchange(ref _rebuildActive, 0, 0) == 1;
 
     /// <summary>
-    /// Get or set the crawl interval in hours
+    /// Get or set the crawl interval in hours. Set to 0 to disable automatic crawls.
+    /// Updates the base class interval so the scheduling loop adjusts immediately.
     /// </summary>
     public double CrawlIntervalHours
     {
-        get => _crawlInterval.TotalHours;
+        get => ConfiguredInterval.TotalHours;
         set
         {
-            var oldInterval = _crawlInterval;
-            _crawlInterval = TimeSpan.FromHours(value);
-
             // Save to state for persistence across restarts
             _stateService.SetCrawlIntervalHours(value);
 
+            // Update the base class interval (wakes the loop so new interval takes effect)
+            UpdateInterval(TimeSpan.FromHours(value));
+
             if (value == 0)
             {
-                // Disable periodic crawls
                 _logger.LogInformation("Automatic crawl schedule disabled");
-
-                // Stop and dispose the timer
-                if (_periodicTimer != null)
-                {
-                    _periodicTimer?.Dispose();
-                    _periodicTimer = null;
-                    _logger.LogInformation("Stopped periodic crawl timer");
-                }
             }
             else
             {
                 _logger.LogInformation("Saved crawl interval to state: {Hours} hour(s)", value);
-
-                // DON'T reset the last crawl time - let the existing schedule continue with the new interval
-                // The timer will check if enough time has elapsed based on the new interval
-
-                // Restart the timer if it's already running (or create it if it doesn't exist)
-                if (_periodicTimer != null)
-                {
-                    _periodicTimer?.Dispose();
-                    _periodicTimer = new Timer(OnPeriodicCrawlTimer, null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
-                    _logger.LogInformation($"Updated crawl interval to {value} hour(s) - next scan will occur based on existing schedule");
-                }
-                else
-                {
-                    // Timer doesn't exist yet, create it
-                    SetupPeriodicCrawls();
-                }
             }
         }
     }
@@ -684,8 +652,9 @@ public partial class SteamKit2Service : IHostedService, IDisposable
             _lastCrawlTime = DateTime.UtcNow;
         }
 
+        var crawlInterval = ConfiguredInterval;
         var timeSinceLastCrawl = DateTime.UtcNow - _lastCrawlTime;
-        var nextCrawlIn = TimeSpan.FromTicks(Math.Max(0, (_crawlInterval - timeSinceLastCrawl).Ticks)); // Clamp to zero if negative
+        var nextCrawlIn = TimeSpan.FromTicks(Math.Max(0, (crawlInterval - timeSinceLastCrawl).Ticks)); // Clamp to zero if negative
 
         var totalMappings = _depotToAppMappings.Count;
         var newMappingsInSession = Math.Max(0, totalMappings - _sessionStartDepotCount);
@@ -711,7 +680,7 @@ public partial class SteamKit2Service : IHostedService, IDisposable
             IsReady = IsReady,
             LastCrawlTime = _lastCrawlTime == DateTime.MinValue ? (DateTime?)null : _lastCrawlTime,
             NextCrawlIn = nextCrawlIn.TotalSeconds, // Return as a number (total seconds) instead of TimeSpan object
-            CrawlIntervalHours = _crawlInterval.TotalHours,
+            CrawlIntervalHours = crawlInterval.TotalHours,
             CrawlIncrementalMode = _crawlIncrementalMode,
             LastScanWasForced = _lastScanWasForced,
             AutomaticScanSkipped = _automaticScanSkipped,

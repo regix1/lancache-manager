@@ -2,6 +2,7 @@ using System.Diagnostics;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
+using LancacheManager.Infrastructure.Services.Base;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
@@ -10,9 +11,8 @@ using ModelCacheClearOperation = LancacheManager.Models.CacheClearOperation;
 
 namespace LancacheManager.Core.Services;
 
-public class CacheClearingService : IHostedService
+public class CacheClearingService : ScheduledBackgroundService
 {
-    private readonly ILogger<CacheClearingService> _logger;
     private readonly ISignalRNotificationService _notifications;
     private readonly IPathResolver _pathResolver;
     private readonly StateService _stateService;
@@ -23,9 +23,12 @@ public class CacheClearingService : IHostedService
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly SemaphoreSlim _startLock = new(1, 1);
     private readonly string _cachePath;
-    private Timer? _cleanupTimer;
     private string _deleteMode;
     private string? _currentTrackerOperationId;
+
+    protected override string ServiceName => "CacheClearingService";
+    protected override TimeSpan Interval => TimeSpan.FromMinutes(5);
+    protected override bool RunOnStartup => true;
 
     public CacheClearingService(
         ILogger<CacheClearingService> logger,
@@ -38,8 +41,8 @@ public class CacheClearingService : IHostedService
         DatasourceService datasourceService,
         IUnifiedOperationTracker operationTracker,
         IDbContextFactory<AppDbContext> dbContextFactory)
+        : base(logger, configuration)
     {
-        _logger = logger;
         _notifications = notifications;
         _pathResolver = pathResolver;
         _stateService = stateService;
@@ -66,16 +69,22 @@ public class CacheClearingService : IHostedService
         _logger.LogInformation("CacheClearingService initialized with {Count} datasource(s)", _datasourceService.DatasourceCount);
     }
 
-    public Task StartAsync(CancellationToken cancellationToken)
+    protected override Task OnStartupAsync(CancellationToken stoppingToken)
     {
         LoadPersistedOperations();
-        _cleanupTimer = new Timer(CleanupOldOperations, null, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
         return Task.CompletedTask;
     }
 
-    public Task StopAsync(CancellationToken cancellationToken)
+    protected override Task ExecuteWorkAsync(CancellationToken stoppingToken)
     {
-        _cleanupTimer?.Dispose();
+        CleanupOldOperations();
+        return Task.CompletedTask;
+    }
+
+    public override async Task StopAsync(CancellationToken cancellationToken)
+    {
+        await base.StopAsync(cancellationToken);
+
         SaveAllOperationsToState();
 
         // Cancel all active cache clearing operations
@@ -84,8 +93,6 @@ public class CacheClearingService : IHostedService
         {
             _operationTracker.CancelOperation(operation.Id);
         }
-
-        return Task.CompletedTask;
     }
 
     public async Task<string?> StartCacheClearAsync(string? datasourceName = null)
@@ -1029,7 +1036,7 @@ public class CacheClearingService : IHostedService
         }
     }
 
-    private void CleanupOldOperations(object? state)
+    private void CleanupOldOperations()
     {
         try
         {

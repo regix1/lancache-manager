@@ -1,4 +1,5 @@
 using LancacheManager.Infrastructure.Services;
+using LancacheManager.Infrastructure.Services.Base;
 
 namespace LancacheManager.Core.Services;
 
@@ -8,9 +9,8 @@ namespace LancacheManager.Core.Services;
 /// without requiring manual "Process All Logs" button clicks.
 /// Supports multiple datasources - monitors each datasource's log directory.
 /// </summary>
-public class LiveLogMonitorService : BackgroundService
+public class LiveLogMonitorService : ScheduledBackgroundService
 {
-    private readonly ILogger<LiveLogMonitorService> _logger;
     private readonly RustLogProcessorService _rustLogProcessorService;
     private readonly RustLogRemovalService _rustLogRemovalService;
     private readonly StateService _stateService;
@@ -27,10 +27,14 @@ public class LiveLogMonitorService : BackgroundService
     private static bool _isPaused = false;
 
     // Configuration - optimized for real-time updates with minimal latency
-    private readonly int _pollIntervalSeconds = 1; // Check every 1 second for near-instant detection
     private readonly long _minFileSizeIncrease = 10_000; // 10 KB minimum increase to trigger processing (very responsive)
     private DateTime _lastProcessTime = DateTime.MinValue;
     private readonly int _minSecondsBetweenProcessing = 1; // Minimum 1 second between processing runs (near-instant updates)
+
+    protected override string ServiceName => "LiveLogMonitor";
+    protected override TimeSpan Interval => TimeSpan.FromSeconds(1);
+    protected override TimeSpan StartupDelay => TimeSpan.FromSeconds(20);
+    protected override bool RunOnStartup => true;
 
     /// <summary>
     /// Temporarily pause the log monitor to allow other operations (like corruption removal) to modify log files
@@ -66,12 +70,13 @@ public class LiveLogMonitorService : BackgroundService
 
     public LiveLogMonitorService(
         ILogger<LiveLogMonitorService> logger,
+        IConfiguration configuration,
         RustLogProcessorService rustLogProcessorService,
         RustLogRemovalService rustLogRemovalService,
         StateService stateService,
         DatasourceService datasourceService)
+        : base(logger, configuration)
     {
-        _logger = logger;
         _rustLogProcessorService = rustLogProcessorService;
         _rustLogRemovalService = rustLogRemovalService;
         _stateService = stateService;
@@ -126,11 +131,8 @@ public class LiveLogMonitorService : BackgroundService
         return finalCount;
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override async Task OnStartupAsync(CancellationToken stoppingToken)
     {
-        // Wait for app to start up and for initial setup to complete
-        await Task.Delay(TimeSpan.FromSeconds(20), stoppingToken);
-
         var datasources = _datasourceService.GetDatasources();
 
         if (datasources.Count == 0)
@@ -171,54 +173,35 @@ public class LiveLogMonitorService : BackgroundService
 
         _logger.LogInformation("LiveLogMonitorService started - monitoring {Count} datasource(s) for new entries (silent mode enabled)", datasources.Count);
 
-        while (!stoppingToken.IsCancellationRequested)
+        await Task.CompletedTask;
+    }
+
+    protected override async Task ExecuteWorkAsync(CancellationToken stoppingToken)
+    {
+        // Skip monitoring if paused (e.g., during corruption removal)
+        bool shouldSkip = false;
+        await _pauseLock.WaitAsync(stoppingToken);
+        try
         {
-            try
-            {
-                // Skip monitoring if paused (e.g., during corruption removal)
-                bool shouldSkip = false;
-                await _pauseLock.WaitAsync(stoppingToken);
-                try
-                {
-                    shouldSkip = _isPaused;
-                }
-                finally
-                {
-                    _pauseLock.Release();
-                }
-
-                if (!shouldSkip)
-                {
-                    // Monitor each datasource for access.log changes
-                    foreach (var ds in datasources)
-                    {
-                        if (!ds.Enabled) continue;
-                        await MonitorAndProcessDatasourceAsync(ds, stoppingToken);
-                    }
-                }
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-                // Expected during shutdown
-                break;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error in LiveLogMonitorService");
-            }
-
-            // Wait before next check
-            try
-            {
-                await Task.Delay(TimeSpan.FromSeconds(_pollIntervalSeconds), stoppingToken);
-            }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
+            shouldSkip = _isPaused;
+        }
+        finally
+        {
+            _pauseLock.Release();
         }
 
-        _logger.LogInformation("LiveLogMonitorService stopped");
+        if (shouldSkip)
+        {
+            return;
+        }
+
+        // Monitor each datasource for access.log changes
+        var datasources = _datasourceService.GetDatasources();
+        foreach (var ds in datasources)
+        {
+            if (!ds.Enabled) continue;
+            await MonitorAndProcessDatasourceAsync(ds, stoppingToken);
+        }
     }
 
     private async Task MonitorAndProcessDatasourceAsync(ResolvedDatasource datasource, CancellationToken stoppingToken)

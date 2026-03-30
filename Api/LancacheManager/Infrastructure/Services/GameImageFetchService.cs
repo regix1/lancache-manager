@@ -203,7 +203,11 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             if (!response.IsSuccessStatusCode) return;
 
             var bytes = await response.Content.ReadAsByteArrayAsync(ct);
-            if (bytes.Length == 0) return;
+            if (bytes.Length < MinImageBytes)
+            {
+                _logger.LogDebug("[GameImageFetch] Skipping tiny image ({Size} bytes) for Epic {AppId} from {Url}", bytes.Length, mapping.AppId, url);
+                return;
+            }
 
             db.GameImages.Add(new GameImage
             {
@@ -231,10 +235,31 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         try
         {
             var response = await client.GetAsync(image.SourceUrl, ct);
+
+            // If the primary SourceUrl fails for Steam images, fall back to the Tier2 CDN shortcut URL.
+            // Steam PICS-sourced URLs contain hash paths that can expire/404.
+            if (!response.IsSuccessStatusCode && image.Service == "steam")
+            {
+                var tier2Url = $"https://cdn.akamai.steamstatic.com/steam/apps/{image.AppId}/header.jpg";
+                _logger.LogDebug("[GameImageFetch] Primary URL failed ({Status}) for Steam {AppId}, trying Tier2: {Url}",
+                    (int)response.StatusCode, image.AppId, tier2Url);
+                response = await client.GetAsync(tier2Url, ct);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    // Update SourceUrl so future refreshes use the working URL
+                    image.SourceUrl = tier2Url;
+                }
+            }
+
             if (!response.IsSuccessStatusCode) return;
 
             var bytes = await response.Content.ReadAsByteArrayAsync(ct);
-            if (bytes.Length == 0) return;
+            if (bytes.Length < MinImageBytes)
+            {
+                _logger.LogDebug("[GameImageFetch] Skipping tiny image ({Size} bytes) during refresh for {AppId}", bytes.Length, image.AppId);
+                return;
+            }
 
             image.ImageData = bytes;
             image.ContentType = response.Content.Headers.ContentType?.MediaType ?? "image/jpeg";

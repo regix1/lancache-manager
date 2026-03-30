@@ -192,7 +192,7 @@ public partial class SteamKit2Service
 
             // Reset the schedule timer so next run is at full interval
             UpdateLastCrawlTime();
-            _logger.LogInformation("[GitHub Mode] Reset depot mapping schedule timer - next run in {Interval}", _crawlInterval);
+            _logger.LogInformation("[GitHub Mode] Reset depot mapping schedule timer - next run in {Interval}", ConfiguredInterval);
 
             // Send cancellation notification via SignalR
             await _notifications.NotifyAllAsync(SignalREvents.DepotMappingComplete, new

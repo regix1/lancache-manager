@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
 using LancacheManager.Extensions;
+using LancacheManager.Infrastructure.Services.Base;
 using LancacheManager.Models;
 using Npgsql;
 using Microsoft.EntityFrameworkCore;
@@ -11,13 +12,11 @@ namespace LancacheManager.Core.Services;
 /// Unified Steam service that combines app info handling, depot mapping, and game information retrieval
 /// Uses real Steam API data with proper depot-to-app mapping instead of URL pattern guessing
 /// </summary>
-public class SteamService : IHostedService, IDisposable
+public class SteamService : ScopedScheduledBackgroundService
 {
-    private readonly ILogger<SteamService> _logger;
     private readonly HttpClient _httpClient;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly SemaphoreSlim _apiSemaphore = new(5);
-    private readonly Timer? _refreshTimer;
 
     // Caches for performance
     private readonly ConcurrentDictionary<long, GameInfo> _gameCache = new();
@@ -28,6 +27,10 @@ public class SteamService : IHostedService, IDisposable
     private Dictionary<long, HashSet<long>> _depotMappings = new();
     private DateTime _lastRefresh = DateTime.MinValue;
     private bool _isReady = false;
+
+    protected override string ServiceName => "SteamService";
+    protected override TimeSpan Interval => TimeSpan.FromHours(6);
+    protected override bool RunOnStartup => true;
 
     public class GameInfo
     {
@@ -52,39 +55,24 @@ public class SteamService : IHostedService, IDisposable
     }
 
     public SteamService(
+        IServiceProvider serviceProvider,
         ILogger<SteamService> logger,
+        IConfiguration configuration,
         HttpClient httpClient,
         IServiceScopeFactory scopeFactory)
+        : base(serviceProvider, logger, configuration)
     {
-        _logger = logger;
         _httpClient = httpClient;
         _httpClient.Timeout = TimeSpan.FromSeconds(30);
         _scopeFactory = scopeFactory;
-
-        _refreshTimer = new Timer(async _ => await RefreshMappingsAsync(), null, Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
     }
 
-    #region IHostedService Implementation
-
-    public async Task StartAsync(CancellationToken cancellationToken)
+    protected override async Task ExecuteScopedWorkAsync(
+        IServiceProvider scopedServices,
+        CancellationToken stoppingToken)
     {
-        _logger.LogInformation("Starting SteamService...");
         await RefreshMappingsAsync();
-
-        // Now start the timer for periodic refreshes every 6 hours
-        _refreshTimer?.Change(TimeSpan.FromHours(6), TimeSpan.FromHours(6));
-
-        _logger.LogInformation("SteamService started successfully");
     }
-
-    public Task StopAsync(CancellationToken cancellationToken)
-    {
-        _logger.LogInformation("Stopping SteamService...");
-        _refreshTimer?.Dispose();
-        return Task.CompletedTask;
-    }
-
-    #endregion
 
     #region Steam API Data Management
 
@@ -461,13 +449,9 @@ public class SteamService : IHostedService, IDisposable
 
     #endregion
 
-    #region IDisposable
-
-    public void Dispose()
+    public override void Dispose()
     {
-        _refreshTimer?.Dispose();
-        _apiSemaphore?.Dispose();
+        _apiSemaphore.Dispose();
+        base.Dispose();
     }
-
-    #endregion
 }

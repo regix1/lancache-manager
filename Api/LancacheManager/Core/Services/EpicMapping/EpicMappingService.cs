@@ -1,5 +1,6 @@
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
+using LancacheManager.Infrastructure.Services.Base;
 using LancacheManager.Core.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
@@ -7,11 +8,10 @@ namespace LancacheManager.Core.Services.EpicMapping;
 
 /// <summary>
 /// Unified Epic Games mapping service for game discovery and download resolution.
-/// Mirrors SteamKit2Service pattern: auth-only on startup, periodic scheduled refresh.
+/// Extends ConfigurableScheduledService for runtime-adjustable periodic catalog refresh.
 /// </summary>
-public partial class EpicMappingService : IHostedService, IDisposable
+public partial class EpicMappingService : ConfigurableScheduledService, IDisposable
 {
-    private readonly ILogger<EpicMappingService> _logger;
     private readonly EpicApiDirectClient _epicApiClient;
     private readonly EpicAuthStorageService _authStorage;
     private readonly ISignalRNotificationService _notifications;
@@ -30,9 +30,7 @@ public partial class EpicMappingService : IHostedService, IDisposable
     private readonly SemaphoreSlim _sessionLock = new(1, 1);
 
     // Scheduling state
-    private Timer? _periodicTimer;
     private DateTime _lastRefreshTime = DateTime.MinValue;
-    private TimeSpan _refreshInterval = TimeSpan.FromHours(12);
     private CancellationTokenSource? _currentRefreshCts;
     private readonly CancellationTokenSource _cancellationTokenSource = new();
     private bool _isRunning;
@@ -51,6 +49,9 @@ public partial class EpicMappingService : IHostedService, IDisposable
     public DateTime? LastCollectionUtc => _lastCollectionUtc;
     public int GamesDiscovered => _gamesDiscovered;
 
+    protected override string ServiceName => "EpicMappingService";
+    protected override TimeSpan StartupDelay => TimeSpan.Zero; // We handle our own initialization in InitializeAsync
+
     public EpicMappingService(
         ILogger<EpicMappingService> logger,
         EpicApiDirectClient epicApiClient,
@@ -59,8 +60,8 @@ public partial class EpicMappingService : IHostedService, IDisposable
         IDbContextFactory<AppDbContext> dbContextFactory,
         IUnifiedOperationTracker operationTracker,
         IServiceScopeFactory scopeFactory)
+        : base(logger, TimeSpan.FromHours(12)) // Default: 12 hour refresh interval
     {
-        _logger = logger;
         _epicApiClient = epicApiClient;
         _authStorage = authStorage;
         _notifications = notifications;
@@ -69,7 +70,7 @@ public partial class EpicMappingService : IHostedService, IDisposable
         _scopeFactory = scopeFactory;
     }
 
-    public async Task StartAsync(CancellationToken cancellationToken)
+    protected override async Task InitializeAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("EpicMappingService starting...");
         _isRunning = true;
@@ -91,23 +92,17 @@ public partial class EpicMappingService : IHostedService, IDisposable
             }, CancellationToken.None);
         }
 
-        // Setup periodic catalog refresh (does not trigger on startup, same as Steam)
-        SetupPeriodicRefresh();
-
         // Subscribe to Epic prefill daemon auth state change events
         SubscribeToDaemonEvents();
     }
 
-    public Task StopAsync(CancellationToken cancellationToken)
+    protected override Task CleanupAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("EpicMappingService stopping...");
         _isRunning = false;
 
         // Unsubscribe from Epic daemon events before cleanup
         UnsubscribeFromDaemonEvents();
-
-        _periodicTimer?.Dispose();
-        _periodicTimer = null;
 
         try
         {
@@ -137,28 +132,23 @@ public partial class EpicMappingService : IHostedService, IDisposable
 
     /// <summary>
     /// Get or set the refresh interval in hours. 0 = disabled.
+    /// Updates the base class interval so the scheduling loop adjusts immediately.
     /// </summary>
     public double RefreshIntervalHours
     {
-        get => _refreshInterval.TotalHours;
+        get => ConfiguredInterval.TotalHours;
         set
         {
-            _refreshInterval = TimeSpan.FromHours(value);
-            _logger.LogInformation("Updated Epic refresh interval to {Hours} hour(s)", value);
+            // Update the base class interval (wakes the loop so new interval takes effect)
+            UpdateInterval(TimeSpan.FromHours(value));
 
             if (value == 0)
             {
-                var oldTimer = Interlocked.Exchange(ref _periodicTimer, null);
-                oldTimer?.Dispose();
                 _logger.LogInformation("Disabled periodic Epic catalog refresh");
             }
             else
             {
-                // Restart timer with new interval
-                var newTimer = new Timer(OnPeriodicRefreshTimer, null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
-                var oldTimer = Interlocked.Exchange(ref _periodicTimer, newTimer);
-                oldTimer?.Dispose();
-                _logger.LogInformation("Restarted periodic Epic catalog refresh timer");
+                _logger.LogInformation("Updated Epic refresh interval to {Hours} hour(s)", value);
             }
         }
     }
@@ -168,14 +158,15 @@ public partial class EpicMappingService : IHostedService, IDisposable
     /// </summary>
     public EpicScheduleStatus GetScheduleStatus()
     {
+        var refreshInterval = ConfiguredInterval;
         var timeSinceLastRefresh = DateTime.UtcNow - _lastRefreshTime;
-        var nextRefreshIn = _refreshInterval.TotalHours > 0 && _lastRefreshTime != DateTime.MinValue
-            ? Math.Max(0, (_refreshInterval - timeSinceLastRefresh).TotalSeconds)
+        var nextRefreshIn = refreshInterval.TotalHours > 0 && _lastRefreshTime != DateTime.MinValue
+            ? Math.Max(0, (refreshInterval - timeSinceLastRefresh).TotalSeconds)
             : 0;
 
         return new EpicScheduleStatus
         {
-            RefreshIntervalHours = _refreshInterval.TotalHours,
+            RefreshIntervalHours = refreshInterval.TotalHours,
             IsProcessing = _isProcessingInt != 0,
             LastRefreshTime = _lastRefreshTime == DateTime.MinValue ? null : _lastRefreshTime,
             NextRefreshIn = nextRefreshIn,
@@ -198,7 +189,7 @@ public partial class EpicMappingService : IHostedService, IDisposable
         };
     }
 
-    public void Dispose()
+    public new void Dispose()
     {
         if (_disposed) return;
         _disposed = true;
@@ -207,8 +198,6 @@ public partial class EpicMappingService : IHostedService, IDisposable
         // Unsubscribe from Epic daemon events
         UnsubscribeFromDaemonEvents();
 
-        _periodicTimer?.Dispose();
-        _periodicTimer = null;
         _currentRefreshCts?.Dispose();
         _currentRefreshCts = null;
 
@@ -224,6 +213,8 @@ public partial class EpicMappingService : IHostedService, IDisposable
         {
             _cancellationTokenSource.Dispose();
         }
+
+        base.Dispose();
     }
 
     /// <summary>

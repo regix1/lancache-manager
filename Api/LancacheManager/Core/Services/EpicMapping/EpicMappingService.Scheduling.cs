@@ -7,62 +7,22 @@ namespace LancacheManager.Core.Services.EpicMapping;
 public partial class EpicMappingService
 {
     /// <summary>
-    /// Sets up periodic catalog refresh timer.
-    /// Mirrors SteamKit2Service.SetupPeriodicCrawls() pattern.
-    /// Does NOT trigger overdue scans on startup — let the periodic timer handle it.
+    /// Called by the ConfigurableScheduledService base class on each interval tick.
+    /// Checks preconditions and triggers a catalog refresh if appropriate.
     /// </summary>
-    private void SetupPeriodicRefresh()
-    {
-        if (_refreshInterval.TotalHours == 0)
-        {
-            _logger.LogInformation("Periodic Epic catalog refresh is disabled (interval = 0)");
-            return;
-        }
-
-        // Check if a refresh is overdue - log it but don't automatically trigger
-        var timeSinceLastRefresh = DateTime.UtcNow - _lastRefreshTime;
-        var isDue = timeSinceLastRefresh >= _refreshInterval;
-
-        if (isDue && _lastRefreshTime != DateTime.MinValue)
-        {
-            _logger.LogInformation(
-                "Epic refresh is overdue by {Minutes} minutes - scheduled refresh will run at next check (within 1 minute)",
-                (int)(timeSinceLastRefresh - _refreshInterval).TotalMinutes);
-        }
-
-        // Check every minute if a refresh is due (same pattern as Steam)
-        _periodicTimer = new Timer(OnPeriodicRefreshTimer, null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
-        _logger.LogInformation("Scheduled Epic catalog refresh every {Hours} hour(s) (checking every minute)",
-            _refreshInterval.TotalHours);
-    }
-
-    /// <summary>
-    /// Timer callback that checks if a catalog refresh is due.
-    /// Mirrors SteamKit2Service.OnPeriodicCrawlTimer() pattern.
-    /// </summary>
-    private void OnPeriodicRefreshTimer(object? state)
+    protected override Task ExecuteScheduledWorkAsync(CancellationToken stoppingToken)
     {
         if (_cancellationTokenSource.Token.IsCancellationRequested || !_isRunning)
-            return;
+            return Task.CompletedTask;
 
         // Skip if not authenticated (need valid tokens to refresh)
         if (!_isAuthenticated || _currentTokens == null)
-            return;
+            return Task.CompletedTask;
 
-        // Skip if interval is 0 (disabled)
-        if (_refreshInterval.TotalHours == 0)
-            return;
-
-        // Check if enough time has elapsed since last refresh
-        var timeSinceLastRefresh = DateTime.UtcNow - _lastRefreshTime;
-        if (timeSinceLastRefresh < _refreshInterval)
-            return;
-
-        _logger.LogInformation(
-            "Starting scheduled Epic catalog refresh (last refresh was {Minutes} minutes ago)",
-            (int)timeSinceLastRefresh.TotalMinutes);
-
+        _logger.LogInformation("Starting scheduled Epic catalog refresh");
         TryStartRefresh();
+
+        return Task.CompletedTask;
     }
 
     /// <summary>

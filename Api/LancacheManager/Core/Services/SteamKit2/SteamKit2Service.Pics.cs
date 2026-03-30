@@ -136,7 +136,7 @@ public partial class SteamKit2Service
 
             // Reset the schedule timer so next run is at full interval
             UpdateLastCrawlTime();
-            _logger.LogInformation("Reset depot mapping schedule timer - next run in {Interval}", _crawlInterval);
+            _logger.LogInformation("Reset depot mapping schedule timer - next run in {Interval}", ConfiguredInterval);
 
             // The DepotMappingComplete SignalR notification is sent by RunAsync when it catches
             // the OperationCanceledException, so we don't send it here to avoid duplicates.
