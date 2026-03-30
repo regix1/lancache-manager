@@ -133,8 +133,65 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         string appId,
         CancellationToken ct)
     {
-        // Build URL list: prefer PICS-sourced URL from Downloads table (has hashed path),
-        // then fall back to CDN shortcut patterns (older games still use these)
+        // Try fetching the image using the given appId
+        var imageBytes = await TryFetchSteamImageBytesAsync(db, client, appId, ct);
+
+        if (imageBytes != null)
+        {
+            db.GameImages.Add(new GameImage
+            {
+                AppId = appId,
+                Service = "steam",
+                ImageData = imageBytes.Value.bytes,
+                ContentType = imageBytes.Value.contentType,
+                SourceUrl = imageBytes.Value.sourceUrl,
+                FetchedAtUtc = DateTime.UtcNow
+            });
+            return;
+        }
+
+        // Try to find a parent app ID via SteamDepotMappings
+        var parentAppId = await FindParentAppIdAsync(db, appId, ct);
+        if (parentAppId == null)
+        {
+            _logger.LogDebug("[GameImageFetch] No valid image found for Steam app {AppId} and no parent app found", appId);
+            return;
+        }
+
+        _logger.LogInformation("[GameImageFetch] No image for app {AppId}, trying parent app {ParentAppId}", appId, parentAppId);
+
+        // Try fetching using the parent's app ID
+        var parentBytes = await TryFetchSteamImageBytesAsync(db, client, parentAppId, ct);
+        if (parentBytes != null)
+        {
+            // Store under the ORIGINAL appId so frontend lookups work
+            db.GameImages.Add(new GameImage
+            {
+                AppId = appId,
+                Service = "steam",
+                ImageData = parentBytes.Value.bytes,
+                ContentType = parentBytes.Value.contentType,
+                SourceUrl = parentBytes.Value.sourceUrl,
+                FetchedAtUtc = DateTime.UtcNow
+            });
+            _logger.LogInformation("[GameImageFetch] Successfully fetched image for app {AppId} using parent app {ParentAppId}", appId, parentAppId);
+        }
+        else
+        {
+            _logger.LogDebug("[GameImageFetch] No valid image found for app {AppId} or parent app {ParentAppId}", appId, parentAppId);
+        }
+    }
+
+    /// <summary>
+    /// Attempts to fetch a Steam image for the given appId from PICS URL and CDN patterns.
+    /// Returns the image bytes, content type, and source URL if successful; null otherwise.
+    /// </summary>
+    private async Task<(byte[] bytes, string contentType, string sourceUrl)?> TryFetchSteamImageBytesAsync(
+        AppDbContext db,
+        HttpClient client,
+        string appId,
+        CancellationToken ct)
+    {
         var urls = new List<string>();
 
         // Tier 1: PICS-sourced URL stored in Download.GameImageUrl (contains the hash path that newer games require)
@@ -168,16 +225,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
                     continue;
                 }
 
-                db.GameImages.Add(new GameImage
-                {
-                    AppId = appId,
-                    Service = "steam",
-                    ImageData = bytes,
-                    ContentType = response.Content.Headers.ContentType?.MediaType ?? "image/jpeg",
-                    SourceUrl = url,
-                    FetchedAtUtc = DateTime.UtcNow
-                });
-                return;
+                return (bytes, response.Content.Headers.ContentType?.MediaType ?? "image/jpeg", url);
             }
             catch (Exception ex)
             {
@@ -186,6 +234,53 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         }
 
         _logger.LogDebug("[GameImageFetch] No valid image found for Steam app {AppId} after trying {Count} URLs", appId, urls.Count);
+        return null;
+    }
+
+    /// <summary>
+    /// Tries to find a parent app ID for a DLC/sub-app by checking SteamDepotMappings.
+    /// Strategy: The appId itself may appear as a DepotId mapped to a different owner AppId,
+    /// or depots near the appId (appId+1) may map to a different owner.
+    /// Also checks the Downloads table for depots associated with this app that map to a different owner.
+    /// </summary>
+    private async Task<string?> FindParentAppIdAsync(AppDbContext db, string appId, CancellationToken ct)
+    {
+        if (!long.TryParse(appId, out var appIdLong))
+            return null;
+
+        // Strategy 1: Check if this appId appears as a DepotId in SteamDepotMappings
+        // (common pattern: DLC app 3893180 has depot 3893180 owned by parent app 3893179)
+        var candidateDepotIds = new List<long> { appIdLong };
+        if (appIdLong + 1 <= uint.MaxValue)
+            candidateDepotIds.Add(appIdLong + 1);
+
+        var ownerMapping = await db.SteamDepotMappings
+            .Where(m => candidateDepotIds.Contains(m.DepotId) && m.IsOwner && m.AppId != appIdLong)
+            .Select(m => m.AppId)
+            .FirstOrDefaultAsync(ct);
+
+        if (ownerMapping != 0)
+            return ownerMapping.ToString();
+
+        // Strategy 2: Find depots for this app from Downloads, then look up their owner in SteamDepotMappings
+        var depotIds = await db.Downloads
+            .Where(d => d.GameAppId != null && d.GameAppId.Value.ToString() == appId && d.DepotId.HasValue)
+            .Select(d => d.DepotId!.Value)
+            .Distinct()
+            .ToListAsync(ct);
+
+        if (depotIds.Count > 0)
+        {
+            var parentFromDepot = await db.SteamDepotMappings
+                .Where(m => depotIds.Contains(m.DepotId) && m.IsOwner && m.AppId != appIdLong)
+                .Select(m => m.AppId)
+                .FirstOrDefaultAsync(ct);
+
+            if (parentFromDepot != 0)
+                return parentFromDepot.ToString();
+        }
+
+        return null;
     }
 
     private async Task FetchEpicImageAsync(
