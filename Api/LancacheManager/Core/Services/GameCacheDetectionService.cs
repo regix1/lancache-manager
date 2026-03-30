@@ -620,7 +620,15 @@ public class GameCacheDetectionService : IDisposable
             // Full scans already query fresh mappings, so this is only needed for incremental
             if (incremental)
             {
-                var resolvedCount = await ResolveUnknownGamesInCacheAsync();
+                // Apply a timeout so a DB deadlock cannot stall the operation indefinitely.
+                // If the timeout fires, the OperationCanceledException is NOT caught by
+                // ResolveUnknownGamesInCacheAsync's own catch (it only catches non-cancellation
+                // exceptions), so it bubbles up to our outer catch block which calls
+                // FinalizeDetectionAsync with success:false, ensuring the frontend notification clears.
+                using var resolveCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                resolveCts.CancelAfter(TimeSpan.FromSeconds(60));
+
+                var resolvedCount = await ResolveUnknownGamesInCacheAsync(resolveCts.Token);
                 if (resolvedCount > 0)
                 {
                     _logger.LogInformation("[GameDetection] Resolved {Count} unknown games after incremental scan", resolvedCount);
@@ -643,12 +651,31 @@ public class GameCacheDetectionService : IDisposable
                 status: OperationStatus.Completed, message: completionMessage, cancelled: false,
                 gamesDetected: totalGamesDetected, servicesDetected: finalServices.Count);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException oce)
         {
-            _logger.LogInformation("[GameDetection] Operation {OperationId} was cancelled", operationId);
+            // Only treat as user-cancelled if the root cancellation token was signalled.
+            // If a linked timeout token (e.g. from ResolveUnknownGamesInCacheAsync) fired instead,
+            // fall through to the failure path so the frontend gets a clear error message.
+            if (cancellationToken.IsCancellationRequested)
+            {
+                _logger.LogInformation("[GameDetection] Operation {OperationId} was cancelled", operationId);
 
-            await FinalizeDetectionAsync(operationId, success: false,
-                status: OperationStatus.Cancelled, message: "Detection cancelled by user", cancelled: true);
+                await FinalizeDetectionAsync(operationId, success: false,
+                    status: OperationStatus.Cancelled, message: "Detection cancelled by user", cancelled: true);
+            }
+            else
+            {
+                _logger.LogError(oce, "[GameDetection] Operation {OperationId} failed due to timeout or internal cancellation", operationId);
+
+                _operationTracker.UpdateMetadata(operationId, m =>
+                {
+                    var metrics = (GameDetectionMetrics)m;
+                    metrics.Error = oce.Message;
+                });
+
+                await FinalizeDetectionAsync(operationId, success: false,
+                    status: OperationStatus.Failed, message: $"Detection failed: {oce.Message}", cancelled: false);
+            }
         }
         catch (Exception ex)
         {
@@ -896,11 +923,11 @@ public class GameCacheDetectionService : IDisposable
     /// This updates cached "Unknown Game (Depot X)" entries when mappings become available.
     /// Returns the number of games that were resolved.
     /// </summary>
-    public async Task<int> ResolveUnknownGamesInCacheAsync()
+    public async Task<int> ResolveUnknownGamesInCacheAsync(CancellationToken cancellationToken = default)
     {
         try
         {
-            await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
+            await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
 
             // Get unknown games from cache
             var unknownGames = await GetUnknownGamesCachedAsync(dbContext);
@@ -918,7 +945,7 @@ public class GameCacheDetectionService : IDisposable
                 .Where(d => d.GameName != null && d.GameAppId != null && d.GameAppId > 0 && d.DepotId != null)
                 .Select(d => new { d.GameAppId, d.GameName, d.DepotId })
                 .Distinct()
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
 
             var depotToGameFromDownloads = downloadsLookup
                 .Where(d => d.DepotId.HasValue && unknownDepotIds.Contains(d.DepotId.Value))
@@ -965,7 +992,7 @@ public class GameCacheDetectionService : IDisposable
 
                     // Check if a record with this AppId already exists in database
                     var existingGame = await dbContext.CachedGameDetections
-                        .FirstOrDefaultAsync(g => g.GameAppId == resolvedAppId);
+                        .FirstOrDefaultAsync(g => g.GameAppId == resolvedAppId, cancellationToken);
 
                     if (existingGame != null && existingGame.Id != unknownGame.Id)
                     {
@@ -989,7 +1016,7 @@ public class GameCacheDetectionService : IDisposable
                 // Second tier: Try SteamDepotMappings table (has PICS data for all known depots)
                 var depotMapping = await dbContext.SteamDepotMappings
                     .Where(m => m.DepotId == depotId && m.IsOwner && m.AppName != null)
-                    .FirstOrDefaultAsync();
+                    .FirstOrDefaultAsync(cancellationToken);
 
                 if (depotMapping != null)
                 {
@@ -1008,7 +1035,7 @@ public class GameCacheDetectionService : IDisposable
                     }
 
                     var existingGame = await dbContext.CachedGameDetections
-                        .FirstOrDefaultAsync(g => g.GameAppId == resolvedAppId);
+                        .FirstOrDefaultAsync(g => g.GameAppId == resolvedAppId, cancellationToken);
 
                     if (existingGame != null && existingGame.Id != unknownGame.Id)
                     {
@@ -1040,7 +1067,7 @@ public class GameCacheDetectionService : IDisposable
 
             if (resolvedCount > 0)
             {
-                await dbContext.SaveChangesAsync();
+                await dbContext.SaveChangesAsync(cancellationToken);
                 _logger.LogInformation("[GameDetection] Resolved {Count} unknown games in cache", resolvedCount);
             }
 
@@ -1052,6 +1079,13 @@ public class GameCacheDetectionService : IDisposable
             }
 
             return resolvedCount;
+        }
+        catch (OperationCanceledException)
+        {
+            // Re-throw so that a timeout or user cancellation bubbles up to RunDetectionAsync,
+            // which will call FinalizeDetectionAsync with success:false and broadcast
+            // GameDetectionComplete to the frontend.
+            throw;
         }
         catch (Exception ex)
         {

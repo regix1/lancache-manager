@@ -403,7 +403,6 @@ public partial class EpicMappingService
             source = "scheduled-refresh"
         });
 
-        // Trigger incremental game cache detection after successful Epic catalog refresh
         try
         {
             using var scope = _scopeFactory.CreateScope();

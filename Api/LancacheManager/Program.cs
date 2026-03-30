@@ -270,7 +270,14 @@ var dbConnectionString = connBuilder.ConnectionString;
 
 builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
 {
-    options.UseNpgsql(dbConnectionString);
+    options.UseNpgsql(dbConnectionString, npgsqlOptions =>
+    {
+        npgsqlOptions.EnableRetryOnFailure(
+            maxRetryCount: 3,
+            maxRetryDelay: TimeSpan.FromSeconds(5),
+            errorCodesToAdd: null  // null means all transient errors including deadlock 40P01
+        );
+    });
 });
 
 // Register DbContextFactory for singleton services that need to create multiple contexts
@@ -766,7 +773,14 @@ class CustomDbContextFactory : IDbContextFactory<AppDbContext>
     public AppDbContext CreateDbContext()
     {
         var optionsBuilder = new DbContextOptionsBuilder<AppDbContext>();
-        optionsBuilder.UseNpgsql(_connectionString);
+        optionsBuilder.UseNpgsql(_connectionString, npgsqlOptions =>
+        {
+            npgsqlOptions.EnableRetryOnFailure(
+                maxRetryCount: 3,
+                maxRetryDelay: TimeSpan.FromSeconds(5),
+                errorCodesToAdd: null
+            );
+        });
         return new AppDbContext(optionsBuilder.Options);
     }
 }
