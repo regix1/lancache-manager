@@ -420,7 +420,7 @@ public partial class SteamKit2Service
                         {
                             // Use PICS name if Steam Store API failed (e.g., redistributables/launchers)
                             download.GameName = picsName;
-                            download.GameImageUrl = gameInfo?.HeaderImage ?? $"https://cdn.akamai.steamstatic.com/steam/apps/{appId}/header.jpg";
+                            download.GameImageUrl = gameInfo?.HeaderImage;
                             updated++;
                         }
                         else if (!string.IsNullOrEmpty(depotName))
@@ -428,14 +428,14 @@ public partial class SteamKit2Service
                             // Use depot name as fallback for shared redistributables
                             // e.g., "Ubisoft Connect PC Client Content", "RGL/SC Content"
                             download.GameName = depotName;
-                            download.GameImageUrl = $"https://cdn.akamai.steamstatic.com/steam/apps/{appId}/header.jpg";
+                            download.GameImageUrl = null;
                             _logger.LogInformation("Using depot name for depot {DepotId}: {DepotName}", download.DepotId, depotName);
                             updated++;
                         }
                         else
                         {
                             download.GameName = $"Steam App {appId}";
-                            download.GameImageUrl = $"https://cdn.akamai.steamstatic.com/steam/apps/{appId}/header.jpg";
+                            download.GameImageUrl = null;
                             updated++;
                         }
                     }

@@ -986,7 +986,48 @@ public class GameCacheDetectionService : IDisposable
                     continue;
                 }
 
-                // Not found in Downloads DB — will remain as "Unknown Game" until download activity creates a mapping
+                // Second tier: Try SteamDepotMappings table (has PICS data for all known depots)
+                var depotMapping = await dbContext.SteamDepotMappings
+                    .Where(m => m.DepotId == depotId && m.IsOwner && m.AppName != null)
+                    .FirstOrDefaultAsync();
+
+                if (depotMapping != null)
+                {
+                    var resolvedAppId = depotMapping.AppId;
+                    var resolvedName = depotMapping.AppName!;
+
+                    _logger.LogInformation("[GameDetection] Resolved depot {DepotId} -> {AppId} ({Name}) via SteamDepotMappings",
+                        depotId, resolvedAppId, resolvedName);
+
+                    if (pendingAppIdAssignments.TryGetValue(resolvedAppId, out var pendingGame))
+                    {
+                        MergeUnknownGameIntoTarget(pendingGame, unknownGame);
+                        entriesToRemove.Add(unknownGame);
+                        resolvedCount++;
+                        continue;
+                    }
+
+                    var existingGame = await dbContext.CachedGameDetections
+                        .FirstOrDefaultAsync(g => g.GameAppId == resolvedAppId);
+
+                    if (existingGame != null && existingGame.Id != unknownGame.Id)
+                    {
+                        MergeUnknownGameIntoTarget(existingGame, unknownGame);
+                        entriesToRemove.Add(unknownGame);
+                        pendingAppIdAssignments[resolvedAppId] = existingGame;
+                    }
+                    else
+                    {
+                        unknownGame.GameName = resolvedName;
+                        unknownGame.GameAppId = resolvedAppId;
+                        pendingAppIdAssignments[resolvedAppId] = unknownGame;
+                    }
+
+                    resolvedCount++;
+                    continue;
+                }
+
+                // Not found in Downloads or SteamDepotMappings — will remain as "Unknown Game"
                 newlyFailedDepots.Add(depotId);
             }
 
@@ -1003,10 +1044,10 @@ public class GameCacheDetectionService : IDisposable
                 _logger.LogInformation("[GameDetection] Resolved {Count} unknown games in cache", resolvedCount);
             }
 
-            // Log unresolved depots (Downloads DB is the only resolution source for Game Cache Detection)
+            // Log unresolved depots (checked Downloads + SteamDepotMappings)
             if (newlyFailedDepots.Count > 0)
             {
-                _logger.LogInformation("[GameDetection] Could not resolve {Count} depot(s) from Downloads DB: {DepotIds}",
+                _logger.LogInformation("[GameDetection] Could not resolve {Count} depot(s) from Downloads or SteamDepotMappings: {DepotIds}",
                     newlyFailedDepots.Count, string.Join(", ", newlyFailedDepots));
             }
 

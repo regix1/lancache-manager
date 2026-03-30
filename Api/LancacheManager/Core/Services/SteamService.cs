@@ -417,7 +417,7 @@ public class SteamService : IHostedService, IDisposable
                 Name = data.TryGetProperty("name", out var name) ? name.GetString() ?? knownName ?? $"App {appId}" : knownName ?? $"App {appId}",
                 Type = data.TryGetProperty("type", out var type) ? type.GetString() ?? "game" : "game",
                 IsFree = data.TryGetProperty("is_free", out var isFree) && isFree.GetBoolean(),
-                HeaderImage = data.TryGetProperty("header_image", out var headerImage) ? headerImage.GetString() : $"https://cdn.akamai.steamstatic.com/steam/apps/{appId}/header.jpg",
+                HeaderImage = data.TryGetProperty("header_image", out var headerImage) ? headerImage.GetString() : null,
                 Description = data.TryGetProperty("short_description", out var desc) ? desc.GetString() : null,
                 CacheTime = DateTime.UtcNow
             };
@@ -438,7 +438,7 @@ public class SteamService : IHostedService, IDisposable
             AppId = appId,
             Name = knownName ?? $"Steam App {appId}",
             Type = "game",
-            HeaderImage = $"https://cdn.akamai.steamstatic.com/steam/apps/{appId}/header.jpg",
+            HeaderImage = null,
             Description = null,
             CacheTime = DateTime.UtcNow
         };

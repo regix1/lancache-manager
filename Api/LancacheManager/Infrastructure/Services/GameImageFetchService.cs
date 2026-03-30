@@ -124,17 +124,35 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             missingSteamIds.Count, missingEpicMappings.Count, staleImages.Count);
     }
 
+    // Minimum image size — Steam returns tiny ~1-2KB placeholder images for some apps
+    private const int MinImageBytes = 5000;
+
     private async Task FetchSteamImageAsync(
         AppDbContext db,
         HttpClient client,
         string appId,
         CancellationToken ct)
     {
-        var urls = new[]
+        // Build URL list: prefer PICS-sourced URL from Downloads table (has hashed path),
+        // then fall back to CDN shortcut patterns (older games still use these)
+        var urls = new List<string>();
+
+        // Tier 1: PICS-sourced URL stored in Download.GameImageUrl (contains the hash path that newer games require)
+        var picsUrl = await db.Downloads
+            .Where(d => d.GameAppId != null && d.GameAppId.Value.ToString() == appId
+                        && !string.IsNullOrEmpty(d.GameImageUrl))
+            .OrderByDescending(d => d.StartTimeUtc)
+            .Select(d => d.GameImageUrl)
+            .FirstOrDefaultAsync(ct);
+
+        if (!string.IsNullOrEmpty(picsUrl))
         {
-            $"https://cdn.akamai.steamstatic.com/steam/apps/{appId}/header.jpg",
-            $"https://cdn.akamai.steamstatic.com/steam/apps/{appId}/capsule_616x353.jpg"
-        };
+            urls.Add(picsUrl);
+        }
+
+        // Tier 2: CDN shortcut patterns (work for older/established games)
+        urls.Add($"https://cdn.akamai.steamstatic.com/steam/apps/{appId}/header.jpg");
+        urls.Add($"https://cdn.akamai.steamstatic.com/steam/apps/{appId}/capsule_616x353.jpg");
 
         foreach (var url in urls)
         {
@@ -144,7 +162,11 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
                 if (!response.IsSuccessStatusCode) continue;
 
                 var bytes = await response.Content.ReadAsByteArrayAsync(ct);
-                if (bytes.Length == 0) continue;
+                if (bytes.Length < MinImageBytes)
+                {
+                    _logger.LogDebug("[GameImageFetch] Skipping tiny image ({Size} bytes) for {AppId} from {Url}", bytes.Length, appId, url);
+                    continue;
+                }
 
                 db.GameImages.Add(new GameImage
                 {
@@ -162,6 +184,8 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
                 _logger.LogDebug(ex, "[GameImageFetch] Failed to fetch Steam image {AppId} from {Url}", appId, url);
             }
         }
+
+        _logger.LogDebug("[GameImageFetch] No valid image found for Steam app {AppId} after trying {Count} URLs", appId, urls.Count);
     }
 
     private async Task FetchEpicImageAsync(
