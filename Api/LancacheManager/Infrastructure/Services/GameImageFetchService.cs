@@ -52,7 +52,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         }
 
         var steamAppIds = await db.Downloads
-            .Where(d => d.GameAppId != null && d.GameAppId != 0)
+            .Where(d => d.GameAppId != null && d.GameAppId != 0 && !string.IsNullOrEmpty(d.GameName))
             .Select(d => d.GameAppId!.Value)
             .Distinct()
             .ToListAsync(stoppingToken);
