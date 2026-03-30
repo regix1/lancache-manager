@@ -149,7 +149,7 @@ public class GameImagesController : ControllerBase
         var hash = Convert.ToHexString(SHA256.HashData(imageBytes)).ToLowerInvariant();
         var etag = $"\"{etagPrefix}-{hash}\"";
 
-        Response.Headers["Cache-Control"] = "public, no-cache";
+        Response.Headers["Cache-Control"] = "public, max-age=3600, must-revalidate";
         Response.Headers["ETag"] = etag;
 
         var ifNoneMatch = Request.Headers["If-None-Match"].ToString();

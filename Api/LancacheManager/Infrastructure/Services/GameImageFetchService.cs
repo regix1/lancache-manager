@@ -195,16 +195,19 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         var urls = new List<string>();
 
         // Tier 1: PICS-sourced URL stored in Download.GameImageUrl (contains the hash path that newer games require)
-        var picsUrl = await db.Downloads
-            .Where(d => d.GameAppId != null && d.GameAppId.Value.ToString() == appId
-                        && !string.IsNullOrEmpty(d.GameImageUrl))
-            .OrderByDescending(d => d.StartTimeUtc)
-            .Select(d => d.GameImageUrl)
-            .FirstOrDefaultAsync(ct);
-
-        if (!string.IsNullOrEmpty(picsUrl))
+        if (long.TryParse(appId, out var appIdLong))
         {
-            urls.Add(picsUrl);
+            var picsUrl = await db.Downloads
+                .Where(d => d.GameAppId != null && d.GameAppId.Value == appIdLong
+                            && !string.IsNullOrEmpty(d.GameImageUrl))
+                .OrderByDescending(d => d.StartTimeUtc)
+                .Select(d => d.GameImageUrl)
+                .FirstOrDefaultAsync(ct);
+
+            if (!string.IsNullOrEmpty(picsUrl))
+            {
+                urls.Add(picsUrl);
+            }
         }
 
         // Tier 2: CDN shortcut patterns (work for older/established games)
@@ -253,6 +256,8 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         var candidateDepotIds = new List<long> { appIdLong };
         if (appIdLong + 1 <= uint.MaxValue)
             candidateDepotIds.Add(appIdLong + 1);
+        if (appIdLong - 1 > 0)
+            candidateDepotIds.Add(appIdLong - 1);
 
         var ownerMapping = await db.SteamDepotMappings
             .Where(m => candidateDepotIds.Contains(m.DepotId) && m.IsOwner && m.AppId != appIdLong)
@@ -264,7 +269,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
 
         // Strategy 2: Find depots for this app from Downloads, then look up their owner in SteamDepotMappings
         var depotIds = await db.Downloads
-            .Where(d => d.GameAppId != null && d.GameAppId.Value.ToString() == appId && d.DepotId.HasValue)
+            .Where(d => d.GameAppId != null && d.GameAppId.Value == appIdLong && d.DepotId.HasValue)
             .Select(d => d.DepotId!.Value)
             .Distinct()
             .ToListAsync(ct);
