@@ -299,6 +299,7 @@ public partial class SteamKit2Service
             {
                 await scopedDb.DbContext.SteamDepotMappings.AddRangeAsync(toInsert, ct);
                 await scopedDb.DbContext.SaveChangesAsync(ct);
+                scopedDb.DbContext.ChangeTracker.Clear();
                 _logger.LogInformation("Saved {Count} new orphan depot mapping(s) to database", toInsert.Count);
             }
         }
@@ -348,6 +349,7 @@ public partial class SteamKit2Service
             int notFound = 0;
             int processed = 0;
             int totalDownloads = downloadsNeedingGameInfo.Count;
+            int lastLoggedBucket = -1;
 
             foreach (var download in downloadsNeedingGameInfo)
             {
@@ -448,29 +450,34 @@ public partial class SteamKit2Service
                     notFound++;
                 }
 
-                // Send progress updates EVERY download to keep connection alive
-                // This prevents SignalR/HTTP connection timeouts during long-running mapping operations
+                // Send progress updates using 5%-bucket throttling (max ~20 messages total)
+                // This prevents flooding SignalR with hundreds of broadcasts during large operations
                 processed++;
                 if (totalDownloads > 0)
                 {
-                    double percentComplete = (double)processed / totalDownloads * 100;
-                    try
+                    var currentBucket = (int)(processed * 100.0 / totalDownloads) / 5;
+                    if (currentBucket > lastLoggedBucket || processed == totalDownloads)
                     {
-                        await _notifications.NotifyAllAsync(SignalREvents.DepotMappingProgress, new
+                        lastLoggedBucket = currentBucket;
+                        double percentComplete = (double)processed / totalDownloads * 100;
+                        try
                         {
-                            operationId = _currentPicsOperationId,
-                            status = "Applying mappings to downloads",
-                            percentComplete,
-                            processedMappings = processed,
-                            totalMappings = totalDownloads,
-                            mappingsApplied = updated,
-                            isLoggedOn = IsSteamAuthenticated,
-                            message = $"Applying depot mappings to downloads... {processed}/{totalDownloads}"
-                        });
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to send depot mapping progress via SignalR");
+                            await _notifications.NotifyAllAsync(SignalREvents.DepotMappingProgress, new
+                            {
+                                operationId = _currentPicsOperationId,
+                                status = "Applying mappings to downloads",
+                                percentComplete,
+                                processedMappings = processed,
+                                totalMappings = totalDownloads,
+                                mappingsApplied = updated,
+                                isLoggedOn = IsSteamAuthenticated,
+                                message = $"Applying depot mappings to downloads... {processed}/{totalDownloads}"
+                            });
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to send depot mapping progress via SignalR");
+                        }
                     }
                 }
             }
@@ -478,6 +485,7 @@ public partial class SteamKit2Service
             if (updated > 0)
             {
                 await scopedDb.DbContext.SaveChangesAsync();
+                scopedDb.DbContext.ChangeTracker.Clear();
                 _logger.LogInformation($"Updated {updated} downloads with game information, {notFound} not found");
             }
             else

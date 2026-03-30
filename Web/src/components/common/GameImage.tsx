@@ -11,12 +11,10 @@ interface GameImageProps {
   onError: (gameAppId: string) => void;
   sizes?: string;
   epicAppId?: string;
-  /** When set (e.g. from Download.gameImageUrl), load this URL directly. */
-  imageUrl?: string;
 }
 
 /**
- * Game image: single URL attempt — imageUrl if provided, otherwise /api/game-images proxy.
+ * Game image: always loads from /api/game-images proxy.
  */
 export const GameImage: React.FC<GameImageProps> = ({
   gameAppId,
@@ -25,8 +23,7 @@ export const GameImage: React.FC<GameImageProps> = ({
   loading = 'lazy',
   onError,
   sizes,
-  epicAppId,
-  imageUrl
+  epicAppId
 }) => {
   const appId = gameAppId != null ? String(gameAppId) : '';
   const imageKey = epicAppId ? `epic-${epicAppId}` : appId;
@@ -35,14 +32,13 @@ export const GameImage: React.FC<GameImageProps> = ({
 
   useEffect(() => {
     setFailed(false);
-  }, [imageKey, imageUrl]);
+  }, [imageKey]);
 
   const src = useMemo(() => {
-    if (imageUrl?.trim()) return imageUrl.trim();
     if (epicAppId) return `${API_BASE}/game-images/epic/${epicAppId}/header`;
     if (appId) return `${API_BASE}/game-images/${appId}/header`;
     return null;
-  }, [imageUrl, epicAppId, appId]);
+  }, [epicAppId, appId]);
 
   const finalSrc =
     src && cacheBuster > 0

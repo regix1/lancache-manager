@@ -370,7 +370,7 @@ public partial class SteamKit2Service
                                 }
                             }
 
-                            await Task.Delay(100, ct);  // Small delay between DLC batches
+                            // No delay between DLC batches — PostgreSQL MVCC handles concurrency without file locking
                         }
                         catch (OperationCanceledException)
                         {
@@ -400,7 +400,7 @@ public partial class SteamKit2Service
                     $"Scanning Steam PICS: {_processedBatches}/{allBatches.Count} batches"
                 );
 
-                // Log progress and save every 50 batches to reduce I/O
+                // Log progress every 50 batches (JSON save deferred to FinalizeAndNotifyAsync)
                 if (_processedBatches % 50 == 0)
                 {
                     _logger.LogInformation(
@@ -409,14 +409,9 @@ public partial class SteamKit2Service
                         allBatches.Count,
                         percentComplete,
                         _depotToAppMappings.Count);
-
-                    // Use merge for incremental, full save for complete rebuild
-                    await SaveAllMappingsToJsonAsync(incrementalOnly);
                 }
 
-                // Adaptive delay based on current performance
-                var delayMs = _depotToAppMappings.Count > 1000 ? 100 : 150;
-                await Task.Delay(delayMs, ct);
+                // No adaptive delay — PostgreSQL MVCC handles concurrency; Steam API rate-limits via error responses
             }
             catch (OperationCanceledException)
             {
@@ -445,35 +440,40 @@ public partial class SteamKit2Service
         // Final save - use merge for incremental, full save for complete rebuild
         await SaveAllMappingsToJsonAsync(incrementalOnly);
 
-        _currentStatus = "Importing to database";
-        await SendPostProcessingProgressAsync("Importing to database...", 100, _depotToAppMappings.Count);
-
-        // Import to database BEFORE updating downloads so mappings are available
-        try
-        {
-            await ImportJsonToDatabaseAsync();
-            _logger.LogInformation("Database import completed successfully");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Database import failed");
-        }
-
-        // Resolve orphan depots: depots observed in Downloads but not found during PICS enumeration
+        // Resolve orphan depots BEFORE DB import: depots observed in Downloads but not found during PICS enumeration
         // This handles delisted/removed games whose depots are still served by the lancache
         // Must run while Steam connection is still active (before disconnect in RunAsync.finally)
         _currentStatus = "Resolving orphan depots";
         await SendPostProcessingProgressAsync("Resolving orphan depots...", 100, _depotToAppMappings.Count);
+        List<uint> orphanDepotIds = [];
         try
         {
-            var orphanDepotIds = await ResolveOrphanDepotsAsync(ct);
+            orphanDepotIds = await ResolveOrphanDepotsAsync(ct);
             if (orphanDepotIds.Count > 0)
             {
                 _logger.LogInformation("Resolved {Count} orphan depots - saving updated mappings", orphanDepotIds.Count);
+                // JSON save picks up orphan-resolved mappings before the single DB import below
                 await SaveAllMappingsToJsonAsync(incrementalOnly);
-                await ImportJsonToDatabaseAsync();
+            }
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Orphan depot resolution failed (non-fatal)");
+        }
 
-                // Mark orphan-resolved mappings with distinct source so GitHub import preserves them
+        _currentStatus = "Importing to database";
+        await SendPostProcessingProgressAsync("Importing to database...", 100, _depotToAppMappings.Count);
+
+        // Single DB import — includes both main scan results and any orphan-resolved mappings
+        try
+        {
+            await ImportJsonToDatabaseAsync();
+            _logger.LogInformation("Database import completed successfully");
+
+            // Tag orphan-resolved mappings with distinct source so GitHub import preserves them
+            if (orphanDepotIds.Count > 0)
+            {
                 using var scopedDb = _scopeFactory.CreateScopedDbContext();
                 var orphanDepotIdsLong = orphanDepotIds.Select(id => (long)id).ToList();
                 await scopedDb.DbContext.SteamDepotMappings
@@ -482,10 +482,9 @@ public partial class SteamKit2Service
                 _logger.LogInformation("Tagged {Count} orphan depot mapping(s) with source 'orphan-resolved'", orphanDepotIds.Count);
             }
         }
-        catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Orphan depot resolution failed (non-fatal)");
+            _logger.LogError(ex, "Database import failed");
         }
 
         // Auto-apply depot mappings to downloads after PICS data is ready

@@ -6,32 +6,20 @@ namespace LancacheManager.Core.Interfaces;
 public interface IImageCacheService
 {
     /// <summary>
-    /// Gets a cached image if it exists locally and validates the URL hasn't changed
+    /// Gets a cached image from the database by app ID and platform.
+    /// Returns null if no image is stored for this app.
     /// </summary>
-    /// <param name="appId">The Steam app ID</param>
-    /// <param name="currentImageUrl">Current image URL from database (optional - if null, skips URL validation)</param>
+    /// <param name="appId">The app ID (Steam app ID or Epic app ID)</param>
+    /// <param name="platform">The platform ("steam" or "epicgames")</param>
     /// <param name="cancellationToken">Cancellation token</param>
-    /// <returns>Image bytes and content type, or null if not cached or URL changed</returns>
+    /// <returns>Image bytes and content type, or null if not cached</returns>
     Task<(byte[] imageBytes, string contentType)?> GetCachedImageAsync(
-        long appId,
-        string? currentImageUrl = null,
-        CancellationToken cancellationToken = default);
-
-    /// <summary>
-    /// Gets a cached image or downloads it if not cached
-    /// </summary>
-    /// <param name="appId">The Steam app ID</param>
-    /// <param name="imageUrl">The URL to download the image from if not cached</param>
-    /// <param name="cancellationToken">Cancellation token</param>
-    /// <returns>Image bytes and content type, or null if not available</returns>
-    Task<(byte[] imageBytes, string contentType)?> GetOrDownloadImageAsync(
-        long appId,
-        string imageUrl,
+        string appId,
+        string platform,
         CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Clears all cached images
     /// </summary>
     Task ClearCacheAsync();
-
 }

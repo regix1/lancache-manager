@@ -84,6 +84,9 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
   // Track previous SignalR connection state to detect reconnections
   const prevConnectionStateRef = useRef<string | null>(null);
 
+  // Track when the tab was hidden, so we can debounce visibility recovery
+  const tabHiddenAtRef = useRef<number | null>(null);
+
   const getNextInstanceId = useCallback((notificationId: string): number => {
     const current = instanceCounterRef.current.get(notificationId) || 0;
     const next = current + 1;
@@ -376,6 +379,40 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       recoverAllOperations();
     }
   }, [signalR.connectionState, authLoading, isAdmin, fetchWithAuth, scheduleAutoDismiss]);
+
+  // Recovery on tab becoming visible after being backgrounded.
+  // The SignalR connection stays open while backgrounded, so the reconnection effect
+  // never fires — but the browser may have throttled/dropped message processing.
+  // This effect detects the tab returning to the foreground and re-runs recovery
+  // if the tab was hidden for more than 2 seconds.
+  React.useEffect(() => {
+    const MIN_HIDDEN_MS = 2000;
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        tabHiddenAtRef.current = Date.now();
+        return;
+      }
+
+      // Tab became visible
+      if (!isAdmin || authLoading) return;
+
+      const hiddenAt = tabHiddenAtRef.current;
+      tabHiddenAtRef.current = null;
+
+      if (hiddenAt !== null && Date.now() - hiddenAt >= MIN_HIDDEN_MS) {
+        const recoverAllOperations = createRecoveryRunner(
+          fetchWithAuth,
+          setNotifications,
+          scheduleAutoDismiss
+        );
+        recoverAllOperations();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [isAdmin, authLoading, fetchWithAuth, scheduleAutoDismiss]);
 
   // Compute if any removal operation is running (these all share a backend lock)
   const isAnyRemovalRunning = useMemo(

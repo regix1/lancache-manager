@@ -38,7 +38,6 @@ import { UnknownServiceIcon } from '@components/ui/UnknownServiceIcon';
 import { GameImage } from '@components/common/GameImage';
 import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import { resolveGameDetection } from '@utils/gameDetection';
-import { pickGameImage } from '@utils/pickGameImage';
 import DownloadBadges from './DownloadBadges';
 import type {
   Download as DownloadType,
@@ -262,8 +261,6 @@ interface DepotGroupedData {
   averageBytesPerSecond: number;
   downloadIds: number[]; // Track original download IDs for event associations
   isEvicted?: boolean;
-  /** Best GameImageUrl across merged sessions (by startTimeUtc). */
-  storedGameImageUrl?: string;
 }
 
 // Group items by depot ID for retro view display
@@ -400,7 +397,6 @@ const groupByDepot = (
   const grouped = Object.values(depotGroups).map((group) => {
     const { _weightedSpeedSum, _speedBytesSum, _downloads, ...cleanGroup } = group;
     cleanGroup.averageBytesPerSecond = _speedBytesSum > 0 ? _weightedSpeedSum / _speedBytesSum : 0;
-    cleanGroup.storedGameImageUrl = pickGameImage(_downloads);
     return cleanGroup as DepotGroupedData;
   });
 
@@ -1429,7 +1425,6 @@ const RetroView = memo(
                                         alt={data.gameName || t('downloads.tab.retro.gameFallback')}
                                         className="w-[120px] h-[56px] rounded object-cover"
                                         onError={handleImageError}
-                                        imageUrl={data.storedGameImageUrl}
                                       />
                                     ) : (
                                       /* Service icon placeholder */
@@ -1607,7 +1602,6 @@ const RetroView = memo(
                                       alt={data.gameName || t('downloads.tab.retro.gameFallback')}
                                       className="w-[120px] h-[56px] rounded object-cover flex-shrink-0"
                                       onError={handleImageError}
-                                      imageUrl={data.storedGameImageUrl}
                                     />
                                   ) : (
                                     <div className="w-[120px] h-[56px] rounded flex items-center justify-center flex-shrink-0 bg-[var(--theme-bg-tertiary)]">

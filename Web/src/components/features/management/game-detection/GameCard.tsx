@@ -110,7 +110,6 @@ const GameCard: React.FC<GameCardProps> = ({
       onToggleDetails={(id) => onToggleDetails(String(id))}
       onRemove={() => onRemove(game)}
       removeTooltip={removeTooltip}
-      imageUrl={game.image_url}
     >
       {/* Depot IDs - Steam only */}
       {!isEpic && game.depot_ids.length > 0 && (

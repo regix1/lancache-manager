@@ -30,7 +30,6 @@ import DownloadBadges from './DownloadBadges';
 import { useSessionFilters } from './useSessionFilters';
 import SessionFilterBar from './SessionFilterBar';
 import { resolveGameDetection } from '@utils/gameDetection';
-import { pickGameImage } from '@utils/pickGameImage';
 import type { Download, DownloadGroup, GameCacheInfo } from '../../../types';
 
 interface NormalViewSectionLabels {
@@ -137,7 +136,6 @@ const GroupCard: React.FC<GroupCardProps> = ({
   const [expandedIps, setExpandedIps] = React.useState<Record<string, boolean>>({});
   const hitPercent = group.totalBytes > 0 ? (group.cacheHitBytes / group.totalBytes) * 100 : 0;
   const primaryDownload = group.downloads[0];
-  const storedBannerUrl = React.useMemo(() => pickGameImage(group.downloads), [group.downloads]);
   const serviceLower = group.service.toLowerCase();
   const isSteam = serviceLower === 'steam';
   const isWsus = serviceLower === 'wsus' || serviceLower === 'windows';
@@ -243,7 +241,6 @@ const GroupCard: React.FC<GroupCardProps> = ({
           className={fullHeightBanners ? 'download-banner-image-natural' : 'download-banner-image'}
           sizes="(max-width: 639px) 100vw, 280px"
           onError={handleImageError}
-          imageUrl={storedBannerUrl}
         />
       );
     } else {
@@ -1054,7 +1051,6 @@ const GridCard: React.FC<GridCardProps> = ({
   const cardRef = React.useRef<HTMLDivElement>(null);
   const hitPercent = group.totalBytes > 0 ? (group.cacheHitBytes / group.totalBytes) * 100 : 0;
   const primaryDownload = group.downloads[0];
-  const storedBannerUrl = React.useMemo(() => pickGameImage(group.downloads), [group.downloads]);
   const serviceLower = group.service.toLowerCase();
   const isSteam = serviceLower === 'steam';
   const isEpic = serviceLower === 'epic' || serviceLower === 'epicgames';
@@ -1120,7 +1116,6 @@ const GridCard: React.FC<GridCardProps> = ({
           sizes="(max-width: 639px) 100vw, 360px"
           onError={handleImageError}
           loading="lazy"
-          imageUrl={storedBannerUrl}
         />
       );
     } else {
@@ -1271,10 +1266,6 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
   const [expandedIps, setExpandedIps] = React.useState<Record<string, boolean>>({});
   const hitPercent = group.totalBytes > 0 ? (group.cacheHitBytes / group.totalBytes) * 100 : 0;
   const primaryDownload = group.downloads[0];
-  const storedBannerUrlDrawer = React.useMemo(
-    () => pickGameImage(group.downloads),
-    [group.downloads]
-  );
   const serviceLower = group.service.toLowerCase();
   const isSteam = serviceLower === 'steam';
   const isEpic = serviceLower === 'epic' || serviceLower === 'epicgames';
@@ -1348,7 +1339,6 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
         className="drawer-banner-image"
         sizes="(max-width: 639px) 100vw, 550px"
         onError={handleImageError}
-        imageUrl={storedBannerUrlDrawer}
       />
     );
   }

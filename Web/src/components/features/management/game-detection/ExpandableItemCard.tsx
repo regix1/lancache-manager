@@ -20,8 +20,6 @@ interface ExpandableItemCardProps {
   gameAppId?: string | number;
   epicAppId?: string;
   service?: string;
-  /** CDN URL from Downloads / Epic mappings (game detection API); avoids /api/game-images when present. */
-  imageUrl?: string;
   stats: ExpandableItemStat[];
   datasources?: string[];
   isExpanded: boolean;
@@ -46,7 +44,6 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
   gameAppId,
   epicAppId,
   service,
-  imageUrl,
   stats,
   datasources,
   isExpanded,
@@ -70,7 +67,7 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
   };
 
   const isEpic = service === 'epicgames';
-  const showImage = (!!gameAppId || !!epicAppId) && !imageError && !!imageUrl;
+  const showImage = (!!gameAppId || !!epicAppId) && !imageError;
   const isUnknownGame = title.startsWith('Unknown Game');
 
   return (
@@ -99,7 +96,6 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
             className="game-card-image"
             loading="lazy"
             onError={handleImageFinalError}
-            imageUrl={imageUrl}
           />
         )}
         <div className="flex-1 min-w-0">

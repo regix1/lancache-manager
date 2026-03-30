@@ -201,7 +201,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         }
         else
         {
-            _logger.LogWarning("Attempted to update progress for non-existent operation {Id}", operationId);
+            _logger.LogDebug("Attempted to update progress for non-existent operation {Id}", operationId);
         }
     }
 

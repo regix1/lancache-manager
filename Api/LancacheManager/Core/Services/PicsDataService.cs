@@ -4,6 +4,7 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Models;
 using Npgsql;
+using NpgsqlTypes;
 using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Core.Services;
@@ -488,7 +489,7 @@ public class PicsDataService
             using var scopedDb = _scopeFactory.CreateScopedDbContext();
 
             // Phase 2: Build mappings list (5-20%)
-            var mappingsToImport = new List<SteamDepotMapping>();
+            var allMappings = new List<SteamDepotMapping>();
             var processedCount = 0;
             var totalDepots = picsData.DepotMappings.Count;
             var depotIndex = 0;
@@ -508,20 +509,18 @@ public class PicsDataService
                         var appId = mapping.AppIds[i];
                         var appName = mapping.AppNames?.ElementAtOrDefault(i) ?? $"App {appId}";
 
-                        mappingsToImport.Add(new SteamDepotMapping
+                        allMappings.Add(new SteamDepotMapping
                         {
                             DepotId = depotId,
-                            DepotName = mapping.DepotName, // Include depot name from PICS
+                            DepotName = mapping.DepotName,
                             AppId = appId,
                             AppName = appName,
                             Source = mapping.Source ?? "JSON-Import",
                             DiscoveredAt = mapping.DiscoveredAt,
-                            // Use explicit OwnerId if available, otherwise fallback to first position
                             IsOwner = mapping.OwnerId.HasValue ? appId == mapping.OwnerId.Value : i == 0
                         });
 
                         processedCount++;
-                        // Yield every 1000 records to prevent blocking
                         if (processedCount % 1000 == 0)
                         {
                             cancellationToken.ThrowIfCancellationRequested();
@@ -531,7 +530,6 @@ public class PicsDataService
                 }
 
                 depotIndex++;
-                // Report progress every 10% of depots processed
                 if (progressCallback != null && depotIndex % (totalDepots / 10 + 1) == 0)
                 {
                     var phaseProgress = 5 + (int)(15.0 * depotIndex / totalDepots);
@@ -539,125 +537,89 @@ public class PicsDataService
                 }
             }
 
-            // Phase 3: Query existing mappings (20-35%)
-            if (progressCallback != null) await progressCallback("Checking existing mappings...", 20);
+            if (progressCallback != null) await progressCallback($"Inserting {allMappings.Count:N0} mappings...", 20);
 
-            // Get existing mappings to avoid duplicates
-            var depotIds = mappingsToImport.Select(m => m.DepotId).Distinct().ToList();
-            var existingMappings = new Dictionary<string, SteamDepotMapping>();
+            // Phase 3: UNNEST bulk upsert (20-95%)
+            // Check if table is empty for first-run optimization (skip ON CONFLICT overhead)
+            var tableIsEmpty = !await scopedDb.DbContext.SteamDepotMappings.AnyAsync(cancellationToken);
 
-            cancellationToken.ThrowIfCancellationRequested();
-            var allMatchingMappings = await scopedDb.DbContext.SteamDepotMappings
-                .Where(m => depotIds.Contains(m.DepotId))
-                .ToListAsync(cancellationToken);
-
-            foreach (var mapping in allMatchingMappings)
+            var db = scopedDb.DbContext;
+            db.ChangeTracker.AutoDetectChangesEnabled = false;
+            try
             {
-                existingMappings[$"{mapping.DepotId}_{mapping.AppId}"] = mapping;
-            }
+                const int batchSize = 5000;
+                var totalBatches = (allMappings.Count + batchSize - 1) / batchSize;
+                var batchIndex = 0;
 
-            // Phase 4: Compare and prepare new mappings (35-45%)
-            if (progressCallback != null) await progressCallback("Preparing new mappings...", 35);
+                await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
 
-            var newMappings = new List<SteamDepotMapping>();
-            int updated = 0;
-            int comparedCount = 0;
-            var totalToCompare = mappingsToImport.Count;
+                // Reduce WAL write overhead — depot mappings are idempotent so this is safe
+                await db.Database.ExecuteSqlRawAsync("SET LOCAL synchronous_commit = 'off'", cancellationToken);
 
-            foreach (var mapping in mappingsToImport)
-            {
-                var key = $"{mapping.DepotId}_{mapping.AppId}";
-                if (existingMappings.TryGetValue(key, out var existing))
-                {
-                    // Update existing mapping if JSON data is newer, or if both are from PICS (to handle auth mode changes)
-                    if (mapping.DiscoveredAt > existing.DiscoveredAt || (existing.Source == "SteamKit2-PICS" && mapping.Source == "SteamKit2-PICS"))
-                    {
-                        existing.AppName = mapping.AppName;
-                        existing.DepotName = mapping.DepotName; // Update depot name
-                        existing.Source = GetCombinedSource(existing.Source, mapping.Source);
-                        existing.DiscoveredAt = mapping.DiscoveredAt;
-                        existing.IsOwner = mapping.IsOwner; // Update owner flag
-                        updated++;
-                    }
-                }
-                else
-                {
-                    newMappings.Add(mapping);
-                }
-
-                comparedCount++;
-                // Yield every 1000 comparisons to prevent blocking
-                if (comparedCount % 1000 == 0)
+                foreach (var batch in allMappings.Chunk(batchSize))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    await Task.Yield();
 
-                    // Report progress during comparison phase (35-45%)
-                    if (progressCallback != null && comparedCount % 10000 == 0)
+                    var depotIds      = batch.Select(m => m.DepotId).ToArray();
+                    var depotNames    = batch.Select(m => m.DepotName).ToArray();
+                    var appIds        = batch.Select(m => m.AppId).ToArray();
+                    var appNames      = batch.Select(m => m.AppName).ToArray();
+                    var isOwners      = batch.Select(m => m.IsOwner).ToArray();
+                    var discoveredAts = batch.Select(m => m.DiscoveredAt).ToArray();
+                    var sources       = batch.Select(m => m.Source).ToArray();
+
+                    var pDepotIds      = new NpgsqlParameter("p0", NpgsqlDbType.Array | NpgsqlDbType.Bigint)     { Value = depotIds };
+                    var pDepotNames    = new NpgsqlParameter("p1", NpgsqlDbType.Array | NpgsqlDbType.Text)        { Value = depotNames.Select(v => (object?)(v ?? (object)DBNull.Value)).ToArray() };
+                    var pAppIds        = new NpgsqlParameter("p2", NpgsqlDbType.Array | NpgsqlDbType.Bigint)     { Value = appIds };
+                    var pAppNames      = new NpgsqlParameter("p3", NpgsqlDbType.Array | NpgsqlDbType.Text)        { Value = appNames.Select(v => (object?)(v ?? (object)DBNull.Value)).ToArray() };
+                    var pIsOwners      = new NpgsqlParameter("p4", NpgsqlDbType.Array | NpgsqlDbType.Boolean)    { Value = isOwners };
+                    var pDiscoveredAts = new NpgsqlParameter("p5", NpgsqlDbType.Array | NpgsqlDbType.TimestampTz) { Value = discoveredAts };
+                    var pSources       = new NpgsqlParameter("p6", NpgsqlDbType.Array | NpgsqlDbType.Text)        { Value = sources };
+
+                    if (tableIsEmpty)
                     {
-                        var compareProgress = 35 + (int)(10.0 * comparedCount / totalToCompare);
-                        await progressCallback($"Preparing mappings... ({comparedCount:N0}/{totalToCompare:N0})", compareProgress);
+                        // First-run: plain INSERT — no conflict resolution overhead
+                        await db.Database.ExecuteSqlRawAsync(@"
+                            INSERT INTO ""SteamDepotMappings"" (""DepotId"", ""DepotName"", ""AppId"", ""AppName"", ""IsOwner"", ""DiscoveredAt"", ""Source"")
+                            SELECT * FROM UNNEST(@p0::bigint[], @p1::text[], @p2::bigint[], @p3::text[], @p4::boolean[], @p5::timestamptz[], @p6::text[])",
+                            pDepotIds, pDepotNames, pAppIds, pAppNames, pIsOwners, pDiscoveredAts, pSources);
                     }
+                    else
+                    {
+                        // Upsert: ON CONFLICT on unique (DepotId, AppId) index — dedup server-side
+                        await db.Database.ExecuteSqlRawAsync(@"
+                            INSERT INTO ""SteamDepotMappings"" (""DepotId"", ""DepotName"", ""AppId"", ""AppName"", ""IsOwner"", ""DiscoveredAt"", ""Source"")
+                            SELECT * FROM UNNEST(@p0::bigint[], @p1::text[], @p2::bigint[], @p3::text[], @p4::boolean[], @p5::timestamptz[], @p6::text[])
+                            ON CONFLICT (""DepotId"", ""AppId"") DO UPDATE SET
+                                ""DepotName""    = EXCLUDED.""DepotName"",
+                                ""AppName""      = EXCLUDED.""AppName"",
+                                ""IsOwner""      = EXCLUDED.""IsOwner"",
+                                ""DiscoveredAt"" = EXCLUDED.""DiscoveredAt"",
+                                ""Source""       = EXCLUDED.""Source""",
+                            pDepotIds, pDepotNames, pAppIds, pAppNames, pIsOwners, pDiscoveredAts, pSources);
+                    }
+
+                    batchIndex++;
+                    if (progressCallback != null)
+                    {
+                        var insertProgress = 20 + (int)(75.0 * batchIndex / Math.Max(1, totalBatches));
+                        var insertedCount = Math.Min(batchIndex * batchSize, allMappings.Count);
+                        await progressCallback($"Inserting mappings... ({insertedCount:N0}/{allMappings.Count:N0})", insertProgress);
+                    }
+
+                    await Task.Yield();
                 }
+
+                await transaction.CommitAsync(cancellationToken);
+
+                _logger.LogInformation($"Imported PICS data: {allMappings.Count} mappings upserted (tableWasEmpty={tableIsEmpty})");
             }
-
-            // Phase 5: Batch insert new mappings (45-95%)
-            if (progressCallback != null) await progressCallback($"Inserting {newMappings.Count:N0} new mappings...", 45);
-
-            const int batchSize = 5000;
-            var totalInsertBatches = (newMappings.Count + batchSize - 1) / batchSize;
-            var insertBatchIndex = 0;
-
-            for (int i = 0; i < newMappings.Count; i += batchSize)
+            finally
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                var batch = newMappings.Skip(i).Take(batchSize).ToList();
-
-                try
-                {
-                    await scopedDb.DbContext.SteamDepotMappings.AddRangeAsync(batch, cancellationToken);
-                    await scopedDb.DbContext.SaveChangesAsync(cancellationToken);
-                }
-                catch (DbUpdateException ex) when (ex.InnerException is NpgsqlException pgEx && pgEx.SqlState == "23505")
-                {
-                    // UNIQUE constraint violation - duplicates already exist
-                    // This can happen if the same data is imported multiple times
-                    // Just clear the context and continue - the data is already there
-                    scopedDb.DbContext.ChangeTracker.Clear();
-                    _logger.LogDebug("Skipped batch with duplicate mappings - data already exists");
-                }
-
-                insertBatchIndex++;
-                // Report progress during insert phase (45-95%)
-                if (progressCallback != null)
-                {
-                    var insertProgress = 45 + (int)(50.0 * insertBatchIndex / Math.Max(1, totalInsertBatches));
-                    var insertedCount = Math.Min(insertBatchIndex * batchSize, newMappings.Count);
-                    await progressCallback($"Inserting mappings... ({insertedCount:N0}/{newMappings.Count:N0})", insertProgress);
-                }
-
-                // Yield after each batch
-                await Task.Yield();
+                db.ChangeTracker.AutoDetectChangesEnabled = true;
             }
 
-            // Save any remaining updates
-            if (updated > 0)
-            {
-                try
-                {
-                    await scopedDb.DbContext.SaveChangesAsync(cancellationToken);
-                }
-                catch (DbUpdateConcurrencyException)
-                {
-                    // Concurrency error - mappings may have been deleted during import
-                    // This can happen if depot mappings were cleared while import was running
-                    _logger.LogWarning("Concurrency conflict when saving updates - mappings may have been deleted. Clearing change tracker.");
-                    scopedDb.DbContext.ChangeTracker.Clear();
-                    updated = 0; // Reset count since updates failed
-                }
-            }
-
-            _logger.LogInformation($"Imported PICS data: {newMappings.Count} new mappings, {updated} updated");
+            if (progressCallback != null) await progressCallback("Import complete.", 95);
         }
         catch (OperationCanceledException)
         {

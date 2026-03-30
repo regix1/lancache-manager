@@ -27,6 +27,7 @@ public class AppDbContext : DbContext
     public DbSet<CacheSnapshot> CacheSnapshots { get; set; }
     public DbSet<EpicGameMapping> EpicGameMappings { get; set; }
     public DbSet<EpicCdnPattern> EpicCdnPatterns { get; set; }
+    public DbSet<GameImage> GameImages { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -319,6 +320,12 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<EpicCdnPattern>()
             .HasIndex(p => p.ChunkBaseUrl)
             .HasDatabaseName("IX_EpicCdnPatterns_ChunkBaseUrl")
+            .IsUnique();
+
+        // GameImage indexes
+        modelBuilder.Entity<GameImage>()
+            .HasIndex(g => new { g.AppId, g.Service })
+            .HasDatabaseName("IX_GameImages_AppId_Service")
             .IsUnique();
     }
 }
