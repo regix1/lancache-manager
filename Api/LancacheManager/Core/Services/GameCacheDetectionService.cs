@@ -1404,28 +1404,34 @@ public class GameCacheDetectionService : IDisposable
             await using var db = await _dbContextFactory.CreateDbContextAsync();
 
             var epicDownloads = await db.Downloads
-                .Where(d => d.EpicAppId != null && d.GameName != null)
+                .Where(d => d.EpicAppId != null && d.GameName != null && !d.IsEvicted)
                 .ToListAsync();
 
             if (epicDownloads.Count == 0)
                 return new List<GameCacheInfo>();
 
-            // Group by EpicAppId to aggregate per-game stats
+            // Group by EpicAppId, use only the latest download per game for size
+            // to avoid double-counting when a game is downloaded multiple times.
+            // Summing all records would inflate the total beyond actual disk usage.
             var epicGames = epicDownloads
                 .GroupBy(d => d.EpicAppId!)
-                .Select(g => new GameCacheInfo
+                .Select(g =>
                 {
-                    GameAppId = GenerateEpicGameAppId(g.Key),
-                    GameName = g.First().GameName ?? $"Epic Game ({g.Key})",
-                    Service = "epicgames",
-                    CacheFilesFound = g.Count(),
-                    TotalSizeBytes = (ulong)g.Sum(d => d.CacheHitBytes + d.CacheMissBytes),
-                    DepotIds = new List<uint>(),
-                    SampleUrls = g.Where(d => d.LastUrl != null).Select(d => d.LastUrl!).Take(3).ToList(),
-                    CacheFilePaths = new List<string>(),
-                    Datasources = g.Select(d => d.Datasource).Distinct().ToList(),
-                    ImageUrl = g.Select(d => d.GameImageUrl).FirstOrDefault(u => !string.IsNullOrEmpty(u)),
-                    EpicAppId = g.Key
+                    var latestDownload = g.OrderByDescending(d => d.EndTimeUtc).First();
+                    return new GameCacheInfo
+                    {
+                        GameAppId = GenerateEpicGameAppId(g.Key),
+                        GameName = latestDownload.GameName ?? $"Epic Game ({g.Key})",
+                        Service = "epicgames",
+                        CacheFilesFound = g.Count(),
+                        TotalSizeBytes = (ulong)(latestDownload.CacheHitBytes + latestDownload.CacheMissBytes),
+                        DepotIds = new List<uint>(),
+                        SampleUrls = g.Where(d => d.LastUrl != null).Select(d => d.LastUrl!).Take(3).ToList(),
+                        CacheFilePaths = new List<string>(),
+                        Datasources = g.Select(d => d.Datasource).Distinct().ToList(),
+                        ImageUrl = g.Select(d => d.GameImageUrl).FirstOrDefault(u => !string.IsNullOrEmpty(u)),
+                        EpicAppId = g.Key
+                    };
                 })
                 .ToList();
 
