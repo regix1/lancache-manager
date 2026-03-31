@@ -90,6 +90,7 @@ node_modules/
 # Root package files (husky only — not needed in repo)
 /package.json
 /package-lock.json
+.husky/
 
 # Security - API Keys and Authentication
 api_key.txt
