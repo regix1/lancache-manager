@@ -1181,7 +1181,7 @@ const RetroView = memo(
             hasGameImage
           };
         });
-      }, [groupedItems, getAssociations, aestheticMode, imageErrors]);
+      }, [groupedItems, getAssociations, aestheticMode, imageErrors, availableImages]);
 
       // Generate grid template from column widths
       // Use pixel values for precise control during resize, with 1fr on the last column to fill remaining space
