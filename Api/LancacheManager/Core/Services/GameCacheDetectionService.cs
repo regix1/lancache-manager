@@ -28,6 +28,11 @@ public class GameCacheDetectionService : IDisposable
     private readonly SemaphoreSlim _startLock = new(1, 1);
     private CancellationTokenSource? _cancellationTokenSource;
     private string? _currentTrackerOperationId;
+
+    // Track failed depot resolution attempts: after 3 failures, blacklist for 48 hours
+    private static readonly Dictionary<long, (int FailureCount, DateTime? BlacklistedUntil)> _unresolvedDepotTracker = new();
+    private const int MaxResolutionAttempts = 3;
+    private static readonly TimeSpan _blacklistDuration = TimeSpan.FromHours(48);
     private bool _disposed;
     private const string FailedDepotsStateKey = "failedDepotResolutions";
 
@@ -921,7 +926,39 @@ public class GameCacheDetectionService : IDisposable
                 return 0;
             }
 
-            _logger.LogInformation("[GameDetection] Found {Count} unknown games in cache, attempting to resolve", unknownGames.Count);
+            // Filter out blacklisted depots (failed 3+ times, waiting for cooldown)
+            var now = DateTime.UtcNow;
+            var blacklistedCount = 0;
+            unknownGames = unknownGames.Where(g =>
+            {
+                if (_unresolvedDepotTracker.TryGetValue(g.GameAppId, out var tracker))
+                {
+                    if (tracker.BlacklistedUntil.HasValue && tracker.BlacklistedUntil.Value > now)
+                    {
+                        blacklistedCount++;
+                        return false; // Still blacklisted, skip
+                    }
+                    // Blacklist expired — reset tracker and retry
+                    if (tracker.BlacklistedUntil.HasValue)
+                    {
+                        _unresolvedDepotTracker.Remove(g.GameAppId);
+                    }
+                }
+                return true;
+            }).ToList();
+
+            if (unknownGames.Count == 0)
+            {
+                if (blacklistedCount > 0)
+                {
+                    _logger.LogDebug("[GameDetection] {Count} unknown depot(s) are blacklisted, skipping resolution", blacklistedCount);
+                }
+                return 0;
+            }
+
+            _logger.LogInformation("[GameDetection] Found {Count} unknown games in cache, attempting to resolve{Blacklisted}",
+                unknownGames.Count,
+                blacklistedCount > 0 ? $" ({blacklistedCount} blacklisted, skipped)" : "");
 
             // First tier: Build a lookup from Downloads table (already has correct names from Rust processor)
             var unknownDepotIds = unknownGames.Select(g => g.GameAppId).ToHashSet();
@@ -1038,8 +1075,9 @@ public class GameCacheDetectionService : IDisposable
                     continue;
                 }
 
-                // Not found in Downloads or SteamDepotMappings — will remain as "Unknown Game"
+                // Not found in Downloads or SteamDepotMappings — track failure for blacklisting
                 newlyFailedDepots.Add(depotId);
+                continue;
             }
 
             // Remove merged entries
@@ -1053,13 +1091,51 @@ public class GameCacheDetectionService : IDisposable
             {
                 await dbContext.SaveChangesAsync(cancellationToken);
                 _logger.LogInformation("[GameDetection] Resolved {Count} unknown games in cache", resolvedCount);
+
+                // Clear tracker entries for successfully resolved depots
+                foreach (var depotId in unknownGames.Select(g => g.GameAppId).Except(newlyFailedDepots))
+                {
+                    _unresolvedDepotTracker.Remove(depotId);
+                }
             }
 
-            // Log unresolved depots (checked Downloads + SteamDepotMappings)
+            // Track failed depots: increment attempt count, blacklist after MaxResolutionAttempts
             if (newlyFailedDepots.Count > 0)
             {
-                _logger.LogInformation("[GameDetection] Could not resolve {Count} depot(s) from Downloads or SteamDepotMappings: {DepotIds}",
-                    newlyFailedDepots.Count, string.Join(", ", newlyFailedDepots));
+                var blacklisted = new List<long>();
+                var retrying = new List<long>();
+
+                foreach (var depotId in newlyFailedDepots)
+                {
+                    var current = _unresolvedDepotTracker.GetValueOrDefault(depotId);
+                    var newCount = current.FailureCount + 1;
+
+                    if (newCount >= MaxResolutionAttempts)
+                    {
+                        _unresolvedDepotTracker[depotId] = (newCount, DateTime.UtcNow + _blacklistDuration);
+                        blacklisted.Add(depotId);
+                    }
+                    else
+                    {
+                        _unresolvedDepotTracker[depotId] = (newCount, null);
+                        retrying.Add(depotId);
+                    }
+                }
+
+                if (retrying.Count > 0)
+                {
+                    _logger.LogInformation("[GameDetection] Could not resolve {Count} depot(s), will retry (attempt {Attempts}/{Max}): {DepotIds}",
+                        retrying.Count,
+                        _unresolvedDepotTracker[retrying[0]].FailureCount,
+                        MaxResolutionAttempts,
+                        string.Join(", ", retrying));
+                }
+
+                if (blacklisted.Count > 0)
+                {
+                    _logger.LogInformation("[GameDetection] Blacklisted {Count} depot(s) for {Hours}h after {Max} failed attempts: {DepotIds}",
+                        blacklisted.Count, _blacklistDuration.TotalHours, MaxResolutionAttempts, string.Join(", ", blacklisted));
+                }
             }
 
             return resolvedCount;

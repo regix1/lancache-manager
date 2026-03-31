@@ -500,15 +500,18 @@ export function useInitializationFlow({
   }, [goToStep]);
 
   const handleLogProcessingComplete = useCallback(async (): Promise<void> => {
-    // Skip depot mapping if user didn't select any platform in step 4
-    if (dataSourceChoice === 'skip' || dataSourceChoice === null) {
+    // Show depot mapping step if any platform was configured (steam or epic)
+    // Note: dataSourceChoice gets reset to null after each platform completes,
+    // so we check completedPlatforms instead to determine if mappings should be applied
+    const hasAnyPlatform = completedPlatforms.steam !== null || completedPlatforms.epic;
+    if (!hasAnyPlatform) {
       const completed = await markSetupCompleted();
       if (!completed) return;
       await handleInitializationComplete();
       return;
     }
     goToStep('depot-mapping');
-  }, [dataSourceChoice, markSetupCompleted, handleInitializationComplete, goToStep]);
+  }, [completedPlatforms, markSetupCompleted, handleInitializationComplete, goToStep]);
 
   const handleLogProcessingSkip = useCallback(async (): Promise<void> => {
     const completed = await markSetupCompleted();
