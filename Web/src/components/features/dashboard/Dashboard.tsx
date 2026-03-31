@@ -439,14 +439,19 @@ const Dashboard: React.FC = () => {
     activeDownloadCount
   ]);
 
-  // Compute "Games on Disk" aggregate from detection data
+  // Compute "Games on Disk" aggregate from detection data.
+  // Hold the previous stable value in a ref so the card doesn't jump
+  // while game detection is running and returning intermediate results.
+  const prevGamesOnDiskRef = useRef<{ totalSize: number; gameCount: number } | null>(null);
   const gamesOnDiskStats = useMemo(() => {
     if (!gameDetectionData?.hasCachedResults || !gameDetectionData.games) {
-      return null;
+      return prevGamesOnDiskRef.current;
     }
     const games = gameDetectionData.games;
     const totalSize = games.reduce((sum, game) => sum + game.total_size_bytes, 0);
-    return { totalSize, gameCount: games.length };
+    const result = { totalSize, gameCount: games.length };
+    prevGamesOnDiskRef.current = result;
+    return result;
   }, [gameDetectionData]);
 
   const allStatCards = useMemo<AllStatCards>(
