@@ -346,7 +346,18 @@ const Dashboard: React.FC = () => {
     const saved = storage.getItem(STORAGE_KEYS.DASHBOARD_CARD_VISIBILITY);
     if (saved) {
       try {
-        return { ...DEFAULT_CARD_VISIBILITY, ...JSON.parse(saved) };
+        const parsed = JSON.parse(saved) as CardVisibility;
+        const merged = { ...DEFAULT_CARD_VISIBILITY, ...parsed };
+        // Force hidden-by-default cards to stay hidden unless the user
+        // explicitly saved a value for them (i.e. the key exists in their
+        // persisted state).  This prevents stale localStorage from a
+        // previous version from overriding a new card's default.
+        for (const key of Object.keys(DEFAULT_CARD_VISIBILITY)) {
+          if (DEFAULT_CARD_VISIBILITY[key] === false && !(key in parsed)) {
+            merged[key] = false;
+          }
+        }
+        return merged;
       } catch (e) {
         console.error('Failed to parse card visibility settings:', e);
         return DEFAULT_CARD_VISIBILITY;
@@ -680,7 +691,13 @@ const Dashboard: React.FC = () => {
                   <div className="p-2 border-b border-themed-primary">
                     <button
                       onClick={() => {
-                        setCardVisibility(DEFAULT_CARD_VISIBILITY);
+                        setCardVisibility((prev: CardVisibility) => {
+                          const allVisible: CardVisibility = { ...prev };
+                          for (const key of Object.keys(allVisible)) {
+                            allVisible[key] = true;
+                          }
+                          return allVisible;
+                        });
                         setDropdownOpen(false);
                         setSearchQuery('');
                       }}
