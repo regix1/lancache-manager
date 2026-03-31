@@ -15,6 +15,7 @@ namespace LancacheManager.Infrastructure.Services;
 public class GameImageFetchService : ScopedScheduledBackgroundService
 {
     private readonly IStateService _stateService;
+    private static readonly SemaphoreSlim _executionLock = new(1, 1);
 
     protected override string ServiceName => "GameImageFetch";
     protected override TimeSpan Interval => TimeSpan.FromMinutes(30);
@@ -33,8 +34,10 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
 
     protected override async Task OnStartupAsync(CancellationToken stoppingToken)
     {
-        // Wait for logs to be processed so Downloads table has game data for image fetching
-        await _stateService.WaitForLogsProcessedAsync(stoppingToken);
+        // Wait for setup to complete before running scheduled image fetches.
+        // During setup, RustLogProcessorService triggers FetchImagesNowAsync directly
+        // after log processing — we must not race with that.
+        await _stateService.WaitForSetupCompletedAsync(stoppingToken);
     }
 
     /// <summary>
@@ -49,6 +52,27 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
     }
 
     protected override async Task ExecuteScopedWorkAsync(
+        IServiceProvider scopedServices,
+        CancellationToken stoppingToken)
+    {
+        // Prevent concurrent execution — FetchImagesNowAsync and scheduled runs can overlap
+        if (!await _executionLock.WaitAsync(0, stoppingToken))
+        {
+            _logger.LogDebug("[GameImageFetch] Skipping — another fetch is already running");
+            return;
+        }
+
+        try
+        {
+            await ExecuteImageFetchAsync(scopedServices, stoppingToken);
+        }
+        finally
+        {
+            _executionLock.Release();
+        }
+    }
+
+    private async Task ExecuteImageFetchAsync(
         IServiceProvider scopedServices,
         CancellationToken stoppingToken)
     {
