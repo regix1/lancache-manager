@@ -12,6 +12,7 @@ import { useTranslation } from 'react-i18next';
 import { HardDrive, Download, Zap } from 'lucide-react';
 
 import { useIsDesktop } from '@hooks/useMediaQuery';
+import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
 import {
   formatBytes,
   formatPercent,
@@ -634,6 +635,7 @@ const RetroView = memo(
     ) => {
       const { t } = useTranslation();
       const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
+      const availableImages = useAvailableGameImages();
 
       // Use JavaScript-based breakpoint detection for conditional rendering
       // This completely removes desktop layout from DOM on mobile, preventing width calculation conflicts
@@ -1157,15 +1159,13 @@ const RetroView = memo(
             !aestheticMode &&
             isSteam &&
             data.gameAppId &&
-            data.gameName &&
-            data.gameName !== data.service &&
-            !data.gameName.match(/^Steam App \d+$/) &&
+            availableImages.has(String(data.gameAppId)) &&
             !imageErrors.has(String(data.gameAppId));
           const hasEpicImage =
             !aestheticMode &&
             isEpicService &&
             data.epicAppId &&
-            data.gameName &&
+            availableImages.has(data.epicAppId) &&
             !imageErrors.has(`epic-${data.epicAppId}`);
           const hasGameImage = hasSteamImage || hasEpicImage;
 

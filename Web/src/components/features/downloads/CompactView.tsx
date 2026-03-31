@@ -8,6 +8,7 @@ import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { GameImage } from '@components/common/GameImage';
 import { useHoldTimer } from '@hooks/useHoldTimer';
+import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
 import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import DownloadBadges from './DownloadBadges';
 import { useSessionFilters } from './useSessionFilters';
@@ -143,22 +144,14 @@ const GroupRow: React.FC<GroupRowProps> = ({
     }
   }, [isExpanded, enableScrollIntoView]);
 
+  const availableImages = useAvailableGameImages();
   const hitPercent = group.totalBytes > 0 ? (group.cacheHitBytes / group.totalBytes) * 100 : 0;
   const primaryDownload = group.downloads[0];
   const serviceLower = group.service.toLowerCase();
   const isEpicService = serviceLower === 'epic' || serviceLower === 'epicgames';
   const showSteamImage =
-    group.type === 'game' &&
-    serviceLower === 'steam' &&
-    primaryDownload?.gameAppId &&
-    primaryDownload?.gameName &&
-    primaryDownload.gameName !== primaryDownload.service &&
-    !primaryDownload.gameName.match(/^Steam App \d+$/);
-  const showEpicImage =
-    group.type === 'game' &&
-    isEpicService &&
-    primaryDownload?.epicAppId &&
-    primaryDownload?.gameName;
+    serviceLower === 'steam' && availableImages.has(String(primaryDownload?.gameAppId ?? ''));
+  const showEpicImage = isEpicService && availableImages.has(primaryDownload?.epicAppId ?? '');
   const showGameImage = showSteamImage || showEpicImage;
   const gameImageAppId = showEpicImage ? primaryDownload?.epicAppId : primaryDownload?.gameAppId;
   const gameImageErrorKey = showEpicImage

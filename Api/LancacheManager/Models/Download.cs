@@ -46,7 +46,6 @@ public class Download : IUtcMarkable
     [System.ComponentModel.DataAnnotations.Schema.NotMapped]
     public double? DurationSeconds { get; set; }
 
-
     // Computed properties need [JsonInclude] to be serialized
     [JsonInclude]
     public long TotalBytes => CacheHitBytes + CacheMissBytes;

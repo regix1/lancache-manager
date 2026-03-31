@@ -4,6 +4,7 @@ import { Loader2, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Tooltip } from '@components/ui/Tooltip';
 import { GameImage } from '../../../common/GameImage';
+import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
 
 export interface ExpandableItemStat {
   icon: React.ComponentType<{ className?: string }>;
@@ -61,13 +62,15 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
 }) => {
   const { t } = useTranslation();
   const [imageError, setImageError] = useState(false);
+  const availableImages = useAvailableGameImages();
 
   const handleImageFinalError = (_gameAppId: string) => {
     setImageError(true);
   };
 
   const isEpic = service === 'epicgames';
-  const showImage = (!!gameAppId || !!epicAppId) && !imageError;
+  const imageId = isEpic ? epicAppId : String(gameAppId ?? '');
+  const showImage = !!imageId && availableImages.has(imageId) && !imageError;
   const isUnknownGame = title.startsWith('Unknown Game');
 
   return (

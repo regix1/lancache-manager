@@ -25,6 +25,7 @@ import { Tooltip } from '@components/ui/Tooltip';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { GameImage } from '@components/common/GameImage';
 import { useHoldTimer } from '@hooks/useHoldTimer';
+import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
 import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import DownloadBadges from './DownloadBadges';
 import { useSessionFilters } from './useSessionFilters';
@@ -134,6 +135,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
     hasActiveFilters
   } = useSessionFilters(group.downloads);
   const [expandedIps, setExpandedIps] = React.useState<Record<string, boolean>>({});
+  const availableImages = useAvailableGameImages();
   const hitPercent = group.totalBytes > 0 ? (group.cacheHitBytes / group.totalBytes) * 100 : 0;
   const primaryDownload = group.downloads[0];
   const serviceLower = group.service.toLowerCase();
@@ -160,15 +162,8 @@ const GroupCard: React.FC<GroupCardProps> = ({
     detectionByService
   );
   const diskSizeBytes = detection?.total_size_bytes;
-  const isGenericSteamTitle =
-    !primaryName || primaryName === group.service || /^Steam App \d+$/.test(primaryName);
-  const showSteamImage =
-    group.type === 'game' &&
-    isSteam &&
-    Boolean(steamAppId) &&
-    !!primaryName &&
-    !isGenericSteamTitle;
-  const showEpicImage = group.type === 'game' && isEpic && Boolean(epicAppId) && !!primaryName;
+  const showSteamImage = isSteam && availableImages.has(String(primaryDownload?.gameAppId ?? ''));
+  const showEpicImage = isEpic && availableImages.has(primaryDownload?.epicAppId ?? '');
   const storeLink = primaryDownload?.gameAppId
     ? `https://store.steampowered.com/app/${primaryDownload.gameAppId}`
     : null;
@@ -1048,6 +1043,7 @@ const GridCard: React.FC<GridCardProps> = ({
 }) => {
   const { t } = useTranslation();
   const { fetchAssociations, getAssociations, refreshVersion } = useDownloadAssociations();
+  const availableImages = useAvailableGameImages();
   const cardRef = React.useRef<HTMLDivElement>(null);
   const hitPercent = group.totalBytes > 0 ? (group.cacheHitBytes / group.totalBytes) * 100 : 0;
   const primaryDownload = group.downloads[0];
@@ -1065,15 +1061,8 @@ const GridCard: React.FC<GridCardProps> = ({
   const steamAppId = primaryDownload?.gameAppId ? String(primaryDownload.gameAppId) : null;
   const epicAppId = primaryDownload?.epicAppId ?? null;
   const primaryName = primaryDownload?.gameName ?? '';
-  const isGenericSteamTitle =
-    !primaryName || primaryName === group.service || /^Steam App \d+$/.test(primaryName);
-  const showSteamImage =
-    group.type === 'game' &&
-    isSteam &&
-    Boolean(steamAppId) &&
-    !!primaryName &&
-    !isGenericSteamTitle;
-  const showEpicImage = group.type === 'game' && isEpic && Boolean(epicAppId) && !!primaryName;
+  const showSteamImage = isSteam && availableImages.has(String(primaryDownload?.gameAppId ?? ''));
+  const showEpicImage = isEpic && availableImages.has(primaryDownload?.epicAppId ?? '');
   const artworkId = showSteamImage ? steamAppId : showEpicImage ? `epic-${epicAppId}` : null;
   const hasArtwork = artworkId !== null && !imageErrors.has(artworkId);
   const isEvicted = group.downloads.every((d: Download) => d.isEvicted);
@@ -1263,6 +1252,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
     filteredCount,
     hasActiveFilters
   } = useSessionFilters(group.downloads);
+  const availableImages = useAvailableGameImages();
   const [expandedIps, setExpandedIps] = React.useState<Record<string, boolean>>({});
   const hitPercent = group.totalBytes > 0 ? (group.cacheHitBytes / group.totalBytes) * 100 : 0;
   const primaryDownload = group.downloads[0];
@@ -1280,15 +1270,8 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
   const steamAppId = primaryDownload?.gameAppId ? String(primaryDownload.gameAppId) : null;
   const epicAppId = primaryDownload?.epicAppId ?? null;
   const primaryName = primaryDownload?.gameName ?? '';
-  const isGenericSteamTitle =
-    !primaryName || primaryName === group.service || /^Steam App \d+$/.test(primaryName);
-  const showSteamImage =
-    group.type === 'game' &&
-    isSteam &&
-    Boolean(steamAppId) &&
-    !!primaryName &&
-    !isGenericSteamTitle;
-  const showEpicImage = group.type === 'game' && isEpic && Boolean(epicAppId) && !!primaryName;
+  const showSteamImage = isSteam && availableImages.has(String(primaryDownload?.gameAppId ?? ''));
+  const showEpicImage = isEpic && availableImages.has(primaryDownload?.epicAppId ?? '');
   const detection = resolveGameDetection(
     primaryDownload?.gameAppId,
     primaryDownload?.gameName,

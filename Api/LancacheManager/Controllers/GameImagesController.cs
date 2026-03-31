@@ -2,9 +2,11 @@ using System.Security.Cryptography;
 using LancacheManager.Models;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services.EpicMapping;
+using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Controllers;
 
@@ -22,6 +24,7 @@ public class GameImagesController : ControllerBase
     private readonly IImageCacheService _imageCacheService;
     private readonly EpicMappingService? _epicMappingService;
     private readonly GameImageFetchService _gameImageFetchService;
+    private readonly AppDbContext _context;
 
     // Bumped on cache clear so the frontend can build cache-busted image URLs
     private static long _cacheGeneration = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
@@ -30,11 +33,13 @@ public class GameImagesController : ControllerBase
         ILogger<GameImagesController> logger,
         IImageCacheService imageCacheService,
         GameImageFetchService gameImageFetchService,
+        AppDbContext context,
         EpicMappingService? epicMappingService = null)
     {
         _logger = logger;
         _imageCacheService = imageCacheService;
         _gameImageFetchService = gameImageFetchService;
+        _context = context;
         _epicMappingService = epicMappingService;
     }
 
@@ -83,6 +88,21 @@ public class GameImagesController : ControllerBase
     /// </summary>
     [HttpGet("cache-version")]
     public IActionResult GetCacheVersion() => Ok(new { version = _cacheGeneration });
+
+    /// <summary>
+    /// Returns the list of app IDs that have cached game images.
+    /// The frontend uses this to skip rendering image components for apps without images.
+    /// </summary>
+    [HttpGet("available")]
+    public async Task<IActionResult> GetAvailableImageIdsAsync(CancellationToken cancellationToken = default)
+    {
+        var ids = await _context.GameImages
+            .AsNoTracking()
+            .Select(gi => gi.AppId)
+            .ToListAsync(cancellationToken);
+
+        return Ok(ids);
+    }
 
     /// <summary>
     /// Clears the game image cache and optionally triggers an Epic image URL refresh.

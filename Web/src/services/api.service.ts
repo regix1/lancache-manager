@@ -538,6 +538,15 @@ class ApiService {
     }
   }
 
+  static async getAvailableGameImages(): Promise<string[]> {
+    try {
+      const res = await fetch(`${API_BASE}/game-images/available`, this.getFetchOptions({}));
+      return await this.handleResponse<string[]>(res);
+    } catch {
+      return [];
+    }
+  }
+
   // Get the backend's image cache generation (used as cache-bust param on image URLs)
   static async getImageCacheVersion(): Promise<number> {
     try {
