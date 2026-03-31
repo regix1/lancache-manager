@@ -1,3 +1,4 @@
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services.Base;
@@ -13,16 +14,28 @@ namespace LancacheManager.Infrastructure.Services;
 /// </summary>
 public class GameImageFetchService : ScopedScheduledBackgroundService
 {
+    private readonly IStateService _stateService;
+
     protected override string ServiceName => "GameImageFetch";
     protected override TimeSpan Interval => TimeSpan.FromMinutes(30);
     protected override bool RunOnStartup => true;
-    protected override TimeSpan StartupDelay => TimeSpan.FromMinutes(3);
+    protected override TimeSpan StartupDelay => TimeSpan.Zero;
 
     public GameImageFetchService(
         IServiceProvider serviceProvider,
         ILogger<GameImageFetchService> logger,
-        IConfiguration configuration)
-        : base(serviceProvider, logger, configuration) { }
+        IConfiguration configuration,
+        IStateService stateService)
+        : base(serviceProvider, logger, configuration)
+    {
+        _stateService = stateService;
+    }
+
+    protected override async Task OnStartupAsync(CancellationToken stoppingToken)
+    {
+        // Wait for logs to be processed so Downloads table has game data for image fetching
+        await _stateService.WaitForLogsProcessedAsync(stoppingToken);
+    }
 
     /// <summary>
     /// Public trigger so other services (e.g. RustLogProcessorService) can request

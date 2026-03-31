@@ -32,6 +32,10 @@ public interface IStateService
     // Setup Completed Methods
     bool GetSetupCompleted();
     void SetSetupCompleted(bool completed);
+    Task WaitForSetupCompletedAsync(CancellationToken cancellationToken);
+
+    // Has Processed Logs Methods (async wait)
+    Task WaitForLogsProcessedAsync(CancellationToken cancellationToken);
 
     // Data Availability Methods
     bool HasDataLoaded();

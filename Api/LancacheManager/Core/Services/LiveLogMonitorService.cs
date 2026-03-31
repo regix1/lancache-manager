@@ -33,7 +33,7 @@ public class LiveLogMonitorService : ScheduledBackgroundService
 
     protected override string ServiceName => "LiveLogMonitor";
     protected override TimeSpan Interval => TimeSpan.FromSeconds(1);
-    protected override TimeSpan StartupDelay => TimeSpan.FromSeconds(20);
+    protected override TimeSpan StartupDelay => TimeSpan.Zero;
     protected override bool RunOnStartup => true;
 
     /// <summary>
@@ -133,6 +133,9 @@ public class LiveLogMonitorService : ScheduledBackgroundService
 
     protected override async Task OnStartupAsync(CancellationToken stoppingToken)
     {
+        // Wait for setup to complete so datasources are configured
+        await _stateService.WaitForSetupCompletedAsync(stoppingToken);
+
         var datasources = _datasourceService.GetDatasources();
 
         if (datasources.Count == 0)

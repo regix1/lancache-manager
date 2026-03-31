@@ -14,13 +14,14 @@ public class DirectoryPermissionMonitorService : ScheduledBackgroundService
     private readonly IPathResolver _pathResolver;
     private readonly DatasourceService _datasourceService;
     private readonly ISignalRNotificationService _signalRNotificationService;
+    private readonly IStateService _stateService;
 
     // Last known permission state per datasource: (cacheWritable, logsWritable)
     private readonly Dictionary<string, (bool CacheWritable, bool LogsWritable)> _lastKnownState = new();
 
     protected override string ServiceName => "DirectoryPermissionMonitor";
     protected override TimeSpan Interval => TimeSpan.FromSeconds(30);
-    protected override TimeSpan StartupDelay => TimeSpan.FromSeconds(10);
+    protected override TimeSpan StartupDelay => TimeSpan.Zero;
     protected override bool RunOnStartup => true;
 
     public DirectoryPermissionMonitorService(
@@ -28,16 +29,21 @@ public class DirectoryPermissionMonitorService : ScheduledBackgroundService
         IConfiguration configuration,
         IPathResolver pathResolver,
         DatasourceService datasourceService,
-        ISignalRNotificationService signalRNotificationService)
+        ISignalRNotificationService signalRNotificationService,
+        IStateService stateService)
         : base(logger, configuration)
     {
         _pathResolver = pathResolver;
         _datasourceService = datasourceService;
         _signalRNotificationService = signalRNotificationService;
+        _stateService = stateService;
     }
 
     protected override async Task OnStartupAsync(CancellationToken stoppingToken)
     {
+        // Wait for setup to complete so datasource paths are configured
+        await _stateService.WaitForSetupCompletedAsync(stoppingToken);
+
         // Initialize last known state from current permissions
         var datasources = _datasourceService.GetDatasources();
         foreach (var ds in datasources)

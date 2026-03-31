@@ -1,4 +1,5 @@
 using System.Data;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Extensions;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services.Base;
@@ -10,9 +11,10 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
 {
     private readonly CacheManagementService _cacheManagementService;
     private readonly DatasourceService _datasourceService;
+    private readonly IStateService _stateService;
 
     protected override string ServiceName => "DownloadCleanupService";
-    protected override TimeSpan StartupDelay => TimeSpan.FromSeconds(10);
+    protected override TimeSpan StartupDelay => TimeSpan.Zero;
     protected override TimeSpan Interval => TimeSpan.FromSeconds(10);
     protected override bool RunOnStartup => true;
 
@@ -21,15 +23,20 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
         ILogger<DownloadCleanupService> logger,
         IConfiguration configuration,
         CacheManagementService cacheManagementService,
-        DatasourceService datasourceService)
+        DatasourceService datasourceService,
+        IStateService stateService)
         : base(serviceProvider, logger, configuration)
     {
         _cacheManagementService = cacheManagementService;
         _datasourceService = datasourceService;
+        _stateService = stateService;
     }
 
     protected override async Task OnStartupAsync(CancellationToken stoppingToken)
     {
+        // Wait for setup to complete so the database is configured
+        await _stateService.WaitForSetupCompletedAsync(stoppingToken);
+
         using var scopedDb = _serviceProvider.CreateScopedDbContext();
         await PerformInitialCleanupAsync(scopedDb.DbContext, stoppingToken);
     }

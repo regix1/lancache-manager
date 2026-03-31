@@ -21,6 +21,9 @@ public class StateService : IStateService
     private readonly object _lock = new object();
     private readonly object _operationLock = new object();
     private readonly object _cacheClearLock = new object();
+    private readonly object _signalLock = new object();
+    private TaskCompletionSource<bool> _setupCompletedSignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private TaskCompletionSource<bool> _logsProcessedSignal = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private AppState? _cachedState;
     private List<OperationState>? _cachedOperationStates;
     private List<CacheClearOperation>? _cachedCacheClearOperations;
@@ -595,6 +598,26 @@ public class StateService : IStateService
     public void SetSetupCompleted(bool completed)
     {
         UpdateState(state => state.SetupCompleted = completed);
+        lock (_signalLock)
+        {
+            if (completed)
+                _setupCompletedSignal.TrySetResult(true);
+            else if (_setupCompletedSignal.Task.IsCompleted)
+                _setupCompletedSignal = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        }
+    }
+
+    public async Task WaitForSetupCompletedAsync(CancellationToken cancellationToken)
+    {
+        if (GetSetupCompleted()) return;
+
+        Task signal;
+        lock (_signalLock) { signal = _setupCompletedSignal.Task; }
+
+        // Re-check after capturing signal to avoid TOCTOU race
+        if (GetSetupCompleted()) return;
+
+        await signal.WaitAsync(cancellationToken);
     }
 
     // Setup Wizard State Methods
@@ -651,6 +674,26 @@ public class StateService : IStateService
     public void SetHasProcessedLogs(bool processed)
     {
         UpdateState(state => state.HasProcessedLogs = processed);
+        lock (_signalLock)
+        {
+            if (processed)
+                _logsProcessedSignal.TrySetResult(true);
+            else if (_logsProcessedSignal.Task.IsCompleted)
+                _logsProcessedSignal = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        }
+    }
+
+    public async Task WaitForLogsProcessedAsync(CancellationToken cancellationToken)
+    {
+        if (GetHasProcessedLogs()) return;
+
+        Task signal;
+        lock (_signalLock) { signal = _logsProcessedSignal.Task; }
+
+        // Re-check after capturing signal to avoid TOCTOU race
+        if (GetHasProcessedLogs()) return;
+
+        await signal.WaitAsync(cancellationToken);
     }
 
     // Last PICS Crawl Methods

@@ -12,6 +12,7 @@ import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDr
 import { useNotifications, NOTIFICATION_IDS } from '@contexts/notifications';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useDockerSocket } from '@contexts/useDockerSocket';
+import { useSetupStatus } from '@contexts/useSetupStatus';
 import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
 import { useInvalidateImages } from '@components/common/ImageCacheContext';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
@@ -46,6 +47,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const { isDockerAvailable } = useDockerSocket();
   const { cacheReadOnly, checkingPermissions } = useDirectoryPermissions();
   const invalidateImageCache = useInvalidateImages();
+  const { setupStatus, refreshSetupStatus } = useSetupStatus();
+  const hasProcessedLogs = setupStatus?.hasProcessedLogs ?? false;
 
   // Derive game detection state from notifications (standardized pattern)
   const activeGameDetectionNotification = notifications.find(
@@ -66,8 +69,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const [services, setServices] = useState<ServiceCacheInfo[]>([]);
   const [gameToRemove, setGameToRemove] = useState<GameCacheInfo | null>(null);
   const [serviceToRemove, setServiceToRemove] = useState<ServiceCacheInfo | null>(null);
-  const [hasProcessedLogs, setHasProcessedLogs] = useState(false);
-  const [checkingLogs, setCheckingLogs] = useState(false);
   const [lastDetectionTime, setLastDetectionTime] = useState<string | null>(null);
   const [scanType, setScanType] = useState<'full' | 'incremental' | 'load' | null>(null);
   const [datasources, setDatasources] = useState<DatasourceInfo[]>([]);
@@ -177,9 +178,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
     loadCachedGames();
     if (refreshKey === 0) {
-      // Only check logs and datasources on initial mount (permissions handled by useDirectoryPermissions hook)
+      // Only load datasources on initial mount (permissions handled by useDirectoryPermissions hook)
       loadDatasources();
-      checkIfLogsProcessed(); // Check database for LogEntries
+      // Note: hasProcessedLogs is now provided by useSetupStatus context (anonymous endpoint)
       // Note: Recovery is now handled by NotificationsContext's recoverGameDetection
       // which queries the backend and creates the notification on page load
     }
@@ -206,21 +207,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       }
     } catch (err) {
       console.error('Failed to load datasources:', err);
-    }
-  };
-
-  const checkIfLogsProcessed = async () => {
-    try {
-      setCheckingLogs(true);
-      // Check database LogEntries count (not log file counts)
-      // Game detection requires LogEntries in the database, not just log files
-      const dbLogCount = await ApiService.getDatabaseLogEntriesCount();
-      setHasProcessedLogs(dbLogCount > 0);
-    } catch (err) {
-      console.error('Failed to check if logs are processed:', err);
-      setHasProcessedLogs(false); // Assume no logs on error
-    } finally {
-      setCheckingLogs(false);
     }
   };
 
@@ -263,7 +249,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     if (databaseResetNotifs.length > 0) {
       setGames([]);
       setServices([]);
-      checkIfLogsProcessed();
+      refreshSetupStatus();
     }
 
     // Handle log processing completion
@@ -271,7 +257,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       (n) => n.type === 'log_processing' && n.status === 'completed'
     );
     if (logProcessingNotifs.length > 0) {
-      checkIfLogsProcessed();
+      refreshSetupStatus();
     }
 
     // Handle game detection completion - ONLY if we were starting detection
@@ -687,14 +673,14 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
       <Tooltip
         content={
-          !hasProcessedLogs && !checkingLogs
+          !hasProcessedLogs
             ? t('management.gameDetection.processLogsFirst')
             : t('management.gameDetection.quickScan')
         }
       >
         <Button
           onClick={handleIncrementalScan}
-          disabled={loading || mockMode || checkingPermissions || !hasProcessedLogs || checkingLogs}
+          disabled={loading || mockMode || checkingPermissions || !hasProcessedLogs}
           variant="subtle"
           size="sm"
         >
@@ -708,14 +694,14 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
       <Tooltip
         content={
-          !hasProcessedLogs && !checkingLogs
+          !hasProcessedLogs
             ? t('management.gameDetection.processLogsFirst')
             : t('management.gameDetection.fullScan')
         }
       >
         <Button
           onClick={handleFullScan}
-          disabled={loading || mockMode || checkingPermissions || !hasProcessedLogs || checkingLogs}
+          disabled={loading || mockMode || checkingPermissions || !hasProcessedLogs}
           variant="filled"
           color="blue"
           size="sm"
@@ -905,7 +891,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                       : t('management.gameDetection.emptyState.noGamesServices')
                   }
                   subtitle={
-                    !hasProcessedLogs && !checkingLogs
+                    !hasProcessedLogs
                       ? t('management.gameDetection.emptyState.processLogsFirst')
                       : t('management.gameDetection.emptyState.clickFullScan')
                   }
