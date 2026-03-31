@@ -418,6 +418,9 @@ builder.Services.AddHostedService<DirectoryPermissionMonitorService>();
 // Register RustSpeedTrackerService for real-time per-game download speed monitoring (uses Rust for faster parsing)
 builder.Services.AddSingletonHostedService<RustSpeedTrackerService>();
 
+// Register GameDetectionStartupService to auto-trigger game cache detection at startup
+builder.Services.AddSingletonHostedService<GameDetectionStartupService>();
+
 // Configure OpenTelemetry Metrics for Prometheus + Grafana
 builder.Services.AddOpenTelemetry()
     .WithMetrics(metrics =>

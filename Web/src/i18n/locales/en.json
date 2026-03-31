@@ -415,6 +415,7 @@
       "noSnapshotsYet": "No snapshots yet",
       "gamesOnDisk": "Games on Disk",
       "gamesDetected": "{{count}} games detected",
+      "noScanData": "No scan data yet",
       "onDisk": "{{size}} on disk"
     },
     "statCards": {

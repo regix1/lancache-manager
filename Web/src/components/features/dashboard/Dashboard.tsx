@@ -562,20 +562,18 @@ const Dashboard: React.FC = () => {
         visible: cardVisibility.cacheHitRatio,
         tooltip: statTooltips.cacheHitRatio
       },
-      ...(gamesOnDiskStats
-        ? {
-            gamesOnDisk: {
-              key: 'gamesOnDisk',
-              title: t('dashboard.cards.gamesOnDisk'),
-              value: formatBytes(gamesOnDiskStats.totalSize),
-              subtitle: t('dashboard.cards.gamesDetected', { count: gamesOnDiskStats.gameCount }),
-              icon: HardDrive,
-              color: 'cyan' as const,
-              visible: cardVisibility.gamesOnDisk ?? true,
-              tooltip: statTooltips.gamesOnDisk
-            }
-          }
-        : {})
+      gamesOnDisk: {
+        key: 'gamesOnDisk',
+        title: t('dashboard.cards.gamesOnDisk'),
+        value: gamesOnDiskStats ? formatBytes(gamesOnDiskStats.totalSize) : '—',
+        subtitle: gamesOnDiskStats
+          ? t('dashboard.cards.gamesDetected', { count: gamesOnDiskStats.gameCount })
+          : t('dashboard.cards.noScanData'),
+        icon: HardDrive,
+        color: 'cyan' as const,
+        visible: cardVisibility.gamesOnDisk ?? false,
+        tooltip: statTooltips.gamesOnDisk
+      }
     }),
     [
       t,
