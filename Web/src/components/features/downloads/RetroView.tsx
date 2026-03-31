@@ -1152,7 +1152,7 @@ const RetroView = memo(
           else accentColor = 'var(--theme-error)';
 
           // Check if has game image
-          const serviceLower = data.service.toLowerCase();
+          const serviceLower = (data.service ?? '').toLowerCase();
           const isSteam = serviceLower === 'steam';
           const isEpicService = serviceLower === 'epic' || serviceLower === 'epicgames';
           const hasSteamImage =

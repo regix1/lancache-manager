@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.Json;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Hubs;
@@ -579,14 +577,8 @@ public class GameCacheDetectionService : IDisposable
                 completionMessage += $" across {datasources.Count} datasources";
             }
 
-            // Merge Epic games from resolved downloads
-            var epicGames = await GetEpicGamesFromDownloadsAsync();
-            if (epicGames.Count > 0)
-            {
-                finalGames.AddRange(epicGames);
-                totalGamesDetected = finalGames.Count;
-                _logger.LogInformation("[GameDetection] Added {Count} Epic games from resolved downloads", epicGames.Count);
-            }
+            // Epic games are now detected by the Rust processor using actual cache file sizes
+            // (same approach as Steam games), so no separate C# merge is needed.
 
             // For incremental mode, use existing services (service detection is skipped)
             // For full scan, use newly detected services
@@ -608,13 +600,10 @@ public class GameCacheDetectionService : IDisposable
             // Send progress for saving to database
             await SendProgressAsync("saving", "Saving results to database...", totalGamesDetected, finalServices.Count, 90);
 
-            // Save results to database (replaces in-memory cache)
-            // Epic games are excluded from DB persistence - they are always re-derived fresh
-            // from the Downloads table via GetEpicGamesFromDownloadsAsync()
-            var steamGamesForDb = finalGames.Where(g => g.Service != "epicgames").ToList();
-            await SaveGamesToDatabaseAsync(steamGamesForDb, incremental);
-            _logger.LogInformation("[GameDetection] Results saved to database - {SteamCount} Steam games persisted, {TotalCount} total (including {EpicCount} Epic)",
-                steamGamesForDb.Count, totalGamesDetected, finalGames.Count - steamGamesForDb.Count);
+            // Save all games (Steam + Epic) to database - Epic games now use actual cache file sizes
+            // from the Rust processor, so they can be persisted alongside Steam games.
+            await SaveGamesToDatabaseAsync(finalGames, incremental);
+            _logger.LogInformation("[GameDetection] Results saved to database - {Count} games persisted", finalGames.Count);
 
             // For incremental scans, resolve any unknown games that now have depot mappings
             // Full scans already query fresh mappings, so this is only needed for incremental
@@ -833,13 +822,8 @@ public class GameCacheDetectionService : IDisposable
         var games = cachedGames.Select(ConvertToGameCacheInfo).ToList();
         var services = cachedServices.Select(ConvertToServiceCacheInfo).ToList();
 
-        // Merge Epic games from resolved downloads (Epic games are always derived fresh,
-        // not persisted to CachedGameDetections, to avoid dedup issues with hash-based IDs)
-        var epicGames = await GetEpicGamesFromDownloadsAsync();
-        if (epicGames.Count > 0)
-        {
-            games.AddRange(epicGames);
-        }
+        // Epic games are now persisted to CachedGameDetections (detected by Rust processor
+        // using actual cache file sizes), so they load from DB alongside Steam games.
 
         await EnrichGameImageUrlsFromDatabaseAsync(dbContext, games);
 
@@ -1202,6 +1186,8 @@ public class GameCacheDetectionService : IDisposable
                 SampleUrlsJson = JsonSerializer.Serialize(game.SampleUrls),
                 CacheFilePathsJson = JsonSerializer.Serialize(game.CacheFilePaths),
                 DatasourcesJson = JsonSerializer.Serialize(game.Datasources),
+                Service = game.Service,
+                EpicAppId = game.EpicAppId,
                 LastDetectedUtc = now,
                 CreatedAtUtc = now
             };
@@ -1219,6 +1205,8 @@ public class GameCacheDetectionService : IDisposable
                 existing.SampleUrlsJson = cachedGame.SampleUrlsJson;
                 existing.CacheFilePathsJson = cachedGame.CacheFilePathsJson;
                 existing.DatasourcesJson = cachedGame.DatasourcesJson;
+                existing.Service = cachedGame.Service;
+                existing.EpicAppId = cachedGame.EpicAppId;
                 existing.LastDetectedUtc = now;
             }
             else
@@ -1297,7 +1285,9 @@ public class GameCacheDetectionService : IDisposable
             DepotIds = JsonSerializer.Deserialize<List<uint>>(cached.DepotIdsJson) ?? new List<uint>(),
             SampleUrls = DeserializeStringList(cached.SampleUrlsJson),
             CacheFilePaths = DeserializeStringList(cached.CacheFilePathsJson),
-            Datasources = DeserializeStringList(datasourcesJson)
+            Datasources = DeserializeStringList(datasourcesJson),
+            Service = cached.Service,
+            EpicAppId = cached.EpicAppId
         };
     }
 
@@ -1395,57 +1385,6 @@ public class GameCacheDetectionService : IDisposable
 
     /// <summary>
     /// Query the database for resolved Epic downloads and create GameCacheInfo entries.
-    /// These are merged into the game detection results alongside Rust-detected Steam games.
-    /// </summary>
-    private async Task<List<GameCacheInfo>> GetEpicGamesFromDownloadsAsync()
-    {
-        try
-        {
-            await using var db = await _dbContextFactory.CreateDbContextAsync();
-
-            var epicDownloads = await db.Downloads
-                .Where(d => d.EpicAppId != null && d.GameName != null && !d.IsEvicted)
-                .ToListAsync();
-
-            if (epicDownloads.Count == 0)
-                return new List<GameCacheInfo>();
-
-            // Group by EpicAppId, use only the latest download per game for size
-            // to avoid double-counting when a game is downloaded multiple times.
-            // Summing all records would inflate the total beyond actual disk usage.
-            var epicGames = epicDownloads
-                .GroupBy(d => d.EpicAppId!)
-                .Select(g =>
-                {
-                    var latestDownload = g.OrderByDescending(d => d.EndTimeUtc).First();
-                    return new GameCacheInfo
-                    {
-                        GameAppId = GenerateEpicGameAppId(g.Key),
-                        GameName = latestDownload.GameName ?? $"Epic Game ({g.Key})",
-                        Service = "epicgames",
-                        CacheFilesFound = g.Count(),
-                        TotalSizeBytes = (ulong)(latestDownload.CacheHitBytes + latestDownload.CacheMissBytes),
-                        DepotIds = new List<uint>(),
-                        SampleUrls = g.Where(d => d.LastUrl != null).Select(d => d.LastUrl!).Take(3).ToList(),
-                        CacheFilePaths = new List<string>(),
-                        Datasources = g.Select(d => d.Datasource).Distinct().ToList(),
-                        ImageUrl = g.Select(d => d.GameImageUrl).FirstOrDefault(u => !string.IsNullOrEmpty(u)),
-                        EpicAppId = g.Key
-                    };
-                })
-                .ToList();
-
-            _logger.LogInformation("Found {Count} Epic games from resolved downloads", epicGames.Count);
-            return epicGames;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to get Epic games from downloads");
-            return new List<GameCacheInfo>();
-        }
-    }
-
-    /// <summary>
     /// Merges cache file counts, size, depot IDs, and cache file paths from source into target.
     /// Used when multiple unknown games resolve to the same AppId during game detection.
     /// </summary>
@@ -1467,21 +1406,6 @@ public class GameCacheDetectionService : IDisposable
         var sourcePaths = DeserializeStringList(source.CacheFilePathsJson);
         targetPaths.AddRange(sourcePaths);
         target.CacheFilePathsJson = JsonSerializer.Serialize(targetPaths.Distinct().ToList());
-    }
-
-    /// <summary>
-    /// Generates a deterministic unique uint GameAppId from an Epic string AppId.
-    /// Uses SHA256 hash mapped to the upper half of uint range (2,147,483,648 - 4,294,967,295)
-    /// to avoid collisions with Steam AppIds which use the lower range (typically under 3,000,000).
-    /// </summary>
-    private static uint GenerateEpicGameAppId(string epicAppId)
-    {
-        var hashBytes = SHA256.HashData(Encoding.UTF8.GetBytes(epicAppId));
-        // Use first 4 bytes of SHA256 hash as a uint
-        var rawHash = BitConverter.ToUInt32(hashBytes, 0);
-        // Map to upper half of uint range (set the high bit) to avoid Steam AppId collisions.
-        // Also ensure non-zero by OR-ing with the high bit.
-        return rawHash | 0x80000000;
     }
 
     private class GameDetectionResult

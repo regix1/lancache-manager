@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use jwalk::WalkDir;
 use rayon::prelude::*;
+use sha2::{Sha256, Digest};
 use sqlx::PgPool;
 use sqlx::Row;
 use serde::Serialize;
@@ -92,6 +93,10 @@ struct GameCacheInfo {
     depot_ids: Vec<u32>,
     sample_urls: Vec<String>,
     cache_file_paths: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    service: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    epic_app_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -496,6 +501,8 @@ fn detect_cache_files_for_game_incremental(
         depot_ids: depot_ids.into_iter().collect(),
         sample_urls,
         cache_file_paths,
+        service: None,
+        epic_app_id: None,
     })
 }
 
@@ -578,6 +585,166 @@ fn detect_cache_files_for_game(
         depot_ids: depot_ids.into_iter().collect(),
         sample_urls,
         cache_file_paths,
+        service: None,
+        epic_app_id: None,
+    })
+}
+
+/// Generate a u32 game app ID from an Epic string app ID.
+/// Uses SHA256 hash with high bit set to avoid Steam AppId collisions.
+/// Must match the C# GenerateEpicGameAppId implementation exactly.
+fn generate_epic_game_app_id(epic_app_id: &str) -> u32 {
+    let mut hasher = Sha256::new();
+    hasher.update(epic_app_id.as_bytes());
+    let hash = hasher.finalize();
+    let raw_hash = u32::from_le_bytes([hash[0], hash[1], hash[2], hash[3]]);
+    raw_hash | 0x80000000
+}
+
+#[derive(Debug)]
+struct EpicDownloadRecord {
+    epic_app_id: String,
+    game_name: String,
+    service: String,
+    url: String,
+}
+
+/// Query LogEntries joined with Downloads for non-evicted Epic games.
+async fn query_epic_game_downloads(pool: &PgPool) -> Result<Vec<EpicDownloadRecord>> {
+    eprintln!("Querying LogEntries for Epic game URLs...");
+
+    let rows = sqlx::query(
+        "SELECT DISTINCT le.\"Service\", le.\"Url\", d.\"EpicAppId\", d.\"GameName\"
+         FROM \"LogEntries\" le
+         INNER JOIN \"Downloads\" d ON le.\"DownloadId\" = d.\"Id\"
+         WHERE d.\"EpicAppId\" IS NOT NULL
+           AND d.\"GameName\" IS NOT NULL
+           AND d.\"IsEvicted\" = false
+           AND le.\"Url\" IS NOT NULL
+         ORDER BY d.\"EpicAppId\""
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let records: Vec<EpicDownloadRecord> = rows
+        .iter()
+        .map(|row| EpicDownloadRecord {
+            service: row.get::<String, _>("Service"),
+            url: row.get::<String, _>("Url"),
+            epic_app_id: row.get::<String, _>("EpicAppId"),
+            game_name: row.get::<String, _>("GameName"),
+        })
+        .collect();
+
+    eprintln!("Found {} Epic game URLs", records.len());
+    Ok(records)
+}
+
+/// Detect cache files for an Epic game using the in-memory cache index.
+fn detect_cache_files_for_epic_game(
+    epic_app_id: &str,
+    game_name: &str,
+    service_urls: &[(String, String)],
+    cache_files_index: &HashMap<String, CacheFileInfo>,
+) -> Result<GameCacheInfo> {
+    let generated_app_id = generate_epic_game_app_id(epic_app_id);
+
+    let found_files: HashSet<PathBuf> = service_urls
+        .par_iter()
+        .filter_map(|(service, url)| {
+            let cache_key = format!("{}{}", service, url);
+            let hash = cache_utils::calculate_md5(&cache_key);
+
+            if let Some(file_info) = cache_files_index.get(&hash) {
+                Some(file_info.path.clone())
+            } else {
+                (0..100).find_map(|chunk| {
+                    let start = chunk * 1_048_576;
+                    let end = start + 1_048_575;
+                    let chunked_key = format!("{}{}bytes={}-{}", service, url, start, end);
+                    let chunked_hash = cache_utils::calculate_md5(&chunked_key);
+                    cache_files_index.get(&chunked_hash).map(|f| f.path.clone())
+                })
+            }
+        })
+        .collect();
+
+    let total_size: u64 = found_files
+        .iter()
+        .filter_map(|path| {
+            path.file_name()
+                .and_then(|n| n.to_str())
+                .and_then(|hash| cache_files_index.get(hash))
+                .map(|info| info.size)
+        })
+        .sum();
+
+    let unique_urls: HashSet<&str> = service_urls.iter().map(|(_, url)| url.as_str()).collect();
+    let sample_urls: Vec<String> = unique_urls.iter().take(5).map(|s| s.to_string()).collect();
+    let cache_file_paths: Vec<String> = found_files.iter().map(|p| p.display().to_string()).collect();
+
+    Ok(GameCacheInfo {
+        game_app_id: generated_app_id,
+        game_name: game_name.to_string(),
+        cache_files_found: found_files.len(),
+        total_size_bytes: total_size,
+        depot_ids: Vec::new(),
+        sample_urls,
+        cache_file_paths,
+        service: Some("epicgames".to_string()),
+        epic_app_id: Some(epic_app_id.to_string()),
+    })
+}
+
+/// Detect cache files for an Epic game using direct file existence checks (incremental mode).
+fn detect_cache_files_for_epic_game_incremental(
+    epic_app_id: &str,
+    game_name: &str,
+    service_urls: &[(String, String)],
+    cache_dir: &Path,
+) -> Result<GameCacheInfo> {
+    let generated_app_id = generate_epic_game_app_id(epic_app_id);
+
+    let found_files: HashSet<PathBuf> = service_urls
+        .par_iter()
+        .filter_map(|(service, url)| {
+            let file_path = cache_utils::calculate_cache_path_no_range(cache_dir, service, url);
+            if file_path.exists() {
+                Some(file_path)
+            } else {
+                (0..100).find_map(|chunk| {
+                    let start = chunk * 1_048_576;
+                    let end = start + 1_048_575;
+                    let chunked_path = cache_utils::calculate_cache_path(cache_dir, service, url, start, end);
+                    if chunked_path.exists() {
+                        Some(chunked_path)
+                    } else {
+                        None
+                    }
+                })
+            }
+        })
+        .collect();
+
+    let total_size: u64 = found_files
+        .iter()
+        .filter_map(|path| fs::metadata(path).ok().map(|m| m.len()))
+        .sum();
+
+    let unique_urls: HashSet<&str> = service_urls.iter().map(|(_, url)| url.as_str()).collect();
+    let sample_urls: Vec<String> = unique_urls.iter().take(5).map(|s| s.to_string()).collect();
+    let cache_file_paths: Vec<String> = found_files.iter().map(|p| p.display().to_string()).collect();
+
+    Ok(GameCacheInfo {
+        game_app_id: generated_app_id,
+        game_name: game_name.to_string(),
+        cache_files_found: found_files.len(),
+        total_size_bytes: total_size,
+        depot_ids: Vec::new(),
+        sample_urls,
+        cache_file_paths,
+        service: Some("epicgames".to_string()),
+        epic_app_id: Some(epic_app_id.to_string()),
     })
 }
 
@@ -747,8 +914,73 @@ async fn main() -> Result<()> {
         }
     }
 
-    eprintln!("\n=== Game Scan Complete ===");
-    eprintln!("Total game cache files found: {}", total_files_found);
+    eprintln!("\n=== Steam Game Scan Complete ===");
+    eprintln!("Total Steam game cache files found: {}", total_files_found);
+    eprintln!("Total Steam game cache size: {:.2} GB", total_bytes_found as f64 / 1_073_741_824.0);
+
+    // PHASE 3b: Detect Epic games using cache file scanning (same approach as Steam)
+    eprintln!("\n=== Phase 3b: Detecting Epic Games ===");
+    write_progress(progress_path.as_deref(), "matching", "Detecting Epic games", 78.0, 0, 0)?;
+    reporter.emit_progress(78.0, "Detecting Epic games");
+
+    let epic_records = query_epic_game_downloads(&pool).await?;
+
+    if !epic_records.is_empty() {
+        // Group by EpicAppId
+        let mut epic_map: HashMap<String, (String, Vec<(String, String)>)> = HashMap::new();
+        for record in &epic_records {
+            let entry = epic_map
+                .entry(record.epic_app_id.clone())
+                .or_insert_with(|| (record.game_name.clone(), Vec::new()));
+            entry.1.push((record.service.to_lowercase(), record.url.clone()));
+        }
+
+        let total_epic = epic_map.len();
+        eprintln!("Found {} unique Epic games to check", total_epic);
+
+        let mut epic_processed = 0;
+        for (epic_id, (game_name, service_urls)) in &epic_map {
+            epic_processed += 1;
+            eprint!("  [{}/{}] Matching Epic game {} ({}) - {} URLs... ",
+                    epic_processed, total_epic, epic_id, game_name, service_urls.len());
+
+            let result = if incremental_mode {
+                detect_cache_files_for_epic_game_incremental(epic_id, game_name, service_urls, &cache_dir)
+            } else {
+                detect_cache_files_for_epic_game(epic_id, game_name, service_urls, cache_files_index.as_ref().unwrap())
+            };
+
+            match result {
+                Ok(info) => {
+                    if info.cache_files_found > 0 {
+                        let size_gb = info.total_size_bytes as f64 / 1_073_741_824.0;
+                        let size_mb = info.total_size_bytes as f64 / 1_048_576.0;
+
+                        if size_gb >= 1.0 {
+                            eprintln!("FOUND {} files ({:.2} GB)", info.cache_files_found, size_gb);
+                        } else {
+                            eprintln!("FOUND {} files ({:.2} MB)", info.cache_files_found, size_mb);
+                        }
+
+                        total_files_found += info.cache_files_found;
+                        total_bytes_found += info.total_size_bytes;
+                        detected_games.push(info);
+                    } else {
+                        eprintln!("no cache files found");
+                    }
+                }
+                Err(e) => {
+                    eprintln!("ERROR: {}", e);
+                }
+            }
+        }
+
+        eprintln!("\n=== Epic Game Scan Complete ===");
+    } else {
+        eprintln!("No Epic games found in database");
+    }
+
+    eprintln!("\nTotal game cache files found: {}", total_files_found);
     eprintln!("Total game cache size: {:.2} GB", total_bytes_found as f64 / 1_073_741_824.0);
 
     // PHASE 4: Detect non-game services

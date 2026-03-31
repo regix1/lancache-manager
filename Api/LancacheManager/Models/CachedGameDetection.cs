@@ -40,6 +40,17 @@ public class CachedGameDetection
     public string DatasourcesJson { get; set; } = "[]";
 
     /// <summary>
+    /// The service/platform this game belongs to (e.g. "steam", "epicgames").
+    /// Null defaults to "steam" for backward compatibility.
+    /// </summary>
+    public string? Service { get; set; }
+
+    /// <summary>
+    /// The Epic Games store App ID (string). Only populated for Epic games.
+    /// </summary>
+    public string? EpicAppId { get; set; }
+
+    /// <summary>
     /// When this game was last detected in cache
     /// </summary>
     public DateTime LastDetectedUtc { get; set; } = DateTime.UtcNow;

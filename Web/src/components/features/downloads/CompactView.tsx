@@ -147,7 +147,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
   const availableImages = useAvailableGameImages();
   const hitPercent = group.totalBytes > 0 ? (group.cacheHitBytes / group.totalBytes) * 100 : 0;
   const primaryDownload = group.downloads[0];
-  const serviceLower = group.service.toLowerCase();
+  const serviceLower = (group.service ?? '').toLowerCase();
   const isEpicService = serviceLower === 'epic' || serviceLower === 'epicgames';
   const showSteamImage =
     serviceLower === 'steam' && availableImages.has(String(primaryDownload?.gameAppId ?? ''));

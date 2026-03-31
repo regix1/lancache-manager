@@ -138,7 +138,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
   const availableImages = useAvailableGameImages();
   const hitPercent = group.totalBytes > 0 ? (group.cacheHitBytes / group.totalBytes) * 100 : 0;
   const primaryDownload = group.downloads[0];
-  const serviceLower = group.service.toLowerCase();
+  const serviceLower = (group.service ?? '').toLowerCase();
   const isSteam = serviceLower === 'steam';
   const isWsus = serviceLower === 'wsus' || serviceLower === 'windows';
   const isRiot = serviceLower === 'riot' || serviceLower === 'riotgames';
@@ -1047,7 +1047,7 @@ const GridCard: React.FC<GridCardProps> = ({
   const cardRef = React.useRef<HTMLDivElement>(null);
   const hitPercent = group.totalBytes > 0 ? (group.cacheHitBytes / group.totalBytes) * 100 : 0;
   const primaryDownload = group.downloads[0];
-  const serviceLower = group.service.toLowerCase();
+  const serviceLower = (group.service ?? '').toLowerCase();
   const isSteam = serviceLower === 'steam';
   const isEpic = serviceLower === 'epic' || serviceLower === 'epicgames';
   const isWsus = serviceLower === 'wsus' || serviceLower === 'windows';
@@ -1256,7 +1256,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
   const [expandedIps, setExpandedIps] = React.useState<Record<string, boolean>>({});
   const hitPercent = group.totalBytes > 0 ? (group.cacheHitBytes / group.totalBytes) * 100 : 0;
   const primaryDownload = group.downloads[0];
-  const serviceLower = group.service.toLowerCase();
+  const serviceLower = (group.service ?? '').toLowerCase();
   const isSteam = serviceLower === 'steam';
   const isEpic = serviceLower === 'epic' || serviceLower === 'epicgames';
   const isWsus = serviceLower === 'wsus' || serviceLower === 'windows';

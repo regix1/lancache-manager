@@ -259,13 +259,14 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
           groupType = 'game';
         } else {
           // Group by service for all platforms (including unmapped Steam)
-          groupKey = `service-${download.service.toLowerCase()}`;
+          const svcLower = (download.service ?? '').toLowerCase();
+          groupKey = `service-${svcLower}`;
           groupName =
-            download.service.toLowerCase() === 'epicgames'
+            svcLower === 'epicgames'
               ? 'Epic Games'
-              : download.service.toLowerCase() === 'steam'
+              : svcLower === 'steam'
                 ? 'Steam Downloads'
-                : `${download.service.charAt(0).toUpperCase() + download.service.slice(1)} Downloads`;
+                : `${(download.service ?? '').charAt(0).toUpperCase() + (download.service ?? '').slice(1)} Downloads`;
           groupType = download.totalBytes === 0 ? 'metadata' : 'content';
         }
 
@@ -403,7 +404,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
       ) {
         return true;
       }
-      if (download.service.toLowerCase() !== 'steam') return true;
+      if ((download.service ?? '').toLowerCase() !== 'steam') return true;
       return false;
     });
 

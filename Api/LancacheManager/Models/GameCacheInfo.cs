@@ -34,7 +34,7 @@ public class GameCacheInfo
     /// Defaults to "steam" for backward compatibility with Rust-detected games.
     /// </summary>
     [System.Text.Json.Serialization.JsonPropertyName("service")]
-    public string Service { get; set; } = "steam";
+    public string? Service { get; set; }
 
     /// <summary>
     /// Banner URL from Downloads.GameImageUrl (and EpicGameMappings when needed), set when serving cached detection.

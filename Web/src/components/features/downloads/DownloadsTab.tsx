@@ -758,12 +758,13 @@ const DownloadsTab: React.FC = () => {
         groupKey = 'unknown-steam-games';
         groupName = 'Unknown Games';
         groupType = 'content';
-      } else if (download.service.toLowerCase() !== 'steam') {
-        groupKey = `service-${download.service.toLowerCase()}`;
+      } else if ((download.service ?? '').toLowerCase() !== 'steam') {
+        const svcLower = (download.service ?? '').toLowerCase();
+        groupKey = `service-${svcLower}`;
         groupName =
-          download.service.toLowerCase() === 'epicgames'
+          svcLower === 'epicgames'
             ? 'Epic Games'
-            : `${download.service.charAt(0).toUpperCase() + download.service.slice(1)} Downloads`;
+            : `${(download.service ?? '').charAt(0).toUpperCase() + (download.service ?? '').slice(1)} Downloads`;
         groupType = download.totalBytes === 0 ? 'metadata' : 'content';
       } else {
         // Unmapped Steam downloads - group at service level like other services
