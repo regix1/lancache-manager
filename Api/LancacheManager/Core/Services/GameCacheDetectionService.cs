@@ -960,8 +960,11 @@ public class GameCacheDetectionService : IDisposable
                 unknownGames.Count,
                 blacklistedCount > 0 ? $" ({blacklistedCount} blacklisted, skipped)" : "");
 
+            // Collect all depot IDs we need to resolve
+            var unknownDepotIds = unknownGames.Select(g => g.GameAppId).ToList();
+            var unknownDepotIdSet = unknownDepotIds.ToHashSet();
+
             // First tier: Build a lookup from Downloads table (already has correct names from Rust processor)
-            var unknownDepotIds = unknownGames.Select(g => g.GameAppId).ToHashSet();
             var downloadsLookup = await dbContext.Downloads
                 .Where(d => d.GameName != null && d.GameAppId != null && d.GameAppId > 0 && d.DepotId != null)
                 .Select(d => new { d.GameAppId, d.GameName, d.DepotId })
@@ -969,7 +972,7 @@ public class GameCacheDetectionService : IDisposable
                 .ToListAsync(cancellationToken);
 
             var depotToGameFromDownloads = downloadsLookup
-                .Where(d => d.DepotId.HasValue && unknownDepotIds.Contains(d.DepotId.Value))
+                .Where(d => d.DepotId.HasValue && unknownDepotIdSet.Contains(d.DepotId.Value))
                 .GroupBy(d => d.DepotId!.Value)
                 .ToDictionary(g => g.Key, g => g.First());
 
@@ -977,6 +980,24 @@ public class GameCacheDetectionService : IDisposable
             {
                 _logger.LogInformation("[GameDetection] Downloads table pre-lookup found {Count} depot(s) with resolved names", depotToGameFromDownloads.Count);
             }
+
+            // Second tier: Pre-load SteamDepotMappings for all unknown depots to avoid N+1 queries
+            var depotMappingsDict = await dbContext.SteamDepotMappings
+                .Where(m => unknownDepotIds.Contains(m.DepotId) && m.IsOwner && m.AppName != null)
+                .AsNoTracking()
+                .ToDictionaryAsync(m => m.DepotId, cancellationToken);
+
+            // Pre-load all CachedGameDetections that might be targeted by resolved AppIds
+            // to avoid N+1 queries when checking for existing records
+            var resolvedAppIds = depotToGameFromDownloads.Values
+                .Select(d => d.GameAppId!.Value)
+                .Concat(depotMappingsDict.Values.Select(m => m.AppId))
+                .Distinct()
+                .ToList();
+
+            var existingGamesByAppId = await dbContext.CachedGameDetections
+                .Where(g => resolvedAppIds.Contains(g.GameAppId))
+                .ToDictionaryAsync(g => g.GameAppId, cancellationToken);
 
             int resolvedCount = 0;
             var newlyFailedDepots = new List<long>();
@@ -1011,9 +1032,8 @@ public class GameCacheDetectionService : IDisposable
                         continue;
                     }
 
-                    // Check if a record with this AppId already exists in database
-                    var existingGame = await dbContext.CachedGameDetections
-                        .FirstOrDefaultAsync(g => g.GameAppId == resolvedAppId, cancellationToken);
+                    // Check if a record with this AppId already exists in database (pre-loaded)
+                    existingGamesByAppId.TryGetValue(resolvedAppId, out var existingGame);
 
                     if (existingGame != null && existingGame.Id != unknownGame.Id)
                     {
@@ -1035,9 +1055,7 @@ public class GameCacheDetectionService : IDisposable
                 }
 
                 // Second tier: Try SteamDepotMappings table (has PICS data for all known depots)
-                var depotMapping = await dbContext.SteamDepotMappings
-                    .Where(m => m.DepotId == depotId && m.IsOwner && m.AppName != null)
-                    .FirstOrDefaultAsync(cancellationToken);
+                depotMappingsDict.TryGetValue(depotId, out var depotMapping);
 
                 if (depotMapping != null)
                 {
@@ -1055,8 +1073,8 @@ public class GameCacheDetectionService : IDisposable
                         continue;
                     }
 
-                    var existingGame = await dbContext.CachedGameDetections
-                        .FirstOrDefaultAsync(g => g.GameAppId == resolvedAppId, cancellationToken);
+                    // Check if a record with this AppId already exists in database (pre-loaded)
+                    existingGamesByAppId.TryGetValue(resolvedAppId, out var existingGame);
 
                     if (existingGame != null && existingGame.Id != unknownGame.Id)
                     {
@@ -1250,6 +1268,12 @@ public class GameCacheDetectionService : IDisposable
 
         var now = DateTime.UtcNow;
 
+        // Pre-load all existing cached game detections into a dictionary to avoid N+1 queries
+        var incomingAppIds = uniqueGames.Select(g => g.GameAppId).ToList();
+        var existingGamesDict = await dbContext.CachedGameDetections
+            .Where(g => incomingAppIds.Contains(g.GameAppId))
+            .ToDictionaryAsync(g => g.GameAppId);
+
         foreach (var game in uniqueGames)
         {
             var cachedGame = new CachedGameDetection
@@ -1269,10 +1293,7 @@ public class GameCacheDetectionService : IDisposable
             };
 
             // Use upsert pattern - update if exists, insert if new
-            var existing = await dbContext.CachedGameDetections
-                .FirstOrDefaultAsync(g => g.GameAppId == cachedGame.GameAppId);
-
-            if (existing != null)
+            if (existingGamesDict.TryGetValue(cachedGame.GameAppId, out var existing))
             {
                 existing.GameName = cachedGame.GameName;
                 existing.CacheFilesFound = cachedGame.CacheFilesFound;
@@ -1294,6 +1315,7 @@ public class GameCacheDetectionService : IDisposable
         try
         {
             await dbContext.SaveChangesAsync();
+            dbContext.ChangeTracker.Clear();
         }
         catch (DbUpdateException ex) when (ex.InnerException is NpgsqlException pgEx && pgEx.SqlState == "23505")
         {

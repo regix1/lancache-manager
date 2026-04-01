@@ -606,16 +606,10 @@ public class RustLogProcessorService
                     // may have occurred above even without new log entries
                     await FetchMissingEpicGameImagesAsync();
 
-                    // Trigger background service to download actual image binaries into DB
-                    try
-                    {
-                        var imageService = _serviceProvider.GetRequiredService<GameImageFetchService>();
-                        await imageService.FetchImagesNowAsync();
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to trigger image binary fetch - images will be fetched on next scheduled cycle");
-                    }
+                    // NOTE: GameImageFetchService runs on its own 30-minute schedule and will
+                    // fetch image binaries after all game detection, mapping, and DB saves complete.
+                    // We do NOT trigger it here to avoid fetching images mid-pipeline before
+                    // game detection (GameDetectionStartupService) has finished.
                 });
 
                 if (!silentMode)

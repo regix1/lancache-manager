@@ -10,12 +10,16 @@ namespace LancacheManager.Infrastructure.Services;
 /// <summary>
 /// Background service that periodically fetches and stores game banner images
 /// for Steam and Epic games in the database.
-/// Runs on startup (30s delay) and every 6 hours.
+/// Runs on startup (after setup completes) and every 30 minutes.
+/// Image fetching is deferred until after all game detection, mapping, and DB saves are complete.
 /// </summary>
 public class GameImageFetchService : ScopedScheduledBackgroundService
 {
     private readonly IStateService _stateService;
     private static readonly SemaphoreSlim _executionLock = new(1, 1);
+
+    // Max concurrent HTTP requests for image fetching
+    private static readonly SemaphoreSlim _httpThrottle = new(5, 5);
 
     protected override string ServiceName => "GameImageFetch";
     protected override TimeSpan Interval => TimeSpan.FromMinutes(30);
@@ -35,14 +39,13 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
     protected override async Task OnStartupAsync(CancellationToken stoppingToken)
     {
         // Wait for setup to complete before running scheduled image fetches.
-        // During setup, RustLogProcessorService triggers FetchImagesNowAsync directly
-        // after log processing — we must not race with that.
+        // Image fetching must only run AFTER all game detection, mapping, and DB saves complete.
         await _stateService.WaitForSetupCompletedAsync(stoppingToken);
     }
 
     /// <summary>
-    /// Public trigger so other services (e.g. RustLogProcessorService) can request
-    /// an immediate image fetch after populating downloads.
+    /// Public trigger so other services can request an immediate image fetch
+    /// after ALL game detection, mapping, and DB saves are complete.
     /// </summary>
     public async Task FetchImagesNowAsync(CancellationToken ct = default)
     {
@@ -89,12 +92,14 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         }
 
         var steamAppIds = await db.Downloads
+            .AsNoTracking()
             .Where(d => d.GameAppId != null && d.GameAppId != 0 && !string.IsNullOrEmpty(d.GameName))
             .Select(d => d.GameAppId!.Value)
             .Distinct()
             .ToListAsync(stoppingToken);
 
         var existingSteamIds = await db.GameImages
+            .AsNoTracking()
             .Where(g => g.Service == "steam")
             .Select(g => g.AppId)
             .ToListAsync(stoppingToken);
@@ -104,23 +109,73 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             .Except(existingSteamIds)
             .ToList();
 
-        foreach (var batch in missingSteamIds.Chunk(50))
+        if (missingSteamIds.Count > 0)
         {
-            foreach (var appId in batch)
+            // Pre-load PICS URLs for all missing Steam apps in a single batch query (eliminates N+1)
+            var missingAppIdLongs = missingSteamIds
+                .Select(id => long.TryParse(id, out var v) ? v : (long?)null)
+                .Where(v => v.HasValue)
+                .Select(v => v!.Value)
+                .ToList();
+
+            var picsUrlMap = await DownloadGameImageUrlQueries.GetLatestUrlsForSteamAppsAsync(
+                db, missingAppIdLongs, stoppingToken);
+
+            // Pre-load SteamDepotMappings for parent app lookup (eliminates N+1 in FindParentAppIdAsync)
+            // Candidate depot IDs include appId, appId+1, appId-1 for each missing app
+            var candidateDepotIds = missingAppIdLongs
+                .SelectMany(id => new[]
+                {
+                    id,
+                    id + 1 <= uint.MaxValue ? id + 1 : id,
+                    id - 1 > 0 ? id - 1 : id
+                })
+                .Distinct()
+                .ToList();
+
+            var depotOwnerMap = await db.SteamDepotMappings
+                .AsNoTracking()
+                .Where(m => candidateDepotIds.Contains(m.DepotId) && m.IsOwner)
+                .Select(m => new { m.DepotId, m.AppId })
+                .ToListAsync(stoppingToken);
+
+            var depotOwnerLookup = depotOwnerMap
+                .GroupBy(m => m.DepotId)
+                .ToDictionary(g => g.Key, g => g.Select(m => m.AppId).ToList());
+
+            // Pre-load download depot IDs per app (for Strategy 2 fallback)
+            var downloadDepotMap = await db.Downloads
+                .AsNoTracking()
+                .Where(d => d.GameAppId != null && missingAppIdLongs.Contains(d.GameAppId.Value) && d.DepotId.HasValue)
+                .Select(d => new { AppId = d.GameAppId!.Value, DepotId = d.DepotId!.Value })
+                .Distinct()
+                .ToListAsync(stoppingToken);
+
+            var downloadDepotLookup = downloadDepotMap
+                .GroupBy(x => x.AppId)
+                .ToDictionary(g => g.Key, g => g.Select(x => x.DepotId).ToList());
+
+            foreach (var batch in missingSteamIds.Chunk(50))
             {
                 if (stoppingToken.IsCancellationRequested) return;
-                await FetchSteamImageAsync(db, client, appId, stoppingToken);
+
+                var tasks = batch.Select(appId =>
+                    FetchSteamImageAsync(db, client, appId, picsUrlMap, depotOwnerLookup, downloadDepotLookup, stoppingToken));
+
+                await Task.WhenAll(tasks);
+                await db.SaveChangesAsync(stoppingToken);
+                db.ChangeTracker.Clear();
             }
-            await db.SaveChangesAsync(stoppingToken);
-            await Task.Delay(1000, stoppingToken);
         }
 
         // 2. EPIC: Get all EpicGameMappings with ImageUrl that don't have a GameImage yet
         var epicMappings = await db.EpicGameMappings
+            .AsNoTracking()
             .Where(m => m.ImageUrl != null)
             .ToListAsync(stoppingToken);
 
         var existingEpicIds = await db.GameImages
+            .AsNoTracking()
             .Where(g => g.Service == "epicgames")
             .Select(g => g.AppId)
             .ToListAsync(stoppingToken);
@@ -131,13 +186,14 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
 
         foreach (var batch in missingEpicMappings.Chunk(50))
         {
-            foreach (var mapping in batch)
-            {
-                if (stoppingToken.IsCancellationRequested) return;
-                await FetchEpicImageAsync(db, client, mapping, stoppingToken);
-            }
+            if (stoppingToken.IsCancellationRequested) return;
+
+            var tasks = batch.Select(mapping =>
+                FetchEpicImageAsync(db, client, mapping, stoppingToken));
+
+            await Task.WhenAll(tasks);
             await db.SaveChangesAsync(stoppingToken);
-            await Task.Delay(1000, stoppingToken);
+            db.ChangeTracker.Clear();
         }
 
         // 3. Re-fetch stale images (older than 30 days)
@@ -147,13 +203,14 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
 
         foreach (var batch in staleImages.Chunk(50))
         {
-            foreach (var image in batch)
-            {
-                if (stoppingToken.IsCancellationRequested) return;
-                await RefreshImageAsync(client, image, stoppingToken);
-            }
+            if (stoppingToken.IsCancellationRequested) return;
+
+            var tasks = batch.Select(image =>
+                RefreshImageAsync(client, image, stoppingToken));
+
+            await Task.WhenAll(tasks);
             await db.SaveChangesAsync(stoppingToken);
-            await Task.Delay(1000, stoppingToken);
+            db.ChangeTracker.Clear();
         }
 
         _logger.LogInformation(
@@ -168,27 +225,33 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         AppDbContext db,
         HttpClient client,
         string appId,
+        Dictionary<long, string> picsUrlMap,
+        Dictionary<long, List<long>> depotOwnerLookup,
+        Dictionary<long, List<long>> downloadDepotLookup,
         CancellationToken ct)
     {
         // Try fetching the image using the given appId
-        var imageBytes = await TryFetchSteamImageBytesAsync(db, client, appId, ct);
+        var imageBytes = await TryFetchSteamImageBytesAsync(client, appId, picsUrlMap, ct);
 
         if (imageBytes != null)
         {
-            db.GameImages.Add(new GameImage
+            lock (db)
             {
-                AppId = appId,
-                Service = "steam",
-                ImageData = imageBytes.Value.bytes,
-                ContentType = imageBytes.Value.contentType,
-                SourceUrl = imageBytes.Value.sourceUrl,
-                FetchedAtUtc = DateTime.UtcNow
-            });
+                db.GameImages.Add(new GameImage
+                {
+                    AppId = appId,
+                    Service = "steam",
+                    ImageData = imageBytes.Value.bytes,
+                    ContentType = imageBytes.Value.contentType,
+                    SourceUrl = imageBytes.Value.sourceUrl,
+                    FetchedAtUtc = DateTime.UtcNow
+                });
+            }
             return;
         }
 
-        // Try to find a parent app ID via SteamDepotMappings
-        var parentAppId = await FindParentAppIdAsync(db, appId, ct);
+        // Try to find a parent app ID via pre-loaded depot mappings
+        var parentAppId = FindParentAppId(appId, depotOwnerLookup, downloadDepotLookup);
         if (parentAppId == null)
         {
             _logger.LogDebug("[GameImageFetch] No valid image found for Steam app {AppId} and no parent app found", appId);
@@ -198,19 +261,22 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         _logger.LogInformation("[GameImageFetch] No image for app {AppId}, trying parent app {ParentAppId}", appId, parentAppId);
 
         // Try fetching using the parent's app ID
-        var parentBytes = await TryFetchSteamImageBytesAsync(db, client, parentAppId, ct);
+        var parentBytes = await TryFetchSteamImageBytesAsync(client, parentAppId, picsUrlMap, ct);
         if (parentBytes != null)
         {
             // Store under the ORIGINAL appId so frontend lookups work
-            db.GameImages.Add(new GameImage
+            lock (db)
             {
-                AppId = appId,
-                Service = "steam",
-                ImageData = parentBytes.Value.bytes,
-                ContentType = parentBytes.Value.contentType,
-                SourceUrl = parentBytes.Value.sourceUrl,
-                FetchedAtUtc = DateTime.UtcNow
-            });
+                db.GameImages.Add(new GameImage
+                {
+                    AppId = appId,
+                    Service = "steam",
+                    ImageData = parentBytes.Value.bytes,
+                    ContentType = parentBytes.Value.contentType,
+                    SourceUrl = parentBytes.Value.sourceUrl,
+                    FetchedAtUtc = DateTime.UtcNow
+                });
+            }
             _logger.LogInformation("[GameImageFetch] Successfully fetched image for app {AppId} using parent app {ParentAppId}", appId, parentAppId);
         }
         else
@@ -221,30 +287,21 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
 
     /// <summary>
     /// Attempts to fetch a Steam image for the given appId from PICS URL and CDN patterns.
+    /// Uses a pre-loaded picsUrlMap (no DB queries). Throttled to max 5 concurrent HTTP requests.
     /// Returns the image bytes, content type, and source URL if successful; null otherwise.
     /// </summary>
     private async Task<(byte[] bytes, string contentType, string sourceUrl)?> TryFetchSteamImageBytesAsync(
-        AppDbContext db,
         HttpClient client,
         string appId,
+        Dictionary<long, string> picsUrlMap,
         CancellationToken ct)
     {
         var urls = new List<string>();
 
-        // Tier 1: PICS-sourced URL stored in Download.GameImageUrl (contains the hash path that newer games require)
-        if (long.TryParse(appId, out var appIdLong))
+        // Tier 1: PICS-sourced URL from pre-loaded dictionary (eliminates per-game DB query)
+        if (long.TryParse(appId, out var appIdLong) && picsUrlMap.TryGetValue(appIdLong, out var picsUrl))
         {
-            var picsUrl = await db.Downloads
-                .Where(d => d.GameAppId != null && d.GameAppId.Value == appIdLong
-                            && !string.IsNullOrEmpty(d.GameImageUrl))
-                .OrderByDescending(d => d.StartTimeUtc)
-                .Select(d => d.GameImageUrl)
-                .FirstOrDefaultAsync(ct);
-
-            if (!string.IsNullOrEmpty(picsUrl))
-            {
-                urls.Add(picsUrl);
-            }
+            urls.Add(picsUrl);
         }
 
         // Tier 2: CDN shortcut patterns (work for older/established games)
@@ -255,17 +312,25 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         {
             try
             {
-                var response = await client.GetAsync(url, ct);
-                if (!response.IsSuccessStatusCode) continue;
-
-                var bytes = await response.Content.ReadAsByteArrayAsync(ct);
-                if (bytes.Length < MinImageBytes)
+                await _httpThrottle.WaitAsync(ct);
+                try
                 {
-                    _logger.LogDebug("[GameImageFetch] Skipping tiny image ({Size} bytes) for {AppId} from {Url}", bytes.Length, appId, url);
-                    continue;
-                }
+                    var response = await client.GetAsync(url, ct);
+                    if (!response.IsSuccessStatusCode) continue;
 
-                return (bytes, response.Content.Headers.ContentType?.MediaType ?? "image/jpeg", url);
+                    var bytes = await response.Content.ReadAsByteArrayAsync(ct);
+                    if (bytes.Length < MinImageBytes)
+                    {
+                        _logger.LogDebug("[GameImageFetch] Skipping tiny image ({Size} bytes) for {AppId} from {Url}", bytes.Length, appId, url);
+                        continue;
+                    }
+
+                    return (bytes, response.Content.Headers.ContentType?.MediaType ?? "image/jpeg", url);
+                }
+                finally
+                {
+                    _httpThrottle.Release();
+                }
             }
             catch (Exception ex)
             {
@@ -278,48 +343,47 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
     }
 
     /// <summary>
-    /// Tries to find a parent app ID for a DLC/sub-app by checking SteamDepotMappings.
-    /// Strategy: The appId itself may appear as a DepotId mapped to a different owner AppId,
-    /// or depots near the appId (appId+1) may map to a different owner.
-    /// Also checks the Downloads table for depots associated with this app that map to a different owner.
+    /// Tries to find a parent app ID for a DLC/sub-app using pre-loaded depot mapping dictionaries.
+    /// No DB queries — uses dictionary lookups only.
     /// </summary>
-    private async Task<string?> FindParentAppIdAsync(AppDbContext db, string appId, CancellationToken ct)
+    private string? FindParentAppId(
+        string appId,
+        Dictionary<long, List<long>> depotOwnerLookup,
+        Dictionary<long, List<long>> downloadDepotLookup)
     {
         if (!long.TryParse(appId, out var appIdLong))
             return null;
 
-        // Strategy 1: Check if this appId appears as a DepotId in SteamDepotMappings
-        // (common pattern: DLC app 3893180 has depot 3893180 owned by parent app 3893179)
+        // Strategy 1: Check if appId, appId+1, or appId-1 appears as a DepotId mapped to a different owner app
         var candidateDepotIds = new List<long> { appIdLong };
         if (appIdLong + 1 <= uint.MaxValue)
             candidateDepotIds.Add(appIdLong + 1);
         if (appIdLong - 1 > 0)
             candidateDepotIds.Add(appIdLong - 1);
 
-        var ownerMapping = await db.SteamDepotMappings
-            .Where(m => candidateDepotIds.Contains(m.DepotId) && m.IsOwner && m.AppId != appIdLong)
-            .Select(m => m.AppId)
-            .FirstOrDefaultAsync(ct);
-
-        if (ownerMapping != 0)
-            return ownerMapping.ToString();
-
-        // Strategy 2: Find depots for this app from Downloads, then look up their owner in SteamDepotMappings
-        var depotIds = await db.Downloads
-            .Where(d => d.GameAppId != null && d.GameAppId.Value == appIdLong && d.DepotId.HasValue)
-            .Select(d => d.DepotId!.Value)
-            .Distinct()
-            .ToListAsync(ct);
-
-        if (depotIds.Count > 0)
+        foreach (var depotId in candidateDepotIds)
         {
-            var parentFromDepot = await db.SteamDepotMappings
-                .Where(m => depotIds.Contains(m.DepotId) && m.IsOwner && m.AppId != appIdLong)
-                .Select(m => m.AppId)
-                .FirstOrDefaultAsync(ct);
+            if (depotOwnerLookup.TryGetValue(depotId, out var ownerAppIds))
+            {
+                var differentOwner = ownerAppIds.FirstOrDefault(id => id != appIdLong);
+                if (differentOwner != 0)
+                    return differentOwner.ToString();
+            }
+        }
 
-            if (parentFromDepot != 0)
-                return parentFromDepot.ToString();
+        // Strategy 2: Find depots for this app from pre-loaded download depot lookup,
+        // then check owner mapping
+        if (downloadDepotLookup.TryGetValue(appIdLong, out var depotIds))
+        {
+            foreach (var depotId in depotIds)
+            {
+                if (depotOwnerLookup.TryGetValue(depotId, out var ownerAppIds))
+                {
+                    var differentOwner = ownerAppIds.FirstOrDefault(id => id != appIdLong);
+                    if (differentOwner != 0)
+                        return differentOwner.ToString();
+                }
+            }
         }
 
         return null;
@@ -336,25 +400,36 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         var url = EpicApiDirectClient.EnsureResizeParams(mapping.ImageUrl);
         try
         {
-            var response = await client.GetAsync(url, ct);
-            if (!response.IsSuccessStatusCode) return;
-
-            var bytes = await response.Content.ReadAsByteArrayAsync(ct);
-            if (bytes.Length < MinImageBytes)
+            await _httpThrottle.WaitAsync(ct);
+            try
             {
-                _logger.LogDebug("[GameImageFetch] Skipping tiny image ({Size} bytes) for Epic {AppId} from {Url}", bytes.Length, mapping.AppId, url);
-                return;
+                var response = await client.GetAsync(url, ct);
+                if (!response.IsSuccessStatusCode) return;
+
+                var bytes = await response.Content.ReadAsByteArrayAsync(ct);
+                if (bytes.Length < MinImageBytes)
+                {
+                    _logger.LogDebug("[GameImageFetch] Skipping tiny image ({Size} bytes) for Epic {AppId} from {Url}", bytes.Length, mapping.AppId, url);
+                    return;
+                }
+
+                lock (db)
+                {
+                    db.GameImages.Add(new GameImage
+                    {
+                        AppId = mapping.AppId,
+                        Service = "epicgames",
+                        ImageData = bytes,
+                        ContentType = response.Content.Headers.ContentType?.MediaType ?? "image/jpeg",
+                        SourceUrl = url,
+                        FetchedAtUtc = DateTime.UtcNow
+                    });
+                }
             }
-
-            db.GameImages.Add(new GameImage
+            finally
             {
-                AppId = mapping.AppId,
-                Service = "epicgames",
-                ImageData = bytes,
-                ContentType = response.Content.Headers.ContentType?.MediaType ?? "image/jpeg",
-                SourceUrl = url,
-                FetchedAtUtc = DateTime.UtcNow
-            });
+                _httpThrottle.Release();
+            }
         }
         catch (Exception ex)
         {
@@ -371,22 +446,31 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
 
         try
         {
-            var response = await client.GetAsync(image.SourceUrl, ct);
-
-            // If the primary SourceUrl fails for Steam images, fall back to the Tier2 CDN shortcut URL.
-            // Steam PICS-sourced URLs contain hash paths that can expire/404.
-            if (!response.IsSuccessStatusCode && image.Service == "steam")
+            await _httpThrottle.WaitAsync(ct);
+            HttpResponseMessage response;
+            try
             {
-                var tier2Url = $"https://cdn.akamai.steamstatic.com/steam/apps/{image.AppId}/header.jpg";
-                _logger.LogDebug("[GameImageFetch] Primary URL failed ({Status}) for Steam {AppId}, trying Tier2: {Url}",
-                    (int)response.StatusCode, image.AppId, tier2Url);
-                response = await client.GetAsync(tier2Url, ct);
+                response = await client.GetAsync(image.SourceUrl, ct);
 
-                if (response.IsSuccessStatusCode)
+                // If the primary SourceUrl fails for Steam images, fall back to the Tier2 CDN shortcut URL.
+                // Steam PICS-sourced URLs contain hash paths that can expire/404.
+                if (!response.IsSuccessStatusCode && image.Service == "steam")
                 {
-                    // Update SourceUrl so future refreshes use the working URL
-                    image.SourceUrl = tier2Url;
+                    var tier2Url = $"https://cdn.akamai.steamstatic.com/steam/apps/{image.AppId}/header.jpg";
+                    _logger.LogDebug("[GameImageFetch] Primary URL failed ({Status}) for Steam {AppId}, trying Tier2: {Url}",
+                        (int)response.StatusCode, image.AppId, tier2Url);
+                    response = await client.GetAsync(tier2Url, ct);
+
+                    if (response.IsSuccessStatusCode)
+                    {
+                        // Update SourceUrl so future refreshes use the working URL
+                        image.SourceUrl = tier2Url;
+                    }
                 }
+            }
+            finally
+            {
+                _httpThrottle.Release();
             }
 
             if (!response.IsSuccessStatusCode) return;

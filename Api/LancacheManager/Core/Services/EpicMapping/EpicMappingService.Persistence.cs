@@ -133,55 +133,63 @@ public partial class EpicMappingService
         using var db = _dbContextFactory.CreateDbContext();
 
         // Get all games that could benefit from an image refresh
-        var games = await db.EpicGameMappings.ToListAsync(ct);
+        var games = await db.EpicGameMappings.AsNoTracking().ToListAsync(ct);
         if (games.Count == 0) return 0;
 
         _logger.LogDebug("Refreshing images for {Count} Epic games", games.Count);
 
+        // Only process games that have an image URL — filter before bulk-querying downloads
+        var epicGamesNeedingImages = games.Where(g => !string.IsNullOrEmpty(g.ImageUrl)).ToList();
+        if (epicGamesNeedingImages.Count == 0) return 0;
+
+        // Bulk-query ALL downloads for ALL relevant AppIds at once — eliminates N+1 pattern
+        var allAppIds = epicGamesNeedingImages.Select(g => g.AppId).ToList();
+        var allDownloads = await db.Downloads
+            .Where(d => d.EpicAppId != null && allAppIds.Contains(d.EpicAppId))
+            .ToListAsync(ct);
+
+        // Build per-game lookup for O(1) access inside the loop
+        var downloadsByApp = allDownloads
+            .GroupBy(d => d.EpicAppId!)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
         var updated = 0;
-        // Process in batches to avoid overwhelming the API
-        var batchSize = 25;
-        for (var i = 0; i < games.Count; i += batchSize)
+        foreach (var game in epicGamesNeedingImages)
         {
             if (ct.IsCancellationRequested) break;
 
-            var batch = games.Skip(i).Take(batchSize).ToList();
-            foreach (var game in batch)
+            try
             {
-                if (ct.IsCancellationRequested) break;
+                // We don't have namespace/catalogItemId stored in EpicGameMappings,
+                // so we can't call the catalog API per-game directly.
+                // Instead, images are already refreshed during GetOwnedGamesAsync()
+                // which is called in RefreshCatalogAsync(). This method serves as
+                // a secondary pass to update any downloads that reference these images.
+                // For now, just ensure all Downloads with EpicAppId get the current ImageUrl.
 
-                try
+                if (!downloadsByApp.TryGetValue(game.AppId, out var gameDownloads))
+                    continue;
+
+                // Filter in-memory: only downloads whose GameImageUrl differs from this game's ImageUrl
+                var staleDownloads = gameDownloads
+                    .Where(d => d.GameImageUrl != game.ImageUrl)
+                    .ToList();
+
+                if (staleDownloads.Count > 0)
                 {
-                    // We don't have namespace/catalogItemId stored in EpicGameMappings,
-                    // so we can't call the catalog API per-game directly.
-                    // Instead, images are already refreshed during GetOwnedGamesAsync()
-                    // which is called in RefreshCatalogAsync(). This method serves as
-                    // a secondary pass to update any downloads that reference these images.
-                    // For now, just ensure all Downloads with EpicAppId get the current ImageUrl.
-
-                    if (!string.IsNullOrEmpty(game.ImageUrl))
-                    {
-                        var downloadsToUpdate = await db.Downloads
-                            .Where(d => d.EpicAppId == game.AppId && (d.GameImageUrl == null || d.GameImageUrl != game.ImageUrl))
-                            .ToListAsync(ct);
-
-                        if (downloadsToUpdate.Count > 0)
-                        {
-                            _logger.LogInformation("Propagating Epic image to {Count} downloads: EpicAppId={AppId}, ImageUrl={Url}",
-                                downloadsToUpdate.Count, game.AppId, game.ImageUrl);
-                        }
-
-                        foreach (var download in downloadsToUpdate)
-                        {
-                            download.GameImageUrl = game.ImageUrl;
-                            updated++;
-                        }
-                    }
+                    _logger.LogInformation("Propagating Epic image to {Count} downloads: EpicAppId={AppId}, ImageUrl={Url}",
+                        staleDownloads.Count, game.AppId, game.ImageUrl);
                 }
-                catch (Exception ex)
+
+                foreach (var download in staleDownloads)
                 {
-                    _logger.LogTrace(ex, "Failed to refresh image for Epic game {AppId}", game.AppId);
+                    download.GameImageUrl = game.ImageUrl;
+                    updated++;
                 }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogTrace(ex, "Failed to refresh image for Epic game {AppId}", game.AppId);
             }
         }
 
