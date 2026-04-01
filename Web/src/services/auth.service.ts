@@ -80,6 +80,10 @@ class AuthService {
       // Store token for SignalR accessTokenFactory (survives page refresh via rotation)
       if (data.token) {
         this.sessionToken = data.token;
+      } else if (!data.isAuthenticated) {
+        // Session is no longer valid — clear stale token so SignalR stops
+        // reconnecting with invalid credentials after session expiry/server restart
+        this.sessionToken = null;
       }
 
       return data;
@@ -92,6 +96,7 @@ class AuthService {
       this.authMode = 'unauthenticated';
       this.sessionType = null;
       this.sessionId = null;
+      this.sessionToken = null;
       this.authChecked = true;
 
       return {
