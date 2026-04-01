@@ -12,8 +12,7 @@ import {
   SteamPicsAuthStep,
   DepotInitStep,
   PicsProgressStep,
-  LogProcessingStep,
-  DepotMappingStep
+  LogProcessingStep
 } from '../../initialization/steps';
 
 interface DepotInitializationModalProps {
@@ -52,8 +51,6 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({ onI
     handlePicsProgressCancel,
     handleLogProcessingComplete,
     handleLogProcessingSkip,
-    handleDepotMappingComplete,
-    handleDepotMappingSkip,
     handleBackToSteamAuth
   } = useInitializationFlow({ onInitialized });
 
@@ -136,16 +133,6 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({ onI
             onComplete={handleLogProcessingComplete}
             onSkip={handleLogProcessingSkip}
             onProcessingStateChange={setBackButtonDisabled}
-          />
-        );
-
-      case 'depot-mapping':
-        return (
-          <DepotMappingStep
-            onComplete={handleDepotMappingComplete}
-            onSkip={handleDepotMappingSkip}
-            onProcessingStateChange={setBackButtonDisabled}
-            completedPlatforms={completedPlatforms}
           />
         );
 

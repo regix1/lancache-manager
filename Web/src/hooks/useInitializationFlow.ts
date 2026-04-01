@@ -14,8 +14,7 @@ export type InitStep =
   | 'depot-init'
   | 'pics-progress'
   | 'epic-auth'
-  | 'log-processing'
-  | 'depot-mapping';
+  | 'log-processing';
 
 type DataSourceChoice = 'github' | 'steam' | 'epic' | 'skip' | null;
 
@@ -65,8 +64,6 @@ interface UseInitializationFlowResult {
   handlePicsProgressCancel: () => void;
   handleLogProcessingComplete: () => Promise<void>;
   handleLogProcessingSkip: () => Promise<void>;
-  handleDepotMappingComplete: () => Promise<void>;
-  handleDepotMappingSkip: () => Promise<void>;
   handleBackToSteamAuth: () => void;
 }
 
@@ -78,9 +75,9 @@ const buildStepInfoMap = (
   t: (key: string) => string,
   choice: DataSourceChoice
 ): Record<InitStep, StepInfo> => {
-  // Main flow: database-setup(1), permissions-check(2), import(3), platform-setup(4), log-processing(5), depot-mapping(6)
+  // Main flow: database-setup(1), permissions-check(2), import(3), platform-setup(4), log-processing(5)
   // Sub-flows extend from the hub (platform-setup = step 4)
-  const BASE_TOTAL = 6;
+  const BASE_TOTAL = 5;
 
   const getSubFlowInfo = (step: InitStep): { number: number; total: number } | null => {
     switch (choice) {
@@ -106,8 +103,7 @@ const buildStepInfoMap = (
       'permissions-check': 2,
       'import-historical-data': 3,
       'platform-setup': 4,
-      'log-processing': 5,
-      'depot-mapping': 6
+      'log-processing': 5
     };
 
     if (commonSteps[step] !== undefined) {
@@ -131,8 +127,7 @@ const buildStepInfoMap = (
     'depot-init',
     'pics-progress',
     'epic-auth',
-    'log-processing',
-    'depot-mapping'
+    'log-processing'
   ];
 
   const titles: Record<InitStep, string> = {
@@ -145,8 +140,7 @@ const buildStepInfoMap = (
     'depot-init': t('initialization.modal.stepTitles.depotInitialization'),
     'pics-progress': t('initialization.modal.stepTitles.picsDataProgress'),
     'epic-auth': t('initialization.modal.stepTitles.epicAuthentication'),
-    'log-processing': t('initialization.modal.stepTitles.logProcessing'),
-    'depot-mapping': t('initialization.modal.stepTitles.depotMapping')
+    'log-processing': t('initialization.modal.stepTitles.logProcessing')
   };
 
   const result = {} as Record<InitStep, StepInfo>;
@@ -180,8 +174,6 @@ function normalizeServerStep(raw: string | null): InitStep | null {
     case 'pics-progress':
     case 'epic-auth':
     case 'log-processing':
-    case 'depot-mapping':
-      return raw;
     case 'api-key':
       return 'permissions-check';
     default:
@@ -367,8 +359,7 @@ export function useInitializationFlow({
           if (
             serverStep === 'depot-init' ||
             serverStep === 'pics-progress' ||
-            serverStep === 'log-processing' ||
-            serverStep === 'depot-mapping'
+            serverStep === 'log-processing'
           ) {
             await checkPicsDataStatus();
           }
@@ -500,32 +491,14 @@ export function useInitializationFlow({
   }, [goToStep]);
 
   const handleLogProcessingComplete = useCallback(async (): Promise<void> => {
-    // Show depot mapping step if any platform was configured (steam or epic)
-    // Note: dataSourceChoice gets reset to null after each platform completes,
-    // so we check completedPlatforms instead to determine if mappings should be applied
-    const hasAnyPlatform = completedPlatforms.steam !== null || completedPlatforms.epic;
-    if (!hasAnyPlatform) {
-      const completed = await markSetupCompleted();
-      if (!completed) return;
-      await handleInitializationComplete();
-      return;
-    }
-    goToStep('depot-mapping');
-  }, [completedPlatforms, markSetupCompleted, handleInitializationComplete, goToStep]);
+    // Depot mappings are already applied during step 4 (GitHub/Steam download)
+    // and inline by the Rust processor during log processing — no separate step needed
+    const completed = await markSetupCompleted();
+    if (!completed) return;
+    await handleInitializationComplete();
+  }, [markSetupCompleted, handleInitializationComplete]);
 
   const handleLogProcessingSkip = useCallback(async (): Promise<void> => {
-    const completed = await markSetupCompleted();
-    if (!completed) return;
-    await handleInitializationComplete();
-  }, [markSetupCompleted, handleInitializationComplete]);
-
-  const handleDepotMappingComplete = useCallback(async (): Promise<void> => {
-    const completed = await markSetupCompleted();
-    if (!completed) return;
-    await handleInitializationComplete();
-  }, [markSetupCompleted, handleInitializationComplete]);
-
-  const handleDepotMappingSkip = useCallback(async (): Promise<void> => {
     const completed = await markSetupCompleted();
     if (!completed) return;
     await handleInitializationComplete();
@@ -570,9 +543,6 @@ export function useInitializationFlow({
       case 'log-processing':
         goToStep('platform-setup');
         break;
-      case 'depot-mapping':
-        goToStep('log-processing');
-        break;
       default:
         break;
     }
@@ -612,8 +582,6 @@ export function useInitializationFlow({
     handlePicsProgressCancel,
     handleLogProcessingComplete,
     handleLogProcessingSkip,
-    handleDepotMappingComplete,
-    handleDepotMappingSkip,
     handleBackToSteamAuth
   };
 }
