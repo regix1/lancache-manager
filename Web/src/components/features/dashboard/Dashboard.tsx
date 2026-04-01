@@ -310,6 +310,7 @@ const Dashboard: React.FC = () => {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const isInitialVisibilityMount = useRef(true);
 
   // Use drag-and-drop hook for card reordering
   const {
@@ -378,6 +379,10 @@ const Dashboard: React.FC = () => {
   });
 
   useEffect(() => {
+    if (isInitialVisibilityMount.current) {
+      isInitialVisibilityMount.current = false;
+      return;
+    }
     storage.setItem(STORAGE_KEYS.DASHBOARD_CARD_VISIBILITY, JSON.stringify(cardVisibility));
   }, [cardVisibility]);
 
@@ -770,7 +775,7 @@ const Dashboard: React.FC = () => {
             ]}
             value={cardLayout}
             onChange={handleCardLayoutChange}
-            size="sm"
+            size="md"
           />
 
           {/* Reset Layout Button */}
