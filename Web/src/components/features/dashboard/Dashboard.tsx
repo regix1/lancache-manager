@@ -664,6 +664,17 @@ const Dashboard: React.FC = () => {
             )}
           </div>
 
+          {/* Card Layout Toggle */}
+          <SegmentedControl
+            options={[
+              { value: '4-column', label: '4 Column' },
+              { value: '3-column', label: '3 Column' }
+            ]}
+            value={cardLayout}
+            onChange={handleCardLayoutChange}
+            size="md"
+          />
+
           {/* Hidden Cards Button - only shows when cards are hidden */}
           {hiddenCardsCount > 0 && (
             <div className="relative" ref={dropdownRef}>
@@ -766,17 +777,6 @@ const Dashboard: React.FC = () => {
               )}
             </div>
           )}
-
-          {/* Card Layout Toggle */}
-          <SegmentedControl
-            options={[
-              { value: '4-column', label: '4 Column' },
-              { value: '3-column', label: '3 Column' }
-            ]}
-            value={cardLayout}
-            onChange={handleCardLayoutChange}
-            size="md"
-          />
 
           {/* Reset Layout Button */}
           <Tooltip content={t('tooltips.resetCardLayout')} strategy="overlay">

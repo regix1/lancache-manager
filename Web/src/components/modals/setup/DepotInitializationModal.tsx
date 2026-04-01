@@ -195,7 +195,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({ onI
         </div>
 
         {/* Content */}
-        <div className="p-8 overflow-y-auto min-h-0">
+        <div className="p-8">
           {syncError && (
             <div className="mb-4 p-3 rounded-lg bg-themed-error">
               <p className="text-sm text-themed-error">{syncError}</p>
