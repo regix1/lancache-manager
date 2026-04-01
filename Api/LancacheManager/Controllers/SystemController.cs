@@ -290,7 +290,6 @@ public class SystemController : ControllerBase
 
             if (hasCompleted)
             {
-                state.SetupCompleted = completed!.Value;
                 // Always clear wizard state fields when completion is explicitly set.
                 state.CurrentSetupStep = null;
                 state.DataSourceChoice = null;
@@ -298,6 +297,13 @@ public class SystemController : ControllerBase
                 hasUpdate = true;
             }
         });
+
+        // Call SetSetupCompleted AFTER UpdateState so the TaskCompletionSource signal
+        // fires and unblocks all gated startup services immediately (no restart needed).
+        if (hasCompleted)
+        {
+            _stateService.SetSetupCompleted(completed!.Value);
+        }
 
         if (!_stateService.IsPersistenceAvailable)
         {

@@ -35,6 +35,7 @@ import { storage } from '@utils/storage';
 import ApiService from '@services/api.service';
 import StatCard from '@components/common/StatCard';
 import { Tooltip } from '@components/ui/Tooltip';
+import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { HelpSection } from '@components/ui/HelpPopover';
 import ServiceAnalyticsChart from './ServiceAnalyticsChart';
 import RecentDownloadsPanel from './RecentDownloadsPanel';
@@ -43,6 +44,7 @@ import TopClientsTable from './TopClientsTable';
 import PeakUsageHours from './widgets/PeakUsageHours';
 import CacheGrowthTrend from './widgets/CacheGrowthTrend';
 
+type CardLayout = '4-column' | '3-column';
 type CardVisibility = Record<string, boolean>;
 type AllStatCards = Record<string, StatCardData>;
 
@@ -128,6 +130,15 @@ const Dashboard: React.FC = () => {
   const { selectedEvent: _selectedEvent } = useEvents();
   const { speedSnapshot, activeDownloadCount } = useSpeed();
   const statTooltips = useMemo(() => getStatTooltips(t), [t]);
+
+  const [cardLayout, setCardLayout] = useState<CardLayout>(
+    () => (localStorage.getItem('dashboard-card-layout') as CardLayout) ?? '4-column'
+  );
+
+  const handleCardLayoutChange = (value: string) => {
+    setCardLayout(value as CardLayout);
+    localStorage.setItem('dashboard-card-layout', value);
+  };
 
   // Track if initial card animations have completed - prevents re-animation on reorder
   const initialAnimationCompleteRef = useRef(false);
@@ -751,6 +762,17 @@ const Dashboard: React.FC = () => {
             </div>
           )}
 
+          {/* Card Layout Toggle */}
+          <SegmentedControl
+            options={[
+              { value: '4-column', label: '4 Column' },
+              { value: '3-column', label: '3 Column' }
+            ]}
+            value={cardLayout}
+            onChange={handleCardLayoutChange}
+            size="sm"
+          />
+
           {/* Reset Layout Button */}
           <Tooltip content={t('tooltips.resetCardLayout')} strategy="overlay">
             <button
@@ -805,7 +827,13 @@ const Dashboard: React.FC = () => {
       )}
 
       {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 isolate">
+      <div
+        className={
+          cardLayout === '3-column'
+            ? 'stat-cards-3col'
+            : 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 isolate'
+        }
+      >
         {visibleCards.map((card: StatCardData, visualIndex: number) => {
           // Check if this is a live-only card that should be disabled in historical view
           // Note: usedSpace now supports historical data via snapshots, so it's never disabled
