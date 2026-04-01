@@ -264,6 +264,8 @@ export function useInitializationFlow({
 
   const markSetupCompleted = useCallback(async (): Promise<boolean> => {
     try {
+      // Clear all localStorage on setup completion so default values take effect fresh
+      localStorage.clear();
       await ApiService.markSetupComplete();
       markSetupCompletedLocally();
       await refreshSetupStatus();
