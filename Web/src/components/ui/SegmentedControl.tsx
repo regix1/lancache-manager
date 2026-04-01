@@ -37,7 +37,7 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
     },
     md: {
       container: 'p-[3px]',
-      button: 'px-3 py-2',
+      button: 'px-3 py-[5px]',
       icon: 14,
       text: 'text-sm'
     }

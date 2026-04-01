@@ -381,13 +381,15 @@ public class GameCacheDetectionService : IDisposable
                             var progress = await _rustProcessHelper.ReadProgressFileAsync<GameDetectionProgressData>(progressFilePath);
                             if (progress != null)
                             {
-                                _operationTracker.UpdateProgress(operationId, progress.PercentComplete, progress.Message);
+                                // Scale Rust progress (0-100%) to the scanning phase range (1-30%)
+                                var scaledPercent = 1 + (progress.PercentComplete * 29.0 / 100.0);
+                                _operationTracker.UpdateProgress(operationId, scaledPercent, progress.Message);
 
                                 // Send SignalR notification for live updates
                                 await _notifications.NotifyAllAsync(SignalREvents.GameDetectionProgress, new
                                 {
                                     OperationId = operationId,
-                                    PercentComplete = progress.PercentComplete,
+                                    PercentComplete = scaledPercent,
                                     Status = OperationStatus.Running,
                                     Message = progress.Message,
                                     gamesProcessed = progress.GamesProcessed,
@@ -492,9 +494,8 @@ public class GameCacheDetectionService : IDisposable
 
                     gameIndex++;
 
-                    // Send progress updates every 5 games or every 10% of total games
-                    var progressThreshold = Math.Max(5, totalGamesInResult / 10);
-                    if (gameIndex - lastProgressUpdate >= progressThreshold || gameIndex == totalGamesInResult)
+                    // Send progress updates every 3 games or at the end (loop is in-memory, so frequent updates are cheap)
+                    if (gameIndex - lastProgressUpdate >= 3 || gameIndex == totalGamesInResult)
                     {
                         lastProgressUpdate = gameIndex;
                         var gameProgress = gameProcessingStart + ((gameProcessingEnd - gameProcessingStart) * gameIndex / totalGamesInResult);
