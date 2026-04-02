@@ -5,6 +5,7 @@ import { Modal } from '@components/ui/Modal';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import { useEvents } from '@contexts/useEvents';
 import { getEventColorVar } from '@utils/eventColors';
+import { formatEventDateRange } from '@utils/formatters';
 
 interface DateRangePickerProps {
   startDate: Date | null;
@@ -58,14 +59,6 @@ const DateRangePicker: React.FC<DateRangePickerProps> = ({
     if (now >= start && now <= end) return 'active';
     if (now < start) return 'upcoming';
     return 'past';
-  };
-
-  const formatEventDateRange = (startUtc: string, endUtc: string) => {
-    const start = new Date(startUtc);
-    const end = new Date(endUtc);
-    const startStr = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    const endStr = end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    return startStr === endStr ? startStr : `${startStr} - ${endStr}`;
   };
 
   const handleEventPresetClick = (startUtc: string, endUtc: string) => {

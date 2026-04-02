@@ -131,13 +131,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAdmin, mockMo
     setSearchResults([]);
 
     try {
-      const queryParam = path ? `?path=${encodeURIComponent(path)}` : '';
-      const res = await fetch(
-        `/api/filebrowser/list${queryParam}`,
-        ApiService.getFetchOptions({ method: 'GET' })
-      );
-
-      const result = await ApiService.handleResponse<DirectoryListing>(res);
+      const result = await ApiService.fileBrowserList<DirectoryListing>(path);
       setCurrentPath(result.currentPath);
       setParentPath(result.parentPath);
       setItems(result.items);
@@ -188,12 +182,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAdmin, mockMo
     setError(null);
 
     try {
-      const res = await fetch(
-        `/api/filebrowser/search?searchPath=${encodeURIComponent(searchPath)}`,
-        ApiService.getFetchOptions({ method: 'GET' })
-      );
-
-      const result = await ApiService.handleResponse<{ results: FileSystemItem[] }>(res);
+      const result = await ApiService.fileBrowserSearch<{ results: FileSystemItem[] }>(searchPath);
       setSearchResults(result.results);
 
       if (result.results.length === 0) {

@@ -44,7 +44,8 @@ import type {
   DaemonSessionCreatedEvent,
   DaemonSessionUpdatedEvent,
   DaemonSessionTerminatedEvent,
-  PrefillHistoryUpdatedEvent
+  PrefillHistoryUpdatedEvent,
+  EpicPrefillHistoryUpdatedEvent
 } from '@contexts/SignalRContext/types';
 import './PrefillSessionsSection.css';
 
@@ -828,6 +829,15 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       }
     };
 
+    const handleEpicPrefillHistoryUpdated = async (event: EpicPrefillHistoryUpdatedEvent) => {
+      try {
+        const history = await ApiService.getPrefillSessionHistory(event.sessionId);
+        setHistoryData((prev) => ({ ...prev, [event.sessionId]: history }));
+      } catch {
+        // Ignore errors in SignalR handler
+      }
+    };
+
     on('DaemonSessionCreated', handleSessionCreated);
     on('DaemonSessionUpdated', handleSessionUpdated);
     on('DaemonSessionTerminated', handleSessionTerminated);
@@ -835,7 +845,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
     on('EpicDaemonSessionCreated', handleSessionCreated);
     on('EpicDaemonSessionUpdated', handleSessionUpdated);
     on('EpicDaemonSessionTerminated', handleSessionTerminated);
-    on('EpicPrefillHistoryUpdated', handlePrefillHistoryUpdated);
+    on('EpicPrefillHistoryUpdated', handleEpicPrefillHistoryUpdated);
 
     return () => {
       off('DaemonSessionCreated', handleSessionCreated);
@@ -845,7 +855,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       off('EpicDaemonSessionCreated', handleSessionCreated);
       off('EpicDaemonSessionUpdated', handleSessionUpdated);
       off('EpicDaemonSessionTerminated', handleSessionTerminated);
-      off('EpicPrefillHistoryUpdated', handlePrefillHistoryUpdated);
+      off('EpicPrefillHistoryUpdated', handleEpicPrefillHistoryUpdated);
     };
   }, [on, off]);
 

@@ -2,7 +2,7 @@ import { useRef, useState, useCallback, useEffect } from 'react';
 import { type HubConnection, HubConnectionBuilder, LogLevel } from '@microsoft/signalr';
 import { SIGNALR_BASE } from '@utils/constants';
 import {
-  formatDuration,
+  formatDurationFromSeconds,
   formatTimeRemaining,
   type SteamAuthState,
   type PrefillSessionDto
@@ -335,7 +335,7 @@ export function usePrefillSignalR(options: UsePrefillSignalROptions): UsePrefill
             if (Date.now() - completedTime < COMPLETION_NOTIFICATION_WINDOW_MS) {
               const currentBgCompletion = sessionStorage.getItem('prefill_background_completion');
               if (!currentBgCompletion && !isCompletionDismissed(lastResult.completedAt)) {
-                const formattedDuration = formatDuration(lastResult.durationSeconds);
+                const formattedDuration = formatDurationFromSeconds(lastResult.durationSeconds);
                 setBackgroundCompletion({
                   completedAt: lastResult.completedAt,
                   message: t('prefill.completion.message', { duration: formattedDuration }),

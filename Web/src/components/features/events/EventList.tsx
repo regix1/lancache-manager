@@ -62,7 +62,7 @@ interface EventCardProps {
   onEditClick: (event: Event) => void;
   onViewStatsClick: (event: Event) => void;
   formatDateTime: (dateStr: string) => string;
-  formatDuration: (startStr: string, endStr: string) => string;
+  formatDurationBetweenDates: (startStr: string, endStr: string) => string;
 }
 
 const EventCard = React.memo(
@@ -75,7 +75,7 @@ const EventCard = React.memo(
     onEditClick,
     onViewStatsClick,
     formatDateTime,
-    formatDuration
+    formatDurationBetweenDates
   }: EventCardProps) => {
     const { t } = useTranslation();
     const isLoading = isExpanded && (cacheEntry?.loading || false);
@@ -91,8 +91,8 @@ const EventCard = React.memo(
       [formatDateTime, event.startTimeUtc]
     );
     const formattedDuration = useMemo(
-      () => formatDuration(event.startTimeUtc, event.endTimeUtc),
-      [formatDuration, event.startTimeUtc, event.endTimeUtc]
+      () => formatDurationBetweenDates(event.startTimeUtc, event.endTimeUtc),
+      [formatDurationBetweenDates, event.startTimeUtc, event.endTimeUtc]
     );
 
     const colorVar = getEventColorVar(event.colorIndex);
@@ -322,7 +322,7 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
     [use24HourFormat]
   );
 
-  const formatDuration = useCallback(
+  const formatDurationBetweenDates = useCallback(
     (startStr: string, endStr: string) => {
       const start = new Date(startStr);
       const end = new Date(endStr);
@@ -356,14 +356,7 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
 
     try {
       // Use taggedOnly=true to show only downloads explicitly tagged to this event
-      const response = await fetch(
-        `/api/events/${eventId}/downloads?taggedOnly=true`,
-        ApiService.getFetchOptions()
-      );
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      const downloads = await response.json();
+      const downloads = await ApiService.getEventDownloads<Download[]>(eventId);
       setDownloadsCache((prev) => ({
         ...prev,
         [eventId]: {
@@ -479,7 +472,7 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
                 onEditClick={onEventClick}
                 onViewStatsClick={handleViewStats}
                 formatDateTime={formatDateTime}
-                formatDuration={formatDuration}
+                formatDurationBetweenDates={formatDurationBetweenDates}
               />
             ))}
           </div>
@@ -509,7 +502,7 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
                 onEditClick={onEventClick}
                 onViewStatsClick={handleViewStats}
                 formatDateTime={formatDateTime}
-                formatDuration={formatDuration}
+                formatDurationBetweenDates={formatDurationBetweenDates}
               />
             ))}
           </div>
@@ -537,7 +530,7 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
                 onEditClick={onEventClick}
                 onViewStatsClick={handleViewStats}
                 formatDateTime={formatDateTime}
-                formatDuration={formatDuration}
+                formatDurationBetweenDates={formatDurationBetweenDates}
               />
             ))}
           </div>

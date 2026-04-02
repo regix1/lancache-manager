@@ -30,7 +30,6 @@ public static class SignalREvents
     public const string UserSessionRevoked = "UserSessionRevoked";
     public const string UserSessionDeleted = "UserSessionDeleted";
     public const string UserSessionsCleared = "UserSessionsCleared";
-    public const string UserSessionsUpdated = "UserSessionsUpdated";
     public const string SessionLastSeenUpdated = "SessionLastSeenUpdated";
     public const string GuestRefreshRateUpdated = "GuestRefreshRateUpdated";
 
@@ -78,8 +77,6 @@ public static class SignalREvents
     public const string DatabaseResetStarted = "DatabaseResetStarted";
     public const string DatabaseResetProgress = "DatabaseResetProgress";
     public const string DatabaseResetComplete = "DatabaseResetComplete";
-    public const string PrefillSessionsCleared = "PrefillSessionsCleared";
-    public const string BannedSteamUsersCleared = "BannedSteamUsersCleared";
 
     // Data Import
     public const string DataImportStarted = "DataImportStarted";

@@ -626,12 +626,6 @@ public class DatabaseService : IDatabaseService
                                 timestamp = DateTime.UtcNow
                             });
 
-                            // Notify frontend to clear prefill sessions cache
-                            await _notifications.NotifyAllAsync(SignalREvents.PrefillSessionsCleared, new
-                            {
-                                message = "All prefill sessions have been cleared",
-                                timestamp = DateTime.UtcNow
-                            });
                             break;
 
                         case "PrefillHistoryEntries":
@@ -667,12 +661,6 @@ public class DatabaseService : IDatabaseService
                                 timestamp = DateTime.UtcNow
                             });
 
-                            // Notify frontend to refresh banned users
-                            await _notifications.NotifyAllAsync(SignalREvents.BannedSteamUsersCleared, new
-                            {
-                                message = "All banned Steam users have been cleared",
-                                timestamp = DateTime.UtcNow
-                            });
                             break;
 
                         case "CachedServiceDetections":

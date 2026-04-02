@@ -6,20 +6,22 @@ import { Card } from '@components/ui/Card';
 import { Alert } from '@components/ui/Alert';
 import authService from '@services/auth.service';
 import { useAuth } from '@contexts/useAuth';
+import { useNotifications } from '@contexts/notifications';
 
 const AuthenticateTab: React.FC = () => {
   const { t } = useTranslation();
   const { refreshAuth } = useAuth();
+  const { addNotification } = useNotifications();
   const [apiKey, setApiKey] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Helper to show toast notifications
   const showToast = (type: 'success' | 'error' | 'info', message: string) => {
-    window.dispatchEvent(
-      new CustomEvent('show-toast', {
-        detail: { type, message, duration: 4000 }
-      })
-    );
+    addNotification({
+      type: 'generic',
+      status: type === 'error' ? 'failed' : 'completed',
+      message,
+      details: { notificationType: type }
+    });
   };
 
   const handleAuthenticate = async () => {

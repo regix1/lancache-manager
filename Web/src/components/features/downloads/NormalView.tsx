@@ -89,6 +89,7 @@ interface GroupCardProps {
   hasMultipleDatasources: boolean;
   showCacheHitBar: boolean;
   showEventBadges: boolean;
+  availableImages: Set<string>;
   detectionLookup?: Map<number, GameCacheInfo> | null;
   detectionByName?: Map<string, GameCacheInfo> | null;
   detectionByService?: Map<
@@ -115,6 +116,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
   hasMultipleDatasources,
   showCacheHitBar,
   showEventBadges,
+  availableImages,
   detectionLookup,
   detectionByName,
   detectionByService
@@ -135,7 +137,6 @@ const GroupCard: React.FC<GroupCardProps> = ({
     hasActiveFilters
   } = useSessionFilters(group.downloads);
   const [expandedIps, setExpandedIps] = React.useState<Record<string, boolean>>({});
-  const availableImages = useAvailableGameImages();
   const hitPercent = group.totalBytes > 0 ? (group.cacheHitBytes / group.totalBytes) * 100 : 0;
   const primaryDownload = group.downloads[0];
   const serviceLower = (group.service ?? '').toLowerCase();
@@ -1022,6 +1023,7 @@ interface GridCardProps {
   enableScrollIntoView: boolean;
   showDatasourceLabels: boolean;
   hasMultipleDatasources: boolean;
+  availableImages: Set<string>;
 }
 
 const GridCard: React.FC<GridCardProps> = ({
@@ -1039,11 +1041,11 @@ const GridCard: React.FC<GridCardProps> = ({
   stopHoldTimer: _stopHoldTimer,
   enableScrollIntoView: _enableScrollIntoView,
   showDatasourceLabels,
-  hasMultipleDatasources
+  hasMultipleDatasources,
+  availableImages
 }) => {
   const { t } = useTranslation();
   const { fetchAssociations, getAssociations, refreshVersion } = useDownloadAssociations();
-  const availableImages = useAvailableGameImages();
   const cardRef = React.useRef<HTMLDivElement>(null);
   const hitPercent = group.totalBytes > 0 ? (group.cacheHitBytes / group.totalBytes) * 100 : 0;
   const primaryDownload = group.downloads[0];
@@ -1217,6 +1219,7 @@ interface GridCardDrawerContentProps {
   setGroupPages: React.Dispatch<React.SetStateAction<Record<string, number>>>;
   startHoldTimer: (callback: () => void) => void;
   stopHoldTimer: () => void;
+  availableImages: Set<string>;
   detectionLookup?: Map<number, GameCacheInfo> | null;
   detectionByName?: Map<string, GameCacheInfo> | null;
   detectionByService?: Map<
@@ -1236,6 +1239,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
   setGroupPages,
   startHoldTimer,
   stopHoldTimer,
+  availableImages,
   detectionLookup,
   detectionByName,
   detectionByService
@@ -1252,7 +1256,6 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
     filteredCount,
     hasActiveFilters
   } = useSessionFilters(group.downloads);
-  const availableImages = useAvailableGameImages();
   const [expandedIps, setExpandedIps] = React.useState<Record<string, boolean>>({});
   const hitPercent = group.totalBytes > 0 ? (group.cacheHitBytes / group.totalBytes) * 100 : 0;
   const primaryDownload = group.downloads[0];
@@ -1793,6 +1796,7 @@ const NormalView: React.FC<NormalViewProps> = ({
   const [groupPages, setGroupPages] = React.useState<Record<string, number>>({});
   const [drawerItem, setDrawerItem] = useState<DownloadGroup | null>(null);
   const { startHoldTimer, stopHoldTimer } = useHoldTimer();
+  const availableImages = useAvailableGameImages();
 
   const SESSIONS_PER_PAGE = 10;
 
@@ -1819,6 +1823,7 @@ const NormalView: React.FC<NormalViewProps> = ({
       hasMultipleDatasources={hasMultipleDatasources}
       showCacheHitBar={showCacheHitBar}
       showEventBadges={showEventBadges}
+      availableImages={availableImages}
       detectionLookup={detectionLookup}
       detectionByName={detectionByName}
       detectionByService={detectionByService}
@@ -1914,6 +1919,7 @@ const NormalView: React.FC<NormalViewProps> = ({
                 enableScrollIntoView={false}
                 showDatasourceLabels={showDatasourceLabels}
                 hasMultipleDatasources={hasMultipleDatasources}
+                availableImages={availableImages}
               />
             );
           })}
@@ -1943,6 +1949,7 @@ const NormalView: React.FC<NormalViewProps> = ({
               setGroupPages={setGroupPages}
               startHoldTimer={startHoldTimer}
               stopHoldTimer={stopHoldTimer}
+              availableImages={availableImages}
               detectionLookup={detectionLookup}
               detectionByName={detectionByName}
               detectionByService={detectionByService}

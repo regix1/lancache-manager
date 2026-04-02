@@ -1,16 +1,11 @@
 import React, { use } from 'react';
 import { useTranslation } from 'react-i18next';
+import ApiService from '@services/api.service';
 
 // Fetch version from API
 const fetchVersion = async (): Promise<string> => {
   try {
-    const response = await fetch('/api/version');
-    if (response.ok) {
-      const data = await response.json();
-      return data.version;
-    } else {
-      return 'unknown';
-    }
+    return await ApiService.getVersion();
   } catch (error) {
     console.error('Failed to fetch version:', error);
     return 'unknown';

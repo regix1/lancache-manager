@@ -35,13 +35,7 @@ const MemoryDiagnostics: React.FC = () => {
   const fetchMemoryStats = async () => {
     try {
       setError(null);
-      const response = await fetch('/api/memory', ApiService.getFetchOptions());
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const data = await response.json();
+      const data = await ApiService.getMemoryStats<MemoryStats>();
       setStats(data);
     } catch (err: unknown) {
       console.error('Failed to fetch memory stats:', err);

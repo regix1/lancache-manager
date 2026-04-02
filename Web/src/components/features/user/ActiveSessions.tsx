@@ -47,6 +47,7 @@ import { getErrorMessage } from '@utils/error';
 import { useAuth } from '@contexts/useAuth';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import type { EpicGuestPrefillConfigChangedEvent } from '@contexts/SignalRContext/types';
 import { useSessionPreferences } from '@contexts/useSessionPreferences';
 import { useDefaultGuestPreferences } from '@hooks/useDefaultGuestPreferences';
 import { useActivityTracker } from '@hooks/useActivityTracker';
@@ -253,23 +254,17 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         if (showLoading) {
           setLoading(true);
         }
-        const response = await fetch(
-          `/api/sessions?page=${page}&pageSize=${pageSize}`,
-          ApiService.getFetchOptions()
-        );
-
-        if (response.ok) {
-          const data = await response.json();
-          const loadedSessions = data.sessions || [];
-          setSessions(loadedSessions);
-          setTotalPages(data.pagination?.totalPages || 1);
-          setTotalCount(data.pagination?.totalCount || loadedSessions.length);
-          setCurrentPage(data.pagination?.page || 1);
-          setHistorySessions(data.historySessions || []);
-        } else {
-          const errorData = await response.json();
-          showToast('error', errorData.error || t('activeSessions.errors.loadSessions'));
-        }
+        const data = await ApiService.getSessions<{
+          sessions: Session[];
+          pagination: { totalPages: number; totalCount: number; page: number };
+          historySessions: Session[];
+        }>(page, pageSize);
+        const loadedSessions = data.sessions || [];
+        setSessions(loadedSessions);
+        setTotalPages(data.pagination?.totalPages || 1);
+        setTotalCount(data.pagination?.totalCount || loadedSessions.length);
+        setCurrentPage(data.pagination?.page || 1);
+        setHistorySessions(data.historySessions || []);
       } catch (err: unknown) {
         showToast('error', getErrorMessage(err) || t('activeSessions.errors.loadSessions'));
       } finally {
@@ -287,37 +282,22 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
     try {
       setRevokingSession(pendingRevokeSession.id);
-      const endpoint = `/api/sessions/${encodeURIComponent(pendingRevokeSession.id)}/revoke`;
+      await ApiService.revokeSession(pendingRevokeSession.id);
 
-      const response = await fetch(
-        endpoint,
-        ApiService.getFetchOptions({
-          method: 'PATCH'
-        })
-      );
-
-      if (response.ok) {
-        if (isOwnSession) {
-          setPendingRevokeSession(null);
-          showToast('info', t('activeSessions.info.revokedOwnSession'));
-
-          setTimeout(async () => {
-            await authService.logout();
-            await refreshAuth();
-          }, 2000);
-          return;
-        }
-
-        await loadSessions(false);
+      if (isOwnSession) {
         setPendingRevokeSession(null);
-        onSessionsChange();
-      } else {
-        const errorData = await response.json();
-        showToast(
-          'error',
-          errorData.message || errorData.error || t('activeSessions.errors.revokeSession')
-        );
+        showToast('info', t('activeSessions.info.revokedOwnSession'));
+
+        setTimeout(async () => {
+          await authService.logout();
+          await refreshAuth();
+        }, 2000);
+        return;
       }
+
+      await loadSessions(false);
+      setPendingRevokeSession(null);
+      onSessionsChange();
     } catch (err: unknown) {
       showToast('error', getErrorMessage(err) || t('activeSessions.errors.revokeSession'));
     } finally {
@@ -332,33 +312,18 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
     try {
       setDeletingSession(pendingDeleteSession.id);
-      const endpoint = `/api/sessions/${encodeURIComponent(pendingDeleteSession.id)}`;
+      await ApiService.deleteSession(pendingDeleteSession.id);
 
-      const response = await fetch(
-        endpoint,
-        ApiService.getFetchOptions({
-          method: 'DELETE'
-        })
-      );
+      setSessions((prev) => prev.filter((s: Session) => s.id !== pendingDeleteSession.id));
+      setPendingDeleteSession(null);
+      onSessionsChange();
 
-      if (response.ok) {
-        setSessions((prev) => prev.filter((s: Session) => s.id !== pendingDeleteSession.id));
-        setPendingDeleteSession(null);
-        onSessionsChange();
-
-        if (isOwnSession) {
-          showToast('info', t('activeSessions.info.deletedOwnSession'));
-          setTimeout(async () => {
-            await authService.logout();
-            await refreshAuth();
-          }, 2000);
-        }
-      } else {
-        const errorData = await response.json();
-        showToast(
-          'error',
-          errorData.message || errorData.error || t('activeSessions.errors.deleteSession')
-        );
+      if (isOwnSession) {
+        showToast('info', t('activeSessions.info.deletedOwnSession'));
+        setTimeout(async () => {
+          await authService.logout();
+          await refreshAuth();
+        }, 2000);
       }
     } catch (err: unknown) {
       showToast('error', getErrorMessage(err) || t('activeSessions.errors.deleteSession'));
@@ -385,49 +350,27 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     setPendingEpicPrefillChange(null);
     setLoadingPreferences(true);
     try {
-      const response = await fetch(
-        `/api/user-preferences/session/${encodeURIComponent(session.id)}`,
-        ApiService.getFetchOptions()
-      );
-
-      if (response.ok) {
-        const prefs = await response.json();
-        const selectedTheme =
-          prefs.selectedTheme && prefs.selectedTheme.trim() !== '' ? prefs.selectedTheme : null;
-        setEditingPreferences({
-          selectedTheme: selectedTheme,
-          sharpCorners: prefs.sharpCorners ?? false,
-          disableFocusOutlines: prefs.disableFocusOutlines ?? true,
-          disableTooltips: prefs.disableTooltips ?? false,
-          picsAlwaysVisible: prefs.picsAlwaysVisible ?? false,
-          disableStickyNotifications: prefs.disableStickyNotifications ?? false,
-          showDatasourceLabels: prefs.showDatasourceLabels ?? true,
-          useLocalTimezone: prefs.useLocalTimezone ?? false,
-          use24HourFormat: prefs.use24HourFormat ?? true,
-          showYearInDates: prefs.showYearInDates ?? false,
-          refreshRate: prefs.refreshRate ?? null,
-          refreshRateLocked: prefs.refreshRateLocked ?? null,
-          allowedTimeFormats: prefs.allowedTimeFormats ?? undefined,
-          maxThreadCount: prefs.maxThreadCount ?? null
-        });
-      } else {
-        setEditingPreferences({
-          selectedTheme: null,
-          sharpCorners: false,
-          disableFocusOutlines: true,
-          disableTooltips: false,
-          picsAlwaysVisible: false,
-          disableStickyNotifications: false,
-          showDatasourceLabels: true,
-          useLocalTimezone: false,
-          use24HourFormat: true,
-          showYearInDates: false,
-          refreshRate: null,
-          refreshRateLocked: null,
-          allowedTimeFormats: undefined,
-          maxThreadCount: null
-        });
-      }
+      const prefs = await ApiService.getSessionPreferences<Record<string, unknown>>(session.id);
+      const selectedTheme =
+        typeof prefs.selectedTheme === 'string' && prefs.selectedTheme.trim() !== ''
+          ? prefs.selectedTheme
+          : null;
+      setEditingPreferences({
+        selectedTheme: selectedTheme,
+        sharpCorners: (prefs.sharpCorners as boolean) ?? false,
+        disableFocusOutlines: (prefs.disableFocusOutlines as boolean) ?? true,
+        disableTooltips: (prefs.disableTooltips as boolean) ?? false,
+        picsAlwaysVisible: (prefs.picsAlwaysVisible as boolean) ?? false,
+        disableStickyNotifications: (prefs.disableStickyNotifications as boolean) ?? false,
+        showDatasourceLabels: (prefs.showDatasourceLabels as boolean) ?? true,
+        useLocalTimezone: (prefs.useLocalTimezone as boolean) ?? false,
+        use24HourFormat: (prefs.use24HourFormat as boolean) ?? true,
+        showYearInDates: (prefs.showYearInDates as boolean) ?? false,
+        refreshRate: (prefs.refreshRate as string | null) ?? null,
+        refreshRateLocked: (prefs.refreshRateLocked as boolean | null) ?? null,
+        allowedTimeFormats: prefs.allowedTimeFormats as string[] | undefined,
+        maxThreadCount: (prefs.maxThreadCount as number | null) ?? null
+      });
     } catch (err: unknown) {
       showToast('error', getErrorMessage(err) || t('activeSessions.errors.loadPreferences'));
       setEditingSession(null);
@@ -441,74 +384,47 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
     try {
       setSavingPreferences(true);
-      const response = await fetch(
-        `/api/user-preferences/session/${encodeURIComponent(editingSession.id)}`,
-        ApiService.getFetchOptions({
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(editingPreferences)
-        })
-      );
+      await ApiService.saveSessionPreferences<void>(editingSession.id, editingPreferences);
 
-      if (response.ok) {
-        const isOwnSession = editingSession.isCurrentSession;
+      const isOwnSession = editingSession.isCurrentSession;
 
-        if (isOwnSession) {
-          if (editingPreferences.selectedTheme) {
-            await themeService.setTheme(editingPreferences.selectedTheme);
-          }
-          await themeService.setSharpCorners(editingPreferences.sharpCorners);
-          await themeService.setDisableTooltips(editingPreferences.disableTooltips);
-          await themeService.setDisableStickyNotifications(
-            editingPreferences.disableStickyNotifications
-          );
-          await themeService.setPicsAlwaysVisible(editingPreferences.picsAlwaysVisible);
+      if (isOwnSession) {
+        if (editingPreferences.selectedTheme) {
+          await themeService.setTheme(editingPreferences.selectedTheme);
         }
-
-        if (isGuestSession(editingSession)) {
-          await fetch(
-            `/api/sessions/${encodeURIComponent(editingSession.id)}/refresh-rate`,
-            ApiService.getFetchOptions({
-              method: 'PATCH',
-              headers: {
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({ refreshRate: editingPreferences.refreshRate || '' })
-            })
-          );
-
-          const prefillToggles: { service: string; enabled: boolean }[] = [];
-          if (pendingSteamPrefillChange !== null) {
-            prefillToggles.push({ service: 'steam', enabled: pendingSteamPrefillChange });
-          }
-          if (pendingEpicPrefillChange !== null) {
-            prefillToggles.push({ service: 'epic', enabled: pendingEpicPrefillChange });
-          }
-          await Promise.all(
-            prefillToggles.map(({ service, enabled }: { service: string; enabled: boolean }) =>
-              fetch(
-                `/api/auth/guest/prefill/toggle/${encodeURIComponent(editingSession.id)}?service=${service}`,
-                ApiService.getFetchOptions({
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ enabled })
-                })
-              )
-            )
-          );
-        }
-
-        setEditingSession(null);
-        setEditingPreferences(null);
-        setPendingSteamPrefillChange(null);
-        setPendingEpicPrefillChange(null);
-        loadSessions(false);
-      } else {
-        const errorData = await response.json();
-        showToast('error', errorData.error || t('activeSessions.errors.savePreferences'));
+        await themeService.setSharpCorners(editingPreferences.sharpCorners);
+        await themeService.setDisableTooltips(editingPreferences.disableTooltips);
+        await themeService.setDisableStickyNotifications(
+          editingPreferences.disableStickyNotifications
+        );
+        await themeService.setPicsAlwaysVisible(editingPreferences.picsAlwaysVisible);
       }
+
+      if (isGuestSession(editingSession)) {
+        await ApiService.setSessionRefreshRate(
+          editingSession.id,
+          editingPreferences.refreshRate || ''
+        );
+
+        const prefillToggles: { service: string; enabled: boolean }[] = [];
+        if (pendingSteamPrefillChange !== null) {
+          prefillToggles.push({ service: 'steam', enabled: pendingSteamPrefillChange });
+        }
+        if (pendingEpicPrefillChange !== null) {
+          prefillToggles.push({ service: 'epic', enabled: pendingEpicPrefillChange });
+        }
+        await Promise.all(
+          prefillToggles.map(({ service, enabled }: { service: string; enabled: boolean }) =>
+            ApiService.toggleGuestPrefillService(editingSession.id, service, enabled)
+          )
+        );
+      }
+
+      setEditingSession(null);
+      setEditingPreferences(null);
+      setPendingSteamPrefillChange(null);
+      setPendingEpicPrefillChange(null);
+      loadSessions(false);
     } catch (err: unknown) {
       showToast('error', getErrorMessage(err) || t('activeSessions.errors.savePreferences'));
     } finally {
@@ -519,21 +435,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   const handleBulkResetToDefaults = async () => {
     try {
       setBulkActionInProgress('reset');
-      const response = await fetch(
-        '/api/sessions/bulk/reset-to-defaults',
-        ApiService.getFetchOptions({
-          method: 'POST'
-        })
-      );
-
-      if (response.ok) {
-        const data = await response.json();
-        showToast('success', t('user.bulkActions.resetSuccess', { count: data.affectedCount }));
-        setShowBulkResetConfirm(false);
-      } else {
-        const errorData = await response.json();
-        showToast('error', errorData.error || t('user.bulkActions.errors.resetFailed'));
-      }
+      const data = await ApiService.bulkResetSessionsToDefaults<{ affectedCount: number }>();
+      showToast('success', t('user.bulkActions.resetSuccess', { count: data.affectedCount }));
+      setShowBulkResetConfirm(false);
     } catch (err: unknown) {
       showToast('error', getErrorMessage(err) || t('user.bulkActions.errors.resetFailed'));
     } finally {
@@ -544,22 +448,10 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   const handleClearAllGuests = async () => {
     try {
       setBulkActionInProgress('clear');
-      const response = await fetch(
-        '/api/sessions/bulk/clear-guests',
-        ApiService.getFetchOptions({
-          method: 'DELETE'
-        })
-      );
-
-      if (response.ok) {
-        const data = await response.json();
-        showToast('success', t('user.bulkActions.clearSuccess', { count: data.clearedCount }));
-        onSessionsChange();
-        setShowClearGuestsConfirm(false);
-      } else {
-        const errorData = await response.json();
-        showToast('error', errorData.error || t('user.bulkActions.errors.clearFailed'));
-      }
+      const data = await ApiService.bulkClearGuestSessions<{ clearedCount: number }>();
+      showToast('success', t('user.bulkActions.clearSuccess', { count: data.clearedCount }));
+      onSessionsChange();
+      setShowClearGuestsConfirm(false);
     } catch (err: unknown) {
       showToast('error', getErrorMessage(err) || t('user.bulkActions.errors.clearFailed'));
     } finally {
@@ -652,10 +544,10 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   );
 
   const handleEpicGuestPrefillConfigChanged = useCallback(
-    (data: { maxThreadCount?: number | null }) => {
+    (data: EpicGuestPrefillConfigChangedEvent) => {
       loadSessions(false);
-      if ('maxThreadCount' in data) {
-        setEpicDefaultGuestMaxThreadCount(data.maxThreadCount ?? null);
+      if ('epicMaxThreadCount' in data) {
+        setEpicDefaultGuestMaxThreadCount(data.epicMaxThreadCount ?? null);
       }
     },
     [loadSessions]
@@ -760,18 +652,12 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   useEffect(() => {
     const loadThreadConfig = async () => {
       try {
-        const [steamRes, epicRes] = await Promise.all([
-          fetch('/api/auth/guest/prefill/config', ApiService.getFetchOptions()),
-          fetch('/api/auth/guest/epic-prefill/config', ApiService.getFetchOptions())
+        const [steamData, epicData] = await Promise.all([
+          ApiService.getGuestPrefillConfig<{ maxThreadCount: number | null }>('prefill'),
+          ApiService.getGuestPrefillConfig<{ maxThreadCount: number | null }>('epic-prefill')
         ]);
-        if (steamRes.ok) {
-          const data = await steamRes.json();
-          setDefaultGuestMaxThreadCount(data.maxThreadCount ?? null);
-        }
-        if (epicRes.ok) {
-          const data = await epicRes.json();
-          setEpicDefaultGuestMaxThreadCount(data.maxThreadCount ?? null);
-        }
+        setDefaultGuestMaxThreadCount(steamData.maxThreadCount ?? null);
+        setEpicDefaultGuestMaxThreadCount(epicData.maxThreadCount ?? null);
       } catch (err) {
         showToast('error', getErrorMessage(err) || t('user.errors.loadThreadConfig'));
       }

@@ -159,6 +159,17 @@ export function formatPercent(value: number, decimals = 1): string {
 }
 
 /**
+ * Format an event date range as a short localized string (e.g., "Jan 5" or "Jan 5 - Jan 7")
+ */
+export function formatEventDateRange(startUtc: string, endUtc: string): string {
+  const start = new Date(startUtc);
+  const end = new Date(endUtc);
+  const startStr = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const endStr = end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return startStr === endStr ? startStr : `${startStr} - ${endStr}`;
+}
+
+/**
  * Format relative time (e.g., "2 hours ago")
  */
 export function formatRelativeTime(dateString: string | Date | null | undefined): string {

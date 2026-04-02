@@ -194,7 +194,7 @@ export function formatTimeRemaining(seconds: number): string {
   return t('prefill.timeRemaining.seconds', { seconds: secs });
 }
 
-export function formatDuration(seconds: number): string {
+export function formatDurationFromSeconds(seconds: number): string {
   const t = i18n.t.bind(i18n);
   if (seconds <= 0) return t('prefill.duration.zero');
   const hours = Math.floor(seconds / 3600);

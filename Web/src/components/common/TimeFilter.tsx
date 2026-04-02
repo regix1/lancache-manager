@@ -18,6 +18,7 @@ import { useEvents } from '@contexts/useEvents';
 import DateRangePicker from './DateRangePicker';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import { getEventColorVar } from '@utils/eventColors';
+import { formatEventDateRange } from '@utils/formatters';
 
 interface TimeFilterProps {
   disabled?: boolean;
@@ -81,14 +82,6 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
     if (now >= start && now <= end) return 'active';
     if (now < start) return 'upcoming';
     return 'past';
-  };
-
-  const formatEventDateRange = (startUtc: string, endUtc: string) => {
-    const start = new Date(startUtc);
-    const end = new Date(endUtc);
-    const startStr = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    const endStr = end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    return startStr === endStr ? startStr : `${startStr} - ${endStr}`;
   };
 
   // Time range options - matching old structure

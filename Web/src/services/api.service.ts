@@ -2007,6 +2007,417 @@ class ApiService {
     });
     await ApiService.handleResponse(response);
   }
+
+  // ── Log Rotation ──────────────────────────────────────────────────────────
+
+  static async getLogRotationStatus(): Promise<unknown> {
+    const response = await fetch(`${API_BASE}/system/log-rotation/status`, this.getFetchOptions());
+    return ApiService.handleResponse<unknown>(response);
+  }
+
+  static async updateLogRotationSchedule(scheduleHours: number): Promise<unknown> {
+    const response = await fetch(
+      `${API_BASE}/system/log-rotation/schedule`,
+      this.getFetchOptions({
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scheduleHours })
+      })
+    );
+    return ApiService.handleResponse<unknown>(response);
+  }
+
+  static async triggerLogRotation(): Promise<unknown> {
+    const response = await fetch(
+      `${API_BASE}/system/log-rotation/trigger`,
+      this.getFetchOptions({ method: 'POST' })
+    );
+    return ApiService.handleResponse<unknown>(response);
+  }
+
+  // ── GC Management ─────────────────────────────────────────────────────────
+
+  static async getGcManagementStatus(): Promise<unknown> {
+    const response = await fetch(`${API_BASE}/system/gc-management/status`, this.getFetchOptions());
+    return ApiService.handleResponse<unknown>(response);
+  }
+
+  // ── File Browser ──────────────────────────────────────────────────────────
+
+  static async fileBrowserList<T>(path: string | null): Promise<T> {
+    const queryParam = path ? `?path=${encodeURIComponent(path)}` : '';
+    const response = await fetch(
+      `${API_BASE}/filebrowser/list${queryParam}`,
+      this.getFetchOptions({ method: 'GET' })
+    );
+    return ApiService.handleResponse<T>(response);
+  }
+
+  static async fileBrowserSearch<T>(searchPath: string): Promise<T> {
+    const response = await fetch(
+      `${API_BASE}/filebrowser/search?searchPath=${encodeURIComponent(searchPath)}`,
+      this.getFetchOptions({ method: 'GET' })
+    );
+    return ApiService.handleResponse<T>(response);
+  }
+
+  // ── Events ────────────────────────────────────────────────────────────────
+
+  static async getEventDownloads<T>(eventId: number): Promise<T> {
+    const response = await fetch(
+      `${API_BASE}/events/${eventId}/downloads?taggedOnly=true`,
+      this.getFetchOptions()
+    );
+    return ApiService.handleResponse<T>(response);
+  }
+
+  // ── Memory ────────────────────────────────────────────────────────────────
+
+  static async getMemoryStats<T>(): Promise<T> {
+    const response = await fetch(`${API_BASE}/memory`, this.getFetchOptions());
+    return ApiService.handleResponse<T>(response);
+  }
+
+  // ── Sessions ──────────────────────────────────────────────────────────────
+
+  static async getSessions<T>(page: number, pageSize: number): Promise<T> {
+    const response = await fetch(
+      `${API_BASE}/sessions?page=${page}&pageSize=${pageSize}`,
+      this.getFetchOptions()
+    );
+    return ApiService.handleResponse<T>(response);
+  }
+
+  static async revokeSession(sessionId: string): Promise<void> {
+    const response = await fetch(
+      `${API_BASE}/sessions/${encodeURIComponent(sessionId)}/revoke`,
+      this.getFetchOptions({ method: 'PATCH' })
+    );
+    await ApiService.handleResponse(response);
+  }
+
+  static async deleteSession(sessionId: string): Promise<void> {
+    const response = await fetch(
+      `${API_BASE}/sessions/${encodeURIComponent(sessionId)}`,
+      this.getFetchOptions({ method: 'DELETE' })
+    );
+    await ApiService.handleResponse(response);
+  }
+
+  static async getSessionPreferences<T>(sessionId: string): Promise<T> {
+    const response = await fetch(
+      `${API_BASE}/user-preferences/session/${encodeURIComponent(sessionId)}`,
+      this.getFetchOptions()
+    );
+    return ApiService.handleResponse<T>(response);
+  }
+
+  static async saveSessionPreferences<T>(sessionId: string, preferences: unknown): Promise<T> {
+    const response = await fetch(
+      `${API_BASE}/user-preferences/session/${encodeURIComponent(sessionId)}`,
+      this.getFetchOptions({
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(preferences)
+      })
+    );
+    return ApiService.handleResponse<T>(response);
+  }
+
+  static async setSessionRefreshRate(sessionId: string, refreshRate: string): Promise<void> {
+    const response = await fetch(
+      `${API_BASE}/sessions/${encodeURIComponent(sessionId)}/refresh-rate`,
+      this.getFetchOptions({
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshRate })
+      })
+    );
+    await ApiService.handleResponse(response);
+  }
+
+  static async toggleGuestPrefillService(
+    sessionId: string,
+    service: string,
+    enabled: boolean
+  ): Promise<void> {
+    const response = await fetch(
+      `${API_BASE}/auth/guest/prefill/toggle/${encodeURIComponent(sessionId)}?service=${service}`,
+      this.getFetchOptions({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled })
+      })
+    );
+    await ApiService.handleResponse(response);
+  }
+
+  static async bulkResetSessionsToDefaults<T>(): Promise<T> {
+    const response = await fetch(
+      `${API_BASE}/sessions/bulk/reset-to-defaults`,
+      this.getFetchOptions({ method: 'POST' })
+    );
+    return ApiService.handleResponse<T>(response);
+  }
+
+  static async bulkClearGuestSessions<T>(): Promise<T> {
+    const response = await fetch(
+      `${API_BASE}/sessions/bulk/clear-guests`,
+      this.getFetchOptions({ method: 'DELETE' })
+    );
+    return ApiService.handleResponse<T>(response);
+  }
+
+  static async getGuestPrefillConfig<T>(service: 'prefill' | 'epic-prefill'): Promise<T> {
+    const response = await fetch(
+      `${API_BASE}/auth/guest/${service}/config`,
+      this.getFetchOptions()
+    );
+    return ApiService.handleResponse<T>(response);
+  }
+
+  // ── Guest Config ──────────────────────────────────────────────────────────
+
+  static async getGuestConfig<T>(): Promise<T> {
+    const response = await fetch(`${API_BASE}/auth/guest/config`, this.getFetchOptions());
+    return ApiService.handleResponse<T>(response);
+  }
+
+  static async setGuestConfigLock(isLocked: boolean): Promise<void> {
+    const response = await fetch(
+      `${API_BASE}/auth/guest/config/lock`,
+      this.getFetchOptions({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isLocked })
+      })
+    );
+    await ApiService.handleResponse(response);
+  }
+
+  static async getGuestThemePreference<T>(): Promise<T> {
+    const response = await fetch(`${API_BASE}/themes/preferences/guest`, this.getFetchOptions());
+    return ApiService.handleResponse<T>(response);
+  }
+
+  static async setGuestThemePreference(themeId: string): Promise<void> {
+    const response = await fetch(
+      `${API_BASE}/themes/preferences/guest`,
+      this.getFetchOptions({
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ themeId })
+      })
+    );
+    await ApiService.handleResponse(response);
+  }
+
+  static async getDefaultGuestRefreshRate<T>(): Promise<T> {
+    const response = await fetch(
+      `${API_BASE}/system/default-guest-refresh-rate`,
+      this.getFetchOptions()
+    );
+    return ApiService.handleResponse<T>(response);
+  }
+
+  static async setDefaultGuestRefreshRate(refreshRate: string): Promise<void> {
+    const response = await fetch(
+      `${API_BASE}/system/default-guest-refresh-rate`,
+      this.getFetchOptions({
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshRate })
+      })
+    );
+    await ApiService.handleResponse(response);
+  }
+
+  static async setGuestRefreshRateLock(locked: boolean): Promise<void> {
+    const response = await fetch(
+      `${API_BASE}/system/guest-refresh-rate-lock`,
+      this.getFetchOptions({
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ locked })
+      })
+    );
+    await ApiService.handleResponse(response);
+  }
+
+  // ── Default Guest Preferences ─────────────────────────────────────────────
+
+  static async getDefaultGuestPreferences<T>(): Promise<T> {
+    const response = await fetch(
+      `${API_BASE}/system/default-guest-preferences`,
+      this.getFetchOptions()
+    );
+    return ApiService.handleResponse<T>(response);
+  }
+
+  static async setDefaultGuestPreference(key: string, value: boolean): Promise<void> {
+    const response = await fetch(
+      `${API_BASE}/system/default-guest-preferences/${key}`,
+      this.getFetchOptions({
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value })
+      })
+    );
+    await ApiService.handleResponse(response);
+  }
+
+  static async setDefaultGuestAllowedTimeFormats(formats: string[]): Promise<void> {
+    const response = await fetch(
+      `${API_BASE}/system/default-guest-preferences/allowed-time-formats`,
+      this.getFetchOptions({
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ formats })
+      })
+    );
+    await ApiService.handleResponse(response);
+  }
+
+  static async setDefaultGuestTimeFormat(key: string, value: boolean): Promise<void> {
+    const response = await fetch(
+      `${API_BASE}/system/default-guest-preferences/${key}`,
+      this.getFetchOptions({
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value })
+      })
+    );
+    await ApiService.handleResponse(response);
+  }
+
+  static async updateGuestPrefillConfig<T>(
+    service: 'prefill' | 'epic-prefill',
+    body: Record<string, unknown>
+  ): Promise<T> {
+    const response = await fetch(
+      `${API_BASE}/auth/guest/${service}/config`,
+      this.getFetchOptions({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      })
+    );
+    return ApiService.handleResponse<T>(response);
+  }
+
+  // ── Prefill Defaults ──────────────────────────────────────────────────────
+
+  static async getPrefillDefaults<T>(): Promise<T> {
+    const response = await fetch(`${API_BASE}/system/prefill-defaults`, this.getFetchOptions());
+    return ApiService.handleResponse<T>(response);
+  }
+
+  static async updatePrefillDefaults(body: Record<string, unknown>): Promise<void> {
+    const response = await fetch(
+      `${API_BASE}/system/prefill-defaults`,
+      this.getFetchOptions({
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      })
+    );
+    await ApiService.handleResponse(response);
+  }
+
+  // ── Themes ────────────────────────────────────────────────────────────────
+
+  static async uploadTheme<T>(formData: FormData): Promise<T> {
+    const response = await fetch(
+      `${API_BASE}/themes/upload`,
+      this.getFetchOptions({ method: 'POST', body: formData })
+    );
+    return ApiService.handleResponse<T>(response);
+  }
+
+  static async deleteTheme(themeId: string): Promise<void> {
+    const response = await fetch(
+      `${API_BASE}/themes/${themeId}`,
+      this.getFetchOptions({ method: 'DELETE' })
+    );
+    // 404 is acceptable — theme might already be deleted
+    if (!response.ok && response.status !== 404) {
+      await ApiService.handleResponse(response);
+    }
+  }
+
+  // ── Depot Mapping Config ──────────────────────────────────────────────────
+
+  static async setDepotRebuildMode(mode: boolean | 'github'): Promise<void> {
+    const response = await fetch(
+      `${API_BASE}/depots/rebuild/config/mode`,
+      this.getFetchOptions({
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(mode)
+      })
+    );
+    await ApiService.handleResponse(response);
+  }
+
+  static async setDepotRebuildInterval(intervalHours: number): Promise<void> {
+    const response = await fetch(
+      `${API_BASE}/depots/rebuild/config/interval`,
+      this.getFetchOptions({
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(intervalHours)
+      })
+    );
+    await ApiService.handleResponse(response);
+  }
+
+  static async importDepotsFromLocal(): Promise<void> {
+    const response = await fetch(
+      `${API_BASE}/depots/import?source=local`,
+      this.getFetchOptions({ method: 'POST' })
+    );
+    await ApiService.handleResponse(response);
+  }
+
+  // ── Steam Auth ────────────────────────────────────────────────────────────
+
+  static async clearSteamAuth(): Promise<void> {
+    const response = await fetch(
+      `${API_BASE}/steam-auth`,
+      this.getFetchOptions({ method: 'DELETE' })
+    );
+    await ApiService.handleResponse(response);
+  }
+
+  static async clearSteamApiKey(): Promise<void> {
+    const response = await fetch(
+      `${API_BASE}/steam-api-keys/current`,
+      this.getFetchOptions({ method: 'DELETE' })
+    );
+    await ApiService.handleResponse(response);
+  }
+
+  // ── Setup ─────────────────────────────────────────────────────────────────
+
+  static async submitSetupCredentials<T>(username: string, password: string): Promise<T> {
+    const response = await fetch(
+      `${API_BASE}/setup/credentials`,
+      this.getFetchOptions({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      })
+    );
+    return ApiService.handleResponse<T>(response);
+  }
+
+  // ── Version ───────────────────────────────────────────────────────────────
+
+  static async getVersion(): Promise<string> {
+    const response = await fetch(`${API_BASE}/version`);
+    const data = await ApiService.handleResponse<{ version: string }>(response);
+    return data.version;
+  }
 }
 
 // Prefill admin types

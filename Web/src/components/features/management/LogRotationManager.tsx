@@ -77,11 +77,8 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({ isAdmin, onErro
 
   const fetchStatus = useCallback(async () => {
     try {
-      const response = await fetch('/api/system/log-rotation/status', ApiService.getFetchOptions());
-      if (response.ok) {
-        const data = await response.json();
-        setStatus(data);
-      }
+      const data = (await ApiService.getLogRotationStatus()) as LogRotationStatus;
+      setStatus(data);
     } catch (err) {
       console.error('Failed to fetch log rotation status:', err);
     } finally {
@@ -96,16 +93,11 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({ isAdmin, onErro
     setIsUpdatingSchedule(true);
 
     try {
-      const response = await fetch(
-        '/api/system/log-rotation/schedule',
-        ApiService.getFetchOptions({
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ scheduleHours: hours })
-        })
-      );
-
-      const data = await response.json();
+      const data = (await ApiService.updateLogRotationSchedule(hours)) as {
+        success: boolean;
+        status: LogRotationStatus;
+        message?: string;
+      };
 
       if (data.success) {
         setStatus(data.status);
@@ -131,14 +123,10 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({ isAdmin, onErro
 
     setIsStartingRotation(true);
     try {
-      const response = await fetch(
-        '/api/system/log-rotation/trigger',
-        ApiService.getFetchOptions({
-          method: 'POST'
-        })
-      );
-
-      const data = await response.json();
+      const data = (await ApiService.triggerLogRotation()) as {
+        success: boolean;
+        message?: string;
+      };
 
       if (data.success) {
         // Show success notification

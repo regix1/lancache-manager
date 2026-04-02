@@ -1,6 +1,6 @@
 import type { HubConnection } from '@microsoft/signalr';
 import { formatBytes } from '@utils/formatters';
-import { formatDuration, type SteamAuthState, type PrefillSessionDto } from '../types';
+import { formatDurationFromSeconds, type SteamAuthState, type PrefillSessionDto } from '../types';
 import type { LogEntryType } from '../ActivityLog.utils';
 import i18n from '../../../../i18n';
 import { COMPLETION_NOTIFICATION_WINDOW_MS, getEventName } from './prefillConstants';
@@ -284,7 +284,7 @@ export function registerPrefillEventHandlers(
       } else if (state === 'completed') {
         setIsPrefillActive(false);
         const duration = durationSeconds ?? 0;
-        const formattedDuration = formatDuration(duration);
+        const formattedDuration = formatDurationFromSeconds(duration);
         addLog('success', t('prefill.log.prefillCompleted', { duration: formattedDuration }));
 
         // Log summary of what was prefilled
@@ -403,7 +403,7 @@ export function registerPrefillEventHandlers(
             Date.now() - completedTime < COMPLETION_NOTIFICATION_WINDOW_MS &&
             !isCompletionDismissed(lastResult.completedAt)
           ) {
-            const formattedDuration = formatDuration(lastResult.durationSeconds);
+            const formattedDuration = formatDurationFromSeconds(lastResult.durationSeconds);
             setBackgroundCompletionRef.current({
               completedAt: lastResult.completedAt,
               message: t('prefill.completion.message', { duration: formattedDuration }),

@@ -5,6 +5,7 @@ import { Card } from '@components/ui/Card';
 import ApiService from '@services/api.service';
 import { getErrorMessage } from '@utils/error';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import type { EpicGuestPrefillConfigChangedEvent } from '@contexts/SignalRContext/types';
 import { useAuth } from '@contexts/useAuth';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { EpicIcon } from '@components/ui/EpicIcon';
@@ -270,20 +271,13 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
     []
   );
 
-  const handleEpicPrefillConfigChanged = useCallback(
-    (data: {
-      enabledByDefault: boolean;
-      durationHours: number;
-      maxThreadCount?: number | null;
-    }) => {
-      setEpicPrefillConfig({
-        enabledByDefault: data.enabledByDefault,
-        durationHours: data.durationHours,
-        maxThreadCount: data.maxThreadCount ?? null
-      });
-    },
-    []
-  );
+  const handleEpicPrefillConfigChanged = useCallback((data: EpicGuestPrefillConfigChangedEvent) => {
+    setEpicPrefillConfig({
+      enabledByDefault: data.enabledByDefault,
+      durationHours: data.durationHours,
+      maxThreadCount: data.epicMaxThreadCount ?? null
+    });
+  }, []);
 
   const handleAllowedFormatsChange = async (formats: string[]) => {
     if (authMode !== 'authenticated') return;

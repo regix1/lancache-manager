@@ -93,16 +93,7 @@ const ManagementTab: React.FC = () => {
   useEffect(() => {
     const checkOptimizations = async () => {
       try {
-        const response = await fetch(
-          '/api/system/gc-management/status',
-          ApiService.getFetchOptions()
-        );
-        if (!response.ok) {
-          setOptimizationsEnabled(false);
-          return;
-        }
-
-        const data = await response.json();
+        const data = (await ApiService.getGcManagementStatus()) as { enabled: boolean };
         setOptimizationsEnabled(data.enabled === true);
       } catch {
         setOptimizationsEnabled(false);
@@ -116,16 +107,8 @@ const ManagementTab: React.FC = () => {
   useEffect(() => {
     const checkLogRotation = async () => {
       try {
-        const response = await fetch(
-          '/api/system/log-rotation/status',
-          ApiService.getFetchOptions()
-        );
-        if (response.ok) {
-          const data = await response.json();
-          setLogRotationEnabled(data.enabled === true);
-        } else {
-          setLogRotationEnabled(false);
-        }
+        const data = (await ApiService.getLogRotationStatus()) as { enabled: boolean };
+        setLogRotationEnabled(data.enabled === true);
       } catch {
         setLogRotationEnabled(false);
       }

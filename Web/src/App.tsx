@@ -8,41 +8,17 @@ import React, {
   useTransition
 } from 'react';
 import { useTranslation } from 'react-i18next';
-import { NotificationsProvider } from '@contexts/notifications';
-import { CacheSizeProvider } from '@contexts/CacheSizeContext';
-import { DashboardDataProvider } from '@contexts/DashboardDataContext';
 import { useStats } from '@contexts/DashboardDataContext/hooks';
-import { TimeFilterProvider } from '@contexts/TimeFilterContext';
-import { EventProvider } from '@contexts/EventContext';
-import { CalendarSettingsProvider } from '@contexts/CalendarSettingsContext';
-import { ClientGroupProvider } from '@contexts/ClientGroupContext';
-import { DownloadAssociationsProvider } from '@contexts/DownloadAssociationsContext';
-import { RefreshRateProvider } from '@contexts/RefreshRateContext';
-import { SignalRProvider } from '@contexts/SignalRContext';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
-import { SpeedProvider } from '@contexts/SpeedContext';
-import { MockModeProvider } from '@contexts/MockModeContext';
-import { useMockMode } from '@contexts/useMockMode';
-import { GuestConfigProvider } from '@contexts/GuestConfigContext';
-import { PicsProgressProvider } from '@contexts/PicsProgressContext';
-import { SetupStatusProvider } from '@contexts/SetupStatusContext';
 import { useSetupStatus } from '@contexts/useSetupStatus';
-import { SteamAuthProvider } from '@contexts/SteamAuthContext';
 import { useSteamAuth } from '@contexts/useSteamAuth';
-import { PrefillProvider } from '@contexts/PrefillContext';
-import { AuthProvider } from '@contexts/AuthContext';
 import { useAuth } from '@contexts/useAuth';
-import { SteamWebApiStatusProvider } from '@contexts/SteamWebApiStatusContext';
 import { useSteamWebApiStatus } from '@contexts/useSteamWebApiStatus';
-import { TimezoneProvider } from '@contexts/TimezoneContext';
-import { SessionPreferencesProvider } from '@contexts/SessionPreferencesContext';
-import { DockerSocketProvider } from '@contexts/DockerSocketContext';
 import { useDockerSocket } from '@contexts/useDockerSocket';
-import { GameServiceProvider } from '@contexts/GameServiceContext';
+import AppProviders from '@components/AppProviders';
 import Header from '@components/layout/Header';
 import Navigation from '@components/layout/Navigation';
 import Footer from '@components/layout/Footer';
-import ErrorBoundary from '@components/common/ErrorBoundary';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import UniversalNotificationBar from '@components/common/UniversalNotificationBar';
 import DepotInitializationModal from '@components/modals/setup/DepotInitializationModal';
@@ -82,20 +58,6 @@ const preloadMap: Record<string, () => void> = {
 
 // Eagerly preload the default tab
 preloadMap.dashboard();
-// Wrapper components to inject mockMode from context into providers
-const DashboardDataProviderWithMockMode: React.FC<{ children: React.ReactNode }> = ({
-  children
-}) => {
-  const { mockMode } = useMockMode();
-  return <DashboardDataProvider mockMode={mockMode}>{children}</DashboardDataProvider>;
-};
-
-const PicsProgressProviderWithMockMode: React.FC<{ children: React.ReactNode }> = ({
-  children
-}) => {
-  const { mockMode } = useMockMode();
-  return <PicsProgressProvider mockMode={mockMode}>{children}</PicsProgressProvider>;
-};
 
 const AppContent: React.FC = () => {
   const { t } = useTranslation();
@@ -640,55 +602,9 @@ const AppContent: React.FC = () => {
 
 const App: React.FC = () => {
   return (
-    <ErrorBoundary>
-      <MockModeProvider>
-        <GameServiceProvider>
-          <TimeFilterProvider>
-            <SignalRProvider>
-              <AuthProvider>
-                <DockerSocketProvider>
-                  <SessionPreferencesProvider>
-                    <RefreshRateProvider>
-                      <SpeedProvider>
-                        <TimezoneProvider>
-                          <SteamWebApiStatusProvider>
-                            <GuestConfigProvider>
-                              <SetupStatusProvider>
-                                <SteamAuthProvider>
-                                  <PrefillProvider>
-                                    <PicsProgressProviderWithMockMode>
-                                      <NotificationsProvider>
-                                        <CacheSizeProvider>
-                                          <DashboardDataProviderWithMockMode>
-                                            <CalendarSettingsProvider>
-                                              <EventProvider>
-                                                <ClientGroupProvider>
-                                                  <DownloadAssociationsProvider>
-                                                    <AppContent />
-                                                  </DownloadAssociationsProvider>
-                                                </ClientGroupProvider>
-                                              </EventProvider>
-                                            </CalendarSettingsProvider>
-                                          </DashboardDataProviderWithMockMode>
-                                        </CacheSizeProvider>
-                                      </NotificationsProvider>
-                                    </PicsProgressProviderWithMockMode>
-                                  </PrefillProvider>
-                                </SteamAuthProvider>
-                              </SetupStatusProvider>
-                            </GuestConfigProvider>
-                          </SteamWebApiStatusProvider>
-                        </TimezoneProvider>
-                      </SpeedProvider>
-                    </RefreshRateProvider>
-                  </SessionPreferencesProvider>
-                </DockerSocketProvider>
-              </AuthProvider>
-            </SignalRProvider>
-          </TimeFilterProvider>
-        </GameServiceProvider>
-      </MockModeProvider>
-    </ErrorBoundary>
+    <AppProviders>
+      <AppContent />
+    </AppProviders>
   );
 };
 
