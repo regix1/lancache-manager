@@ -22,6 +22,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.RateLimiting;
 using OpenTelemetry.Metrics;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.Extensions.Caching.Memory;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -210,6 +211,12 @@ builder.Services.AddScoped<IEventsService, EventsService>();
 builder.Services.AddScoped<IClientGroupsService, ClientGroupsService>();
 builder.Services.AddSingleton<ISettingsService, SettingsService>();
 builder.Services.AddSingleton<PathMigrationService>();
+
+// Register in-memory cache with size limit to prevent unbounded growth
+builder.Services.AddMemoryCache((MemoryCacheOptions options) =>
+{
+    options.SizeLimit = 500 * 1024 * 1024; // ~500 MB
+});
 
 // Register image caching service
 builder.Services.AddSingleton<IImageCacheService, ImageCacheService>();

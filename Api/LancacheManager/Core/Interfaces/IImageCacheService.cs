@@ -19,7 +19,13 @@ public interface IImageCacheService
         CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Clears all cached images
+    /// Clears all cached images from the database.
     /// </summary>
     Task ClearCacheAsync();
+
+    /// <summary>
+    /// Evicts all in-memory cached images, forcing the next request to read from the database.
+    /// Call this when the cache generation is incremented (e.g., after new images are fetched).
+    /// </summary>
+    void EvictMemoryCache();
 }

@@ -47,7 +47,6 @@ export interface Download {
   isActive: boolean;
   gameName?: string;
   gameAppId?: number;
-  gameImageUrl?: string;
   depotId?: number;
   epicAppId?: string;
   lastUrl?: string;

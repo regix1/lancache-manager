@@ -18,6 +18,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
 {
     private readonly IStateService _stateService;
     private readonly ISignalRNotificationService _notifications;
+    private readonly IImageCacheService _imageCacheService;
     private static readonly SemaphoreSlim _executionLock = new(1, 1);
 
     // Max concurrent HTTP requests for image fetching
@@ -33,11 +34,13 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         ILogger<GameImageFetchService> logger,
         IConfiguration configuration,
         IStateService stateService,
-        ISignalRNotificationService notifications)
+        ISignalRNotificationService notifications,
+        IImageCacheService imageCacheService)
         : base(serviceProvider, logger, configuration)
     {
         _stateService = stateService;
         _notifications = notifications;
+        _imageCacheService = imageCacheService;
     }
 
     protected override async Task OnStartupAsync(CancellationToken stoppingToken)
@@ -224,6 +227,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         if (missingSteamIds.Count > 0 || missingEpicMappings.Count > 0)
         {
             GameImagesController.IncrementCacheGeneration();
+            _imageCacheService.EvictMemoryCache();
             await _notifications.NotifyAllAsync("GameImagesUpdated", new
             {
                 newSteamImages = missingSteamIds.Count,
