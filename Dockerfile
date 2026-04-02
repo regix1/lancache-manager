@@ -54,12 +54,12 @@ RUN cargo build --release && \
     chmod +x /build/output/*
 
 # Stage 2: Build Frontend
-FROM node:20-alpine AS frontend-builder
+FROM node:22-alpine AS frontend-builder
 WORKDIR /app
 
 # Copy and install dependencies
 COPY Web/package*.json ./
-RUN npm install --quiet
+RUN npm ci --quiet
 
 # Copy source and build
 COPY Web/ ./
