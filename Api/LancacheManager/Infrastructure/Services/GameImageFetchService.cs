@@ -196,9 +196,9 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             db.ChangeTracker.Clear();
         }
 
-        // 3. Re-fetch stale images (older than 30 days)
+        // 3. Re-fetch stale images (older than 7 days)
         var staleImages = await db.GameImages
-            .Where(g => g.FetchedAtUtc < DateTime.UtcNow.AddDays(-30))
+            .Where(g => g.FetchedAtUtc < DateTime.UtcNow.AddDays(-7))
             .ToListAsync(stoppingToken);
 
         foreach (var batch in staleImages.Chunk(50))
@@ -338,7 +338,88 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             }
         }
 
-        _logger.LogDebug("[GameImageFetch] No valid image found for Steam app {AppId} after trying {Count} URLs", appId, urls.Count);
+        // Tier 3: Steam Store API fallback — newer games use shared.akamai.steamstatic.com
+        // with hash-based paths that aren't predictable from the app ID alone
+        var storeUrl = await GetStoreApiHeaderImageAsync(client, appId, ct);
+        if (storeUrl != null)
+        {
+            try
+            {
+                await _httpThrottle.WaitAsync(ct);
+                try
+                {
+                    var response = await client.GetAsync(storeUrl, ct);
+                    if (response.IsSuccessStatusCode)
+                    {
+                        var bytes = await response.Content.ReadAsByteArrayAsync(ct);
+                        if (bytes.Length >= MinImageBytes)
+                        {
+                            _logger.LogInformation("[GameImageFetch] Tier 3 (Store API) succeeded for Steam app {AppId}: {Url}", appId, storeUrl);
+                            return (bytes, response.Content.Headers.ContentType?.MediaType ?? "image/jpeg", storeUrl);
+                        }
+                    }
+                }
+                finally
+                {
+                    _httpThrottle.Release();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[GameImageFetch] Tier 3 fetch failed for Steam app {AppId} from {Url}", appId, storeUrl);
+            }
+        }
+
+        _logger.LogDebug("[GameImageFetch] No valid image found for Steam app {AppId} after trying all tiers", appId);
+        return null;
+    }
+
+    /// <summary>
+    /// Queries the Steam Store API to get the actual header_image URL for an app.
+    /// Newer games use shared.akamai.steamstatic.com with hash-based paths
+    /// that aren't available at the predictable cdn.akamai.steamstatic.com paths.
+    /// </summary>
+    private async Task<string?> GetStoreApiHeaderImageAsync(
+        HttpClient client,
+        string appId,
+        CancellationToken ct)
+    {
+        try
+        {
+            await _httpThrottle.WaitAsync(ct);
+            try
+            {
+                var response = await client.GetAsync(
+                    $"https://store.steampowered.com/api/appdetails?appids={appId}", ct);
+
+                if (!response.IsSuccessStatusCode) return null;
+
+                var json = await response.Content.ReadAsStringAsync(ct);
+                using var doc = System.Text.Json.JsonDocument.Parse(json);
+
+                if (doc.RootElement.TryGetProperty(appId, out var appElement) &&
+                    appElement.TryGetProperty("success", out var success) && success.GetBoolean() &&
+                    appElement.TryGetProperty("data", out var data) &&
+                    data.TryGetProperty("header_image", out var headerImage))
+                {
+                    var url = headerImage.GetString();
+                    if (!string.IsNullOrEmpty(url))
+                    {
+                        _logger.LogDebug("[GameImageFetch] Store API returned header_image for {AppId}: {Url}", appId, url);
+                        return url;
+                    }
+                }
+            }
+            finally
+            {
+                _httpThrottle.Release();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[GameImageFetch] Store API lookup failed for {AppId}", appId);
+        }
+
         return null;
     }
 
@@ -463,8 +544,20 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
 
                     if (response.IsSuccessStatusCode)
                     {
-                        // Update SourceUrl so future refreshes use the working URL
                         image.SourceUrl = tier2Url;
+                    }
+                    else
+                    {
+                        // Tier 3: Steam Store API — newer games use hash-based paths on shared.akamai
+                        var storeUrl = await GetStoreApiHeaderImageAsync(client, image.AppId, ct);
+                        if (storeUrl != null)
+                        {
+                            response = await client.GetAsync(storeUrl, ct);
+                            if (response.IsSuccessStatusCode)
+                            {
+                                image.SourceUrl = storeUrl;
+                            }
+                        }
                     }
                 }
             }

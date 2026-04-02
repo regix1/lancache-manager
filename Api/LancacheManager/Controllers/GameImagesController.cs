@@ -17,7 +17,6 @@ namespace LancacheManager.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/game-images")]
-[AllowAnonymous]
 public class GameImagesController : ControllerBase
 {
     private readonly ILogger<GameImagesController> _logger;
@@ -48,6 +47,7 @@ public class GameImagesController : ControllerBase
     /// Returns 404 if no image is stored in the DB for this app.
     /// </summary>
     [HttpGet("{appId}/header")]
+    [AllowAnonymous]
     public async Task<IActionResult> GetGameHeaderImageAsync(
         int appId,
         CancellationToken cancellationToken = default)
@@ -68,6 +68,7 @@ public class GameImagesController : ControllerBase
     /// Returns 404 if no image is stored in the DB for this Epic app.
     /// </summary>
     [HttpGet("epic/{epicAppId}/header")]
+    [AllowAnonymous]
     public async Task<IActionResult> GetEpicGameHeaderImageAsync(
         string epicAppId,
         CancellationToken cancellationToken = default)
@@ -87,6 +88,7 @@ public class GameImagesController : ControllerBase
     /// Returns the current cache generation so the frontend can build cache-busted image URLs on page load.
     /// </summary>
     [HttpGet("cache-version")]
+    [AllowAnonymous]
     public IActionResult GetCacheVersion() => Ok(new { version = _cacheGeneration });
 
     /// <summary>
@@ -94,6 +96,7 @@ public class GameImagesController : ControllerBase
     /// The frontend uses this to skip rendering image components for apps without images.
     /// </summary>
     [HttpGet("available")]
+    [AllowAnonymous]
     public async Task<IActionResult> GetAvailableImageIdsAsync(CancellationToken cancellationToken = default)
     {
         var ids = await _context.GameImages

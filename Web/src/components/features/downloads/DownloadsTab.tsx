@@ -29,6 +29,7 @@ import { useTimeFilter } from '@contexts/useTimeFilter';
 import { useClientGroups } from '@contexts/useClientGroups';
 import { storage } from '@utils/storage';
 import ApiService from '@services/api.service';
+import { useAuth } from '@contexts/useAuth';
 import { useSessionPreferences } from '@contexts/useSessionPreferences';
 import { formatDateTime } from '@utils/formatters';
 import { Alert } from '@components/ui/Alert';
@@ -289,6 +290,8 @@ const DownloadsTab: React.FC = () => {
   const { detectionLookup, detectionByName, detectionByService } = useGameDetection();
   const { timeRange, selectedEventIds } = useTimeFilter();
   const { getGroupForIp } = useClientGroups();
+  const { authMode } = useAuth();
+  const isGuest = authMode === 'guest';
 
   // Active/Recent tab state
   const [activeTab, setActiveTab] = useState<'active' | 'recent'>('recent');
@@ -1554,16 +1557,18 @@ const DownloadsTab: React.FC = () => {
                     </Tooltip>
                   )}
 
-                  <Tooltip content={t('downloads.tab.tooltips.refreshImages')} position="bottom">
-                    <Button
-                      variant="subtle"
-                      size="sm"
-                      onClick={handleClearImageCache}
-                      disabled={imageCacheClearing}
-                    >
-                      <RefreshCw size={18} className={imageCacheClearing ? 'animate-spin' : ''} />
-                    </Button>
-                  </Tooltip>
+                  {!isGuest && (
+                    <Tooltip content={t('downloads.tab.tooltips.refreshImages')} position="bottom">
+                      <Button
+                        variant="subtle"
+                        size="sm"
+                        onClick={handleClearImageCache}
+                        disabled={imageCacheClearing}
+                      >
+                        <RefreshCw size={18} className={imageCacheClearing ? 'animate-spin' : ''} />
+                      </Button>
+                    </Tooltip>
+                  )}
 
                   <Tooltip content={t('downloads.tab.tooltips.settings')} position="bottom">
                     <Button
