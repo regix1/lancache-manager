@@ -26,7 +26,7 @@ public class GameDetectionStartupService : ScheduledBackgroundService
 
     protected override TimeSpan StartupDelay => TimeSpan.Zero;
 
-    protected override TimeSpan Interval => Timeout.InfiniteTimeSpan;
+    protected override TimeSpan Interval => TimeSpan.FromDays(30);
 
     protected override async Task OnStartupAsync(CancellationToken stoppingToken)
     {
@@ -64,6 +64,16 @@ public class GameDetectionStartupService : ScheduledBackgroundService
         }
     }
 
-    protected override Task ExecuteWorkAsync(CancellationToken stoppingToken)
-        => Task.CompletedTask;
+    protected override async Task ExecuteWorkAsync(CancellationToken stoppingToken)
+    {
+        try
+        {
+            _logger.LogInformation("[GameDetectionStartup] Running scheduled monthly game detection scan");
+            await _detectionService.StartDetectionAsync(incremental: true);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[GameDetectionStartup] Error during scheduled game detection scan");
+        }
+    }
 }
