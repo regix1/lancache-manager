@@ -648,76 +648,6 @@ export interface DataImportCompleteEvent {
 // ============================================================================
 
 /**
- * Fired when the auth state of an Epic daemon session changes.
- * Sent per-connection to the Epic daemon hub (not broadcast to downloads hub).
- * Handled by usePrefillSignalR.ts on the dedicated Epic prefill daemon hub.
- */
-export interface EpicAuthStateChangedEvent {
-  sessionId: string;
-  authState: string;
-}
-
-/**
- * Fired when the Epic daemon needs credentials (e.g., authorization URL).
- * Sent per-connection to the Epic daemon hub (not broadcast to downloads hub).
- * Handled by usePrefillSignalR.ts / EpicAuthModal on the dedicated Epic prefill daemon hub.
- */
-export interface EpicCredentialChallengeEvent {
-  sessionId: string;
-  challenge: {
-    credentialType: string;
-    authorizationUrl?: string;
-  };
-}
-
-/**
- * Fired when the Epic daemon status changes (e.g., awaiting-login, logged-in).
- * Sent per-connection to the Epic daemon hub (not broadcast to downloads hub).
- * Handled by usePrefillSignalR.ts on the dedicated Epic prefill daemon hub.
- */
-export interface EpicStatusChangedEvent {
-  sessionId: string;
-  status: {
-    status: string;
-    displayName?: string;
-  };
-}
-
-/**
- * Fired when prefill state changes (started, completed, failed, cancelled).
- * Sent per-connection to the Epic daemon hub (not broadcast to downloads hub).
- * Handled by usePrefillSignalR.ts on the dedicated Epic prefill daemon hub.
- */
-export interface EpicPrefillStateChangedEvent {
-  sessionId: string;
-  state: string;
-  durationSeconds?: number;
-}
-
-/**
- * Fired during prefill download progress for each game.
- * Sent per-connection to the Epic daemon hub (not broadcast to downloads hub).
- * Handled by usePrefillSignalR.ts on the dedicated Epic prefill daemon hub.
- */
-export interface EpicPrefillProgressEvent {
-  sessionId: string;
-  progress: {
-    state: string;
-    currentAppId?: string;
-    currentAppName?: string;
-    totalBytes?: number;
-    bytesDownloaded?: number;
-    percentComplete?: number;
-    bytesPerSecond?: number;
-    elapsedSeconds?: number;
-    totalApps?: number;
-    updatedApps?: number;
-    result?: string;
-    errorMessage?: string;
-  };
-}
-
-/**
  * Fired when a prefill history entry is created or updated.
  * BROADCAST to both downloads hub and Epic daemon hub via NotifyAllDownloadsAndEpicHubAsync.
  * Can be handled by NotificationsContext.tsx.
@@ -726,16 +656,6 @@ export interface EpicPrefillHistoryUpdatedEvent {
   sessionId: string;
   appId: string;
   status: string;
-}
-
-/**
- * Fired when a daemon session ends.
- * Sent per-connection to the Epic daemon hub (not broadcast to downloads hub).
- * Handled by usePrefillSignalR.ts on the dedicated Epic prefill daemon hub.
- */
-export interface EpicSessionEndedEvent {
-  sessionId: string;
-  reason: string;
 }
 
 /**
