@@ -25,6 +25,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { useDownloads, useGameDetection } from '@contexts/DashboardDataContext/hooks';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import { useClientGroups } from '@contexts/useClientGroups';
 import { storage } from '@utils/storage';
@@ -292,6 +293,7 @@ const DownloadsTab: React.FC = () => {
   const { getGroupForIp } = useClientGroups();
   const { authMode } = useAuth();
   const isGuest = authMode === 'guest';
+  const { on, off } = useSignalR();
 
   // Active/Recent tab state
   const [activeTab, setActiveTab] = useState<'active' | 'recent'>('recent');
@@ -342,6 +344,18 @@ const DownloadsTab: React.FC = () => {
   const [showExportOptions, setShowExportOptions] = useState(false);
   const [imageCacheClearing, setImageCacheClearing] = useState(false);
   const [imageCacheVersion, setImageCacheVersion] = useState(0);
+
+  // Subscribe to GameImagesUpdated SignalR event to auto-refresh game images when backend finishes fetching them
+  useEffect(() => {
+    const handleGameImagesUpdated = () => {
+      setImageCacheVersion((prev) => prev + 1);
+    };
+    on('GameImagesUpdated', handleGameImagesUpdated);
+    return () => {
+      off('GameImagesUpdated', handleGameImagesUpdated);
+    };
+  }, [on, off]);
+
   const [currentPage, setCurrentPage] = useState(1);
   const nonRetroContentRef = useRef<HTMLDivElement>(null);
   const currentPageRef = useRef(currentPage);

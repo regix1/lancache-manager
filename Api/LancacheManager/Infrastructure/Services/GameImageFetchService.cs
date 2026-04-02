@@ -1,3 +1,4 @@
+using LancacheManager.Controllers;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
@@ -16,6 +17,7 @@ namespace LancacheManager.Infrastructure.Services;
 public class GameImageFetchService : ScopedScheduledBackgroundService
 {
     private readonly IStateService _stateService;
+    private readonly ISignalRNotificationService _notifications;
     private static readonly SemaphoreSlim _executionLock = new(1, 1);
 
     // Max concurrent HTTP requests for image fetching
@@ -30,10 +32,12 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         IServiceProvider serviceProvider,
         ILogger<GameImageFetchService> logger,
         IConfiguration configuration,
-        IStateService stateService)
+        IStateService stateService,
+        ISignalRNotificationService notifications)
         : base(serviceProvider, logger, configuration)
     {
         _stateService = stateService;
+        _notifications = notifications;
     }
 
     protected override async Task OnStartupAsync(CancellationToken stoppingToken)
@@ -216,6 +220,17 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         _logger.LogInformation(
             "[GameImageFetch] Complete: {NewSteam} new Steam, {NewEpic} new Epic, {Stale} refreshed",
             missingSteamIds.Count, missingEpicMappings.Count, staleImages.Count);
+
+        if (missingSteamIds.Count > 0 || missingEpicMappings.Count > 0)
+        {
+            GameImagesController.IncrementCacheGeneration();
+            await _notifications.NotifyAllAsync("GameImagesUpdated", new
+            {
+                newSteamImages = missingSteamIds.Count,
+                newEpicImages = missingEpicMappings.Count,
+                cacheGeneration = GameImagesController.CacheGeneration
+            });
+        }
     }
 
     // Minimum image size — Steam returns tiny ~1-2KB placeholder images for some apps

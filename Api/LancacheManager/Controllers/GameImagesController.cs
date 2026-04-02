@@ -25,8 +25,15 @@ public class GameImagesController : ControllerBase
     private readonly GameImageFetchService _gameImageFetchService;
     private readonly AppDbContext _context;
 
-    // Bumped on cache clear so the frontend can build cache-busted image URLs
+    // Bumped on cache clear or new image fetch so the frontend can build cache-busted image URLs
     private static long _cacheGeneration = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+    /// <summary>Gets the current image cache generation number.</summary>
+    public static long CacheGeneration => _cacheGeneration;
+
+    /// <summary>Increments the cache generation to a new timestamp, invalidating cached image URLs.</summary>
+    public static void IncrementCacheGeneration() =>
+        _cacheGeneration = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
     public GameImagesController(
         ILogger<GameImagesController> logger,
