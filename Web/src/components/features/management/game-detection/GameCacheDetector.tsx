@@ -313,7 +313,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         // Note: Operation state now handled by NotificationsContext
       }
     }
-  }, [notifications, isStartingDetection, invalidateImageCache]);
+  }, [notifications, isStartingDetection, invalidateImageCache, refreshSetupStatus]);
 
   // Direct SignalR listener for GameDetectionComplete — reloads results regardless of who started the scan.
   // This handles the case where an external process (e.g., a scheduled scan or another browser tab)

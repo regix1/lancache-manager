@@ -43,7 +43,7 @@ import {
   formatEpicGameMappingsUpdatedMessage
 } from './detailMessageFormatters';
 
-export interface SpecialCaseHandlers {
+interface SpecialCaseHandlers {
   handleDepotMappingStarted: (event: DepotMappingStartedEvent) => void;
   handleDepotMappingProgress: (event: DepotMappingProgressEvent) => void;
   handleDepotMappingComplete: (event: DepotMappingCompleteEvent) => void;

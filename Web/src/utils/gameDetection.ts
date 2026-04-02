@@ -1,6 +1,6 @@
 import type { GameCacheInfo } from '../types';
 
-export interface DetectionResult {
+interface DetectionResult {
   total_size_bytes: number;
   cache_files_found: number;
 }

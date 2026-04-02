@@ -20,7 +20,7 @@ export interface SessionFilters {
   itemsPerSession: number;
 }
 
-export interface UseSessionFiltersReturn {
+interface UseSessionFiltersReturn {
   filters: SessionFilters;
   updateFilter: <K extends keyof SessionFilters>(key: K, value: SessionFilters[K]) => void;
   resetFilters: () => void;
