@@ -221,6 +221,18 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
     // Minimum image size — Steam returns tiny ~1-2KB placeholder images for some apps
     private const int MinImageBytes = 5000;
 
+    /// <summary>
+    /// Steam CDN endpoints to try, in priority order.
+    /// shared.* uses the newer /store_item_assets/ path format.
+    /// cdn.akamai uses the legacy /steam/apps/ path format (still works for some games).
+    /// </summary>
+    private static readonly (string Domain, string BasePath)[] _steamCdnEndpoints =
+    [
+        ("shared.akamai.steamstatic.com", "/store_item_assets/steam/apps"),
+        ("shared.fastly.steamstatic.com", "/store_item_assets/steam/apps"),
+        ("cdn.akamai.steamstatic.com", "/steam/apps")
+    ];
+
     private async Task FetchSteamImageAsync(
         AppDbContext db,
         HttpClient client,
@@ -286,30 +298,21 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
     }
 
     /// <summary>
-    /// Attempts to fetch a Steam image for the given appId from PICS URL and CDN patterns.
-    /// Uses a pre-loaded picsUrlMap (no DB queries). Throttled to max 5 concurrent HTTP requests.
-    /// Returns the image bytes, content type, and source URL if successful; null otherwise.
+    /// Tries to fetch a Steam game header image from multiple CDN domains.
+    /// Returns the image bytes from the first domain that responds successfully,
+    /// or null if all domains fail.
     /// </summary>
-    private async Task<(byte[] bytes, string contentType, string sourceUrl)?> TryFetchSteamImageBytesAsync(
-        HttpClient client,
-        string appId,
-        Dictionary<long, string> picsUrlMap,
-        CancellationToken ct)
+    /// <summary>
+    /// Tries to fetch a Steam game header image from multiple CDN domains.
+    /// Returns the image bytes from the first domain that responds successfully,
+    /// or null if all domains fail.
+    /// </summary>
+    private async Task<byte[]?> TryFetchFromSteamCdnAsync(HttpClient client, long appId, CancellationToken ct)
     {
-        var urls = new List<string>();
-
-        // Tier 1: PICS-sourced URL from pre-loaded dictionary (eliminates per-game DB query)
-        if (long.TryParse(appId, out var appIdLong) && picsUrlMap.TryGetValue(appIdLong, out var picsUrl))
+        // First pass: try header.jpg across all CDN endpoints
+        foreach (var (domain, basePath) in _steamCdnEndpoints)
         {
-            urls.Add(picsUrl);
-        }
-
-        // Tier 2: CDN shortcut patterns (work for older/established games)
-        urls.Add($"https://cdn.akamai.steamstatic.com/steam/apps/{appId}/header.jpg");
-        urls.Add($"https://cdn.akamai.steamstatic.com/steam/apps/{appId}/capsule_616x353.jpg");
-
-        foreach (var url in urls)
-        {
+            var url = $"https://{domain}{basePath}/{appId}/header.jpg";
             try
             {
                 await _httpThrottle.WaitAsync(ct);
@@ -319,13 +322,11 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
                     if (!response.IsSuccessStatusCode) continue;
 
                     var bytes = await response.Content.ReadAsByteArrayAsync(ct);
-                    if (bytes.Length < MinImageBytes)
+                    if (bytes.Length >= MinImageBytes)
                     {
-                        _logger.LogDebug("[GameImageFetch] Skipping tiny image ({Size} bytes) for {AppId} from {Url}", bytes.Length, appId, url);
-                        continue;
+                        _logger.LogDebug("[GameImageFetch] CDN hit for Steam app {AppId}: {Url}", appId, url);
+                        return bytes;
                     }
-
-                    return (bytes, response.Content.Headers.ContentType?.MediaType ?? "image/jpeg", url);
                 }
                 finally
                 {
@@ -334,12 +335,92 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "[GameImageFetch] Failed to fetch Steam image {AppId} from {Url}", appId, url);
+                _logger.LogDebug(ex, "[GameImageFetch] CDN fetch failed for Steam app {AppId} from {Url}", appId, url);
             }
         }
 
-        // Tier 3: Steam Store API fallback — newer games use shared.akamai.steamstatic.com
-        // with hash-based paths that aren't predictable from the app ID alone
+        // Second pass: try capsule_616x353.jpg across all CDN endpoints
+        foreach (var (domain, basePath) in _steamCdnEndpoints)
+        {
+            var url = $"https://{domain}{basePath}/{appId}/capsule_616x353.jpg";
+            try
+            {
+                await _httpThrottle.WaitAsync(ct);
+                try
+                {
+                    var response = await client.GetAsync(url, ct);
+                    if (!response.IsSuccessStatusCode) continue;
+
+                    var bytes = await response.Content.ReadAsByteArrayAsync(ct);
+                    if (bytes.Length >= MinImageBytes)
+                    {
+                        _logger.LogDebug("[GameImageFetch] CDN capsule hit for Steam app {AppId}: {Url}", appId, url);
+                        return bytes;
+                    }
+                }
+                finally
+                {
+                    _httpThrottle.Release();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[GameImageFetch] CDN capsule fetch failed for Steam app {AppId} from {Url}", appId, url);
+            }
+        }
+
+        return null;
+    }
+
+    private async Task<(byte[] bytes, string contentType, string sourceUrl)?> TryFetchSteamImageBytesAsync(
+        HttpClient client,
+        string appId,
+        Dictionary<long, string> picsUrlMap,
+        CancellationToken ct)
+    {
+        // Tier 1: PICS-sourced URL from pre-loaded dictionary (eliminates per-game DB query)
+        if (long.TryParse(appId, out var appIdLong) && picsUrlMap.TryGetValue(appIdLong, out var picsUrl))
+        {
+            try
+            {
+                await _httpThrottle.WaitAsync(ct);
+                try
+                {
+                    var response = await client.GetAsync(picsUrl, ct);
+                    if (response.IsSuccessStatusCode)
+                    {
+                        var bytes = await response.Content.ReadAsByteArrayAsync(ct);
+                        if (bytes.Length >= MinImageBytes)
+                        {
+                            return (bytes, response.Content.Headers.ContentType?.MediaType ?? "image/jpeg", picsUrl);
+                        }
+
+                        _logger.LogDebug("[GameImageFetch] Skipping tiny image ({Size} bytes) for {AppId} from {Url}", bytes.Length, appId, picsUrl);
+                    }
+                }
+                finally
+                {
+                    _httpThrottle.Release();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[GameImageFetch] Failed to fetch Steam image {AppId} from PICS URL {Url}", appId, picsUrl);
+            }
+        }
+
+        // Tier 2: Multi-CDN fallback (shared.akamai, shared.fastly, cdn.akamai)
+        if (long.TryParse(appId, out var appIdForCdn))
+        {
+            var cdnBytes = await TryFetchFromSteamCdnAsync(client, appIdForCdn, ct);
+            if (cdnBytes != null)
+            {
+                var sourceUrl = $"https://{_steamCdnEndpoints[0].Domain}{_steamCdnEndpoints[0].BasePath}/{appId}/header.jpg";
+                return (cdnBytes, "image/jpeg", sourceUrl);
+            }
+        }
+
+        // Tier 3: Steam Store API fallback — newer games use hash-based paths that aren't predictable from the app ID alone
         var storeUrl = await GetStoreApiHeaderImageAsync(client, appId, ct);
         if (storeUrl != null)
         {
@@ -527,43 +608,59 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
 
         try
         {
-            await _httpThrottle.WaitAsync(ct);
+            // Tier 1: Try the stored SourceUrl (PICS hash URL or previously resolved URL)
             HttpResponseMessage response;
+            await _httpThrottle.WaitAsync(ct);
             try
             {
                 response = await client.GetAsync(image.SourceUrl, ct);
-
-                // If the primary SourceUrl fails for Steam images, fall back to the Tier2 CDN shortcut URL.
-                // Steam PICS-sourced URLs contain hash paths that can expire/404.
-                if (!response.IsSuccessStatusCode && image.Service == "steam")
-                {
-                    var tier2Url = $"https://cdn.akamai.steamstatic.com/steam/apps/{image.AppId}/header.jpg";
-                    _logger.LogDebug("[GameImageFetch] Primary URL failed ({Status}) for Steam {AppId}, trying Tier2: {Url}",
-                        (int)response.StatusCode, image.AppId, tier2Url);
-                    response = await client.GetAsync(tier2Url, ct);
-
-                    if (response.IsSuccessStatusCode)
-                    {
-                        image.SourceUrl = tier2Url;
-                    }
-                    else
-                    {
-                        // Tier 3: Steam Store API — newer games use hash-based paths on shared.akamai
-                        var storeUrl = await GetStoreApiHeaderImageAsync(client, image.AppId, ct);
-                        if (storeUrl != null)
-                        {
-                            response = await client.GetAsync(storeUrl, ct);
-                            if (response.IsSuccessStatusCode)
-                            {
-                                image.SourceUrl = storeUrl;
-                            }
-                        }
-                    }
-                }
             }
             finally
             {
                 _httpThrottle.Release();
+            }
+
+            // If the primary SourceUrl fails for Steam images, fall back through Tier 2 and Tier 3.
+            // Steam PICS-sourced URLs contain hash paths that can expire/404.
+            if (!response.IsSuccessStatusCode && image.Service == "steam")
+            {
+                _logger.LogDebug("[GameImageFetch] Primary URL failed ({Status}) for Steam {AppId}, trying multi-CDN Tier 2",
+                    (int)response.StatusCode, image.AppId);
+
+                // Tier 2: Multi-CDN fallback (shared.akamai, shared.fastly, cdn.akamai)
+                if (long.TryParse(image.AppId, out var appIdLong))
+                {
+                    var cdnBytes = await TryFetchFromSteamCdnAsync(client, appIdLong, ct);
+                    if (cdnBytes != null)
+                    {
+                        var cdnUrl = $"https://{_steamCdnEndpoints[0].Domain}{_steamCdnEndpoints[0].BasePath}/{image.AppId}/header.jpg";
+                        image.SourceUrl = cdnUrl;
+                        image.ImageData = cdnBytes;
+                        image.ContentType = "image/jpeg";
+                        image.FetchedAtUtc = DateTime.UtcNow;
+                        image.UpdatedAtUtc = DateTime.UtcNow;
+                        return;
+                    }
+                }
+
+                // Tier 3: Steam Store API — newer games use hash-based paths that aren't predictable from the app ID alone
+                var storeUrl = await GetStoreApiHeaderImageAsync(client, image.AppId, ct);
+                if (storeUrl != null)
+                {
+                    await _httpThrottle.WaitAsync(ct);
+                    try
+                    {
+                        response = await client.GetAsync(storeUrl, ct);
+                        if (response.IsSuccessStatusCode)
+                        {
+                            image.SourceUrl = storeUrl;
+                        }
+                    }
+                    finally
+                    {
+                        _httpThrottle.Release();
+                    }
+                }
             }
 
             if (!response.IsSuccessStatusCode) return;
