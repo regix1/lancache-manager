@@ -811,49 +811,43 @@ public class RustLogProcessorService
         }
     }
 
-    /// <summary>
-    /// Fetch missing game images for downloads that have GameAppId but no GameImageUrl
-    /// This is called after live log processing where Rust mapped depot IDs to game names
-    /// but couldn't fetch images (requires Steam API call)
+        /// <summary>
+    /// Fetches game names for downloads that have a GameAppId but no GameName.
+    /// Image bytes are fetched exclusively by <see cref="GameImageFetchService"/> (3-tier pipeline).
+    /// This method only updates GameName, which GameImageFetchService does not enrich.
     /// </summary>
     private async Task FetchMissingGameImagesAsync()
     {
         try
         {
-
             using var scope = _serviceProvider.CreateScope();
             var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             var steamService = scope.ServiceProvider.GetRequiredService<SteamService>();
 
-            // Find downloads that have GameAppId but missing image
-            var downloadsNeedingImages = await context.Downloads
-                .Where(d => d.GameAppId.HasValue && string.IsNullOrEmpty(d.GameImageUrl))
-                .Take(50) // Limit to avoid API rate limits
+            // Find downloads that have GameAppId but missing game name — image bytes are now
+            // fetched exclusively by GameImageFetchService (3-tier pipeline). We only update
+            // GameName here, since GameImageFetchService does not enrich Download.GameName.
+            var downloadsNeedingName = await context.Downloads
+                .Where(d => d.GameAppId.HasValue && string.IsNullOrEmpty(d.GameName))
+                .Take(50)
                 .ToListAsync();
 
-            if (downloadsNeedingImages.Count == 0)
+            if (downloadsNeedingName.Count == 0)
             {
                 return;
             }
 
-            _logger.LogInformation("Fetching images for {Count} downloads", downloadsNeedingImages.Count);
+            _logger.LogInformation("Fetching game names for {Count} downloads", downloadsNeedingName.Count);
 
             int updated = 0;
-            foreach (var download in downloadsNeedingImages)
+            foreach (var download in downloadsNeedingName)
             {
                 try
                 {
                     var gameInfo = await steamService.GetGameInfoAsync(download.GameAppId!.Value);
-                    if (gameInfo != null && !string.IsNullOrEmpty(gameInfo.HeaderImage))
+                    if (gameInfo != null && !string.IsNullOrEmpty(gameInfo.Name))
                     {
-                        download.GameImageUrl = gameInfo.HeaderImage;
-
-                        // Also update game name if it's more accurate from API
-                        if (!string.IsNullOrEmpty(gameInfo.Name))
-                        {
-                            download.GameName = gameInfo.Name;
-                        }
-
+                        download.GameName = gameInfo.Name;
                         updated++;
                     }
                 }
@@ -866,16 +860,17 @@ public class RustLogProcessorService
             if (updated > 0)
             {
                 await context.SaveChangesAsync();
-                _logger.LogInformation("Updated {Count} downloads with game images", updated);
+                _logger.LogInformation("Updated {Count} downloads with game names", updated);
 
-                // NOTE: We no longer send DownloadsRefresh here to avoid duplicate events.
-                // The main completion handler already sends DownloadsRefresh for silent mode
-                // or LogProcessingComplete for non-silent mode which triggers UI refresh.
+                // NOTE: We do not trigger GameImageFetchService here — it runs on its own schedule
+                // and will fetch image bytes after game detection has completed.
+                // NOTE: We do not send DownloadsRefresh here — the main completion handler
+                // already sends DownloadsRefresh (silent mode) or LogProcessingComplete (non-silent).
             }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Error fetching missing game images - this is non-critical");
+            _logger.LogWarning(ex, "Error fetching missing game names - this is non-critical");
         }
     }
 
