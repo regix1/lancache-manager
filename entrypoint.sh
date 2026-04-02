@@ -165,7 +165,7 @@ if [ ! -f "$PGDATA/PG_VERSION" ]; then
     echo "[postgres] Initializing data directory..."
     mkdir -p "$PGDATA"
     chown -R postgres:postgres "$PGDATA"
-    su - postgres -c "/usr/lib/postgresql/17/bin/initdb -D $PGDATA --auth-local=trust --auth-host=trust"
+    su - postgres -c "/usr/lib/postgresql/17/bin/initdb -D $PGDATA --auth-local=trust --auth-host=trust" > /dev/null
 
     # Apply our tuned config
     cp /etc/postgresql/17/main/postgresql.conf "$PGDATA/postgresql.conf"
@@ -189,7 +189,7 @@ rm -f "$PGDATA/postmaster.pid"
 
 # Start PostgreSQL as the postgres OS user
 echo "[postgres] Starting PostgreSQL 17..."
-su - postgres -c "/usr/lib/postgresql/17/bin/pg_ctl -D $PGDATA -l $PG_LOG start"
+su - postgres -c "/usr/lib/postgresql/17/bin/pg_ctl -D $PGDATA -l $PG_LOG start" > /dev/null
 
 # Wait until PostgreSQL is ready (pg_isready, max 30 s)
 echo "[postgres] Waiting for PostgreSQL to be ready..."
@@ -200,21 +200,21 @@ echo "[postgres] PostgreSQL is ready."
 # Create/update PostgreSQL role with credentials
 if [ -n "$PGPASSWORD" ]; then
     # Credentials available — create user with password
-    su - postgres -c "psql -tc \"SELECT 1 FROM pg_roles WHERE rolname='$PGUSER'\" | grep -q 1 \
-        || psql -c \"CREATE USER $PGUSER WITH SUPERUSER PASSWORD '$PGPASSWORD';\""
+    su - postgres -c "psql -qtc \"SELECT 1 FROM pg_roles WHERE rolname='$PGUSER'\" | grep -q 1 \
+        || psql -qc \"CREATE USER $PGUSER WITH SUPERUSER PASSWORD '$PGPASSWORD';\""
     # Update password if user already exists (in case password changed)
-    su - postgres -c "psql -c \"ALTER USER $PGUSER WITH PASSWORD '$PGPASSWORD';\""
+    su - postgres -c "psql -qc \"ALTER USER $PGUSER WITH PASSWORD '$PGPASSWORD';\""
 else
     # No password yet — create user without password (local trust auth)
     # App will show first-run setup page to collect credentials
-    su - postgres -c "psql -tc \"SELECT 1 FROM pg_roles WHERE rolname='$PGUSER'\" | grep -q 1 \
-        || psql -c \"CREATE USER $PGUSER WITH SUPERUSER;\""
+    su - postgres -c "psql -qtc \"SELECT 1 FROM pg_roles WHERE rolname='$PGUSER'\" | grep -q 1 \
+        || psql -qc \"CREATE USER $PGUSER WITH SUPERUSER;\""
     echo "WARNING: No POSTGRES_PASSWORD set. The app will prompt for credentials on first access."
 fi
 
 # Create database if it doesn't exist
-su - postgres -c "psql -tc \"SELECT 1 FROM pg_database WHERE datname='$PGDATABASE'\" | grep -q 1 \
-    || psql -c \"CREATE DATABASE $PGDATABASE OWNER $PGUSER;\""
+su - postgres -c "psql -qtc \"SELECT 1 FROM pg_database WHERE datname='$PGDATABASE'\" | grep -q 1 \
+    || psql -qc \"CREATE DATABASE $PGDATABASE OWNER $PGUSER;\""
 
 # Export for the .NET app to read
 export POSTGRES_USER="$PGUSER"
