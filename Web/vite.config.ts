@@ -24,9 +24,9 @@ export default defineConfig({
       '@utils': path.resolve(__dirname, './src/utils'),
       '@contexts': path.resolve(__dirname, './src/contexts'),
       '@hooks': path.resolve(__dirname, './src/hooks'),
-      // React 19 has useSyncExternalStore built-in — redirect the broken shim
+      // React 19 has useSyncExternalStore built-in — redirect the shim package
       // to React's native export. See: https://github.com/facebook/react/issues/29854
-      'use-sync-external-store/shim': path.resolve(__dirname, './src/shims/useSyncExternalStoreShim.ts')
+      'use-sync-external-store/shim': 'react'
     },
     // Ensure all packages resolve to the same React instance (prevents duplicate React in dev mode)
     dedupe: ['react', 'react-dom']
