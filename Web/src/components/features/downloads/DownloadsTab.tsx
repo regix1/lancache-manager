@@ -1496,6 +1496,14 @@ const DownloadsTab: React.FC = () => {
                     prefix={t('downloads.tab.sort.prefix')}
                     className="w-28 md:w-32 lg:w-36"
                   />
+
+                  <button
+                    className={`session-filter-pill${settings.hideEvicted ? ' active' : ''}`}
+                    onClick={() => setSettings({ ...settings, hideEvicted: !settings.hideEvicted })}
+                    title={t('downloads.tab.filters.hideEvicted')}
+                  >
+                    {t('downloads.tab.filters.hideEvicted')}
+                  </button>
                 </div>
 
                 {/* Desktop view controls */}

@@ -395,8 +395,14 @@ export function useInitializationFlow({
   // --- Navigation handlers ---
   const handleDatabaseSetupComplete = useCallback((): void => {
     refreshSetupStatus();
+    // If setup was already completed (e.g. migrated from SQLite) and the wizard
+    // was only shown for missing credentials, go straight to the dashboard.
+    if (setupStatus?.isCompleted) {
+      void handleInitializationComplete();
+      return;
+    }
     goToStep('permissions-check');
-  }, [refreshSetupStatus, goToStep]);
+  }, [refreshSetupStatus, goToStep, setupStatus, handleInitializationComplete]);
 
   const handlePermissionsCheckComplete = useCallback((): void => {
     goToStep('import-historical-data');
@@ -551,7 +557,12 @@ export function useInitializationFlow({
   }, [currentStep, dataSourceChoice, goToStep]);
 
   // --- Computed ---
-  const stepInfo = buildStepInfoMap(t, dataSourceChoice)[currentStep];
+  // When setup was already completed (e.g. SQLite migration) and only the credentials
+  // step is needed, show "1 of 1" instead of "1 of 5".
+  const credentialsOnly = setupStatus?.isCompleted && setupStatus?.needsPostgresCredentials;
+  const stepInfo = credentialsOnly
+    ? { number: 1, total: 1, title: buildStepInfoMap(t, dataSourceChoice)['database-setup'].title }
+    : buildStepInfoMap(t, dataSourceChoice)[currentStep];
 
   return {
     currentStep,
