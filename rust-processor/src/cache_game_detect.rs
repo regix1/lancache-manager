@@ -24,9 +24,6 @@ use progress_events::ProgressReporter;
 #[command(name = "cache_game_detect")]
 #[command(about = "Detects which games have files in the cache directory")]
 struct Args {
-    /// Path to LancacheManager database (DATABASE_URL env var or connection string)
-    database_path: String,
-
     /// Cache directory root (e.g., /cache or H:/cache)
     cache_dir: String,
 

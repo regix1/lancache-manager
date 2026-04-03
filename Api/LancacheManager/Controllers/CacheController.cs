@@ -363,7 +363,6 @@ public class CacheController : ControllerBase
         _cacheService.InvalidateCachedScan();
 
         var datasources = _datasourceService.GetDatasources();
-        var dbPath = _pathResolver.GetDatabasePath();
 
         // CRITICAL: Check write permissions BEFORE starting the operation for ALL datasources
         // This prevents the DB/filesystem state mismatch when PUID/PGID is wrong
@@ -492,7 +491,6 @@ public class CacheController : ControllerBase
                                 cachePath,
                                 service: service,
                                 progressFile: progressFilePath,
-                                databasePath: dbPath,
                                 cancellationToken: cts.Token,
                                 threshold: threshold,
                                 compareToCacheLogs: compareToCacheLogs,
@@ -616,7 +614,6 @@ public class CacheController : ControllerBase
         _cacheService.InvalidateCachedScan();
 
         var datasources = _datasourceService.GetDatasources();
-        var dbPath = _pathResolver.GetDatabasePath();
 
         // CRITICAL: Check write permissions BEFORE starting the operation for ALL datasources
         foreach (ResolvedDatasource datasource in datasources)
@@ -748,7 +745,6 @@ public class CacheController : ControllerBase
                                         cachePath,
                                         service: service,
                                         progressFile: progressFilePath,
-                                        databasePath: dbPath,
                                         cancellationToken: cts.Token,
                                         threshold: threshold,
                                         compareToCacheLogs: compareToCacheLogs,

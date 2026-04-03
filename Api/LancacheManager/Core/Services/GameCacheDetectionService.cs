@@ -286,7 +286,6 @@ public class GameCacheDetectionService : IDisposable
             }
 
             var operationsDir = _pathResolver.GetOperationsDirectory();
-            var dbPath = _pathResolver.GetDatabasePath();
             var rustBinaryPath = _pathResolver.GetRustGameDetectorPath();
 
             _rustProcessHelper.ValidateRustBinaryExists(rustBinaryPath, "Game cache detector");
@@ -363,8 +362,8 @@ public class GameCacheDetectionService : IDisposable
                 // Add --incremental flag for quick scans to skip the expensive cache directory scan
                 var incrementalFlag = incremental ? " --incremental" : "";
                 string arguments = !string.IsNullOrEmpty(excludedIdsPath)
-                    ? $"\"{dbPath}\" \"{cachePath}\" \"{outputJson}\" \"{excludedIdsPath}\"{incrementalFlag} --progress-file \"{progressFilePath}\""
-                    : $"\"{dbPath}\" \"{cachePath}\" \"{outputJson}\"{incrementalFlag} --progress-file \"{progressFilePath}\"";
+                    ? $"\"{cachePath}\" \"{outputJson}\" \"{excludedIdsPath}\"{incrementalFlag} --progress-file \"{progressFilePath}\""
+                    : $"\"{cachePath}\" \"{outputJson}\"{incrementalFlag} --progress-file \"{progressFilePath}\"";
 
                 var startInfo = _rustProcessHelper.CreateProcessStartInfo(rustBinaryPath, arguments);
 

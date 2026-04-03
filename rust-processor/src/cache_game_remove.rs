@@ -30,9 +30,6 @@ use progress_events::ProgressReporter;
 #[command(name = "cache_game_remove")]
 #[command(about = "Removes all cache files for a specific game by scanning logs")]
 struct Args {
-    /// Path to LancacheManager database (DATABASE_URL env var or connection string)
-    database_path: String,
-
     /// Directory containing log files
     log_dir: String,
 

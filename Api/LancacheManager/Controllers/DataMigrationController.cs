@@ -230,7 +230,7 @@ public class DataMigrationController : ControllerBase
 
     /// <summary>
     /// POST /api/migration/import-lancache-manager - Import data from another LancacheManager database
-    /// Request body: { "connectionString": "Data Source=path/to/lancachemanager.db", "batchSize": 1000, "overwriteExisting": false }
+    /// Request body: { "connectionString": "Host=localhost;Database=lancachemanager;Username=postgres;Password=...", "batchSize": 1000, "overwriteExisting": false }
     /// </summary>
     [HttpPost("import-lancache-manager")]
     public async Task<IActionResult> ImportFromLancacheManagerAsync([FromBody] DataMigrationImportRequest request)

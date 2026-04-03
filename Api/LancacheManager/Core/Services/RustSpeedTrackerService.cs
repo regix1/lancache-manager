@@ -109,8 +109,6 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
         IReadOnlyList<ResolvedDatasource> datasources,
         CancellationToken stoppingToken)
     {
-        var dbPath = _pathResolver.GetDatabasePath();
-
         // Build log directory arguments
         var logDirs = datasources
             .Where(d => d.Enabled)
@@ -123,7 +121,7 @@ public class RustSpeedTrackerService : ScheduledBackgroundService
             return;
         }
 
-        var arguments = $"\"{dbPath}\" {string.Join(" ", logDirs)}";
+        var arguments = string.Join(" ", logDirs);
 
         _logger.LogInformation("Starting Rust speed tracker: {Path} {Args}", rustExecutablePath, arguments);
 

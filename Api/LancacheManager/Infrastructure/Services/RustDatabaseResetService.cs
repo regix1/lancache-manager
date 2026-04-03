@@ -172,7 +172,6 @@ public class RustDatabaseResetService
                 Message = "Starting database reset..."
             });
 
-            var dbPath = _pathResolver.GetDatabasePath();
             var dataDirectory = _pathResolver.GetDataDirectory();
             var operationsDir = _pathResolver.GetOperationsDirectory();
             var progressPath = Path.Combine(operationsDir, "reset_progress.json");
@@ -185,7 +184,6 @@ public class RustDatabaseResetService
             }
 
             _logger.LogInformation("Starting rust database reset");
-            _logger.LogInformation($"Database: {dbPath}");
             _logger.LogInformation($"Progress file: {progressPath}");
 
             // Send initial progress
@@ -209,7 +207,7 @@ public class RustDatabaseResetService
                 // Start Rust process
                 var startInfo = _rustProcessHelper.CreateProcessStartInfo(
                     rustExecutablePath,
-                    $"\"{dbPath}\" \"{dataDirectory}\" \"{progressPath}\"",
+                    $"\"{dataDirectory}\" \"{progressPath}\"",
                     Path.GetDirectoryName(rustExecutablePath));
 
                 _rustProcess = Process.Start(startInfo);

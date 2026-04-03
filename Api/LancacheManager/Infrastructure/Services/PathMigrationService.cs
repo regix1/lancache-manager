@@ -49,7 +49,7 @@ public class PathMigrationService
 
         MoveFileIfMissing(
             Path.Combine(dataDirectory, "LancacheManager.db"),
-            _pathResolver.GetDatabasePath(),
+            _pathResolver.GetLegacySqlitePath(),
             result,
             "database");
 

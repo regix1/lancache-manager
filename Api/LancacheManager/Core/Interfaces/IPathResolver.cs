@@ -41,9 +41,9 @@ public interface IPathResolver
     string GetSecurityDirectory();
 
     /// <summary>
-    /// Gets the database directory path
+    /// Gets the legacy SQLite database directory path
     /// </summary>
-    string GetDatabaseDirectory();
+    string GetLegacySqliteDirectory();
 
     /// <summary>
     /// Gets the PICS data directory path
@@ -164,9 +164,9 @@ public interface IPathResolver
     string GetRustSpeedTrackerPath();
 
     /// <summary>
-    /// Gets the path to the database file
+    /// Gets the path to the legacy SQLite database file
     /// </summary>
-    string GetDatabasePath();
+    string GetLegacySqlitePath();
 
     /// <summary>
     /// Gets the path to the Data Protection keys directory

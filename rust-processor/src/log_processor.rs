@@ -29,9 +29,6 @@ use progress_events::ProgressReporter;
 #[command(name = "log_processor")]
 #[command(about = "Parses lancache access logs and stores entries in the database")]
 struct Args {
-    /// Path to PostgreSQL database URL (or use DATABASE_URL env var)
-    db_path: String,
-
     /// Directory containing log files (e.g., H:/logs)
     log_dir: String,
 

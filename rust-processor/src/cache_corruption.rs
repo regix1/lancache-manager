@@ -84,8 +84,6 @@ enum Commands {
     },
     /// Delete database records, cache files, and log entries for corrupted chunks
     Remove {
-        /// Path to LancacheManager database (DATABASE_URL env var or connection string)
-        database_path: String,
         /// Directory containing log files
         log_dir: String,
         /// Cache directory root path
@@ -399,7 +397,7 @@ async fn main() -> Result<()> {
             reporter.emit_complete("Corruption summary generated");
         }
 
-        Commands::Remove { database_path: _, log_dir, cache_dir, service, progress_json, threshold, no_cache_check, detect_redownloads } => {
+        Commands::Remove { log_dir, cache_dir, service, progress_json, threshold, no_cache_check, detect_redownloads } => {
             reporter.emit_started();
 
             let log_dir = PathBuf::from(&log_dir);

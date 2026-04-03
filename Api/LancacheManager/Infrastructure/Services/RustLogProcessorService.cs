@@ -337,7 +337,6 @@ public class RustLogProcessorService
                 _cancellationTokenSource
             );
 
-            var dbPath = _pathResolver.GetDatabasePath();
             var operationsDir = _pathResolver.GetOperationsDirectory();
             var progressPath = Path.Combine(operationsDir, $"rust_progress_{datasourceName}.json");
             var rustExecutablePath = _pathResolver.GetRustLogProcessorPath();
@@ -359,7 +358,6 @@ public class RustLogProcessorService
             }
 
             _logger.LogInformation("Starting Rust log processor");
-            _logger.LogInformation("Database: {DatabasePath}", dbPath);
             _logger.LogInformation("Log directory: {LogDirectory}", logDirectory);
             _logger.LogInformation("Progress file: {ProgressPath}", progressPath);
             _logger.LogInformation("Start position: {StartPosition}", startPosition);
@@ -400,7 +398,7 @@ public class RustLogProcessorService
             var autoMapDepots = 1;
             var startInfo = _rustProcessHelper.CreateProcessStartInfo(
                 rustExecutablePath,
-                $"\"{dbPath}\" \"{logDirectory}\" \"{progressPath}\" {startPosition} {autoMapDepots} \"{datasourceName}\"",
+                $"\"{logDirectory}\" \"{progressPath}\" {startPosition} {autoMapDepots} \"{datasourceName}\"",
                 Path.GetDirectoryName(rustExecutablePath));
 
             // Pass TZ environment variable to Rust processor so it uses the correct timezone

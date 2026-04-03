@@ -870,7 +870,6 @@ public class CacheManagementService
             _logger.LogInformation("[GameRemoval] Starting game cache removal for AppID {AppId}", gameAppId);
 
             var operationsDir = _pathResolver.GetOperationsDirectory();
-            var dbPath = _pathResolver.GetDatabasePath();
             var rustBinaryPath = _pathResolver.GetRustGameRemoverPath();
 
             _rustProcessHelper.ValidateRustBinaryExists(rustBinaryPath, "Game cache remover");
@@ -926,7 +925,7 @@ public class CacheManagementService
 
                 var startInfo = _rustProcessHelper.CreateProcessStartInfo(
                     rustBinaryPath,
-                    $"\"{dbPath}\" \"{dsLogsDir}\" \"{dsCachePath}\" {gameAppId} \"{outputJson}\" \"{progressJson}\"");
+                    $"\"{dsLogsDir}\" \"{dsCachePath}\" {gameAppId} \"{outputJson}\" \"{progressJson}\"");
 
                 _logger.LogInformation("[GameRemoval] Running removal for datasource '{DatasourceName}': {Binary} {Args}",
                     datasource.Name, rustBinaryPath, startInfo.Arguments);
@@ -1077,7 +1076,6 @@ public class CacheManagementService
             _logger.LogInformation("[EpicGameRemoval] Starting removal for '{GameName}'", gameName);
 
             var operationsDir = _pathResolver.GetOperationsDirectory();
-            var dbPath = _pathResolver.GetDatabasePath();
             var rustBinaryPath = _pathResolver.GetRustEpicRemoverPath();
 
             _rustProcessHelper.ValidateRustBinaryExists(rustBinaryPath, "Epic game cache remover");
@@ -1132,7 +1130,7 @@ public class CacheManagementService
 
                 var startInfo = _rustProcessHelper.CreateProcessStartInfo(
                     rustBinaryPath,
-                    $"\"{dbPath}\" \"{dsLogsDir}\" \"{dsCachePath}\" \"{gameName}\" \"{outputJson}\" \"{progressJson}\"");
+                    $"\"{dsLogsDir}\" \"{dsCachePath}\" \"{gameName}\" \"{outputJson}\" \"{progressJson}\"");
 
                 _logger.LogInformation("[EpicGameRemoval] Running removal for datasource '{DatasourceName}': {Binary} {Args}",
                     datasource.Name, rustBinaryPath, startInfo.Arguments);
@@ -1260,7 +1258,6 @@ public class CacheManagementService
             _logger.LogInformation("[ServiceRemoval] Starting service cache removal for '{Service}'", serviceName);
 
             var operationsDir = _pathResolver.GetOperationsDirectory();
-            var dbPath = _pathResolver.GetDatabasePath();
             var rustBinaryPath = _pathResolver.GetRustServiceRemoverPath();
 
             _rustProcessHelper.ValidateRustBinaryExists(rustBinaryPath, "Service remover");
@@ -1326,7 +1323,7 @@ public class CacheManagementService
 
                 var startInfo = _rustProcessHelper.CreateProcessStartInfo(
                     rustBinaryPath,
-                    $"\"{dbPath}\" \"{dsLogsDir}\" \"{dsCachePath}\" \"{serviceName}\" \"{outputJson}\" \"{progressPath}\"");
+                    $"\"{dsLogsDir}\" \"{dsCachePath}\" \"{serviceName}\" \"{outputJson}\" \"{progressPath}\"");
 
                 _logger.LogInformation("[ServiceRemoval] Running removal for datasource '{DatasourceName}': {Binary} {Args}",
                     datasource.Name, rustBinaryPath, startInfo.Arguments);
