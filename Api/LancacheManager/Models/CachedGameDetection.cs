@@ -59,4 +59,11 @@ public class CachedGameDetection
     /// When this record was created
     /// </summary>
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
+
+    /// <summary>
+    /// Computed at query time (not persisted). True when ALL associated downloads for this game are evicted.
+    /// Games with no matching downloads are NOT considered evicted.
+    /// </summary>
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped]
+    public bool IsEvicted { get; set; } = false;
 }

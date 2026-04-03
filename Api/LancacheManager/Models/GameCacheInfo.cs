@@ -49,4 +49,12 @@ public class GameCacheInfo
     /// </summary>
     [System.Text.Json.Serialization.JsonPropertyName("epic_app_id")]
     public string? EpicAppId { get; set; }
+
+    /// <summary>
+    /// True when ALL associated downloads for this game are evicted.
+    /// Games with no matching downloads are NOT considered evicted.
+    /// Computed at query time — not persisted to the database.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonPropertyName("is_evicted")]
+    public bool IsEvicted { get; set; } = false;
 }

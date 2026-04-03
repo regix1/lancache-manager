@@ -474,7 +474,7 @@ const Dashboard: React.FC = () => {
     if (!gameDetectionData?.hasCachedResults || !gameDetectionData.games) {
       return prevGamesOnDiskRef.current;
     }
-    const games = gameDetectionData.games;
+    const games = gameDetectionData.games.filter((game) => game.is_evicted !== true);
     const totalSize = games.reduce((sum, game) => sum + game.total_size_bytes, 0);
     const result = { totalSize, gameCount: games.length };
     prevGamesOnDiskRef.current = result;

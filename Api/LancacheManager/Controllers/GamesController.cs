@@ -24,6 +24,7 @@ public class GamesController : ControllerBase
     private readonly ILogger<GamesController> _logger;
     private readonly IPathResolver _pathResolver;
     private readonly IUnifiedOperationTracker _operationTracker;
+    private readonly IStateService _stateRepository;
 
     public GamesController(
         GameCacheDetectionService gameCacheDetectionService,
@@ -31,7 +32,8 @@ public class GamesController : ControllerBase
         ISignalRNotificationService notifications,
         ILogger<GamesController> logger,
         IPathResolver pathResolver,
-        IUnifiedOperationTracker operationTracker)
+        IUnifiedOperationTracker operationTracker,
+        IStateService stateRepository)
     {
         _gameCacheDetectionService = gameCacheDetectionService;
         _cacheManagementService = cacheManagementService;
@@ -39,6 +41,7 @@ public class GamesController : ControllerBase
         _logger = logger;
         _pathResolver = pathResolver;
         _operationTracker = operationTracker;
+        _stateRepository = stateRepository;
     }
 
     /// <summary>
@@ -396,12 +399,19 @@ public class GamesController : ControllerBase
         // Ensure StartTime is treated as UTC for proper timezone conversion on frontend
         var lastDetectionTimeUtc = cachedResults.StartTime.AsUtc();
 
+        var games = cachedResults.Games ?? [];
+        var evictedMode = _stateRepository.GetEvictedDataMode();
+        if (evictedMode == EvictedDataModes.Hide || evictedMode == EvictedDataModes.Remove)
+        {
+            games = games.Where(g => !g.IsEvicted).ToList();
+        }
+
         return Ok(new CachedDetectionResponse
         {
             HasCachedResults = true,
-            Games = cachedResults.Games,
+            Games = games,
             Services = cachedResults.Services,
-            TotalGamesDetected = cachedResults.TotalGamesDetected,
+            TotalGamesDetected = games.Count,
             TotalServicesDetected = cachedResults.TotalServicesDetected,
             LastDetectionTime = lastDetectionTimeUtc.ToString("o") // ISO 8601 format with UTC indicator
         });

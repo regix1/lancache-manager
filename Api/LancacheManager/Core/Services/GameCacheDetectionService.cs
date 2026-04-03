@@ -841,6 +841,34 @@ public class GameCacheDetectionService : IDisposable
         var cachedGames = await dbContext.CachedGameDetections.AsNoTracking().ToListAsync();
         var cachedServices = await dbContext.CachedServiceDetections.AsNoTracking().ToListAsync();
 
+        // Compute eviction status: a game is evicted when ALL its downloads are evicted.
+        // Games with no matching downloads are NOT considered evicted.
+        // Single batch query — not N+1.
+        if (cachedGames.Count > 0)
+        {
+            var gameAppIds = cachedGames.Select(g => (long?)g.GameAppId).ToHashSet();
+
+            // For each GameAppId that has downloads, determine if every download is evicted.
+            var evictionStatus = await dbContext.Downloads
+                .Where(d => d.GameAppId != null && gameAppIds.Contains(d.GameAppId))
+                .GroupBy(d => d.GameAppId)
+                .Select(g => new
+                {
+                    GameAppId = g.Key!.Value,
+                    AllEvicted = g.All(d => d.IsEvicted)
+                })
+                .ToDictionaryAsync(x => x.GameAppId, x => x.AllEvicted);
+
+            foreach (var game in cachedGames)
+            {
+                // Only mark evicted if there ARE matching downloads AND all are evicted.
+                if (evictionStatus.TryGetValue(game.GameAppId, out var allEvicted) && allEvicted)
+                {
+                    game.IsEvicted = true;
+                }
+            }
+        }
+
         var games = cachedGames.Select(ConvertToGameCacheInfo).ToList();
         var services = cachedServices.Select(ConvertToServiceCacheInfo).ToList();
 
@@ -1402,7 +1430,8 @@ public class GameCacheDetectionService : IDisposable
             CacheFilePaths = DeserializeStringList(cached.CacheFilePathsJson),
             Datasources = DeserializeStringList(datasourcesJson),
             Service = cached.Service,
-            EpicAppId = cached.EpicAppId
+            EpicAppId = cached.EpicAppId,
+            IsEvicted = cached.IsEvicted
         };
     }
 
@@ -1569,8 +1598,8 @@ public class GameCacheDetectionService : IDisposable
             return;
         }
 
-        _cancellationTokenSource?.Cancel();
-        _cancellationTokenSource?.Dispose();
+        try { _cancellationTokenSource?.Cancel(); } catch (ObjectDisposedException) { }
+        try { _cancellationTokenSource?.Dispose(); } catch (ObjectDisposedException) { }
         _startLock.Dispose();
 
         _disposed = true;

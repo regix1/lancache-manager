@@ -303,6 +303,7 @@ export interface GameCacheInfo {
   service?: string; // "steam" (default) or "epicgames"
   image_url?: string; // Game art URL (Steam header or Epic keyImages)
   epic_app_id?: string; // Epic Games catalog item ID for image proxy
+  is_evicted?: boolean; // True if all cache files have been evicted (no longer on disk)
 }
 
 export interface ServiceCacheInfo {

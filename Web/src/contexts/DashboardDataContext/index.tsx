@@ -422,20 +422,32 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       }
     };
 
+    // Handler for game detection completion - always refresh game detection data
+    // regardless of the current time range (detection data is not time-range dependent)
+    const handleGameDetectionComplete = () => {
+      fetchAllData({ forceRefresh: true, trigger: 'signalr:GameDetectionComplete' });
+    };
+
     // Create stable handler references for proper cleanup
+    // Exclude GameDetectionComplete from the throttled handler since we have a dedicated one
+    const throttledEvents = SIGNALR_REFRESH_EVENTS.filter(
+      (event) => event !== 'GameDetectionComplete'
+    );
     const eventHandlers: Record<string, () => void> = {};
-    SIGNALR_REFRESH_EVENTS.forEach((event) => {
+    throttledEvents.forEach((event) => {
       eventHandlers[event] = () => handleRefreshEvent(event);
       signalR.on(event, eventHandlers[event]);
     });
     signalR.on('DatabaseResetProgress', handleDatabaseResetProgress);
+    signalR.on('GameDetectionComplete', handleGameDetectionComplete);
 
     return () => {
       // Use the same handler references for cleanup
-      SIGNALR_REFRESH_EVENTS.forEach((event) => {
+      throttledEvents.forEach((event) => {
         signalR.off(event, eventHandlers[event]);
       });
       signalR.off('DatabaseResetProgress', handleDatabaseResetProgress);
+      signalR.off('GameDetectionComplete', handleGameDetectionComplete);
     };
   }, [mockMode, signalR, fetchAllData]);
 
