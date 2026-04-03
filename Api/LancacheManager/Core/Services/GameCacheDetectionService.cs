@@ -867,6 +867,30 @@ public class GameCacheDetectionService : IDisposable
                     game.IsEvicted = true;
                 }
             }
+
+            // Epic eviction: Epic downloads have GameAppId=NULL, so join on EpicAppId instead.
+            var epicGames = cachedGames.Where(g => g.EpicAppId != null && !g.IsEvicted).ToList();
+            if (epicGames.Count > 0)
+            {
+                var epicAppIds = epicGames.Select(g => g.EpicAppId!).Distinct().ToList();
+                var epicEvictionStatus = await dbContext.Downloads
+                    .Where(d => d.EpicAppId != null && epicAppIds.Contains(d.EpicAppId))
+                    .GroupBy(d => d.EpicAppId)
+                    .Select(g => new
+                    {
+                        EpicAppId = g.Key!,
+                        AllEvicted = g.All(d => d.IsEvicted)
+                    })
+                    .ToDictionaryAsync(x => x.EpicAppId, x => x.AllEvicted);
+
+                foreach (var game in epicGames)
+                {
+                    if (epicEvictionStatus.TryGetValue(game.EpicAppId!, out var epicAllEvicted) && epicAllEvicted)
+                    {
+                        game.IsEvicted = true;
+                    }
+                }
+            }
         }
 
         var games = cachedGames.Select(ConvertToGameCacheInfo).ToList();

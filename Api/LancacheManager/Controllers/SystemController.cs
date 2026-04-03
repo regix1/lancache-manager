@@ -169,9 +169,11 @@ public class SystemController : ControllerBase
         var state = _stateService.GetState();
         var isCompleted = state.SetupCompleted;
         var hasProcessedLogs = state.HasProcessedLogs;
-        // Always show the postgres step when setup hasn't been completed.
-        // The credentials file or env var should NOT skip the wizard — only completing setup does.
-        var needsPostgresCredentials = !isCompleted;
+        // Check if actual PostgreSQL credentials exist (env var or config file).
+        // Migrated users have SetupCompleted=true from the SQLite era but no credentials file yet.
+        var hasEnvPassword = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("POSTGRES_PASSWORD"));
+        var hasCredentialsFile = System.IO.File.Exists(_pathResolver.GetPostgresCredentialsPath());
+        var needsPostgresCredentials = !hasEnvPassword && !hasCredentialsFile;
 
         return Ok(new SetupStatusResponse
         {
