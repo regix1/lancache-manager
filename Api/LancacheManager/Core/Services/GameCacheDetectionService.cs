@@ -254,6 +254,8 @@ public class GameCacheDetectionService : IDisposable
         List<GameCacheInfo>? existingGames = null;
         var outputJsonFiles = new List<string>();
         string? progressFilePath = null;
+        var aggregatedGames = new List<GameCacheInfo>();
+        var aggregatedServices = new List<ServiceCacheInfo>();
 
         // Helper to send progress notification
         async Task SendProgressAsync(string status, string message, int gamesDetected = 0, int servicesDetected = 0, double progressPercent = 0)
@@ -336,8 +338,6 @@ public class GameCacheDetectionService : IDisposable
             cancellationToken.ThrowIfCancellationRequested();
 
             // Aggregate results from all datasources
-            var aggregatedGames = new List<GameCacheInfo>();
-            var aggregatedServices = new List<ServiceCacheInfo>();
             var gameAppIdSet = new HashSet<long>(); // Track unique game app IDs across datasources
             var serviceNameSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase); // Track unique services
 
@@ -654,6 +654,23 @@ public class GameCacheDetectionService : IDisposable
             if (cancellationToken.IsCancellationRequested)
             {
                 _logger.LogInformation("[GameDetection] Operation {OperationId} was cancelled", operationId);
+
+                // Save any partial results accumulated before cancellation so the next startup
+                // can resume from where we left off rather than re-scanning from scratch.
+                if (aggregatedGames.Count > 0)
+                {
+                    try
+                    {
+                        // Use incremental=true so existing DB rows are preserved/updated rather than deleted.
+                        // CancellationToken.None is critical — the original token is already cancelled.
+                        await SaveGamesToDatabaseAsync(aggregatedGames, incremental: true);
+                        _logger.LogInformation("[GameDetection] Saved {Count} partial game detection results before cancellation", aggregatedGames.Count);
+                    }
+                    catch (Exception saveEx)
+                    {
+                        _logger.LogWarning(saveEx, "[GameDetection] Failed to save partial game detection results");
+                    }
+                }
 
                 await FinalizeDetectionAsync(operationId, success: false,
                     status: OperationStatus.Cancelled, message: "Detection cancelled by user", cancelled: true);
