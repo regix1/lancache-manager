@@ -131,6 +131,20 @@ const Dashboard: React.FC = () => {
   const { speedSnapshot, activeDownloadCount } = useSpeed();
   const statTooltips = useMemo(() => getStatTooltips(t), [t]);
 
+  // Eviction mode — determines whether evicted games are included in "Games on Disk"
+  const [evictedDataMode, setEvictedDataMode] = useState<string>('show');
+  useEffect(() => {
+    const controller = new AbortController();
+    ApiService.getEvictionSettings(controller.signal)
+      .then((response: { evictedDataMode: string }) => {
+        setEvictedDataMode(response.evictedDataMode);
+      })
+      .catch(() => {
+        /* ignore abort / network errors */
+      });
+    return () => controller.abort();
+  }, []);
+
   const [cardLayout, setCardLayout] = useState<CardLayout>(
     () => (localStorage.getItem('dashboard-card-layout') as CardLayout) ?? '4-column'
   );
@@ -469,17 +483,30 @@ const Dashboard: React.FC = () => {
   // Compute "Games on Disk" aggregate from detection data.
   // Hold the previous stable value in a ref so the card doesn't jump
   // while game detection is running and returning intermediate results.
-  const prevGamesOnDiskRef = useRef<{ totalSize: number; gameCount: number } | null>(null);
+  const prevGamesOnDiskRef = useRef<{
+    totalSize: number;
+    gameCount: number;
+    includesEvicted: boolean;
+    evictedCount: number;
+  } | null>(null);
   const gamesOnDiskStats = useMemo(() => {
     if (!gameDetectionData?.hasCachedResults || !gameDetectionData.games) {
       return prevGamesOnDiskRef.current;
     }
-    const games = gameDetectionData.games.filter((game) => game.is_evicted !== true);
+    const includeEvicted = evictedDataMode === 'show' || evictedDataMode === 'showClean';
+    const allGames = gameDetectionData.games;
+    const evictedCount = allGames.filter((game) => game.is_evicted === true).length;
+    const games = includeEvicted ? allGames : allGames.filter((game) => game.is_evicted !== true);
     const totalSize = games.reduce((sum, game) => sum + game.total_size_bytes, 0);
-    const result = { totalSize, gameCount: games.length };
+    const result = {
+      totalSize,
+      gameCount: games.length,
+      includesEvicted: includeEvicted && evictedCount > 0,
+      evictedCount
+    };
     prevGamesOnDiskRef.current = result;
     return result;
-  }, [gameDetectionData]);
+  }, [gameDetectionData, evictedDataMode]);
 
   const allStatCards = useMemo<AllStatCards>(
     () => ({
@@ -596,6 +623,11 @@ const Dashboard: React.FC = () => {
         subtitle: gamesOnDiskStats
           ? t('dashboard.cards.gamesDetected', { count: gamesOnDiskStats.gameCount })
           : t('dashboard.cards.noScanData'),
+        badge: gamesOnDiskStats?.includesEvicted ? (
+          <span className="themed-badge status-badge-warning">
+            {t('dashboard.cards.evictedIncluded', { count: gamesOnDiskStats.evictedCount })}
+          </span>
+        ) : undefined,
         icon: HardDrive,
         color: 'cyan' as const,
         visible: cardVisibility.gamesOnDisk ?? false,
@@ -908,6 +940,7 @@ const Dashboard: React.FC = () => {
                 title={card.title}
                 value={card.value}
                 subtitle={card.subtitle}
+                badge={card.badge}
                 icon={card.icon}
                 color={card.color}
                 tooltip={card.tooltip}

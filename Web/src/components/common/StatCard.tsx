@@ -21,6 +21,7 @@ interface StatCardProps {
   title: string;
   value: string | number;
   subtitle?: string;
+  badge?: React.ReactNode;
   icon: LucideIcon;
   color: StatCardColor;
   // Sparkline props
@@ -55,6 +56,7 @@ const StatCard: React.FC<StatCardProps> = ({
   title,
   value,
   subtitle,
+  badge,
   icon: Icon,
   color,
   sparklineData,
@@ -134,7 +136,10 @@ const StatCard: React.FC<StatCardProps> = ({
           {loading ? (
             <div className="stat-card-skeleton-subtitle mt-1" />
           ) : subtitle ? (
-            <p className="text-xs mt-1 text-[var(--theme-text-secondary)]">{subtitle}</p>
+            <div className="flex items-center gap-1.5 mt-1">
+              <p className="text-xs text-[var(--theme-text-secondary)]">{subtitle}</p>
+              {badge}
+            </div>
           ) : null}
         </div>
         <div className="stat-card-icon p-3 rounded-lg flex-shrink-0" data-color={color}>

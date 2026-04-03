@@ -416,6 +416,7 @@
       "gamesOnDisk": "Games on Disk",
       "gamesDetected": "{{count}} games detected",
       "noScanData": "No scan data yet",
+      "evictedIncluded": "{{count}} evicted",
       "onDisk": "{{size}} on disk"
     },
     "statCards": {

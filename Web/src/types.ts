@@ -278,6 +278,7 @@ export interface StatCardData {
   title: string;
   value: string | number;
   subtitle?: string;
+  badge?: ReactNode;
   icon: LucideIcon;
   color: 'blue' | 'green' | 'emerald' | 'purple' | 'indigo' | 'orange' | 'yellow' | 'cyan';
   visible: boolean;
