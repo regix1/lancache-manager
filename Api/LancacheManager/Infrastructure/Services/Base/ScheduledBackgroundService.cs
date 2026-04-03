@@ -81,8 +81,22 @@ public abstract class ScheduledBackgroundService : BackgroundService
         }
 
         // Main execution loop
+        // If RunOnStartup already ran, sleep first before the first interval execution
+        // to avoid running twice back-to-back at startup.
+        bool skipFirstExecution = RunOnStartup;
+
         while (!stoppingToken.IsCancellationRequested)
         {
+            if (skipFirstExecution)
+            {
+                skipFirstExecution = false;
+                if (Interval > TimeSpan.Zero)
+                {
+                    await SafeDelayAsync(Interval, stoppingToken);
+                }
+                continue;
+            }
+
             try
             {
                 await ExecuteWorkAsync(stoppingToken);
