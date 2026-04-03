@@ -133,7 +133,6 @@ const Dashboard: React.FC = () => {
 
   // Eviction mode — determines whether evicted games are included in "Games on Disk"
   const [evictedDataMode, setEvictedDataMode] = useState<string>('show');
-  const [evictedGamesCount, setEvictedGamesCount] = useState<number>(0);
   useEffect(() => {
     const controller = new AbortController();
     ApiService.getEvictionSettings(controller.signal)
@@ -143,15 +142,14 @@ const Dashboard: React.FC = () => {
       .catch(() => {
         /* ignore abort / network errors */
       });
-    ApiService.getEvictedGames(controller.signal)
-      .then((games: { length: number }) => {
-        setEvictedGamesCount(games.length);
-      })
-      .catch(() => {
-        /* ignore abort / network errors */
-      });
     return () => controller.abort();
   }, []);
+
+  // Derive evicted count directly from gameDetectionData (is_evicted === true)
+  const evictedGamesCount = useMemo(
+    () => gameDetectionData?.games?.filter((game) => game.is_evicted === true).length ?? 0,
+    [gameDetectionData]
+  );
 
   const [cardLayout, setCardLayout] = useState<CardLayout>(
     () => (localStorage.getItem('dashboard-card-layout') as CardLayout) ?? '4-column'
@@ -502,7 +500,6 @@ const Dashboard: React.FC = () => {
       return prevGamesOnDiskRef.current;
     }
     const includeEvicted = evictedDataMode === 'show' || evictedDataMode === 'showClean';
-    // Use evictedGamesCount from the dedicated API (evicted games are not in gameDetectionData)
     const evictedCount = evictedGamesCount;
     const allGames = gameDetectionData.games;
     const games = includeEvicted ? allGames : allGames.filter((game) => game.is_evicted !== true);

@@ -37,7 +37,7 @@ public class GameDetectionController : ControllerBase
 
         var evictedDownloads = await dbContext.Downloads
             .AsNoTracking()
-            .Where(d => d.IsEvicted)
+            .Where(d => d.IsEvicted && (d.GameAppId != null || d.EpicAppId != null))
             .ToListAsync();
 
         if (evictedDownloads.Count == 0)
@@ -45,7 +45,7 @@ public class GameDetectionController : ControllerBase
             return Ok(Array.Empty<GameCacheInfo>());
         }
 
-        // Group by game identity: GameAppId for Steam, EpicAppId for Epic, DepotId as fallback
+        // Group by game identity: GameAppId for Steam, EpicAppId for Epic
         var grouped = evictedDownloads
             .GroupBy(d => GetGameGroupKey(d))
             .Select(g =>
@@ -80,7 +80,8 @@ public class GameDetectionController : ControllerBase
 
     /// <summary>
     /// Creates a grouping key for a download based on its game identity.
-    /// Steam games use GameAppId, Epic games use EpicAppId, fallback to DepotId.
+    /// Steam games use GameAppId, Epic games use EpicAppId.
+    /// Only called for downloads that have GameAppId or EpicAppId set.
     /// </summary>
     private static string GetGameGroupKey(Download d)
     {
@@ -90,6 +91,7 @@ public class GameDetectionController : ControllerBase
         if (d.GameAppId.HasValue && d.GameAppId.Value > 0)
             return $"steam:{d.GameAppId.Value}";
 
+        // Fallback: should not be reached given the query filter, but group by depot if somehow reached
         return $"depot:{d.DepotId ?? d.Id}";
     }
 }

@@ -1,4 +1,4 @@
-import React, { Suspense, useState, useCallback, useEffect, useRef } from 'react';
+import React, { Suspense, useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import './StorageSection.css';
 import { useTranslation } from 'react-i18next';
 import { RefreshCw, Loader2, AlertTriangle, Archive, Database } from 'lucide-react';
@@ -13,6 +13,7 @@ import { type AuthMode } from '@services/auth.service';
 import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
 import { ImageCacheContext, ImageInvalidateContext } from '@components/common/ImageCacheContext';
 import ApiService from '@services/api.service';
+import { useGameDetection } from '@contexts/DashboardDataContext/hooks';
 import { useNotifications } from '@contexts/notifications/useNotifications';
 import { useDockerSocket } from '@contexts/useDockerSocket';
 import DatasourcesManager from '../datasources/DatasourcesInfo';
@@ -21,7 +22,6 @@ import CacheManager from '../cache/CacheManager';
 import CorruptionManager from '../cache/CorruptionManager';
 import GameCacheDetector from '../game-detection/GameCacheDetector';
 import GamesList from '../game-detection/GamesList';
-import type { GameCacheInfo } from '../../../../types';
 interface StorageSectionProps {
   isAdmin: boolean;
   authMode: AuthMode;
@@ -76,42 +76,13 @@ const StorageSection: React.FC<StorageSectionProps> = ({
   );
   const isEvictionScanRunning = !!evictionScanNotification || isStartingEvictionScan;
 
-  // Evicted Games State
-  const [evictedGames, setEvictedGames] = useState<GameCacheInfo[]>([]);
-  const [evictedGamesLoading, setEvictedGamesLoading] = useState(true);
+  // Evicted Games — derived from cached game detection data (is_evicted === true)
+  const { gameDetectionData, isLoading: evictedGamesLoading } = useGameDetection();
   const [evictedGamesExpanded, setEvictedGamesExpanded] = useState(true);
-
-  const loadEvictedGames = useCallback(async (signal?: AbortSignal) => {
-    setEvictedGamesLoading(true);
-    try {
-      const games = await ApiService.getEvictedGames(signal);
-      setEvictedGames(games);
-    } catch (err: unknown) {
-      if (err instanceof DOMException && err.name === 'AbortError') return;
-      console.error('[StorageSection] Failed to load evicted games:', err);
-    } finally {
-      setEvictedGamesLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    loadEvictedGames(controller.signal);
-    return () => controller.abort();
-  }, [loadEvictedGames]);
-
-  // Refresh evicted games when eviction scan completes
-  const evictionScanCompletedNotification = notifications.find(
-    (n: { type: string; status: string }) => n.type === 'eviction_scan' && n.status === 'completed'
+  const evictedGames = useMemo(
+    () => gameDetectionData?.games?.filter((game) => game.is_evicted === true) ?? [],
+    [gameDetectionData]
   );
-  const prevEvictionCompleteRef = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    const id = evictionScanCompletedNotification?.id;
-    if (id && id !== prevEvictionCompleteRef.current) {
-      prevEvictionCompleteRef.current = id;
-      loadEvictedGames();
-    }
-  }, [evictionScanCompletedNotification, loadEvictedGames]);
 
   const loadEvictionSettings = useCallback(
     async (signal?: AbortSignal) => {
