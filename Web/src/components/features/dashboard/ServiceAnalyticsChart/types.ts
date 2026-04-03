@@ -1,6 +1,6 @@
 import type { ServiceStat } from '@/types';
 
-export type TabId = 'service' | 'hit-ratio' | 'bandwidth';
+export type TabId = 'service' | 'hit-ratio' | 'bandwidth' | 'games';
 
 export interface TabConfig {
   id: TabId;
@@ -26,6 +26,7 @@ export interface ChartData {
   datasets: ChartDataset[];
   total: number;
   isEmpty: boolean;
+  gameSliceExtras?: GameSliceExtra[];
 }
 
 export interface LegendItem {
@@ -42,11 +43,17 @@ export interface ServiceAnalyticsChartProps {
   loading?: boolean;
 }
 
+export interface GameSliceExtra {
+  cacheFiles: number;
+  service: string;
+}
+
 export interface DoughnutChartProps {
   labels: string[];
   datasets: ChartDataset[];
   total: number;
   centerLabel: string;
+  gameSliceExtras?: GameSliceExtra[];
 }
 
 export interface ChartLegendProps {

@@ -1231,6 +1231,23 @@ class ApiService {
     }
   }
 
+  // Get evicted games (games removed from disk by nginx eviction but still in DB)
+  static async getEvictedGames(signal?: AbortSignal): Promise<GameCacheInfo[]> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/game-detection/evicted-games`,
+        this.getFetchOptions({ signal })
+      );
+      return await this.handleResponse<GameCacheInfo[]>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        throw error;
+      }
+      console.error('getEvictedGames error:', error);
+      throw error;
+    }
+  }
+
   // Remove all cache files for a specific game (fire-and-forget, requires auth)
   static async removeGameFromCache(
     gameAppId: number

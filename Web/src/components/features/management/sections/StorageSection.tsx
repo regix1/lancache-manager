@@ -1,23 +1,27 @@
 import React, { Suspense, useState, useCallback, useEffect, useRef } from 'react';
 import './StorageSection.css';
 import { useTranslation } from 'react-i18next';
-import { RefreshCw, Loader2, AlertTriangle, Archive } from 'lucide-react';
+import { RefreshCw, Loader2, AlertTriangle, Archive, Database } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
 import { Checkbox } from '@components/ui/Checkbox';
 import { ManagerCardHeader, LoadingState } from '@components/ui/ManagerCard';
+import { AccordionSection } from '@components/ui/AccordionSection';
 import { type AuthMode } from '@services/auth.service';
 import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
 import { ImageCacheContext, ImageInvalidateContext } from '@components/common/ImageCacheContext';
 import ApiService from '@services/api.service';
 import { useNotifications } from '@contexts/notifications/useNotifications';
+import { useDockerSocket } from '@contexts/useDockerSocket';
 import DatasourcesManager from '../datasources/DatasourcesInfo';
 import LogRemovalManager from '../log-processing/LogRemovalManager';
 import CacheManager from '../cache/CacheManager';
 import CorruptionManager from '../cache/CorruptionManager';
 import GameCacheDetector from '../game-detection/GameCacheDetector';
+import GamesList from '../game-detection/GamesList';
+import type { GameCacheInfo } from '../../../../types';
 interface StorageSectionProps {
   isAdmin: boolean;
   authMode: AuthMode;
@@ -38,7 +42,12 @@ const StorageSection: React.FC<StorageSectionProps> = ({
   onDataRefresh
 }) => {
   const { t } = useTranslation();
-  const { logsReadOnly, cacheReadOnly, reload: reloadPermissions } = useDirectoryPermissions();
+  const {
+    logsReadOnly,
+    cacheReadOnly,
+    checkingPermissions,
+    reload: reloadPermissions
+  } = useDirectoryPermissions();
   const [isRechecking, setIsRechecking] = useState(false);
 
   // Image cache busting for GameCacheDetector's GameImage components
@@ -60,11 +69,49 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     evictionMode !== savedEvictionMode ||
     evictionScanNotifications !== savedEvictionScanNotifications;
 
-  const { notifications } = useNotifications();
+  const { notifications, isAnyRemovalRunning } = useNotifications();
+  const { isDockerAvailable } = useDockerSocket();
   const evictionScanNotification = notifications.find(
     (n: { type: string; status: string }) => n.type === 'eviction_scan' && n.status === 'running'
   );
   const isEvictionScanRunning = !!evictionScanNotification || isStartingEvictionScan;
+
+  // Evicted Games State
+  const [evictedGames, setEvictedGames] = useState<GameCacheInfo[]>([]);
+  const [evictedGamesLoading, setEvictedGamesLoading] = useState(true);
+  const [evictedGamesExpanded, setEvictedGamesExpanded] = useState(true);
+
+  const loadEvictedGames = useCallback(async (signal?: AbortSignal) => {
+    setEvictedGamesLoading(true);
+    try {
+      const games = await ApiService.getEvictedGames(signal);
+      setEvictedGames(games);
+    } catch (err: unknown) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      console.error('[StorageSection] Failed to load evicted games:', err);
+    } finally {
+      setEvictedGamesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    loadEvictedGames(controller.signal);
+    return () => controller.abort();
+  }, [loadEvictedGames]);
+
+  // Refresh evicted games when eviction scan completes
+  const evictionScanCompletedNotification = notifications.find(
+    (n: { type: string; status: string }) => n.type === 'eviction_scan' && n.status === 'completed'
+  );
+  const prevEvictionCompleteRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const id = evictionScanCompletedNotification?.id;
+    if (id && id !== prevEvictionCompleteRef.current) {
+      prevEvictionCompleteRef.current = id;
+      loadEvictedGames();
+    }
+  }, [evictionScanCompletedNotification, loadEvictedGames]);
 
   const loadEvictionSettings = useCallback(
     async (signal?: AbortSignal) => {
@@ -280,6 +327,46 @@ const StorageSection: React.FC<StorageSectionProps> = ({
               />
             </ImageInvalidateContext.Provider>
           </ImageCacheContext.Provider>
+
+          {/* Evicted Games */}
+          <Card>
+            <div className="space-y-4">
+              <AccordionSection
+                title={t('management.gameDetection.evictedGamesSection')}
+                count={evictedGames.length}
+                icon={Database}
+                iconColor="var(--theme-warning-text)"
+                isExpanded={evictedGamesExpanded}
+                onToggle={() => setEvictedGamesExpanded((prev) => !prev)}
+                badge={
+                  evictedGames.length > 0 ? (
+                    <span className="themed-badge status-badge-warning">{evictedGames.length}</span>
+                  ) : undefined
+                }
+              >
+                {evictedGamesLoading ? (
+                  <LoadingState message={t('management.gameDetection.loadingEvictedGames')} />
+                ) : evictedGames.length === 0 ? (
+                  <div className="text-center py-8 text-themed-muted">
+                    <Database className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                    <p>{t('management.gameDetection.noEvictedGames')}</p>
+                  </div>
+                ) : (
+                  <GamesList
+                    games={evictedGames}
+                    totalGames={evictedGames.length}
+                    notifications={notifications}
+                    isAnyRemovalRunning={isAnyRemovalRunning}
+                    isAdmin={isAdmin}
+                    cacheReadOnly={cacheReadOnly}
+                    dockerSocketAvailable={isDockerAvailable}
+                    checkingPermissions={checkingPermissions}
+                    onRemoveGame={Function.prototype as () => void}
+                  />
+                )}
+              </AccordionSection>
+            </div>
+          </Card>
         </div>
       </div>
 

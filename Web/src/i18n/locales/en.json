@@ -539,16 +539,22 @@
         "hitRatio": "Cache",
         "hitRatioFull": "Cache Hit Ratio",
         "bandwidth": "Saved",
-        "bandwidthFull": "Bandwidth Saved"
+        "bandwidthFull": "Bandwidth Saved",
+        "games": "Games",
+        "gamesFull": "Games on Disk"
       },
       "centerLabels": {
         "saved": "Saved",
-        "total": "Total"
+        "total": "Total",
+        "onDisk": "On Disk"
       },
       "footer": {
         "totalData": "Total Data",
+        "totalDisk": "Total on Disk",
         "services": "Services",
-        "hitRate": "Hit Rate"
+        "hitRate": "Hit Rate",
+        "gamesDetected": "Games",
+        "largestGame": "Largest"
       },
       "empty": {
         "title": "No Data Available",
@@ -1961,6 +1967,10 @@
       "cacheReadOnlyShort": "Cache directory is mounted read-only",
       "dockerSocketRequired": "Docker socket required for log cleanup",
       "unknownGameBadge": "Unknown",
+      "evictedBadge": "Evicted",
+      "evictedGamesSection": "Evicted Games",
+      "noEvictedGames": "No evicted games found",
+      "loadingEvictedGames": "Loading evicted games...",
       "noGamesMatching": "No games found matching \"{{query}}\"",
       "clearSearch": "Clear search",
       "gamesLabel": "games",

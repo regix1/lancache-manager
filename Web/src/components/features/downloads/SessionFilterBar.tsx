@@ -2,6 +2,7 @@ import React from 'react';
 import { X } from 'lucide-react';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { MultiSelectDropdown } from '@components/ui/MultiSelectDropdown';
+import { TogglePill } from '@components/ui/TogglePill';
 import type {
   SessionFilters,
   CacheStatusFilter,
@@ -173,13 +174,14 @@ const SessionFilterBar: React.FC<SessionFilterBarProps> = ({
           <span className="session-filter-label">Cache</span>
           <div className="session-filter-pills">
             {CACHE_STATUS_OPTIONS.map((option) => (
-              <button
+              <TogglePill
                 key={option.value}
-                className={`session-filter-pill${filters.cacheStatus === option.value ? ' active' : ''}`}
+                active={filters.cacheStatus === option.value}
+                size="sm"
                 onClick={() => updateFilter('cacheStatus', option.value)}
               >
                 {option.label}
-              </button>
+              </TogglePill>
             ))}
           </div>
         </div>
@@ -188,13 +190,14 @@ const SessionFilterBar: React.FC<SessionFilterBarProps> = ({
           <span className="session-filter-label">Time</span>
           <div className="session-filter-pills">
             {TIME_RANGE_OPTIONS.map((option) => (
-              <button
+              <TogglePill
                 key={option.value}
-                className={`session-filter-pill${filters.timeRange === option.value ? ' active' : ''}`}
+                active={filters.timeRange === option.value}
+                size="sm"
                 onClick={() => updateFilter('timeRange', option.value)}
               >
                 {option.label}
-              </button>
+              </TogglePill>
             ))}
           </div>
         </div>

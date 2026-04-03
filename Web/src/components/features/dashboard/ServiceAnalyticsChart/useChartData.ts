@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
-import type { ServiceStat } from '@/types';
-import type { ChartData, TabId } from './types';
+import type { GameCacheInfo, ServiceStat } from '@/types';
+import type { ChartData, GameSliceExtra, TabId } from './types';
+import { useGameColors } from './useGameColors';
 import { useServiceColors } from './useServiceColors';
 
 const MIN_SLICE_DEGREES = 4;
@@ -63,11 +64,79 @@ function applyMinimumSlice(values: number[], minPercent: number): number[] {
   return adjusted;
 }
 
-export function useChartData(serviceStats: ServiceStat[], activeTab: TabId): ChartData {
+const MAX_GAME_SLICES = 20;
+
+export function useChartData(
+  serviceStats: ServiceStat[],
+  activeTab: TabId,
+  games?: GameCacheInfo[]
+): ChartData {
   const { getColor, getCacheHitColor, getCacheMissColor, getBorderColor } = useServiceColors();
+  const { getGameColors, getOtherColor } = useGameColors();
 
   return useMemo(() => {
     const borderColor = getBorderColor();
+
+    if (activeTab === 'games') {
+      const activeGames = (games ?? []).filter((g) => !g.is_evicted && g.total_size_bytes > 0);
+
+      if (activeGames.length === 0) {
+        return { labels: [], datasets: [], total: 0, isEmpty: true };
+      }
+
+      const sorted = activeGames
+        .map((g) => ({
+          name: g.game_name,
+          value: g.total_size_bytes,
+          cacheFiles: g.cache_files_found,
+          service: g.service ?? 'steam'
+        }))
+        .sort((a, b) => b.value - a.value);
+
+      const hasOther = sorted.length > MAX_GAME_SLICES;
+      const topGames = sorted.slice(0, MAX_GAME_SLICES);
+      const otherGames = hasOther ? sorted.slice(MAX_GAME_SLICES) : [];
+
+      const labels = topGames.map((g) => g.name);
+      const originalData = topGames.map((g) => g.value);
+      const sliceExtras: GameSliceExtra[] = topGames.map((g) => ({
+        cacheFiles: g.cacheFiles,
+        service: g.service
+      }));
+
+      if (hasOther) {
+        const otherTotal = otherGames.reduce((sum, g) => sum + g.value, 0);
+        const otherFiles = otherGames.reduce((sum, g) => sum + g.cacheFiles, 0);
+        labels.push(`Other (${otherGames.length} games)`);
+        originalData.push(otherTotal);
+        sliceExtras.push({ cacheFiles: otherFiles, service: 'mixed' });
+      }
+
+      const total = sorted.reduce((sum, g) => sum + g.value, 0);
+      const gameColors = getGameColors(topGames.length);
+      const bgColors = hasOther ? [...gameColors, getOtherColor()] : gameColors;
+      const data = applyMinimumSlice(originalData, MIN_SLICE_DEGREES / 360);
+
+      return {
+        labels,
+        datasets: [
+          {
+            id: 'games-distribution',
+            data,
+            originalData,
+            backgroundColor: bgColors,
+            borderColor,
+            borderWidth: 2,
+            borderRadius: 4,
+            spacing: 2,
+            hoverOffset: 8
+          }
+        ],
+        total,
+        isEmpty: false,
+        gameSliceExtras: sliceExtras
+      };
+    }
 
     if (!serviceStats?.length) {
       return { labels: [], datasets: [], total: 0, isEmpty: true };
@@ -179,5 +248,15 @@ export function useChartData(serviceStats: ServiceStat[], activeTab: TabId): Cha
       default:
         return { labels: [], datasets: [], total: 0, isEmpty: true };
     }
-  }, [serviceStats, activeTab, getColor, getCacheHitColor, getCacheMissColor, getBorderColor]);
+  }, [
+    serviceStats,
+    activeTab,
+    games,
+    getColor,
+    getCacheHitColor,
+    getCacheMissColor,
+    getBorderColor,
+    getGameColors,
+    getOtherColor
+  ]);
 }

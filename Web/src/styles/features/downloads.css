@@ -1145,36 +1145,6 @@
     gap: 0.2rem;
   }
 
-  .session-filter-pill {
-    padding: 0.2rem 0.5rem;
-    font-size: 0.7rem;
-    font-weight: 500;
-    line-height: 1.4;
-    border: 1px solid var(--theme-border-secondary);
-    border-radius: var(--theme-border-radius);
-    background: var(--theme-bg-secondary);
-    color: var(--theme-text-secondary);
-    cursor: pointer;
-    transition:
-      background 0.15s ease,
-      border-color 0.15s ease,
-      color 0.15s ease;
-    white-space: nowrap;
-  }
-
-  .session-filter-pill:hover:not(.active) {
-    background: var(--theme-bg-secondary-strong);
-    border-color: var(--theme-border-primary);
-    color: var(--theme-text-primary);
-  }
-
-  .session-filter-pill.active {
-    background: var(--theme-primary-on-bg-hover);
-    border-color: var(--theme-primary-on-border);
-    color: var(--theme-primary);
-    font-weight: 600;
-  }
-
   /* Make dropdown triggers match pill button sizing */
   .session-filter-bar .msd-trigger,
   .session-filter-bar .ed-trigger {
@@ -1362,7 +1332,6 @@
       justify-content: flex-end;
     }
 
-    .session-filter-pill,
     .session-filter-clear {
       font-size: 0.65rem;
       padding: 0.15rem 0.4rem;

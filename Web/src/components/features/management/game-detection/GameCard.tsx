@@ -73,6 +73,8 @@ const GameCard: React.FC<GameCardProps> = ({
     ? t('management.gameDetection.serviceEpicGames')
     : t('management.gameDetection.serviceSteam');
 
+  const isEvicted = game.is_evicted === true;
+
   const subtitle = (
     <span className="flex items-center gap-1.5 flex-shrink-0">
       <span className={serviceBadgeClass}>
@@ -84,70 +86,77 @@ const GameCard: React.FC<GameCardProps> = ({
           AppID: {game.game_app_id}
         </span>
       )}
+      {isEvicted && (
+        <span className="themed-badge status-badge-error">
+          {t('management.gameDetection.evictedBadge')}
+        </span>
+      )}
     </span>
   );
 
   const removeTooltip = t('management.gameDetection.removeGameCache');
 
   return (
-    <ExpandableItemCard
-      id={gameUniqueId}
-      title={game.game_name}
-      subtitle={subtitle}
-      gameAppId={game.game_app_id}
-      epicAppId={game.epic_app_id}
-      service={game.service}
-      stats={stats}
-      datasources={game.datasources}
-      isExpanded={isExpanded}
-      isExpanding={isExpanding}
-      isRemoving={isRemoving}
-      isAnyRemovalRunning={isAnyRemovalRunning}
-      isAdmin={isAdmin}
-      cacheReadOnly={cacheReadOnly}
-      dockerSocketAvailable={dockerSocketAvailable}
-      checkingPermissions={checkingPermissions}
-      onToggleDetails={(id) => onToggleDetails(String(id))}
-      onRemove={() => onRemove(game)}
-      removeTooltip={removeTooltip}
-    >
-      {/* Depot IDs - Steam only */}
-      {!isEpic && game.depot_ids.length > 0 && (
-        <div>
-          <p className="text-xs text-themed-muted mb-1.5 font-medium">
-            {t('management.gameDetection.depotIds')}
-          </p>
-          <div className="flex flex-wrap gap-1">
-            {game.depot_ids.map((depotId) => (
-              <span
-                key={depotId}
-                className="text-xs px-2 py-0.5 rounded border bg-themed-elevated border-themed-primary text-themed-secondary"
-              >
-                {depotId}
-              </span>
-            ))}
+    <div className={isEvicted ? 'game-card-evicted' : undefined}>
+      <ExpandableItemCard
+        id={gameUniqueId}
+        title={game.game_name}
+        subtitle={subtitle}
+        gameAppId={game.game_app_id}
+        epicAppId={game.epic_app_id}
+        service={game.service}
+        stats={stats}
+        datasources={game.datasources}
+        isExpanded={isExpanded}
+        isExpanding={isExpanding}
+        isRemoving={isRemoving}
+        isAnyRemovalRunning={isAnyRemovalRunning}
+        isAdmin={isAdmin}
+        cacheReadOnly={cacheReadOnly}
+        dockerSocketAvailable={dockerSocketAvailable}
+        checkingPermissions={checkingPermissions}
+        onToggleDetails={(id) => onToggleDetails(String(id))}
+        onRemove={() => onRemove(game)}
+        removeTooltip={removeTooltip}
+      >
+        {/* Depot IDs - Steam only */}
+        {!isEpic && game.depot_ids.length > 0 && (
+          <div>
+            <p className="text-xs text-themed-muted mb-1.5 font-medium">
+              {t('management.gameDetection.depotIds')}
+            </p>
+            <div className="flex flex-wrap gap-1">
+              {game.depot_ids.map((depotId) => (
+                <span
+                  key={depotId}
+                  className="text-xs px-2 py-0.5 rounded border bg-themed-elevated border-themed-primary text-themed-secondary"
+                >
+                  {depotId}
+                </span>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Sample URLs */}
-      <ExpandableList
-        items={game.sample_urls}
-        maxInitial={MAX_INITIAL_URLS}
-        labelKey="management.gameDetection.sampleUrls"
-        showingLabelKey="management.gameDetection.showingUrls"
-      />
-
-      {/* Cache File Paths */}
-      {game.cache_file_paths && (
+        {/* Sample URLs */}
         <ExpandableList
-          items={game.cache_file_paths}
-          maxInitial={MAX_INITIAL_PATHS}
-          labelKey="management.gameDetection.cacheFileLocations"
-          showingLabelKey="management.gameDetection.showingPaths"
+          items={game.sample_urls}
+          maxInitial={MAX_INITIAL_URLS}
+          labelKey="management.gameDetection.sampleUrls"
+          showingLabelKey="management.gameDetection.showingUrls"
         />
-      )}
-    </ExpandableItemCard>
+
+        {/* Cache File Paths */}
+        {game.cache_file_paths && (
+          <ExpandableList
+            items={game.cache_file_paths}
+            maxInitial={MAX_INITIAL_PATHS}
+            labelKey="management.gameDetection.cacheFileLocations"
+            showingLabelKey="management.gameDetection.showingPaths"
+          />
+        )}
+      </ExpandableItemCard>
+    </div>
   );
 };
 

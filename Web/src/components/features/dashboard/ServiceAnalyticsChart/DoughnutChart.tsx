@@ -10,7 +10,7 @@ import {
   type ArcOptions
 } from 'chart.js';
 import { formatBytes } from '@utils/formatters';
-import type { DoughnutChartProps } from './types';
+import type { DoughnutChartProps, GameSliceExtra } from './types';
 
 // Register only what we need (tree shaking)
 ChartJS.register(ArcElement, Tooltip, Legend);
@@ -25,7 +25,7 @@ function getCssVar(name: string, fallback: string): string {
 }
 
 const DoughnutChart: React.FC<DoughnutChartProps> = React.memo(
-  ({ labels, datasets, total, centerLabel }) => {
+  ({ labels, datasets, total, centerLabel, gameSliceExtras }) => {
     // Prepare chart data with stable reference
     const chartData: ChartData<'doughnut'> = useMemo(
       () => ({
@@ -87,16 +87,30 @@ const DoughnutChart: React.FC<DoughnutChartProps> = React.memo(
             boxPadding: 6,
             callbacks: {
               label: (context) => {
-                const dataset = context.dataset as { originalData?: number[] };
+                const dataset = context.dataset as { originalData?: number[]; id?: string };
                 const value = dataset.originalData?.[context.dataIndex] ?? (context.raw as number);
                 const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : '0';
-                return `${context.label}: ${formatBytes(value)} (${percentage}%)`;
+                const baseLine = `${context.label}: ${formatBytes(value)} (${percentage}%)`;
+
+                if (dataset.id !== 'games-distribution' || !gameSliceExtras) {
+                  return baseLine;
+                }
+
+                const extra: GameSliceExtra | undefined = gameSliceExtras[context.dataIndex];
+                if (!extra) return baseLine;
+
+                const lines = [baseLine];
+                lines.push(`Files: ${extra.cacheFiles.toLocaleString()}`);
+                if (extra.service !== 'mixed') {
+                  lines.push(`Service: ${extra.service}`);
+                }
+                return lines;
               }
             }
           }
         }
       };
-    }, [total]);
+    }, [total, gameSliceExtras]);
 
     return (
       <div className="chart-wrapper">

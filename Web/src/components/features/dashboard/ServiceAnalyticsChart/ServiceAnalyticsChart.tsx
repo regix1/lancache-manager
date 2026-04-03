@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from 'react';
-import { PieChart, Zap, Database } from 'lucide-react';
+import { PieChart, Zap, Database, Gamepad2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { formatBytes, formatPercent } from '@utils/formatters';
+import { useGameDetection } from '@contexts/DashboardDataContext/hooks';
 import { Card } from '@components/ui/Card';
 import DoughnutChart from './DoughnutChart';
 import ChartLegend from './ChartLegend';
@@ -12,6 +13,9 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
   ({ serviceStats, glassmorphism = false, loading = false }) => {
     const { t } = useTranslation();
     const [activeTab, setActiveTab] = useState<TabId>('service');
+    const { gameDetectionData } = useGameDetection();
+
+    const games = useMemo(() => gameDetectionData?.games ?? [], [gameDetectionData?.games]);
 
     const TABS: TabConfig[] = useMemo(
       () => [
@@ -32,13 +36,19 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
           name: t('dashboard.serviceAnalytics.tabs.bandwidthFull'),
           shortName: t('dashboard.serviceAnalytics.tabs.bandwidth'),
           icon: Zap
+        },
+        {
+          id: 'games',
+          name: t('dashboard.serviceAnalytics.tabs.gamesFull', 'Games on Disk'),
+          shortName: t('dashboard.serviceAnalytics.tabs.games', 'Games'),
+          icon: Gamepad2
         }
       ],
       [t]
     );
 
     // Get chart data from hook
-    const chartData = useChartData(serviceStats, activeTab);
+    const chartData = useChartData(serviceStats, activeTab, games);
 
     // Transform to legend items
     const legendItems: LegendItem[] = useMemo(() => {
@@ -59,6 +69,8 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
       switch (activeTab) {
         case 'bandwidth':
           return t('dashboard.serviceAnalytics.centerLabels.saved');
+        case 'games':
+          return t('dashboard.serviceAnalytics.centerLabels.onDisk', 'On Disk');
         case 'hit-ratio':
           return t('dashboard.serviceAnalytics.centerLabels.total');
         default:
@@ -68,11 +80,30 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
 
     // Stats for footer
     const footerStats = useMemo(() => {
+      if (activeTab === 'games') {
+        const activeGames = games.filter((g) => !g.is_evicted && g.total_size_bytes > 0);
+        const totalDisk = activeGames.reduce((sum, g) => sum + g.total_size_bytes, 0);
+        const sorted = [...activeGames].sort((a, b) => b.total_size_bytes - a.total_size_bytes);
+        const largestGame = sorted[0]?.game_name ?? '-';
+        return {
+          totalBytes: totalDisk,
+          hitRatio: 0,
+          serviceCount: 0,
+          gameCount: activeGames.length,
+          largestGame
+        };
+      }
       const totalBytes = serviceStats.reduce((sum, s) => sum + (s.totalBytes || 0), 0);
       const totalHits = serviceStats.reduce((sum, s) => sum + (s.totalCacheHitBytes || 0), 0);
       const hitRatio = totalBytes > 0 ? (totalHits / totalBytes) * 100 : 0;
-      return { totalBytes, hitRatio, serviceCount: serviceStats.length };
-    }, [serviceStats]);
+      return {
+        totalBytes,
+        hitRatio,
+        serviceCount: serviceStats.length,
+        gameCount: 0,
+        largestGame: ''
+      };
+    }, [serviceStats, activeTab, games]);
 
     return (
       <Card glassmorphism={glassmorphism} className="service-chart-panel">
@@ -119,6 +150,7 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
                   datasets={chartData.datasets}
                   total={chartData.total}
                   centerLabel={centerLabel}
+                  gameSliceExtras={chartData.gameSliceExtras}
                 />
               </div>
 
@@ -131,21 +163,44 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
               <div className="stat-box primary">
                 <div className="stat-box-value">{formatBytes(footerStats.totalBytes)}</div>
                 <div className="stat-box-label">
-                  {t('dashboard.serviceAnalytics.footer.totalData')}
+                  {activeTab === 'games'
+                    ? t('dashboard.serviceAnalytics.footer.totalDisk', 'Total on Disk')
+                    : t('dashboard.serviceAnalytics.footer.totalData')}
                 </div>
               </div>
-              <div className="stat-box">
-                <div className="stat-box-value">{footerStats.serviceCount}</div>
-                <div className="stat-box-label">
-                  {t('dashboard.serviceAnalytics.footer.services')}
-                </div>
-              </div>
-              <div className="stat-box">
-                <div className="stat-box-value">{formatPercent(footerStats.hitRatio)}</div>
-                <div className="stat-box-label">
-                  {t('dashboard.serviceAnalytics.footer.hitRate')}
-                </div>
-              </div>
+              {activeTab === 'games' ? (
+                <>
+                  <div className="stat-box">
+                    <div className="stat-box-value">{footerStats.gameCount}</div>
+                    <div className="stat-box-label">
+                      {t('dashboard.serviceAnalytics.footer.gamesDetected', 'Games')}
+                    </div>
+                  </div>
+                  <div className="stat-box">
+                    <div className="stat-box-value stat-box-value-truncate">
+                      {footerStats.largestGame}
+                    </div>
+                    <div className="stat-box-label">
+                      {t('dashboard.serviceAnalytics.footer.largestGame', 'Largest')}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="stat-box">
+                    <div className="stat-box-value">{footerStats.serviceCount}</div>
+                    <div className="stat-box-label">
+                      {t('dashboard.serviceAnalytics.footer.services')}
+                    </div>
+                  </div>
+                  <div className="stat-box">
+                    <div className="stat-box-value">{formatPercent(footerStats.hitRatio)}</div>
+                    <div className="stat-box-label">
+                      {t('dashboard.serviceAnalytics.footer.hitRate')}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </>
         ) : (

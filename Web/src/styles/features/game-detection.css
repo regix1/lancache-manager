@@ -38,6 +38,11 @@
   opacity: 0.8;
 }
 
+/* Evicted game card dimming */
+.game-card-evicted {
+  opacity: 0.6;
+}
+
 /* Game card thumbnail image */
 .game-card-image {
   width: 92px;

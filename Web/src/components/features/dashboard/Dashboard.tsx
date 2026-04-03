@@ -133,11 +133,19 @@ const Dashboard: React.FC = () => {
 
   // Eviction mode — determines whether evicted games are included in "Games on Disk"
   const [evictedDataMode, setEvictedDataMode] = useState<string>('show');
+  const [evictedGamesCount, setEvictedGamesCount] = useState<number>(0);
   useEffect(() => {
     const controller = new AbortController();
     ApiService.getEvictionSettings(controller.signal)
       .then((response: { evictedDataMode: string }) => {
         setEvictedDataMode(response.evictedDataMode);
+      })
+      .catch(() => {
+        /* ignore abort / network errors */
+      });
+    ApiService.getEvictedGames(controller.signal)
+      .then((games: { length: number }) => {
+        setEvictedGamesCount(games.length);
       })
       .catch(() => {
         /* ignore abort / network errors */
@@ -494,19 +502,21 @@ const Dashboard: React.FC = () => {
       return prevGamesOnDiskRef.current;
     }
     const includeEvicted = evictedDataMode === 'show' || evictedDataMode === 'showClean';
+    // Use evictedGamesCount from the dedicated API (evicted games are not in gameDetectionData)
+    const evictedCount = evictedGamesCount;
     const allGames = gameDetectionData.games;
-    const evictedCount = allGames.filter((game) => game.is_evicted === true).length;
     const games = includeEvicted ? allGames : allGames.filter((game) => game.is_evicted !== true);
+    const gameCount = includeEvicted ? games.length + evictedCount : games.length;
     const totalSize = games.reduce((sum, game) => sum + game.total_size_bytes, 0);
     const result = {
       totalSize,
-      gameCount: games.length,
+      gameCount,
       includesEvicted: includeEvicted && evictedCount > 0,
       evictedCount
     };
     prevGamesOnDiskRef.current = result;
     return result;
-  }, [gameDetectionData, evictedDataMode]);
+  }, [gameDetectionData, evictedDataMode, evictedGamesCount]);
 
   const allStatCards = useMemo<AllStatCards>(
     () => ({

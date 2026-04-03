@@ -41,6 +41,7 @@ import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { ActionMenu, ActionMenuItem } from '@components/ui/ActionMenu';
 import { Pagination } from '@components/ui/Pagination';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
+import { TogglePill } from '@components/ui/TogglePill';
 import { Tooltip } from '@components/ui/Tooltip';
 import { ImageCacheContext } from '@components/common/ImageCacheContext';
 
@@ -1497,13 +1498,28 @@ const DownloadsTab: React.FC = () => {
                     className="w-28 md:w-32 lg:w-36"
                   />
 
-                  <button
-                    className={`session-filter-pill${settings.hideEvicted ? ' active' : ''}`}
-                    onClick={() => setSettings({ ...settings, hideEvicted: !settings.hideEvicted })}
+                  <TogglePill
+                    active={settings.hideEvicted}
+                    size="md"
+                    onClick={() => {
+                      const newHideEvicted = !settings.hideEvicted;
+                      if (newHideEvicted && latestDownloads) {
+                        const evictedGames = latestDownloads.filter((d) => d.isEvicted);
+                        console.warn(
+                          `[Evicted Games] ${evictedGames.length} evicted:`,
+                          evictedGames.map((d) => ({
+                            game: d.gameName || d.depotId || 'Unknown',
+                            service: d.service,
+                            totalBytes: d.totalBytes
+                          }))
+                        );
+                      }
+                      setSettings({ ...settings, hideEvicted: newHideEvicted });
+                    }}
                     title={t('downloads.tab.filters.hideEvicted')}
                   >
                     {t('downloads.tab.filters.hideEvicted')}
-                  </button>
+                  </TogglePill>
                 </div>
 
                 {/* Desktop view controls */}

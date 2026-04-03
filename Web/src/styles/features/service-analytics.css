@@ -65,7 +65,7 @@
   height: 12px;
 }
 
-@container (max-width: 380px) {
+@container (max-width: 440px) {
   .tab-btn span {
     display: none;
   }
@@ -272,6 +272,14 @@
 
 .stat-box.primary .stat-box-value {
   color: var(--theme-primary);
+}
+
+.stat-box-value-truncate {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.75rem;
 }
 
 .stat-box-label {
