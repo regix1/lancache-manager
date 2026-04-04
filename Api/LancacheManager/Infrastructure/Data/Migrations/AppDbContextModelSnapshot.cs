@@ -164,6 +164,9 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<bool>("IsEvicted")
+                        .HasColumnType("boolean");
+
                     b.Property<DateTime>("LastDetectedUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -177,15 +180,11 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.Property<decimal>("TotalSizeBytes")
                         .HasColumnType("numeric(20,0)");
 
-                    b.Property<bool>("IsEvicted")
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(false);
-
                     b.HasKey("Id");
 
-                    b.HasIndex("GameAppId", "EpicAppId")
+                    b.HasIndex("GameAppId")
                         .IsUnique()
-                        .HasDatabaseName("IX_CachedGameDetection_GameAppId_EpicAppId");
+                        .HasDatabaseName("IX_CachedGameDetection_GameAppId");
 
                     b.HasIndex("LastDetectedUtc")
                         .HasDatabaseName("IX_CachedGameDetection_LastDetectedUtc");

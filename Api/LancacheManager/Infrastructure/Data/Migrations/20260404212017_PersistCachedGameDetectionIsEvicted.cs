@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore.Migrations;
+﻿using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
@@ -17,9 +17,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                 nullable: false,
                 defaultValue: false);
 
-            // Backfill: games with no cache files found are considered evicted.
-            migrationBuilder.Sql(
-                "UPDATE \"CachedGameDetections\" SET \"IsEvicted\" = TRUE WHERE \"CacheFilesFound\" = 0");
+            migrationBuilder.Sql("UPDATE \"CachedGameDetections\" SET \"IsEvicted\" = true WHERE \"CacheFilesFound\" = 0;");
         }
 
         /// <inheritdoc />
