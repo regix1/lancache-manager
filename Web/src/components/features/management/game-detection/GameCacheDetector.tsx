@@ -876,7 +876,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                       title={t('management.gameDetection.servicesSection')}
                       count={filteredServices.length}
                       icon={Server}
-                      iconColor="var(--theme-accent)"
+                      iconColor="var(--theme-icon-cyan)"
                       isExpanded={servicesExpanded}
                       onToggle={() => setServicesExpanded(!servicesExpanded)}
                     >
@@ -900,7 +900,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                       title={t('management.gameDetection.gamesSection')}
                       count={filteredGames.length}
                       icon={Database}
-                      iconColor="var(--theme-success-text)"
+                      iconColor="var(--theme-icon-emerald)"
                       isExpanded={gamesExpanded}
                       onToggle={() => setGamesExpanded(!gamesExpanded)}
                     >
@@ -923,16 +923,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                     title={t('management.gameDetection.evictedGamesSection')}
                     count={filteredEvictedGames.length}
                     icon={Database}
-                    iconColor="var(--theme-warning-text)"
+                    iconColor="var(--theme-icon-orange)"
                     isExpanded={evictedGamesExpanded}
                     onToggle={() => setEvictedGamesExpanded((prev) => !prev)}
-                    badge={
-                      filteredEvictedGames.length > 0 ? (
-                        <span className="themed-badge status-badge-warning">
-                          {filteredEvictedGames.length}
-                        </span>
-                      ) : undefined
-                    }
                   >
                     {loading ? (
                       <LoadingState message={t('management.gameDetection.loadingEvictedGames')} />

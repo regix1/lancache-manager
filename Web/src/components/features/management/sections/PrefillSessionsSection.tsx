@@ -1047,7 +1047,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
         title={t('management.prefillSessions.sessionHistory')}
         count={totalCount}
         icon={Clock}
-        iconColor="var(--theme-primary)"
+        iconColor="var(--theme-icon-blue)"
         isExpanded={historyExpanded}
         onToggle={() => setHistoryExpanded(!historyExpanded)}
         badge={

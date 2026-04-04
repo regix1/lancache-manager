@@ -608,7 +608,6 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                           count={count}
                           isExpanded={expandedCorruptionService === service}
                           onToggle={() => toggleCorruptionDetails(service)}
-                          badge={<span className="themed-badge status-badge-warning">{count}</span>}
                         >
                           {loadingDetails === service ? (
                             <LoadingState message={t('management.corruption.loadingDetails')} />

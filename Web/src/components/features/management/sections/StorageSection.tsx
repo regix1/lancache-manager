@@ -76,12 +76,12 @@ const StorageSection: React.FC<StorageSectionProps> = ({
   const isEvictionScanRunning = !!evictionScanNotification || isStartingEvictionScan;
 
   const [evictedDataExpanded, setEvictedDataExpanded] = useState(() => {
-    const saved = localStorage.getItem('management-evicted-data-expanded');
+    const saved = localStorage.getItem('management-evicted-data-expanded-v2');
     return saved !== null ? saved === 'true' : false;
   });
 
   useEffect(() => {
-    localStorage.setItem('management-evicted-data-expanded', String(evictedDataExpanded));
+    localStorage.setItem('management-evicted-data-expanded-v2', String(evictedDataExpanded));
   }, [evictedDataExpanded]);
 
   const loadEvictionSettings = useCallback(
