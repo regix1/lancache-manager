@@ -27,6 +27,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     private readonly IPathResolver _pathResolver;
     private bool _isRunning;
     private bool _currentScanIsSilent = true;
+    private readonly TaskCompletionSource<bool> _firstStartupScanComplete = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     protected override string ServiceName => "CacheReconciliationService";
     protected override TimeSpan Interval => TimeSpan.FromHours(6);
@@ -34,6 +35,13 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
     public bool IsRunning => _isRunning;
     public bool CurrentScanIsSilent => _currentScanIsSilent;
+
+    /// <summary>
+    /// Completes when the first startup eviction scan (and any RemoveEvictedRecordsAsync cleanup) has finished.
+    /// GameDetectionStartupService awaits this before calling GetCachedDetectionAsync to ensure evicted
+    /// Downloads have already been upserted into CachedGameDetections before detection reads the DB.
+    /// </summary>
+    public Task FirstStartupScanComplete => _firstStartupScanComplete.Task;
 
     /// <summary>
     /// Start reconciliation as a fire-and-forget background task.
@@ -132,6 +140,9 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         finally
         {
             _isRunning = false;
+            // Signal GameDetectionStartupService that the first startup scan (and any removal cleanup) is done.
+            // TrySetResult is safe to call multiple times — only the first call has effect.
+            _firstStartupScanComplete.TrySetResult(true);
         }
     }
 
@@ -379,23 +390,113 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
         try
         {
-            // Step 1: Delete LogEntries for evicted downloads first (foreign key constraint)
-            _operationTracker.UpdateProgress(operationId, 0, "Removing associated log entries...");
+            // Step 0: Upsert CachedGameDetection rows for every evicted game BEFORE deleting Downloads.
+            // This ensures evicted games remain visible after Downloads rows are deleted.
+            _operationTracker.UpdateProgress(operationId, 0, "Preserving evicted game records...");
             await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
-                new EvictionRemovalProgress(operationId, "removing_log_entries", "Removing associated log entries...", 0, 0, 0));
+                new EvictionRemovalProgress(operationId, "preserving_evicted_games", "Preserving evicted game records...", 0, 0, 0));
 
-            var logEntriesDeleted = await context.LogEntries
-                .Where(le => le.DownloadId != null && le.Download != null && le.Download.IsEvicted)
-                .ExecuteDeleteAsync(stoppingToken);
+            // Load all evicted Downloads grouped by (GameAppId, EpicAppId) — one representative row per game
+            var evictedDownloads = await context.Downloads
+                .Where(d => d.IsEvicted && (d.GameAppId != null || d.EpicAppId != null))
+                .ToListAsync(stoppingToken);
 
-            // Step 2: Delete evicted Downloads
-            _operationTracker.UpdateProgress(operationId, 50, "Removing evicted download records...");
-            await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
-                new EvictionRemovalProgress(operationId, "removing_downloads", "Removing evicted download records...", 50, 0, logEntriesDeleted));
+            var evictedGroups = evictedDownloads
+                .GroupBy(d => new { d.GameAppId, d.EpicAppId })
+                .Select(g => g.First())
+                .ToList();
 
-            var downloadsDeleted = await context.Downloads
-                .Where(d => d.IsEvicted)
-                .ExecuteDeleteAsync(stoppingToken);
+            int upsertedCount = 0;
+            int logEntriesDeleted;
+            int downloadsDeleted;
+
+            await using var transaction = await context.Database.BeginTransactionAsync(stoppingToken);
+            try
+            {
+                // Upsert one CachedGameDetection row per evicted game
+                foreach (var representative in evictedGroups)
+                {
+                    // Find existing row by GameAppId (Steam) or EpicAppId (Epic)
+                    CachedGameDetection? existing = null;
+                    if (representative.EpicAppId != null)
+                    {
+                        existing = await context.CachedGameDetections
+                            .FirstOrDefaultAsync(c => c.EpicAppId == representative.EpicAppId, stoppingToken);
+                    }
+                    else if (representative.GameAppId != null)
+                    {
+                        existing = await context.CachedGameDetections
+                            .FirstOrDefaultAsync(c => c.GameAppId == representative.GameAppId.Value, stoppingToken);
+                    }
+
+                    if (existing != null)
+                    {
+                        // Update existing row — mark as evicted with zero files
+                        existing.IsEvicted = true;
+                        existing.CacheFilesFound = 0;
+                        existing.TotalSizeBytes = 0;
+                        if (!string.IsNullOrEmpty(representative.GameName))
+                            existing.GameName = representative.GameName;
+                        if (representative.Service != null)
+                            existing.Service = representative.Service;
+                        existing.LastDetectedUtc = DateTime.UtcNow;
+                    }
+                    else
+                    {
+                        // Insert new row so the evicted game survives after Downloads are deleted
+                        var newDetection = new CachedGameDetection
+                        {
+                            GameAppId = representative.GameAppId ?? 0,
+                            GameName = representative.GameName ?? string.Empty,
+                            EpicAppId = representative.EpicAppId,
+                            Service = representative.Service,
+                            CacheFilesFound = 0,
+                            TotalSizeBytes = 0,
+                            IsEvicted = true,
+                            DatasourcesJson = $"[\"{representative.Datasource}\"]",
+                            LastDetectedUtc = DateTime.UtcNow,
+                            CreatedAtUtc = DateTime.UtcNow,
+                        };
+                        context.CachedGameDetections.Add(newDetection);
+                    }
+
+                    upsertedCount++;
+                }
+
+                await context.SaveChangesAsync(stoppingToken);
+
+                if (upsertedCount > 0)
+                {
+                    _logger.LogInformation(
+                        "[EvictionScan] Upserted {Count} CachedGameDetection rows for evicted games before removal",
+                        upsertedCount);
+                }
+
+                // Step 1: Delete LogEntries for evicted downloads first (foreign key constraint)
+                _operationTracker.UpdateProgress(operationId, 33, "Removing associated log entries...");
+                await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
+                    new EvictionRemovalProgress(operationId, "removing_log_entries", "Removing associated log entries...", 33, 0, 0));
+
+                logEntriesDeleted = await context.LogEntries
+                    .Where(le => le.DownloadId != null && le.Download != null && le.Download.IsEvicted)
+                    .ExecuteDeleteAsync(stoppingToken);
+
+                // Step 2: Delete evicted Downloads
+                _operationTracker.UpdateProgress(operationId, 66, "Removing evicted download records...");
+                await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
+                    new EvictionRemovalProgress(operationId, "removing_downloads", "Removing evicted download records...", 66, 0, logEntriesDeleted));
+
+                downloadsDeleted = await context.Downloads
+                    .Where(d => d.IsEvicted)
+                    .ExecuteDeleteAsync(stoppingToken);
+
+                await transaction.CommitAsync(stoppingToken);
+            }
+            catch
+            {
+                await transaction.RollbackAsync(stoppingToken);
+                throw;
+            }
 
             if (downloadsDeleted > 0 || logEntriesDeleted > 0)
             {

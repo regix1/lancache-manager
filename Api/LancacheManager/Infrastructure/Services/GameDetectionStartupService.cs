@@ -12,12 +12,14 @@ public class GameDetectionStartupService : ScheduledBackgroundService
     private readonly IStateService _stateService;
     private readonly IPathResolver _pathResolver;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly CacheReconciliationService _cacheReconciliationService;
 
     public GameDetectionStartupService(
         GameCacheDetectionService detectionService,
         IStateService stateService,
         IPathResolver pathResolver,
         IServiceScopeFactory scopeFactory,
+        CacheReconciliationService cacheReconciliationService,
         ILogger<GameDetectionStartupService> logger,
         IConfiguration configuration)
         : base(logger, configuration)
@@ -26,6 +28,7 @@ public class GameDetectionStartupService : ScheduledBackgroundService
         _stateService = stateService;
         _pathResolver = pathResolver;
         _scopeFactory = scopeFactory;
+        _cacheReconciliationService = cacheReconciliationService;
     }
 
     protected override string ServiceName => "GameDetectionStartup";
@@ -59,6 +62,21 @@ public class GameDetectionStartupService : ScheduledBackgroundService
             _logger.LogInformation("[GameDetectionStartup] Waiting for logs to be processed...");
             await _stateService.WaitForLogsProcessedAsync(stoppingToken);
             _logger.LogInformation("[GameDetectionStartup] Logs processed");
+
+            // Wait for CacheReconciliationService to complete its first startup eviction scan.
+            // This ensures evicted games are upserted into CachedGameDetections BEFORE we read from it,
+            // so GetCachedDetectionAsync sees a consistent state even in "Remove" eviction mode.
+            _logger.LogInformation("[GameDetectionStartup] Waiting for CacheReconciliationService first startup scan to complete...");
+            var completionTask = _cacheReconciliationService.FirstStartupScanComplete;
+            var timeoutTask = Task.Delay(TimeSpan.FromSeconds(60), stoppingToken);
+            if (await Task.WhenAny(completionTask, timeoutTask) == timeoutTask)
+            {
+                _logger.LogWarning("[GameDetectionStartup] Timed out waiting for CacheReconciliationService first scan; proceeding anyway");
+            }
+            else
+            {
+                _logger.LogInformation("[GameDetectionStartup] CacheReconciliationService first scan complete");
+            }
 
             // Skip detection if there are no downloads in the database yet
             using var scope = _scopeFactory.CreateScope();

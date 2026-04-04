@@ -1059,8 +1059,13 @@ async fn main() -> Result<()> {
     let json = serde_json::to_string_pretty(&report)?;
     fs::write(&output_json, json)?;
 
+    let epic_game_count = report.games.iter().filter(|g| g.epic_app_id.is_some()).count();
+    let steam_game_count = report.total_games_detected - epic_game_count;
+
     eprintln!("\n=== Detection Summary ===");
-    eprintln!("Games with cache files: {}", report.total_games_detected);
+    eprintln!("Steam games with cache files: {}", steam_game_count);
+    eprintln!("Epic games with cache files: {}", epic_game_count);
+    eprintln!("Total games with cache files: {}", report.total_games_detected);
     eprintln!("Services with cache files: {}", report.total_services_detected);
     eprintln!("Total cache files: {}", total_files_found + service_files_found);
     eprintln!("Total cache size: {:.2} GB", (total_bytes_found + service_bytes_found) as f64 / 1_073_741_824.0);

@@ -620,6 +620,12 @@ public class GameCacheDetectionService : IDisposable
                 totalGamesDetected += evictedCount;
             }
 
+            var epicGameCount = finalGames.Count(g => g.EpicAppId != null);
+            var steamGameCount = finalGames.Count(g => g.EpicAppId == null);
+            _logger.LogInformation(
+                "[GameDetection] === Detection Summary === Steam games: {SteamCount} | Epic games: {EpicCount} | Total games: {TotalCount} | Evicted (recovered): {EvictedCount}",
+                steamGameCount, epicGameCount, totalGamesDetected, evictedCount);
+
             // For incremental scans, resolve any unknown games that now have depot mappings
             // Full scans already query fresh mappings, so this is only needed for incremental
             if (incremental)
@@ -828,7 +834,16 @@ public class GameCacheDetectionService : IDisposable
 
     public async Task<DetectionOperationResponse?> GetCachedDetectionAsync()
     {
-        // First, try to resolve any unknown games in the cache using available mappings
+        // Recover any evicted games that are in Downloads history but not yet in CachedGameDetections.
+        // This runs on every cache load so that evicted games survive restarts without requiring a new scan.
+        // During scans, RecoverEvictedGamesAsync already runs — this covers the no-scan (restart) path.
+        var recoveredCount = await RecoverEvictedGamesAsync();
+        if (recoveredCount > 0)
+        {
+            _logger.LogInformation("[GameDetection] Recovered {Count} evicted games from Downloads history on cache load", recoveredCount);
+        }
+
+        // Try to resolve any unknown games in the cache using available mappings
         var resolvedCount = await ResolveUnknownGamesInCacheAsync();
         if (resolvedCount > 0)
         {
@@ -853,38 +868,44 @@ public class GameCacheDetectionService : IDisposable
         var cachedGames = await dbContext.CachedGameDetections.AsNoTracking().ToListAsync();
         var cachedServices = await dbContext.CachedServiceDetections.AsNoTracking().ToListAsync();
 
-        // Compute eviction status: a game is evicted when ALL its downloads are evicted.
-        // Games with no matching downloads are NOT considered evicted.
-        // Single batch query — not N+1.
+        // Compute eviction status in three passes (primary → secondary → tertiary).
+        // Primary: IsEvicted is now a persisted DB column — rows inserted by RecoverEvictedGamesAsync
+        //   already have IsEvicted = true set in the DB, so no further work is needed for them.
+        // Secondary: Downloads-join fallback for rows that are not yet marked evicted in the DB.
+        //   A game is evicted when ALL its downloads are evicted.
+        // Tertiary: CacheFilesFound == 0 catch-all (belt-and-suspenders).
         if (cachedGames.Count > 0)
         {
-            var gameAppIds = cachedGames.Select(g => (long?)g.GameAppId).ToHashSet();
-
-            // For each GameAppId that has downloads, determine if every download is evicted.
-            var evictionStatus = await dbContext.Downloads
-                .Where(d => d.GameAppId != null && gameAppIds.Contains(d.GameAppId))
-                .GroupBy(d => d.GameAppId)
-                .Select(g => new
-                {
-                    GameAppId = g.Key!.Value,
-                    AllEvicted = g.All(d => d.IsEvicted)
-                })
-                .ToDictionaryAsync(x => x.GameAppId, x => x.AllEvicted);
-
-            foreach (var game in cachedGames)
+            // Secondary: check Downloads for any non-evicted Steam games to catch races.
+            var nonEvictedSteamGames = cachedGames.Where(g => !g.IsEvicted && g.EpicAppId == null).ToList();
+            if (nonEvictedSteamGames.Count > 0)
             {
-                // Only mark evicted if there ARE matching downloads AND all are evicted.
-                if (evictionStatus.TryGetValue(game.GameAppId, out var allEvicted) && allEvicted)
+                var gameAppIds = nonEvictedSteamGames.Select(g => (long?)g.GameAppId).ToHashSet();
+
+                var evictionStatus = await dbContext.Downloads
+                    .Where(d => d.GameAppId != null && gameAppIds.Contains(d.GameAppId))
+                    .GroupBy(d => d.GameAppId)
+                    .Select(g => new
+                    {
+                        GameAppId = g.Key!.Value,
+                        AllEvicted = g.All(d => d.IsEvicted)
+                    })
+                    .ToDictionaryAsync(x => x.GameAppId, x => x.AllEvicted);
+
+                foreach (var game in nonEvictedSteamGames)
                 {
-                    game.IsEvicted = true;
+                    if (evictionStatus.TryGetValue(game.GameAppId, out var allEvicted) && allEvicted)
+                    {
+                        game.IsEvicted = true;
+                    }
                 }
             }
 
-            // Epic eviction: Epic downloads have GameAppId=NULL, so join on EpicAppId instead.
-            var epicGames = cachedGames.Where(g => g.EpicAppId != null && !g.IsEvicted).ToList();
-            if (epicGames.Count > 0)
+            // Secondary: Epic eviction fallback — Epic downloads have GameAppId=NULL, join on EpicAppId.
+            var nonEvictedEpicGames = cachedGames.Where(g => !g.IsEvicted && g.EpicAppId != null).ToList();
+            if (nonEvictedEpicGames.Count > 0)
             {
-                var epicAppIds = epicGames.Select(g => g.EpicAppId!).Distinct().ToList();
+                var epicAppIds = nonEvictedEpicGames.Select(g => g.EpicAppId!).Distinct().ToList();
                 var epicEvictionStatus = await dbContext.Downloads
                     .Where(d => d.EpicAppId != null && epicAppIds.Contains(d.EpicAppId))
                     .GroupBy(d => d.EpicAppId)
@@ -895,7 +916,7 @@ public class GameCacheDetectionService : IDisposable
                     })
                     .ToDictionaryAsync(x => x.EpicAppId, x => x.AllEvicted);
 
-                foreach (var game in epicGames)
+                foreach (var game in nonEvictedEpicGames)
                 {
                     if (epicEvictionStatus.TryGetValue(game.EpicAppId!, out var epicAllEvicted) && epicAllEvicted)
                     {
@@ -904,7 +925,7 @@ public class GameCacheDetectionService : IDisposable
                 }
             }
 
-            // Games with 0 cache files are evicted by definition — they were added by
+            // Tertiary: Games with 0 cache files are evicted by definition — they were added by
             // RecoverEvictedGamesAsync because they have Downloads but no files on disk.
             foreach (var game in cachedGames)
             {
@@ -947,6 +968,13 @@ public class GameCacheDetectionService : IDisposable
             : games.Count > 0
                 ? $"Loaded {games.Count} games from cache"
                 : $"Loaded {services.Count} services from cache";
+
+        var steamCount = games.Count(g => string.IsNullOrEmpty(g.EpicAppId) && !g.IsEvicted);
+        var epicCount = games.Count(g => !string.IsNullOrEmpty(g.EpicAppId) && !g.IsEvicted);
+        var evictedCount = games.Count(g => g.IsEvicted);
+        _logger.LogInformation(
+            "[GameDetection] === Detection Summary (cache load) === Steam: {Steam} | Epic: {Epic} | Total: {Total} | Evicted: {Evicted}",
+            steamCount, epicCount, steamCount + epicCount, evictedCount);
 
         return new DetectionOperationResponse
         {
@@ -1339,8 +1367,18 @@ public class GameCacheDetectionService : IDisposable
 
         if (!incremental)
         {
-            // Full scan - clear existing cache first
-            await dbContext.CachedGameDetections.ExecuteDeleteAsync();
+            // Full scan - selectively remove stale non-evicted rows.
+            // Evicted rows (IsEvicted = true) are preserved — they represent games that were
+            // once cached but whose files have since been purged; we must not lose that history.
+            // Only delete non-evicted rows for games that are no longer in the incoming scan results.
+            var incomingSteamIds = games.Where(g => g.EpicAppId == null).Select(g => g.GameAppId).ToList();
+            var incomingEpicIds = games.Where(g => g.EpicAppId != null).Select(g => g.EpicAppId!).ToList();
+
+            await dbContext.CachedGameDetections
+                .Where(g => !g.IsEvicted
+                    && (g.EpicAppId == null ? !incomingSteamIds.Contains(g.GameAppId)
+                                            : !incomingEpicIds.Contains(g.EpicAppId)))
+                .ExecuteDeleteAsync();
         }
 
         // Separate Steam games (GameAppId > 0) from Epic games (EpicAppId != null, GameAppId = 0).
@@ -1492,6 +1530,7 @@ public class GameCacheDetectionService : IDisposable
                     TotalSizeBytes = 0,
                     Service = game.Service ?? "steam",
                     EpicAppId = game.EpicAppId,
+                    IsEvicted = true,
                     LastDetectedUtc = now,
                     CreatedAtUtc = now
                 });
@@ -1539,6 +1578,7 @@ public class GameCacheDetectionService : IDisposable
                     TotalSizeBytes = 0,
                     Service = game.Service ?? "epicgames",
                     EpicAppId = game.EpicAppId,
+                    IsEvicted = true,
                     LastDetectedUtc = now,
                     CreatedAtUtc = now
                 });

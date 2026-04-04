@@ -61,9 +61,9 @@ public class CachedGameDetection
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
 
     /// <summary>
-    /// Computed at query time (not persisted). True when ALL associated downloads for this game are evicted.
+    /// Persisted. True when ALL associated downloads for this game are evicted.
     /// Games with no matching downloads are NOT considered evicted.
+    /// Backfilled on migration: set to true where CacheFilesFound = 0.
     /// </summary>
-    [System.ComponentModel.DataAnnotations.Schema.NotMapped]
     public bool IsEvicted { get; set; } = false;
 }
