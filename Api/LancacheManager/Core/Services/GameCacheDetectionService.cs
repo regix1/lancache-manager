@@ -611,15 +611,13 @@ public class GameCacheDetectionService : IDisposable
             _logger.LogInformation("[GameDetection] Results saved to database - {Count} games persisted", finalGames.Count);
 
             // Recover evicted games: find games in Downloads that have no cache files on disk
-            // and add them to CachedGameDetections so they appear in the evicted games list
-            if (!incremental)
+            // and add them to CachedGameDetections so they appear in the evicted games list.
+            // Run on both full and incremental scans so evicted games are always recovered.
+            var evictedCount = await RecoverEvictedGamesAsync();
+            if (evictedCount > 0)
             {
-                var evictedCount = await RecoverEvictedGamesAsync();
-                if (evictedCount > 0)
-                {
-                    _logger.LogInformation("[GameDetection] Recovered {Count} evicted games from Downloads history", evictedCount);
-                    totalGamesDetected += evictedCount;
-                }
+                _logger.LogInformation("[GameDetection] Recovered {Count} evicted games from Downloads history", evictedCount);
+                totalGamesDetected += evictedCount;
             }
 
             // For incremental scans, resolve any unknown games that now have depot mappings
@@ -1449,34 +1447,86 @@ public class GameCacheDetectionService : IDisposable
             })
             .ToListAsync();
 
-        if (evictedGames.Count == 0)
-            return 0;
-
         var now = DateTime.UtcNow;
-        foreach (var game in evictedGames)
+        var totalRecovered = 0;
+
+        if (evictedGames.Count > 0)
         {
-            dbContext.CachedGameDetections.Add(new CachedGameDetection
+            foreach (var game in evictedGames)
             {
-                GameAppId = game.GameAppId,
-                GameName = game.GameName ?? "Unknown",
-                CacheFilesFound = 0,
-                TotalSizeBytes = 0,
-                Service = game.Service ?? "steam",
-                EpicAppId = game.EpicAppId,
-                LastDetectedUtc = now,
-                CreatedAtUtc = now
-            });
+                dbContext.CachedGameDetections.Add(new CachedGameDetection
+                {
+                    GameAppId = game.GameAppId,
+                    GameName = game.GameName ?? "Unknown",
+                    CacheFilesFound = 0,
+                    TotalSizeBytes = 0,
+                    Service = game.Service ?? "steam",
+                    EpicAppId = game.EpicAppId,
+                    LastDetectedUtc = now,
+                    CreatedAtUtc = now
+                });
+            }
+
+            await dbContext.SaveChangesAsync();
+
+            // Mark downloads for evicted Steam games as IsEvicted = true
+            var evictedAppIds = evictedGames.Select(g => (long?)g.GameAppId).ToList();
+            await dbContext.Downloads
+                .Where(d => d.GameAppId != null && evictedAppIds.Contains(d.GameAppId) && !d.IsEvicted)
+                .ExecuteUpdateAsync(s => s.SetProperty(d => d.IsEvicted, true));
+
+            totalRecovered += evictedGames.Count;
         }
 
-        await dbContext.SaveChangesAsync();
+        // Recover evicted Epic games: Downloads with EpicAppId set but no matching CachedGameDetection
+        var detectedEpicAppIds = await dbContext.CachedGameDetections
+            .Where(g => g.EpicAppId != null)
+            .Select(g => g.EpicAppId)
+            .ToListAsync();
 
-        // Mark downloads for evicted games as IsEvicted = true
-        var evictedAppIds = evictedGames.Select(g => (long?)g.GameAppId).ToList();
-        await dbContext.Downloads
-            .Where(d => d.GameAppId != null && evictedAppIds.Contains(d.GameAppId) && !d.IsEvicted)
-            .ExecuteUpdateAsync(s => s.SetProperty(d => d.IsEvicted, true));
+        var evictedEpicGames = await dbContext.Downloads
+            .Where(d => d.EpicAppId != null
+                      && !d.IsActive
+                      && !detectedEpicAppIds.Contains(d.EpicAppId))
+            .GroupBy(d => d.EpicAppId!)
+            .Select(g => new
+            {
+                EpicAppId = g.Key,
+                GameName = g.Max(d => d.GameName),
+                Service = g.Min(d => d.Service)
+            })
+            .ToListAsync();
 
-        return evictedGames.Count;
+        if (evictedEpicGames.Count > 0)
+        {
+            foreach (var game in evictedEpicGames)
+            {
+                dbContext.CachedGameDetections.Add(new CachedGameDetection
+                {
+                    GameAppId = 0,
+                    GameName = game.GameName ?? "Unknown",
+                    CacheFilesFound = 0,
+                    TotalSizeBytes = 0,
+                    Service = game.Service ?? "epicgames",
+                    EpicAppId = game.EpicAppId,
+                    LastDetectedUtc = now,
+                    CreatedAtUtc = now
+                });
+            }
+
+            await dbContext.SaveChangesAsync();
+
+            // Mark downloads for evicted Epic games as IsEvicted = true
+            var evictedEpicIds = evictedEpicGames.Select(g => g.EpicAppId).ToList();
+            await dbContext.Downloads
+                .Where(d => d.EpicAppId != null && evictedEpicIds.Contains(d.EpicAppId) && !d.IsEvicted)
+                .ExecuteUpdateAsync(s => s.SetProperty(d => d.IsEvicted, true));
+
+            _logger.LogInformation("[GameDetection] Recovered {Count} evicted Epic games from Downloads history", evictedEpicGames.Count);
+            totalRecovered += evictedEpicGames.Count;
+        }
+
+        return totalRecovered;
     }
 
     private async Task SaveServicesToDatabaseAsync(List<ServiceCacheInfo> services)

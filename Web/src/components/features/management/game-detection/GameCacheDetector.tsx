@@ -17,7 +17,6 @@ import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
 import { useInvalidateImages } from '@components/common/ImageCacheContext';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { LoadingState, EmptyState, ReadOnlyBadge } from '@components/ui/ManagerCard';
-import { useGameDetection } from '@contexts/DashboardDataContext/hooks';
 import GamesList from './GamesList';
 import ServicesList from './ServicesList';
 import CacheRemovalModal from '@components/modals/cache/CacheRemovalModal';
@@ -98,12 +97,10 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     localStorage.setItem('management-evicted-games-expanded', String(evictedGamesExpanded));
   }, [evictedGamesExpanded]);
 
-  // Evicted Games — derived from cached game detection data (is_evicted === true)
-  const { gameDetectionData, isLoading: evictedGamesLoading } = useGameDetection();
-  const evictedGames = useMemo(
-    () => gameDetectionData?.games?.filter((game) => game.is_evicted === true) ?? [],
-    [gameDetectionData]
-  );
+  // Evicted Games — derived from local games state (is_evicted === true)
+  // Using local state instead of gameDetectionData from context ensures evictedGames
+  // updates immediately in the same render cycle when setGames() is called on scan completion.
+  const evictedGames = useMemo(() => games.filter((game) => game.is_evicted === true), [games]);
 
   const [evictedGameToRemove, setEvictedGameToRemove] = useState<GameCacheInfo | null>(null);
 
@@ -921,7 +918,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                       ) : undefined
                     }
                   >
-                    {evictedGamesLoading ? (
+                    {loading ? (
                       <LoadingState message={t('management.gameDetection.loadingEvictedGames')} />
                     ) : evictedGames.length === 0 ? (
                       <EmptyState
