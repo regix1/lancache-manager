@@ -1,9 +1,21 @@
 .eviction-mode-option {
   border: 1px solid var(--theme-border-primary);
+  background-color: var(--theme-bg-tertiary);
+}
+
+.eviction-mode-option:hover {
+  background-color: var(--theme-bg-hover);
 }
 
 .eviction-mode-option-selected {
+  background-color: var(--theme-bg-hover);
   border-color: var(--theme-primary);
+}
+
+.evicted-games-divider {
+  border: none;
+  border-top: 1px solid var(--theme-border-primary);
+  margin: 1rem 0;
 }
 
 .eviction-radio {
