@@ -3,13 +3,11 @@ import ApiService from '@services/api.service';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useAuth } from '@contexts/useAuth';
 import type { EventSummary } from '../types';
-import { DownloadAssociationsContext } from './DownloadAssociationsContext.types';
-
-interface DownloadAssociations {
-  events: EventSummary[];
-}
-
-type AssociationsCache = Record<number, DownloadAssociations>;
+import {
+  DownloadAssociationsContext,
+  type DownloadAssociations,
+  type AssociationsCache
+} from './DownloadAssociationsContext.types';
 
 interface DownloadAssociationsProviderProps {
   children: ReactNode;

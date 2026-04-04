@@ -170,6 +170,14 @@ export function formatEventDateRange(startUtc: string, endUtc: string): string {
 }
 
 /**
+ * Format a number with locale-aware thousand separators (e.g., 1234 -> "1,234")
+ */
+export function formatCount(value: number | null | undefined): string {
+  if (value === null || value === undefined || isNaN(value)) return '0';
+  return value.toLocaleString();
+}
+
+/**
  * Format relative time (e.g., "2 hours ago")
  */
 export function formatRelativeTime(dateString: string | Date | null | undefined): string {

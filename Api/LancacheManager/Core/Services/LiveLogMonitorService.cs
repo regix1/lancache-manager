@@ -150,6 +150,13 @@ public class LiveLogMonitorService : ScheduledBackgroundService
         // Initialize file sizes for each datasource
         foreach (var ds in datasources)
         {
+            // Validate log directory exists before monitoring
+            if (!Directory.Exists(ds.LogPath))
+            {
+                _logger.LogWarning("Datasource '{Name}': Log directory does not exist at '{LogPath}', skipping monitoring for this datasource", ds.Name, ds.LogPath);
+                continue;
+            }
+
             // Initialize access.log monitoring
             var logFile = Path.Combine(ds.LogPath, "access.log");
             if (File.Exists(logFile))

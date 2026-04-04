@@ -573,7 +573,36 @@ export const colorGroups: ColorGroup[] = [
     ]
   },
 
-  // 9. ACCESS CONTROL - Security indicators
+  // 9. GAME CHARTS - Game distribution doughnut (20 slots + other)
+  {
+    name: 'gameCharts',
+    icon: Gamepad2,
+    colors: [
+      { key: 'gameColor1', supportsAlpha: true, pages: ['charts'] },
+      { key: 'gameColor2', supportsAlpha: true, pages: ['charts'] },
+      { key: 'gameColor3', supportsAlpha: true, pages: ['charts'] },
+      { key: 'gameColor4', supportsAlpha: true, pages: ['charts'] },
+      { key: 'gameColor5', supportsAlpha: true, pages: ['charts'] },
+      { key: 'gameColor6', supportsAlpha: true, pages: ['charts'] },
+      { key: 'gameColor7', supportsAlpha: true, pages: ['charts'] },
+      { key: 'gameColor8', supportsAlpha: true, pages: ['charts'] },
+      { key: 'gameColor9', supportsAlpha: true, pages: ['charts'] },
+      { key: 'gameColor10', supportsAlpha: true, pages: ['charts'] },
+      { key: 'gameColor11', supportsAlpha: true, pages: ['charts'] },
+      { key: 'gameColor12', supportsAlpha: true, pages: ['charts'] },
+      { key: 'gameColor13', supportsAlpha: true, pages: ['charts'] },
+      { key: 'gameColor14', supportsAlpha: true, pages: ['charts'] },
+      { key: 'gameColor15', supportsAlpha: true, pages: ['charts'] },
+      { key: 'gameColor16', supportsAlpha: true, pages: ['charts'] },
+      { key: 'gameColor17', supportsAlpha: true, pages: ['charts'] },
+      { key: 'gameColor18', supportsAlpha: true, pages: ['charts'] },
+      { key: 'gameColor19', supportsAlpha: true, pages: ['charts'] },
+      { key: 'gameColor20', supportsAlpha: true, pages: ['charts'] },
+      { key: 'gameColorOther', supportsAlpha: true, pages: ['charts'] }
+    ]
+  },
+
+  // 10. ACCESS CONTROL - Security indicators
   {
     name: 'accessControl',
     icon: Lock,

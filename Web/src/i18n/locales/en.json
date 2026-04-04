@@ -3865,6 +3865,10 @@
           "title": "Data Display",
           "description": "Charts, graphs, and progress bars - Data visualization colors for all chart types"
         },
+        "gameCharts": {
+          "title": "Game Charts",
+          "description": "Game distribution chart - 20 customizable colors for the Games on Disk doughnut chart on the dashboard"
+        },
         "accessControl": {
           "title": "Access Control",
           "description": "Public and secured badges - Security status indicators for API access control"
@@ -4319,6 +4323,111 @@
           "label": "Chart Border",
           "description": "Border color for chart elements",
           "affects": ["Chart borders", "Chart separators"]
+        },
+        "gameColor1": {
+          "label": "Game Color 1",
+          "description": "First game chart slice",
+          "affects": ["Games on Disk chart"]
+        },
+        "gameColor2": {
+          "label": "Game Color 2",
+          "description": "Second game chart slice",
+          "affects": ["Games on Disk chart"]
+        },
+        "gameColor3": {
+          "label": "Game Color 3",
+          "description": "Third game chart slice",
+          "affects": ["Games on Disk chart"]
+        },
+        "gameColor4": {
+          "label": "Game Color 4",
+          "description": "Fourth game chart slice",
+          "affects": ["Games on Disk chart"]
+        },
+        "gameColor5": {
+          "label": "Game Color 5",
+          "description": "Fifth game chart slice",
+          "affects": ["Games on Disk chart"]
+        },
+        "gameColor6": {
+          "label": "Game Color 6",
+          "description": "Sixth game chart slice",
+          "affects": ["Games on Disk chart"]
+        },
+        "gameColor7": {
+          "label": "Game Color 7",
+          "description": "Seventh game chart slice",
+          "affects": ["Games on Disk chart"]
+        },
+        "gameColor8": {
+          "label": "Game Color 8",
+          "description": "Eighth game chart slice",
+          "affects": ["Games on Disk chart"]
+        },
+        "gameColor9": {
+          "label": "Game Color 9",
+          "description": "Ninth game chart slice",
+          "affects": ["Games on Disk chart"]
+        },
+        "gameColor10": {
+          "label": "Game Color 10",
+          "description": "Tenth game chart slice",
+          "affects": ["Games on Disk chart"]
+        },
+        "gameColor11": {
+          "label": "Game Color 11",
+          "description": "Eleventh game chart slice",
+          "affects": ["Games on Disk chart"]
+        },
+        "gameColor12": {
+          "label": "Game Color 12",
+          "description": "Twelfth game chart slice",
+          "affects": ["Games on Disk chart"]
+        },
+        "gameColor13": {
+          "label": "Game Color 13",
+          "description": "Thirteenth game chart slice",
+          "affects": ["Games on Disk chart"]
+        },
+        "gameColor14": {
+          "label": "Game Color 14",
+          "description": "Fourteenth game chart slice",
+          "affects": ["Games on Disk chart"]
+        },
+        "gameColor15": {
+          "label": "Game Color 15",
+          "description": "Fifteenth game chart slice",
+          "affects": ["Games on Disk chart"]
+        },
+        "gameColor16": {
+          "label": "Game Color 16",
+          "description": "Sixteenth game chart slice",
+          "affects": ["Games on Disk chart"]
+        },
+        "gameColor17": {
+          "label": "Game Color 17",
+          "description": "Seventeenth game chart slice",
+          "affects": ["Games on Disk chart"]
+        },
+        "gameColor18": {
+          "label": "Game Color 18",
+          "description": "Eighteenth game chart slice",
+          "affects": ["Games on Disk chart"]
+        },
+        "gameColor19": {
+          "label": "Game Color 19",
+          "description": "Nineteenth game chart slice",
+          "affects": ["Games on Disk chart"]
+        },
+        "gameColor20": {
+          "label": "Game Color 20",
+          "description": "Twentieth game chart slice",
+          "affects": ["Games on Disk chart"]
+        },
+        "gameColorOther": {
+          "label": "Game Other",
+          "description": "Remaining games grouped together",
+          "affects": ["Games on Disk chart"]
         },
         "publicAccessBg": {
           "label": "Public Access Background",

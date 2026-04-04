@@ -1,11 +1,11 @@
 import { createContext } from 'react';
 import type { EventSummary } from '../types';
 
-interface DownloadAssociations {
+export interface DownloadAssociations {
   events: EventSummary[];
 }
 
-type AssociationsCache = Record<number, DownloadAssociations>;
+export type AssociationsCache = Record<number, DownloadAssociations>;
 
 export interface DownloadAssociationsContextType {
   associations: AssociationsCache;

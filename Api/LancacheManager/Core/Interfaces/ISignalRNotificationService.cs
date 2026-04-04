@@ -59,14 +59,6 @@ public interface ISignalRNotificationService
     Task SendToEpicPrefillClientRawAsync(string connectionId, string eventName, object? data = null);
 
     /// <summary>
-    /// Send a notification to all clients on ALL hubs (DownloadHub, SteamDaemonHub, and EpicPrefillDaemonHub).
-    /// Used for events that need to be broadcast to all connected clients regardless of which hub they're on.
-    /// </summary>
-    /// <param name="eventName">Use SignalREvents constants</param>
-    /// <param name="data">Optional payload data</param>
-    Task NotifyAllBothHubsAsync(string eventName, object? data = null);
-
-    /// <summary>
     /// Send a notification to all clients on the DownloadHub and the Steam daemon hub only.
     /// Used for Steam-specific daemon events that should not be sent to the Epic hub.
     /// </summary>
@@ -102,13 +94,4 @@ public interface ISignalRNotificationService
     /// <param name="data">Optional payload data</param>
     Task NotifyGroupAsync(string groupName, string eventName, object? data = null);
 
-    /// <summary>
-    /// Send a notification to a specific session's connection on the DownloadHub.
-    /// Resolves session ID to connection ID via ConnectionTrackingService.
-    /// If the session has no active connection, the call is a no-op.
-    /// </summary>
-    /// <param name="sessionId">The session ID (GUID string)</param>
-    /// <param name="eventName">Use SignalREvents constants</param>
-    /// <param name="data">Optional payload data</param>
-    Task NotifySessionAsync(string sessionId, string eventName, object? data = null);
 }

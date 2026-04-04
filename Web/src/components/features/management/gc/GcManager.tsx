@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Cpu, Save, Play, Loader2, Gauge, HardDrive } from 'lucide-react';
+import { Cpu, Save, Play, Gauge, HardDrive } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useNotifications } from '@contexts/notifications';
 import { API_BASE } from '@utils/constants';
 import ApiService from '@services/api.service';
@@ -259,7 +260,7 @@ const GcManager: React.FC<GcManagerProps> = ({ isAdmin }) => {
   if (loading) {
     return (
       <div className="flex items-center justify-center p-8">
-        <Loader2 className="w-6 h-6 animate-spin text-themed-muted" />
+        <LoadingSpinner inline size="lg" className="text-themed-muted" />
       </div>
     );
   }
@@ -354,7 +355,7 @@ const GcManager: React.FC<GcManagerProps> = ({ isAdmin }) => {
             color="blue"
             size="sm"
             leftSection={
-              saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />
+              saving ? <LoadingSpinner inline size="sm" /> : <Save className="w-4 h-4" />
             }
             className="flex-1"
           >
@@ -366,11 +367,7 @@ const GcManager: React.FC<GcManagerProps> = ({ isAdmin }) => {
             variant="default"
             size="sm"
             leftSection={
-              triggering ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Play className="w-4 h-4" />
-              )
+              triggering ? <LoadingSpinner inline size="sm" /> : <Play className="w-4 h-4" />
             }
             className="flex-1 sm:flex-none"
             title={t('management.gc.runGcTooltip')}

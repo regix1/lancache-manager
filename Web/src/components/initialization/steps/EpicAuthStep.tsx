@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Loader2, CheckCircle, ExternalLink, KeyRound, Shield } from 'lucide-react';
+import { CheckCircle, ExternalLink, KeyRound, Shield } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { EpicIcon } from '@components/ui/EpicIcon';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useEpicMappingAuth } from '@hooks/useEpicMappingAuth';
 import ApiService from '@services/api.service';
 
@@ -100,7 +101,7 @@ export const EpicAuthStep: React.FC<EpicAuthStepProps> = ({
           </p>
         </div>
         <div className="flex justify-center">
-          <Loader2 className="w-5 h-5 animate-spin text-themed-secondary" />
+          <LoadingSpinner inline size="md" className="text-themed-secondary" />
         </div>
       </div>
     );

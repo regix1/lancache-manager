@@ -3,7 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { Modal } from '../../ui/Modal';
 import { Button } from '../../ui/Button';
 import { CustomScrollbar } from '../../ui/CustomScrollbar';
-import { Search, Check, Gamepad2, Loader2, Import, Database, EyeOff, Eye } from 'lucide-react';
+import { Search, Check, Gamepad2, Import, Database, EyeOff, Eye } from 'lucide-react';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 
 export interface OwnedGame {
   appId: string;
@@ -365,7 +366,7 @@ export function GameSelectionModal({
         <div className="flex-1 relative rounded-lg overflow-hidden min-h-0 bg-[var(--theme-bg-tertiary)] border border-[var(--theme-border-secondary)]">
           {isLoading ? (
             <div className="flex items-center justify-center h-full">
-              <Loader2 className="h-8 w-8 animate-spin text-[var(--theme-primary)]" />
+              <LoadingSpinner inline size="xl" className="text-[var(--theme-primary)]" />
             </div>
           ) : sortedGames.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-[var(--theme-text-muted)]">
@@ -503,11 +504,7 @@ export function GameSelectionModal({
             disabled={isSaving}
             className="w-full sm:w-auto"
           >
-            {isSaving ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Check className="h-4 w-4" />
-            )}
+            {isSaving ? <LoadingSpinner inline size="sm" /> : <Check className="h-4 w-4" />}
             {t('prefill.gameSelection.saveSelection', { count: localSelected.size })}
           </Button>
         </div>

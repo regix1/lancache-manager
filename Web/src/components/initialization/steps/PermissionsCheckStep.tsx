@@ -4,13 +4,13 @@ import {
   CheckCircle,
   AlertTriangle,
   XCircle,
-  Loader2,
   FolderOpen,
   FileText,
   Container
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
 
 interface PermissionsCheckStepProps {
@@ -153,7 +153,7 @@ export const PermissionsCheckStep: React.FC<PermissionsCheckStepProps> = ({ onCo
   const getStatusIcon = (status: CheckStatus) => {
     switch (status) {
       case 'loading':
-        return <Loader2 className="w-5 h-5 animate-spin text-themed-muted" />;
+        return <LoadingSpinner inline size="md" className="text-themed-muted" />;
       case 'success':
         return <CheckCircle className="w-5 h-5 icon-success" />;
       case 'warning':

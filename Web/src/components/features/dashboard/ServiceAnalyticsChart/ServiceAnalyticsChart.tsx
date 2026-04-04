@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { PieChart, Zap, Database, Gamepad2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { formatBytes, formatPercent } from '@utils/formatters';
+import { isActiveGame } from '@utils/gameDetection';
 import { useGameDetection } from '@contexts/DashboardDataContext/hooks';
 import { Card } from '@components/ui/Card';
 import DoughnutChart from './DoughnutChart';
@@ -81,7 +82,7 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
     // Stats for footer
     const footerStats = useMemo(() => {
       if (activeTab === 'games') {
-        const activeGames = games.filter((g) => !g.is_evicted && g.total_size_bytes > 0);
+        const activeGames = games.filter(isActiveGame);
         const totalDisk = activeGames.reduce((sum, g) => sum + g.total_size_bytes, 0);
         const sorted = [...activeGames].sort((a, b) => b.total_size_bytes - a.total_size_bytes);
         const largestGame = sorted[0]?.game_name ?? '-';

@@ -110,24 +110,6 @@ public class SignalRNotificationService : ISignalRNotificationService
         }
     }
 
-    public async Task NotifyAllBothHubsAsync(string eventName, object? data = null)
-    {
-        try
-        {
-            // Send to all hubs in parallel
-            await Task.WhenAll(
-                _downloadHubContext.Clients.All.SendAsync(eventName, data),
-                _steamHubContext.Clients.All.SendAsync(eventName, data),
-                _epicHubContext.Clients.All.SendAsync(eventName, data)
-            );
-            _logger.LogDebug("SignalR notification sent to all (all hubs): {EventName}", eventName);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to send SignalR notification to all (all hubs): {EventName}", eventName);
-        }
-    }
-
     public async Task NotifyAllDownloadsAndSteamHubAsync(string eventName, object? data = null)
     {
         try
@@ -198,26 +180,6 @@ public class SignalRNotificationService : ISignalRNotificationService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to send SignalR notification to group {GroupName}: {EventName}", groupName, eventName);
-        }
-    }
-
-    public async Task NotifySessionAsync(string sessionId, string eventName, object? data = null)
-    {
-        var connectionId = _connectionTrackingService.GetConnectionId(sessionId);
-        if (connectionId == null)
-        {
-            _logger.LogDebug("SignalR session notification skipped - no active connection for session {SessionId}: {EventName}", sessionId, eventName);
-            return;
-        }
-
-        try
-        {
-            await _downloadHubContext.Clients.Client(connectionId).SendAsync(eventName, data);
-            _logger.LogDebug("SignalR notification sent to session {SessionId} (connection {ConnectionId}): {EventName}", sessionId, connectionId, eventName);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to send SignalR notification to session {SessionId} (connection {ConnectionId}): {EventName}", sessionId, connectionId, eventName);
         }
     }
 }

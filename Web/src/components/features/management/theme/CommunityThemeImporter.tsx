@@ -8,12 +8,12 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
-  Loader2,
   RefreshCw
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { Tooltip } from '@components/ui/Tooltip';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import themeService from '@services/theme.service';
 import ApiService from '@services/api.service';
 import { API_BASE } from '@utils/constants';
@@ -480,7 +480,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
           <Tooltip content={t('management.themes.community.refresh')} position="bottom">
             <Button variant="default" size="xs" onClick={loadCommunityThemes} disabled={loading}>
               {loading ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <LoadingSpinner inline size="sm" className="w-3.5 h-3.5" />
               ) : (
                 <RefreshCw className="w-3.5 h-3.5" />
               )}
@@ -503,7 +503,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
         {/* Auto-Update Progress */}
         {updatingThemes.size > 0 && (
           <div className="flex items-center gap-2 mb-4 p-3 rounded-lg bg-themed-info">
-            <Loader2 className="w-4 h-4 animate-spin icon-info" />
+            <LoadingSpinner inline size="sm" className="icon-info" />
             <span className="text-sm text-themed-info">
               {t('management.themes.community.autoUpdating', { count: updatingThemes.size })}...
             </span>
@@ -513,7 +513,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
         {/* Loading State */}
         {loading && communityThemes.length === 0 && (
           <div className="flex items-center justify-center py-8 text-themed-muted">
-            <Loader2 className="w-5 h-5 animate-spin mr-2" />
+            <LoadingSpinner inline size="md" className="mr-2" />
             <span className="text-sm">{t('management.themes.community.loading')}</span>
           </div>
         )}
@@ -591,7 +591,7 @@ export const CommunityThemeImporter: React.FC<CommunityThemeImporterProps> = ({
                     )}
                     {isUpdating && (
                       <div className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center bg-themed-info">
-                        <Loader2 className="w-3 h-3 animate-spin icon-info" />
+                        <LoadingSpinner inline size="xs" className="icon-info" />
                       </div>
                     )}
                   </div>

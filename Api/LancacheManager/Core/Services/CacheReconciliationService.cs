@@ -24,6 +24,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     private readonly ISignalRNotificationService _notifications;
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly RustProcessHelper _rustProcessHelper;
+    private readonly IPathResolver _pathResolver;
     private bool _isRunning;
     private bool _currentScanIsSilent = true;
 
@@ -75,7 +76,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         StateService stateService,
         ISignalRNotificationService notifications,
         IUnifiedOperationTracker operationTracker,
-        RustProcessHelper rustProcessHelper)
+        RustProcessHelper rustProcessHelper,
+        IPathResolver pathResolver)
         : base(serviceProvider, logger, configuration)
     {
         _datasourceService = datasourceService;
@@ -83,10 +85,26 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         _notifications = notifications;
         _operationTracker = operationTracker;
         _rustProcessHelper = rustProcessHelper;
+        _pathResolver = pathResolver;
+    }
+
+    protected override bool IsEnabled()
+    {
+        var rustBinaryPath = _pathResolver.GetRustEvictionScanPath();
+        if (!File.Exists(rustBinaryPath))
+        {
+            _logger.LogWarning("cache_eviction_scan binary not found at {Path}, eviction scanning disabled", rustBinaryPath);
+            return false;
+        }
+
+        return base.IsEnabled();
     }
 
     protected override async Task OnStartupAsync(CancellationToken stoppingToken)
     {
+        // Wait for setup to complete so datasources and database are configured
+        await _stateService.WaitForSetupCompletedAsync(stoppingToken);
+
         var silent = !_stateService.GetEvictionScanNotifications();
 
         _isRunning = true;
@@ -94,6 +112,13 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         {
             using var scope = _serviceProvider.CreateScope();
             var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            // Skip scan entirely if there are no downloads in the database
+            if (!await context.Downloads.AnyAsync(stoppingToken))
+            {
+                _logger.LogInformation("[EvictionScan] No downloads in database, skipping startup scan");
+                return;
+            }
 
             var cts = new CancellationTokenSource();
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, cts.Token);
@@ -116,6 +141,13 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     {
         var silent = !_stateService.GetEvictionScanNotifications();
         var context = scopedServices.GetRequiredService<AppDbContext>();
+
+        // Skip scan if there are no downloads in the database
+        if (!await context.Downloads.AnyAsync(stoppingToken))
+        {
+            _logger.LogDebug("[EvictionScan] No downloads in database, skipping scheduled scan");
+            return;
+        }
 
         var cts = new CancellationTokenSource();
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, cts.Token);
@@ -206,9 +238,10 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     "[EvictionScan] Scan complete: processed {Total} downloads, {Evicted} newly evicted, {UnEvicted} un-evicted (re-cached)",
                     scanResult.Processed, scanResult.Evicted, scanResult.UnEvicted);
 
-                // Handle evicted data "remove" mode
+                // Handle evicted data "remove" mode — only run if there are evicted records
                 var evictedDataMode = _stateService.GetEvictedDataMode();
-                if (evictedDataMode == EvictedDataModes.Remove)
+                if (evictedDataMode == EvictedDataModes.Remove
+                    && await context.Downloads.AnyAsync(d => d.IsEvicted, stoppingToken))
                 {
                     await RemoveEvictedRecordsAsync(context, stoppingToken);
                 }

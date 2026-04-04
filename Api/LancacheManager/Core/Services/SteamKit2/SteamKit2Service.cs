@@ -42,6 +42,7 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     private string? _currentPicsOperationId;
     private int _rebuildActive;
     private bool _disposed;
+    private bool _initialized;
 
     // Exponential backoff for reconnection attempts
     private int _reconnectAttempt = 0;
@@ -157,6 +158,7 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     {
         _logger.LogInformation("Starting SteamKit2Service with PICS depot mapping");
 
+        // Load DB-dependent state — failures here must not crash the app
         try
         {
             // Load existing depot mappings from database first
@@ -192,40 +194,42 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
                 _processedBatches = depotState.ProcessedBatches;
                 _currentStatus = depotState.Status;
             }
-
-            // Initialize SteamKit2
-            _steamClient = new SteamClient();
-            _manager = new CallbackManager(_steamClient);
-            _steamUser = _steamClient.GetHandler<SteamUser>();
-            _steamApps = _steamClient.GetHandler<SteamApps>();
-
-            // Subscribe to callbacks
-            _manager.Subscribe<SteamClient.ConnectedCallback>(OnConnected);
-            _manager.Subscribe<SteamClient.DisconnectedCallback>(OnDisconnected);
-            _manager.Subscribe<SteamUser.LoggedOnCallback>(OnLoggedOn);
-            _manager.Subscribe<SteamUser.LoggedOffCallback>(OnLoggedOff);
-
-            // Subscribe to prefill daemon auth state change events
-            SubscribeToDaemonEvents();
-
-            _isRunning = true;
-
-            // Start callback handling loop
-            _ = Task.Run(() => HandleCallbacksAsync(_cancellationTokenSource.Token), CancellationToken.None);
-
-            if (ConfiguredInterval.TotalHours > 0)
-            {
-                _logger.LogInformation("Enabled automatic PICS crawls every {Hours} hour(s)", ConfiguredInterval.TotalHours);
-            }
-            else
-            {
-                _logger.LogInformation("Automatic PICS crawls are disabled (interval = 0)");
-            }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to start SteamKit2Service");
-            throw;
+            _logger.LogError(ex, "SteamKit2Service failed to load state from database — will retry on next scheduled tick");
+            _initialized = false;
+            return;
+        }
+
+        // Initialize SteamKit2 — these are in-memory only and should not fail due to DB
+        _steamClient = new SteamClient();
+        _manager = new CallbackManager(_steamClient);
+        _steamUser = _steamClient.GetHandler<SteamUser>();
+        _steamApps = _steamClient.GetHandler<SteamApps>();
+
+        // Subscribe to callbacks
+        _manager.Subscribe<SteamClient.ConnectedCallback>(OnConnected);
+        _manager.Subscribe<SteamClient.DisconnectedCallback>(OnDisconnected);
+        _manager.Subscribe<SteamUser.LoggedOnCallback>(OnLoggedOn);
+        _manager.Subscribe<SteamUser.LoggedOffCallback>(OnLoggedOff);
+
+        // Subscribe to prefill daemon auth state change events
+        SubscribeToDaemonEvents();
+
+        _isRunning = true;
+        _initialized = true;
+
+        // Start callback handling loop
+        _ = Task.Run(() => HandleCallbacksAsync(_cancellationTokenSource.Token), CancellationToken.None);
+
+        if (ConfiguredInterval.TotalHours > 0)
+        {
+            _logger.LogInformation("Enabled automatic PICS crawls every {Hours} hour(s)", ConfiguredInterval.TotalHours);
+        }
+        else
+        {
+            _logger.LogInformation("Automatic PICS crawls are disabled (interval = 0)");
         }
     }
 

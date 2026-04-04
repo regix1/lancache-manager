@@ -1,7 +1,8 @@
 import React, { useEffect } from 'react';
-import { Key, Lock, Loader2, Shield, Mail, Smartphone } from 'lucide-react';
+import { Key, Lock, Shield, Mail, Smartphone } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import { type SteamLoginFlowState, type SteamAuthActions } from '@hooks/useSteamAuthentication';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useTranslation } from 'react-i18next';
@@ -176,7 +177,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
                   {t('modals.steamAuth.mobileConfirmation.description')}
                 </p>
                 <div className="flex items-center gap-2 mt-4 text-themed-muted">
-                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <LoadingSpinner inline size="sm" />
                   <span className="text-sm">
                     {t('modals.steamAuth.mobileConfirmation.waiting')}
                   </span>
@@ -347,7 +348,7 @@ export const SteamAuthModal: React.FC<SteamAuthModalProps> = ({
                 }
                 className="flex-1"
               >
-                {(loading || isSubmitting) && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+                {(loading || isSubmitting) && <LoadingSpinner inline size="sm" className="mr-2" />}
                 {loading || isSubmitting
                   ? t('modals.steamAuth.actions.authenticating')
                   : needsEmailCode

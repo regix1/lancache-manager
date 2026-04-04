@@ -73,15 +73,14 @@ public class DownloadsController : ControllerBase
                 {
                     // Use subquery to atomically fetch downloads with event associations
                     // This eliminates the race condition by using a single query
-                    var eventQuery = ApplyEvictedFilter(
-                        _context.Downloads
+                    var eventQuery = _context.Downloads
                             .AsNoTracking()
                             .Where(d => _context.EventDownloads
                                 .Where(ed => eventIdList.Contains(ed.EventId))
                                 .Select(ed => ed.DownloadId)
                                 .Contains(d.Id))
-                            .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate),
-                        evictedMode);
+                            .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate)
+                            .ApplyEvictedFilter(evictedMode);
                     downloads = await eventQuery
                         .OrderByDescending(d => d.StartTimeUtc)
                         .Take(count)
@@ -89,11 +88,10 @@ public class DownloadsController : ControllerBase
                 }
                 else
                 {
-                    var baseQuery = ApplyEvictedFilter(
-                        _context.Downloads
+                    var baseQuery = _context.Downloads
                             .AsNoTracking()
-                            .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate),
-                        evictedMode);
+                            .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate)
+                            .ApplyEvictedFilter(evictedMode);
                     downloads = await baseQuery
                         .OrderByDescending(d => d.StartTimeUtc)
                         .Take(count)
@@ -117,73 +115,15 @@ public class DownloadsController : ControllerBase
                 .Where(d => !string.Equals(d.Datasource, PrefillToken, StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
-            // Apply eviction filter (hide/remove modes exclude evicted downloads)
-            if (evictedMode == EvictedDataModes.Hide || evictedMode == EvictedDataModes.Remove)
-            {
-                downloads = downloads.Where(d => !d.IsEvicted).ToList();
-            }
             // ShowClean: include evicted downloads but mask the flag (no badge/dimming on frontend)
-            else if (evictedMode == EvictedDataModes.ShowClean)
+            // Note: Hide/Remove modes are already filtered at the DB level via ApplyEvictedFilter
+            if (evictedMode == EvictedDataModes.ShowClean)
             {
                 foreach (var d in downloads) d.IsEvicted = false;
             }
 
-            // Resolve game names via SteamDepotMappings LEFT JOIN + Epic lookup
-            if (downloads.Count > 0)
-            {
-                // Build Steam depot mapping lookup for downloads with a DepotId
-                var depotIds = downloads
-                    .Where(d => d.DepotId.HasValue)
-                    .Select(d => d.DepotId!.Value)
-                    .Distinct()
-                    .ToList();
-
-                var steamMappings = depotIds.Count > 0
-                    ? await _context.SteamDepotMappings
-                        .AsNoTracking()
-                        .Where(m => m.IsOwner && depotIds.Contains(m.DepotId))
-                        .ToDictionaryAsync(m => m.DepotId, m => m)
-                    : new Dictionary<long, SteamDepotMapping>();
-
-                // Build Epic game name lookup for Epic downloads
-                var epicAppIds = downloads
-                    .Where(d => !string.IsNullOrEmpty(d.EpicAppId))
-                    .Select(d => d.EpicAppId!)
-                    .Distinct()
-                    .ToList();
-
-                var epicMappings = epicAppIds.Count > 0
-                    ? await _context.EpicGameMappings
-                        .AsNoTracking()
-                        .Where(m => epicAppIds.Contains(m.AppId))
-                        .ToDictionaryAsync(m => m.AppId, m => m.Name)
-                    : new Dictionary<string, string>();
-
-                // Apply name resolution priority: existing GameName → Steam AppName → Epic Name → fallback to Service
-                foreach (var d in downloads)
-                {
-                    // Fill from Steam mapping if game name is missing
-                    if (string.IsNullOrEmpty(d.GameName) && d.DepotId.HasValue
-                        && steamMappings.TryGetValue(d.DepotId.Value, out var steamMapping))
-                    {
-                        d.GameName = steamMapping.AppName;
-                        d.GameAppId = steamMapping.AppId;
-                    }
-
-                    // Fill from Epic mapping if still missing
-                    if (string.IsNullOrEmpty(d.GameName) && !string.IsNullOrEmpty(d.EpicAppId)
-                        && epicMappings.TryGetValue(d.EpicAppId, out var epicName))
-                    {
-                        d.GameName = epicName;
-                    }
-
-                    // Final fallback: use service name
-                    if (string.IsNullOrEmpty(d.GameName))
-                    {
-                        d.GameName = d.Service;
-                    }
-                }
-            }
+            // Resolve game names via Steam depot mappings + Epic lookup
+            await ResolveGameNamesAsync(downloads);
 
             // Return just the array - frontend will use array.length for actual count
             return Ok(downloads);
@@ -327,7 +267,7 @@ public class DownloadsController : ControllerBase
             .Where(d => d.Datasource != PrefillToken && d.Datasource != "Prefill")
             .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate);
 
-        baseQuery = ApplyEvictedFilter(baseQuery, evictedMode);
+        baseQuery = baseQuery.ApplyEvictedFilter(evictedMode);
 
         var downloadsWithEvents = await baseQuery
             .OrderByDescending(d => d.StartTimeUtc)
@@ -371,7 +311,7 @@ public class DownloadsController : ControllerBase
     /// <summary>
     /// Get paginated, grouped download data for the Retro view.
     /// Groups downloads by DepotId + ClientIp and aggregates cache statistics.
-    /// Resolves game names via LEFT JOIN with SteamDepotMappings and EpicGameMappings.
+    /// Resolves game names via shared ResolveGameNamesAsync method.
     /// </summary>
     [HttpGet("retro")]
     public async Task<ActionResult<RetroDownloadResponse>> GetRetroDownloadsAsync([FromQuery] RetroDownloadQuery query)
@@ -389,8 +329,7 @@ public class DownloadsController : ControllerBase
                 // Base query: filter prefill sessions
                 var baseQuery = _context.Downloads
                     .AsNoTracking()
-                    .Where(d => d.ClientIp == null || d.ClientIp.ToLower() != PrefillToken)
-                    .Where(d => d.Datasource == null || d.Datasource.ToLower() != PrefillToken)
+                    .ApplyPrefillFilter()
                     .Where(d => !d.IsActive); // Only completed downloads for retro view
 
                 // Exclude hidden client IPs
@@ -401,7 +340,7 @@ public class DownloadsController : ControllerBase
 
                 // Apply eviction filter (hide/remove modes exclude evicted downloads)
                 var evictedMode = _stateRepository.GetEvictedDataMode();
-                baseQuery = ApplyEvictedFilter(baseQuery, evictedMode);
+                baseQuery = baseQuery.ApplyEvictedFilter(evictedMode);
 
                 // Filter: hide localhost
                 if (query.HideLocalhost)
@@ -427,73 +366,29 @@ public class DownloadsController : ControllerBase
                     baseQuery = baseQuery.Where(d => (d.CacheHitBytes + d.CacheMissBytes) > 0);
                 }
 
-                // LEFT JOIN with SteamDepotMappings to resolve missing game names
-                var withSteamMapping = from d in baseQuery
-                                       join sm in _context.SteamDepotMappings.Where(m => m.IsOwner)
-                                           on d.DepotId equals sm.DepotId into steamMappings
-                                       from sm in steamMappings.DefaultIfEmpty()
-                                       select new
-                                       {
-                                           Download = d,
-                                           SteamAppName = sm != null ? sm.AppName : null,
-                                           SteamAppId = sm != null ? (uint?)sm.AppId : null
-                                       };
+                // Materialize downloads to memory for grouping
+                var allDownloads = await baseQuery.ToListAsync();
 
-                // Materialize to memory for grouping with Epic resolution
-                var allDownloads = await withSteamMapping.ToListAsync();
+                // Resolve game names via shared method (Steam depot mappings + Epic lookup)
+                await ResolveGameNamesAsync(allDownloads);
 
-                // Build Epic game name lookup for Epic downloads
-                var epicAppIds = allDownloads
-                    .Where(r => !string.IsNullOrEmpty(r.Download.EpicAppId))
-                    .Select(r => r.Download.EpicAppId!)
-                    .Distinct()
-                    .ToList();
-
-                var epicMappings = epicAppIds.Count > 0
-                    ? await _context.EpicGameMappings
-                        .AsNoTracking()
-                        .Where(m => epicAppIds.Contains(m.AppId))
-                        .ToDictionaryAsync(m => m.AppId, m => m.Name)
-                    : new Dictionary<string, string>();
-
-                // Resolve game names and project to flat structure
-                var resolved = allDownloads.Select(r =>
+                // Project to flat structure for grouping
+                var resolved = allDownloads.Select(d => new
                 {
-                    var d = r.Download;
-                    var gameName = d.GameName;
-                    var gameAppId = d.GameAppId;
-
-                    // Fill from Steam mapping if missing
-                    if (string.IsNullOrEmpty(gameName) && !string.IsNullOrEmpty(r.SteamAppName))
-                    {
-                        gameName = r.SteamAppName;
-                        gameAppId = r.SteamAppId;
-                    }
-
-                    // Fill from Epic mapping if still missing
-                    if (string.IsNullOrEmpty(gameName) && !string.IsNullOrEmpty(d.EpicAppId)
-                        && epicMappings.TryGetValue(d.EpicAppId, out var epicName))
-                    {
-                        gameName = epicName;
-                    }
-
-                    return new
-                    {
-                        d.Id,
-                        d.DepotId,
-                        d.EpicAppId,
-                        d.ClientIp,
-                        d.Service,
-                        d.Datasource,
-                        d.StartTimeUtc,
-                        d.EndTimeUtc,
-                        d.CacheHitBytes,
-                        d.CacheMissBytes,
-                        TotalBytes = d.CacheHitBytes + d.CacheMissBytes,
-                        GameName = gameName ?? d.Service,
-                        GameAppId = gameAppId,
-                        AverageBytesPerSecond = d.AverageBytesPerSecond
-                    };
+                    d.Id,
+                    d.DepotId,
+                    d.EpicAppId,
+                    d.ClientIp,
+                    d.Service,
+                    d.Datasource,
+                    d.StartTimeUtc,
+                    d.EndTimeUtc,
+                    d.CacheHitBytes,
+                    d.CacheMissBytes,
+                    TotalBytes = d.CacheHitBytes + d.CacheMissBytes,
+                    GameName = d.GameName ?? d.Service,
+                    GameAppId = d.GameAppId,
+                    AverageBytesPerSecond = d.AverageBytesPerSecond
                 }).ToList();
 
                 // Filter: search by game name
@@ -598,12 +493,66 @@ public class DownloadsController : ControllerBase
         }
     }
 
-    private static IQueryable<Download> ApplyEvictedFilter(IQueryable<Download> query, string evictedMode)
+    /// <summary>
+    /// Resolves game names for downloads using Steam depot mappings and Epic game mappings.
+    /// Priority: existing GameName → Steam AppName → Epic Name → fallback to Service.
+    /// Mutates the download objects in-place.
+    /// </summary>
+    private async Task ResolveGameNamesAsync(List<Download> downloads)
     {
-        if (evictedMode == EvictedDataModes.Hide || evictedMode == EvictedDataModes.Remove)
+        if (downloads.Count == 0) return;
+
+        // Build Steam depot mapping lookup for downloads with a DepotId
+        var depotIds = downloads
+            .Where(d => d.DepotId.HasValue)
+            .Select(d => d.DepotId!.Value)
+            .Distinct()
+            .ToList();
+
+        var steamMappings = depotIds.Count > 0
+            ? await _context.SteamDepotMappings
+                .AsNoTracking()
+                .Where(m => m.IsOwner && depotIds.Contains(m.DepotId))
+                .ToDictionaryAsync(m => m.DepotId, m => m)
+            : new Dictionary<long, SteamDepotMapping>();
+
+        // Build Epic game name lookup for Epic downloads
+        var epicAppIds = downloads
+            .Where(d => !string.IsNullOrEmpty(d.EpicAppId))
+            .Select(d => d.EpicAppId!)
+            .Distinct()
+            .ToList();
+
+        var epicMappings = epicAppIds.Count > 0
+            ? await _context.EpicGameMappings
+                .AsNoTracking()
+                .Where(m => epicAppIds.Contains(m.AppId))
+                .ToDictionaryAsync(m => m.AppId, m => m.Name)
+            : new Dictionary<string, string>();
+
+        // Apply name resolution priority: existing GameName → Steam AppName → Epic Name → fallback to Service
+        foreach (var d in downloads)
         {
-            return query.Where(d => !d.IsEvicted);
+            // Fill from Steam mapping if game name is missing
+            if (string.IsNullOrEmpty(d.GameName) && d.DepotId.HasValue
+                && steamMappings.TryGetValue(d.DepotId.Value, out var steamMapping))
+            {
+                d.GameName = steamMapping.AppName;
+                d.GameAppId = steamMapping.AppId;
+            }
+
+            // Fill from Epic mapping if still missing
+            if (string.IsNullOrEmpty(d.GameName) && !string.IsNullOrEmpty(d.EpicAppId)
+                && epicMappings.TryGetValue(d.EpicAppId, out var epicName))
+            {
+                d.GameName = epicName;
+            }
+
+            // Final fallback: use service name
+            if (string.IsNullOrEmpty(d.GameName))
+            {
+                d.GameName = d.Service;
+            }
         }
-        return query;
     }
 }

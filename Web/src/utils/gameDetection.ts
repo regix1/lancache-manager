@@ -1,5 +1,12 @@
 import type { GameCacheInfo } from '../types';
 
+/** Returns true when the game has NOT been evicted and occupies disk space. */
+export const isActiveGame = (game: GameCacheInfo): boolean =>
+  game.is_evicted !== true && game.total_size_bytes > 0;
+
+/** Returns true when the game has NOT been evicted (regardless of size). */
+export const isNonEvictedGame = (game: GameCacheInfo): boolean => game.is_evicted !== true;
+
 interface DetectionResult {
   total_size_bytes: number;
   cache_files_found: number;

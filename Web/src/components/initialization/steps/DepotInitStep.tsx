@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Cloud, Database, Loader2, AlertTriangle, ArrowLeft, CheckCircle } from 'lucide-react';
+import { Cloud, Database, AlertTriangle, ArrowLeft, CheckCircle } from 'lucide-react';
 import { Button } from '@components/ui/Button';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import type {
   DepotMappingStartedEvent,
@@ -10,6 +11,7 @@ import type {
 } from '@contexts/SignalRContext/types';
 import ApiService from '@services/api.service';
 import { isAbortError, getErrorMessage } from '@utils/error';
+import { formatCount, formatPercent } from '@utils/formatters';
 import type { PicsStatus } from '@/types';
 
 interface DepotInitStepProps {
@@ -221,7 +223,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
             {progress === 100 ? (
               <CheckCircle className="w-8 h-8 icon-success" />
             ) : initializing ? (
-              <Loader2 className="w-8 h-8 animate-spin icon-primary" />
+              <LoadingSpinner inline size="xl" className="icon-primary" />
             ) : (
               <Cloud className="w-8 h-8 icon-info" />
             )}
@@ -257,7 +259,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
                   />
                 </div>
                 <p className="text-sm text-themed-secondary text-center mt-2">
-                  {progress.toFixed(1)}%
+                  {formatPercent(progress, 1)}
                 </p>
               </div>
             )}
@@ -326,7 +328,7 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
             {progress === 100 ? (
               <CheckCircle className="w-4 h-4 icon-success" />
             ) : (
-              <Loader2 className="w-4 h-4 animate-spin icon-info" />
+              <LoadingSpinner inline size="sm" className="icon-info" />
             )}
             <p
               className={`text-sm font-medium ${progress === 100 ? 'text-themed-success' : 'text-themed-info'}`}
@@ -362,11 +364,11 @@ export const DepotInitStep: React.FC<DepotInitStepProps> = ({
             {picsData.jsonFile?.exists &&
               t('initialization.depotInit.jsonMappings', {
                 count: picsData.jsonFile?.totalMappings ?? 0,
-                formattedCount: (picsData.jsonFile?.totalMappings ?? 0).toLocaleString()
+                formattedCount: formatCount(picsData.jsonFile?.totalMappings ?? 0)
               }) + ' '}
             {t('initialization.depotInit.dbMappings', {
               count: picsData.database?.totalMappings ?? 0,
-              formattedCount: (picsData.database?.totalMappings ?? 0).toLocaleString()
+              formattedCount: formatCount(picsData.database?.totalMappings ?? 0)
             })}
             {picsData.steamKit2?.isReady ? ' ' + t('initialization.depotInit.steamKitReady') : ''}
           </p>

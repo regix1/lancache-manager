@@ -1,8 +1,9 @@
 import React from 'react';
-import { Loader2, Shield, ExternalLink, KeyRound } from 'lucide-react';
+import { Shield, ExternalLink, KeyRound } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
 import { EpicIcon } from '@components/ui/EpicIcon';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import { type EpicAuthState, type EpicAuthActions } from '@hooks/useEpicMappingAuth';
 import { useTranslation } from 'react-i18next';
 
@@ -117,7 +118,11 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
           {/* Loading state - waiting for challenge from daemon */}
           {(loading || isSubmitting) && !needsAuthorizationCode && (
             <div className="flex flex-col items-center text-center py-12">
-              <Loader2 className="w-10 h-10 animate-spin text-[var(--theme-epic)] mb-4" />
+              <LoadingSpinner
+                inline
+                size="sm"
+                className="w-10 h-10 text-[var(--theme-epic)] mb-4"
+              />
               <h3 className="text-lg font-semibold text-themed-primary mb-2">
                 {t('modals.epicAuth.connectingTitle')}
               </h3>
@@ -172,7 +177,7 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
               {/* Submitting state */}
               {(loading || isSubmitting) && (
                 <div className="flex items-center justify-center gap-2 text-themed-muted">
-                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <LoadingSpinner inline size="sm" />
                   <span className="text-sm">{t('modals.epicAuth.authenticatingMessage')}</span>
                 </div>
               )}
@@ -203,7 +208,7 @@ export const EpicAuthModal: React.FC<EpicAuthModalProps> = ({
               disabled={loading || isSubmitting}
               className="flex-1"
             >
-              {(loading || isSubmitting) && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+              {(loading || isSubmitting) && <LoadingSpinner inline size="sm" className="mr-2" />}
               {loading || isSubmitting
                 ? t('modals.epicAuth.actions.connecting')
                 : t('modals.epicAuth.actions.continue')}

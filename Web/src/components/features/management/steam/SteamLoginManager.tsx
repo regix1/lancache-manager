@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Key, CheckCircle, LogOut, AlertTriangle, Loader2 } from 'lucide-react';
+import { Key, CheckCircle, LogOut, AlertTriangle } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 
 import { Button } from '@components/ui/Button';
@@ -8,6 +8,7 @@ import { Alert } from '@components/ui/Alert';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { SteamAuthModal } from '@components/modals/auth/SteamAuthModal';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useSteamAuthentication } from '@hooks/useSteamAuthentication';
 import { useSteamAuth } from '@contexts/useSteamAuth';
 import ApiService from '@services/api.service';
@@ -311,7 +312,7 @@ const SteamLoginManager: React.FC<SteamLoginManagerProps> = ({
                   color="red"
                   size="sm"
                 >
-                  {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogOut size={14} />}
+                  {loading ? <LoadingSpinner inline size="sm" /> : <LogOut size={14} />}
                   {t('management.steamAuth.logout')}
                 </Button>
               </div>

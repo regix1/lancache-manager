@@ -25,6 +25,7 @@ import DepotInitializationModal from '@components/modals/setup/DepotInitializati
 import AuthenticationModal from '@components/modals/auth/AuthenticationModal';
 import { FullScanRequiredModal } from '@components/modals/setup/FullScanRequiredModal';
 import ApiService from '@services/api.service';
+import { useConfig } from '@contexts/useConfig';
 import { setServerTimezone } from '@utils/timezone';
 import { isAbortError } from '@utils/error';
 import themeService from '@services/theme.service';
@@ -240,21 +241,13 @@ const AppContent: React.FC = () => {
     };
   }, [signalR, showFullScanRequiredModal, authMode, wasModalDismissed]);
 
-  // Fetch server timezone on mount
+  // Set server timezone from config context (guaranteed non-null)
+  const { config } = useConfig();
   useEffect(() => {
-    const fetchTimezone = async () => {
-      try {
-        const config = await ApiService.getConfig();
-        if (config.timeZone) {
-          setServerTimezone(config.timeZone);
-        }
-      } catch (error) {
-        console.error('Failed to fetch server timezone:', error);
-      }
-    };
-
-    fetchTimezone();
-  }, []);
+    if (config.timeZone) {
+      setServerTimezone(config.timeZone);
+    }
+  }, [config.timeZone]);
 
   // NOTE: Automatic GC on page load is now handled by the backend GcMiddleware
   // which properly respects the memory threshold and aggressiveness settings.

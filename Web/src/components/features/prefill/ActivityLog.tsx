@@ -6,7 +6,7 @@ import {
   Info,
   Download,
   LogIn,
-  Loader2,
+  Loader2 as Loader2Icon,
   XCircle,
   Terminal,
   ChevronLeft,
@@ -51,7 +51,7 @@ const typeStyles: Record<LogEntryType, { color: string; bgColor: string; icon: t
   progress: {
     color: 'var(--theme-primary)',
     bgColor: 'var(--theme-primary-subtle)',
-    icon: Loader2
+    icon: Loader2Icon
   },
   command: {
     color: 'var(--theme-accent)',

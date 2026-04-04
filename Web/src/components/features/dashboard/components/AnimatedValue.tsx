@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import NumberFlow from '@number-flow/react';
+import { formatCount } from '@utils/formatters';
 
 interface AnimatedValueProps {
   /** The value to display - can be a number or formatted string like "1.5 GB" */
@@ -53,7 +54,7 @@ const AnimatedValue: React.FC<AnimatedValueProps> = ({ value, className = '', an
   if (!animate) {
     return (
       <span className={`${className} tabular-nums text-themed-primary`}>
-        {typeof value === 'string' ? value : value.toLocaleString()}
+        {typeof value === 'string' ? value : formatCount(value)}
       </span>
     );
   }

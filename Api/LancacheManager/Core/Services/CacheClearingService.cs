@@ -22,7 +22,7 @@ public class CacheClearingService : ScheduledBackgroundService
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly SemaphoreSlim _startLock = new(1, 1);
-    private readonly string _cachePath;
+    private string _cachePath = null!;
     private string _deleteMode;
     private string? _currentTrackerOperationId;
 
@@ -53,8 +53,12 @@ public class CacheClearingService : ScheduledBackgroundService
         _dbContextFactory = dbContextFactory;
 
         _deleteMode = "preserve";
+    }
 
-        // Use DatasourceService for default cache path
+    protected override Task OnStartupAsync(CancellationToken stoppingToken)
+    {
+        // Resolve cache path at startup instead of in the constructor to avoid
+        // blocking DI when datasource resolution depends on external resources
         var primaryCachePath = _datasourceService.ResolvePrimaryCachePath();
         if (primaryCachePath != null)
         {
@@ -63,14 +67,11 @@ public class CacheClearingService : ScheduledBackgroundService
         }
         else
         {
-            _cachePath = DetectLegacyCachePath(configuration);
+            _cachePath = DetectLegacyCachePath(_configuration);
         }
 
         _logger.LogInformation("CacheClearingService initialized with {Count} datasource(s)", _datasourceService.DatasourceCount);
-    }
 
-    protected override Task OnStartupAsync(CancellationToken stoppingToken)
-    {
         LoadPersistedOperations();
         return Task.CompletedTask;
     }

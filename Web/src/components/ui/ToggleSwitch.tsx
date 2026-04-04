@@ -1,5 +1,5 @@
 import React from 'react';
-import { Loader2 } from 'lucide-react';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import { Tooltip } from './Tooltip';
 
 interface ToggleOption {
@@ -90,7 +90,7 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
             style={getActiveStyles(option, isActive)}
           >
             {loading && isActive ? (
-              <Loader2 className={`${iconSizes[size]} animate-spin`} />
+              <LoadingSpinner inline size={size === 'sm' ? 'xs' : 'sm'} />
             ) : option.icon && React.isValidElement(option.icon) ? (
               React.cloneElement(option.icon as React.ReactElement<{ className?: string }>, {
                 className: iconSizes[size]

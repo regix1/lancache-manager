@@ -9,6 +9,7 @@ import { ClientGroupProvider } from '@contexts/ClientGroupContext';
 import { DownloadAssociationsProvider } from '@contexts/DownloadAssociationsContext';
 import { RefreshRateProvider } from '@contexts/RefreshRateContext';
 import { SignalRProvider } from '@contexts/SignalRContext';
+import { ConfigProvider } from '@contexts/ConfigContext';
 import { SpeedProvider } from '@contexts/SpeedContext';
 import { MockModeProvider } from '@contexts/MockModeContext';
 import { useMockMode } from '@contexts/useMockMode';
@@ -51,50 +52,53 @@ const AppProviders: React.FC<{ children: React.ReactNode }> = ({ children }) => 
           <TimeFilterProvider>
             {/* Real-time communication */}
             <SignalRProvider>
-              {/* Auth layer */}
-              <AuthProvider>
-                <DockerSocketProvider>
-                  {/* User preferences */}
-                  <SessionPreferencesProvider>
-                    <RefreshRateProvider>
-                      <SpeedProvider>
-                        <TimezoneProvider>
-                          {/* Steam / setup status */}
-                          <SteamWebApiStatusProvider>
-                            <GuestConfigProvider>
-                              <SetupStatusProvider>
-                                <SteamAuthProvider>
-                                  <PrefillProvider>
-                                    {/* Data providers */}
-                                    <PicsProgressProviderWithMockMode>
-                                      <NotificationsProvider>
-                                        <CacheSizeProvider>
-                                          <DashboardDataProviderWithMockMode>
-                                            {/* UI / calendar / event providers */}
-                                            <CalendarSettingsProvider>
-                                              <EventProvider>
-                                                <ClientGroupProvider>
-                                                  <DownloadAssociationsProvider>
-                                                    {children}
-                                                  </DownloadAssociationsProvider>
-                                                </ClientGroupProvider>
-                                              </EventProvider>
-                                            </CalendarSettingsProvider>
-                                          </DashboardDataProviderWithMockMode>
-                                        </CacheSizeProvider>
-                                      </NotificationsProvider>
-                                    </PicsProgressProviderWithMockMode>
-                                  </PrefillProvider>
-                                </SteamAuthProvider>
-                              </SetupStatusProvider>
-                            </GuestConfigProvider>
-                          </SteamWebApiStatusProvider>
-                        </TimezoneProvider>
-                      </SpeedProvider>
-                    </RefreshRateProvider>
-                  </SessionPreferencesProvider>
-                </DockerSocketProvider>
-              </AuthProvider>
+              {/* Config layer - blocks rendering until config loads */}
+              <ConfigProvider>
+                {/* Auth layer */}
+                <AuthProvider>
+                  <DockerSocketProvider>
+                    {/* User preferences */}
+                    <SessionPreferencesProvider>
+                      <RefreshRateProvider>
+                        <SpeedProvider>
+                          <TimezoneProvider>
+                            {/* Steam / setup status */}
+                            <SteamWebApiStatusProvider>
+                              <GuestConfigProvider>
+                                <SetupStatusProvider>
+                                  <SteamAuthProvider>
+                                    <PrefillProvider>
+                                      {/* Data providers */}
+                                      <PicsProgressProviderWithMockMode>
+                                        <NotificationsProvider>
+                                          <CacheSizeProvider>
+                                            <DashboardDataProviderWithMockMode>
+                                              {/* UI / calendar / event providers */}
+                                              <CalendarSettingsProvider>
+                                                <EventProvider>
+                                                  <ClientGroupProvider>
+                                                    <DownloadAssociationsProvider>
+                                                      {children}
+                                                    </DownloadAssociationsProvider>
+                                                  </ClientGroupProvider>
+                                                </EventProvider>
+                                              </CalendarSettingsProvider>
+                                            </DashboardDataProviderWithMockMode>
+                                          </CacheSizeProvider>
+                                        </NotificationsProvider>
+                                      </PicsProgressProviderWithMockMode>
+                                    </PrefillProvider>
+                                  </SteamAuthProvider>
+                                </SetupStatusProvider>
+                              </GuestConfigProvider>
+                            </SteamWebApiStatusProvider>
+                          </TimezoneProvider>
+                        </SpeedProvider>
+                      </RefreshRateProvider>
+                    </SessionPreferencesProvider>
+                  </DockerSocketProvider>
+                </AuthProvider>
+              </ConfigProvider>
             </SignalRProvider>
           </TimeFilterProvider>
         </GameServiceProvider>

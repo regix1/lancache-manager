@@ -1,7 +1,8 @@
 import { useTranslation } from 'react-i18next';
 import { Modal } from '../../ui/Modal';
 import { Button } from '../../ui/Button';
-import { AlertCircle, Loader2 } from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import { type CommandType, formatBytes } from './types';
 
 interface EstimatedSizeApp {
@@ -63,7 +64,7 @@ export function PrefillConfirmModal({
           <div className="p-3 rounded-lg bg-[var(--theme-bg-secondary)]">
             {estimatedSize.loading ? (
               <div className="flex items-center gap-2">
-                <Loader2 className="h-4 w-4 animate-spin text-[var(--theme-primary)]" />
+                <LoadingSpinner inline size="sm" className="text-[var(--theme-primary)]" />
                 <span className="text-sm text-themed-muted">
                   {t('prefill.confirm.calculatingSize')}
                 </span>

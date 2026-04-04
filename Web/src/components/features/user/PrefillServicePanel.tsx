@@ -1,7 +1,8 @@
 import React from 'react';
-import { Loader2, Network } from 'lucide-react';
+import { Network } from 'lucide-react';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { Alert } from '@components/ui/Alert';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 
 interface PrefillServicePanelProps {
   serviceName: string;
@@ -76,7 +77,7 @@ const PrefillServicePanel: React.FC<PrefillServicePanelProps> = ({
           <div className="toggle-row-description">{enableDescription}</div>
         </div>
         <div className="flex items-center gap-2">
-          {updating && <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />}
+          {updating && <LoadingSpinner inline size="sm" className="text-themed-accent" />}
           <div className={`modern-toggle ${config.enabledByDefault ? 'checked' : ''}`}>
             <span className="toggle-thumb" />
           </div>
@@ -113,7 +114,11 @@ const PrefillServicePanel: React.FC<PrefillServicePanelProps> = ({
             className="w-48"
           />
           {updating && (
-            <Loader2 className="w-4 h-4 animate-spin absolute right-10 top-1/2 -translate-y-1/2 text-themed-accent" />
+            <LoadingSpinner
+              inline
+              size="sm"
+              className="absolute right-10 top-1/2 -translate-y-1/2 text-themed-accent"
+            />
           )}
         </div>
       </div>

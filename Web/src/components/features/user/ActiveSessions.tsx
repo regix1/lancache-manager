@@ -4,7 +4,6 @@ import {
   Users,
   User,
   Trash2,
-  Loader2,
   AlertTriangle,
   Clock,
   Network,
@@ -34,6 +33,7 @@ import { MultiSelectDropdown } from '@components/ui/MultiSelectDropdown';
 import { Pagination } from '@components/ui/Pagination';
 import { ToggleSwitch } from '@components/ui/ToggleSwitch';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import {
   ActionMenu,
   ActionMenuItem,
@@ -973,7 +973,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     if (isLoadingPrefs) {
       return (
         <div className="flex items-center gap-2 text-xs text-themed-muted">
-          <Loader2 className="w-3 h-3 animate-spin" />
+          <LoadingSpinner inline size="xs" />
           {t('activeSessions.preferencesModal.loading', 'Loading preferences...')}
         </div>
       );
@@ -1523,7 +1523,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
         <div className="p-4 sm:p-5">
           {loading && (
             <div className="text-center py-12">
-              <Loader2 className="w-8 h-8 animate-spin mx-auto text-themed-accent" />
+              <LoadingSpinner inline size="xl" className="mx-auto text-themed-accent" />
               <p className="text-sm mt-3 text-themed-muted">{t('activeSessions.loading')}</p>
             </div>
           )}
@@ -1909,7 +1909,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
 
           {loadingPreferences && (
             <div className="text-center py-8">
-              <Loader2 className="w-8 h-8 animate-spin mx-auto text-themed-muted" />
+              <LoadingSpinner inline size="xl" className="mx-auto text-themed-muted" />
               <p className="text-sm mt-2 text-themed-secondary">
                 {t('activeSessions.preferencesModal.loading')}
               </p>

@@ -3,7 +3,7 @@ import { AlertTriangle, Trash2 } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
-import { formatBytes } from '@utils/formatters';
+import { formatBytes, formatCount } from '@utils/formatters';
 import { useTranslation } from 'react-i18next';
 import type { GameCacheInfo, ServiceCacheInfo } from '../../../types';
 
@@ -57,7 +57,7 @@ const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({ target, onClose, 
               <li>
                 {t('modals.cacheRemoval.actions.deleteFiles', {
                   count: filesCount,
-                  formattedCount: filesCount.toLocaleString()
+                  formattedCount: formatCount(filesCount)
                 })}
               </li>
               <li>

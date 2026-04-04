@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   Database,
-  Loader2,
   CheckCircle,
   XCircle,
   FolderOpen,
@@ -16,8 +15,9 @@ import { Checkbox } from '@components/ui/Checkbox';
 import { Alert } from '@components/ui/Alert';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import ApiService from '@services/api.service';
-import { formatBytes } from '@utils/formatters';
+import { formatBytes, formatCount } from '@utils/formatters';
 import FileBrowser from '@components/features/management/file-browser/FileBrowser';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import { getErrorMessage } from '@utils/error';
 import type {
   ImportType,
@@ -240,7 +240,7 @@ export function DatabaseImportForm({
                   size="xs"
                 >
                   {autoSearching ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <LoadingSpinner inline size="sm" />
                   ) : (
                     <RefreshCw className="w-4 h-4" />
                   )}
@@ -249,7 +249,7 @@ export function DatabaseImportForm({
 
               {autoSearching ? (
                 <div className="flex items-center justify-center py-8 rounded-lg bg-themed-tertiary">
-                  <Loader2 className="w-5 h-5 animate-spin text-themed-secondary mr-2" />
+                  <LoadingSpinner inline size="md" className="text-themed-secondary mr-2" />
                   <span className="text-sm text-themed-secondary">
                     {t('initialization.importHistorical.searchingStatus')}
                   </span>
@@ -513,7 +513,7 @@ export function DatabaseImportForm({
               {validationResult.recordCount != null &&
                 ` ${t('initialization.importHistorical.foundRecords', {
                   count: validationResult.recordCount ?? 0,
-                  formattedCount: (validationResult.recordCount ?? 0).toLocaleString()
+                  formattedCount: formatCount(validationResult.recordCount ?? 0)
                 })}`}
             </p>
           </div>
@@ -524,7 +524,7 @@ export function DatabaseImportForm({
       {importing && (
         <Alert color="blue">
           <div className="flex items-center gap-2">
-            <Loader2 className="w-4 h-4 animate-spin" />
+            <LoadingSpinner inline size="sm" />
             <span>
               {t('initialization.importHistorical.importing')} -{' '}
               {t('initialization.importHistorical.checkNotifications')}
@@ -552,7 +552,7 @@ export function DatabaseImportForm({
               <span className="text-themed-muted">
                 {t('initialization.importHistorical.total', {
                   count: importResult.totalRecords,
-                  formattedCount: importResult.totalRecords.toLocaleString()
+                  formattedCount: formatCount(importResult.totalRecords)
                 })}
               </span>
             </div>
@@ -560,7 +560,7 @@ export function DatabaseImportForm({
               <span className="text-themed-muted">
                 {t('initialization.importHistorical.imported', {
                   count: importResult.imported,
-                  formattedCount: importResult.imported.toLocaleString()
+                  formattedCount: formatCount(importResult.imported)
                 })}
               </span>
             </div>
@@ -568,7 +568,7 @@ export function DatabaseImportForm({
               <span className="text-themed-muted">
                 {t('initialization.importHistorical.skipped', {
                   count: importResult.skipped,
-                  formattedCount: importResult.skipped.toLocaleString()
+                  formattedCount: formatCount(importResult.skipped)
                 })}
               </span>
             </div>
@@ -576,7 +576,7 @@ export function DatabaseImportForm({
               <span className="text-themed-muted">
                 {t('initialization.importHistorical.errors', {
                   count: importResult.errors,
-                  formattedCount: importResult.errors.toLocaleString()
+                  formattedCount: formatCount(importResult.errors)
                 })}
               </span>
             </div>
@@ -623,7 +623,7 @@ export function DatabaseImportForm({
               ? t('initialization.importHistorical.importing')
               : t('management.dataImporter.buttons.importRecords', {
                   count: validationResult?.recordCount ?? 0,
-                  formattedCount: (validationResult?.recordCount ?? 0).toLocaleString()
+                  formattedCount: formatCount(validationResult?.recordCount ?? 0)
                 })}
           </Button>
 

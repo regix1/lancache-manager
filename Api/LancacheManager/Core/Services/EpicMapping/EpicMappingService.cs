@@ -77,13 +77,24 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
 
         // Load last refresh time from saved auth data (mirrors Steam loading from state.json)
         var savedAuth = _authStorage.GetEpicAuthData();
+        var hasSavedCredentials = _authStorage.HasSavedCredentials();
+
+        if (hasSavedCredentials)
+        {
+            _logger.LogInformation("Epic auth is configured — saved credentials found. Auto-reconnect will be attempted");
+        }
+        else
+        {
+            _logger.LogInformation("Epic auth is not configured — no saved credentials found. Epic game mapping will be unavailable until authentication is completed");
+        }
+
         if (savedAuth.LastAuthenticated.HasValue)
         {
             _lastRefreshTime = savedAuth.LastAuthenticated.Value;
         }
 
         // Try auto-reconnect if we have saved credentials (auth only, no scanning)
-        if (_authStorage.HasSavedCredentials())
+        if (hasSavedCredentials)
         {
             _ = Task.Run(async () =>
             {

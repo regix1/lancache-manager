@@ -1,5 +1,5 @@
 import React from 'react';
-import { Loader2 } from 'lucide-react';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'filled' | 'subtle' | 'outline' | 'default';
@@ -96,7 +96,7 @@ export const Button: React.FC<ButtonProps> = ({
       disabled={disabled || loading}
       {...props}
     >
-      {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : leftSection}
+      {loading ? <LoadingSpinner inline size="sm" /> : leftSection}
       {children}
       {rightSection}
     </button>

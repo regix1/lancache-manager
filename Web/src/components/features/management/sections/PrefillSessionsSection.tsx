@@ -9,7 +9,6 @@ import {
   CheckCircle,
   AlertTriangle,
   Clock,
-  Loader2,
   RefreshCw,
   Network,
   Monitor,
@@ -40,6 +39,7 @@ import { formatBytes } from '@utils/formatters';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { cleanIpAddress } from '@components/features/user/types';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import type {
   DaemonSessionCreatedEvent,
   DaemonSessionUpdatedEvent,
@@ -276,7 +276,7 @@ const SessionCard: React.FC<{
               }`}
             >
               {isPrefilling ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
+                <LoadingSpinner inline size="md" />
               ) : isLive ? (
                 <Play className="w-5 h-5" />
               ) : status === 'Terminated' ? (
@@ -404,7 +404,7 @@ const SessionCard: React.FC<{
                 className="prefill-expand-btn"
               >
                 {isLoadingHistory ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <LoadingSpinner inline size="sm" />
                 ) : isHistoryExpanded ? (
                   <ChevronUp className="w-4 h-4" />
                 ) : (
@@ -424,7 +424,7 @@ const SessionCard: React.FC<{
                         disabled={isBanning}
                       >
                         {isBanning ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <LoadingSpinner inline size="sm" />
                         ) : (
                           <Ban className="w-4 h-4" />
                         )}
@@ -441,7 +441,7 @@ const SessionCard: React.FC<{
                         disabled={isTerminating}
                       >
                         {isTerminating ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <LoadingSpinner inline size="sm" />
                         ) : (
                           <StopCircle className="w-4 h-4" />
                         )}
@@ -464,7 +464,7 @@ const SessionCard: React.FC<{
 
             {isLoadingHistory ? (
               <div className="prefill-history-loading">
-                <Loader2 className="w-4 h-4 animate-spin text-themed-muted" />
+                <LoadingSpinner inline size="sm" className="text-themed-muted" />
                 <span>{t('management.prefillSessions.labels.loadingHistory')}</span>
               </div>
             ) : !historyData || historyData.length === 0 ? (
@@ -621,11 +621,7 @@ const BannedUserCard: React.FC<{
             disabled={isLifting}
             className="prefill-ban-action"
           >
-            {isLifting ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Shield className="w-4 h-4" />
-            )}
+            {isLifting ? <LoadingSpinner inline size="sm" /> : <Shield className="w-4 h-4" />}
           </Button>
         </Tooltip>
       )}
@@ -1003,7 +999,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       >
         {loadingSessions ? (
           <div className="prefill-loading-state">
-            <Loader2 className="w-6 h-6 animate-spin text-themed-muted" />
+            <LoadingSpinner inline size="lg" className="text-themed-muted" />
             <span>{t('management.prefillSessions.loadingSessions')}</span>
           </div>
         ) : activeSessions.length === 0 ? (
@@ -1103,7 +1099,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       >
         {loadingSessions ? (
           <div className="prefill-loading-state">
-            <Loader2 className="w-6 h-6 animate-spin text-themed-muted" />
+            <LoadingSpinner inline size="lg" className="text-themed-muted" />
             <span>{t('management.prefillSessions.loading')}</span>
           </div>
         ) : sessions.length === 0 ? (
@@ -1175,7 +1171,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
       >
         {loadingBans && !hasVisibleBans ? (
           <div className="prefill-loading-state">
-            <Loader2 className="w-6 h-6 animate-spin text-themed-muted" />
+            <LoadingSpinner inline size="lg" className="text-themed-muted" />
             <span>{t('management.prefillSessions.bannedUsers.loadingBans')}</span>
           </div>
         ) : !loadingBans && !hasVisibleBans ? (

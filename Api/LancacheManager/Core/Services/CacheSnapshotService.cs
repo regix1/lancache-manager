@@ -1,4 +1,5 @@
 using LancacheManager.Extensions;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.Base;
 using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
@@ -14,6 +15,7 @@ public class CacheSnapshotService : ScopedScheduledBackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly CacheManagementService _cacheService;
+    private readonly StateService _stateService;
 
     // Default: record snapshot every hour
     private readonly TimeSpan _snapshotInterval;
@@ -33,12 +35,14 @@ public class CacheSnapshotService : ScopedScheduledBackgroundService
         IServiceProvider serviceProvider,
         IServiceScopeFactory scopeFactory,
         CacheManagementService cacheService,
+        StateService stateService,
         ILogger<CacheSnapshotService> logger,
         IConfiguration configuration)
         : base(serviceProvider, logger, configuration)
     {
         _scopeFactory = scopeFactory;
         _cacheService = cacheService;
+        _stateService = stateService;
 
         _snapshotInterval = TimeSpan.FromMinutes(
             configuration.GetValue<int>("CacheSnapshots:IntervalMinutes", 60));
@@ -50,6 +54,9 @@ public class CacheSnapshotService : ScopedScheduledBackgroundService
 
     protected override async Task OnStartupAsync(CancellationToken stoppingToken)
     {
+        // Wait for setup to complete so datasources and database are configured
+        await _stateService.WaitForSetupCompletedAsync(stoppingToken);
+
         // Take an initial snapshot at startup
         await RecordSnapshotAsync();
 

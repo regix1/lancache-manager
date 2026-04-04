@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
-import { Activity, Clock, Loader2, HardDrive, TrendingUp, RefreshCw } from 'lucide-react';
+import { Activity, Clock, HardDrive, TrendingUp, RefreshCw } from 'lucide-react';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import { type TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { formatBytes, formatPercent, formatSpeed } from '@utils/formatters';
@@ -15,24 +16,9 @@ import { useSpeed } from '@contexts/SpeedContext/useSpeed';
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import EventBadge from '../downloads/EventBadge';
+import EvictedBadge from '@components/common/EvictedBadge';
 import { storage } from '@utils/storage';
-import type { Download, EventSummary, GameSpeedInfo } from '@/types';
-
-interface DownloadGroup {
-  id: string;
-  name: string;
-  type: 'game' | 'metadata' | 'content';
-  service: string;
-  downloads: Download[];
-  totalBytes: number;
-  totalDownloaded: number;
-  cacheHitBytes: number;
-  cacheMissBytes: number;
-  clientsSet: Set<string>;
-  firstSeen: string;
-  lastSeen: string;
-  count: number;
-}
+import type { Download, DownloadGroup, EventSummary, GameSpeedInfo } from '@/types';
 
 interface RecentDownloadsPanelProps {
   downloads?: Download[];
@@ -77,12 +63,12 @@ const ActiveDownloadItem: React.FC<{ game: GameSpeedInfo; index: number; t: TFun
       <div className="item-right">
         <div className="speed-display">
           <span className="speed-value">{formatSpeed(game.bytesPerSecond)}</span>
-          <Loader2 className="speed-spinner" />
+          <LoadingSpinner inline size="sm" className="speed-spinner" />
         </div>
         <div
           className={`hit-badge ${game.cacheHitPercent >= 80 ? 'high' : game.cacheHitPercent >= 50 ? 'medium' : 'low'}`}
         >
-          {game.cacheHitPercent.toFixed(0)}%
+          {formatPercent(game.cacheHitPercent, 0)}
         </div>
       </div>
     </div>
@@ -97,7 +83,6 @@ interface RecentDownloadItemProps {
 }
 
 const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({ item, events = [], index }) => {
-  const { t } = useTranslation();
   const isGroup = 'downloads' in item;
   const display = isGroup
     ? {
@@ -163,9 +148,7 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({ item, events = 
           <div className="item-name">
             {display.name}
             {isGroup && display.count > 1 && <span className="count-badge">{display.count}×</span>}
-            {display.isEvicted && (
-              <span className="themed-badge status-badge-error">{t('common.evicted')}</span>
-            )}
+            {display.isEvicted && <EvictedBadge />}
           </div>
           <div className="item-meta">
             <span

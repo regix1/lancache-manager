@@ -1,5 +1,6 @@
 import React from 'react';
-import { Rocket, ArrowLeft, Loader2 } from 'lucide-react';
+import { Rocket, ArrowLeft } from 'lucide-react';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useTranslation } from 'react-i18next';
 import { useInitializationFlow, type InitStep } from '@hooks/useInitializationFlow';
 import {
@@ -59,7 +60,7 @@ const DepotInitializationModal: React.FC<DepotInitializationModalProps> = ({ onI
     if (isCheckingAuth && step !== 'database-setup') {
       return (
         <div className="flex flex-col items-center justify-center py-12">
-          <Loader2 className="w-12 h-12 animate-spin icon-primary mb-4" />
+          <LoadingSpinner size="lg" className="icon-primary mb-4" />
           <p className="text-themed-secondary">{t('common.loading', 'Loading...')}</p>
         </div>
       );

@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CheckCircle, Loader2, LogOut, XCircle } from 'lucide-react';
+import { CheckCircle, LogOut, XCircle } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { EpicIcon } from '@components/ui/EpicIcon';
 
 import { EpicAuthModal } from '@components/modals/auth/EpicAuthModal';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useEpicMappingAuth } from '@hooks/useEpicMappingAuth';
 import ApiService from '@services/api.service';
@@ -213,7 +214,7 @@ const EpicDaemonStatus: React.FC<EpicDaemonStatusProps> = ({
               color="red"
               size="sm"
             >
-              {loggingOut ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogOut size={14} />}
+              {loggingOut ? <LoadingSpinner inline size="sm" /> : <LogOut size={14} />}
               {t('management.sections.integrations.epicDaemonStatus.logout')}
             </Button>
           </div>

@@ -25,6 +25,7 @@ import { useEvents } from '@contexts/useEvents';
 import { useSpeed } from '@contexts/SpeedContext/useSpeed';
 import { useDraggableCards } from '@hooks/useDraggableCards';
 import { formatBytes, formatPercent } from '@utils/formatters';
+import { isNonEvictedGame } from '@utils/gameDetection';
 import { STORAGE_KEYS } from '@utils/constants';
 import {
   type StatCardData,
@@ -502,7 +503,7 @@ const Dashboard: React.FC = () => {
     const includeEvicted = evictedDataMode === 'show' || evictedDataMode === 'showClean';
     const evictedCount = evictedGamesCount;
     const allGames = gameDetectionData.games;
-    const games = includeEvicted ? allGames : allGames.filter((game) => game.is_evicted !== true);
+    const games = includeEvicted ? allGames : allGames.filter(isNonEvictedGame);
     const gameCount = includeEvicted ? games.length + evictedCount : games.length;
     const totalSize = games.reduce((sum, game) => sum + game.total_size_bytes, 0);
     const result = {

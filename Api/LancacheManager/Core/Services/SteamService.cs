@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Extensions;
 using LancacheManager.Infrastructure.Services.Base;
 using LancacheManager.Models;
@@ -16,6 +17,7 @@ public class SteamService : ScopedScheduledBackgroundService
 {
     private readonly HttpClient _httpClient;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IStateService _stateService;
     private readonly SemaphoreSlim _apiSemaphore = new(5);
 
     // Caches for performance
@@ -59,12 +61,23 @@ public class SteamService : ScopedScheduledBackgroundService
         ILogger<SteamService> logger,
         IConfiguration configuration,
         HttpClient httpClient,
-        IServiceScopeFactory scopeFactory)
+        IServiceScopeFactory scopeFactory,
+        IStateService stateService)
         : base(serviceProvider, logger, configuration)
     {
         _httpClient = httpClient;
         _httpClient.Timeout = TimeSpan.FromSeconds(30);
         _scopeFactory = scopeFactory;
+        _stateService = stateService;
+    }
+
+    protected override async Task OnStartupAsync(CancellationToken stoppingToken)
+    {
+        // Wait for setup to complete so the database is configured before making API calls
+        await _stateService.WaitForSetupCompletedAsync(stoppingToken);
+
+        // Run initial refresh during startup
+        await RefreshMappingsAsync();
     }
 
     protected override async Task ExecuteScopedWorkAsync(

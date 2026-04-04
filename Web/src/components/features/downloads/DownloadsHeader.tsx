@@ -7,7 +7,7 @@ import { useSpeed } from '@contexts/SpeedContext/useSpeed';
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import { Tooltip } from '@components/ui/Tooltip';
 import { HelpPopover, HelpSection } from '@components/ui/HelpPopover';
-import { formatBytes, formatSpeedWithSeparatedUnit } from '@utils/formatters';
+import { formatBytes, formatPercent, formatSpeedWithSeparatedUnit } from '@utils/formatters';
 import ApiService from '@services/api.service';
 import type { SpeedHistorySnapshot } from '../../../types';
 
@@ -29,7 +29,11 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
 
   const [historySnapshot, setHistorySnapshot] = useState<SpeedHistorySnapshot | null>(null);
 
-  // Fetch history for "today" stats
+  // Fetch aggregated 24h history for "today" total bytes stat.
+  // This intentionally calls ApiService directly rather than using SpeedContext because
+  // SpeedContext provides real-time snapshot data (current speed, active games/clients),
+  // while this needs aggregated historical data (totalBytes over 24 hours) — a fundamentally
+  // different concern that doesn't belong in the real-time speed context.
   const fetchHistory = useCallback(async () => {
     try {
       const data = await ApiService.getSpeedHistory(1440); // 24 hours
@@ -172,9 +176,7 @@ const DownloadsHeader: React.FC<DownloadsHeaderProps> = ({ activeTab, onTabChang
             <TrendingUp />
             <span className="today-label">{t('downloads.header.hitRateLabel')}</span>
             <span className="today-value">
-              {isHistoricalView
-                ? t('downloads.header.disabled')
-                : `${overallHitPercent.toFixed(1)}%`}
+              {isHistoricalView ? t('downloads.header.disabled') : formatPercent(overallHitPercent)}
             </span>
             <HelpPopover position="left" width={320}>
               <HelpSection title={t('downloads.header.help.hitRate.title')} variant="subtle">

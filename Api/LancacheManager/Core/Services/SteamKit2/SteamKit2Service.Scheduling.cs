@@ -10,6 +10,19 @@ public partial class SteamKit2Service
     /// </summary>
     protected override async Task ExecuteScheduledWorkAsync(CancellationToken stoppingToken)
     {
+        // If initialization failed (e.g. DB was unavailable), retry it before doing any work
+        if (!_initialized)
+        {
+            _logger.LogInformation("SteamKit2Service was not initialized — retrying initialization");
+            await InitializeAsync(stoppingToken);
+            if (!_initialized)
+            {
+                _logger.LogWarning("SteamKit2Service initialization retry failed — will try again on next tick");
+                return;
+            }
+            _logger.LogInformation("SteamKit2Service initialization succeeded on retry");
+        }
+
         if (_cancellationTokenSource.Token.IsCancellationRequested || !_isRunning)
         {
             return;

@@ -935,6 +935,30 @@ class ThemeService {
       --theme-chart-6: ${colors.chartColor6};
       --theme-chart-7: ${colors.chartColor7};
       --theme-chart-8: ${colors.chartColor8};
+
+      /* Game Chart Colors */
+      --theme-game-1: ${colors.gameColor1};
+      --theme-game-2: ${colors.gameColor2};
+      --theme-game-3: ${colors.gameColor3};
+      --theme-game-4: ${colors.gameColor4};
+      --theme-game-5: ${colors.gameColor5};
+      --theme-game-6: ${colors.gameColor6};
+      --theme-game-7: ${colors.gameColor7};
+      --theme-game-8: ${colors.gameColor8};
+      --theme-game-9: ${colors.gameColor9};
+      --theme-game-10: ${colors.gameColor10};
+      --theme-game-11: ${colors.gameColor11};
+      --theme-game-12: ${colors.gameColor12};
+      --theme-game-13: ${colors.gameColor13};
+      --theme-game-14: ${colors.gameColor14};
+      --theme-game-15: ${colors.gameColor15};
+      --theme-game-16: ${colors.gameColor16};
+      --theme-game-17: ${colors.gameColor17};
+      --theme-game-18: ${colors.gameColor18};
+      --theme-game-19: ${colors.gameColor19};
+      --theme-game-20: ${colors.gameColor20};
+      --theme-game-other: ${colors.gameColorOther};
+
       --theme-chart-border: ${colors.chartBorderColor};
       --theme-chart-grid: ${colors.chartGridColor};
       --theme-chart-text: ${colors.chartTextColor};

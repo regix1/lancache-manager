@@ -1,8 +1,9 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import { Plus, X, Loader2, AlertTriangle } from 'lucide-react';
+import { Plus, X, AlertTriangle } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
 import { Button } from '@components/ui/Button';
 import { Pagination } from '@components/ui/Pagination';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useClientGroups } from '@contexts/useClientGroups';
 import { useTranslation } from 'react-i18next';
 import type { ClientGroup } from '../../types';
@@ -465,7 +466,7 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
           <Button type="submit" disabled={saving || !nickname.trim()}>
             {saving ? (
               <>
-                <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                <LoadingSpinner inline size="sm" className="mr-2" />
                 {isEditing
                   ? t('modals.clientGroup.actions.saving')
                   : t('modals.clientGroup.actions.adding')}

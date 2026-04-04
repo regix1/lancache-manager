@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Key, Eye, Loader2, Shield, Database, CheckCircle } from 'lucide-react';
+import { Key, Eye, Shield, Database, CheckCircle } from 'lucide-react';
 import { Button } from '@components/ui/Button';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import authService from '@services/auth.service';
 import { useAuth } from '@contexts/useAuth';
 import { useGuestConfig } from '@contexts/useGuestConfig';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useTranslation } from 'react-i18next';
+import { formatPercent } from '@utils/formatters';
 
 interface DatabaseResetStatus {
   isResetting: boolean;
@@ -267,7 +269,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
                         />
                       </div>
                       <p className="text-xs mt-1 text-right text-warning-text opacity-80">
-                        {resetStatus.percentComplete.toFixed(1)}%
+                        {formatPercent(resetStatus.percentComplete, 1)}
                       </p>
                     </div>
                   )}
@@ -321,11 +323,7 @@ const AuthenticationModal: React.FC<AuthenticationModalProps> = ({
                 variant="filled"
                 color="blue"
                 leftSection={
-                  authenticating ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Key className="w-4 h-4" />
-                  )
+                  authenticating ? <LoadingSpinner inline size="sm" /> : <Key className="w-4 h-4" />
                 }
                 onClick={handleAuthenticate}
                 disabled={authenticating || !apiKey.trim() || resetStatus.isResetting}

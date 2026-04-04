@@ -1,6 +1,8 @@
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
+using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services.Base;
+using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Infrastructure.Services;
 
@@ -8,16 +10,22 @@ public class GameDetectionStartupService : ScheduledBackgroundService
 {
     private readonly GameCacheDetectionService _detectionService;
     private readonly IStateService _stateService;
+    private readonly IPathResolver _pathResolver;
+    private readonly IServiceScopeFactory _scopeFactory;
 
     public GameDetectionStartupService(
         GameCacheDetectionService detectionService,
         IStateService stateService,
+        IPathResolver pathResolver,
+        IServiceScopeFactory scopeFactory,
         ILogger<GameDetectionStartupService> logger,
         IConfiguration configuration)
         : base(logger, configuration)
     {
         _detectionService = detectionService;
         _stateService = stateService;
+        _pathResolver = pathResolver;
+        _scopeFactory = scopeFactory;
     }
 
     protected override string ServiceName => "GameDetectionStartup";
@@ -32,6 +40,14 @@ public class GameDetectionStartupService : ScheduledBackgroundService
     {
         try
         {
+            // Check for required binary upfront before waiting for setup
+            var rustBinaryPath = _pathResolver.GetRustGameDetectorPath();
+            if (!File.Exists(rustBinaryPath))
+            {
+                _logger.LogWarning("[GameDetectionStartup] Game detection binary not found at {Path}, game detection disabled", rustBinaryPath);
+                return;
+            }
+
             // Wait for setup/initialization to complete before running detection.
             // Uses async signaling — resumes instantly when setup completes, no polling.
             _logger.LogInformation("[GameDetectionStartup] Waiting for setup to complete...");
@@ -43,6 +59,15 @@ public class GameDetectionStartupService : ScheduledBackgroundService
             _logger.LogInformation("[GameDetectionStartup] Waiting for logs to be processed...");
             await _stateService.WaitForLogsProcessedAsync(stoppingToken);
             _logger.LogInformation("[GameDetectionStartup] Logs processed");
+
+            // Skip detection if there are no downloads in the database yet
+            using var scope = _scopeFactory.CreateScope();
+            var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            if (!await context.Downloads.AnyAsync(stoppingToken))
+            {
+                _logger.LogInformation("[GameDetectionStartup] No downloads in database, skipping startup detection scan");
+                return;
+            }
 
             var cached = await _detectionService.GetCachedDetectionAsync();
             if (cached != null)

@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import type { GameCacheInfo, ServiceStat } from '@/types';
+import { isActiveGame } from '@utils/gameDetection';
 import type { ChartData, GameSliceExtra, TabId } from './types';
 import { useGameColors } from './useGameColors';
 import { useServiceColors } from './useServiceColors';
@@ -78,7 +79,7 @@ export function useChartData(
     const borderColor = getBorderColor();
 
     if (activeTab === 'games') {
-      const activeGames = (games ?? []).filter((g) => !g.is_evicted && g.total_size_bytes > 0);
+      const activeGames = (games ?? []).filter(isActiveGame);
 
       if (activeGames.length === 0) {
         return { labels: [], datasets: [], total: 0, isEmpty: true };

@@ -7,13 +7,13 @@ import {
   Zap,
   History,
   CalendarClock,
-  Loader2,
   Pencil,
   BarChart3
 } from 'lucide-react';
 import { useTimezone } from '@contexts/useTimezone';
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import { Tooltip } from '@components/ui/Tooltip';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import { formatBytes } from '@utils/formatters';
 import { getEventColorStyles, getEventColorVar } from '@utils/eventColors';
 import ApiService from '@services/api.service';
@@ -208,7 +208,7 @@ const EventCard = React.memo(
           <div className="border-t border-[var(--theme-border-secondary)] px-4 py-3 bg-[var(--theme-bg-tertiary)]">
             {isLoading ? (
               <div className="flex items-center justify-center py-4 gap-2">
-                <Loader2 className="w-4 h-4 animate-spin text-[var(--theme-primary)]" />
+                <LoadingSpinner inline size="sm" className="text-[var(--theme-primary)]" />
                 <span className="text-sm text-[var(--theme-text-secondary)]">
                   {t('events.list.loadingDownloads')}
                 </span>

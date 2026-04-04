@@ -1,14 +1,13 @@
-import React, { useState, useEffect, useMemo, memo, useRef } from 'react';
-import { getCachedValue, setCachedValue, IDB_KEYS } from '@utils/idbCache';
+import React, { useMemo, memo } from 'react';
+import { IDB_KEYS } from '@utils/idbCache';
 import { Clock, TrendingUp, Zap, Calendar } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { formatBytes } from '@utils/formatters';
+import { formatBytes, formatCount } from '@utils/formatters';
 import { type HourlyActivityResponse, type HourlyActivityItem } from '../../../../types';
 import { Tooltip } from '@components/ui/Tooltip';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { useTimezone } from '@contexts/useTimezone';
-import { useTimeFilter } from '@contexts/useTimeFilter';
-import { useMockMode } from '@contexts/useMockMode';
+import { useWidgetData } from '@hooks/useWidgetData';
 import { getCurrentHour } from '@utils/timezone';
 import ApiService from '@services/api.service';
 import MockDataService from '../../../../test/mockData.service';
@@ -29,17 +28,15 @@ interface PeakUsageHoursProps {
 const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(
   ({ glassmorphism = true, staggerIndex }) => {
     const { t } = useTranslation();
-    const { timeRange, getTimeRangeParams, selectedEventIds } = useTimeFilter();
-    const { mockMode } = useMockMode();
-    const [data, setData] = useState<HourlyActivityResponse | null>(
-      () => getCachedValue<HourlyActivityResponse>(IDB_KEYS.PEAK_USAGE) ?? null
-    );
-    const [loading, setLoading] = useState(() => getCachedValue(IDB_KEYS.PEAK_USAGE) === undefined);
-    const [error, setError] = useState<string | null>(null);
     const { use24HourFormat, useLocalTimezone } = useTimezone();
-    const prevDataRef = useRef<HourlyActivityResponse | null>(
-      getCachedValue<HourlyActivityResponse>(IDB_KEYS.PEAK_USAGE) ?? null
-    );
+
+    // Fetch hourly activity from backend API using shared hook
+    const { data, loading, error, displayData } = useWidgetData<HourlyActivityResponse>({
+      cacheKey: IDB_KEYS.PEAK_USAGE,
+      fetchFn: (signal, params) =>
+        ApiService.getHourlyActivity(signal, params.startTime, params.endTime, params.eventId),
+      mockFn: () => MockDataService.generateMockHourlyActivity()
+    });
 
     // Get current hour based on timezone preference
     const currentHour = useMemo(() => {
@@ -48,7 +45,6 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(
 
     // Check if today is within the period range
     const isTodayInRange = useMemo(() => {
-      const displayData = data || prevDataRef.current;
       if (!displayData) return true; // Assume yes while loading
 
       // For 'live' mode (no period bounds), today is always in range
@@ -63,67 +59,11 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(
       const periodEnd = displayData.periodEnd ?? now;
 
       return todayStart <= periodEnd && todayEnd >= periodStart;
-    }, [data]);
+    }, [displayData]);
 
     // Determine if we should show averages (multi-day period)
-    // Use displayData to preserve previous values during loading
-    const displayData = data || prevDataRef.current;
     const daysInPeriod = displayData?.daysInPeriod ?? 1;
     const isMultiDayPeriod = daysInPeriod > 1;
-
-    // Fetch hourly activity from backend API (already aggregated server-side)
-    // In mock mode, use generated mock data instead
-    useEffect(() => {
-      if (mockMode) {
-        setLoading(true);
-        // Use mock data
-        const mockData = MockDataService.generateMockHourlyActivity();
-        setData(mockData);
-        setError(null);
-        setLoading(false);
-        return;
-      }
-
-      const controller = new AbortController();
-
-      // Store current data as previous (keep visible during fetch)
-      if (data) {
-        prevDataRef.current = data;
-      }
-
-      const fetchData = async () => {
-        try {
-          // Only show loading on initial load when we have no data
-          if (!prevDataRef.current) setLoading(true);
-          setError(null);
-          const { startTime, endTime } = getTimeRangeParams();
-          const eventId = selectedEventIds.length > 0 ? selectedEventIds[0] : undefined;
-          const response = await ApiService.getHourlyActivity(
-            controller.signal,
-            startTime,
-            endTime,
-            eventId
-          );
-          setData(response);
-          setCachedValue(IDB_KEYS.PEAK_USAGE, response);
-        } catch (err) {
-          if (!controller.signal.aborted) {
-            setError('Failed to load hourly data');
-            console.error('PeakUsageHours fetch error:', err);
-            // Don't clear data on error - keep previous data visible
-          }
-        } finally {
-          if (!controller.signal.aborted) {
-            setLoading(false);
-          }
-        }
-      };
-
-      fetchData();
-
-      return () => controller.abort();
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [timeRange, getTimeRangeParams, mockMode, selectedEventIds]);
 
     // Extract hourly data from API response (already includes all 24 hours)
     const hourlyData = useMemo((): HourlyActivityItem[] => {
@@ -221,7 +161,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(
         : '';
 
     // Loading state - only show loading skeleton if we have no data at all
-    if (loading && !data && !prevDataRef.current) {
+    if (loading && !data && !displayData) {
       return (
         <div className={`widget-card ${glassmorphism ? 'glass' : ''} ${animationClasses}`}>
           <div className="flex items-center gap-2 mb-3">
@@ -348,7 +288,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(
             </span>
             <span className="sm:hidden text-themed-secondary">•</span>
             <span className="sm:hidden text-themed-secondary tabular-nums">
-              {totalDownloads.toLocaleString()} {t('widgets.peakUsageHours.downloads')}
+              {formatCount(totalDownloads)} {t('widgets.peakUsageHours.downloads')}
             </span>
             <span className="sm:hidden text-themed-secondary">•</span>
             <span className="sm:hidden text-themed-secondary tabular-nums">
@@ -359,7 +299,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(
             <span className="text-themed-secondary tabular-nums">
               {t('widgets.peakUsageHours.totalDownloads', {
                 count: totalDownloads,
-                formattedCount: totalDownloads.toLocaleString()
+                formattedCount: formatCount(totalDownloads)
               })}
             </span>
             <span className="text-themed-secondary tabular-nums">
@@ -402,7 +342,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(
               <div className="text-[11px] leading-tight text-themed-muted tabular-nums">
                 {isMultiDayPeriod
                   ? `${(peakHourData?.avgDownloads ?? 0).toFixed(1)}${t('widgets.peakUsageHours.perDay')}`
-                  : `${(peakHourData?.downloads ?? 0).toLocaleString()} ${t('widgets.peakUsageHours.downloads')}`}
+                  : `${formatCount(peakHourData?.downloads ?? 0)} ${t('widgets.peakUsageHours.downloads')}`}
               </div>
               <div className="text-[11px] leading-tight text-themed-muted tabular-nums">
                 {isMultiDayPeriod
@@ -471,7 +411,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(
                 <div className="text-[11px] leading-tight text-themed-muted tabular-nums">
                   {isMultiDayPeriod
                     ? `${(currentHourData?.avgDownloads ?? 0).toFixed(1)}${t('widgets.peakUsageHours.perDay')}`
-                    : `${(currentHourData?.downloads ?? 0).toLocaleString()} ${t('widgets.peakUsageHours.downloads')}`}
+                    : `${formatCount(currentHourData?.downloads ?? 0)} ${t('widgets.peakUsageHours.downloads')}`}
                 </div>
                 <div className="text-[11px] leading-tight text-themed-muted tabular-nums">
                   {isMultiDayPeriod
@@ -501,19 +441,19 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(
                       {isMultiDayPeriod ? (
                         <>
                           <div className="text-themed-secondary">
-                            {hourData.avgDownloads.toLocaleString()} avg downloads/day
+                            {formatCount(hourData.avgDownloads)} avg downloads/day
                           </div>
                           <div className="text-themed-secondary">
                             {formatBytes(hourData.avgBytesServed)} avg served/day
                           </div>
                           <div className="pt-1 border-t border-themed-primary text-themed-muted">
-                            Total: {hourData.downloads.toLocaleString()} downloads
+                            Total: {formatCount(hourData.downloads)} downloads
                           </div>
                         </>
                       ) : (
                         <>
                           <div className="text-themed-secondary">
-                            {hourData.downloads.toLocaleString()} downloads
+                            {formatCount(hourData.downloads)} downloads
                           </div>
                           <div className="text-themed-secondary">
                             {formatBytes(hourData.bytesServed)} served

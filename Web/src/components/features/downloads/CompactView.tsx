@@ -1,14 +1,16 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronRight, ExternalLink, ChevronLeft, HardDrive } from 'lucide-react';
-import { formatBytes, formatPercent, formatRelativeTime } from '@utils/formatters';
+import { formatBytes, formatPercent, formatRelativeTime, formatCount } from '@utils/formatters';
 import { getServiceBadgeStyles } from '@utils/serviceColors';
 import { Tooltip } from '@components/ui/Tooltip';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { GameImage } from '@components/common/GameImage';
+import EvictedBadge from '@components/common/EvictedBadge';
 import { useHoldTimer } from '@hooks/useHoldTimer';
 import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
+import { useGroupPagination } from '@hooks/useGroupPagination';
 import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import DownloadBadges from './DownloadBadges';
 import { useSessionFilters } from './useSessionFilters';
@@ -109,6 +111,23 @@ const GroupRow: React.FC<GroupRowProps> = ({
     filteredCount,
     hasActiveFilters
   } = useSessionFilters(group.downloads);
+  const {
+    currentPage: safePage,
+    totalPages: totalFilteredPages,
+    ipGroups,
+    handlePageChange,
+    handlePointerHoldStart,
+    handlePointerHoldEnd
+  } = useGroupPagination({
+    filteredDownloads,
+    sessionsPerPage: filters.sessionsPerPage,
+    itemsPerSession: filters.itemsPerSession,
+    groupId: group.id,
+    groupPages,
+    setGroupPages,
+    startHoldTimer,
+    stopHoldTimer
+  });
 
   const [expandedIps, setExpandedIps] = React.useState<Record<string, boolean>>({});
 
@@ -217,9 +236,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                       {group.name}
                     </span>
                   )}
-                  {isEvicted && (
-                    <span className="themed-badge status-badge-error">{t('common.evicted')}</span>
-                  )}
+                  {isEvicted && <EvictedBadge />}
                   {diskSizeBytes ? (
                     <span className="text-themed-muted text-xs ml-2">
                       {t('dashboard.downloadsPanel.onDisk', { size: formatBytes(diskSizeBytes) })}
@@ -235,7 +252,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                       </span>
                       {detection?.cache_files_found ? (
                         <span className="ml-1">
-                          · {detection.cache_files_found.toLocaleString()} files
+                          · {formatCount(detection.cache_files_found)} files
                         </span>
                       ) : null}
                     </div>
@@ -301,9 +318,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                       {group.name}
                     </span>
                   )}
-                  {isEvicted && (
-                    <span className="themed-badge status-badge-error">{t('common.evicted')}</span>
-                  )}
+                  {isEvicted && <EvictedBadge />}
                   {diskSizeBytes ? (
                     <span className="text-themed-muted text-xs ml-2">
                       {t('dashboard.downloadsPanel.onDisk', { size: formatBytes(diskSizeBytes) })}
@@ -417,73 +432,6 @@ const GroupRow: React.FC<GroupRowProps> = ({
               {/* Sessions list */}
               {(() => {
                 const excludedSessions = Math.max(0, group.downloads.length - group.count);
-
-                // Group ALL filtered downloads by IP first
-                const allIpGroups = filteredDownloads.reduce(
-                  (acc, d) => {
-                    if (!acc[d.clientIp]) acc[d.clientIp] = [];
-                    acc[d.clientIp].push(d);
-                    return acc;
-                  },
-                  {} as Record<string, typeof filteredDownloads>
-                );
-                const allIpEntries = Object.entries(allIpGroups);
-
-                // Paginate IP groups
-                const sessionsPerPage = filters.sessionsPerPage;
-                const currentPage = groupPages[group.id] || 1;
-                const totalFilteredPages = Math.ceil(allIpEntries.length / sessionsPerPage);
-                const safePage = Math.min(currentPage, Math.max(1, totalFilteredPages));
-                const startIndex = (safePage - 1) * sessionsPerPage;
-                const endIndex = startIndex + sessionsPerPage;
-                const paginatedIpEntries = allIpEntries.slice(startIndex, endIndex);
-
-                // Limit items within each IP group
-                const itemsPerSession = filters.itemsPerSession;
-                const ipGroups = Object.fromEntries(
-                  paginatedIpEntries.map(([ip, downloads]) => [
-                    ip,
-                    downloads.slice(0, itemsPerSession)
-                  ])
-                ) as Record<string, typeof filteredDownloads>;
-
-                const handlePageChange = (newPage: number): void => {
-                  setGroupPages((prev) => ({ ...prev, [group.id]: newPage }));
-                };
-
-                const handlePointerHoldStart = (
-                  event: React.PointerEvent<HTMLButtonElement>,
-                  direction: 'prev' | 'next'
-                ): void => {
-                  const isPrevious = direction === 'prev';
-                  if (
-                    (isPrevious && safePage === 1) ||
-                    (!isPrevious && safePage === totalFilteredPages)
-                  ) {
-                    return;
-                  }
-
-                  event.currentTarget.setPointerCapture?.(event.pointerId);
-                  startHoldTimer(() => {
-                    setGroupPages((prev) => {
-                      const current = prev[group.id] || 1;
-                      const nextPage = isPrevious
-                        ? Math.max(1, current - 1)
-                        : Math.min(totalFilteredPages, current + 1);
-                      if (nextPage === current) {
-                        return prev;
-                      }
-                      return { ...prev, [group.id]: nextPage };
-                    });
-                  });
-                };
-
-                const handlePointerHoldEnd = (
-                  event: React.PointerEvent<HTMLButtonElement>
-                ): void => {
-                  event.currentTarget.releasePointerCapture?.(event.pointerId);
-                  stopHoldTimer();
-                };
 
                 return (
                   <div>
@@ -638,11 +586,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                                             {formatRelativeTime(download.startTimeUtc)}
                                           </span>
                                           <div className="flex items-center gap-1">
-                                            {download.isEvicted && (
-                                              <span className="themed-badge status-badge-error">
-                                                {t('common.evicted')}
-                                              </span>
-                                            )}
+                                            {download.isEvicted && <EvictedBadge />}
                                             {associations.events.length > 0 && (
                                               <DownloadBadges
                                                 events={associations.events}
@@ -664,11 +608,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                                           <span className="text-[var(--theme-text-muted)]">
                                             {formatRelativeTime(download.startTimeUtc)}
                                           </span>
-                                          {download.isEvicted && (
-                                            <span className="themed-badge status-badge-error">
-                                              {t('common.evicted')}
-                                            </span>
-                                          )}
+                                          {download.isEvicted && <EvictedBadge />}
                                           {associations.events.length > 0 && (
                                             <DownloadBadges
                                               events={associations.events}

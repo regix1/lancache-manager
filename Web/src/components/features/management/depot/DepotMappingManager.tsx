@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Database, Clock, Zap, AlertCircle, Loader2, ExternalLink } from 'lucide-react';
+import { Database, Clock, Zap, AlertCircle, ExternalLink } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
@@ -15,6 +15,7 @@ import { storage } from '@utils/storage';
 import { isAbortError } from '@utils/error';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { ManagerCardHeader } from '@components/ui/ManagerCard';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 
 interface DepotMappingManagerProps {
   isAdmin: boolean;
@@ -729,7 +730,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
         {githubDownloading && (
           <div className="mb-4 p-3 rounded-lg border bg-themed-info border-themed-info">
             <div className="flex items-start gap-3">
-              <Loader2 className="w-5 h-5 flex-shrink-0 mt-0.5 animate-spin icon-info" />
+              <LoadingSpinner inline size="md" className="flex-shrink-0 mt-0.5 icon-info" />
               <div className="flex-1">
                 <p className="font-medium text-sm mb-1 text-themed-info">
                   {t('management.depotMapping.downloadingFromGitHub')}

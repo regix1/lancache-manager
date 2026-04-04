@@ -1,5 +1,6 @@
 import React from 'react';
-import { Loader2, ScrollText, HardDrive, CheckCircle, XCircle, Lock } from 'lucide-react';
+import { ScrollText, HardDrive, CheckCircle, XCircle, Lock } from 'lucide-react';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useTranslation } from 'react-i18next';
 import { Tooltip } from './Tooltip';
 
@@ -156,7 +157,7 @@ export const LoadingState: React.FC<LoadingStateProps> = ({ message, submessage 
 
   return (
     <div className="flex flex-col items-center justify-center py-8 gap-3">
-      <Loader2 className="w-6 h-6 animate-spin text-themed-accent" />
+      <LoadingSpinner inline size="lg" className="text-themed-accent" />
       <p className="text-sm text-themed-secondary">{message || t('common.loading')}</p>
       {submessage && <p className="text-xs text-themed-muted">{submessage}</p>}
     </div>

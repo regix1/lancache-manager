@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Loader2, ChevronDown, ChevronUp } from 'lucide-react';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Tooltip } from '@components/ui/Tooltip';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import { GameImage } from '../../../common/GameImage';
 import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
 
@@ -84,7 +85,7 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
           disabled={isExpanding}
         >
           {isExpanding ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
+            <LoadingSpinner inline size="sm" />
           ) : isExpanded ? (
             <ChevronUp className="w-4 h-4" />
           ) : (
@@ -171,7 +172,7 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
       {isExpanding && (
         <div className="border-t px-3 py-4 flex items-center justify-center border-themed-secondary">
           <div className="flex items-center gap-2 text-themed-muted">
-            <Loader2 className="w-4 h-4 animate-spin" />
+            <LoadingSpinner inline size="sm" />
             <span className="text-sm">{t('management.gameDetection.loadingDetails')}</span>
           </div>
         </div>

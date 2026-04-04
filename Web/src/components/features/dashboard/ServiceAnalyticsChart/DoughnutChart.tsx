@@ -9,7 +9,7 @@ import {
   type ChartData,
   type ArcOptions
 } from 'chart.js';
-import { formatBytes } from '@utils/formatters';
+import { formatBytes, formatCount } from '@utils/formatters';
 import type { DoughnutChartProps, GameSliceExtra } from './types';
 
 // Register only what we need (tree shaking)
@@ -100,7 +100,7 @@ const DoughnutChart: React.FC<DoughnutChartProps> = React.memo(
                 if (!extra) return baseLine;
 
                 const lines = [baseLine];
-                lines.push(`Files: ${extra.cacheFiles.toLocaleString()}`);
+                lines.push(`Files: ${formatCount(extra.cacheFiles)}`);
                 if (extra.service !== 'mixed') {
                   lines.push(`Service: ${extra.service}`);
                 }

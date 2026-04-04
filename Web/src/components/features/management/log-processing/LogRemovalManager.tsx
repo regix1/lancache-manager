@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FileText, AlertTriangle, Loader2, Trash2 } from 'lucide-react';
+import { FileText, AlertTriangle, Trash2 } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { useNotifications } from '@contexts/notifications';
@@ -8,18 +8,15 @@ import { useDockerSocket } from '@contexts/useDockerSocket';
 import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
 import { useManagerLoading } from '@/hooks/useManagerLoading';
 import { Card } from '@components/ui/Card';
-import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
+import { AccordionSection } from '@components/ui/AccordionSection';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
 import { Tooltip } from '@components/ui/Tooltip';
 import { DatasourceListItem } from '@components/ui/DatasourceListItem';
-import {
-  ManagerCardHeader,
-  LoadingState,
-  EmptyState,
-  ReadOnlyBadge
-} from '@components/ui/ManagerCard';
+import LoadingSpinner from '@components/common/LoadingSpinner';
+import { formatCount } from '@utils/formatters';
+import { LoadingState, EmptyState, ReadOnlyBadge } from '@components/ui/ManagerCard';
 import type { DatasourceServiceCounts } from '@/types';
 
 // Main services that should always be shown first
@@ -72,7 +69,7 @@ const ServiceButton: React.FC<{
             {clearLabel} {service}
           </span>
           <span className="text-xs text-themed-muted mt-1">
-            ({count.toLocaleString()} {entriesLabel})
+            ({formatCount(count)} {entriesLabel})
           </span>
         </>
       ) : (
@@ -106,6 +103,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
   const [showMoreServices, setShowMoreServices] = useState<Record<string, boolean>>({});
   const { isLoading, hasInitiallyLoaded, setLoading, markLoaded } = useManagerLoading(true);
   const [startingServiceRemoval, setStartingServiceRemoval] = useState<string | null>(null);
+  const [sectionExpanded, setSectionExpanded] = useState(true);
 
   // Track the last processed completion notification ID to prevent duplicate reloads
   const lastProcessedCompletionRef = useRef<string | null>(null);
@@ -248,38 +246,16 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
   const logsMissing = !logsExist;
   const hasPermissionIssue = logsReadOnly || logsMissing;
 
-  // Help content
-  const helpContent = (
-    <HelpPopover position="left" width={320}>
-      <HelpSection title={t('management.logRemoval.help.whatThisDoes.title')}>
-        {t('management.logRemoval.help.whatThisDoes.description')}
-      </HelpSection>
-
-      <HelpSection title={t('management.logRemoval.help.whatItAffects.title')} variant="subtle">
-        <div className="help-definition-list">
-          <div className="help-definition-desc">
-            {t('management.logRemoval.help.whatItAffects.logFiles')}
-          </div>
-          <div className="help-definition-desc">
-            {t('management.logRemoval.help.whatItAffects.databaseRecords')}
-          </div>
-        </div>
-      </HelpSection>
-
-      <HelpNote type="info">{t('management.logRemoval.help.note')}</HelpNote>
-    </HelpPopover>
-  );
-
   // Header actions
   const headerActions = (
     <Tooltip content={t('management.logRemoval.refreshServiceCounts')} position="top">
       <Button
         onClick={() => loadData(true)}
         disabled={isLoading || isAnyRemovalRunning}
-        variant="subtle"
+        variant="default"
         size="sm"
       >
-        {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : t('common.refresh')}
+        {isLoading ? <LoadingSpinner inline size="sm" /> : t('common.refresh')}
       </Button>
     </Tooltip>
   );
@@ -287,211 +263,221 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
   return (
     <>
       <Card>
-        <ManagerCardHeader
-          icon={FileText}
-          iconColor="orange"
+        <AccordionSection
           title={t('management.logRemoval.title')}
-          subtitle={t('management.logRemoval.subtitle')}
-          helpContent={helpContent}
-          permissions={{
-            logsReadOnly,
-            checkingPermissions
-          }}
-          actions={headerActions}
-        />
+          icon={FileText}
+          iconColor="var(--theme-warning-text)"
+          isExpanded={sectionExpanded}
+          onToggle={() => setSectionExpanded((prev) => !prev)}
+        >
+          <div className="space-y-4">
+            {/* Action toolbar */}
+            <div className="flex flex-wrap items-center justify-end gap-2">{headerActions}</div>
 
-        {/* Logs Directory Missing Warning */}
-        {logsMissing && (
-          <Alert color="red" className="mb-6">
-            <div>
-              <p className="font-medium">
-                {t(
-                  'management.logRemoval.alerts.logsMissing.title',
-                  'Logs directory does not exist'
-                )}
-              </p>
-              <p className="text-sm mt-1">
-                {t(
-                  'management.logRemoval.alerts.logsMissing.description',
-                  'The logs directory was not found. Ensure it is mounted correctly in docker-compose.'
-                )}
-              </p>
-            </div>
-          </Alert>
-        )}
+            {/* Logs Directory Missing Warning */}
+            {logsMissing && (
+              <Alert color="red" className="mb-6">
+                <div>
+                  <p className="font-medium">
+                    {t(
+                      'management.logRemoval.alerts.logsMissing.title',
+                      'Logs directory does not exist'
+                    )}
+                  </p>
+                  <p className="text-sm mt-1">
+                    {t(
+                      'management.logRemoval.alerts.logsMissing.description',
+                      'The logs directory was not found. Ensure it is mounted correctly in docker-compose.'
+                    )}
+                  </p>
+                </div>
+              </Alert>
+            )}
 
-        {/* Read-Only Warning */}
-        {logsReadOnly && !logsMissing && (
-          <Alert color="orange" className="mb-6">
-            <div>
-              <p className="font-medium">{t('management.logRemoval.alerts.logsReadOnly.title')}</p>
-              <p className="text-sm mt-1">
-                {t('management.logRemoval.alerts.logsReadOnly.description')}
-              </p>
-            </div>
-          </Alert>
-        )}
+            {/* Read-Only Warning */}
+            {logsReadOnly && !logsMissing && (
+              <Alert color="orange" className="mb-6">
+                <div>
+                  <p className="font-medium">
+                    {t('management.logRemoval.alerts.logsReadOnly.title')}
+                  </p>
+                  <p className="text-sm mt-1">
+                    {t('management.logRemoval.alerts.logsReadOnly.description')}
+                  </p>
+                </div>
+              </Alert>
+            )}
 
-        {/* Docker Socket Warning */}
-        {!isDockerAvailable && !hasPermissionIssue && (
-          <Alert color="orange" className="mb-6">
-            <div className="min-w-0">
-              <p className="font-medium">{t('management.logRemoval.alerts.dockerSocket.title')}</p>
-              <p className="text-sm mt-1">
-                {t('management.logRemoval.alerts.dockerSocket.description')}
-              </p>
-              <p className="text-sm mt-2">
-                {t('management.logRemoval.alerts.dockerSocket.addVolumes')}
-              </p>
-              <code className="block bg-themed-tertiary px-2 py-1 rounded text-xs mt-1 break-all">
-                - /var/run/docker.sock:/var/run/docker.sock
-              </code>
-            </div>
-          </Alert>
-        )}
+            {/* Docker Socket Warning */}
+            {!isDockerAvailable && !hasPermissionIssue && (
+              <Alert color="orange" className="mb-6">
+                <div className="min-w-0">
+                  <p className="font-medium">
+                    {t('management.logRemoval.alerts.dockerSocket.title')}
+                  </p>
+                  <p className="text-sm mt-1">
+                    {t('management.logRemoval.alerts.dockerSocket.description')}
+                  </p>
+                  <p className="text-sm mt-2">
+                    {t('management.logRemoval.alerts.dockerSocket.addVolumes')}
+                  </p>
+                  <code className="block bg-themed-tertiary px-2 py-1 rounded text-xs mt-1 break-all">
+                    - /var/run/docker.sock:/var/run/docker.sock
+                  </code>
+                </div>
+              </Alert>
+            )}
 
-        {/* Content */}
-        {hasPermissionIssue || !isDockerAvailable ? (
-          <ReadOnlyBadge
-            message={
-              logsMissing
-                ? t('management.logRemoval.logsMissing', 'Logs directory not found')
-                : logsReadOnly
-                  ? t('management.logRemoval.readOnly')
-                  : t('management.logRemoval.dockerSocketRequired')
-            }
-          />
-        ) : (
-          <>
-            {isLoading ? (
-              <LoadingState
-                message={t('management.logRemoval.loading.scanning')}
-                submessage={t('management.logRemoval.loading.mayTakeMinutes')}
+            {/* Content */}
+            {hasPermissionIssue || !isDockerAvailable ? (
+              <ReadOnlyBadge
+                message={
+                  logsMissing
+                    ? t('management.logRemoval.logsMissing', 'Logs directory not found')
+                    : logsReadOnly
+                      ? t('management.logRemoval.readOnly')
+                      : t('management.logRemoval.dockerSocketRequired')
+                }
               />
-            ) : hasAnyLogEntries ? (
-              <div className="space-y-3">
-                {datasourceCounts.map((ds) => {
-                  const { other, displayed } = getServicesForDatasource(ds);
-                  const isExpanded = expandedDatasources.has(ds.datasource);
-                  const totalEntries = Object.values(ds.serviceCounts).reduce((a, b) => a + b, 0);
-                  const hasEntries = totalEntries > 0;
+            ) : (
+              <>
+                {isLoading ? (
+                  <LoadingState
+                    message={t('management.logRemoval.loading.scanning')}
+                    submessage={t('management.logRemoval.loading.mayTakeMinutes')}
+                  />
+                ) : hasAnyLogEntries ? (
+                  <div className="space-y-3">
+                    {datasourceCounts.map((ds) => {
+                      const { other, displayed } = getServicesForDatasource(ds);
+                      const isExpanded = expandedDatasources.has(ds.datasource);
+                      const totalEntries = Object.values(ds.serviceCounts).reduce(
+                        (a, b) => a + b,
+                        0
+                      );
+                      const hasEntries = totalEntries > 0;
 
-                  return (
-                    <DatasourceListItem
-                      key={ds.datasource}
-                      name={ds.datasource}
-                      path={ds.logsPath}
-                      isExpanded={isExpanded}
-                      onToggle={() => toggleDatasourceExpanded(ds.datasource)}
-                      enabled={ds.enabled && ds.logsWritable}
-                      statusBadge={`${totalEntries.toLocaleString()} entries`}
-                    >
-                      {hasEntries ? (
-                        <>
-                          {/* Delete entire log file button */}
-                          <div className="flex justify-end pt-2 pb-1">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              color="red"
-                              leftSection={<Trash2 className="w-3 h-3" />}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setPendingLogFileDeletion(ds.datasource);
-                              }}
-                              disabled={
-                                mockMode ||
-                                isAnyRemovalRunning ||
-                                !!startingServiceRemoval ||
-                                !!deletingLogFile ||
-                                authMode !== 'authenticated' ||
-                                !ds.logsWritable ||
-                                !isDockerAvailable ||
-                                checkingPermissions
-                              }
-                              loading={deletingLogFile === ds.datasource}
-                              className="w-full sm:w-auto"
-                            >
-                              {t('management.logRemoval.buttons.deleteLogFile')}
-                            </Button>
-                          </div>
-
-                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                            {displayed.map((service) => {
-                              const key = `${ds.datasource}:${service}`;
-                              return (
-                                <ServiceButton
-                                  key={key}
-                                  service={service}
-                                  count={ds.serviceCounts[service] || 0}
-                                  isRemoving={
-                                    activeLogRemoval === service || startingServiceRemoval === key
-                                  }
-                                  isDisabled={
+                      return (
+                        <DatasourceListItem
+                          key={ds.datasource}
+                          name={ds.datasource}
+                          path={ds.logsPath}
+                          isExpanded={isExpanded}
+                          onToggle={() => toggleDatasourceExpanded(ds.datasource)}
+                          enabled={ds.enabled && ds.logsWritable}
+                          statusBadge={`${formatCount(totalEntries)} entries`}
+                        >
+                          {hasEntries ? (
+                            <>
+                              {/* Delete entire log file button */}
+                              <div className="flex justify-end pt-2 pb-1">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  color="red"
+                                  leftSection={<Trash2 className="w-3 h-3" />}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setPendingLogFileDeletion(ds.datasource);
+                                  }}
+                                  disabled={
                                     mockMode ||
                                     isAnyRemovalRunning ||
                                     !!startingServiceRemoval ||
+                                    !!deletingLogFile ||
                                     authMode !== 'authenticated' ||
                                     !ds.logsWritable ||
                                     !isDockerAvailable ||
                                     checkingPermissions
                                   }
-                                  onClick={() => handleRemoveServiceLogs(ds.datasource, service)}
-                                  clearLabel={t('management.logRemoval.buttons.clear')}
-                                  entriesLabel={t('management.logRemoval.labels.entries')}
-                                  removingLabel={t('management.logRemoval.labels.removing')}
-                                />
-                              );
-                            })}
-                          </div>
+                                  loading={deletingLogFile === ds.datasource}
+                                  className="w-full sm:w-auto"
+                                >
+                                  {t('management.logRemoval.buttons.deleteLogFile')}
+                                </Button>
+                              </div>
 
-                          {other.length > 0 && (
-                            <div className="mt-3 text-center">
-                              <Button
-                                variant="default"
-                                size="sm"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setShowMoreServices((prev) => ({
-                                    ...prev,
-                                    [ds.datasource]: !prev[ds.datasource]
-                                  }));
-                                }}
-                              >
-                                {showMoreServices[ds.datasource] ? (
-                                  <>
-                                    {t('management.logRemoval.buttons.showLess', {
-                                      count: other.length
-                                    })}
-                                  </>
-                                ) : (
-                                  <>
-                                    {t('management.logRemoval.buttons.showMore', {
-                                      count: other.length
-                                    })}
-                                  </>
-                                )}
-                              </Button>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                                {displayed.map((service) => {
+                                  const key = `${ds.datasource}:${service}`;
+                                  return (
+                                    <ServiceButton
+                                      key={key}
+                                      service={service}
+                                      count={ds.serviceCounts[service] || 0}
+                                      isRemoving={
+                                        activeLogRemoval === service ||
+                                        startingServiceRemoval === key
+                                      }
+                                      isDisabled={
+                                        mockMode ||
+                                        isAnyRemovalRunning ||
+                                        !!startingServiceRemoval ||
+                                        authMode !== 'authenticated' ||
+                                        !ds.logsWritable ||
+                                        !isDockerAvailable ||
+                                        checkingPermissions
+                                      }
+                                      onClick={() =>
+                                        handleRemoveServiceLogs(ds.datasource, service)
+                                      }
+                                      clearLabel={t('management.logRemoval.buttons.clear')}
+                                      entriesLabel={t('management.logRemoval.labels.entries')}
+                                      removingLabel={t('management.logRemoval.labels.removing')}
+                                    />
+                                  );
+                                })}
+                              </div>
+
+                              {other.length > 0 && (
+                                <div className="mt-3 text-center">
+                                  <Button
+                                    variant="default"
+                                    size="sm"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setShowMoreServices((prev) => ({
+                                        ...prev,
+                                        [ds.datasource]: !prev[ds.datasource]
+                                      }));
+                                    }}
+                                  >
+                                    {showMoreServices[ds.datasource] ? (
+                                      <>
+                                        {t('management.logRemoval.buttons.showLess', {
+                                          count: other.length
+                                        })}
+                                      </>
+                                    ) : (
+                                      <>
+                                        {t('management.logRemoval.buttons.showMore', {
+                                          count: other.length
+                                        })}
+                                      </>
+                                    )}
+                                  </Button>
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            <div className="text-center py-4 text-themed-muted text-sm">
+                              {t('management.logRemoval.noEntriesForDatasource')}
                             </div>
                           )}
-                        </>
-                      ) : (
-                        <div className="text-center py-4 text-themed-muted text-sm">
-                          {t('management.logRemoval.noEntriesForDatasource')}
-                        </div>
-                      )}
-                    </DatasourceListItem>
-                  );
-                })}
-              </div>
-            ) : (
-              <EmptyState
-                title={t('management.logRemoval.emptyState.title')}
-                subtitle={t('management.logRemoval.emptyState.subtitle')}
-              />
+                        </DatasourceListItem>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <EmptyState
+                    title={t('management.logRemoval.emptyState.title')}
+                    subtitle={t('management.logRemoval.emptyState.subtitle')}
+                  />
+                )}
+              </>
             )}
-          </>
-        )}
+          </div>
+        </AccordionSection>
       </Card>
 
       {/* Log Removal Confirmation Modal */}

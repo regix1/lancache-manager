@@ -1,17 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  CheckCircle,
-  AlertCircle,
-  Loader2,
-  X,
-  User,
-  UserX,
-  Trash2,
-  XCircle,
-  Info,
-  Key
-} from 'lucide-react';
+import { CheckCircle, AlertCircle, X, User, UserX, Trash2, XCircle, Info, Key } from 'lucide-react';
 import ApiService from '@services/api.service';
 import {
   useNotifications,
@@ -19,9 +8,10 @@ import {
   NOTIFICATION_ANIMATION_DURATION_MS
 } from '@contexts/notifications';
 import { useSteamWebApiStatus } from '@contexts/useSteamWebApiStatus';
+import { formatCount, formatBytes } from '@utils/formatters';
 import themeService from '@services/theme.service';
 import { Tooltip } from '@components/ui/Tooltip';
-import { formatBytes } from '@utils/formatters';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 
 // ============================================================================
 // Cancellable Operation Types
@@ -119,7 +109,7 @@ const getNotificationIcon = (notification: UnifiedNotification): React.ReactNode
   const color = getNotificationColor(notification);
 
   if (notification.status === 'running') {
-    return <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" style={{ color }} />;
+    return <LoadingSpinner inline size="sm" className="flex-shrink-0" style={{ color }} />;
   }
 
   if (notification.status === 'completed') {
@@ -215,7 +205,7 @@ const renderDefaultTitle = ({ notification }: ContentRendererProps) => (
  */
 const renderCompletionDetails = ({ notification, t, formatBytesLocal }: ContentRendererProps) => {
   const filesDeletedCount = notification.details?.filesDeleted ?? 0;
-  const filesDeletedFormatted = filesDeletedCount.toLocaleString();
+  const filesDeletedFormatted = formatCount(filesDeletedCount);
 
   switch (notification.type) {
     case 'cache_clearing':
@@ -265,7 +255,7 @@ const renderCompletionDetails = ({ notification, t, formatBytesLocal }: ContentR
             notification.details.logEntriesRemoved > 0 &&
             ` • ${t('common.notifications.logEntriesRemoved', {
               count: notification.details.logEntriesRemoved,
-              formattedCount: notification.details.logEntriesRemoved.toLocaleString()
+              formattedCount: formatCount(notification.details.logEntriesRemoved)
             })}`}
           {` • ${t('common.notifications.freed', { value: formatBytesLocal(notification.details?.bytesFreed || 0) })}`}
         </div>
@@ -401,7 +391,7 @@ const UnifiedNotificationItem = ({
           onCancel &&
           (notification.details?.cancelling ? (
             <div className="flex items-center gap-1.5 px-2 py-1 rounded text-xs bg-[var(--theme-error-bg)] text-[var(--theme-error)]">
-              <Loader2 className="w-3 h-3 animate-spin" />
+              <LoadingSpinner inline size="xs" />
               <span>{t('common.notifications.cancelling')}</span>
             </div>
           ) : (

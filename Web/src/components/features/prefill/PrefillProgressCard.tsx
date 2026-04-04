@@ -1,8 +1,9 @@
 import { useTranslation } from 'react-i18next';
 import { Card } from '../../ui/Card';
 import { Button } from '../../ui/Button';
-import { Download, XCircle, Loader2 } from 'lucide-react';
-import { formatBytes, formatSpeed } from '@utils/formatters';
+import { Download, XCircle } from 'lucide-react';
+import LoadingSpinner from '@components/common/LoadingSpinner';
+import { formatBytes, formatSpeed, formatPercent } from '@utils/formatters';
 import { formatTimeRemaining } from './types';
 
 interface PrefillProgressState {
@@ -59,7 +60,7 @@ export function PrefillProgressCard({ progress, onCancel }: PrefillProgressCardP
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-[var(--theme-primary-subtle)]">
               {isReconnecting ? (
-                <Loader2 className="h-5 w-5 animate-spin text-[var(--theme-primary)]" />
+                <LoadingSpinner inline size="md" className="text-[var(--theme-primary)]" />
               ) : (
                 <Download className="h-5 w-5 animate-pulse text-[var(--theme-primary)]" />
               )}
@@ -137,14 +138,14 @@ export function PrefillProgressCard({ progress, onCancel }: PrefillProgressCardP
                 {formatBytes(progress.bytesDownloaded)} / {formatBytes(progress.totalBytes)}
               </span>
               <span className="font-medium text-[var(--theme-primary)]">
-                {progress.percentComplete.toFixed(1)}%
+                {formatPercent(progress.percentComplete, 1)}
               </span>
             </div>
           ) : progress.state === 'already_cached' ? (
             <div className="flex items-center justify-between text-xs text-themed-muted">
               <span className="text-[var(--theme-info)]">{t('prefill.progress.gameUpToDate')}</span>
               <span className="font-medium text-[var(--theme-info)]">
-                {progress.percentComplete.toFixed(0)}%
+                {formatPercent(progress.percentComplete, 0)}
               </span>
             </div>
           ) : progress.state === 'app_completed' ? (

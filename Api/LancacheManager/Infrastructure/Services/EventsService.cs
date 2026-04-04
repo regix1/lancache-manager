@@ -8,8 +8,6 @@ namespace LancacheManager.Infrastructure.Services;
 
 public class EventsService : IEventsService
 {
-    private const string PrefillToken = "prefill";
-
     private readonly AppDbContext _context;
     private readonly ILogger<EventsService> _logger;
 
@@ -124,8 +122,7 @@ public class EventsService : IEventsService
                 .AsNoTracking()
                 .Where(ed => ed.EventId == eventId)
                 .Select(ed => ed.Download)
-                .Where(d => d.ClientIp == null || d.ClientIp.ToLower() != PrefillToken)
-                .Where(d => d.Datasource == null || d.Datasource.ToLower() != PrefillToken)
+                .ApplyPrefillFilter()
                 .OrderByDescending(d => d.StartTimeUtc)
                 .ToListAsync(cancellationToken);
         }
@@ -135,8 +132,7 @@ public class EventsService : IEventsService
             downloads = await _context.Downloads
                 .AsNoTracking()
                 .Where(d => d.StartTimeUtc >= evt.StartTimeUtc && d.StartTimeUtc <= evt.EndTimeUtc)
-                .Where(d => d.ClientIp == null || d.ClientIp.ToLower() != PrefillToken)
-                .Where(d => d.Datasource == null || d.Datasource.ToLower() != PrefillToken)
+                .ApplyPrefillFilter()
                 .OrderByDescending(d => d.StartTimeUtc)
                 .ToListAsync(cancellationToken);
         }

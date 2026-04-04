@@ -5,7 +5,6 @@ import {
   ChevronRight,
   ArrowLeft,
   Home,
-  Loader2,
   Search,
   HardDrive,
   Database
@@ -14,6 +13,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
 import { formatBytes } from '@utils/formatters';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
@@ -244,7 +244,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAdmin, mockMo
             title={t('management.fileBrowser.searchForDb')}
           >
             {searching ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              <LoadingSpinner inline size="sm" className="w-3.5 h-3.5" />
             ) : (
               <Search className="w-3.5 h-3.5" />
             )}
@@ -262,7 +262,7 @@ const FileBrowser: React.FC<FileBrowserProps> = ({ onSelectFile, isAdmin, mockMo
       {/* Loading */}
       {loading && (
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="w-6 h-6 animate-spin text-themed-accent" />
+          <LoadingSpinner inline size="lg" className="text-themed-accent" />
         </div>
       )}
 

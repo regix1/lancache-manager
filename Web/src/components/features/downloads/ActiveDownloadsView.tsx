@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Activity, HardDrive, Users, Loader2, RefreshCw } from 'lucide-react';
+import { Activity, HardDrive, Users, RefreshCw } from 'lucide-react';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useSpeed } from '@contexts/SpeedContext/useSpeed';
-import { formatBytes, formatSpeed } from '@utils/formatters';
+import { formatBytes, formatPercent, formatSpeed } from '@utils/formatters';
 import { getServiceBadgeStyles } from '@utils/serviceColors';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import type { GameSpeedInfo, ClientSpeedInfo } from '../../../types';
@@ -21,7 +22,7 @@ const ActiveDownloadsView: React.FC = () => {
   if (isLoading) {
     return (
       <div className="active-loading-state">
-        <Loader2 className="active-loading-spinner" />
+        <LoadingSpinner inline className="active-loading-spinner" />
       </div>
     );
   }
@@ -112,7 +113,9 @@ const ActiveDownloadsView: React.FC = () => {
                             : 'low'
                       }`}
                     >
-                      {t('downloads.active.hitRate', { percent: game.cacheHitPercent.toFixed(0) })}
+                      {t('downloads.active.hitRate', {
+                        percent: formatPercent(game.cacheHitPercent, 0)
+                      })}
                     </span>
                     <span className="meta-divider">•</span>
                     <span className="meta-item">

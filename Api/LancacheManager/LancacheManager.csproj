@@ -99,6 +99,14 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor\db_migrate.exe</Link>
     </None>
+    <None Include="..\..\rust-processor\target\release\cache_eviction_scan.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\cache_eviction_scan.exe</Link>
+    </None>
+    <None Include="..\..\rust-processor\target\release\cache_epic_remove.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\cache_epic_remove.exe</Link>
+    </None>
   </ItemGroup>
 
   <ItemGroup Condition="'$(RuntimeIdentifier)' == 'win-x64' And '$(SkipRustBuild)' != 'true'">
@@ -146,6 +154,14 @@
     <None Include="..\..\rust-processor\bin\win-x64\db_migrate.exe">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor\db_migrate.exe</Link>
+    </None>
+    <None Include="..\..\rust-processor\bin\win-x64\cache_eviction_scan.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\cache_eviction_scan.exe</Link>
+    </None>
+    <None Include="..\..\rust-processor\bin\win-x64\cache_epic_remove.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\cache_epic_remove.exe</Link>
     </None>
   </ItemGroup>
 
@@ -195,6 +211,14 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor\db_migrate</Link>
     </None>
+    <None Include="..\..\rust-processor\bin\linux-x64\cache_eviction_scan">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\cache_eviction_scan</Link>
+    </None>
+    <None Include="..\..\rust-processor\bin\linux-x64\cache_epic_remove">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\cache_epic_remove</Link>
+    </None>
   </ItemGroup>
 
   <ItemGroup Condition="'$(RuntimeIdentifier)' == 'linux-arm64' And '$(SkipRustBuild)' != 'true'">
@@ -243,6 +267,14 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor\db_migrate</Link>
     </None>
+    <None Include="..\..\rust-processor\bin\linux-arm64\cache_eviction_scan">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\cache_eviction_scan</Link>
+    </None>
+    <None Include="..\..\rust-processor\bin\linux-arm64\cache_epic_remove">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor\cache_epic_remove</Link>
+    </None>
   </ItemGroup>
 
   <ItemGroup Condition="!$([MSBuild]::IsOSPlatform('Windows')) And '$(RuntimeIdentifier)' == '' And '$(SkipRustBuild)' != 'true'">
@@ -290,6 +322,14 @@
     <None Include="../../rust-processor/target/release/db_migrate">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>rust-processor/db_migrate</Link>
+    </None>
+    <None Include="../../rust-processor/target/release/cache_eviction_scan">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor/cache_eviction_scan</Link>
+    </None>
+    <None Include="../../rust-processor/target/release/cache_epic_remove">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>rust-processor/cache_epic_remove</Link>
     </None>
   </ItemGroup>
 

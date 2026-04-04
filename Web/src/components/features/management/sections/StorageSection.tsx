@@ -1,17 +1,18 @@
-import React, { Suspense, useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import './StorageSection.css';
 import { useTranslation } from 'react-i18next';
-import { RefreshCw, Loader2, AlertTriangle, Archive, Database } from 'lucide-react';
+import { RefreshCw, AlertTriangle, Archive, Database } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { Modal } from '@components/ui/Modal';
 import { Checkbox } from '@components/ui/Checkbox';
-import { ManagerCardHeader, LoadingState } from '@components/ui/ManagerCard';
+import { LoadingState } from '@components/ui/ManagerCard';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { type AuthMode } from '@services/auth.service';
 import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
 import { ImageCacheContext, ImageInvalidateContext } from '@components/common/ImageCacheContext';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
 import { useGameDetection } from '@contexts/DashboardDataContext/hooks';
 import { useNotifications } from '@contexts/notifications/useNotifications';
@@ -79,6 +80,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
   // Evicted Games — derived from cached game detection data (is_evicted === true)
   const { gameDetectionData, isLoading: evictedGamesLoading } = useGameDetection();
   const [evictedGamesExpanded, setEvictedGamesExpanded] = useState(true);
+  const [evictedDataExpanded, setEvictedDataExpanded] = useState(true);
   const evictedGames = useMemo(
     () => gameDetectionData?.games?.filter((game) => game.is_evicted === true) ?? [],
     [gameDetectionData]
@@ -217,7 +219,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
               disabled={isRechecking}
             >
               {isRechecking ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                <LoadingSpinner inline size="sm" className="mr-1.5" />
               ) : (
                 <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
               )}
@@ -264,25 +266,13 @@ const StorageSection: React.FC<StorageSectionProps> = ({
 
         <div className="space-y-4">
           {/* Cache Clearing */}
-          <Suspense
-            fallback={
-              <Card>
-                <div className="flex items-center justify-center py-8">
-                  <div className="text-themed-muted">
-                    {t('management.sections.storage.loadingCacheConfig')}
-                  </div>
-                </div>
-              </Card>
-            }
-          >
-            <CacheManager
-              isAdmin={isAdmin}
-              authMode={authMode}
-              mockMode={mockMode}
-              onError={onError}
-              onSuccess={onSuccess}
-            />
-          </Suspense>
+          <CacheManager
+            isAdmin={isAdmin}
+            authMode={authMode}
+            mockMode={mockMode}
+            onError={onError}
+            onSuccess={onSuccess}
+          />
 
           {/* Corruption Detection */}
           <CorruptionManager authMode={authMode} mockMode={mockMode} onError={onError} />
@@ -351,18 +341,21 @@ const StorageSection: React.FC<StorageSectionProps> = ({
         </div>
 
         <Card>
-          <ManagerCardHeader
-            icon={Archive}
-            iconColor="orange"
+          <AccordionSection
             title={t('management.sections.data.evictedCacheData')}
-            subtitle={t('management.sections.data.evictedCacheDescription')}
-            actions={
-              <div className="flex items-center gap-2">
+            icon={Archive}
+            iconColor="var(--theme-warning-text)"
+            isExpanded={evictedDataExpanded}
+            onToggle={() => setEvictedDataExpanded((prev) => !prev)}
+          >
+            <div className="space-y-4">
+              {/* Action toolbar */}
+              <div className="flex flex-wrap items-center justify-end gap-2">
                 <Button
                   onClick={handleResetEvictions}
                   disabled={resettingEvictions || isEvictionScanRunning}
                   loading={resettingEvictions}
-                  variant="subtle"
+                  variant="default"
                   size="sm"
                 >
                   {t('management.sections.data.resetEvictions')}
@@ -375,67 +368,67 @@ const StorageSection: React.FC<StorageSectionProps> = ({
                   size="sm"
                 >
                   {isEvictionScanRunning ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <LoadingSpinner inline size="sm" />
                   ) : (
                     t('management.sections.data.runEvictionScan')
                   )}
                 </Button>
               </div>
-            }
-          />
 
-          {evictionLoading ? (
-            <LoadingState message={t('management.sections.data.evictionLoadingSettings')} />
-          ) : (
-            <>
-              <div className="space-y-2 mb-4">
-                {(['show', 'showClean', 'hide', 'remove'] as const).map((mode) => (
-                  <label
-                    key={mode}
-                    className={`eviction-mode-option p-3 rounded-lg cursor-pointer flex items-start gap-3 transition-all duration-150 bg-themed-secondary${evictionMode === mode ? ' eviction-mode-option-selected' : ''}`}
-                  >
-                    <input
-                      type="radio"
-                      name="evictionMode"
-                      value={mode}
-                      checked={evictionMode === mode}
-                      onChange={() => setEvictionMode(mode)}
-                      className="eviction-radio mt-1"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium text-themed-primary">
-                        {t(`management.sections.data.evictionModes.${mode}`)}
-                      </div>
-                      <div className="text-sm text-themed-secondary mt-1">
-                        {t(`management.sections.data.evictionModes.${mode}Description`)}
-                      </div>
+              {evictionLoading ? (
+                <LoadingState message={t('management.sections.data.evictionLoadingSettings')} />
+              ) : (
+                <>
+                  <div className="space-y-2 mb-4">
+                    {(['show', 'showClean', 'hide', 'remove'] as const).map((mode) => (
+                      <label
+                        key={mode}
+                        className={`eviction-mode-option p-3 rounded-lg cursor-pointer flex items-start gap-3 transition-all duration-150 bg-themed-secondary${evictionMode === mode ? ' eviction-mode-option-selected' : ''}`}
+                      >
+                        <input
+                          type="radio"
+                          name="evictionMode"
+                          value={mode}
+                          checked={evictionMode === mode}
+                          onChange={() => setEvictionMode(mode)}
+                          className="eviction-radio mt-1"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium text-themed-primary">
+                            {t(`management.sections.data.evictionModes.${mode}`)}
+                          </div>
+                          <div className="text-sm text-themed-secondary mt-1">
+                            {t(`management.sections.data.evictionModes.${mode}Description`)}
+                          </div>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+
+                  <div className="pt-4 border-t border-themed-primary">
+                    <div className="flex items-center justify-between">
+                      <Checkbox
+                        label={t('management.sections.data.evictionScanNotifications')}
+                        checked={evictionScanNotifications}
+                        onChange={(e) => setEvictionScanNotifications(e.target.checked)}
+                      />
+                      <Button
+                        onClick={handleSaveEviction}
+                        disabled={!isEvictionDirty || evictionSaving}
+                        loading={evictionSaving}
+                        className="sm:w-40"
+                      >
+                        {t('management.sections.clients.saveChanges')}
+                      </Button>
                     </div>
-                  </label>
-                ))}
-              </div>
-
-              <div className="pt-4 border-t border-themed-primary">
-                <div className="flex items-center justify-between">
-                  <Checkbox
-                    label={t('management.sections.data.evictionScanNotifications')}
-                    checked={evictionScanNotifications}
-                    onChange={(e) => setEvictionScanNotifications(e.target.checked)}
-                  />
-                  <Button
-                    onClick={handleSaveEviction}
-                    disabled={!isEvictionDirty || evictionSaving}
-                    loading={evictionSaving}
-                    className="sm:w-40"
-                  >
-                    {t('management.sections.clients.saveChanges')}
-                  </Button>
-                </div>
-                <p className="text-xs text-themed-muted mt-1 ml-6">
-                  {t('management.sections.data.evictionScanNotificationsDescription')}
-                </p>
-              </div>
-            </>
-          )}
+                    <p className="text-xs text-themed-muted mt-1 ml-6">
+                      {t('management.sections.data.evictionScanNotificationsDescription')}
+                    </p>
+                  </div>
+                </>
+              )}
+            </div>
+          </AccordionSection>
         </Card>
       </div>
 

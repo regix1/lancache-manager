@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Palette, Loader2, Lock, Unlock, Globe, MapPin, Monitor } from 'lucide-react';
+import { Palette, Lock, Unlock, Globe, MapPin, Monitor } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { MultiSelectDropdown } from '@components/ui/MultiSelectDropdown';
 import { AccordionSection } from '@components/ui/AccordionSection';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 
 interface AppearanceDisplayCardProps {
   // Theme
@@ -140,7 +141,11 @@ const AppearanceDisplayCard: React.FC<AppearanceDisplayCardProps> = ({
                   className="w-full"
                 />
                 {updatingGuestTheme && (
-                  <Loader2 className="w-4 h-4 animate-spin absolute right-10 top-1/2 -translate-y-1/2 text-themed-accent" />
+                  <LoadingSpinner
+                    inline
+                    size="sm"
+                    className="absolute right-10 top-1/2 -translate-y-1/2 text-themed-accent"
+                  />
                 )}
               </div>
             </div>
@@ -157,7 +162,11 @@ const AppearanceDisplayCard: React.FC<AppearanceDisplayCardProps> = ({
                   className="w-full"
                 />
                 {updatingGuestRefreshRate && (
-                  <Loader2 className="w-4 h-4 animate-spin absolute right-10 top-1/2 -translate-y-1/2 text-themed-accent" />
+                  <LoadingSpinner
+                    inline
+                    size="sm"
+                    className="absolute right-10 top-1/2 -translate-y-1/2 text-themed-accent"
+                  />
                 )}
               </div>
             </div>
@@ -179,7 +188,7 @@ const AppearanceDisplayCard: React.FC<AppearanceDisplayCardProps> = ({
               </div>
               <div className="flex items-center gap-2">
                 {updatingGuestRefreshRateLock && (
-                  <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
+                  <LoadingSpinner inline size="sm" className="text-themed-accent" />
                 )}
                 <div className={`modern-toggle ${guestRefreshRateLocked ? 'checked' : ''}`}>
                   <span className="toggle-thumb" />
@@ -206,7 +215,11 @@ const AppearanceDisplayCard: React.FC<AppearanceDisplayCardProps> = ({
                   dropdownWidth="w-80"
                 />
                 {updatingAllowedFormats && (
-                  <Loader2 className="w-4 h-4 animate-spin absolute right-10 top-1/2 -translate-y-1/2 text-themed-accent" />
+                  <LoadingSpinner
+                    inline
+                    size="sm"
+                    className="absolute right-10 top-1/2 -translate-y-1/2 text-themed-accent"
+                  />
                 )}
               </div>
               <div className="toggle-row-description">{t('user.guest.timeFormats.note')}</div>
@@ -227,7 +240,7 @@ const AppearanceDisplayCard: React.FC<AppearanceDisplayCardProps> = ({
               </div>
               <div className="flex items-center gap-2">
                 {updatingDefaultPref === 'showYearInDates' && (
-                  <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
+                  <LoadingSpinner inline size="sm" className="text-themed-accent" />
                 )}
                 <div
                   className={`modern-toggle ${defaultGuestPreferences.showYearInDates ? 'checked' : ''}`}
@@ -262,7 +275,7 @@ const AppearanceDisplayCard: React.FC<AppearanceDisplayCardProps> = ({
               </div>
               <div className="flex items-center gap-2">
                 {updatingDefaultPref === 'sharpCorners' && (
-                  <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
+                  <LoadingSpinner inline size="sm" className="text-themed-accent" />
                 )}
                 <div
                   className={`modern-toggle ${defaultGuestPreferences.sharpCorners ? 'checked' : ''}`}
@@ -289,7 +302,7 @@ const AppearanceDisplayCard: React.FC<AppearanceDisplayCardProps> = ({
               </div>
               <div className="flex items-center gap-2">
                 {updatingDefaultPref === 'disableTooltips' && (
-                  <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
+                  <LoadingSpinner inline size="sm" className="text-themed-accent" />
                 )}
                 <div
                   className={`modern-toggle ${defaultGuestPreferences.disableTooltips ? 'checked' : ''}`}
@@ -319,7 +332,7 @@ const AppearanceDisplayCard: React.FC<AppearanceDisplayCardProps> = ({
               </div>
               <div className="flex items-center gap-2">
                 {updatingDefaultPref === 'showDatasourceLabels' && (
-                  <Loader2 className="w-4 h-4 animate-spin text-themed-accent" />
+                  <LoadingSpinner inline size="sm" className="text-themed-accent" />
                 )}
                 <div
                   className={`modern-toggle ${defaultGuestPreferences.showDatasourceLabels ? 'checked' : ''}`}

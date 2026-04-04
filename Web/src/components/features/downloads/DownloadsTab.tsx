@@ -21,8 +21,7 @@ import {
   Search,
   X,
   Maximize2,
-  RefreshCw,
-  Loader2
+  RefreshCw
 } from 'lucide-react';
 import { useDownloads, useGameDetection } from '@contexts/DashboardDataContext/hooks';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
@@ -30,6 +29,7 @@ import { useTimeFilter } from '@contexts/useTimeFilter';
 import { useClientGroups } from '@contexts/useClientGroups';
 import { storage } from '@utils/storage';
 import ApiService from '@services/api.service';
+import { useConfig } from '@contexts/useConfig';
 import { useAuth } from '@contexts/useAuth';
 import { useSessionPreferences } from '@contexts/useSessionPreferences';
 import { formatDateTime } from '@utils/formatters';
@@ -44,6 +44,7 @@ import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { TogglePill } from '@components/ui/TogglePill';
 import { Tooltip } from '@components/ui/Tooltip';
 import { ImageCacheContext } from '@components/common/ImageCacheContext';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 
 // Import view components
 import CompactView from './CompactView';
@@ -53,7 +54,7 @@ const RetroView = lazy(() => import('./RetroView'));
 import DownloadsHeader from './DownloadsHeader';
 import ActiveDownloadsView from './ActiveDownloadsView';
 
-import type { Download, DownloadGroup, Config } from '../../../types';
+import type { Download, DownloadGroup } from '../../../types';
 
 // Storage keys for persistence
 const STORAGE_KEYS = {
@@ -310,33 +311,22 @@ const DownloadsTab: React.FC = () => {
     }
   }, [isHistoricalView, activeTab]);
 
-  // Datasource display state
-  const [config, setConfig] = useState<Config | null>(null);
+  // Config from context (guaranteed non-null)
+  const { config } = useConfig();
 
   // Get showDatasourceLabels from centralized SessionPreferencesContext
   const { currentPreferences } = useSessionPreferences();
   const showDatasourceLabels = currentPreferences?.showDatasourceLabels ?? true;
 
-  // Fetch config for datasource display
+  // Load the backend cache generation so image URLs are cache-busted correctly
   useEffect(() => {
-    const loadDatasourceSettings = async () => {
-      try {
-        const configData = await ApiService.getConfig();
-        setConfig(configData);
-      } catch (err) {
-        console.error('Failed to load datasource settings:', err);
-      }
-    };
-    loadDatasourceSettings();
-
-    // Load the backend cache generation so image URLs are cache-busted correctly
     ApiService.getImageCacheVersion().then((v) => {
       if (v > 0) setImageCacheVersion(v);
     });
   }, []);
 
   // Compute whether to show datasource labels (show if any datasources are configured)
-  const hasMultipleDatasources = (config?.dataSources?.length ?? 0) >= 1;
+  const hasMultipleDatasources = (config.dataSources?.length ?? 0) >= 1;
 
   // State management
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
@@ -1891,7 +1881,7 @@ const DownloadsTab: React.FC = () => {
               <Suspense
                 fallback={
                   <div className="flex justify-center py-8">
-                    <Loader2 className="animate-spin" />
+                    <LoadingSpinner inline size="lg" />
                   </div>
                 }
               >

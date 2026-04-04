@@ -1,14 +1,14 @@
-import React, { useState, useEffect, useMemo, memo, useRef } from 'react';
-import { getCachedValue, setCachedValue, IDB_KEYS } from '@utils/idbCache';
+import React, { useMemo, memo } from 'react';
+import { IDB_KEYS } from '@utils/idbCache';
 import { TrendingUp, TrendingDown } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { formatBytes } from '@utils/formatters';
+import { formatBytes, formatPercent } from '@utils/formatters';
 import { type CacheGrowthResponse } from '../../../../types';
 import Sparkline from '../components/Sparkline';
 import ApiService from '@services/api.service';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { useTimeFilter } from '@contexts/useTimeFilter';
-import { useMockMode } from '@contexts/useMockMode';
+import { useWidgetData } from '@hooks/useWidgetData';
 import MockDataService from '../../../../test/mockData.service';
 
 interface CacheGrowthTrendProps {
@@ -29,82 +29,27 @@ interface CacheGrowthTrendProps {
 const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
   ({ usedCacheSize, totalCacheSize, glassmorphism = true, staggerIndex }) => {
     const { t } = useTranslation();
-    const { timeRange, getTimeRangeParams, selectedEventIds } = useTimeFilter();
+    const { timeRange } = useTimeFilter();
 
     // Determine if we're viewing historical/filtered data (not live)
     // Any non-live mode should disable real-time only stats
     const isHistoricalView = timeRange !== 'live';
-    const { mockMode } = useMockMode();
-    const [data, setData] = useState<CacheGrowthResponse | null>(
-      () => getCachedValue<CacheGrowthResponse>(IDB_KEYS.CACHE_GROWTH) ?? null
-    );
-    const [loading, setLoading] = useState(
-      () => getCachedValue(IDB_KEYS.CACHE_GROWTH) === undefined
-    );
-    const [error, setError] = useState<string | null>(null);
-    const prevDataRef = useRef<CacheGrowthResponse | null>(
-      getCachedValue<CacheGrowthResponse>(IDB_KEYS.CACHE_GROWTH) ?? null
-    );
 
-    // Fetch cache growth data from API
-    // In mock mode, use generated mock data instead
-    useEffect(() => {
-      if (mockMode) {
-        setLoading(true);
-        // Use mock data with provided cache sizes
-        const mockData = MockDataService.generateMockCacheGrowth(usedCacheSize, totalCacheSize);
-        setData(mockData);
-        setError(null);
-        setLoading(false);
-        return;
-      }
-
-      const controller = new AbortController();
-
-      // Store current data as previous (keep visible during fetch)
-      if (data) {
-        prevDataRef.current = data;
-      }
-
-      const fetchData = async () => {
-        try {
-          // Only show loading when there's no prior data
-          if (!prevDataRef.current) setLoading(true);
-          setError(null);
-          const { startTime, endTime } = getTimeRangeParams();
-          const eventId = selectedEventIds.length > 0 ? selectedEventIds[0] : undefined;
-          // Pass actual cache size to detect deletions and calculate net growth
-          const response = await ApiService.getCacheGrowth(
-            controller.signal,
-            startTime,
-            endTime,
-            'daily',
-            usedCacheSize > 0 ? usedCacheSize : undefined,
-            eventId
-          );
-          setData(response);
-          setCachedValue(IDB_KEYS.CACHE_GROWTH, response);
-        } catch (err) {
-          if (!controller.signal.aborted) {
-            setError('Failed to load growth data');
-            console.error('CacheGrowthTrend fetch error:', err);
-            // Don't clear data on error - keep previous data visible
-          }
-        } finally {
-          if (!controller.signal.aborted) {
-            setLoading(false);
-          }
-        }
-      };
-
-      fetchData();
-
-      return () => controller.abort();
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [timeRange, getTimeRangeParams, usedCacheSize, totalCacheSize, mockMode, selectedEventIds]);
-
-    // Use displayData to preserve previous values during loading
-    const displayData = data || prevDataRef.current;
+    // Fetch cache growth data from API using shared hook
+    const { loading, error, displayData } = useWidgetData<CacheGrowthResponse>({
+      cacheKey: IDB_KEYS.CACHE_GROWTH,
+      fetchFn: (signal, params) =>
+        ApiService.getCacheGrowth(
+          signal,
+          params.startTime,
+          params.endTime,
+          'daily',
+          usedCacheSize > 0 ? usedCacheSize : undefined,
+          params.eventId
+        ),
+      mockFn: () => MockDataService.generateMockCacheGrowth(usedCacheSize, totalCacheSize),
+      deps: [usedCacheSize, totalCacheSize]
+    });
 
     // Extract sparkline data from API response
     const sparklineData = useMemo(() => {
@@ -152,7 +97,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
         : '';
 
     // Loading state - only show loading skeleton if we have no data at all
-    if (loading && !data && !prevDataRef.current) {
+    if (loading && !displayData) {
       return (
         <div className={`widget-card ${glassmorphism ? 'glass' : ''} ${animationClasses}`}>
           <div className="flex items-center gap-2 mb-3">
@@ -265,7 +210,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
                 {trend === 'down' && <TrendingDown className="w-3 h-3" />}
                 <span>
                   {percentChange > 0 ? '+' : ''}
-                  {percentChange.toFixed(1)}%
+                  {formatPercent(percentChange, 1)}
                 </span>
               </div>
             )}

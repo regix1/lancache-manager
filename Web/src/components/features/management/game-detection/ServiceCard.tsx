@@ -1,7 +1,7 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { HardDrive, FolderOpen } from 'lucide-react';
-import { formatBytes } from '@utils/formatters';
+import { formatBytes, formatCount } from '@utils/formatters';
 import type { ServiceCacheInfo } from '../../../../types';
 import ExpandableItemCard, { type ExpandableItemStat } from './ExpandableItemCard';
 import ExpandableList from './ExpandableList';
@@ -41,7 +41,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
   const stats: ExpandableItemStat[] = [
     {
       icon: FolderOpen,
-      value: service.cache_files_found.toLocaleString(),
+      value: formatCount(service.cache_files_found),
       label: 'management.gameDetection.files'
     },
     {

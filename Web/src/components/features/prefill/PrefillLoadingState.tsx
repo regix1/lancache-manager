@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { Card, CardContent } from '../../ui/Card';
-import { Loader2 } from 'lucide-react';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 
 interface PrefillLoadingStateProps {
   status: 'checking' | 'creating';
@@ -26,10 +26,12 @@ export function PrefillLoadingState({ status, serviceId }: PrefillLoadingStatePr
                 isEpic ? 'prefill-loading-icon--epic' : 'prefill-loading-icon--steam'
               }`}
             >
-              <Loader2
-                className={`h-8 w-8 animate-spin ${
+              <LoadingSpinner
+                inline
+                size="xl"
+                className={
                   isEpic ? 'prefill-loading-spinner--epic' : 'prefill-loading-spinner--steam'
-                }`}
+                }
               />
             </div>
             <div className="text-center">

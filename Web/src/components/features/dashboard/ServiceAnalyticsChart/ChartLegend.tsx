@@ -1,5 +1,6 @@
 import React from 'react';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
+import { formatPercent } from '@utils/formatters';
 import type { ChartLegendProps } from './types';
 
 const ChartLegend: React.FC<ChartLegendProps> = React.memo(({ items }) => {
@@ -17,7 +18,7 @@ const ChartLegend: React.FC<ChartLegendProps> = React.memo(({ items }) => {
                 <span className="legend-dot" style={{ backgroundColor: item.color }} />
                 <span className="legend-name">{item.label}</span>
               </div>
-              <span className="legend-value">{item.percentage.toFixed(1)}%</span>
+              <span className="legend-value">{formatPercent(item.percentage)}</span>
             </div>
             <div className="legend-bar-track">
               <div

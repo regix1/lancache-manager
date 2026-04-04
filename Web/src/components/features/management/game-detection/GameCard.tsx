@@ -2,7 +2,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { HardDrive, Database, FolderOpen } from 'lucide-react';
 import { EpicIcon } from '@components/ui/EpicIcon';
-import { formatBytes } from '@utils/formatters';
+import { formatBytes, formatCount } from '@utils/formatters';
 import type { GameCacheInfo } from '../../../../types';
 import ExpandableItemCard, { type ExpandableItemStat } from './ExpandableItemCard';
 import ExpandableList from './ExpandableList';
@@ -45,7 +45,7 @@ const GameCard: React.FC<GameCardProps> = ({
   const stats: ExpandableItemStat[] = [
     {
       icon: FolderOpen,
-      value: game.cache_files_found.toLocaleString(),
+      value: formatCount(game.cache_files_found),
       label: 'management.gameDetection.files'
     },
     {

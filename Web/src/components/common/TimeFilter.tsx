@@ -19,6 +19,7 @@ import DateRangePicker from './DateRangePicker';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import { getEventColorVar } from '@utils/eventColors';
 import { formatEventDateRange } from '@utils/formatters';
+import { sortEventsByStatus, getEventStatus } from '@utils/eventUtils';
 
 interface TimeFilterProps {
   disabled?: boolean;
@@ -53,36 +54,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
   const buttonRef = useRef<HTMLButtonElement>(null);
 
   // Sort events: active first, then upcoming, then past
-  const sortedEvents = useMemo(() => {
-    const now = new Date();
-    return [...events].sort((a, b) => {
-      const aStart = new Date(a.startTimeUtc);
-      const aEnd = new Date(a.endTimeUtc);
-      const bStart = new Date(b.startTimeUtc);
-      const bEnd = new Date(b.endTimeUtc);
-
-      const aIsActive = now >= aStart && now <= aEnd;
-      const bIsActive = now >= bStart && now <= bEnd;
-      const aIsUpcoming = now < aStart;
-      const bIsUpcoming = now < bStart;
-
-      if (aIsActive && !bIsActive) return -1;
-      if (!aIsActive && bIsActive) return 1;
-      if (aIsUpcoming && !bIsUpcoming) return -1;
-      if (!aIsUpcoming && bIsUpcoming) return 1;
-
-      return aStart.getTime() - bStart.getTime();
-    });
-  }, [events]);
-
-  const getEventStatus = (startUtc: string, endUtc: string) => {
-    const now = new Date();
-    const start = new Date(startUtc);
-    const end = new Date(endUtc);
-    if (now >= start && now <= end) return 'active';
-    if (now < start) return 'upcoming';
-    return 'past';
-  };
+  const sortedEvents = useMemo(() => sortEventsByStatus(events), [events]);
 
   // Time range options - matching old structure
   const timeOptions = useMemo(

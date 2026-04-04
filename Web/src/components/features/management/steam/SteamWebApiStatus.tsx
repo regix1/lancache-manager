@@ -1,15 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import {
-  Globe,
-  AlertCircle,
-  CheckCircle,
-  XCircle,
-  Key,
-  Loader2,
-  Trash2,
-  AlertTriangle
-} from 'lucide-react';
+import { Globe, AlertCircle, CheckCircle, XCircle, Key, Trash2, AlertTriangle } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
 import { Modal } from '@components/ui/Modal';
@@ -17,6 +8,7 @@ import { Alert } from '@components/ui/Alert';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 
 import SteamWebApiKeyModal from '@components/modals/setup/SteamWebApiKeyModal';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useSteamWebApiStatus } from '@contexts/useSteamWebApiStatus';
 import { usePicsProgress } from '@contexts/usePicsProgress';
 import ApiService from '@services/api.service';
@@ -134,7 +126,7 @@ const SteamWebApiStatus: React.FC<SteamWebApiStatusProps> = ({ steamAuthMode: _s
 
   const getStatusIcon = () => {
     if (loading) {
-      return <Loader2 className="w-5 h-5 animate-spin text-themed-muted" />;
+      return <LoadingSpinner inline size="md" className="text-themed-muted" />;
     }
 
     if (status?.isFullyOperational) {

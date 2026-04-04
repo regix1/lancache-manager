@@ -3,16 +3,17 @@ import { useTranslation } from 'react-i18next';
 import { Card, CardHeader, CardTitle, CardContent } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Tooltip } from '@components/ui/Tooltip';
-import { Modal } from '@components/ui/Modal';
 import { Alert } from '@components/ui/Alert';
+import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { Pagination } from '@components/ui/Pagination';
 import { MultiSelectDropdown } from '@components/ui/MultiSelectDropdown';
 import { useClientGroups } from '@contexts/useClientGroups';
 import { useStats, useDownloads } from '@contexts/DashboardDataContext/hooks';
 import ApiService from '@services/api.service';
-import { Plus, Users, Trash2, Edit2, X, Loader2, User, AlertTriangle } from 'lucide-react';
+import { Plus, Users, Trash2, Edit2, X, User, AlertTriangle } from 'lucide-react';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import ClientGroupModal from '@components/modals/ClientGroupModal';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import type { ClientGroup } from '../../../../types';
 
 const UNGROUPED_IPS_PER_PAGE = 20;
@@ -332,7 +333,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
         {loading ? (
           <Card>
             <CardContent className="py-8 flex items-center justify-center">
-              <Loader2 className="w-6 h-6 animate-spin text-themed-muted" />
+              <LoadingSpinner inline size="lg" className="text-themed-muted" />
               <span className="ml-2 text-themed-muted">
                 {t('management.sections.clients.loadingNicknames')}
               </span>
@@ -397,7 +398,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                           title={t('common.delete')}
                         >
                           {deletingGroupId === group.id ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <LoadingSpinner inline size="sm" />
                           ) : (
                             <Trash2 className="w-4 h-4" />
                           )}
@@ -426,7 +427,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                               title={t('management.sections.clients.removeIp')}
                             >
                               {removingMember?.groupId === group.id && removingMember?.ip === ip ? (
-                                <Loader2 className="w-3 h-3 animate-spin" />
+                                <LoadingSpinner inline size="xs" />
                               ) : (
                                 <X className="w-3 h-3" />
                               )}
@@ -460,7 +461,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
             <CardContent className="py-4">
               {loadingClients ? (
                 <div className="flex items-center justify-center py-4">
-                  <Loader2 className="w-5 h-5 animate-spin text-themed-muted" />
+                  <LoadingSpinner inline size="md" className="text-themed-muted" />
                   <span className="ml-2 text-themed-muted">
                     {t('management.sections.clients.loadingClients')}
                   </span>
@@ -604,7 +605,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
 
                 {loadingExcluded ? (
                   <div className="flex items-center gap-2 text-themed-muted text-sm">
-                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <LoadingSpinner inline size="sm" />
                     {t('management.sections.clients.loadingExcludedIps')}
                   </div>
                 ) : excludedIps.length === 0 ? (
@@ -670,50 +671,24 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
       />
 
       {/* Delete Confirmation Modal */}
-      <Modal
+      <ConfirmationModal
         opened={deleteConfirmGroup !== null}
-        onClose={() => {
-          if (deletingGroupId === null) {
-            setDeleteConfirmGroup(null);
-          }
-        }}
-        title={
-          <div className="flex items-center gap-3">
-            <AlertTriangle className="w-6 h-6 text-themed-warning" />
-            <span>{t('management.sections.clients.deleteNickname')}</span>
-          </div>
-        }
+        onClose={() => setDeleteConfirmGroup(null)}
+        onConfirm={confirmDeleteGroup}
+        title={t('management.sections.clients.deleteNickname')}
+        confirmLabel={t('management.sections.clients.delete')}
+        loading={deletingGroupId !== null}
       >
-        <div className="space-y-4">
-          <p className="text-themed-secondary">
-            {t('management.sections.clients.deleteNicknameConfirm', {
-              nickname: deleteConfirmGroup?.nickname
-            })}
-          </p>
+        <p className="text-themed-secondary">
+          {t('management.sections.clients.deleteNicknameConfirm', {
+            nickname: deleteConfirmGroup?.nickname
+          })}
+        </p>
 
-          <Alert color="yellow">
-            <p className="text-sm">{t('management.sections.clients.deleteNicknameWarning')}</p>
-          </Alert>
-
-          <div className="flex justify-end gap-3 pt-2">
-            <Button
-              variant="default"
-              onClick={() => setDeleteConfirmGroup(null)}
-              disabled={deletingGroupId !== null}
-            >
-              {t('common.cancel')}
-            </Button>
-            <Button
-              variant="filled"
-              color="red"
-              onClick={confirmDeleteGroup}
-              loading={deletingGroupId !== null}
-            >
-              {t('management.sections.clients.delete')}
-            </Button>
-          </div>
-        </div>
-      </Modal>
+        <Alert color="yellow">
+          <p className="text-sm">{t('management.sections.clients.deleteNicknameWarning')}</p>
+        </Alert>
+      </ConfirmationModal>
     </div>
   );
 };

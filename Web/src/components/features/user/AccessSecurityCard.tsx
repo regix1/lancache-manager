@@ -1,8 +1,9 @@
 import React from 'react';
 import { useTranslation } from 'react-i18next';
-import { Shield, Loader2 } from 'lucide-react';
+import { Shield } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 
 interface AccessSecurityCardProps {
   guestDurationHours: number;
@@ -51,7 +52,11 @@ const AccessSecurityCard: React.FC<AccessSecurityCardProps> = ({
                 className="w-48"
               />
               {updatingDuration && (
-                <Loader2 className="w-4 h-4 animate-spin absolute right-10 top-1/2 -translate-y-1/2 text-themed-accent" />
+                <LoadingSpinner
+                  inline
+                  size="sm"
+                  className="absolute right-10 top-1/2 -translate-y-1/2 text-themed-accent"
+                />
               )}
             </div>
           </div>

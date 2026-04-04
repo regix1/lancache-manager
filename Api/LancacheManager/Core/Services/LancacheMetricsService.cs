@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Diagnostics.Metrics;
 using System.Reflection;
 using LancacheManager.Infrastructure.Data;
+using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.Base;
 using Microsoft.EntityFrameworkCore;
 
@@ -22,6 +23,7 @@ namespace LancacheManager.Core.Services;
 public class LancacheMetricsService : ScopedScheduledBackgroundService
 {
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly StateService _stateService;
     private readonly Meter _meter;
     private readonly Stopwatch _uptimeStopwatch;
     private readonly string _version;
@@ -113,11 +115,13 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
     public LancacheMetricsService(
         IServiceProvider serviceProvider,
         IServiceScopeFactory scopeFactory,
+        StateService stateService,
         ILogger<LancacheMetricsService> logger,
         IConfiguration configuration)
         : base(serviceProvider, logger, configuration)
     {
         _scopeFactory = scopeFactory;
+        _stateService = stateService;
         _uptimeStopwatch = Stopwatch.StartNew();
 
         // Get version from environment or assembly

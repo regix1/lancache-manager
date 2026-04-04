@@ -9,7 +9,6 @@ import {
   Layers,
   Brush,
   Edit,
-  Loader2,
   FileText,
   Settings2,
   Moon,
@@ -31,7 +30,8 @@ import { Tooltip } from '@components/ui/Tooltip';
 import { ThemeCard } from './ThemeCard';
 import CreateThemeModal from '@components/modals/theme/CreateThemeModal';
 import EditThemeModal from '@components/modals/theme/EditThemeModal';
-import { DeleteConfirmModal } from '@components/modals/theme/DeleteConfirmModal';
+import { ConfirmationModal } from '@components/common/ConfirmationModal';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import { CommunityThemeImporter } from './CommunityThemeImporter';
 import { colorGroups } from './constants';
 import { type Theme, type ThemeManagerProps, type EditableTheme, type ThemeColors } from './types';
@@ -607,11 +607,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
             )}
             <Tooltip content={t('management.themes.refreshThemes')} position="bottom">
               <Button variant="default" size="sm" onClick={() => loadThemes()} disabled={loading}>
-                {loading ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <RefreshCw className="w-4 h-4" />
-                )}
+                {loading ? <LoadingSpinner inline size="sm" /> : <RefreshCw className="w-4 h-4" />}
               </Button>
             </Tooltip>
           </div>
@@ -926,21 +922,43 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
         loading={loading}
       />
 
-      <DeleteConfirmModal
+      <ConfirmationModal
         opened={!!themePendingDeletion}
         onClose={() => setThemePendingDeletion(null)}
         onConfirm={confirmDelete}
-        themeName={themePendingDeletion?.name || null}
+        title={t('modals.theme.delete.title')}
+        confirmLabel={t('modals.theme.delete.confirmButton')}
         loading={loading}
-      />
+      >
+        <p
+          className="text-themed-secondary"
+          dangerouslySetInnerHTML={{
+            __html: t('modals.theme.delete.message', { name: themePendingDeletion?.name })
+          }}
+        />
+        <Alert color="yellow">
+          <p className="text-sm">{t('modals.theme.delete.warning')}</p>
+        </Alert>
+      </ConfirmationModal>
 
-      <DeleteConfirmModal
+      <ConfirmationModal
         opened={showCleanupModal}
         onClose={() => setShowCleanupModal(false)}
         onConfirm={confirmCleanup}
-        themeName="all custom themes"
+        title={t('modals.theme.delete.title')}
+        confirmLabel={t('modals.theme.delete.confirmButton')}
         loading={loading}
-      />
+      >
+        <p
+          className="text-themed-secondary"
+          dangerouslySetInnerHTML={{
+            __html: t('modals.theme.delete.message', { name: 'all custom themes' })
+          }}
+        />
+        <Alert color="yellow">
+          <p className="text-sm">{t('modals.theme.delete.warning')}</p>
+        </Alert>
+      </ConfirmationModal>
     </>
   );
 };

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Database, CheckCircle, Loader2 } from 'lucide-react';
+import { Database, CheckCircle } from 'lucide-react';
 import { Button } from '@components/ui/Button';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import { usePicsProgress } from '@contexts/usePicsProgress';
 import ApiService from '@services/api.service';
 
@@ -181,7 +182,7 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({
             disabled={isCancelling}
             fullWidth
           >
-            {isCancelling && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+            {isCancelling && <LoadingSpinner inline size="sm" className="mr-2" />}
             {isCancelling
               ? t('initialization.picsProgress.cancelling')
               : t('initialization.picsProgress.cancelUseGithub')}

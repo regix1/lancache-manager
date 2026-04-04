@@ -3,6 +3,7 @@ import { AlertTriangle, Download, Scan, Github, Clock, Database, RefreshCw } fro
 import { Button } from '@components/ui/Button';
 import { Modal } from '@components/ui/Modal';
 import { useTranslation } from 'react-i18next';
+import { formatCount } from '@utils/formatters';
 
 interface FullScanRequiredModalProps {
   changeGap?: number;
@@ -32,7 +33,7 @@ export const FullScanRequiredModal: React.FC<FullScanRequiredModalProps> = ({
   const formatNumber = (num: number) => {
     if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`;
     if (num >= 1000) return `${(num / 1000).toFixed(0)}K`;
-    return num.toLocaleString();
+    return formatCount(num);
   };
 
   return (

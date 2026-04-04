@@ -6,8 +6,9 @@ import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { formatDateTime } from '@utils/formatters';
-import { RefreshCw, Clock, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
+import { RefreshCw, Clock, CheckCircle2, XCircle } from 'lucide-react';
 import { LoadingState } from '@components/ui/ManagerCard';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
 
 interface LogRotationStatus {
@@ -213,7 +214,7 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({ isAdmin, onErro
           <div className="relative min-w-[180px]">
             {isUpdatingSchedule && (
               <div className="absolute inset-0 flex items-center justify-center bg-themed-bg-secondary/50 rounded z-10">
-                <Loader2 className="w-4 h-4 animate-spin text-themed-primary" />
+                <LoadingSpinner inline size="sm" className="text-themed-primary" />
               </div>
             )}
             <EnhancedDropdown

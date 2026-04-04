@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
   FileText,
-  Loader2,
   CheckCircle,
   FolderOpen,
   ChevronDown,
@@ -12,14 +11,17 @@ import {
 import { useTranslation } from 'react-i18next';
 import { Button } from '@components/ui/Button';
 import { Tooltip } from '@components/ui/Tooltip';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import type {
   ProcessingProgressEvent,
   LogProcessingCompleteEvent
 } from '@contexts/SignalRContext/types';
 import ApiService from '@services/api.service';
+import { useConfig } from '@contexts/useConfig';
 import { getErrorMessage } from '@utils/error';
-import type { Config, DatasourceInfo } from '../../../types';
+import { formatCount } from '@utils/formatters';
+import type { DatasourceInfo } from '../../../types';
 
 interface LogProcessingStepProps {
   onComplete: () => void;
@@ -45,14 +47,13 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
 }) => {
   const { t } = useTranslation();
   const signalR = useSignalR();
+  const { config } = useConfig();
   const [processing, setProcessing] = useState(false);
   const [progress, setProgress] = useState<ProcessingProgress | null>(null);
   const [complete, setComplete] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Multi-datasource state
-  const [config, setConfig] = useState<Config | null>(null);
-  const [loading, setLoading] = useState(true);
   const [expandedDatasources, setExpandedDatasources] = useState<Set<string>>(new Set());
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [activeOperationId, setActiveOperationId] = useState<string | null>(null);
@@ -70,21 +71,6 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
   useEffect(() => {
     processingRef.current = processing;
   }, [processing]);
-
-  // Load datasource config
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        const configData = await ApiService.getConfig();
-        setConfig(configData);
-      } catch (err) {
-        console.error('Failed to load datasource data:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadData();
-  }, []);
 
   useEffect(() => {
     onProcessingStateChange?.(processing);
@@ -382,32 +368,21 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
 
   // Get datasources - ensure at least one exists
   const datasources =
-    config?.dataSources && config.dataSources.length > 0
+    config.dataSources && config.dataSources.length > 0
       ? config.dataSources
-      : config
-        ? [
-            {
-              name: 'default',
-              cachePath: config.cachePath || '/cache',
-              logsPath: config.logsPath || '/logs',
-              cacheWritable: config.cacheWritable ?? false,
-              logsWritable: config.logsWritable ?? false,
-              enabled: true
-            } as DatasourceInfo
-          ]
-        : [];
+      : [
+          {
+            name: 'default',
+            cachePath: config.cachePath || '/cache',
+            logsPath: config.logsPath || '/logs',
+            cacheWritable: config.cacheWritable ?? false,
+            logsWritable: config.logsWritable ?? false,
+            enabled: true
+          } as DatasourceInfo
+        ];
 
   const hasMultiple = datasources.length > 1;
   const progressPercent = progress?.progress || 0;
-
-  if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center py-8">
-        <Loader2 className="w-8 h-8 animate-spin text-themed-muted mb-3" />
-        <p className="text-themed-muted">{t('initialization.logProcessing.loadingDatasources')}</p>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-5">
@@ -425,7 +400,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
           {complete ? (
             <CheckCircle className="w-8 h-8 icon-success" />
           ) : processing ? (
-            <Loader2 className="w-8 h-8 animate-spin icon-primary" />
+            <LoadingSpinner inline size="xl" className="icon-primary" />
           ) : (
             <FileText className="w-8 h-8 icon-info" />
           )}
@@ -476,7 +451,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
                   {t('initialization.logProcessing.lines')}
                 </p>
                 <p className="text-sm font-medium text-themed-primary">
-                  {progress.linesProcessed.toLocaleString()}
+                  {formatCount(progress.linesProcessed)}
                 </p>
               </div>
             )}
@@ -486,7 +461,7 @@ export const LogProcessingStep: React.FC<LogProcessingStepProps> = ({
                   {t('initialization.logProcessing.entries')}
                 </p>
                 <p className="text-sm font-medium text-themed-primary">
-                  {progress.entriesProcessed.toLocaleString()}
+                  {formatCount(progress.entriesProcessed)}
                 </p>
               </div>
             )}

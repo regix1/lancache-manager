@@ -5,3 +5,30 @@
   transition: opacity 0.2s ease;
   pointer-events: none;
 }
+
+/* Config error screen - shown when initial config fetch fails */
+.config-error-screen {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background-color: var(--theme-bg-primary);
+}
+
+.config-error-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 2rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--theme-border-primary);
+  background-color: var(--theme-bg-secondary);
+  max-width: 24rem;
+  text-align: center;
+}
+
+.config-error-message {
+  color: var(--theme-text-error);
+  font-size: 0.875rem;
+}

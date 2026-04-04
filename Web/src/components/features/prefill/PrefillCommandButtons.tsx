@@ -2,7 +2,8 @@ import { useTranslation } from 'react-i18next';
 import { Card } from '../../ui/Card';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { MultiSelectDropdown } from '@components/ui/MultiSelectDropdown';
-import { Monitor, Link, Loader2 } from 'lucide-react';
+import LoadingSpinner from '@components/common/LoadingSpinner';
+import { Monitor, Link } from 'lucide-react';
 import {
   type CommandButton,
   type CommandType,
@@ -107,7 +108,7 @@ export function PrefillCommandButtons({
         <div className="flex items-start gap-3 w-full">
           <span className={`cmd-tile-icon ${getIconBgClass(cmd)}`}>
             {isExecuting && cmd.id.startsWith('prefill') ? (
-              <Loader2 className="h-4 w-4 animate-spin text-themed-muted" />
+              <LoadingSpinner inline size="sm" className="text-themed-muted" />
             ) : (
               <span className={getIconColorClass(cmd)}>{cmd.icon}</span>
             )}

@@ -9,10 +9,12 @@ import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/
 import { DatasourceListItem } from '@components/ui/DatasourceListItem';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import type { LogProcessingCompleteEvent } from '@contexts/SignalRContext/types';
+import { useConfig } from '@contexts/useConfig';
 import { useNotifications } from '@contexts/notifications';
 import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
 import { ManagerCardHeader, LoadingState } from '@components/ui/ManagerCard';
-import type { Config, DatasourceInfo, DatasourceLogPosition } from '../../../../types';
+import { formatCount } from '@utils/formatters';
+import type { DatasourceInfo, DatasourceLogPosition } from '../../../../types';
 
 interface DatasourcesManagerProps {
   isAdmin: boolean;
@@ -21,11 +23,6 @@ interface DatasourcesManagerProps {
   onSuccess?: (message: string) => void;
   onDataRefresh?: () => void;
 }
-
-// Fetch datasource configuration
-const fetchConfig = async (): Promise<Config> => {
-  return await ApiService.getConfig();
-};
 
 // Fetch log positions
 const fetchLogPositions = async (): Promise<DatasourceLogPosition[]> => {
@@ -40,7 +37,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   onDataRefresh
 }) => {
   const { t } = useTranslation();
-  const [config, setConfig] = useState<Config | null>(null);
+  const { config } = useConfig();
   const [logPositions, setLogPositions] = useState<DatasourceLogPosition[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -58,12 +55,11 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     (n) => n.type === 'log_processing' && n.status === 'running'
   );
 
-  // Load data
+  // Load log positions
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [configData, positionsData] = await Promise.all([fetchConfig(), fetchLogPositions()]);
-        setConfig(configData);
+        const positionsData = await fetchLogPositions();
         setLogPositions(positionsData);
       } catch (err) {
         console.error('Failed to load datasource data:', err);
@@ -187,7 +183,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     // when last checked. The log may have grown since, so avoid showing misleading 100%.
     if (pos.position >= pos.totalLines) {
       return t('management.datasources.position.caughtUp', {
-        position: pos.position.toLocaleString()
+        position: formatCount(pos.position)
       });
     }
 
@@ -195,23 +191,23 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
     const rawPercent = (pos.position / pos.totalLines) * 100;
     const percent = Math.min(Math.round(rawPercent), 99);
     return t('management.datasources.position.progress', {
-      position: pos.position.toLocaleString(),
-      total: pos.totalLines.toLocaleString(),
+      position: formatCount(pos.position),
+      total: formatCount(pos.totalLines),
       percent
     });
   };
 
   // Get datasources - ensure at least one exists
   const datasources =
-    config?.dataSources && config.dataSources.length > 0
+    config.dataSources && config.dataSources.length > 0
       ? config.dataSources
       : [
           {
             name: 'default',
-            cachePath: config?.cachePath || '/cache',
-            logsPath: config?.logsPath || '/logs',
-            cacheWritable: config?.cacheWritable ?? false,
-            logsWritable: config?.logsWritable ?? false,
+            cachePath: config.cachePath || '/cache',
+            logsPath: config.logsPath || '/logs',
+            cacheWritable: config.cacheWritable ?? false,
+            logsWritable: config.logsWritable ?? false,
             enabled: true
           } as DatasourceInfo
         ];

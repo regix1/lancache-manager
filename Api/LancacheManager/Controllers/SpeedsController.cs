@@ -2,6 +2,7 @@ using LancacheManager.Models;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Data;
+using LancacheManager.Infrastructure.Utilities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -100,7 +101,7 @@ public class SpeedsController : ControllerBase
             .Where(d => excludedClientIps.Count == 0 || !excludedClientIps.Contains(d.ClientIp));
 
         // Apply eviction filter (hide/remove modes exclude evicted downloads)
-        query = ApplyEvictedFilter(query, evictedMode);
+        query = query.ApplyEvictedFilter(evictedMode);
 
         var downloads = await query.ToListAsync();
 
@@ -128,14 +129,5 @@ public class SpeedsController : ControllerBase
             AverageBytesPerSecond = totalDuration > 0 ? totalBytes / totalDuration : 0,
             TotalSessions = downloadsWithData.Count
         });
-    }
-
-    private static IQueryable<Download> ApplyEvictedFilter(IQueryable<Download> query, string evictedMode)
-    {
-        if (evictedMode == EvictedDataModes.Hide || evictedMode == EvictedDataModes.Remove)
-        {
-            return query.Where(d => !d.IsEvicted);
-        }
-        return query;
     }
 }

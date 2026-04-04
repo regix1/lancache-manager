@@ -1,5 +1,6 @@
 import React from 'react';
 import { ChevronDown, type LucideIcon } from 'lucide-react';
+import { formatCount } from '@utils/formatters';
 
 interface AccordionSectionProps {
   title: string;
@@ -116,7 +117,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = ({
                   : undefined
               }
             >
-              {count.toLocaleString()}
+              {formatCount(count)}
             </span>
           )}
         </div>

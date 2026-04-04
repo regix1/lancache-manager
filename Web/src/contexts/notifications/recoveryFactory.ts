@@ -620,6 +620,13 @@ export function createRecoveryRunner(
 
   return async (): Promise<void> => {
     try {
+      // Clear all stale notifications before recovery.
+      // Recovery functions will re-create only those that are actually active.
+      for (const key of Object.values(NOTIFICATION_STORAGE_KEYS)) {
+        localStorage.removeItem(key);
+      }
+      setNotifications([]);
+
       await Promise.allSettled([
         recoverLogProcessing(),
         recoverLogRemoval(),

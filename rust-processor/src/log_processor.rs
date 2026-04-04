@@ -272,7 +272,6 @@ impl Processor {
         let mut lines_to_skip = self.start_position;
 
         let mut files_with_errors = Vec::new();
-        let mut files_processed = 0u64;
 
         for (file_index, log_file) in log_files.iter().enumerate() {
             println!("\nProcessing file {}/{}: {}", file_index + 1, log_files.len(), log_file.path.display());
@@ -299,8 +298,6 @@ impl Processor {
                     files_with_errors.push((log_file.path.display().to_string(), error_str));
                     continue;
                 }
-            } else {
-                files_processed += 1;
             }
         }
 
