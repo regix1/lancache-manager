@@ -113,7 +113,8 @@ async fn get_game_name_from_db(pool: &PgPool, game_app_id: u32) -> Result<String
 async fn get_game_urls_from_db(pool: &PgPool, game_app_id: u32) -> Result<HashMap<String, (String, i64, HashSet<u32>)>> {
     eprintln!("Querying database for game URLs and depot IDs...");
 
-    // CRITICAL FIX: Query LogEntries instead of Downloads to get ALL URLs
+    // Query 1: Mapped games — join LogEntries to SteamDepotMappings via DepotId.
+    // Works for games where PicsDataService has populated SteamDepotMappings.
     let rows = sqlx::query(
         "SELECT DISTINCT le.\"Service\", le.\"Url\", le.\"DepotId\", le.\"BytesServed\"
          FROM \"LogEntries\" le
@@ -153,20 +154,22 @@ async fn get_game_urls_from_db(pool: &PgPool, game_app_id: u32) -> Result<HashMa
         }
     }
 
-    // Also get URLs for unknown games (depots not in mappings)
-    let unknown_rows = sqlx::query(
+    // Query 3: Downloads-FK join — catches delisted apps (e.g., Aion AppID 373680 / depot 373681)
+    // where SteamDepotMappings has no row but Downloads.GameAppId is set correctly.
+    // Mirrors GameCacheDetectionService.ResolveUnknownGamesInCacheAsync (C# line 1033/1086).
+    // Uses Option A (DownloadId FK) — no .sqlx offline cache present, DownloadId FK is populated
+    // by the log processor for all ingest paths; runtime sqlx::query() used throughout this crate.
+    let downloads_fk_rows = sqlx::query(
         "SELECT DISTINCT le.\"Service\", le.\"Url\", le.\"DepotId\", le.\"BytesServed\"
          FROM \"LogEntries\" le
-         WHERE le.\"DepotId\" IS NOT NULL
-         AND le.\"Url\" IS NOT NULL
-         AND le.\"DepotId\" = $1
-         AND le.\"DepotId\" NOT IN (SELECT \"DepotId\" FROM \"SteamDepotMappings\")"
+         INNER JOIN \"Downloads\" d ON le.\"DownloadId\" = d.\"Id\"
+         WHERE d.\"GameAppId\" = $1 AND le.\"Url\" IS NOT NULL"
     )
     .bind(game_app_id as i64)
     .fetch_all(pool)
     .await?;
 
-    for row in unknown_rows {
+    for row in downloads_fk_rows {
         let service: String = row.get("Service");
         let url: String = row.get("Url");
         let depot_id_opt: Option<i64> = row.get("DepotId");
