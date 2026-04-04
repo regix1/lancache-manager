@@ -85,7 +85,10 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const [selectedDatasource, setSelectedDatasource] = useState<string | null>(null);
 
   // Accordion state for Services, Games, and Evicted Games sections
-  const [sectionExpanded, setSectionExpanded] = useState(true);
+  const [sectionExpanded, setSectionExpanded] = useState(() => {
+    const saved = localStorage.getItem('management-game-cache-expanded');
+    return saved !== null ? saved === 'true' : false;
+  });
   const [servicesExpanded, setServicesExpanded] = useState(true);
   const [gamesExpanded, setGamesExpanded] = useState(true);
   const [evictedGamesExpanded, setEvictedGamesExpanded] = useState(() => {
@@ -96,6 +99,10 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   useEffect(() => {
     localStorage.setItem('management-evicted-games-expanded', String(evictedGamesExpanded));
   }, [evictedGamesExpanded]);
+
+  useEffect(() => {
+    localStorage.setItem('management-game-cache-expanded', String(sectionExpanded));
+  }, [sectionExpanded]);
 
   // Evicted Games — derived from local games state (is_evicted === true)
   // Using local state instead of gameDetectionData from context ensures evictedGames
@@ -754,13 +761,13 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
           <AccordionSection
             title={t('management.gameDetection.title')}
             icon={HardDrive}
-            iconColor="var(--theme-accent)"
+            iconColor="var(--theme-icon-blue)"
             isExpanded={sectionExpanded}
             onToggle={() => setSectionExpanded((prev) => !prev)}
             badge={
               hasResults ? (
                 <span className="themed-badge status-badge-info">
-                  {filteredGames.length + filteredServices.length}
+                  {filteredGames.length + filteredServices.length + filteredEvictedGames.length}
                 </span>
               ) : undefined
             }
@@ -952,7 +959,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                   {/* Empty State — shown only when no scan results (games/services) exist */}
                   {filteredGames.length === 0 && filteredServices.length === 0 && !loading && (
                     <EmptyState
-                      icon={HardDrive}
                       title={
                         selectedDatasource
                           ? t('management.gameDetection.emptyState.noGamesServicesDatasource', {

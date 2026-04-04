@@ -63,11 +63,18 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   const [hasCachedResults, setHasCachedResults] = useState(false);
   const [missThreshold, setMissThreshold] = useState(3);
   const [detectionMode, setDetectionMode] = useState('cache_and_logs');
-  const [sectionExpanded, setSectionExpanded] = useState(true);
+  const [sectionExpanded, setSectionExpanded] = useState(() => {
+    const saved = localStorage.getItem('management-corruption-expanded');
+    return saved !== null ? saved === 'true' : false;
+  });
 
   // Derive legacy boolean from detection mode for backward-compatible API calls
   const compareToCacheLogs = detectionMode === 'cache_and_logs';
   const isRedownloadMode = detectionMode === 'redownload';
+
+  useEffect(() => {
+    localStorage.setItem('management-corruption-expanded', String(sectionExpanded));
+  }, [sectionExpanded]);
 
   const detectionModeOptions = [
     {
@@ -474,7 +481,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
           <AccordionSection
             title={t('management.corruption.title')}
             icon={AlertTriangle}
-            iconColor="var(--theme-warning-text)"
+            iconColor="var(--theme-icon-yellow)"
             isExpanded={sectionExpanded}
             onToggle={() => setSectionExpanded((prev) => !prev)}
             badge={
@@ -599,8 +606,6 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                           key={`corruption-${service}`}
                           title={service}
                           count={count}
-                          icon={AlertTriangle}
-                          iconColor="var(--theme-warning-text)"
                           isExpanded={expandedCorruptionService === service}
                           onToggle={() => toggleCorruptionDetails(service)}
                           badge={<span className="themed-badge status-badge-warning">{count}</span>}
@@ -616,7 +621,6 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                                   className="p-2 rounded border bg-themed-secondary border-themed-primary"
                                 >
                                   <div className="flex items-start gap-2">
-                                    <AlertTriangle className="w-4 h-4 text-themed-warning flex-shrink-0 mt-0.5" />
                                     <div className="flex-1 min-w-0">
                                       <div className="mb-1">
                                         <Tooltip content={chunk.url}>
@@ -653,7 +657,6 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                             </div>
                           ) : (
                             <div className="text-center py-8 text-themed-muted">
-                              <AlertTriangle className="w-12 h-12 mx-auto mb-3 opacity-50" />
                               <p>{t('management.corruption.noDetailsAvailable')}</p>
                             </div>
                           )}
@@ -691,13 +694,11 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                     </div>
                   ) : hasCachedResults && corruptionList.length === 0 ? (
                     <EmptyState
-                      icon={AlertTriangle}
                       title={t('management.corruption.emptyStates.noCorrupted.title')}
                       subtitle={t('management.corruption.emptyStates.noCorrupted.subtitle')}
                     />
                   ) : !hasCachedResults && !isScanning && !isLoading ? (
                     <EmptyState
-                      icon={AlertTriangle}
                       title={t('management.corruption.emptyStates.noCachedData.title')}
                       subtitle={t('management.corruption.emptyStates.noCachedData.subtitle')}
                     />

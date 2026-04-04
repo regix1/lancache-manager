@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Server, AlertTriangle, FolderOpen, Clock, RefreshCw, HardDrive, File } from 'lucide-react';
+import { Server, AlertTriangle, FolderOpen, Clock, RefreshCw, HardDrive } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
@@ -17,7 +17,7 @@ import { Tooltip } from '@components/ui/Tooltip';
 import { ReadOnlyBadge } from '@components/ui/ManagerCard';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import LoadingSpinner from '@components/common/LoadingSpinner';
-import { formatCount } from '@utils/formatters';
+import { formatBytes, formatCount } from '@utils/formatters';
 import type { DatasourceInfo } from '../../../../types';
 
 const formatScanTime = (timestamp: string): string => {
@@ -91,7 +91,14 @@ const CacheManager: React.FC<CacheManagerProps> = ({
   const [deleteModeLoading, setDeleteModeLoading] = useState(false);
   const [clearingDatasource, setClearingDatasource] = useState<string | null>(null); // null = all, string = specific
   const [expandedDatasources, setExpandedDatasources] = useState<Set<string>>(new Set());
-  const [sectionExpanded, setSectionExpanded] = useState(true);
+  const [sectionExpanded, setSectionExpanded] = useState(() => {
+    const saved = localStorage.getItem('management-disk-cache-expanded');
+    return saved !== null ? saved === 'true' : false;
+  });
+
+  useEffect(() => {
+    localStorage.setItem('management-disk-cache-expanded', String(sectionExpanded));
+  }, [sectionExpanded]);
   const cacheOperationInProgressRef = useRef(false);
   const deleteModeChangeInProgressRef = useRef(false);
 
@@ -296,7 +303,7 @@ const CacheManager: React.FC<CacheManagerProps> = ({
         <AccordionSection
           title={t('management.cache.title')}
           icon={Server}
-          iconColor="var(--theme-success-text)"
+          iconColor="var(--theme-icon-green)"
           isExpanded={sectionExpanded}
           onToggle={() => setSectionExpanded((prev) => !prev)}
         >
@@ -409,46 +416,20 @@ const CacheManager: React.FC<CacheManagerProps> = ({
                     </div>
                   ) : cacheSize ? (
                     <>
-                      {/* Stat cards grid */}
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        <div className="rounded-lg border border-themed-secondary p-3 flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-lg flex items-center justify-center icon-bg-blue flex-shrink-0">
-                            <HardDrive className="w-4 h-4 icon-blue" />
-                          </div>
-                          <div className="min-w-0">
-                            <p className="text-sm font-semibold text-themed-primary truncate">
-                              {cacheSize.formattedSize}
-                            </p>
-                            <p className="text-xs text-themed-muted">
-                              {t('management.cache.totalSize')}
-                            </p>
-                          </div>
+                      {/* Cache size stat block */}
+                      <div className="rounded-lg border border-themed-secondary p-3 flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-lg flex items-center justify-center icon-bg-blue flex-shrink-0">
+                          <HardDrive className="w-4 h-4 icon-blue" />
                         </div>
-                        <div className="rounded-lg border border-themed-secondary p-3 flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-lg flex items-center justify-center icon-bg-green flex-shrink-0">
-                            <File className="w-4 h-4 icon-green" />
-                          </div>
-                          <div className="min-w-0">
-                            <p className="text-sm font-semibold text-themed-primary">
-                              {formatCount(cacheSize.totalFiles)}
-                            </p>
-                            <p className="text-xs text-themed-muted">
-                              {t('management.cache.files')}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="rounded-lg border border-themed-secondary p-3 flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-lg flex items-center justify-center icon-bg-purple flex-shrink-0">
-                            <FolderOpen className="w-4 h-4 icon-purple" />
-                          </div>
-                          <div className="min-w-0">
-                            <p className="text-sm font-semibold text-themed-primary">
-                              {formatCount(cacheSize.hexDirectories)}
-                            </p>
-                            <p className="text-xs text-themed-muted">
-                              {t('management.cache.directories')}
-                            </p>
-                          </div>
+                        <div className="min-w-0">
+                          <p className="text-2xl font-bold text-themed-primary truncate">
+                            {formatBytes(cacheSize.totalBytes)}
+                          </p>
+                          <p className="text-xs text-themed-muted">
+                            {t('management.cache.files')} · {formatCount(cacheSize.totalFiles)} ·{' '}
+                            {t('management.cache.directories')} ·{' '}
+                            {formatCount(cacheSize.hexDirectories)}
+                          </p>
                         </div>
                       </div>
                       {/* Secondary info bar */}

@@ -103,7 +103,14 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
   const [showMoreServices, setShowMoreServices] = useState<Record<string, boolean>>({});
   const { isLoading, hasInitiallyLoaded, setLoading, markLoaded } = useManagerLoading(true);
   const [startingServiceRemoval, setStartingServiceRemoval] = useState<string | null>(null);
-  const [sectionExpanded, setSectionExpanded] = useState(true);
+  const [sectionExpanded, setSectionExpanded] = useState(() => {
+    const saved = localStorage.getItem('management-log-removal-expanded');
+    return saved !== null ? saved === 'true' : false;
+  });
+
+  useEffect(() => {
+    localStorage.setItem('management-log-removal-expanded', String(sectionExpanded));
+  }, [sectionExpanded]);
 
   // Track the last processed completion notification ID to prevent duplicate reloads
   const lastProcessedCompletionRef = useRef<string | null>(null);
@@ -266,7 +273,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
         <AccordionSection
           title={t('management.logRemoval.title')}
           icon={FileText}
-          iconColor="var(--theme-warning-text)"
+          iconColor="var(--theme-icon-red)"
           isExpanded={sectionExpanded}
           onToggle={() => setSectionExpanded((prev) => !prev)}
         >

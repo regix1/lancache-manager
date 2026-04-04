@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import './StorageSection.css';
 import { useTranslation } from 'react-i18next';
 import { RefreshCw, AlertTriangle, Archive } from 'lucide-react';
@@ -15,6 +15,8 @@ import { ImageCacheContext, ImageInvalidateContext } from '@components/common/Im
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
 import { useNotifications } from '@contexts/notifications/useNotifications';
+import { useGameDetection } from '@contexts/DashboardDataContext/hooks';
+import { formatCount } from '@utils/formatters';
 import DatasourcesManager from '../datasources/DatasourcesInfo';
 import LogRemovalManager from '../log-processing/LogRemovalManager';
 import CacheManager from '../cache/CacheManager';
@@ -63,6 +65,11 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     evictionScanNotifications !== savedEvictionScanNotifications;
 
   const { notifications } = useNotifications();
+  const { gameDetectionData } = useGameDetection();
+  const evictedGames = useMemo(
+    () => gameDetectionData?.games?.filter((game) => game.is_evicted === true) ?? [],
+    [gameDetectionData]
+  );
   const evictionScanNotification = notifications.find(
     (n: { type: string; status: string }) => n.type === 'eviction_scan' && n.status === 'running'
   );
@@ -70,7 +77,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
 
   const [evictedDataExpanded, setEvictedDataExpanded] = useState(() => {
     const saved = localStorage.getItem('management-evicted-data-expanded');
-    return saved !== null ? saved === 'true' : true;
+    return saved !== null ? saved === 'true' : false;
   });
 
   useEffect(() => {
@@ -288,6 +295,13 @@ const StorageSection: React.FC<StorageSectionProps> = ({
               iconColor="var(--theme-icon-orange)"
               isExpanded={evictedDataExpanded}
               onToggle={() => setEvictedDataExpanded((prev) => !prev)}
+              badge={
+                evictedGames.length > 0 ? (
+                  <span className="themed-badge status-badge-warning">
+                    {formatCount(evictedGames.length)}
+                  </span>
+                ) : undefined
+              }
             >
               <div className="space-y-4">
                 {/* Action toolbar */}

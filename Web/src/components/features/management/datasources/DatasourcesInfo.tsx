@@ -47,7 +47,7 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
   );
   const [isExpanded, setIsExpanded] = useState<boolean>(() => {
     const saved = localStorage.getItem('management-datasources-expanded');
-    return saved !== null ? saved === 'true' : true;
+    return saved !== null ? saved === 'true' : false;
   });
 
   const { notifications } = useNotifications();
@@ -301,13 +301,13 @@ const DatasourcesManager: React.FC<DatasourcesManagerProps> = ({
           iconColor="var(--theme-icon-purple)"
           isExpanded={isExpanded}
           onToggle={() => setIsExpanded((prev) => !prev)}
-          badge={
-            <div className="flex items-center gap-2">
-              {headerActions}
-              {helpContent}
-            </div>
-          }
+          badge={helpContent}
         >
+          {/* Toolbar row */}
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+            <div className="flex flex-wrap items-center gap-2">{headerActions}</div>
+          </div>
+
           {/* Datasource list */}
           <div className="space-y-3">
             {datasources.map((ds) => {
