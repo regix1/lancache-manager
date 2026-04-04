@@ -260,6 +260,14 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>) ->
         let mut ids_to_evict: Vec<i64> = Vec::new();
         let mut ids_to_unevict: Vec<i64> = Vec::new();
 
+        // Downloads without any log entries can't be verified — mark them as evicted
+        for download_id in &download_ids {
+            let is_evicted = download_evicted.get(download_id).copied().unwrap_or(false);
+            if !download_entries.contains_key(download_id) && !is_evicted {
+                ids_to_evict.push(*download_id);
+            }
+        }
+
         for (download_id, entries) in &download_entries {
             let is_evicted = download_evicted.get(download_id).copied().unwrap_or(false);
             let has_cache_file = entries.iter().any(|entry| {

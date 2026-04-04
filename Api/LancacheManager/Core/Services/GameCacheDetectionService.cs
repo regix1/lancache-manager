@@ -610,6 +610,18 @@ public class GameCacheDetectionService : IDisposable
             await SaveGamesToDatabaseAsync(finalGames, incremental);
             _logger.LogInformation("[GameDetection] Results saved to database - {Count} games persisted", finalGames.Count);
 
+            // Recover evicted games: find games in Downloads that have no cache files on disk
+            // and add them to CachedGameDetections so they appear in the evicted games list
+            if (!incremental)
+            {
+                var evictedCount = await RecoverEvictedGamesAsync();
+                if (evictedCount > 0)
+                {
+                    _logger.LogInformation("[GameDetection] Recovered {Count} evicted games from Downloads history", evictedCount);
+                    totalGamesDetected += evictedCount;
+                }
+            }
+
             // For incremental scans, resolve any unknown games that now have depot mappings
             // Full scans already query fresh mappings, so this is only needed for incremental
             if (incremental)
@@ -889,6 +901,16 @@ public class GameCacheDetectionService : IDisposable
                     {
                         game.IsEvicted = true;
                     }
+                }
+            }
+
+            // Games with 0 cache files are evicted by definition — they were added by
+            // RecoverEvictedGamesAsync because they have Downloads but no files on disk.
+            foreach (var game in cachedGames)
+            {
+                if (!game.IsEvicted && game.CacheFilesFound == 0)
+                {
+                    game.IsEvicted = true;
                 }
             }
         }
@@ -1395,6 +1417,66 @@ public class GameCacheDetectionService : IDisposable
                 "[GameDetection] UNIQUE constraint error when saving games - some records may already exist. Continuing..."
             );
         }
+    }
+
+    /// <summary>
+    /// After a full scan, finds games that exist in Downloads but were not detected on disk,
+    /// and adds them to CachedGameDetections with 0 files so they appear as evicted.
+    /// Also marks those downloads as IsEvicted = true for consistent display.
+    /// </summary>
+    private async Task<int> RecoverEvictedGamesAsync()
+    {
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
+
+        // Get GameAppIds already in CachedGameDetections (games found on disk)
+        var detectedAppIds = await dbContext.CachedGameDetections
+            .Select(g => g.GameAppId)
+            .ToListAsync();
+
+        // Find games in Downloads that have no matching CachedGameDetection (evicted from cache)
+        var evictedGames = await dbContext.Downloads
+            .Where(d => d.GameAppId != null
+                      && d.GameAppId > 0
+                      && !d.IsActive
+                      && !detectedAppIds.Contains(d.GameAppId.Value))
+            .GroupBy(d => d.GameAppId!.Value)
+            .Select(g => new
+            {
+                GameAppId = g.Key,
+                GameName = g.Max(d => d.GameName),
+                Service = g.Min(d => d.Service),
+                EpicAppId = g.Max(d => d.EpicAppId)
+            })
+            .ToListAsync();
+
+        if (evictedGames.Count == 0)
+            return 0;
+
+        var now = DateTime.UtcNow;
+        foreach (var game in evictedGames)
+        {
+            dbContext.CachedGameDetections.Add(new CachedGameDetection
+            {
+                GameAppId = game.GameAppId,
+                GameName = game.GameName ?? "Unknown",
+                CacheFilesFound = 0,
+                TotalSizeBytes = 0,
+                Service = game.Service ?? "steam",
+                EpicAppId = game.EpicAppId,
+                LastDetectedUtc = now,
+                CreatedAtUtc = now
+            });
+        }
+
+        await dbContext.SaveChangesAsync();
+
+        // Mark downloads for evicted games as IsEvicted = true
+        var evictedAppIds = evictedGames.Select(g => (long?)g.GameAppId).ToList();
+        await dbContext.Downloads
+            .Where(d => d.GameAppId != null && evictedAppIds.Contains(d.GameAppId) && !d.IsEvicted)
+            .ExecuteUpdateAsync(s => s.SetProperty(d => d.IsEvicted, true));
+
+        return evictedGames.Count;
     }
 
     private async Task SaveServicesToDatabaseAsync(List<ServiceCacheInfo> services)
