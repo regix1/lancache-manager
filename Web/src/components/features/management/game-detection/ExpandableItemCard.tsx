@@ -77,68 +77,70 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
   return (
     <div className="rounded-lg border bg-themed-tertiary border-themed-secondary">
       <div className="flex items-center gap-2 p-3">
-        <Button
-          onClick={() => onToggleDetails(id)}
-          variant="subtle"
-          size="sm"
-          className="flex-shrink-0"
-          disabled={isExpanding}
-        >
-          {isExpanding ? (
-            <LoadingSpinner inline size="sm" />
-          ) : isExpanded ? (
-            <ChevronUp className="w-4 h-4" />
-          ) : (
-            <ChevronDown className="w-4 h-4" />
+        <div className="flex items-center gap-2 flex-1 min-w-0 game-card-content">
+          <Button
+            onClick={() => onToggleDetails(id)}
+            variant="subtle"
+            size="sm"
+            className="flex-shrink-0"
+            disabled={isExpanding}
+          >
+            {isExpanding ? (
+              <LoadingSpinner inline size="sm" />
+            ) : isExpanded ? (
+              <ChevronUp className="w-4 h-4" />
+            ) : (
+              <ChevronDown className="w-4 h-4" />
+            )}
+          </Button>
+          {showImage && (
+            <GameImage
+              gameAppId={gameAppId}
+              epicAppId={isEpic ? epicAppId : undefined}
+              alt={title}
+              className="game-card-image"
+              loading="lazy"
+              onError={handleImageFinalError}
+            />
           )}
-        </Button>
-        {showImage && (
-          <GameImage
-            gameAppId={gameAppId}
-            epicAppId={isEpic ? epicAppId : undefined}
-            alt={title}
-            className="game-card-image"
-            loading="lazy"
-            onError={handleImageFinalError}
-          />
-        )}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <h4 className={titleClassName || 'text-themed-primary font-semibold break-words'}>
-              {title}
-            </h4>
-            {isUnknownGame && (
-              <span className="text-xs font-medium px-2 py-0.5 rounded bg-themed-elevated text-themed-warning">
-                {t('management.gameDetection.unknownGameBadge')}
-              </span>
-            )}
-            {subtitle && subtitle}
-          </div>
-          <div className="flex items-center gap-3 text-xs text-themed-muted flex-wrap">
-            {stats.map((stat, idx) => {
-              const Icon = stat.icon;
-              return (
-                <span key={idx} className="flex items-center gap-1">
-                  <Icon className="w-3 h-3" />
-                  <strong className="text-themed-primary">{stat.value}</strong>{' '}
-                  {stat.labelCount !== undefined
-                    ? t(stat.label, { count: stat.labelCount })
-                    : t(stat.label)}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
+              <h4 className={titleClassName || 'text-themed-primary font-semibold break-words'}>
+                {title}
+              </h4>
+              {isUnknownGame && (
+                <span className="text-xs font-medium px-2 py-0.5 rounded bg-themed-elevated text-themed-warning">
+                  {t('management.gameDetection.unknownGameBadge')}
                 </span>
-              );
-            })}
-            {datasources && datasources.length > 0 && (
-              <span className="flex items-center gap-1">
-                {datasources.map((ds) => (
-                  <span
-                    key={ds}
-                    className="px-1.5 py-0.5 rounded text-[10px] font-medium capitalize bg-themed-accent-subtle text-themed-accent"
-                  >
-                    {ds}
+              )}
+              {subtitle && subtitle}
+            </div>
+            <div className="flex items-center gap-3 text-xs text-themed-muted flex-wrap">
+              {stats.map((stat, idx) => {
+                const Icon = stat.icon;
+                return (
+                  <span key={idx} className="flex items-center gap-1">
+                    <Icon className="w-3 h-3" />
+                    <strong className="text-themed-primary">{stat.value}</strong>{' '}
+                    {stat.labelCount !== undefined
+                      ? t(stat.label, { count: stat.labelCount })
+                      : t(stat.label)}
                   </span>
-                ))}
-              </span>
-            )}
+                );
+              })}
+              {datasources && datasources.length > 0 && (
+                <span className="flex items-center gap-1">
+                  {datasources.map((ds) => (
+                    <span
+                      key={ds}
+                      className="px-1.5 py-0.5 rounded text-[10px] font-medium capitalize bg-themed-accent-subtle text-themed-accent"
+                    >
+                      {ds}
+                    </span>
+                  ))}
+                </span>
+              )}
+            </div>
           </div>
         </div>
         <Tooltip content={removeTooltip}>

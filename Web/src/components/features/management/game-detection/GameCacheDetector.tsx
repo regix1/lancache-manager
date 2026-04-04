@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { HardDrive, Database, Server } from 'lucide-react';
 import ApiService from '@services/api.service';
@@ -17,6 +17,7 @@ import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
 import { useInvalidateImages } from '@components/common/ImageCacheContext';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { LoadingState, EmptyState, ReadOnlyBadge } from '@components/ui/ManagerCard';
+import { useGameDetection } from '@contexts/DashboardDataContext/hooks';
 import GamesList from './GamesList';
 import ServicesList from './ServicesList';
 import CacheRemovalModal from '@components/modals/cache/CacheRemovalModal';
@@ -84,10 +85,71 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         ];
   const [selectedDatasource, setSelectedDatasource] = useState<string | null>(null);
 
-  // Accordion state for Services and Games sections
+  // Accordion state for Services, Games, and Evicted Games sections
   const [sectionExpanded, setSectionExpanded] = useState(true);
   const [servicesExpanded, setServicesExpanded] = useState(true);
   const [gamesExpanded, setGamesExpanded] = useState(true);
+  const [evictedGamesExpanded, setEvictedGamesExpanded] = useState(() => {
+    const saved = localStorage.getItem('management-evicted-games-expanded');
+    return saved !== null ? saved === 'true' : true;
+  });
+
+  useEffect(() => {
+    localStorage.setItem('management-evicted-games-expanded', String(evictedGamesExpanded));
+  }, [evictedGamesExpanded]);
+
+  // Evicted Games — derived from cached game detection data (is_evicted === true)
+  const { gameDetectionData, isLoading: evictedGamesLoading } = useGameDetection();
+  const evictedGames = useMemo(
+    () => gameDetectionData?.games?.filter((game) => game.is_evicted === true) ?? [],
+    [gameDetectionData]
+  );
+
+  const [evictedGameToRemove, setEvictedGameToRemove] = useState<GameCacheInfo | null>(null);
+
+  const handleEvictedGameRemoveClick = (game: GameCacheInfo) => {
+    if (!isAdmin) {
+      addNotification({
+        type: 'generic',
+        status: 'failed',
+        message: t('common.fullAuthRequired'),
+        details: { notificationType: 'error' }
+      });
+      return;
+    }
+    setEvictedGameToRemove(game);
+  };
+
+  const confirmEvictedGameRemoval = async () => {
+    if (!evictedGameToRemove) return;
+
+    const gameAppId = evictedGameToRemove.game_app_id;
+    const gameName = evictedGameToRemove.game_name;
+    const isEpic = evictedGameToRemove.service === 'epicgames';
+
+    addNotification({
+      type: 'game_removal',
+      status: 'running',
+      message: t('management.gameDetection.removingGame', { name: gameName }),
+      details: { gameAppId, gameName }
+    });
+
+    setEvictedGameToRemove(null);
+
+    try {
+      if (isEpic) {
+        await ApiService.removeEpicGameFromCache(gameName);
+      } else {
+        await ApiService.removeGameFromCache(gameAppId);
+      }
+      onDataRefresh?.();
+    } catch (err: unknown) {
+      const errorMsg =
+        (err instanceof Error ? err.message : String(err)) ||
+        t('management.gameDetection.failedToRemoveGame');
+      console.error('Evicted game removal error:', errorMsg);
+    }
+  };
 
   // Format last detection time with timezone awareness
   const formattedLastDetectionTime = useFormattedDateTime(lastDetectionTime);
@@ -601,13 +663,15 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
   // Expand/Collapse all handler
   const handleExpandCollapseAll = () => {
-    const allExpanded = servicesExpanded && gamesExpanded;
+    const allExpanded = servicesExpanded && gamesExpanded && evictedGamesExpanded;
     setServicesExpanded(!allExpanded);
     setGamesExpanded(!allExpanded);
+    setEvictedGamesExpanded(!allExpanded);
   };
 
-  const hasResults = filteredGames.length > 0 || filteredServices.length > 0;
-  const allExpanded = servicesExpanded && gamesExpanded;
+  const hasResults =
+    filteredGames.length > 0 || filteredServices.length > 0 || evictedGames.length > 0;
+  const allExpanded = servicesExpanded && gamesExpanded && evictedGamesExpanded;
 
   // Help content
   // Header actions - scan buttons + expand/collapse all
@@ -841,8 +905,46 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                     </AccordionSection>
                   )}
 
-                  {/* Empty State */}
-                  {!hasResults && !loading && (
+                  {/* Evicted Games Section (Accordion) */}
+                  <AccordionSection
+                    title={t('management.gameDetection.evictedGamesSection')}
+                    count={evictedGames.length}
+                    icon={Database}
+                    iconColor="var(--theme-warning-text)"
+                    isExpanded={evictedGamesExpanded}
+                    onToggle={() => setEvictedGamesExpanded((prev) => !prev)}
+                    badge={
+                      evictedGames.length > 0 ? (
+                        <span className="themed-badge status-badge-warning">
+                          {evictedGames.length}
+                        </span>
+                      ) : undefined
+                    }
+                  >
+                    {evictedGamesLoading ? (
+                      <LoadingState message={t('management.gameDetection.loadingEvictedGames')} />
+                    ) : evictedGames.length === 0 ? (
+                      <EmptyState
+                        icon={Database}
+                        title={t('management.gameDetection.noEvictedGames')}
+                      />
+                    ) : (
+                      <GamesList
+                        games={evictedGames}
+                        totalGames={evictedGames.length}
+                        notifications={notifications}
+                        isAnyRemovalRunning={isAnyRemovalRunning}
+                        isAdmin={isAdmin}
+                        cacheReadOnly={cacheReadOnly}
+                        dockerSocketAvailable={isDockerAvailable}
+                        checkingPermissions={checkingPermissions}
+                        onRemoveGame={handleEvictedGameRemoveClick}
+                      />
+                    )}
+                  </AccordionSection>
+
+                  {/* Empty State — shown only when no scan results (games/services) exist */}
+                  {filteredGames.length === 0 && filteredServices.length === 0 && !loading && (
                     <EmptyState
                       icon={HardDrive}
                       title={
@@ -889,6 +991,13 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         target={serviceToRemove ? { type: 'service', data: serviceToRemove } : null}
         onClose={() => setServiceToRemove(null)}
         onConfirm={confirmServiceRemoval}
+      />
+
+      {/* Evicted Game Removal Confirmation Modal */}
+      <CacheRemovalModal
+        target={evictedGameToRemove ? { type: 'game', data: evictedGameToRemove } : null}
+        onClose={() => setEvictedGameToRemove(null)}
+        onConfirm={confirmEvictedGameRemoval}
       />
     </>
   );
