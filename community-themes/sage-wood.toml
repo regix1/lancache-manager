@@ -3,7 +3,7 @@ name = "Sage & Wood"
 id = "sage-wood"
 description = "Earthy sage green with warm wood browns on charcoal"
 author = "Nature"
-version = "2.4.0"
+version = "2.4.1"
 isDark = true
 sharpCorners = false
 
@@ -146,6 +146,29 @@ eventColor5 = "#8b6f47"
 eventColor6 = "#7a9a9f"
 eventColor7 = "#9b8b7a"
 eventColor8 = "#8fa4c4"
+
+# Game chart colors - Sage green and wood brown tones
+gameColor1 = "#8AA968"
+gameColor2 = "#7a9960"
+gameColor3 = "#d4a574"
+gameColor4 = "#c07860"
+gameColor5 = "#8b6f47"
+gameColor6 = "#7a9a9f"
+gameColor7 = "#9b8b7a"
+gameColor8 = "#8fa4c4"
+gameColor9 = "#6b9e5e"
+gameColor10 = "#b8956a"
+gameColor11 = "#a4c490"
+gameColor12 = "#c4967a"
+gameColor13 = "#5e8a72"
+gameColor14 = "#d4b894"
+gameColor15 = "#8a7a6a"
+gameColor16 = "#6a8fb0"
+gameColor17 = "#b0a090"
+gameColor18 = "#7aaa8a"
+gameColor19 = "#c0906a"
+gameColor20 = "#9ab4a0"
+gameColorOther = "#6b6560"
 
 # Firework/celebration colors - Sage & Wood theme (sage greens, wood browns)
 fireworkColor1 = "#8AA968"  # Primary firework particle - sage green
