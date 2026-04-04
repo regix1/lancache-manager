@@ -117,9 +117,12 @@ public class AppDbContext : DbContext
             .IsUnique();
 
         // CachedGameDetection indexes
+        // Composite unique index: Steam games are unique by GameAppId (EpicAppId=null),
+        // Epic games are unique by EpicAppId (GameAppId=0 for all Epic rows).
+        // A single-column unique index on GameAppId would block multiple Epic rows.
         modelBuilder.Entity<CachedGameDetection>()
-            .HasIndex(c => c.GameAppId)
-            .HasDatabaseName("IX_CachedGameDetection_GameAppId")
+            .HasIndex(c => new { c.GameAppId, c.EpicAppId })
+            .HasDatabaseName("IX_CachedGameDetection_GameAppId_EpicAppId")
             .IsUnique();
 
         modelBuilder.Entity<CachedGameDetection>()

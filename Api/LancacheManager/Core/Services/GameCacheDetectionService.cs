@@ -837,9 +837,11 @@ public class GameCacheDetectionService : IDisposable
 
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
 
-        // Clean up any legacy GameAppId=0 entries left by the old Epic dedup bug
+        // Clean up any legacy GameAppId=0 entries that have no EpicAppId — these were left
+        // by the old Epic dedup bug where multiple Epic games all shared GameAppId=0.
+        // Epic games with a valid EpicAppId are NOT legacy entries and must NOT be removed.
         var legacyZeroEntries = await dbContext.CachedGameDetections
-            .Where(g => g.GameAppId == 0)
+            .Where(g => g.GameAppId == 0 && g.EpicAppId == null)
             .ToListAsync();
         if (legacyZeroEntries.Count > 0)
         {
@@ -1341,27 +1343,49 @@ public class GameCacheDetectionService : IDisposable
             await dbContext.CachedGameDetections.ExecuteDeleteAsync();
         }
 
-        // Deduplicate games by GameAppId (keep last occurrence in case of duplicates)
-        var uniqueGames = games
+        // Separate Steam games (GameAppId > 0) from Epic games (EpicAppId != null, GameAppId = 0).
+        // Epic games must be deduplicated by EpicAppId — they all share GameAppId=0 which would
+        // violate the unique constraint and cause all but one to be dropped.
+        var steamGames = games.Where(g => g.EpicAppId == null).ToList();
+        var epicGames = games.Where(g => g.EpicAppId != null).ToList();
+
+        // Deduplicate Steam games by GameAppId (keep last occurrence in case of duplicates)
+        var uniqueSteamGames = steamGames
             .GroupBy(g => g.GameAppId)
             .Select(group => group.Last())
             .ToList();
 
+        // Deduplicate Epic games by EpicAppId (keep last occurrence in case of duplicates)
+        var uniqueEpicGames = epicGames
+            .GroupBy(g => g.EpicAppId!)
+            .Select(group => group.Last())
+            .ToList();
+
+        var uniqueGames = uniqueSteamGames.Concat(uniqueEpicGames).ToList();
+
         if (uniqueGames.Count < games.Count)
         {
             _logger.LogWarning(
-                "[GameDetection] Removed {DuplicateCount} duplicate GameAppIds from detection results",
-                games.Count - uniqueGames.Count
+                "[GameDetection] Removed {DuplicateCount} duplicate entries from detection results ({Steam} Steam, {Epic} Epic unique)",
+                games.Count - uniqueGames.Count,
+                uniqueSteamGames.Count,
+                uniqueEpicGames.Count
             );
         }
 
         var now = DateTime.UtcNow;
 
-        // Pre-load all existing cached game detections into a dictionary to avoid N+1 queries
-        var incomingAppIds = uniqueGames.Select(g => g.GameAppId).ToList();
-        var existingGamesDict = await dbContext.CachedGameDetections
-            .Where(g => incomingAppIds.Contains(g.GameAppId))
+        // Pre-load existing Steam games by GameAppId
+        var incomingSteamAppIds = uniqueSteamGames.Select(g => g.GameAppId).ToList();
+        var existingSteamDict = await dbContext.CachedGameDetections
+            .Where(g => g.EpicAppId == null && incomingSteamAppIds.Contains(g.GameAppId))
             .ToDictionaryAsync(g => g.GameAppId);
+
+        // Pre-load existing Epic games by EpicAppId
+        var incomingEpicAppIds = uniqueEpicGames.Select(g => g.EpicAppId!).ToList();
+        var existingEpicDict = await dbContext.CachedGameDetections
+            .Where(g => g.EpicAppId != null && incomingEpicAppIds.Contains(g.EpicAppId))
+            .ToDictionaryAsync(g => g.EpicAppId!);
 
         foreach (var game in uniqueGames)
         {
@@ -1381,8 +1405,14 @@ public class GameCacheDetectionService : IDisposable
                 CreatedAtUtc = now
             };
 
-            // Use upsert pattern - update if exists, insert if new
-            if (existingGamesDict.TryGetValue(cachedGame.GameAppId, out var existing))
+            // Upsert: Epic games matched by EpicAppId, Steam games matched by GameAppId
+            CachedGameDetection? existing = null;
+            if (cachedGame.EpicAppId != null)
+                existingEpicDict.TryGetValue(cachedGame.EpicAppId, out existing);
+            else
+                existingSteamDict.TryGetValue(cachedGame.GameAppId, out existing);
+
+            if (existing != null)
             {
                 existing.GameName = cachedGame.GameName;
                 existing.CacheFilesFound = cachedGame.CacheFilesFound;
