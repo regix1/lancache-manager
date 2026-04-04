@@ -151,14 +151,23 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   // Format last detection time with timezone awareness
   const formattedLastDetectionTime = useFormattedDateTime(lastDetectionTime);
 
-  // Filter games and services by selected datasource
-  // Note: Items with empty/missing datasources (legacy data) are shown regardless of filter
+  // Filter games and services by selected datasource.
+  // Evicted games are excluded from the main list — they are shown in the Evicted Games section.
+  // Note: Items with empty/missing datasources (legacy data) are shown regardless of filter.
+  const activeGames = games.filter((g) => !g.is_evicted);
   const filteredGames = selectedDatasource
-    ? games.filter((g) => !g.datasources?.length || g.datasources.includes(selectedDatasource))
-    : games;
+    ? activeGames.filter(
+        (g) => !g.datasources?.length || g.datasources.includes(selectedDatasource)
+      )
+    : activeGames;
   const filteredServices = selectedDatasource
     ? services.filter((s) => !s.datasources?.length || s.datasources.includes(selectedDatasource))
     : services;
+  const filteredEvictedGames = selectedDatasource
+    ? evictedGames.filter(
+        (g) => !g.datasources?.length || g.datasources.includes(selectedDatasource)
+      )
+    : evictedGames;
 
   // Auto-collapse sections if they have many items (> 10)
   useEffect(() => {
@@ -667,7 +676,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   };
 
   const hasResults =
-    filteredGames.length > 0 || filteredServices.length > 0 || evictedGames.length > 0;
+    filteredGames.length > 0 || filteredServices.length > 0 || filteredEvictedGames.length > 0;
   const allExpanded = servicesExpanded && gamesExpanded && evictedGamesExpanded;
 
   // Help content
@@ -905,30 +914,30 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                   {/* Evicted Games Section (Accordion) */}
                   <AccordionSection
                     title={t('management.gameDetection.evictedGamesSection')}
-                    count={evictedGames.length}
+                    count={filteredEvictedGames.length}
                     icon={Database}
                     iconColor="var(--theme-warning-text)"
                     isExpanded={evictedGamesExpanded}
                     onToggle={() => setEvictedGamesExpanded((prev) => !prev)}
                     badge={
-                      evictedGames.length > 0 ? (
+                      filteredEvictedGames.length > 0 ? (
                         <span className="themed-badge status-badge-warning">
-                          {evictedGames.length}
+                          {filteredEvictedGames.length}
                         </span>
                       ) : undefined
                     }
                   >
                     {loading ? (
                       <LoadingState message={t('management.gameDetection.loadingEvictedGames')} />
-                    ) : evictedGames.length === 0 ? (
+                    ) : filteredEvictedGames.length === 0 ? (
                       <EmptyState
                         icon={Database}
                         title={t('management.gameDetection.noEvictedGames')}
                       />
                     ) : (
                       <GamesList
-                        games={evictedGames}
-                        totalGames={evictedGames.length}
+                        games={filteredEvictedGames}
+                        totalGames={filteredEvictedGames.length}
                         notifications={notifications}
                         isAnyRemovalRunning={isAnyRemovalRunning}
                         isAdmin={isAdmin}

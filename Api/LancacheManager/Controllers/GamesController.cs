@@ -24,7 +24,6 @@ public class GamesController : ControllerBase
     private readonly ILogger<GamesController> _logger;
     private readonly IPathResolver _pathResolver;
     private readonly IUnifiedOperationTracker _operationTracker;
-    private readonly IStateService _stateRepository;
 
     public GamesController(
         GameCacheDetectionService gameCacheDetectionService,
@@ -32,8 +31,7 @@ public class GamesController : ControllerBase
         ISignalRNotificationService notifications,
         ILogger<GamesController> logger,
         IPathResolver pathResolver,
-        IUnifiedOperationTracker operationTracker,
-        IStateService stateRepository)
+        IUnifiedOperationTracker operationTracker)
     {
         _gameCacheDetectionService = gameCacheDetectionService;
         _cacheManagementService = cacheManagementService;
@@ -41,7 +39,6 @@ public class GamesController : ControllerBase
         _logger = logger;
         _pathResolver = pathResolver;
         _operationTracker = operationTracker;
-        _stateRepository = stateRepository;
     }
 
     /// <summary>
@@ -400,18 +397,21 @@ public class GamesController : ControllerBase
         var lastDetectionTimeUtc = cachedResults.StartTime.AsUtc();
 
         var games = cachedResults.Games ?? [];
-        var evictedMode = _stateRepository.GetEvictedDataMode();
-        if (evictedMode == EvictedDataModes.Hide || evictedMode == EvictedDataModes.Remove)
-        {
-            games = games.Where(g => !g.IsEvicted).ToList();
-        }
+
+        // Always include evicted games in the response so the frontend can display them
+        // in the Evicted Games section. The EvictedDataMode controls frontend display
+        // behavior, not API data availability — stripping here would make evicted games
+        // invisible to the frontend even when the user wants to see them.
+        // TotalGamesDetected excludes evicted games so the "N games detected" count
+        // reflects only active (non-evicted) games on disk.
+        var activeGamesCount = games.Count(g => !g.IsEvicted);
 
         return Ok(new CachedDetectionResponse
         {
             HasCachedResults = true,
             Games = games,
             Services = cachedResults.Services,
-            TotalGamesDetected = games.Count,
+            TotalGamesDetected = activeGamesCount,
             TotalServicesDetected = cachedResults.TotalServicesDetected,
             LastDetectionTime = lastDetectionTimeUtc.ToString("o") // ISO 8601 format with UTC indicator
         });
