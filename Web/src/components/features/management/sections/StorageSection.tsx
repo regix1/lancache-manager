@@ -23,6 +23,8 @@ import CacheManager from '../cache/CacheManager';
 import CorruptionManager from '../cache/CorruptionManager';
 import GameCacheDetector from '../game-detection/GameCacheDetector';
 import GamesList from '../game-detection/GamesList';
+import CacheRemovalModal from '@components/modals/cache/CacheRemovalModal';
+import type { GameCacheInfo } from '../../../../types';
 interface StorageSectionProps {
   isAdmin: boolean;
   authMode: AuthMode;
@@ -70,7 +72,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     evictionMode !== savedEvictionMode ||
     evictionScanNotifications !== savedEvictionScanNotifications;
 
-  const { notifications, isAnyRemovalRunning } = useNotifications();
+  const { notifications, isAnyRemovalRunning, addNotification } = useNotifications();
   const { isDockerAvailable } = useDockerSocket();
   const evictionScanNotification = notifications.find(
     (n: { type: string; status: string }) => n.type === 'eviction_scan' && n.status === 'running'
@@ -85,6 +87,51 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     () => gameDetectionData?.games?.filter((game) => game.is_evicted === true) ?? [],
     [gameDetectionData]
   );
+  const [evictedGameToRemove, setEvictedGameToRemove] = useState<GameCacheInfo | null>(null);
+
+  const handleEvictedGameRemoveClick = (game: GameCacheInfo) => {
+    if (!isAdmin) {
+      addNotification({
+        type: 'generic',
+        status: 'failed',
+        message: t('common.fullAuthRequired'),
+        details: { notificationType: 'error' }
+      });
+      return;
+    }
+    setEvictedGameToRemove(game);
+  };
+
+  const confirmEvictedGameRemoval = async () => {
+    if (!evictedGameToRemove) return;
+
+    const gameAppId = evictedGameToRemove.game_app_id;
+    const gameName = evictedGameToRemove.game_name;
+    const isEpic = evictedGameToRemove.service === 'epicgames';
+
+    addNotification({
+      type: 'game_removal',
+      status: 'running',
+      message: t('management.gameDetection.removingGame', { name: gameName }),
+      details: { gameAppId, gameName }
+    });
+
+    setEvictedGameToRemove(null);
+
+    try {
+      if (isEpic) {
+        await ApiService.removeEpicGameFromCache(gameName);
+      } else {
+        await ApiService.removeGameFromCache(gameAppId);
+      }
+      onDataRefresh?.();
+    } catch (err: unknown) {
+      const errorMsg =
+        (err instanceof Error ? err.message : String(err)) ||
+        t('management.gameDetection.failedToRemoveGame');
+      console.error('Evicted game removal error:', errorMsg);
+    }
+  };
 
   const loadEvictionSettings = useCallback(
     async (signal?: AbortSignal) => {
@@ -322,7 +369,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
                     cacheReadOnly={cacheReadOnly}
                     dockerSocketAvailable={isDockerAvailable}
                     checkingPermissions={checkingPermissions}
-                    onRemoveGame={Function.prototype as () => void}
+                    onRemoveGame={handleEvictedGameRemoveClick}
                   />
                 )}
               </AccordionSection>
@@ -469,6 +516,13 @@ const StorageSection: React.FC<StorageSectionProps> = ({
           </div>
         </div>
       </Modal>
+
+      {/* Evicted Game Removal Confirmation Modal */}
+      <CacheRemovalModal
+        target={evictedGameToRemove ? { type: 'game', data: evictedGameToRemove } : null}
+        onClose={() => setEvictedGameToRemove(null)}
+        onConfirm={confirmEvictedGameRemoval}
+      />
     </div>
   );
 };
