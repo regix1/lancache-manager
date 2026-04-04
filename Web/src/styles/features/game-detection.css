@@ -43,6 +43,12 @@
   opacity: 0.6;
 }
 
+/* Restore full opacity on action buttons inside evicted cards */
+.game-card-evicted .action-delete,
+.game-card-evicted .outline-delete {
+  opacity: 1;
+}
+
 /* Game card thumbnail image */
 .game-card-image {
   width: 92px;
