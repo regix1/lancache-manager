@@ -340,16 +340,65 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     setShowRemoveConfirm(false);
   };
 
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  const EVICTION_ALREADY_RUNNING_MSG =
+    'Eviction scan is already running. Please wait a moment and try again.';
+
   const handleStartEvictionScan = async () => {
     if (evictionScanInFlightRef.current) return;
     evictionScanInFlightRef.current = true;
     setIsStartingEvictionScan(true);
+
+    const attemptScan = async (): Promise<boolean> => {
+      try {
+        await ApiService.startEvictionScan();
+        return true;
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg === EVICTION_ALREADY_RUNNING_MSG) {
+          return false;
+        }
+        throw err;
+      }
+    };
+
     try {
-      await ApiService.startEvictionScan();
+      const succeeded = await attemptScan();
+      if (!succeeded) {
+        addNotification({
+          type: 'generic',
+          status: 'running',
+          message: 'Waiting for the current scan to finish...',
+          details: { notificationType: 'info' }
+        });
+
+        await new Promise<void>((resolve) => setTimeout(resolve, 10000));
+
+        if (!isMountedRef.current) return;
+
+        const retrySucceeded = await attemptScan().catch((err: unknown) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          onError(msg);
+          return null;
+        });
+
+        if (retrySucceeded === false) {
+          onError(EVICTION_ALREADY_RUNNING_MSG);
+        }
+      }
     } catch (err: unknown) {
       onError(err instanceof Error ? err.message : String(err));
     } finally {
-      setIsStartingEvictionScan(false);
+      if (isMountedRef.current) {
+        setIsStartingEvictionScan(false);
+      }
       evictionScanInFlightRef.current = false;
     }
   };

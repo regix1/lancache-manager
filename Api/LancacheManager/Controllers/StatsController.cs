@@ -442,7 +442,7 @@ public class StatsController : ControllerBase
         var operationId = _reconciliationService.RunManualAsync();
         if (operationId == null)
         {
-            return Conflict(new { error = "Reconciliation is already running" });
+            return Conflict(new { error = "Eviction scan is already running. Please wait a moment and try again." });
         }
 
         return Ok(new { operationId });
