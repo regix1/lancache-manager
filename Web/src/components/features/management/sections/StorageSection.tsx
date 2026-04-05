@@ -372,26 +372,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     try {
       const succeeded = await attemptScan();
       if (!succeeded) {
-        addNotification({
-          type: 'generic',
-          status: 'running',
-          message: t('management.sections.data.evictionScanWaiting'),
-          details: { notificationType: 'info' }
-        });
-
-        await new Promise<void>((resolve) => setTimeout(resolve, 10000));
-
-        if (!isMountedRef.current) return;
-
-        const retrySucceeded = await attemptScan().catch((err: unknown) => {
-          const msg = err instanceof Error ? err.message : String(err);
-          onError(msg);
-          return null;
-        });
-
-        if (retrySucceeded === false) {
-          onError(EVICTION_ALREADY_RUNNING_MSG);
-        }
+        onError(t('management.sections.data.evictionScanWaiting'));
       }
     } catch (err: unknown) {
       onError(err instanceof Error ? err.message : String(err));
