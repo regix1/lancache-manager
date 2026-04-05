@@ -440,7 +440,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
             !isDockerAvailable ||
             checkingPermissions
           }
-          variant="filled"
+          variant="subtle"
           color="red"
           size="sm"
           loading={startingRemoveAll}
@@ -673,7 +673,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                                   !isDockerAvailable ||
                                   checkingPermissions
                                 }
-                                variant="filled"
+                                variant="subtle"
                                 color="red"
                                 size="sm"
                                 loading={

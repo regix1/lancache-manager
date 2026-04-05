@@ -237,6 +237,17 @@ const GroupRow: React.FC<GroupRowProps> = ({
                     </span>
                   )}
                   {isEvicted && <EvictedBadge />}
+                  {shouldShowDatasource && (
+                    <Tooltip
+                      content={t('downloads.tab.compact.datasourceTooltip', {
+                        datasource: primaryDatasource
+                      })}
+                    >
+                      <span className="px-1.5 py-0.5 text-xs font-medium rounded flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)]">
+                        {primaryDatasource}
+                      </span>
+                    </Tooltip>
+                  )}
                   {diskSizeBytes ? (
                     <span className="text-themed-muted text-xs ml-2">
                       {t('dashboard.downloadsPanel.onDisk', { size: formatBytes(diskSizeBytes) })}
@@ -265,17 +276,6 @@ const GroupRow: React.FC<GroupRowProps> = ({
                         })}{' '}
                         · {t('downloads.tab.compact.counts.requests', { count: group.count })}
                       </span>
-                      {shouldShowDatasource && (
-                        <Tooltip
-                          content={t('downloads.tab.compact.datasourceTooltip', {
-                            datasource: primaryDatasource
-                          })}
-                        >
-                          <span className="px-1.5 py-0.5 text-xs font-medium rounded flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)]">
-                            {primaryDatasource}
-                          </span>
-                        </Tooltip>
-                      )}
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-[var(--theme-text-primary)] font-mono">
@@ -319,11 +319,6 @@ const GroupRow: React.FC<GroupRowProps> = ({
                     </span>
                   )}
                   {isEvicted && <EvictedBadge />}
-                  {diskSizeBytes ? (
-                    <span className="text-themed-muted text-xs ml-2">
-                      {t('dashboard.downloadsPanel.onDisk', { size: formatBytes(diskSizeBytes) })}
-                    </span>
-                  ) : null}
                   {shouldShowDatasource && (
                     <Tooltip
                       content={t('downloads.tab.compact.datasourceTooltip', {
@@ -335,6 +330,11 @@ const GroupRow: React.FC<GroupRowProps> = ({
                       </span>
                     </Tooltip>
                   )}
+                  {diskSizeBytes ? (
+                    <span className="text-themed-muted text-xs ml-2">
+                      {t('dashboard.downloadsPanel.onDisk', { size: formatBytes(diskSizeBytes) })}
+                    </span>
+                  ) : null}
                   <span className="text-xs text-themed-muted flex-shrink-0">
                     {t('downloads.tab.compact.counts.clients', { count: group.clientsSet.size })} ·{' '}
                     {t('downloads.tab.compact.counts.requests', { count: group.count })}

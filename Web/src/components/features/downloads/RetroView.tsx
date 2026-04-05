@@ -92,6 +92,7 @@ interface RetroViewProps {
   aestheticMode?: boolean;
   showDatasourceLabels?: boolean;
   hasMultipleDatasources?: boolean;
+  groupByGame?: boolean;
   detectionLookup?: Map<number, GameCacheInfo> | null;
   detectionByName?: Map<string, GameCacheInfo> | null;
   detectionByService?: Map<
@@ -258,16 +259,40 @@ interface DepotGroupedData {
   totalBytes: number;
   requestCount: number;
   clientsSet: Set<string>;
+  depotsSet: Set<number>;
   datasource?: string;
   averageBytesPerSecond: number;
   downloadIds: number[]; // Track original download IDs for event associations
   isEvicted?: boolean;
 }
 
-// Group items by depot ID for retro view display
+// Build the grouping key for a single download row.
+// - depot mode: one row per (depot, client) — matches historical retro behavior.
+// - game mode: one row per (service, gameAppId|epicAppId|gameName) — collapses
+//   every depot and every client for the same game into a single row.
+const buildGroupKey = (download: DownloadType, groupByGame: boolean): string => {
+  if (groupByGame) {
+    const gameId =
+      download.gameAppId != null
+        ? `app-${download.gameAppId}`
+        : download.epicAppId
+          ? `epic-${download.epicAppId}`
+          : download.gameName
+            ? `name-${download.gameName.toLowerCase()}`
+            : `unknown-${download.id}`;
+    return `game-${download.service}-${gameId}`;
+  }
+  return download.depotId
+    ? `depot-${download.depotId}-${download.clientIp}`
+    : `no-depot-${download.service}-${download.clientIp}-${download.id}`;
+};
+
+// Group items for retro view display.
+// See buildGroupKey for the two supported grouping modes.
 const groupByDepot = (
   items: (DownloadType | DownloadGroup)[],
-  sortOrder: SortOrder = 'latest'
+  sortOrder: SortOrder = 'latest',
+  groupByGame = false
 ): DepotGroupedData[] => {
   const depotGroups: Record<
     string,
@@ -278,120 +303,75 @@ const groupByDepot = (
     }
   > = {};
 
+  const ingest = (download: DownloadType, fromGroup: boolean) => {
+    const depotKey = buildGroupKey(download, groupByGame);
+
+    if (!depotGroups[depotKey]) {
+      depotGroups[depotKey] = {
+        id: depotKey,
+        service: download.service,
+        gameName: download.gameName || download.service,
+        gameAppId: download.gameAppId || null,
+        epicAppId: download.epicAppId || null,
+        depotId: download.depotId || null,
+        clientIp: download.clientIp,
+        startTimeUtc: download.startTimeUtc,
+        endTimeUtc: download.endTimeUtc || download.startTimeUtc,
+        cacheHitBytes: 0,
+        cacheMissBytes: 0,
+        totalBytes: 0,
+        requestCount: 0,
+        clientsSet: new Set<string>(),
+        depotsSet: new Set<number>(),
+        datasource: download.datasource,
+        averageBytesPerSecond: 0,
+        downloadIds: [],
+        isEvicted: download.isEvicted,
+        _weightedSpeedSum: 0,
+        _speedBytesSum: 0,
+        _downloads: []
+      };
+    }
+
+    const group = depotGroups[depotKey];
+    // Preserve the original isEvicted reconciliation: DownloadGroup iteration
+    // clears the flag on any non-evicted member, single-download iteration
+    // raises it on any evicted member.
+    if (fromGroup) {
+      if (!download.isEvicted) group.isEvicted = false;
+    } else {
+      if (download.isEvicted) group.isEvicted = true;
+    }
+    group.downloadIds.push(download.id);
+    group._downloads.push(download);
+    group.cacheHitBytes += download.cacheHitBytes || 0;
+    group.cacheMissBytes += download.cacheMissBytes || 0;
+    group.totalBytes += download.totalBytes || 0;
+    group.requestCount += 1;
+    group.clientsSet.add(download.clientIp);
+    if (download.depotId) group.depotsSet.add(download.depotId);
+
+    const speed = download.averageBytesPerSecond || 0;
+    const bytes = download.totalBytes || 0;
+    if (speed > 0 && bytes > 0) {
+      group._weightedSpeedSum += speed * bytes;
+      group._speedBytesSum += bytes;
+    }
+
+    if (download.startTimeUtc < group.startTimeUtc) {
+      group.startTimeUtc = download.startTimeUtc;
+    }
+    const endTime = download.endTimeUtc || download.startTimeUtc;
+    if (endTime > group.endTimeUtc) {
+      group.endTimeUtc = endTime;
+    }
+  };
+
   items.forEach((item) => {
     if (isDownloadGroup(item)) {
-      item.downloads.forEach((download) => {
-        const depotKey = download.depotId
-          ? `depot-${download.depotId}-${download.clientIp}`
-          : `no-depot-${download.service}-${download.clientIp}-${download.id}`;
-
-        if (!depotGroups[depotKey]) {
-          depotGroups[depotKey] = {
-            id: depotKey,
-            service: download.service,
-            gameName: download.gameName || download.service,
-            gameAppId: download.gameAppId || null,
-            epicAppId: download.epicAppId || null,
-            depotId: download.depotId || null,
-            clientIp: download.clientIp,
-            startTimeUtc: download.startTimeUtc,
-            endTimeUtc: download.endTimeUtc || download.startTimeUtc,
-            cacheHitBytes: 0,
-            cacheMissBytes: 0,
-            totalBytes: 0,
-            requestCount: 0,
-            clientsSet: new Set<string>(),
-            datasource: download.datasource,
-            averageBytesPerSecond: 0,
-            downloadIds: [],
-            isEvicted: download.isEvicted,
-            _weightedSpeedSum: 0,
-            _speedBytesSum: 0,
-            _downloads: []
-          };
-        }
-
-        const group = depotGroups[depotKey];
-        if (!download.isEvicted) group.isEvicted = false;
-        group.downloadIds.push(download.id);
-        group._downloads.push(download);
-        group.cacheHitBytes += download.cacheHitBytes || 0;
-        group.cacheMissBytes += download.cacheMissBytes || 0;
-        group.totalBytes += download.totalBytes || 0;
-        group.requestCount += 1;
-        group.clientsSet.add(download.clientIp);
-
-        const speed = download.averageBytesPerSecond || 0;
-        const bytes = download.totalBytes || 0;
-        if (speed > 0 && bytes > 0) {
-          group._weightedSpeedSum += speed * bytes;
-          group._speedBytesSum += bytes;
-        }
-
-        if (download.startTimeUtc < group.startTimeUtc) {
-          group.startTimeUtc = download.startTimeUtc;
-        }
-        const endTime = download.endTimeUtc || download.startTimeUtc;
-        if (endTime > group.endTimeUtc) {
-          group.endTimeUtc = endTime;
-        }
-      });
+      item.downloads.forEach((download) => ingest(download, true));
     } else {
-      const download = item;
-      const depotKey = download.depotId
-        ? `depot-${download.depotId}-${download.clientIp}`
-        : `no-depot-${download.service}-${download.clientIp}-${download.id}`;
-
-      if (!depotGroups[depotKey]) {
-        depotGroups[depotKey] = {
-          id: depotKey,
-          service: download.service,
-          gameName: download.gameName || download.service,
-          gameAppId: download.gameAppId || null,
-          epicAppId: download.epicAppId || null,
-          depotId: download.depotId || null,
-          clientIp: download.clientIp,
-          startTimeUtc: download.startTimeUtc,
-          endTimeUtc: download.endTimeUtc || download.startTimeUtc,
-          cacheHitBytes: 0,
-          cacheMissBytes: 0,
-          totalBytes: 0,
-          requestCount: 0,
-          clientsSet: new Set<string>(),
-          datasource: download.datasource,
-          averageBytesPerSecond: 0,
-          downloadIds: [],
-          isEvicted: download.isEvicted,
-          _weightedSpeedSum: 0,
-          _speedBytesSum: 0,
-          _downloads: []
-        };
-      }
-
-      const group = depotGroups[depotKey];
-      if (download.isEvicted) group.isEvicted = true;
-      group.downloadIds.push(download.id);
-      group._downloads.push(download);
-      group.cacheHitBytes += download.cacheHitBytes || 0;
-      group.cacheMissBytes += download.cacheMissBytes || 0;
-      group.totalBytes += download.totalBytes || 0;
-      group.requestCount += 1;
-      group.clientsSet.add(download.clientIp);
-
-      const speed = download.averageBytesPerSecond || 0;
-      const bytes = download.totalBytes || 0;
-      if (speed > 0 && bytes > 0) {
-        group._weightedSpeedSum += speed * bytes;
-        group._speedBytesSum += bytes;
-      }
-
-      if (download.startTimeUtc < group.startTimeUtc) {
-        group.startTimeUtc = download.startTimeUtc;
-      }
-      const endTime = download.endTimeUtc || download.startTimeUtc;
-      if (endTime > group.endTimeUtc) {
-        group.endTimeUtc = endTime;
-      }
+      ingest(item, false);
     }
   });
 
@@ -627,6 +607,7 @@ const RetroView = memo(
         aestheticMode = false,
         showDatasourceLabels = true,
         hasMultipleDatasources = false,
+        groupByGame = false,
         detectionLookup = null,
         detectionByName = null,
         detectionByService = null
@@ -646,8 +627,8 @@ const RetroView = memo(
 
       // Group all items (memoized)
       const allGroupedItems = useMemo(
-        () => groupByDepot(items, sortOrder as SortOrder),
-        [items, sortOrder]
+        () => groupByDepot(items, sortOrder as SortOrder, groupByGame),
+        [items, sortOrder, groupByGame]
       );
 
       // Calculate total pages
@@ -1517,7 +1498,18 @@ const RetroView = memo(
 
                                 {/* Depot */}
                                 <div className="px-2 min-w-0 overflow-hidden text-center" data-cell>
-                                  {data.depotId ? (
+                                  {data.depotsSet.size > 1 ? (
+                                    <span
+                                      className="text-xs text-[var(--theme-text-muted)] truncate block"
+                                      title={t('downloads.tab.retro.depotCount', {
+                                        count: data.depotsSet.size
+                                      })}
+                                    >
+                                      {t('downloads.tab.retro.depotCount', {
+                                        count: data.depotsSet.size
+                                      })}
+                                    </span>
+                                  ) : data.depotId ? (
                                     <a
                                       href={`https://steamdb.info/depot/${data.depotId}/`}
                                       target="_blank"
@@ -1659,7 +1651,16 @@ const RetroView = memo(
                                           clientIp={data.clientIp}
                                           className="inline"
                                         />
-                                        {data.depotId && (
+                                        {data.depotsSet.size > 1 ? (
+                                          <>
+                                            {' • '}
+                                            <span className="text-[var(--theme-text-muted)]">
+                                              {t('downloads.tab.retro.depotCount', {
+                                                count: data.depotsSet.size
+                                              })}
+                                            </span>
+                                          </>
+                                        ) : data.depotId ? (
                                           <>
                                             {' • '}
                                             <a
@@ -1671,7 +1672,7 @@ const RetroView = memo(
                                               {data.depotId}
                                             </a>
                                           </>
-                                        )}
+                                        ) : null}
                                       </span>
                                       {hasMultipleDatasources &&
                                         showDatasourceLabels &&

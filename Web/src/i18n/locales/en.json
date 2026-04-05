@@ -1214,7 +1214,8 @@
       },
       "display": {
         "minimalMode": "Minimal mode",
-        "fullHeightBanners": "Full-height banners"
+        "fullHeightBanners": "Full-height banners",
+        "groupByGameRetro": "Group by game"
       },
       "behavior": {
         "groupUnknown": "Group unknown games",
@@ -1333,6 +1334,8 @@
         "clientCount_plural": "{{count}} clients",
         "requestCount": "{{count}} request",
         "requestCount_plural": "{{count}} requests",
+        "depotCount": "{{count}} depot",
+        "depotCount_plural": "{{count}} depots",
         "datasourceTooltip": "Datasource: {{datasource}}",
         "gauge": {
           "excellent": "Excellent",

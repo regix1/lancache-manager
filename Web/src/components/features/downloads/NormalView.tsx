@@ -425,11 +425,6 @@ const GroupCard: React.FC<GroupCardProps> = ({
                 {isEvicted && (
                   <span className="themed-badge status-badge-error">{t('common.evicted')}</span>
                 )}
-                {diskSizeBytes ? (
-                  <span className="text-themed-muted text-xs ml-2">
-                    {t('dashboard.downloadsPanel.onDisk', { size: formatBytes(diskSizeBytes) })}
-                  </span>
-                ) : null}
                 {hasMultipleDatasources &&
                   showDatasourceLabels &&
                   group.downloads[0]?.datasource && (
@@ -445,6 +440,11 @@ const GroupCard: React.FC<GroupCardProps> = ({
                       </span>
                     </Tooltip>
                   )}
+                {diskSizeBytes ? (
+                  <span className="text-themed-muted text-xs ml-2">
+                    {t('dashboard.downloadsPanel.onDisk', { size: formatBytes(diskSizeBytes) })}
+                  </span>
+                ) : null}
                 {showEventBadges && groupEvents.length > 0 && (
                   <DownloadBadges events={groupEvents} maxVisible={2} size="sm" />
                 )}

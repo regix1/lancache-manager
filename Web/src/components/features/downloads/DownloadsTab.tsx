@@ -41,7 +41,6 @@ import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { ActionMenu, ActionMenuItem } from '@components/ui/ActionMenu';
 import { Pagination } from '@components/ui/Pagination';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
-import { TogglePill } from '@components/ui/TogglePill';
 import { Tooltip } from '@components/ui/Tooltip';
 import { ImageCacheContext } from '@components/common/ImageCacheContext';
 import LoadingSpinner from '@components/common/LoadingSpinner';
@@ -79,7 +78,8 @@ const STORAGE_KEYS = {
   SHOW_EVENT_BADGES: 'lancache_downloads_show_event_badges',
   SHOW_TIMESTAMPS: 'lancache_downloads_show_timestamps',
   SHOW_BANNER_COLUMN: 'lancache_downloads_show_banner_column',
-  BANNER_ONLY: 'downloads_banner_only'
+  BANNER_ONLY: 'downloads_banner_only',
+  GROUP_BY_GAME_RETRO: 'lancache_downloads_group_by_game_retro'
 };
 
 // Default items per page for each view mode
@@ -126,7 +126,8 @@ const PRESETS = {
     showEventBadges: true,
     showTimestamps: true,
     showBannerColumn: true,
-    bannerOnly: false
+    bannerOnly: false,
+    groupByGameRetro: false
   },
   minimal: {
     showZeroBytes: false,
@@ -144,7 +145,8 @@ const PRESETS = {
     showEventBadges: false,
     showTimestamps: false,
     showBannerColumn: false,
-    bannerOnly: false
+    bannerOnly: false,
+    groupByGameRetro: false
   },
   showAll: {
     showZeroBytes: true,
@@ -162,7 +164,8 @@ const PRESETS = {
     showEventBadges: true,
     showTimestamps: true,
     showBannerColumn: true,
-    bannerOnly: false
+    bannerOnly: false,
+    groupByGameRetro: false
   },
   default: {
     showZeroBytes: false,
@@ -180,7 +183,8 @@ const PRESETS = {
     showEventBadges: true,
     showTimestamps: true,
     showBannerColumn: true,
-    bannerOnly: false
+    bannerOnly: false,
+    groupByGameRetro: false
   }
 };
 
@@ -202,6 +206,7 @@ const detectActivePreset = (settings: {
   showTimestamps: boolean;
   showBannerColumn: boolean;
   bannerOnly: boolean;
+  groupByGameRetro: boolean;
 }): PresetType => {
   const presetKeys = ['pretty', 'minimal', 'showAll', 'default'] as const;
 
@@ -222,7 +227,8 @@ const detectActivePreset = (settings: {
       settings.showEventBadges === presetConfig.showEventBadges &&
       settings.showTimestamps === presetConfig.showTimestamps &&
       settings.showBannerColumn === presetConfig.showBannerColumn &&
-      settings.bannerOnly === presetConfig.bannerOnly;
+      settings.bannerOnly === presetConfig.bannerOnly &&
+      settings.groupByGameRetro === presetConfig.groupByGameRetro;
 
     if (matches) return preset;
   }
@@ -419,7 +425,8 @@ const DownloadsTab: React.FC = () => {
       showEventBadges: storage.getItem(STORAGE_KEYS.SHOW_EVENT_BADGES) !== 'false',
       showTimestamps: storage.getItem(STORAGE_KEYS.SHOW_TIMESTAMPS) !== 'false',
       showBannerColumn: storage.getItem(STORAGE_KEYS.SHOW_BANNER_COLUMN) !== 'false',
-      bannerOnly: storage.getItem(STORAGE_KEYS.BANNER_ONLY) === 'true'
+      bannerOnly: storage.getItem(STORAGE_KEYS.BANNER_ONLY) === 'true',
+      groupByGameRetro: storage.getItem(STORAGE_KEYS.GROUP_BY_GAME_RETRO) === 'true'
     };
   });
 
@@ -461,6 +468,7 @@ const DownloadsTab: React.FC = () => {
     storage.setItem(STORAGE_KEYS.SHOW_TIMESTAMPS, settings.showTimestamps.toString());
     storage.setItem(STORAGE_KEYS.SHOW_BANNER_COLUMN, settings.showBannerColumn.toString());
     storage.setItem(STORAGE_KEYS.BANNER_ONLY, settings.bannerOnly.toString());
+    storage.setItem(STORAGE_KEYS.GROUP_BY_GAME_RETRO, settings.groupByGameRetro.toString());
   }, [settings]);
 
   // Track previous view mode to detect changes
@@ -1487,29 +1495,6 @@ const DownloadsTab: React.FC = () => {
                     prefix={t('downloads.tab.sort.prefix')}
                     className="w-28 md:w-32 lg:w-36"
                   />
-
-                  <TogglePill
-                    active={settings.hideEvicted}
-                    size="md"
-                    onClick={() => {
-                      const newHideEvicted = !settings.hideEvicted;
-                      if (newHideEvicted && latestDownloads) {
-                        const evictedGames = latestDownloads.filter((d) => d.isEvicted);
-                        console.warn(
-                          `[Evicted Games] ${evictedGames.length} evicted:`,
-                          evictedGames.map((d) => ({
-                            game: d.gameName || d.depotId || 'Unknown',
-                            service: d.service,
-                            totalBytes: d.totalBytes
-                          }))
-                        );
-                      }
-                      setSettings({ ...settings, hideEvicted: newHideEvicted });
-                    }}
-                    title={t('downloads.tab.filters.hideEvicted')}
-                  >
-                    {t('downloads.tab.filters.hideEvicted')}
-                  </TogglePill>
                 </div>
 
                 {/* Desktop view controls */}
@@ -1730,6 +1715,15 @@ const DownloadsTab: React.FC = () => {
                             label={t('downloads.tab.display.fullHeightBanners')}
                           />
                         )}
+                        {settings.viewMode === 'retro' && (
+                          <Checkbox
+                            checked={settings.groupByGameRetro}
+                            onChange={(e) =>
+                              setSettings({ ...settings, groupByGameRetro: e.target.checked })
+                            }
+                            label={t('downloads.tab.display.groupByGameRetro')}
+                          />
+                        )}
                         {['compact', 'card', 'normal'].includes(settings.viewMode) && (
                           <Checkbox
                             checked={settings.groupUnknownGames}
@@ -1900,6 +1894,7 @@ const DownloadsTab: React.FC = () => {
                     aestheticMode={settings.aestheticMode}
                     showDatasourceLabels={showDatasourceLabels}
                     hasMultipleDatasources={hasMultipleDatasources}
+                    groupByGame={settings.groupByGameRetro}
                     detectionLookup={detectionLookup}
                     detectionByName={detectionByName}
                     detectionByService={detectionByService}
