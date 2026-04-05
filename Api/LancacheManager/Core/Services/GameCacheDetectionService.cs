@@ -1069,62 +1069,72 @@ public class GameCacheDetectionService : IDisposable
         // Populate evicted sample URLs from LogEntries for games and services.
         // These are URLs from log entries associated with evicted downloads, shown in the
         // expanded card for items in the Evicted section.
+        //
+        // EF Core cannot translate collection subqueries (Distinct().Take().ToList() inside
+        // a Select projection on a grouping) to SQL. The fix is to flatten to a simple
+        // SELECT DISTINCT of scalar key+value pairs, materialise with ToListAsync, then
+        // group in C# memory — no nested collection projection reaches the SQL layer.
 
-        // 4. Steam game evicted URLs: join LogEntries → Downloads on DownloadId, filter IsEvicted + GameAppId.
-        var steamEvictedUrlMap = await dbContext.LogEntries
+        // 4. Steam game evicted URLs: flat SELECT DISTINCT (GameAppId, Url) → materialise → group in memory.
+        var steamEvictedUrlFlat = await dbContext.LogEntries
+            .AsNoTracking()
             .Where(le => le.DownloadId != null
                 && le.Download != null
                 && le.Download.IsEvicted
                 && le.Download.GameAppId != null
                 && le.Download.EpicAppId == null)
-            .GroupBy(le => le.Download!.GameAppId!.Value)
-            .Select(g => new
-            {
-                Key = g.Key,
-                Urls = g.Select(le => le.Url).Distinct().Take(20).ToList()
-            })
-            .ToDictionaryAsync(x => x.Key, x => x.Urls);
+            .Select(le => new { GameAppId = le.Download!.GameAppId!.Value, le.Url })
+            .Distinct()
+            .ToListAsync();
 
-        // 5. Epic game evicted URLs: grouped on EpicAppId.
-        var epicEvictedUrlMap = await dbContext.LogEntries
+        var steamEvictedUrlMap = steamEvictedUrlFlat
+            .GroupBy(x => x.GameAppId)
+            .ToDictionary(g => g.Key, g => g.Select(x => x.Url).Take(20).ToList());
+
+        // 5. Epic game evicted URLs: flat SELECT DISTINCT (EpicAppId, Url) → materialise → group in memory.
+        var epicEvictedUrlFlat = await dbContext.LogEntries
+            .AsNoTracking()
             .Where(le => le.DownloadId != null
                 && le.Download != null
                 && le.Download.IsEvicted
                 && le.Download.EpicAppId != null)
-            .GroupBy(le => le.Download!.EpicAppId!)
-            .Select(g => new
-            {
-                Key = g.Key,
-                Urls = g.Select(le => le.Url).Distinct().Take(20).ToList()
-            })
-            .ToDictionaryAsync(x => x.Key, x => x.Urls);
+            .Select(le => new { EpicAppId = le.Download!.EpicAppId!, le.Url })
+            .Distinct()
+            .ToListAsync();
 
-        // 6. Service evicted URLs: grouped on Service (lowercased), both game ID columns null.
-        var serviceEvictedUrlMap = await dbContext.LogEntries
+        var epicEvictedUrlMap = epicEvictedUrlFlat
+            .GroupBy(x => x.EpicAppId)
+            .ToDictionary(g => g.Key, g => g.Select(x => x.Url).Take(20).ToList());
+
+        // 6. Service evicted URLs: flat SELECT DISTINCT (Service, Url) → materialise → group in memory.
+        //    ToLowerInvariant() is not SQL-translatable; lowercase the key in the in-memory GroupBy instead.
+        var serviceEvictedUrlFlat = await dbContext.LogEntries
+            .AsNoTracking()
             .Where(le => le.DownloadId != null
                 && le.Download != null
                 && le.Download.IsEvicted
                 && le.Download.GameAppId == null
                 && le.Download.EpicAppId == null
                 && le.Download.Service != null)
-            .GroupBy(le => le.Download!.Service!.ToLower())
-            .Select(g => new
-            {
-                Key = g.Key,
-                Urls = g.Select(le => le.Url).Distinct().Take(20).ToList()
-            })
-            .ToDictionaryAsync(x => x.Key, x => x.Urls);
+            .Select(le => new { le.Download!.Service, le.Url })
+            .Distinct()
+            .ToListAsync();
 
-        // 7. Steam game evicted depot IDs: from evicted Downloads.DepotId.
-        var steamEvictedDepotMap = await dbContext.Downloads
+        var serviceEvictedUrlMap = serviceEvictedUrlFlat
+            .GroupBy(x => x.Service!.ToLowerInvariant())
+            .ToDictionary(g => g.Key, g => g.Select(x => x.Url).Take(20).ToList());
+
+        // 7. Steam game evicted depot IDs: flat SELECT DISTINCT (GameAppId, DepotId) → materialise → group in memory.
+        var steamEvictedDepotFlat = await dbContext.Downloads
+            .AsNoTracking()
             .Where(d => d.IsEvicted && d.GameAppId != null && d.EpicAppId == null && d.DepotId != null)
-            .GroupBy(d => d.GameAppId!.Value)
-            .Select(g => new
-            {
-                Key = g.Key,
-                DepotIds = g.Select(d => (uint)d.DepotId!.Value).Distinct().ToList()
-            })
-            .ToDictionaryAsync(x => x.Key, x => x.DepotIds);
+            .Select(d => new { GameAppId = d.GameAppId!.Value, DepotId = (uint)d.DepotId!.Value })
+            .Distinct()
+            .ToListAsync();
+
+        var steamEvictedDepotMap = steamEvictedDepotFlat
+            .GroupBy(x => x.GameAppId)
+            .ToDictionary(g => g.Key, g => g.Select(x => x.DepotId).ToList());
 
         // Merge evicted URLs and depot IDs into game DTOs.
         foreach (var game in games)
