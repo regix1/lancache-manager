@@ -1,19 +1,16 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Parser;
 use sqlx::PgPool;
 use sqlx::Row;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::io::{BufWriter, Write as IoWrite};
 use std::path::{Path, PathBuf};
-use tempfile::NamedTempFile;
-use flate2::write::GzEncoder;
-use flate2::Compression;
 
 mod cache_utils;
 mod db;
 mod log_discovery;
+mod log_purge;
 mod log_reader;
 mod models;
 mod parser;
@@ -21,8 +18,7 @@ mod progress_events;
 mod progress_utils;
 mod service_utils;
 
-use log_reader::LogFileReader;
-use parser::LogParser;
+use log_purge::remove_log_entries_for_game;
 use progress_events::ProgressReporter;
 
 /// Game cache removal utility - removes all cache files for a specific game
@@ -48,6 +44,13 @@ struct Args {
     /// Emit JSON progress events to stdout
     #[arg(short, long)]
     progress: bool,
+
+    /// Skip the cache-file disk probe (all game rows already evicted).
+    /// When set, no `path.exists()` scanning of candidate cache files occurs
+    /// and no directory cleanup runs, but the log rewrite and database
+    /// cleanup still execute normally.
+    #[arg(long)]
+    skip_file_probe: bool,
 }
 
 #[derive(Serialize)]
@@ -433,144 +436,8 @@ fn cleanup_empty_directories(cache_dir: &Path, dirs_to_check: HashSet<PathBuf>) 
     removed_count
 }
 
-fn remove_log_entries_for_game(
-    log_dir: &Path,
-    urls_to_remove: &HashSet<String>,
-    valid_depot_ids: &HashSet<u32>,
-) -> Result<(u64, usize)> {  // Returns (lines_removed, permission_errors)
-    use rayon::prelude::*;
-    use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-
-    eprintln!("Filtering log files to remove game entries...");
-
-    let parser = LogParser::new(chrono_tz::UTC);
-    let log_files = log_discovery::discover_log_files(log_dir, "access.log")?;
-
-    let total_lines_removed = AtomicU64::new(0);
-    let permission_errors = AtomicUsize::new(0);
-
-    // Process log files in parallel for faster removal
-    log_files.par_iter().enumerate().for_each(|(file_index, log_file)| {
-        eprintln!("  Processing file {}/{}: {}", file_index + 1, log_files.len(), log_file.path.display());
-
-        let file_result = (|| -> Result<u64> {
-            let file_dir = log_file.path.parent().context("Failed to get file directory")?;
-            let temp_file = NamedTempFile::new_in(file_dir)?;
-
-            let mut lines_removed: u64 = 0;
-            let mut lines_processed: u64 = 0;
-
-            {
-                let mut log_reader = LogFileReader::open(&log_file.path)?;
-
-                // Create writer that matches the compression of the original file
-                let mut writer: Box<dyn std::io::Write> = if log_file.is_compressed {
-                    // Check extension to determine compression type
-                    let path_str = log_file.path.to_string_lossy();
-                    if path_str.ends_with(".gz") {
-                        // Gzip compression
-                        Box::new(BufWriter::with_capacity(
-                            1024 * 1024,
-                            GzEncoder::new(temp_file.as_file().try_clone()?, Compression::default())
-                        ))
-                    } else if path_str.ends_with(".zst") {
-                        // Zstd compression
-                        Box::new(BufWriter::with_capacity(
-                            1024 * 1024,
-                            zstd::Encoder::new(temp_file.as_file().try_clone()?, 3)?
-                        ))
-                    } else {
-                        // Unknown compression, treat as plain
-                        Box::new(BufWriter::with_capacity(1024 * 1024, temp_file.as_file().try_clone()?))
-                    }
-                } else {
-                    // Plain text
-                    Box::new(BufWriter::with_capacity(1024 * 1024, temp_file.as_file().try_clone()?))
-                };
-
-                let mut line = String::new();
-
-                loop {
-                    line.clear();
-                    let bytes_read = log_reader.read_line(&mut line)?;
-                    if bytes_read == 0 {
-                        break; // EOF
-                    }
-
-                    lines_processed += 1;
-                    let mut should_remove = false;
-
-                    // Parse the line and check if it belongs to this game
-                    if let Some(entry) = parser.parse_line(line.trim()) {
-                        // Skip health checks
-                        if !service_utils::should_skip_url(&entry.url) {
-                            // Check if this URL is for the game being removed
-                            // Match by URL OR by depot_id
-                            if urls_to_remove.contains(&entry.url) {
-                                should_remove = true;
-                            } else if let Some(depot_id) = entry.depot_id {
-                                if valid_depot_ids.contains(&depot_id) {
-                                    should_remove = true;
-                                }
-                            }
-                        }
-                    }
-
-                    if !should_remove {
-                        write!(writer, "{}", line)?;
-                    } else {
-                        lines_removed += 1;
-                    }
-                }
-
-                writer.flush()?;
-                // Ensure compression is finalized
-                drop(writer);
-            }
-
-            // If all lines would be removed, delete the entire file
-            if lines_processed > 0 && lines_removed == lines_processed {
-                eprintln!("  INFO: All {} lines from this file are for this game, deleting file entirely", lines_processed);
-                std::fs::remove_file(&log_file.path).ok();
-                return Ok(lines_removed);
-            }
-
-            // Atomically replace original with filtered version
-            let temp_path = temp_file.into_temp_path();
-
-            if let Err(persist_err) = temp_path.persist(&log_file.path) {
-                // Fallback: copy + delete
-                eprintln!("    persist() failed ({}), using copy fallback...", persist_err);
-                std::fs::copy(&persist_err.path, &log_file.path)?;
-                std::fs::remove_file(&persist_err.path).ok();
-            }
-
-            Ok(lines_removed)
-        })();
-
-        match file_result {
-            Ok(lines_removed) => {
-                eprintln!("    Removed {} log lines from this file", lines_removed);
-                total_lines_removed.fetch_add(lines_removed, Ordering::Relaxed);
-            }
-            Err(e) => {
-                // Check if this is a permission error
-                let error_str = e.to_string();
-                if error_str.contains("Permission denied") || error_str.contains("os error 13") {
-                    permission_errors.fetch_add(1, Ordering::Relaxed);
-                    eprintln!("  ERROR: Permission denied for file {}: {}", log_file.path.display(), e);
-                } else {
-                    eprintln!("  WARNING: Skipping file {}: {}", log_file.path.display(), e);
-                }
-            }
-        }
-    });
-
-    let final_removed = total_lines_removed.load(Ordering::Relaxed);
-    let final_permission_errors = permission_errors.load(Ordering::Relaxed);
-    eprintln!("Total log entries removed: {}, permission errors: {}", final_removed, final_permission_errors);
-    Ok((final_removed, final_permission_errors))
-}
+// `remove_log_entries_for_game` now lives in `log_purge.rs` and is shared with
+// `cache_purge_log_entries`. See the top-of-file `use log_purge::...` import.
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -646,16 +513,35 @@ async fn main() -> Result<()> {
 
     eprintln!("Found {} unique URLs for '{}'", url_data.len(), game_name);
 
-    let remove_msg = format!("Removing cache files for {} URLs", url_data.len());
-    write_progress(&progress_path, "removing_cache", &remove_msg, 10.0, 0, 0)?;
-    reporter.emit_progress(10.0, &remove_msg);
-    eprintln!("\nRemoving cache files...");
-    let (deleted_files, bytes_freed, parent_dirs, cache_permission_errors) = remove_cache_files_for_game(&cache_dir, &url_data, &progress_path, &reporter)?;
+    // File-probe + directory cleanup phase.
+    // Skipped when `--skip-file-probe` is set (caller already knows every row for
+    // this game is IsEvicted, so the lancache has nothing to delete on disk).
+    // The log rewrite and DB cleanup below still run unconditionally.
+    let (deleted_files, bytes_freed, empty_dirs_removed, cache_permission_errors) = if args.skip_file_probe {
+        let skip_msg = format!(
+            "Skipping cache file probe for {} URLs (fully evicted game)",
+            url_data.len()
+        );
+        eprintln!("\n{}", skip_msg);
+        write_progress(&progress_path, "removing_cache", &skip_msg, 10.0, 0, 0)?;
+        reporter.emit_progress(10.0, &skip_msg);
+        write_progress(&progress_path, "cleaning_directories", "Skipping directory cleanup (fully evicted game)", 70.0, 0, 0)?;
+        reporter.emit_progress(70.0, "Skipping directory cleanup (fully evicted game)");
+        (0usize, 0u64, 0usize, 0usize)
+    } else {
+        let remove_msg = format!("Removing cache files for {} URLs", url_data.len());
+        write_progress(&progress_path, "removing_cache", &remove_msg, 10.0, 0, 0)?;
+        reporter.emit_progress(10.0, &remove_msg);
+        eprintln!("\nRemoving cache files...");
+        let (deleted, bytes, parent_dirs, cache_errs) =
+            remove_cache_files_for_game(&cache_dir, &url_data, &progress_path, &reporter)?;
 
-    write_progress(&progress_path, "cleaning_directories", "Cleaning up empty directories", 70.0, 0, 0)?;
-    reporter.emit_progress(70.0, "Cleaning up empty directories");
-    eprintln!("\nCleaning up empty directories...");
-    let empty_dirs_removed = cleanup_empty_directories(&cache_dir, parent_dirs);
+        write_progress(&progress_path, "cleaning_directories", "Cleaning up empty directories", 70.0, 0, 0)?;
+        reporter.emit_progress(70.0, "Cleaning up empty directories");
+        eprintln!("\nCleaning up empty directories...");
+        let empty_dirs = cleanup_empty_directories(&cache_dir, parent_dirs);
+        (deleted, bytes, empty_dirs, cache_errs)
+    };
 
     // Remove log entries for this game
     write_progress(&progress_path, "removing_logs", "Removing log entries", 80.0, 0, 0)?;

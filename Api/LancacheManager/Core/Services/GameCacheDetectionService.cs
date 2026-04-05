@@ -834,6 +834,13 @@ public class GameCacheDetectionService : IDisposable
 
     public async Task<DetectionOperationResponse?> GetCachedDetectionAsync()
     {
+        // Capture the timestamp at the start of this cache-load so Layer 3 below can tell
+        // which CachedGameDetection rows were freshly inserted by RecoverEvictedGamesAsync
+        // during THIS call vs pre-existing rows self-healed by Trigger #2. Rows inserted
+        // by RecoverEvictedGamesAsync always get LastDetectedUtc = DateTime.UtcNow >= scanTimestamp,
+        // so the guard prevents the catch-all from re-evicting a just-self-healed row.
+        var scanTimestamp = DateTime.UtcNow;
+
         // Recover any evicted games that are in Downloads history but not yet in CachedGameDetections.
         // This runs on every cache load so that evicted games survive restarts without requiring a new scan.
         // During scans, RecoverEvictedGamesAsync already runs — this covers the no-scan (restart) path.
@@ -851,6 +858,28 @@ public class GameCacheDetectionService : IDisposable
         }
 
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
+
+        // Fix 3 Trigger #2: reverse-reconcile CachedGameDetections.IsEvicted for any row whose
+        // underlying Downloads have been un-evicted (files reappeared on disk) since the last
+        // detection scan. cache_eviction_scan.rs keeps Downloads.IsEvicted honest every 6h, but
+        // CachedGameDetections.IsEvicted is a derived projection that was never cleared. Running
+        // this BEFORE the cachedGames load below means the subsequent three-layer filter sees
+        // the healed state immediately on the UI cache-load path.
+        try
+        {
+            var selfHealedCount = await CacheReconciliationService.UnevictCachedGameDetectionsAsync(dbContext, _logger, default);
+            if (selfHealedCount > 0)
+            {
+                _logger.LogInformation(
+                    "[GameDetection] Self-healed {Count} CachedGameDetection rows on cache load (Trigger #2)",
+                    selfHealedCount);
+            }
+        }
+        catch (Exception selfHealEx)
+        {
+            _logger.LogWarning(selfHealEx,
+                "[GameDetection] Trigger #2 reverse-reconcile failed on cache load — proceeding with stale data");
+        }
 
         // Clean up any legacy GameAppId=0 entries that have no EpicAppId — these were left
         // by the old Epic dedup bug where multiple Epic games all shared GameAppId=0.
@@ -927,9 +956,17 @@ public class GameCacheDetectionService : IDisposable
 
             // Tertiary: Games with 0 cache files are evicted by definition — they were added by
             // RecoverEvictedGamesAsync because they have Downloads but no files on disk.
+            //
+            // Fix 3 guard: only fire for rows whose LastDetectedUtc is ≥ scanTimestamp captured
+            // at the top of this method. Those are rows inserted by THIS call's RecoverEvictedGamesAsync,
+            // which legitimately have CacheFilesFound = 0. Pre-existing rows that Trigger #2 just
+            // self-healed (IsEvicted → false) have an older LastDetectedUtc and must NOT be re-evicted
+            // here — the reverse-reconcile is the authoritative signal for those.
             foreach (var game in cachedGames)
             {
-                if (!game.IsEvicted && game.CacheFilesFound == 0)
+                if (!game.IsEvicted
+                    && game.CacheFilesFound == 0
+                    && game.LastDetectedUtc >= scanTimestamp)
                 {
                     game.IsEvicted = true;
                 }
@@ -1462,6 +1499,18 @@ public class GameCacheDetectionService : IDisposable
                 existing.Service = cachedGame.Service;
                 existing.EpicAppId = cachedGame.EpicAppId;
                 existing.LastDetectedUtc = now;
+
+                // Fix 3 Trigger #3: if the Rust processor detected cache files for a game that
+                // was previously flagged evicted, the files have reappeared — un-evict inline
+                // during upsert. Covers the Steam path where Rust finds cache files via the
+                // LogEntries × SteamDepotMappings join even for IsEvicted=true Downloads.
+                if (cachedGame.CacheFilesFound > 0 && existing.IsEvicted)
+                {
+                    existing.IsEvicted = false;
+                    _logger.LogInformation(
+                        "[GameDetection] Self-healed: game {GameAppId} ({GameName}) un-evicted — Rust found {Files} cache files",
+                        existing.GameAppId, existing.GameName, cachedGame.CacheFilesFound);
+                }
             }
             else
             {

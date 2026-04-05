@@ -28,6 +28,7 @@ RUN mkdir src && \
     echo "fn main() {}" > src/cache_epic_remove.rs && \
     echo "fn main() {}" > src/cache_service_remove.rs && \
     echo "fn main() {}" > src/cache_eviction_scan.rs && \
+    echo "fn main() {}" > src/cache_purge_log_entries.rs && \
     echo "fn main() {}" > src/db_reset.rs && \
     cargo build --release && \
     rm -rf src target/release/deps/lancache* target/release/lancache* target/release/.fingerprint/lancache*
@@ -50,6 +51,7 @@ RUN cargo build --release && \
     cp target/release/cache_epic_remove /build/output/ && \
     cp target/release/cache_service_remove /build/output/ && \
     cp target/release/cache_eviction_scan /build/output/ && \
+    cp target/release/cache_purge_log_entries /build/output/ && \
     cp target/release/db_reset /build/output/ && \
     chmod +x /build/output/*
 

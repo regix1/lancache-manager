@@ -154,6 +154,13 @@ public interface IPathResolver
     string GetRustEvictionScanPath();
 
     /// <summary>
+    /// Gets the path to the Rust bulk log-purge executable (cache_purge_log_entries).
+    /// Used by RemoveEvictedRecordsAsync to rewrite access.log files and drop entries
+    /// for all evicted games in a single pass.
+    /// </summary>
+    string GetRustCachePurgeLogEntriesPath();
+
+    /// <summary>
     /// Gets the path to the Rust data migrator executable
     /// </summary>
     string GetRustDataMigratorPath();

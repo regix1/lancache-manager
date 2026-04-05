@@ -71,6 +71,13 @@ path = "src/cache_service_remove.rs"
 name = "cache_eviction_scan"
 path = "src/cache_eviction_scan.rs"
 
+# Bulk-purge nginx access.log entries for a batch of evicted games
+# (called by RemoveEvictedRecordsAsync so a future ResetLogPosition cannot
+# resurrect games whose Downloads rows have already been deleted)
+[[bin]]
+name = "cache_purge_log_entries"
+path = "src/cache_purge_log_entries.rs"
+
 # --- Database Operations ---
 
 # Reset database tables (clear all data)

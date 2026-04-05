@@ -874,6 +874,34 @@ public class CacheManagementService
 
             _rustProcessHelper.ValidateRustBinaryExists(rustBinaryPath, "Game cache remover");
 
+            // Fast-path optimization: if every Downloads row for this game is already
+            // flagged IsEvicted, the lancache has nothing to delete on disk. Append
+            // --skip-file-probe so the Rust binary skips the path.exists() sweep but
+            // still rewrites the access logs and deletes the DB rows.
+            bool skipFileProbe = false;
+            await using (var probeContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken))
+            {
+                int totalRows = await probeContext.Downloads
+                    .Where(download => download.GameAppId == gameAppId)
+                    .CountAsync(cancellationToken);
+
+                if (totalRows > 0)
+                {
+                    int evictedRows = await probeContext.Downloads
+                        .Where(download => download.GameAppId == gameAppId && download.IsEvicted)
+                        .CountAsync(cancellationToken);
+
+                    if (totalRows == evictedRows)
+                    {
+                        skipFileProbe = true;
+                        _logger.LogInformation(
+                            "[GameRemoval] Fully evicted game {AppId} — using --skip-file-probe optimization ({Evicted}/{Total} rows evicted)",
+                            gameAppId, evictedRows, totalRows);
+                    }
+                }
+            }
+            string skipFileProbeArg = skipFileProbe ? " --skip-file-probe" : string.Empty;
+
             var datasources = _datasourceService.GetDatasources();
             var aggregatedReport = new GameCacheRemovalReport
             {
@@ -925,7 +953,7 @@ public class CacheManagementService
 
                 var startInfo = _rustProcessHelper.CreateProcessStartInfo(
                     rustBinaryPath,
-                    $"\"{dsLogsDir}\" \"{dsCachePath}\" {gameAppId} \"{outputJson}\" \"{progressJson}\"");
+                    $"\"{dsLogsDir}\" \"{dsCachePath}\" {gameAppId} \"{outputJson}\" \"{progressJson}\"{skipFileProbeArg}");
 
                 _logger.LogInformation("[GameRemoval] Running removal for datasource '{DatasourceName}': {Binary} {Args}",
                     datasource.Name, rustBinaryPath, startInfo.Arguments);

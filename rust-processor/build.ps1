@@ -21,6 +21,7 @@ $Binaries = @(
     "cache_game_remove",       # Remove game from cache (was game_cache_remover)
     "cache_epic_remove",       # Remove Epic game from cache by name
     "cache_service_remove",    # Remove service from cache (was service_remover)
+    "cache_purge_log_entries", # Bulk-purge access.log entries for evicted games
     "db_reset",                # Reset database (was database_reset)
     "db_migrate"               # Import from DeveLanCacheUI (was data_migrator)
 )
