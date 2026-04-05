@@ -112,7 +112,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   const fetchInProgress = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const lastFetchTime = useRef<number>(0);
-  const lastSignalRRefresh = useRef<number>(0);
+  const refreshDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevEventIdsRef = useRef<string>(JSON.stringify(selectedEventIds));
   const currentRequestIdRef = useRef(0);
 
@@ -393,25 +393,17 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   useEffect(() => {
     if (mockMode) return;
 
-    // Throttled handler that respects user's refresh rate setting (500ms minimum in live mode)
+    // Trailing debounce: any SignalR refresh event resets the 1-second timer.
+    // The fetch fires once, 1 second after the last event in a burst.
+    // For historical ranges (not 'live'), skip SignalR refreshes to prevent flickering.
     const handleRefreshEvent = (eventName?: string) => {
-      const currentRange = currentTimeRangeRef.current;
-      const maxRefreshRate = getRefreshIntervalRef.current();
-      const now = Date.now();
-      const timeSinceLastRefresh = now - lastSignalRRefresh.current;
-
-      // User's setting controls max refresh rate
-      // LIVE mode (0) = 500ms minimum to prevent UI thrashing
-      const minInterval = maxRefreshRate === 0 ? 500 : maxRefreshRate;
-
-      // For historical ranges (not 'live'), skip SignalR refreshes to prevent flickering
-      const isLiveMode = currentRange === 'live';
-
-      // Only refresh in live mode - historical ranges should not react to real-time events
-      if (isLiveMode && timeSinceLastRefresh >= minInterval) {
-        lastSignalRRefresh.current = now;
-        fetchAllData({ trigger: `signalr:${eventName || 'unknown'}` });
-      }
+      if (currentTimeRangeRef.current !== 'live') return;
+      const delay = getRefreshIntervalRef.current() || 500;
+      if (refreshDebounceTimerRef.current) clearTimeout(refreshDebounceTimerRef.current);
+      refreshDebounceTimerRef.current = setTimeout(
+        () => fetchAllData({ trigger: `signalr:${eventName || 'unknown'}` }),
+        delay
+      );
     };
 
     // Handler for database reset completion - always refresh immediately
@@ -448,6 +440,11 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       });
       signalR.off('DatabaseResetProgress', handleDatabaseResetProgress);
       signalR.off('GameDetectionComplete', handleGameDetectionComplete);
+      // Clear any pending debounce timer on unmount
+      if (refreshDebounceTimerRef.current) {
+        clearTimeout(refreshDebounceTimerRef.current);
+        refreshDebounceTimerRef.current = null;
+      }
     };
   }, [mockMode, signalR, fetchAllData]);
 

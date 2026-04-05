@@ -622,7 +622,7 @@ public class GameCacheDetectionService : IDisposable
 
             var epicGameCount = finalGames.Count(g => g.EpicAppId != null);
             var steamGameCount = finalGames.Count(g => g.EpicAppId == null);
-            _logger.LogInformation(
+            _logger.LogDebug(
                 "[GameDetection] === Detection Summary === Steam games: {SteamCount} | Epic games: {EpicCount} | Total games: {TotalCount} | Evicted (recovered): {EvictedCount}",
                 steamGameCount, epicGameCount, totalGamesDetected, evictedCount);
 
@@ -1194,7 +1194,7 @@ public class GameCacheDetectionService : IDisposable
         var steamCount = games.Count(g => string.IsNullOrEmpty(g.EpicAppId) && !g.IsEvicted);
         var epicCount = games.Count(g => !string.IsNullOrEmpty(g.EpicAppId) && !g.IsEvicted);
         var evictedCount = games.Count(g => g.IsEvicted);
-        _logger.LogInformation(
+        _logger.LogDebug(
             "[GameDetection] === Detection Summary (cache load) === Steam: {Steam} | Epic: {Epic} | Total: {Total} | Evicted: {Evicted}",
             steamCount, epicCount, steamCount + epicCount, evictedCount);
 
