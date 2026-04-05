@@ -520,13 +520,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
               iconColor="var(--theme-icon-orange)"
               isExpanded={evictedDataExpanded}
               onToggle={() => setEvictedDataExpanded((prev) => !prev)}
-              badge={
-                evictedGames.length + evictedServices.length > 0 ? (
-                  <span className="themed-badge status-badge-warning">
-                    {formatCount(evictedGames.length + evictedServices.length)}
-                  </span>
-                ) : undefined
-              }
+              badge={undefined}
             >
               <div className="space-y-4">
                 {/* Header actions toolbar — visible even when inner accordions are collapsed */}
