@@ -292,6 +292,8 @@ export interface CorruptedChunkDetail {
   cache_file_path: string;
 }
 
+export type CacheEntityVariant = 'active' | 'evicted';
+
 export interface GameCacheInfo {
   game_app_id: number;
   game_name: string;
@@ -305,6 +307,8 @@ export interface GameCacheInfo {
   image_url?: string; // Game art URL (Steam header or Epic keyImages)
   epic_app_id?: string; // Epic Games catalog item ID for image proxy
   is_evicted?: boolean; // True if all cache files have been evicted (no longer on disk)
+  evicted_downloads_count?: number;
+  evicted_bytes?: number;
 }
 
 export interface ServiceCacheInfo {
@@ -315,6 +319,8 @@ export interface ServiceCacheInfo {
   cache_file_paths: string[];
   datasources: string[];
   is_evicted?: boolean;
+  evicted_downloads_count?: number;
+  evicted_bytes?: number;
 }
 
 // Event Types

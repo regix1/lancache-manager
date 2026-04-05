@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import ServiceCard from './ServiceCard';
-import type { ServiceCacheInfo } from '../../../../types';
+import type { ServiceCacheInfo, CacheEntityVariant } from '../../../../types';
 import type { UnifiedNotification } from '@contexts/notifications';
 
 interface ServicesListProps {
@@ -13,6 +13,7 @@ interface ServicesListProps {
   dockerSocketAvailable: boolean;
   checkingPermissions: boolean;
   onRemoveService: (service: ServiceCacheInfo) => void;
+  variant?: CacheEntityVariant;
 }
 
 const ServicesList: React.FC<ServicesListProps> = ({
@@ -24,7 +25,8 @@ const ServicesList: React.FC<ServicesListProps> = ({
   cacheReadOnly,
   dockerSocketAvailable,
   checkingPermissions,
-  onRemoveService
+  onRemoveService,
+  variant = 'active'
 }) => {
   const [expandedServiceName, setExpandedServiceName] = useState<string | null>(null);
   const [expandingServiceName, setExpandingServiceName] = useState<string | null>(null);
@@ -71,6 +73,7 @@ const ServicesList: React.FC<ServicesListProps> = ({
           checkingPermissions={checkingPermissions}
           onToggleDetails={toggleServiceDetails}
           onRemove={onRemoveService}
+          variant={variant}
         />
       ))}
     </div>

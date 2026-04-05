@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { HardDrive, Database, FolderOpen } from 'lucide-react';
 import { EpicIcon } from '@components/ui/EpicIcon';
 import { formatBytes, formatCount } from '@utils/formatters';
-import type { GameCacheInfo } from '../../../../types';
+import type { GameCacheInfo, CacheEntityVariant } from '../../../../types';
 import ExpandableItemCard, { type ExpandableItemStat } from './ExpandableItemCard';
 import ExpandableList from './ExpandableList';
 import { getGameUniqueId } from './gameUtils';
@@ -20,6 +20,7 @@ interface GameCardProps {
   checkingPermissions: boolean;
   onToggleDetails: (gameId: string) => void;
   onRemove: (game: GameCacheInfo) => void;
+  variant?: CacheEntityVariant;
 }
 
 const MAX_INITIAL_PATHS = 50;
@@ -36,21 +37,27 @@ const GameCard: React.FC<GameCardProps> = ({
   dockerSocketAvailable,
   checkingPermissions,
   onToggleDetails,
-  onRemove
+  onRemove,
+  variant = 'active'
 }) => {
   const { t } = useTranslation();
   const isEpic = game.service === 'epicgames';
   const gameUniqueId = getGameUniqueId(game);
+  const isEvictedVariant = variant === 'evicted';
 
   const stats: ExpandableItemStat[] = [
     {
       icon: FolderOpen,
-      value: formatCount(game.cache_files_found),
+      value: isEvictedVariant
+        ? formatCount(game.evicted_downloads_count ?? 0)
+        : formatCount(game.cache_files_found),
       label: 'management.gameDetection.files'
     },
     {
       icon: HardDrive,
-      value: formatBytes(game.total_size_bytes),
+      value: isEvictedVariant
+        ? formatBytes(game.evicted_bytes ?? 0)
+        : formatBytes(game.total_size_bytes),
       label: ''
     }
   ];
@@ -91,10 +98,19 @@ const GameCard: React.FC<GameCardProps> = ({
           {t('management.gameDetection.evictedBadge')}
         </span>
       )}
+      {!isEvicted && variant === 'active' && (game.evicted_downloads_count ?? 0) > 0 && (
+        <span className="themed-badge status-badge-warning">
+          {t('management.gameDetection.partialEvictedBadge', {
+            count: game.evicted_downloads_count
+          })}
+        </span>
+      )}
     </span>
   );
 
-  const removeTooltip = t('management.gameDetection.removeGameCache');
+  const removeTooltip = isEvictedVariant
+    ? t('management.gameDetection.removePartialEvictedTooltip')
+    : t('management.gameDetection.removeGameCache');
 
   return (
     <div className={isEvicted ? 'game-card-evicted' : undefined}>

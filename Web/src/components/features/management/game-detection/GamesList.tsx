@@ -5,7 +5,7 @@ import { Button } from '@components/ui/Button';
 import { Pagination } from '@components/ui/Pagination';
 import GameCard from './GameCard';
 import { getGameUniqueId } from './gameUtils';
-import type { GameCacheInfo } from '../../../../types';
+import type { GameCacheInfo, CacheEntityVariant } from '../../../../types';
 import type { UnifiedNotification } from '@contexts/notifications';
 
 interface GamesListProps {
@@ -18,6 +18,7 @@ interface GamesListProps {
   dockerSocketAvailable: boolean;
   checkingPermissions: boolean;
   onRemoveGame: (game: GameCacheInfo) => void;
+  variant?: CacheEntityVariant;
 }
 
 const ITEMS_PER_PAGE = 20;
@@ -31,7 +32,8 @@ const GamesList: React.FC<GamesListProps> = ({
   cacheReadOnly,
   dockerSocketAvailable,
   checkingPermissions,
-  onRemoveGame
+  onRemoveGame,
+  variant = 'active'
 }) => {
   const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState('');
@@ -156,6 +158,7 @@ const GamesList: React.FC<GamesListProps> = ({
                   checkingPermissions={checkingPermissions}
                   onToggleDetails={toggleGameDetails}
                   onRemove={onRemoveGame}
+                  variant={variant}
                 />
               );
             })}

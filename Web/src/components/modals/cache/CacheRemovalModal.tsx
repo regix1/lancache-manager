@@ -17,6 +17,8 @@ interface CacheRemovalModalProps {
   onConfirm: () => void;
   titleOverride?: string;
   descriptionOverride?: string;
+  evictedCount?: number;
+  evictedBytes?: number;
 }
 
 const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({
@@ -24,7 +26,9 @@ const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({
   onClose,
   onConfirm,
   titleOverride,
-  descriptionOverride
+  descriptionOverride,
+  evictedCount,
+  evictedBytes
 }) => {
   const { t } = useTranslation();
 
@@ -65,22 +69,39 @@ const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({
           <div>
             <p className="text-xs font-medium mb-2">{t('modals.cacheRemoval.thisWill')}</p>
             <ul className="list-disc list-inside text-xs space-y-1 ml-2">
-              <li>
-                {t('modals.cacheRemoval.actions.deleteFiles', {
-                  count: filesCount,
-                  formattedCount: formatCount(filesCount)
-                })}
-              </li>
-              <li>
-                {t('modals.cacheRemoval.actions.freeSpace', { size: formatBytes(totalSize) })}
-              </li>
-              {isGame && depotCount > 0 && (
-                <li>{t('modals.cacheRemoval.actions.removeDepots', { count: depotCount })}</li>
-              )}
-              {!isGame && (
+              {titleOverride !== undefined && evictedCount !== undefined ? (
                 <>
-                  <li>{t('modals.cacheRemoval.actions.removeLogEntries')}</li>
-                  <li>{t('modals.cacheRemoval.actions.removeDownloadRecords')}</li>
+                  <li>
+                    {t('modals.cacheRemoval.actions.removeEvictedLogEntries', {
+                      count: evictedCount
+                    })}
+                  </li>
+                  <li>
+                    {t('modals.cacheRemoval.actions.freeSpace', {
+                      size: formatBytes(evictedBytes ?? 0)
+                    })}
+                  </li>
+                </>
+              ) : (
+                <>
+                  <li>
+                    {t('modals.cacheRemoval.actions.deleteFiles', {
+                      count: filesCount,
+                      formattedCount: formatCount(filesCount)
+                    })}
+                  </li>
+                  <li>
+                    {t('modals.cacheRemoval.actions.freeSpace', { size: formatBytes(totalSize) })}
+                  </li>
+                  {isGame && depotCount > 0 && (
+                    <li>{t('modals.cacheRemoval.actions.removeDepots', { count: depotCount })}</li>
+                  )}
+                  {!isGame && (
+                    <>
+                      <li>{t('modals.cacheRemoval.actions.removeLogEntries')}</li>
+                      <li>{t('modals.cacheRemoval.actions.removeDownloadRecords')}</li>
+                    </>
+                  )}
                 </>
               )}
               <li>{t('modals.cacheRemoval.actions.showProgress')}</li>
@@ -99,7 +120,9 @@ const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({
             leftSection={<Trash2 className="w-4 h-4" />}
             onClick={onConfirm}
           >
-            {t('modals.cacheRemoval.removeButton')}
+            {titleOverride !== undefined && evictedCount !== undefined
+              ? t('modals.cacheRemoval.actions.removeEvictedLogEntries', { count: evictedCount })
+              : t('modals.cacheRemoval.removeButton')}
           </Button>
         </div>
       </div>

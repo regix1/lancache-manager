@@ -825,6 +825,362 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     }
 
     /// <summary>
+    /// Removes evicted Downloads and their LogEntries for a single entity (Steam game, Epic game,
+    /// or non-game service). Unlike <see cref="RemoveEvictedRecordsAsync"/>, this method:
+    /// - Scopes ALL database operations to the specified entity.
+    /// - Does NOT upsert a CachedGameDetection row — the aggregate detection row is left untouched
+    ///   so that Dashboard "Games on Disk" stats remain correct for partially-evicted entities.
+    /// - Calls <see cref="UnevictCachedGameDetectionsAsync"/> / <see cref="UnevictCachedServiceDetectionsAsync"/>
+    ///   at the end for defensive self-healing.
+    /// </summary>
+    public async Task RemoveEvictedRecordsForEntityAsync(
+        AppDbContext context,
+        EvictionScope scope,
+        string key,
+        CancellationToken stoppingToken,
+        string? operationId = null)
+    {
+        CancellationTokenSource? cts = null;
+
+        if (operationId == null)
+        {
+            cts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+            operationId = _operationTracker.RegisterOperation(
+                OperationType.EvictionRemoval,
+                $"Eviction Removal ({scope}: {key})",
+                cts);
+
+            await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalStarted,
+                new EvictionRemovalStarted($"Removing evicted records for {scope} '{key}'...", operationId));
+        }
+
+        try
+        {
+            // Step -1: Rewrite nginx access.log files to drop entries for this entity's evicted
+            // downloads BEFORE deleting LogEntries/Downloads from the database. Best-effort —
+            // failures are logged as warnings and do not block the DB delete.
+            await PurgeEvictedLogEntriesForEntityAsync(context, scope, key, operationId, stoppingToken);
+
+            int logEntriesDeleted;
+            int downloadsDeleted;
+
+            _operationTracker.UpdateProgress(operationId, 33, "Removing associated log entries...");
+            await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
+                new EvictionRemovalProgress(operationId, "removing_log_entries", "Removing associated log entries...", 33, 0, 0));
+
+            await using var transaction = await context.Database.BeginTransactionAsync(stoppingToken);
+            try
+            {
+                // Step 1: Delete LogEntries for this entity's evicted Downloads (FK constraint).
+                logEntriesDeleted = scope switch
+                {
+                    EvictionScope.Steam => await context.LogEntries
+                        .Where(le => le.DownloadId != null
+                                  && le.Download != null
+                                  && le.Download.IsEvicted
+                                  && le.Download.GameAppId == long.Parse(key)
+                                  && le.Download.EpicAppId == null)
+                        .ExecuteDeleteAsync(stoppingToken),
+
+                    EvictionScope.Epic => await context.LogEntries
+                        .Where(le => le.DownloadId != null
+                                  && le.Download != null
+                                  && le.Download.IsEvicted
+                                  && le.Download.EpicAppId == key)
+                        .ExecuteDeleteAsync(stoppingToken),
+
+                    EvictionScope.Service => await context.LogEntries
+                        .Where(le => le.DownloadId != null
+                                  && le.Download != null
+                                  && le.Download.IsEvicted
+                                  && le.Download.GameAppId == null
+                                  && le.Download.EpicAppId == null
+                                  && le.Download.Service.ToLower() == key.ToLower())
+                        .ExecuteDeleteAsync(stoppingToken),
+
+                    _ => throw new ArgumentOutOfRangeException(nameof(scope))
+                };
+
+                // Step 2: Delete this entity's evicted Downloads.
+                _operationTracker.UpdateProgress(operationId, 66, "Removing evicted download records...");
+                await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
+                    new EvictionRemovalProgress(operationId, "removing_downloads", "Removing evicted download records...", 66, 0, logEntriesDeleted));
+
+                downloadsDeleted = scope switch
+                {
+                    EvictionScope.Steam => await context.Downloads
+                        .Where(d => d.IsEvicted
+                                 && d.GameAppId == long.Parse(key)
+                                 && d.EpicAppId == null)
+                        .ExecuteDeleteAsync(stoppingToken),
+
+                    EvictionScope.Epic => await context.Downloads
+                        .Where(d => d.IsEvicted && d.EpicAppId == key)
+                        .ExecuteDeleteAsync(stoppingToken),
+
+                    EvictionScope.Service => await context.Downloads
+                        .Where(d => d.IsEvicted
+                                 && d.GameAppId == null
+                                 && d.EpicAppId == null
+                                 && d.Service.ToLower() == key.ToLower())
+                        .ExecuteDeleteAsync(stoppingToken),
+
+                    _ => throw new ArgumentOutOfRangeException(nameof(scope))
+                };
+
+                await transaction.CommitAsync(stoppingToken);
+            }
+            catch
+            {
+                await transaction.RollbackAsync(stoppingToken);
+                throw;
+            }
+
+            if (downloadsDeleted > 0 || logEntriesDeleted > 0)
+            {
+                _logger.LogInformation(
+                    "[EvictionScan] Entity removal ({Scope} '{Key}'): deleted {Downloads} evicted downloads and {LogEntries} associated log entries",
+                    scope, key, downloadsDeleted, logEntriesDeleted);
+            }
+
+            // Step 3: Defensive self-heal — if all evicted rows for this entity are now gone, clear
+            // the aggregate IsEvicted flag so Dashboard stats update on the next GetCachedDetectionAsync.
+            if (scope == EvictionScope.Service)
+            {
+                await UnevictCachedServiceDetectionsAsync(context, _logger, stoppingToken);
+            }
+            else
+            {
+                await UnevictCachedGameDetectionsAsync(context, _logger, stoppingToken);
+            }
+
+            _operationTracker.UpdateProgress(operationId, 100, "Eviction removal complete.");
+            _operationTracker.CompleteOperation(operationId, success: true);
+            await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalComplete,
+                new EvictionRemovalComplete(true, operationId, "Eviction removal complete.", downloadsDeleted, logEntriesDeleted));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "[EvictionScan] Error removing evicted records for {Scope} '{Key}'", scope, key);
+            _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
+            await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalComplete,
+                new EvictionRemovalComplete(false, operationId, "Eviction removal failed.", 0, 0, ex.Message));
+        }
+        finally
+        {
+            cts?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Entity-scoped variant of <see cref="PurgeEvictedLogEntriesAsync"/>. Rewrites nginx access.log
+    /// files to drop entries belonging only to the specified entity's evicted downloads.
+    /// Best-effort: failures are logged as warnings and do not block the DB delete.
+    /// </summary>
+    private async Task PurgeEvictedLogEntriesForEntityAsync(
+        AppDbContext context,
+        EvictionScope scope,
+        string key,
+        string operationId,
+        CancellationToken stoppingToken)
+    {
+        try
+        {
+            // Collect IDs of evicted Downloads scoped to this entity.
+            var evictedDownloadIds = scope switch
+            {
+                EvictionScope.Steam => await context.Downloads
+                    .Where(d => d.IsEvicted
+                             && d.GameAppId == long.Parse(key)
+                             && d.EpicAppId == null)
+                    .Select(d => d.Id)
+                    .ToListAsync(stoppingToken),
+
+                EvictionScope.Epic => await context.Downloads
+                    .Where(d => d.IsEvicted && d.EpicAppId == key)
+                    .Select(d => d.Id)
+                    .ToListAsync(stoppingToken),
+
+                EvictionScope.Service => await context.Downloads
+                    .Where(d => d.IsEvicted
+                             && d.GameAppId == null
+                             && d.EpicAppId == null
+                             && d.Service.ToLower() == key.ToLower())
+                    .Select(d => d.Id)
+                    .ToListAsync(stoppingToken),
+
+                _ => throw new ArgumentOutOfRangeException(nameof(scope))
+            };
+
+            if (evictedDownloadIds.Count == 0)
+            {
+                _logger.LogDebug("[EvictedLogPurge] No evicted downloads for {Scope} '{Key}' — skipping log rewrite", scope, key);
+                return;
+            }
+
+            // Collect distinct URLs from LogEntries belonging to these evicted downloads.
+            var urls = await context.LogEntries
+                .Where(le => le.DownloadId != null && evictedDownloadIds.Contains(le.DownloadId.Value))
+                .Select(le => le.Url)
+                .Where(u => u != null && u != string.Empty)
+                .Distinct()
+                .ToListAsync(stoppingToken);
+
+            // Collect distinct depot IDs directly from the scoped evicted Downloads.
+            var depotIds = scope switch
+            {
+                EvictionScope.Steam => await context.Downloads
+                    .Where(d => d.IsEvicted
+                             && d.GameAppId == long.Parse(key)
+                             && d.EpicAppId == null
+                             && d.DepotId != null)
+                    .Select(d => d.DepotId!.Value)
+                    .Distinct()
+                    .ToListAsync(stoppingToken),
+
+                EvictionScope.Epic => await context.Downloads
+                    .Where(d => d.IsEvicted && d.EpicAppId == key && d.DepotId != null)
+                    .Select(d => d.DepotId!.Value)
+                    .Distinct()
+                    .ToListAsync(stoppingToken),
+
+                EvictionScope.Service => await context.Downloads
+                    .Where(d => d.IsEvicted
+                             && d.GameAppId == null
+                             && d.EpicAppId == null
+                             && d.Service.ToLower() == key.ToLower()
+                             && d.DepotId != null)
+                    .Select(d => d.DepotId!.Value)
+                    .Distinct()
+                    .ToListAsync(stoppingToken),
+
+                _ => throw new ArgumentOutOfRangeException(nameof(scope))
+            };
+
+            if (urls.Count == 0 && depotIds.Count == 0)
+            {
+                _logger.LogInformation(
+                    "[EvictedLogPurge] {Count} evicted downloads for {Scope} '{Key}' have no URL/depot history — nothing to purge from logs",
+                    evictedDownloadIds.Count, scope, key);
+                return;
+            }
+
+            _operationTracker.UpdateProgress(operationId, 0, "Purging evicted entries from access.log files...");
+            await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
+                new EvictionRemovalProgress(operationId, "purging_log_entries",
+                    $"Purging {urls.Count} URLs and {depotIds.Count} depot IDs from log files...", 0, 0, 0));
+
+            var rustBinaryPath = _pathResolver.GetRustCachePurgeLogEntriesPath();
+            if (!File.Exists(rustBinaryPath))
+            {
+                _logger.LogWarning(
+                    "[EvictedLogPurge] cache_purge_log_entries binary not found at {Path} — skipping log rewrite. DB deletes will still proceed.",
+                    rustBinaryPath);
+                return;
+            }
+
+            var operationsDir = _pathResolver.GetOperationsDirectory();
+            Directory.CreateDirectory(operationsDir);
+            var timestamp = DateTime.UtcNow.ToString("yyyyMMddHHmmssfff");
+            var inputJsonPath = Path.Combine(operationsDir, $"evicted_entity_log_purge_input_{timestamp}.json");
+
+            var jsonPayload = JsonSerializer.Serialize(
+                new { urls, depot_ids = depotIds },
+                new JsonSerializerOptions { WriteIndented = false });
+            await File.WriteAllTextAsync(inputJsonPath, jsonPayload, stoppingToken);
+
+            long totalLinesRemoved = 0;
+            int datasourcesProcessed = 0;
+            int datasourcesFailed = 0;
+
+            foreach (var datasource in _datasourceService.GetDatasources())
+            {
+                if (stoppingToken.IsCancellationRequested) break;
+
+                var dsLogPath = datasource.LogPath;
+                if (string.IsNullOrWhiteSpace(dsLogPath) || !Directory.Exists(dsLogPath))
+                {
+                    _logger.LogDebug(
+                        "[EvictedLogPurge] Skipping datasource '{Datasource}': log dir '{LogPath}' does not exist",
+                        datasource.Name, dsLogPath);
+                    continue;
+                }
+
+                var outputJsonPath = Path.Combine(operationsDir,
+                    $"evicted_entity_log_purge_output_{datasource.Name}_{timestamp}.json");
+
+                var args = $"\"{dsLogPath}\" \"{inputJsonPath}\" \"{outputJsonPath}\"";
+                var startInfo = _rustProcessHelper.CreateProcessStartInfo(rustBinaryPath, args);
+
+                _logger.LogInformation(
+                    "[EvictedLogPurge] Running entity log purge for {Scope} '{Key}', datasource '{Datasource}': {Binary} {Args}",
+                    scope, key, datasource.Name, rustBinaryPath, args);
+
+                try
+                {
+                    var result = await _rustProcessHelper.ExecuteProcessAsync(startInfo, stoppingToken);
+
+                    if (result.ExitCode != 0)
+                    {
+                        datasourcesFailed++;
+                        _logger.LogWarning(
+                            "[EvictedLogPurge] cache_purge_log_entries exited {Code} for datasource '{Datasource}'. stderr: {Err}",
+                            result.ExitCode, datasource.Name, result.Error);
+                        continue;
+                    }
+
+                    try
+                    {
+                        var report = await _rustProcessHelper.ReadAndCleanupOutputJsonAsync<PurgeLogEntriesReport>(
+                            outputJsonPath, $"cache_purge_log_entries/{datasource.Name}");
+                        totalLinesRemoved += report.LinesRemoved;
+                        datasourcesProcessed++;
+                        _logger.LogInformation(
+                            "[EvictedRemoval] Entity log purge removed {Lines} lines from access.log* in datasource '{Datasource}' ({Perms} permission errors)",
+                            report.LinesRemoved, datasource.Name, report.PermissionErrors);
+                    }
+                    catch (Exception reportEx)
+                    {
+                        datasourcesProcessed++;
+                        _logger.LogWarning(reportEx,
+                            "[EvictedRemoval] Entity log purge succeeded (exit 0) for datasource '{Datasource}' but output JSON was unreadable",
+                            datasource.Name);
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception innerEx)
+                {
+                    datasourcesFailed++;
+                    _logger.LogWarning(innerEx,
+                        "[EvictedLogPurge] Failed to run cache_purge_log_entries for datasource '{Datasource}' — DB deletes will still proceed",
+                        datasource.Name);
+                }
+            }
+
+            _logger.LogInformation(
+                "[EvictedRemoval] Entity log purge summary ({Scope} '{Key}'): {Total} lines removed across {Ok} datasources ({Failed} failed)",
+                scope, key, totalLinesRemoved, datasourcesProcessed, datasourcesFailed);
+
+            // Cleanup input JSON (output JSONs already cleaned up via ReadAndCleanupOutputJsonAsync)
+            try { File.Delete(inputJsonPath); } catch { /* best effort */ }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // Best-effort: log and continue so DB deletes still run.
+            _logger.LogWarning(ex,
+                "[EvictedLogPurge] Unexpected error during entity log purge ({Scope} '{Key}') — DB deletes will still proceed",
+                scope, key);
+        }
+    }
+
+    /// <summary>
     /// Deserialized report from the `cache_purge_log_entries` Rust binary's output JSON.
     /// </summary>
     private sealed class PurgeLogEntriesReport

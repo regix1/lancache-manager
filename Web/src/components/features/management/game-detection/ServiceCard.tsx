@@ -2,7 +2,7 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { HardDrive, FolderOpen } from 'lucide-react';
 import { formatBytes, formatCount } from '@utils/formatters';
-import type { ServiceCacheInfo } from '../../../../types';
+import type { ServiceCacheInfo, CacheEntityVariant } from '../../../../types';
 import ExpandableItemCard, { type ExpandableItemStat } from './ExpandableItemCard';
 import ExpandableList from './ExpandableList';
 
@@ -18,6 +18,7 @@ interface ServiceCardProps {
   checkingPermissions: boolean;
   onToggleDetails: (serviceName: string) => void;
   onRemove: (service: ServiceCacheInfo) => void;
+  variant?: CacheEntityVariant;
 }
 
 const MAX_INITIAL_PATHS = 50;
@@ -34,28 +35,49 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
   dockerSocketAvailable,
   checkingPermissions,
   onToggleDetails,
-  onRemove
+  onRemove,
+  variant = 'active'
 }) => {
   const { t } = useTranslation();
+  const isEvictedVariant = variant === 'evicted';
+  const isEvicted = service.is_evicted === true;
 
   const stats: ExpandableItemStat[] = [
     {
       icon: FolderOpen,
-      value: formatCount(service.cache_files_found),
+      value: isEvictedVariant
+        ? formatCount(service.evicted_downloads_count ?? 0)
+        : formatCount(service.cache_files_found),
       label: 'management.gameDetection.files'
     },
     {
       icon: HardDrive,
-      value: formatBytes(service.total_size_bytes),
+      value: isEvictedVariant
+        ? formatBytes(service.evicted_bytes ?? 0)
+        : formatBytes(service.total_size_bytes),
       label: ''
     }
   ];
+
+  const subtitle =
+    !isEvicted && variant === 'active' && (service.evicted_downloads_count ?? 0) > 0 ? (
+      <span className="themed-badge status-badge-warning">
+        {t('management.gameDetection.partialEvictedBadge', {
+          count: service.evicted_downloads_count
+        })}
+      </span>
+    ) : undefined;
+
+  const removeTooltip = isEvictedVariant
+    ? t('management.gameDetection.removePartialEvictedTooltip')
+    : t('management.gameDetection.removeServiceCache');
 
   return (
     <ExpandableItemCard
       id={service.service_name}
       title={service.service_name}
       titleClassName="text-themed-primary font-semibold truncate capitalize"
+      subtitle={subtitle}
       stats={stats}
       datasources={service.datasources}
       isExpanded={isExpanded}
@@ -68,7 +90,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
       checkingPermissions={checkingPermissions}
       onToggleDetails={(id) => onToggleDetails(id as string)}
       onRemove={() => onRemove(service)}
-      removeTooltip={t('management.gameDetection.removeServiceCache')}
+      removeTooltip={removeTooltip}
     >
       {/* Sample URLs */}
       <ExpandableList

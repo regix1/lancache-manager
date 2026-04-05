@@ -35,6 +35,7 @@ public class CacheController : ControllerBase
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly DatasourceService _datasourceService;
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
+    private readonly CacheReconciliationService _reconciliationService;
 
     public CacheController(
         CacheManagementService cacheService,
@@ -50,7 +51,8 @@ public class CacheController : ControllerBase
         NginxLogRotationService nginxLogRotationService,
         IUnifiedOperationTracker operationTracker,
         DatasourceService datasourceService,
-        IDbContextFactory<AppDbContext> dbContextFactory)
+        IDbContextFactory<AppDbContext> dbContextFactory,
+        CacheReconciliationService reconciliationService)
     {
         _cacheService = cacheService;
         _cacheClearingService = cacheClearingService;
@@ -66,6 +68,7 @@ public class CacheController : ControllerBase
         _operationTracker = operationTracker;
         _datasourceService = datasourceService;
         _dbContextFactory = dbContextFactory;
+        _reconciliationService = reconciliationService;
     }
 
     /// <summary>
@@ -1124,5 +1127,121 @@ public class CacheController : ControllerBase
                 };
             })
         });
+    }
+
+    /// <summary>
+    /// DELETE /api/cache/evicted/{scope}?key={value}
+    ///
+    /// Removes only the evicted Downloads and their LogEntries for a single entity,
+    /// leaving any active Downloads for the same entity intact.
+    ///
+    /// scope: "steam" | "epic" | "service"
+    /// key:   Steam gameAppId (long), Epic epicAppId (string), or service name (string)
+    ///
+    /// Returns 202 Accepted with { operationId, scope, key }.
+    /// Returns 409 Conflict if a global eviction removal is already in progress.
+    /// </summary>
+    [Authorize(Policy = "AdminOnly")]
+    [HttpDelete("evicted/{scope}")]
+    public async Task<IActionResult> RemoveEvictedForEntityAsync(string scope, [FromQuery] string? key)
+    {
+        // Validate key parameter.
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return BadRequest(new ErrorResponse { Error = "Query parameter 'key' is required and must not be empty." });
+        }
+
+        // Normalise and validate scope.
+        var scopeLower = scope.ToLowerInvariant();
+        if (scopeLower != "steam" && scopeLower != "epic" && scopeLower != "service")
+        {
+            return BadRequest(new ErrorResponse { Error = $"Invalid scope '{scope}'. Must be 'steam', 'epic', or 'service'." });
+        }
+
+        // Steam scope requires key to parse as a positive long.
+        long steamAppId = 0;
+        if (scopeLower == "steam")
+        {
+            if (!long.TryParse(key, out steamAppId) || steamAppId <= 0)
+            {
+                return BadRequest(new ErrorResponse { Error = $"For scope 'steam', key must be a positive integer (GameAppId). Received: '{key}'." });
+            }
+        }
+
+        // Lowercase service key for consistent matching.
+        if (scopeLower == "service")
+        {
+            key = key.ToLowerInvariant();
+        }
+
+        // Permission check — mirror ClearServiceCacheAsync.
+        var cacheWritable = _pathResolver.IsCacheDirectoryWritable();
+        var logsWritable = _pathResolver.IsLogsDirectoryWritable();
+
+        if (!cacheWritable || !logsWritable)
+        {
+            var errors = new List<string>();
+            if (!cacheWritable) errors.Add("cache directory is read-only");
+            if (!logsWritable) errors.Add("logs directory is read-only");
+
+            var errorMessage = $"Cannot remove evicted data: {string.Join(" and ", errors)}. " +
+                "This is typically caused by incorrect PUID/PGID settings in your docker-compose.yml. " +
+                $"The lancache container is configured to run as UID/GID {ContainerEnvironment.UidGid} (configured via PUID/PGID environment variables).";
+
+            _logger.LogWarning("[EvictedRemoval] Permission check failed for {Scope} '{Key}': {Error}", scope, key, errorMessage);
+            return BadRequest(new ErrorResponse { Error = errorMessage });
+        }
+
+        // Conflict check — reject if a global eviction removal is already running.
+        var activeOps = _operationTracker.GetActiveOperations(OperationType.EvictionRemoval);
+        if (activeOps.Any())
+        {
+            return Conflict(new
+            {
+                error = "Eviction removal already in progress",
+                operationId = activeOps.First().Id
+            });
+        }
+
+        var evictionScope = scopeLower switch
+        {
+            "steam" => EvictionScope.Steam,
+            "epic" => EvictionScope.Epic,
+            "service" => EvictionScope.Service,
+            _ => throw new InvalidOperationException($"Unreachable scope: {scopeLower}")
+        };
+
+        var cts = new CancellationTokenSource();
+        var operationId = _operationTracker.RegisterOperation(
+            OperationType.EvictionRemoval,
+            $"Eviction Removal ({evictionScope}: {key})",
+            cts);
+
+        await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalStarted,
+            new EvictionRemovalStarted($"Removing evicted records for {evictionScope} '{key}'...", operationId));
+
+        var capturedKey = key;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cts.Token);
+                await _reconciliationService.RemoveEvictedRecordsForEntityAsync(
+                    dbContext, evictionScope, capturedKey, cts.Token, operationId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[EvictedRemoval] Unhandled error before entity removal started ({Scope} '{Key}')", evictionScope, capturedKey);
+                _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
+                await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalComplete,
+                    new EvictionRemovalComplete(false, operationId, "Eviction removal failed to start.", 0, 0, ex.Message));
+            }
+            finally
+            {
+                cts.Dispose();
+            }
+        }, cts.Token);
+
+        return Accepted(new { operationId, scope = scopeLower, key });
     }
 }

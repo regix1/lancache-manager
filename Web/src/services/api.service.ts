@@ -1290,6 +1290,54 @@ class ApiService {
     }
   }
 
+  // Remove only the evicted downloads (and their log entries) for a Steam game (fire-and-forget, requires auth)
+  static async removeEvictedForGame(
+    gameAppId: number
+  ): Promise<{ operationId: string; scope: string; key: string }> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/cache/evicted/steam?key=${gameAppId}`,
+        this.getFetchOptions({ method: 'DELETE' })
+      );
+      return await this.handleResponse<{ operationId: string; scope: string; key: string }>(res);
+    } catch (error) {
+      console.error('removeEvictedForGame error:', error);
+      throw error;
+    }
+  }
+
+  // Remove only the evicted downloads (and their log entries) for an Epic game (fire-and-forget, requires auth)
+  static async removeEvictedForEpicGame(
+    epicAppId: string
+  ): Promise<{ operationId: string; scope: string; key: string }> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/cache/evicted/epic?key=${encodeURIComponent(epicAppId)}`,
+        this.getFetchOptions({ method: 'DELETE' })
+      );
+      return await this.handleResponse<{ operationId: string; scope: string; key: string }>(res);
+    } catch (error) {
+      console.error('removeEvictedForEpicGame error:', error);
+      throw error;
+    }
+  }
+
+  // Remove only the evicted downloads (and their log entries) for a non-game service (fire-and-forget, requires auth)
+  static async removeEvictedForService(
+    serviceName: string
+  ): Promise<{ operationId: string; scope: string; key: string }> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/cache/evicted/service?key=${encodeURIComponent(serviceName)}`,
+        this.getFetchOptions({ method: 'DELETE' })
+      );
+      return await this.handleResponse<{ operationId: string; scope: string; key: string }>(res);
+    } catch (error) {
+      console.error('removeEvictedForService error:', error);
+      throw error;
+    }
+  }
+
   // Get active cache operations (for recovery on page load)
   // Note: Used by NotificationsContext for operation recovery
 

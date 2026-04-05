@@ -993,6 +993,79 @@ public class GameCacheDetectionService : IDisposable
         var games = cachedGames.Select(ConvertToGameCacheInfo).ToList();
         var services = cachedServices.Select(ConvertToServiceCacheInfo).ToList();
 
+        // Populate evicted-download counts for the partial-eviction UI.
+        // Three GROUP BY queries — one per entity type — against Downloads.IsEvicted = true.
+        // Results are merged into the DTO lists via dictionary lookup (not inside the converter
+        // methods, to keep converters static and pure).
+
+        // 1. Steam games: grouped on GameAppId (EpicAppId must be null to exclude Epic games
+        //    that happen to have a Steam depot mapping).
+        var steamEvictedMap = await dbContext.Downloads
+            .Where(d => d.IsEvicted && d.GameAppId != null && d.EpicAppId == null)
+            .GroupBy(d => d.GameAppId!.Value)
+            .Select(g => new
+            {
+                Key = g.Key,
+                Count = g.Count(),
+                Bytes = (ulong)g.Sum(x => x.CacheHitBytes + x.CacheMissBytes)
+            })
+            .ToDictionaryAsync(x => x.Key, x => (x.Count, x.Bytes));
+
+        // 2. Epic games: grouped on EpicAppId.
+        var epicEvictedMap = await dbContext.Downloads
+            .Where(d => d.IsEvicted && d.EpicAppId != null)
+            .GroupBy(d => d.EpicAppId!)
+            .Select(g => new
+            {
+                Key = g.Key,
+                Count = g.Count(),
+                Bytes = (ulong)g.Sum(x => x.CacheHitBytes + x.CacheMissBytes)
+            })
+            .ToDictionaryAsync(x => x.Key, x => (x.Count, x.Bytes));
+
+        // 3. Non-game services: grouped on Service (lowercased), where both game ID columns are null.
+        //    Downloads.Service may be mixed-case (e.g. "WSUS") while CachedServiceDetection.ServiceName
+        //    is stored lowercased — hence ToLower() before keying.
+        var serviceEvictedMap = await dbContext.Downloads
+            .Where(d => d.IsEvicted && d.GameAppId == null && d.EpicAppId == null && d.Service != null)
+            .GroupBy(d => d.Service!.ToLower())
+            .Select(g => new
+            {
+                Key = g.Key,
+                Count = g.Count(),
+                Bytes = (ulong)g.Sum(x => x.CacheHitBytes + x.CacheMissBytes)
+            })
+            .ToDictionaryAsync(x => x.Key, x => (x.Count, x.Bytes));
+
+        // Merge evicted counts into game DTOs.
+        foreach (var game in games)
+        {
+            if (game.EpicAppId != null)
+            {
+                if (epicEvictedMap.TryGetValue(game.EpicAppId, out var epicEntry))
+                {
+                    game.EvictedDownloadsCount = epicEntry.Count;
+                    game.EvictedBytes = epicEntry.Bytes;
+                }
+            }
+            else if (steamEvictedMap.TryGetValue(game.GameAppId, out var steamEntry))
+            {
+                game.EvictedDownloadsCount = steamEntry.Count;
+                game.EvictedBytes = steamEntry.Bytes;
+            }
+        }
+
+        // Merge evicted counts into service DTOs.
+        foreach (var service in services)
+        {
+            var key = service.ServiceName.ToLower();
+            if (serviceEvictedMap.TryGetValue(key, out var svcEntry))
+            {
+                service.EvictedDownloadsCount = svcEntry.Count;
+                service.EvictedBytes = svcEntry.Bytes;
+            }
+        }
+
         // Epic games are now persisted to CachedGameDetections (detected by Rust processor
         // using actual cache file sizes), so they load from DB alongside Steam games.
 

@@ -104,12 +104,20 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     localStorage.setItem('management-game-cache-expanded', String(sectionExpanded));
   }, [sectionExpanded]);
 
-  // Evicted Games — derived from local games state (is_evicted === true)
+  // Evicted Games — derived from local games state.
+  // Includes partially-evicted games (evicted_downloads_count > 0) as well as fully-evicted ones.
   // Using local state instead of gameDetectionData from context ensures evictedGames
   // updates immediately in the same render cycle when setGames() is called on scan completion.
-  const evictedGames = useMemo(() => games.filter((game) => game.is_evicted === true), [games]);
+  const evictedGames = useMemo(
+    () =>
+      games.filter((game) => (game.evicted_downloads_count ?? 0) > 0 || game.is_evicted === true),
+    [games]
+  );
 
   const [evictedGameToRemove, setEvictedGameToRemove] = useState<GameCacheInfo | null>(null);
+  const [partialEvictedTarget, setPartialEvictedTarget] = useState<
+    GameCacheInfo | ServiceCacheInfo | null
+  >(null);
 
   const handleEvictedGameRemoveClick = (game: GameCacheInfo) => {
     if (!isAdmin) {
@@ -121,7 +129,82 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       });
       return;
     }
-    setEvictedGameToRemove(game);
+    // Route to partial eviction if not fully evicted
+    if (game.is_evicted !== true && (game.evicted_downloads_count ?? 0) > 0) {
+      setPartialEvictedTarget(game);
+    } else {
+      setEvictedGameToRemove(game);
+    }
+  };
+
+  const handleEvictedServiceRemoveClick = (service: ServiceCacheInfo) => {
+    if (!isAdmin) {
+      addNotification({
+        type: 'generic',
+        status: 'failed',
+        message: t('common.fullAuthRequired'),
+        details: { notificationType: 'error' }
+      });
+      return;
+    }
+    // Route to partial eviction if not fully evicted
+    if (service.is_evicted !== true && (service.evicted_downloads_count ?? 0) > 0) {
+      setPartialEvictedTarget(service);
+    } else {
+      handleServiceRemoveClick(service);
+    }
+  };
+
+  const confirmPartialEvictedRemoval = async () => {
+    if (!partialEvictedTarget) return;
+
+    const isService = 'service_name' in partialEvictedTarget;
+
+    if (isService) {
+      const service = partialEvictedTarget as ServiceCacheInfo;
+      const serviceName = service.service_name;
+      addNotification({
+        type: 'service_removal',
+        status: 'running',
+        message: t('management.gameDetection.removingService', { name: serviceName }),
+        details: { service: serviceName }
+      });
+      setPartialEvictedTarget(null);
+      try {
+        await ApiService.removeEvictedForService(serviceName);
+        onDataRefresh?.();
+      } catch (err: unknown) {
+        const errorMsg =
+          (err instanceof Error ? err.message : String(err)) ||
+          t('management.gameDetection.failedToRemoveService');
+        console.error('Partial evicted service removal error:', errorMsg);
+      }
+    } else {
+      const game = partialEvictedTarget as GameCacheInfo;
+      const gameAppId = game.game_app_id;
+      const gameName = game.game_name;
+      const isEpic = game.service === 'epicgames';
+      addNotification({
+        type: 'game_removal',
+        status: 'running',
+        message: t('management.gameDetection.removingGame', { name: gameName }),
+        details: { gameAppId, gameName }
+      });
+      setPartialEvictedTarget(null);
+      try {
+        if (isEpic && game.epic_app_id) {
+          await ApiService.removeEvictedForEpicGame(game.epic_app_id);
+        } else {
+          await ApiService.removeEvictedForGame(gameAppId);
+        }
+        onDataRefresh?.();
+      } catch (err: unknown) {
+        const errorMsg =
+          (err instanceof Error ? err.message : String(err)) ||
+          t('management.gameDetection.failedToRemoveGame');
+        console.error('Partial evicted game removal error:', errorMsg);
+      }
+    }
   };
 
   const confirmEvictedGameRemoval = async () => {
@@ -168,7 +251,11 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       )
     : activeGames;
   const evictedServices = useMemo(
-    () => services.filter((service: ServiceCacheInfo) => service.is_evicted === true),
+    () =>
+      services.filter(
+        (service: ServiceCacheInfo) =>
+          (service.evicted_downloads_count ?? 0) > 0 || service.is_evicted === true
+      ),
     [services]
   );
   const activeServices = services.filter((s: ServiceCacheInfo) => !s.is_evicted);
@@ -964,7 +1051,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                             cacheReadOnly={cacheReadOnly}
                             dockerSocketAvailable={isDockerAvailable}
                             checkingPermissions={checkingPermissions}
-                            onRemoveService={handleServiceRemoveClick}
+                            onRemoveService={handleEvictedServiceRemoveClick}
+                            variant="evicted"
                           />
                         )}
                         {filteredEvictedGames.length > 0 && (
@@ -978,6 +1066,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                             dockerSocketAvailable={isDockerAvailable}
                             checkingPermissions={checkingPermissions}
                             onRemoveGame={handleEvictedGameRemoveClick}
+                            variant="evicted"
                           />
                         )}
                       </div>
@@ -1039,6 +1128,38 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         onClose={() => setEvictedGameToRemove(null)}
         onConfirm={confirmEvictedGameRemoval}
       />
+
+      {/* Partial Eviction Removal Confirmation Modal */}
+      {partialEvictedTarget !== null &&
+        (() => {
+          const isService = 'service_name' in partialEvictedTarget;
+          const name = isService
+            ? (partialEvictedTarget as ServiceCacheInfo).service_name
+            : (partialEvictedTarget as GameCacheInfo).game_name;
+          const evictedCount = partialEvictedTarget.evicted_downloads_count ?? 0;
+          const evictedBytes = partialEvictedTarget.evicted_bytes ?? 0;
+          const titleKey = isService
+            ? 'modals.cacheRemoval.titlePartialEvictedService'
+            : 'modals.cacheRemoval.titlePartialEvictedGame';
+          const descKey = isService
+            ? 'modals.cacheRemoval.confirmPartialEvictedService'
+            : 'modals.cacheRemoval.confirmPartialEvictedGame';
+          return (
+            <CacheRemovalModal
+              target={
+                isService
+                  ? { type: 'service', data: partialEvictedTarget as ServiceCacheInfo }
+                  : { type: 'game', data: partialEvictedTarget as GameCacheInfo }
+              }
+              onClose={() => setPartialEvictedTarget(null)}
+              onConfirm={confirmPartialEvictedRemoval}
+              titleOverride={t(titleKey)}
+              descriptionOverride={t(descKey, { name, count: evictedCount })}
+              evictedCount={evictedCount}
+              evictedBytes={evictedBytes}
+            />
+          );
+        })()}
     </>
   );
 };

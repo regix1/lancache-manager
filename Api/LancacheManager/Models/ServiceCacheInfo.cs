@@ -25,4 +25,19 @@ public class ServiceCacheInfo
 
     [System.Text.Json.Serialization.JsonPropertyName("is_evicted")]
     public bool IsEvicted { get; set; } = false;
+
+    /// <summary>
+    /// Number of Downloads rows with IsEvicted = true for this service.
+    /// Non-zero even when the service still has active cache files (partial eviction).
+    /// Populated in GetCachedDetectionAsync via GROUP BY query.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonPropertyName("evicted_downloads_count")]
+    public int EvictedDownloadsCount { get; set; } = 0;
+
+    /// <summary>
+    /// Sum of (CacheHitBytes + CacheMissBytes) for all evicted Downloads rows for this service.
+    /// Represents the data volume of the evicted portion.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonPropertyName("evicted_bytes")]
+    public ulong EvictedBytes { get; set; } = 0;
 }

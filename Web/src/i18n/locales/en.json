@@ -1971,6 +1971,8 @@
       "dockerSocketRequired": "Docker socket required for log cleanup",
       "unknownGameBadge": "Unknown",
       "evictedBadge": "Evicted",
+      "partialEvictedBadge": "{{count}} evicted",
+      "removePartialEvictedTooltip": "Remove evicted download records and log entries. Active cached files will not be deleted.",
       "evictedGamesSection": "Evicted Games",
       "noEvictedGames": "No evicted games found",
       "evictedItems": "Evicted Items",
@@ -3691,9 +3693,14 @@
         "removeLogEntries": "Remove ALL log entries for this service from the database",
         "removeDownloadRecords": "Remove ALL download records for this service from the database",
         "showProgress": "Progress will be shown in the notification bar at the top",
-        "cannotUndo": "This action cannot be undone"
+        "cannotUndo": "This action cannot be undone",
+        "removeEvictedLogEntries": "Remove {{count}} evicted download record(s) and their log entries"
       },
-      "removeButton": "Remove from Cache"
+      "removeButton": "Remove from Cache",
+      "titlePartialEvictedGame": "Remove Evicted Data",
+      "titlePartialEvictedService": "Remove Evicted Data",
+      "confirmPartialEvictedGame": "Remove {{count}} evicted download record(s) and their log entries for {{name}}. Active cache files will not be deleted.",
+      "confirmPartialEvictedService": "Remove {{count}} evicted download record(s) and their log entries for {{name}}. Active cache files will not be deleted."
     },
     "fullScan": {
       "stats": {
