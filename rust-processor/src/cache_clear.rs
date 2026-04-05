@@ -404,7 +404,7 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
         .collect();
 
     let total_dirs = hex_dirs.len();
-    eprintln!("Found {} cache directories to clear", total_dirs);
+    eprintln!("Found {} cache files to clear", total_dirs);
 
     let initial_available = get_available_bytes(cache_dir).unwrap_or(0);
 

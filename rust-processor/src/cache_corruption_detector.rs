@@ -82,7 +82,7 @@ impl CorruptionDetector {
             return Ok(HashMap::new());
         }
 
-        eprintln!("Scanning {} log file(s) for corrupted chunks...", log_files.len());
+        eprintln!("Scanning {} log files for corrupted chunks...", log_files.len());
 
         let parser = LogParser::new(timezone);
         let mut miss_tracker: HashMap<(String, String), usize> = HashMap::new();
@@ -241,7 +241,7 @@ impl CorruptionDetector {
         }
 
         let total_files = log_files.len();
-        eprintln!("Scanning {} log file(s) for corrupted chunks...", total_files);
+        eprintln!("Scanning {} log files for corrupted chunks...", total_files);
 
         // Write initial progress
         if let Some(progress_file) = progress_path {
@@ -279,7 +279,7 @@ impl CorruptionDetector {
                 self.write_detection_progress(
                     progress_file,
                     "scanning",
-                    &format!("Scanning file {}/{}: {}", file_index + 1, total_files, file_name),
+                    &format!("Scanning file {}/{}...", file_index + 1, total_files),
                     file_index,
                     total_files,
                     percent,
@@ -330,7 +330,7 @@ impl CorruptionDetector {
                             let _ = self.write_detection_progress(
                                 progress_file,
                                 "scanning",
-                                &format!("Scanning {}: {:.0}%", file_name, file_progress),
+                                &format!("Scanning file {}/{}...", file_index + 1, total_files),
                                 file_index,
                                 total_files,
                                 overall_percent,
@@ -474,7 +474,7 @@ impl CorruptionDetector {
         }
 
         let total_files = log_files.len();
-        eprintln!("Scanning {} log file(s) for re-downloaded chunks (HIT retries within 60s window)...", total_files);
+        eprintln!("Scanning {} log files for re-downloaded chunks (HIT retries within 60s window)...", total_files);
 
         if let Some(progress_file) = progress_path {
             self.write_detection_progress(
@@ -503,7 +503,7 @@ impl CorruptionDetector {
                 let percent = (file_index as f64 / total_files as f64) * 80.0;
                 let _ = self.write_detection_progress(
                     progress_file, "scanning",
-                    &format!("Scanning file {}/{}: {}", file_index + 1, total_files, file_name),
+                    &format!("Scanning file {}/{}...", file_index + 1, total_files),
                     file_index, total_files, percent, Some(file_name.clone()),
                 );
             }

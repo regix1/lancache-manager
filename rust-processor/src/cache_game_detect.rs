@@ -782,8 +782,8 @@ async fn main() -> Result<()> {
     reporter.emit_started();
 
     // Write initial progress
-    write_progress(progress_path.as_deref(), "starting", "Initializing game cache detection", 0.0, 0, 0)?;
-    reporter.emit_progress(0.0, "Initializing game cache detection");
+    write_progress(progress_path.as_deref(), "starting", "Starting game cache detection...", 0.0, 0, 0)?;
+    reporter.emit_progress(0.0, "Starting game cache detection...");
 
     if !cache_dir.exists() {
         anyhow::bail!("Cache directory not found: {}", cache_dir.display());
@@ -798,28 +798,28 @@ async fn main() -> Result<()> {
         // INCREMENTAL MODE: Skip expensive cache directory scan
         eprintln!("\n=== Incremental Mode: Skipping Cache Directory Scan ===");
         eprintln!("Will check file existence directly for new games only...");
-        write_progress(progress_path.as_deref(), "scanning", "Incremental mode - skipping cache scan", 20.0, 0, 0)?;
-        reporter.emit_progress(20.0, "Incremental mode - skipping cache scan");
+        write_progress(progress_path.as_deref(), "scanning", "Skipping cache file scan (incremental mode)...", 20.0, 0, 0)?;
+        reporter.emit_progress(20.0, "Skipping cache file scan (incremental mode)...");
         cache_files_index = None;
     } else {
         // FULL SCAN: Build in-memory index of all cache files
-        write_progress(progress_path.as_deref(), "scanning", "Scanning cache directory", 5.0, 0, 0)?;
-        reporter.emit_progress(5.0, "Scanning cache directory");
+        write_progress(progress_path.as_deref(), "scanning", "Scanning cache files...", 5.0, 0, 0)?;
+        reporter.emit_progress(5.0, "Scanning cache files...");
         let index = scan_cache_directory(&cache_dir)?;
-        write_progress(progress_path.as_deref(), "scanning", "Cache directory scan complete", 20.0, 0, 0)?;
-        reporter.emit_progress(20.0, "Cache directory scan complete");
+        write_progress(progress_path.as_deref(), "scanning", "Cache file scan completed", 20.0, 0, 0)?;
+        reporter.emit_progress(20.0, "Cache file scan completed");
         cache_files_index = Some(index);
     }
 
     // PHASE 2: Query database for game URLs
     eprintln!("\n=== Phase 2: Querying Database ===");
-    write_progress(progress_path.as_deref(), "querying", "Querying database for game URLs", 20.0, 0, 0)?;
-    reporter.emit_progress(20.0, "Querying database for game URLs");
+    write_progress(progress_path.as_deref(), "querying", "Querying database for game URLs...", 20.0, 0, 0)?;
+    reporter.emit_progress(20.0, "Querying database for game URLs...");
 
     // Query ALL URLs to get accurate cache sizes (no sampling)
     let all_records = query_game_downloads(&pool, None, &excluded_game_ids).await?;
-    write_progress(progress_path.as_deref(), "querying", "Database query complete", 30.0, 0, 0)?;
-    reporter.emit_progress(30.0, "Database query complete");
+    write_progress(progress_path.as_deref(), "querying", "Database query completed", 30.0, 0, 0)?;
+    reporter.emit_progress(30.0, "Database query completed");
 
     // Group records by game_app_id
     let mut games_map: HashMap<u32, Vec<DownloadRecord>> = HashMap::new();
@@ -843,7 +843,7 @@ async fn main() -> Result<()> {
     } else {
         eprintln!("Using in-memory index for instant lookups...\n");
     }
-    let matching_msg = format!("Matching {} games to cache files", total_games);
+    let matching_msg = format!("Matching {} games to cache files...", total_games);
     write_progress(progress_path.as_deref(), "matching", &matching_msg, 30.0, 0, total_games)?;
     reporter.emit_progress(30.0, &matching_msg);
 

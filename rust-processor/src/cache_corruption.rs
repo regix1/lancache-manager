@@ -725,15 +725,15 @@ async fn main() -> Result<()> {
             let miss_threshold: usize = threshold.unwrap_or(3);
 
             let total_files = log_files.len();
-            write_progress(&progress_path, "scanning", &format!("Scanning {} log files for corrupted chunks", total_files), 0.0, 0, total_files)?;
-            reporter.emit_progress(0.0, &format!("Scanning {} log files for corrupted chunks", total_files));
+            write_progress(&progress_path, "scanning", &format!("Scanning {} log files for corrupted chunks...", total_files), 0.0, 0, total_files)?;
+            reporter.emit_progress(0.0, &format!("Scanning {} log files for corrupted chunks...", total_files));
 
             // First pass: identify all corrupted URLs AND track their response sizes
             for (file_index, log_file) in log_files.iter().enumerate() {
                 // Update progress during scanning (0-30%)
                 let scan_percent = (file_index as f64 / total_files as f64) * 30.0;
-                write_progress(&progress_path, "scanning", &format!("Scanning file {}/{}", file_index + 1, total_files), scan_percent, file_index, total_files)?;
-                reporter.emit_progress(scan_percent, &format!("Scanning file {}/{}", file_index + 1, total_files));
+                write_progress(&progress_path, "scanning", &format!("Scanning file {}/{}...", file_index + 1, total_files), scan_percent, file_index, total_files)?;
+                reporter.emit_progress(scan_percent, &format!("Scanning file {}/{}...", file_index + 1, total_files));
                 eprintln!("  Scanning file {}/{}: {}", file_index + 1, total_files, log_file.path.display());
 
                 let scan_result = (|| -> Result<()> {

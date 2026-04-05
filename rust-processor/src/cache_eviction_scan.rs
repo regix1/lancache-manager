@@ -12,7 +12,7 @@ mod progress_utils;
 /// Eviction scanner - checks which downloads have been evicted from the nginx cache
 #[derive(Parser, Debug)]
 #[command(name = "cache_eviction_scan")]
-#[command(about = "Scans cache directories and marks evicted downloads in the database")]
+#[command(about = "Scans cache files and marks evicted downloads in the database")]
 struct Args {
     /// Path to JSON file containing datasource configuration
     datasource_config: String,
@@ -131,7 +131,7 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>) ->
     let default_cache_path = default_cache_path
         .unwrap_or_else(|| PathBuf::from(&datasources[0].cache_path));
 
-    write_progress(progress_path, "running", "Scanning cache directories...", 0.0, 0, 0, 0, 0)?;
+    write_progress(progress_path, "running", "Scanning cache files...", 0.0, 0, 0, 0, 0)?;
 
     // Step 2: Build HashSet of all files on disk across all cache directories
     let mut files_on_disk: HashSet<PathBuf> = HashSet::new();

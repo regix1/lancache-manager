@@ -519,7 +519,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                       {!logsExist && !cacheExist
                         ? t(
                             'management.corruption.alerts.logsAndCacheMissing',
-                            'Logs and cache directories do not exist'
+                            'Logs and cache files do not exist'
                           )
                         : !logsExist
                           ? t(
