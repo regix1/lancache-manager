@@ -32,6 +32,7 @@ interface ExpandableItemCardProps {
   cacheReadOnly: boolean;
   dockerSocketAvailable: boolean;
   checkingPermissions: boolean;
+  hasExpandableContent?: boolean;
   onToggleDetails: (id: number | string) => void;
   onRemove: () => void;
   removeTooltip: string;
@@ -56,6 +57,7 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
   cacheReadOnly,
   dockerSocketAvailable,
   checkingPermissions,
+  hasExpandableContent = true,
   onToggleDetails,
   onRemove,
   removeTooltip,
@@ -78,21 +80,23 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
     <div className="rounded-lg border bg-themed-tertiary border-themed-secondary">
       <div className="flex items-center gap-2 p-3">
         <div className="flex items-center gap-2 flex-1 min-w-0 game-card-content">
-          <Button
-            onClick={() => onToggleDetails(id)}
-            variant="subtle"
-            size="sm"
-            className="flex-shrink-0"
-            disabled={isExpanding}
-          >
-            {isExpanding ? (
-              <LoadingSpinner inline size="sm" />
-            ) : isExpanded ? (
-              <ChevronUp className="w-4 h-4" />
-            ) : (
-              <ChevronDown className="w-4 h-4" />
-            )}
-          </Button>
+          {hasExpandableContent && (
+            <Button
+              onClick={() => onToggleDetails(id)}
+              variant="subtle"
+              size="sm"
+              className="flex-shrink-0"
+              disabled={isExpanding}
+            >
+              {isExpanding ? (
+                <LoadingSpinner inline size="sm" />
+              ) : isExpanded ? (
+                <ChevronUp className="w-4 h-4" />
+              ) : (
+                <ChevronDown className="w-4 h-4" />
+              )}
+            </Button>
+          )}
           {showImage && (
             <GameImage
               gameAppId={gameAppId}
@@ -181,7 +185,7 @@ const ExpandableItemCard: React.FC<ExpandableItemCardProps> = ({
       )}
 
       {/* Expandable Details Section */}
-      {isExpanded && !isExpanding && (
+      {hasExpandableContent && isExpanded && !isExpanding && (
         <div className="border-t px-3 py-3 space-y-3 border-themed-secondary">{children}</div>
       )}
     </div>

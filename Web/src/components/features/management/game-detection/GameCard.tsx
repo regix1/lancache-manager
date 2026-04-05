@@ -112,6 +112,14 @@ const GameCard: React.FC<GameCardProps> = ({
     ? t('management.gameDetection.removePartialEvictedTooltip')
     : t('management.gameDetection.removeGameCache');
 
+  const depotIdsForExpansion = isEvictedVariant ? (game.evicted_depot_ids ?? []) : game.depot_ids;
+  const urlsForExpansion = isEvictedVariant ? (game.evicted_sample_urls ?? []) : game.sample_urls;
+  const pathsForExpansion = !isEvictedVariant ? (game.cache_file_paths ?? []) : [];
+  const hasExpandableContent =
+    (!isEpic && depotIdsForExpansion.length > 0) ||
+    urlsForExpansion.length > 0 ||
+    pathsForExpansion.length > 0;
+
   return (
     <div className={isEvicted ? 'game-card-evicted' : undefined}>
       <ExpandableItemCard
@@ -131,6 +139,7 @@ const GameCard: React.FC<GameCardProps> = ({
         cacheReadOnly={cacheReadOnly}
         dockerSocketAvailable={dockerSocketAvailable}
         checkingPermissions={checkingPermissions}
+        hasExpandableContent={hasExpandableContent}
         onToggleDetails={(id) => onToggleDetails(String(id))}
         onRemove={() => onRemove(game)}
         removeTooltip={removeTooltip}

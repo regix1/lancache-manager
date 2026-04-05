@@ -6,7 +6,8 @@ import type {
   ServiceStat,
   DashboardStats,
   Download,
-  GameCacheInfo
+  GameCacheInfo,
+  ServiceCacheInfo
 } from '../../types';
 
 export const useStats = () => {
@@ -57,6 +58,7 @@ export const useGameDetection = (): {
   gameDetectionData: {
     hasCachedResults: boolean;
     games?: GameCacheInfo[];
+    services?: ServiceCacheInfo[];
     lastDetectionTime?: string;
   } | null;
   isLoading: boolean;

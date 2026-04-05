@@ -72,6 +72,12 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
     ? t('management.gameDetection.removePartialEvictedTooltip')
     : t('management.gameDetection.removeServiceCache');
 
+  const urlsForExpansion = isEvictedVariant
+    ? (service.evicted_sample_urls ?? [])
+    : service.sample_urls;
+  const pathsForExpansion = !isEvictedVariant ? (service.cache_file_paths ?? []) : [];
+  const hasExpandableContent = urlsForExpansion.length > 0 || pathsForExpansion.length > 0;
+
   return (
     <ExpandableItemCard
       id={service.service_name}
@@ -88,6 +94,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
       cacheReadOnly={cacheReadOnly}
       dockerSocketAvailable={dockerSocketAvailable}
       checkingPermissions={checkingPermissions}
+      hasExpandableContent={hasExpandableContent}
       onToggleDetails={(id) => onToggleDetails(id as string)}
       onRemove={() => onRemove(service)}
       removeTooltip={removeTooltip}

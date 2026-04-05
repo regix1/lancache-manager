@@ -556,7 +556,10 @@ class MockDataService {
         {
           service_name: 'steam',
           cache_files_found: games.reduce((s, g) => s + g.cache_files_found, 0),
-          total_size_bytes: games.reduce((s, g) => s + g.total_size_bytes, 0)
+          total_size_bytes: games.reduce((s, g) => s + g.total_size_bytes, 0),
+          sample_urls: [],
+          cache_file_paths: [],
+          datasources: []
         }
       ],
       totalGamesDetected: games.length,

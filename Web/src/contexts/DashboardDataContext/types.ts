@@ -5,13 +5,14 @@ import type {
   ServiceStat,
   DashboardStats,
   Download,
-  GameCacheInfo
+  GameCacheInfo,
+  ServiceCacheInfo
 } from '../../types';
 
 export interface CachedDetectionResponse {
   hasCachedResults: boolean;
   games?: GameCacheInfo[];
-  services?: { service_name: string; cache_files_found: number; total_size_bytes: number }[];
+  services?: ServiceCacheInfo[];
   totalGamesDetected?: number;
   totalServicesDetected?: number;
   lastDetectionTime?: string;
