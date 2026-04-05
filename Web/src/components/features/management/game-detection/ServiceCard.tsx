@@ -94,14 +94,14 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
     >
       {/* Sample URLs */}
       <ExpandableList
-        items={service.sample_urls}
+        items={isEvictedVariant ? (service.evicted_sample_urls ?? []) : service.sample_urls}
         maxInitial={MAX_INITIAL_URLS}
         labelKey="management.gameDetection.sampleUrls"
         showingLabelKey="management.gameDetection.showingUrls"
       />
 
-      {/* Cache File Paths */}
-      {service.cache_file_paths && (
+      {/* Cache File Paths — only available for active (on-disk) items */}
+      {!isEvictedVariant && service.cache_file_paths && (
         <ExpandableList
           items={service.cache_file_paths}
           maxInitial={MAX_INITIAL_PATHS}

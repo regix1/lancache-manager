@@ -309,6 +309,8 @@ export interface GameCacheInfo {
   is_evicted?: boolean; // True if all cache files have been evicted (no longer on disk)
   evicted_downloads_count?: number;
   evicted_bytes?: number;
+  evicted_sample_urls?: string[];
+  evicted_depot_ids?: number[];
 }
 
 export interface ServiceCacheInfo {
@@ -321,6 +323,7 @@ export interface ServiceCacheInfo {
   is_evicted?: boolean;
   evicted_downloads_count?: number;
   evicted_bytes?: number;
+  evicted_sample_urls?: string[];
 }
 
 // Event Types

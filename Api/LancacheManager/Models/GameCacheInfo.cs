@@ -72,4 +72,18 @@ public class GameCacheInfo
     /// </summary>
     [System.Text.Json.Serialization.JsonPropertyName("evicted_bytes")]
     public ulong EvictedBytes { get; set; } = 0;
+
+    /// <summary>
+    /// Sample URLs from LogEntries associated with evicted Downloads for this game.
+    /// Populated in GetCachedDetectionAsync. Empty when no evicted downloads exist.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonPropertyName("evicted_sample_urls")]
+    public List<string> EvictedSampleUrls { get; set; } = new List<string>();
+
+    /// <summary>
+    /// Distinct depot IDs from evicted Downloads rows for this game (Steam only).
+    /// Populated in GetCachedDetectionAsync. Empty for Epic games.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonPropertyName("evicted_depot_ids")]
+    public List<uint> EvictedDepotIds { get; set; } = new List<uint>();
 }

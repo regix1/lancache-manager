@@ -1066,6 +1066,91 @@ public class GameCacheDetectionService : IDisposable
             }
         }
 
+        // Populate evicted sample URLs from LogEntries for games and services.
+        // These are URLs from log entries associated with evicted downloads, shown in the
+        // expanded card for items in the Evicted section.
+
+        // 4. Steam game evicted URLs: join LogEntries → Downloads on DownloadId, filter IsEvicted + GameAppId.
+        var steamEvictedUrlMap = await dbContext.LogEntries
+            .Where(le => le.DownloadId != null
+                && le.Download != null
+                && le.Download.IsEvicted
+                && le.Download.GameAppId != null
+                && le.Download.EpicAppId == null)
+            .GroupBy(le => le.Download!.GameAppId!.Value)
+            .Select(g => new
+            {
+                Key = g.Key,
+                Urls = g.Select(le => le.Url).Distinct().Take(20).ToList()
+            })
+            .ToDictionaryAsync(x => x.Key, x => x.Urls);
+
+        // 5. Epic game evicted URLs: grouped on EpicAppId.
+        var epicEvictedUrlMap = await dbContext.LogEntries
+            .Where(le => le.DownloadId != null
+                && le.Download != null
+                && le.Download.IsEvicted
+                && le.Download.EpicAppId != null)
+            .GroupBy(le => le.Download!.EpicAppId!)
+            .Select(g => new
+            {
+                Key = g.Key,
+                Urls = g.Select(le => le.Url).Distinct().Take(20).ToList()
+            })
+            .ToDictionaryAsync(x => x.Key, x => x.Urls);
+
+        // 6. Service evicted URLs: grouped on Service (lowercased), both game ID columns null.
+        var serviceEvictedUrlMap = await dbContext.LogEntries
+            .Where(le => le.DownloadId != null
+                && le.Download != null
+                && le.Download.IsEvicted
+                && le.Download.GameAppId == null
+                && le.Download.EpicAppId == null
+                && le.Download.Service != null)
+            .GroupBy(le => le.Download!.Service!.ToLower())
+            .Select(g => new
+            {
+                Key = g.Key,
+                Urls = g.Select(le => le.Url).Distinct().Take(20).ToList()
+            })
+            .ToDictionaryAsync(x => x.Key, x => x.Urls);
+
+        // 7. Steam game evicted depot IDs: from evicted Downloads.DepotId.
+        var steamEvictedDepotMap = await dbContext.Downloads
+            .Where(d => d.IsEvicted && d.GameAppId != null && d.EpicAppId == null && d.DepotId != null)
+            .GroupBy(d => d.GameAppId!.Value)
+            .Select(g => new
+            {
+                Key = g.Key,
+                DepotIds = g.Select(d => (uint)d.DepotId!.Value).Distinct().ToList()
+            })
+            .ToDictionaryAsync(x => x.Key, x => x.DepotIds);
+
+        // Merge evicted URLs and depot IDs into game DTOs.
+        foreach (var game in games)
+        {
+            if (game.EpicAppId != null)
+            {
+                if (epicEvictedUrlMap.TryGetValue(game.EpicAppId, out var epicUrls))
+                    game.EvictedSampleUrls = epicUrls;
+            }
+            else
+            {
+                if (steamEvictedUrlMap.TryGetValue(game.GameAppId, out var steamUrls))
+                    game.EvictedSampleUrls = steamUrls;
+                if (steamEvictedDepotMap.TryGetValue(game.GameAppId, out var depotIds))
+                    game.EvictedDepotIds = depotIds;
+            }
+        }
+
+        // Merge evicted URLs into service DTOs.
+        foreach (var service in services)
+        {
+            var key = service.ServiceName.ToLower();
+            if (serviceEvictedUrlMap.TryGetValue(key, out var svcUrls))
+                service.EvictedSampleUrls = svcUrls;
+        }
+
         // Epic games are now persisted to CachedGameDetections (detected by Rust processor
         // using actual cache file sizes), so they load from DB alongside Steam games.
 

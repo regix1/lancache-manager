@@ -136,34 +136,38 @@ const GameCard: React.FC<GameCardProps> = ({
         removeTooltip={removeTooltip}
       >
         {/* Depot IDs - Steam only */}
-        {!isEpic && game.depot_ids.length > 0 && (
-          <div>
-            <p className="text-xs text-themed-muted mb-1.5 font-medium">
-              {t('management.gameDetection.depotIds')}
-            </p>
-            <div className="flex flex-wrap gap-1">
-              {game.depot_ids.map((depotId) => (
-                <span
-                  key={depotId}
-                  className="text-xs px-2 py-0.5 rounded border bg-themed-elevated border-themed-primary text-themed-secondary"
-                >
-                  {depotId}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
+        {!isEpic &&
+          (() => {
+            const depotIds = isEvictedVariant ? (game.evicted_depot_ids ?? []) : game.depot_ids;
+            return depotIds.length > 0 ? (
+              <div>
+                <p className="text-xs text-themed-muted mb-1.5 font-medium">
+                  {t('management.gameDetection.depotIds')}
+                </p>
+                <div className="flex flex-wrap gap-1">
+                  {depotIds.map((depotId) => (
+                    <span
+                      key={depotId}
+                      className="text-xs px-2 py-0.5 rounded border bg-themed-elevated border-themed-primary text-themed-secondary"
+                    >
+                      {depotId}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null;
+          })()}
 
         {/* Sample URLs */}
         <ExpandableList
-          items={game.sample_urls}
+          items={isEvictedVariant ? (game.evicted_sample_urls ?? []) : game.sample_urls}
           maxInitial={MAX_INITIAL_URLS}
           labelKey="management.gameDetection.sampleUrls"
           showingLabelKey="management.gameDetection.showingUrls"
         />
 
-        {/* Cache File Paths */}
-        {game.cache_file_paths && (
+        {/* Cache File Paths — only available for active (on-disk) items */}
+        {!isEvictedVariant && game.cache_file_paths && (
           <ExpandableList
             items={game.cache_file_paths}
             maxInitial={MAX_INITIAL_PATHS}

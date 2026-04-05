@@ -40,4 +40,11 @@ public class ServiceCacheInfo
     /// </summary>
     [System.Text.Json.Serialization.JsonPropertyName("evicted_bytes")]
     public ulong EvictedBytes { get; set; } = 0;
+
+    /// <summary>
+    /// Sample URLs from LogEntries associated with evicted Downloads for this service.
+    /// Populated in GetCachedDetectionAsync. Empty when no evicted downloads exist.
+    /// </summary>
+    [System.Text.Json.Serialization.JsonPropertyName("evicted_sample_urls")]
+    public List<string> EvictedSampleUrls { get; set; } = new List<string>();
 }
