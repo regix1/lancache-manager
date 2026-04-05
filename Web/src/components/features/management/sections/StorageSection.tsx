@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import './StorageSection.css';
 import { useTranslation } from 'react-i18next';
-import { RefreshCw, AlertTriangle, Archive } from 'lucide-react';
+import { RefreshCw, AlertTriangle, Archive, Sliders, Database } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
@@ -253,6 +253,32 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     localStorage.setItem('management-evicted-data-expanded-v2', String(evictedDataExpanded));
   }, [evictedDataExpanded]);
 
+  const [evictionSettingsExpanded, setEvictionSettingsExpanded] = useState(() => {
+    const saved = localStorage.getItem('management-eviction-settings-expanded');
+    return saved !== null ? saved === 'true' : true;
+  });
+
+  useEffect(() => {
+    localStorage.setItem('management-eviction-settings-expanded', String(evictionSettingsExpanded));
+  }, [evictionSettingsExpanded]);
+
+  const [evictedItemsExpanded, setEvictedItemsExpanded] = useState(() => {
+    const saved = localStorage.getItem('management-evicted-items-expanded');
+    return saved !== null ? saved === 'true' : true;
+  });
+
+  useEffect(() => {
+    localStorage.setItem('management-evicted-items-expanded', String(evictedItemsExpanded));
+  }, [evictedItemsExpanded]);
+
+  const evictionAllExpanded = evictionSettingsExpanded && evictedItemsExpanded;
+
+  const handleEvictionExpandCollapseAll = () => {
+    const next = !evictionAllExpanded;
+    setEvictionSettingsExpanded(next);
+    setEvictedItemsExpanded(next);
+  };
+
   const loadEvictionSettings = useCallback(
     async (signal?: AbortSignal) => {
       setEvictionLoading(true);
@@ -456,7 +482,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
             </ImageInvalidateContext.Provider>
           </ImageCacheContext.Provider>
 
-          {/* Evicted Game Data (combined: eviction settings + evicted games list) */}
+          {/* Eviction Detection and Removal (outer card with two inner sub-accordions: settings + items) */}
           <Card>
             <AccordionSection
               title={t('management.sections.data.evictedCacheData')}
@@ -473,9 +499,13 @@ const StorageSection: React.FC<StorageSectionProps> = ({
               }
             >
               <div className="space-y-4">
-                {/* Block 1: Eviction Settings */}
-                {/* Action toolbar */}
+                {/* Header actions toolbar — visible even when inner accordions are collapsed */}
                 <div className="flex flex-wrap items-center justify-end gap-2">
+                  <Button variant="default" size="sm" onClick={handleEvictionExpandCollapseAll}>
+                    {evictionAllExpanded
+                      ? t('management.gameDetection.collapseAll')
+                      : t('management.gameDetection.expandAll')}
+                  </Button>
                   <Button
                     onClick={handleResetEvictions}
                     disabled={resettingEvictions || isEvictionScanRunning}
@@ -500,64 +530,81 @@ const StorageSection: React.FC<StorageSectionProps> = ({
                   </Button>
                 </div>
 
-                {evictionLoading ? (
-                  <LoadingState message={t('management.sections.data.evictionLoadingSettings')} />
-                ) : (
-                  <>
-                    <div className="space-y-2 mb-4">
-                      {(['show', 'showClean', 'hide', 'remove'] as const).map((mode) => (
-                        <label
-                          key={mode}
-                          className={`eviction-mode-option p-3 rounded-lg cursor-pointer flex items-start gap-3 transition-all duration-150${evictionMode === mode ? ' eviction-mode-option-selected' : ''}`}
-                        >
-                          <input
-                            type="radio"
-                            name="evictionMode"
-                            value={mode}
-                            checked={evictionMode === mode}
-                            onChange={() => setEvictionMode(mode)}
-                            className="eviction-radio mt-1"
-                          />
-                          <div className="flex-1 min-w-0">
-                            <div className="font-medium text-themed-primary">
-                              {t(`management.sections.data.evictionModes.${mode}`)}
+                {/* Sub-accordion 1: Eviction Scan & Settings */}
+                <AccordionSection
+                  title={t('management.sections.data.evictionSettingsHeading')}
+                  icon={Sliders}
+                  iconColor="var(--theme-icon-blue)"
+                  isExpanded={evictionSettingsExpanded}
+                  onToggle={() => setEvictionSettingsExpanded((prev) => !prev)}
+                >
+                  {evictionLoading ? (
+                    <LoadingState message={t('management.sections.data.evictionLoadingSettings')} />
+                  ) : (
+                    <>
+                      <div className="space-y-2 mb-4">
+                        {(['show', 'showClean', 'hide', 'remove'] as const).map((mode) => (
+                          <label
+                            key={mode}
+                            className={`eviction-mode-option p-3 rounded-lg cursor-pointer flex items-start gap-3 transition-all duration-150${evictionMode === mode ? ' eviction-mode-option-selected' : ''}`}
+                          >
+                            <input
+                              type="radio"
+                              name="evictionMode"
+                              value={mode}
+                              checked={evictionMode === mode}
+                              onChange={() => setEvictionMode(mode)}
+                              className="eviction-radio mt-1"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div className="font-medium text-themed-primary">
+                                {t(`management.sections.data.evictionModes.${mode}`)}
+                              </div>
+                              <div className="text-sm text-themed-secondary mt-1">
+                                {t(`management.sections.data.evictionModes.${mode}Description`)}
+                              </div>
                             </div>
-                            <div className="text-sm text-themed-secondary mt-1">
-                              {t(`management.sections.data.evictionModes.${mode}Description`)}
-                            </div>
-                          </div>
-                        </label>
-                      ))}
-                    </div>
-
-                    <div className="pt-4 border-t border-themed-primary">
-                      <div className="flex items-center justify-between">
-                        <Checkbox
-                          label={t('management.sections.data.evictionScanNotifications')}
-                          checked={evictionScanNotifications}
-                          onChange={(e) => setEvictionScanNotifications(e.target.checked)}
-                        />
-                        <Button
-                          onClick={handleSaveEviction}
-                          disabled={!isEvictionDirty || evictionSaving}
-                          loading={evictionSaving}
-                          className="sm:w-40"
-                        >
-                          {t('management.sections.clients.saveChanges')}
-                        </Button>
+                          </label>
+                        ))}
                       </div>
-                      <p className="text-xs text-themed-muted mt-1 ml-6">
-                        {t('management.sections.data.evictionScanNotificationsDescription')}
-                      </p>
-                    </div>
-                  </>
-                )}
 
-                {/* Block 2: Evicted Items List */}
-                <div className="pt-4 border-t border-themed-primary">
-                  <h4 className="text-sm font-semibold text-themed-primary mb-3">
-                    {t('management.sections.data.evictedItemsHeading')}
-                  </h4>
+                      <div className="pt-4 border-t border-themed-primary">
+                        <div className="flex items-center justify-between">
+                          <Checkbox
+                            label={t('management.sections.data.evictionScanNotifications')}
+                            checked={evictionScanNotifications}
+                            onChange={(e) => setEvictionScanNotifications(e.target.checked)}
+                          />
+                          <Button
+                            onClick={handleSaveEviction}
+                            disabled={!isEvictionDirty || evictionSaving}
+                            loading={evictionSaving}
+                            className="sm:w-40"
+                          >
+                            {t('management.sections.clients.saveChanges')}
+                          </Button>
+                        </div>
+                        <p className="text-xs text-themed-muted mt-1 ml-6">
+                          {t('management.sections.data.evictionScanNotificationsDescription')}
+                        </p>
+                      </div>
+                    </>
+                  )}
+                </AccordionSection>
+
+                {/* Sub-accordion 2: Evicted Items */}
+                <AccordionSection
+                  title={t('management.sections.data.evictedItemsHeading')}
+                  count={
+                    evictedGames.length + evictedServices.length > 0
+                      ? evictedGames.length + evictedServices.length
+                      : undefined
+                  }
+                  icon={Database}
+                  iconColor="var(--theme-icon-emerald)"
+                  isExpanded={evictedItemsExpanded}
+                  onToggle={() => setEvictedItemsExpanded((prev) => !prev)}
+                >
                   <EvictedItemsList
                     games={evictedGames}
                     services={evictedServices}
@@ -570,7 +617,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
                     onRemoveGame={handleEvictedGameRemoveClick}
                     onRemoveService={handleEvictedServiceRemoveClick}
                   />
-                </div>
+                </AccordionSection>
               </div>
             </AccordionSection>
           </Card>
