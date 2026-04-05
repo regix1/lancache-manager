@@ -163,12 +163,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     if (isService) {
       const service = partialEvictedTarget as ServiceCacheInfo;
       const serviceName = service.service_name;
-      addNotification({
-        type: 'service_removal',
-        status: 'running',
-        message: t('management.gameDetection.removingService', { name: serviceName }),
-        details: { service: serviceName }
-      });
       setPartialEvictedTarget(null);
       try {
         await ApiService.removeEvictedForService(serviceName);
@@ -182,14 +176,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     } else {
       const game = partialEvictedTarget as GameCacheInfo;
       const gameAppId = game.game_app_id;
-      const gameName = game.game_name;
       const isEpic = game.service === 'epicgames';
-      addNotification({
-        type: 'game_removal',
-        status: 'running',
-        message: t('management.gameDetection.removingGame', { name: gameName }),
-        details: { gameAppId, gameName }
-      });
       setPartialEvictedTarget(null);
       try {
         if (isEpic && game.epic_app_id) {
