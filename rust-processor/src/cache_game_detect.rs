@@ -6,6 +6,7 @@ use sha2::{Sha256, Digest};
 use sqlx::PgPool;
 use sqlx::Row;
 use serde::Serialize;
+use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -46,10 +47,12 @@ struct Args {
     progress: bool,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct ProgressData {
     status: String,
-    message: String,
+    stage_key: String,
+    context: serde_json::Value,
     #[serde(rename = "percentComplete")]
     percent_complete: f64,
     #[serde(rename = "gamesProcessed")]
@@ -62,7 +65,8 @@ struct ProgressData {
 fn write_progress(
     progress_path: Option<&Path>,
     status: &str,
-    message: &str,
+    stage_key: &str,
+    context: serde_json::Value,
     percent_complete: f64,
     games_processed: usize,
     total_games: usize,
@@ -70,7 +74,8 @@ fn write_progress(
     if let Some(path) = progress_path {
         let progress = ProgressData {
             status: status.to_string(),
-            message: message.to_string(),
+            stage_key: stage_key.to_string(),
+            context,
             percent_complete,
             games_processed,
             total_games,
@@ -779,11 +784,11 @@ async fn main() -> Result<()> {
     }
 
     // Emit started event
-    reporter.emit_started();
+    reporter.emit_started("signalr.gameDetect.starting.default", json!({}));
 
     // Write initial progress
-    write_progress(progress_path.as_deref(), "starting", "Starting game cache detection...", 0.0, 0, 0)?;
-    reporter.emit_progress(0.0, "Starting game cache detection...");
+    write_progress(progress_path.as_deref(), "starting", "signalr.gameDetect.starting.default", json!({}), 0.0, 0, 0)?;
+    reporter.emit_progress(0.0, "signalr.gameDetect.starting.default", json!({}));
 
     if !cache_dir.exists() {
         anyhow::bail!("Cache directory not found: {}", cache_dir.display());
@@ -798,28 +803,28 @@ async fn main() -> Result<()> {
         // INCREMENTAL MODE: Skip expensive cache directory scan
         eprintln!("\n=== Incremental Mode: Skipping Cache Directory Scan ===");
         eprintln!("Will check file existence directly for new games only...");
-        write_progress(progress_path.as_deref(), "scanning", "Skipping cache file scan (incremental mode)...", 20.0, 0, 0)?;
-        reporter.emit_progress(20.0, "Skipping cache file scan (incremental mode)...");
+        write_progress(progress_path.as_deref(), "scanning", "signalr.gameDetect.scan.skippedIncremental", json!({}), 20.0, 0, 0)?;
+        reporter.emit_progress(20.0, "signalr.gameDetect.scan.skippedIncremental", json!({}));
         cache_files_index = None;
     } else {
         // FULL SCAN: Build in-memory index of all cache files
-        write_progress(progress_path.as_deref(), "scanning", "Scanning cache files...", 5.0, 0, 0)?;
-        reporter.emit_progress(5.0, "Scanning cache files...");
+        write_progress(progress_path.as_deref(), "scanning", "signalr.gameDetect.scan.inProgress", json!({}), 5.0, 0, 0)?;
+        reporter.emit_progress(5.0, "signalr.gameDetect.scan.inProgress", json!({}));
         let index = scan_cache_directory(&cache_dir)?;
-        write_progress(progress_path.as_deref(), "scanning", "Cache file scan completed", 20.0, 0, 0)?;
-        reporter.emit_progress(20.0, "Cache file scan completed");
+        write_progress(progress_path.as_deref(), "scanning", "signalr.gameDetect.scan.complete", json!({}), 20.0, 0, 0)?;
+        reporter.emit_progress(20.0, "signalr.gameDetect.scan.complete", json!({}));
         cache_files_index = Some(index);
     }
 
     // PHASE 2: Query database for game URLs
     eprintln!("\n=== Phase 2: Querying Database ===");
-    write_progress(progress_path.as_deref(), "querying", "Querying database for game URLs...", 20.0, 0, 0)?;
-    reporter.emit_progress(20.0, "Querying database for game URLs...");
+    write_progress(progress_path.as_deref(), "querying", "signalr.gameDetect.db.querying", json!({}), 20.0, 0, 0)?;
+    reporter.emit_progress(20.0, "signalr.gameDetect.db.querying", json!({}));
 
     // Query ALL URLs to get accurate cache sizes (no sampling)
     let all_records = query_game_downloads(&pool, None, &excluded_game_ids).await?;
-    write_progress(progress_path.as_deref(), "querying", "Database query completed", 30.0, 0, 0)?;
-    reporter.emit_progress(30.0, "Database query completed");
+    write_progress(progress_path.as_deref(), "querying", "signalr.gameDetect.db.complete", json!({}), 30.0, 0, 0)?;
+    reporter.emit_progress(30.0, "signalr.gameDetect.db.complete", json!({}));
 
     // Group records by game_app_id
     let mut games_map: HashMap<u32, Vec<DownloadRecord>> = HashMap::new();
@@ -843,9 +848,8 @@ async fn main() -> Result<()> {
     } else {
         eprintln!("Using in-memory index for instant lookups...\n");
     }
-    let matching_msg = format!("Matching {} games to cache files...", total_games);
-    write_progress(progress_path.as_deref(), "matching", &matching_msg, 30.0, 0, total_games)?;
-    reporter.emit_progress(30.0, &matching_msg);
+    write_progress(progress_path.as_deref(), "matching", "signalr.gameDetect.matching.starting", json!({ "totalGames": total_games }), 30.0, 0, total_games)?;
+    reporter.emit_progress(30.0, "signalr.gameDetect.matching.starting", json!({ "totalGames": total_games }));
 
     let mut detected_games = Vec::new();
     let mut processed_count = 0;
@@ -867,16 +871,16 @@ async fn main() -> Result<()> {
         };
         if processed_count % 5 == 0 || current_percent >= last_progress_update + 10 || processed_count == total_games {
             let progress_percent = 30.0 + (processed_count as f64 / total_games.max(1) as f64) * 50.0;
-            let game_msg = format!("Processing game {}/{}", processed_count, total_games);
             write_progress(
                 progress_path.as_deref(),
                 "matching",
-                &game_msg,
+                "signalr.gameDetect.matching.progress",
+                json!({ "processed": processed_count, "totalGames": total_games }),
                 progress_percent,
                 processed_count,
                 total_games,
             )?;
-            reporter.emit_progress(progress_percent, &game_msg);
+            reporter.emit_progress(progress_percent, "signalr.gameDetect.matching.progress", json!({ "processed": processed_count, "totalGames": total_games }));
             last_progress_update = current_percent;
         }
 
@@ -917,8 +921,8 @@ async fn main() -> Result<()> {
 
     // PHASE 3b: Detect Epic games using cache file scanning (same approach as Steam)
     eprintln!("\n=== Phase 3b: Detecting Epic Games ===");
-    write_progress(progress_path.as_deref(), "matching", "Detecting Epic games", 78.0, 0, 0)?;
-    reporter.emit_progress(78.0, "Detecting Epic games");
+    write_progress(progress_path.as_deref(), "matching", "signalr.gameDetect.epic.detecting", json!({}), 78.0, 0, 0)?;
+    reporter.emit_progress(78.0, "signalr.gameDetect.epic.detecting", json!({}));
 
     let epic_records = query_epic_game_downloads(&pool).await?;
 
@@ -987,8 +991,8 @@ async fn main() -> Result<()> {
 
     if !incremental_mode {
         eprintln!("\n=== Phase 4: Detecting Non-Game Services ===");
-        write_progress(progress_path.as_deref(), "services", "Detecting non-game services", 80.0, 0, 0)?;
-        reporter.emit_progress(80.0, "Detecting non-game services");
+        write_progress(progress_path.as_deref(), "services", "signalr.gameDetect.services.detecting", json!({}), 80.0, 0, 0)?;
+        reporter.emit_progress(80.0, "signalr.gameDetect.services.detecting", json!({}));
 
         let services_map = query_service_downloads(&pool).await?;
         let total_services = services_map.len();
@@ -1000,16 +1004,16 @@ async fn main() -> Result<()> {
 
             // Update progress for services (80-90%)
             let service_percent = 80.0 + (services_processed as f64 / total_services.max(1) as f64) * 10.0;
-            let svc_msg = format!("Processing service {}/{}: {}", services_processed, total_services, service_name);
             write_progress(
                 progress_path.as_deref(),
                 "services",
-                &svc_msg,
+                "signalr.gameDetect.services.progress",
+                json!({ "processed": services_processed, "total": total_services }),
                 service_percent,
                 services_processed,
                 total_services,
             )?;
-            reporter.emit_progress(service_percent, &svc_msg);
+            reporter.emit_progress(service_percent, "signalr.gameDetect.services.progress", json!({ "processed": services_processed, "total": total_services }));
 
             match detect_cache_files_for_service(&service_name, &service_urls, cache_files_index.as_ref().unwrap()) {
                 Ok(info) => {
@@ -1041,8 +1045,8 @@ async fn main() -> Result<()> {
         eprintln!("Total service cache size: {:.2} GB", service_bytes_found as f64 / 1_073_741_824.0);
     } else {
         eprintln!("\n=== Skipping Service Detection (Incremental Mode) ===");
-        write_progress(progress_path.as_deref(), "services", "Skipping service detection (incremental mode)", 90.0, 0, 0)?;
-        reporter.emit_progress(90.0, "Skipping service detection (incremental mode)");
+        write_progress(progress_path.as_deref(), "services", "signalr.gameDetect.services.skippedIncremental", json!({}), 90.0, 0, 0)?;
+        reporter.emit_progress(90.0, "signalr.gameDetect.services.skippedIncremental", json!({}));
     }
 
     let report = DetectionReport {
@@ -1053,8 +1057,8 @@ async fn main() -> Result<()> {
     };
 
     // Writing output (90-100%)
-    write_progress(progress_path.as_deref(), "writing", "Writing detection report", 90.0, 0, 0)?;
-    reporter.emit_progress(90.0, "Writing detection report");
+    write_progress(progress_path.as_deref(), "writing", "signalr.gameDetect.writing", json!({}), 90.0, 0, 0)?;
+    reporter.emit_progress(90.0, "signalr.gameDetect.writing", json!({}));
 
     let json = serde_json::to_string_pretty(&report)?;
     fs::write(&output_json, json)?;
@@ -1072,16 +1076,16 @@ async fn main() -> Result<()> {
     eprintln!("Report saved to: {}", output_json.display());
 
     // Final completion progress
-    let summary_msg = format!("Detection complete: {} games, {} services detected", report.total_games_detected, report.total_services_detected);
     write_progress(
         progress_path.as_deref(),
         "completed",
-        &summary_msg,
+        "signalr.gameDetect.complete.default",
+        json!({ "totalGames": report.total_games_detected, "totalServices": report.total_services_detected }),
         100.0,
         report.total_games_detected,
         report.total_games_detected,
     )?;
-    reporter.emit_complete(&summary_msg);
+    reporter.emit_complete("signalr.gameDetect.complete.default", json!({ "totalGames": report.total_games_detected, "totalServices": report.total_services_detected }));
 
     Ok(())
 }

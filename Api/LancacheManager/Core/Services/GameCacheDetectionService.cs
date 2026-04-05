@@ -113,9 +113,9 @@ public class GameCacheDetectionService : IDisposable
             _cancellationTokenSource = new CancellationTokenSource();
 
             var scanType = incremental ? "incremental" : "full";
-            var message = incremental
-                ? "Starting incremental scan (new games and services only)..."
-                : "Starting full scan (all games and services)...";
+            var stageKeyStarting = incremental
+                ? "signalr.gameDetect.starting.incremental"
+                : "signalr.gameDetect.starting.full";
 
             // Register with unified operation tracker for centralized cancellation
             var metadata = new GameDetectionMetrics { ScanType = scanType };
@@ -128,7 +128,7 @@ public class GameCacheDetectionService : IDisposable
             var operationId = _currentTrackerOperationId;
 
             // Set initial progress message
-            _operationTracker.UpdateProgress(operationId, 0, message);
+            _operationTracker.UpdateProgress(operationId, 0, stageKeyStarting);
 
             // Save to OperationStateService for persistence
             _operationStateService.SaveState($"gameDetection_{operationId}", new OperationState
@@ -136,7 +136,7 @@ public class GameCacheDetectionService : IDisposable
                 Key = $"gameDetection_{operationId}",
                 Type = "gameDetection",
                 Status = "running",
-                Message = message,
+                Message = stageKeyStarting,
                 Data = JsonSerializer.SerializeToElement(new { operationId })
             });
 
@@ -146,7 +146,7 @@ public class GameCacheDetectionService : IDisposable
                 await _notifications.NotifyAllAsync(SignalREvents.GameDetectionStarted, new
                 {
                     OperationId = operationId,
-                    Message = message,
+                    StageKey = stageKeyStarting,
                     scanType,
                     timestamp = DateTime.UtcNow
                 });
@@ -258,15 +258,16 @@ public class GameCacheDetectionService : IDisposable
         var aggregatedServices = new List<ServiceCacheInfo>();
 
         // Helper to send progress notification
-        async Task SendProgressAsync(string status, string message, int gamesDetected = 0, int servicesDetected = 0, double progressPercent = 0)
+        async Task SendProgressAsync(string status, string stageKey, int gamesDetected = 0, int servicesDetected = 0, double progressPercent = 0, Dictionary<string, object?>? context = null)
         {
-            _operationTracker.UpdateProgress(operationId, progressPercent, message);
+            _operationTracker.UpdateProgress(operationId, progressPercent, stageKey);
             await _notifications.NotifyAllAsync(SignalREvents.GameDetectionProgress, new
             {
                 OperationId = operationId,
                 PercentComplete = progressPercent,
                 Status = OperationStatus.Running,
-                Message = message,
+                StageKey = stageKey,
+                Context = context,
                 gamesDetected,
                 servicesDetected
             });
@@ -382,7 +383,7 @@ public class GameCacheDetectionService : IDisposable
                             {
                                 // Scale Rust progress (0-100%) to the scanning phase range (1-30%)
                                 var scaledPercent = 1 + (progress.PercentComplete * 29.0 / 100.0);
-                                _operationTracker.UpdateProgress(operationId, scaledPercent, progress.Message);
+                                _operationTracker.UpdateProgress(operationId, scaledPercent, progress.StageKey ?? string.Empty);
 
                                 // Send SignalR notification for live updates
                                 await _notifications.NotifyAllAsync(SignalREvents.GameDetectionProgress, new
@@ -390,7 +391,8 @@ public class GameCacheDetectionService : IDisposable
                                     OperationId = operationId,
                                     PercentComplete = scaledPercent,
                                     Status = OperationStatus.Running,
-                                    Message = progress.Message,
+                                    StageKey = progress.StageKey,
+                                    Context = progress.Context,
                                     gamesProcessed = progress.GamesProcessed,
                                     totalGames = progress.TotalGames
                                 });
@@ -500,10 +502,11 @@ public class GameCacheDetectionService : IDisposable
                         var gameProgress = gameProcessingStart + ((gameProcessingEnd - gameProcessingStart) * gameIndex / totalGamesInResult);
                         await SendProgressAsync(
                             "scanning",
-                            $"Processing games ({gameIndex}/{totalGamesInResult})...",
+                            "signalr.gameDetect.matching.progress",
                             aggregatedGames.Count,
                             aggregatedServices.Count,
-                            gameProgress);
+                            gameProgress,
+                            new Dictionary<string, object?> { ["processed"] = gameIndex, ["totalGames"] = totalGamesInResult });
                     }
                 }
 
@@ -544,16 +547,17 @@ public class GameCacheDetectionService : IDisposable
             cancellationToken.ThrowIfCancellationRequested();
 
             // Progress: Datasource scanning complete
-            await SendProgressAsync("processing", "Merging results...", aggregatedGames.Count, aggregatedServices.Count, 70);
+            await SendProgressAsync("processing", "signalr.gameDetect.writing", aggregatedGames.Count, aggregatedServices.Count, 70);
 
             // Send progress for applying depot mappings
-            await SendProgressAsync("applying_mappings", "Applying depot mappings...", aggregatedGames.Count, aggregatedServices.Count, 85);
+            await SendProgressAsync("applying_mappings", "signalr.gameDetect.db.querying", aggregatedGames.Count, aggregatedServices.Count, 85);
 
             // Merge with existing games if this was an incremental scan
             List<GameCacheInfo> finalGames;
             int totalGamesDetected;
             int newGamesCount = aggregatedGames.Count;
-            string completionMessage;
+            string completionStageKey;
+            Dictionary<string, object?> completionContext;
 
             if (incremental && existingGames != null && existingGames.Count > 0)
             {
@@ -565,21 +569,23 @@ public class GameCacheDetectionService : IDisposable
                 _logger.LogInformation("[GameDetection] Incremental scan complete: {NewCount} new games, {TotalCount} total",
                     newGamesCount, totalGamesDetected);
 
-                completionMessage = newGamesCount > 0
-                    ? $"Found {newGamesCount} new game{(newGamesCount != 1 ? "s" : "")} ({totalGamesDetected} total with cache files)"
-                    : $"No new games detected ({totalGamesDetected} total with cache files)";
+                completionStageKey = newGamesCount > 0
+                    ? "signalr.gameDetect.complete.newGames"
+                    : "signalr.gameDetect.complete.noNewGames";
+                completionContext = new Dictionary<string, object?> { ["newGamesCount"] = newGamesCount, ["totalGamesDetected"] = totalGamesDetected };
             }
             else
             {
                 finalGames = aggregatedGames;
                 totalGamesDetected = aggregatedGames.Count;
-                completionMessage = $"Detected {totalGamesDetected} games with cache files";
+                completionStageKey = "signalr.gameDetect.complete.full";
+                completionContext = new Dictionary<string, object?> { ["totalGamesDetected"] = totalGamesDetected };
             }
 
-            // Add datasource info to message if multiple datasources
+            // Add datasource count to context if multiple datasources
             if (datasources.Count > 1)
             {
-                completionMessage += $" across {datasources.Count} datasources";
+                completionContext["datasourceCount"] = datasources.Count;
             }
 
             // Epic games are now detected by the Rust processor using actual cache file sizes
@@ -592,7 +598,7 @@ public class GameCacheDetectionService : IDisposable
                 : aggregatedServices;
 
             // Update tracker progress and metadata with final results
-            _operationTracker.UpdateProgress(operationId, 90, completionMessage);
+            _operationTracker.UpdateProgress(operationId, 90, completionStageKey);
             _operationTracker.UpdateMetadata(operationId, m =>
             {
                 var metrics = (GameDetectionMetrics)m;
@@ -603,7 +609,7 @@ public class GameCacheDetectionService : IDisposable
             });
 
             // Send progress for saving to database
-            await SendProgressAsync("saving", "Saving results to database...", totalGamesDetected, finalServices.Count, 90);
+            await SendProgressAsync("saving", "signalr.gameDetect.db.complete", totalGamesDetected, finalServices.Count, 90);
 
             // Save all games (Steam + Epic) to database - Epic games now use actual cache file sizes
             // from the Rust processor, so they can be persisted alongside Steam games.
@@ -642,8 +648,8 @@ public class GameCacheDetectionService : IDisposable
                 if (resolvedCount > 0)
                 {
                     _logger.LogInformation("[GameDetection] Resolved {Count} unknown games after incremental scan", resolvedCount);
-                    completionMessage += $" (resolved {resolvedCount} previously unknown)";
-                    _operationTracker.UpdateProgress(operationId, 95, completionMessage);
+                    completionContext["resolvedCount"] = resolvedCount;
+                    _operationTracker.UpdateProgress(operationId, 95, completionStageKey);
                 }
             }
 
@@ -659,8 +665,8 @@ public class GameCacheDetectionService : IDisposable
                 totalGamesDetected, datasources.Count);
 
             await FinalizeDetectionAsync(operationId, success: true,
-                status: OperationStatus.Completed, message: completionMessage, cancelled: false,
-                gamesDetected: totalGamesDetected, servicesDetected: finalServices.Count);
+                status: OperationStatus.Completed, stageKey: completionStageKey, cancelled: false,
+                context: completionContext, gamesDetected: totalGamesDetected, servicesDetected: finalServices.Count);
         }
         catch (OperationCanceledException oce)
         {
@@ -689,7 +695,7 @@ public class GameCacheDetectionService : IDisposable
                 }
 
                 await FinalizeDetectionAsync(operationId, success: false,
-                    status: OperationStatus.Cancelled, message: "Detection cancelled by user", cancelled: true);
+                    status: OperationStatus.Cancelled, stageKey: "signalr.gameDetect.starting.incremental", cancelled: true);
             }
             else
             {
@@ -702,7 +708,8 @@ public class GameCacheDetectionService : IDisposable
                 });
 
                 await FinalizeDetectionAsync(operationId, success: false,
-                    status: OperationStatus.Failed, message: $"Detection failed: {oce.Message}", cancelled: false);
+                    status: OperationStatus.Failed, stageKey: "signalr.generic.failed", cancelled: false,
+                    context: new Dictionary<string, object?> { ["errorDetail"] = oce.Message });
             }
         }
         catch (Exception ex)
@@ -717,7 +724,8 @@ public class GameCacheDetectionService : IDisposable
             });
 
             await FinalizeDetectionAsync(operationId, success: false,
-                status: OperationStatus.Failed, message: $"Detection failed: {ex.Message}", cancelled: false);
+                status: OperationStatus.Failed, stageKey: "signalr.generic.failed", cancelled: false,
+                context: new Dictionary<string, object?> { ["errorDetail"] = ex.Message });
         }
         finally
         {
@@ -742,11 +750,11 @@ public class GameCacheDetectionService : IDisposable
     /// Consolidates the common teardown logic shared across success, cancel, and error paths.
     /// </summary>
     private async Task FinalizeDetectionAsync(
-        string operationId, bool success, string status, string message, bool cancelled,
-        int? gamesDetected = null, int? servicesDetected = null)
+        string operationId, bool success, string status, string stageKey, bool cancelled,
+        Dictionary<string, object?>? context = null, int? gamesDetected = null, int? servicesDetected = null)
     {
-        // Determine error string for tracker (cancelled = "Cancelled by user", failed = message, success = null)
-        var trackerError = success ? null : (cancelled ? "Cancelled by user" : message);
+        // Determine error string for tracker (cancelled = "Cancelled by user", failed = stageKey, success = null)
+        var trackerError = success ? null : (cancelled ? "Cancelled by user" : stageKey);
 
         // Mark operation as complete in unified tracker
         _operationTracker.CompleteOperation(operationId, success: success, error: trackerError);
@@ -757,7 +765,7 @@ public class GameCacheDetectionService : IDisposable
             ? JsonSerializer.SerializeToElement(new { operationId, cancelled = true })
             : success
                 ? JsonSerializer.SerializeToElement(new { operationId, totalGamesDetected = gamesDetected ?? 0 })
-                : JsonSerializer.SerializeToElement(new { operationId, error = message });
+                : JsonSerializer.SerializeToElement(new { operationId, error = stageKey });
 
         // Update persisted state
         _operationStateService.SaveState($"gameDetection_{operationId}", new OperationState
@@ -765,7 +773,7 @@ public class GameCacheDetectionService : IDisposable
             Key = $"gameDetection_{operationId}",
             Type = "gameDetection",
             Status = status,
-            Message = message,
+            Message = stageKey,
             Data = stateData
         });
 
@@ -775,7 +783,8 @@ public class GameCacheDetectionService : IDisposable
             OperationId = operationId,
             Success = success,
             Status = status,
-            Message = message,
+            StageKey = stageKey,
+            Context = context,
             Cancelled = cancelled,
             totalGamesDetected = gamesDetected,
             totalServicesDetected = servicesDetected,
@@ -1185,11 +1194,12 @@ public class GameCacheDetectionService : IDisposable
             }
         }
 
-        var message = games.Count > 0 && services.Count > 0
-            ? $"Loaded {games.Count} games and {services.Count} services from cache"
-            : games.Count > 0
-                ? $"Loaded {games.Count} games from cache"
-                : $"Loaded {services.Count} services from cache";
+        var loadedStageKey = games.Count > 0 && services.Count > 0
+            ? "signalr.gameDetect.loaded.gamesAndServices"
+            : "signalr.gameDetect.loaded.gamesOnly";
+        var loadedContext = games.Count > 0 && services.Count > 0
+            ? new Dictionary<string, object?> { ["gamesCount"] = games.Count, ["servicesCount"] = services.Count }
+            : new Dictionary<string, object?> { ["gamesCount"] = games.Count };
 
         var steamCount = games.Count(g => string.IsNullOrEmpty(g.EpicAppId) && !g.IsEvicted);
         var epicCount = games.Count(g => !string.IsNullOrEmpty(g.EpicAppId) && !g.IsEvicted);
@@ -1203,7 +1213,7 @@ public class GameCacheDetectionService : IDisposable
             OperationId = "cached",
             StartTime = lastDetectedTime,
             Status = OperationStatus.Completed,
-            Message = message,
+            Message = loadedStageKey,
             Games = games,
             Services = services,
             TotalGamesDetected = games.Count,
@@ -2082,8 +2092,11 @@ public class GameCacheDetectionService : IDisposable
         [System.Text.Json.Serialization.JsonPropertyName("status")]
         public string Status { get; set; } = string.Empty;
 
-        [System.Text.Json.Serialization.JsonPropertyName("message")]
-        public string Message { get; set; } = string.Empty;
+        [System.Text.Json.Serialization.JsonPropertyName("stageKey")]
+        public string? StageKey { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("context")]
+        public Dictionary<string, object?>? Context { get; set; }
 
         [System.Text.Json.Serialization.JsonPropertyName("percentComplete")]
         public double PercentComplete { get; set; }

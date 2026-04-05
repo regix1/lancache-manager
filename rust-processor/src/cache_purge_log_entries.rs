@@ -15,6 +15,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
@@ -72,7 +73,7 @@ fn main() -> Result<()> {
     let args = Args::parse();
 
     let reporter = ProgressReporter::new(args.progress);
-    reporter.emit_started();
+    reporter.emit_started("signalr.logPurge.reading", json!({}));
 
     let result = run_purge(&args, &reporter);
 
@@ -83,12 +84,8 @@ fn main() -> Result<()> {
             fs::write(&args.output_json, payload)
                 .with_context(|| format!("Failed to write output JSON to {}", args.output_json))?;
 
-            let msg = format!(
-                "Purged {} log lines across access.log files ({} permission errors)",
-                report.lines_removed, report.permission_errors
-            );
-            reporter.emit_complete(&msg);
-            eprintln!("{}", msg);
+            reporter.emit_complete("signalr.logPurge.complete", json!({ "linesRemoved": report.lines_removed, "permissionErrors": report.permission_errors }));
+            eprintln!("Purged {} log lines across access.log files ({} permission errors)", report.lines_removed, report.permission_errors);
         }
         Err(e) => {
             let err_msg = format!("cache_purge_log_entries failed: {:#}", e);
@@ -108,7 +105,7 @@ fn main() -> Result<()> {
                 serde_json::to_string_pretty(&failure).unwrap_or_else(|_| "{}".to_string()),
             );
 
-            reporter.emit_failed(&err_msg);
+            reporter.emit_failed("signalr.logPurge.error.fatal", json!({ "errorDetail": err_msg }));
             std::process::exit(1);
         }
     }
@@ -118,7 +115,7 @@ fn main() -> Result<()> {
 
 fn run_purge(args: &Args, reporter: &ProgressReporter) -> Result<PurgeReport> {
     // Read input JSON
-    reporter.emit_progress(5.0, "Reading purge request JSON...");
+    reporter.emit_progress(5.0, "signalr.logPurge.reading", json!({}));
     let input_bytes = fs::read(&args.input_json)
         .with_context(|| format!("Failed to read input JSON {}", args.input_json))?;
     let request: PurgeRequest = serde_json::from_slice(&input_bytes)
@@ -150,11 +147,8 @@ fn run_purge(args: &Args, reporter: &ProgressReporter) -> Result<PurgeReport> {
     );
     reporter.emit_progress(
         15.0,
-        &format!(
-            "Purging logs for {} URLs / {} depot IDs",
-            urls.len(),
-            depot_ids.len()
-        ),
+        "signalr.logPurge.purging",
+        json!({ "urlCount": urls.len(), "depotCount": depot_ids.len() }),
     );
 
     // Validate log_dir exists
@@ -170,7 +164,8 @@ fn run_purge(args: &Args, reporter: &ProgressReporter) -> Result<PurgeReport> {
 
     reporter.emit_progress(
         95.0,
-        &format!("Rewrote logs — {} lines removed", lines_removed),
+        "signalr.logPurge.rewrote",
+        json!({ "linesRemoved": lines_removed }),
     );
 
     Ok(PurgeReport {

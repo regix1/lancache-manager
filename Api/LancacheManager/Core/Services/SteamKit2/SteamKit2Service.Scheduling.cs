@@ -85,7 +85,8 @@ public partial class SteamKit2Service
                         // Send SignalR notification
                         await _notifications.NotifyAllAsync(SignalREvents.AutomaticScanSkipped, new
                         {
-                            message = "Scheduled scan skipped - full scan required",
+                            stageKey = "signalr.depotMapping.scan.skippedFullRequired",
+                            context = new Dictionary<string, object?>(),
                             timestamp = DateTime.UtcNow
                         });
 

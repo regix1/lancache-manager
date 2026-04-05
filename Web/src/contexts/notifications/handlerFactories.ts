@@ -12,6 +12,7 @@ import type {
   CancelAutoDismissTimer
 } from './types';
 import type { DepotMappingCompleteEvent } from '../SignalRContext/types';
+import i18n from '@/i18n';
 import {
   NOTIFICATION_STORAGE_KEYS,
   NOTIFICATION_IDS,
@@ -166,7 +167,14 @@ interface CompletionHandlerConfig<T> {
  * );
  * ```
  */
-export function createCompletionHandler<T extends { success: boolean; message?: string }>(
+export function createCompletionHandler<
+  T extends {
+    success: boolean;
+    stageKey?: string;
+    context?: Record<string, unknown>;
+    message?: string;
+  }
+>(
   config: CompletionHandlerConfig<T>,
   setNotifications: SetNotifications,
   scheduleAutoDismiss: ScheduleAutoDismiss
@@ -209,7 +217,10 @@ export function createCompletionHandler<T extends { success: boolean; message?: 
                 ...n,
                 progress: 100,
                 status: 'failed' as const,
-                error: config.getFailureMessage?.(event) ?? event.message ?? 'Operation failed'
+                error:
+                  config.getFailureMessage?.(event) ??
+                  (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
+                  i18n.t('signalr.generic.failed')
               };
             }
           }
@@ -232,15 +243,21 @@ export function createCompletionHandler<T extends { success: boolean; message?: 
               type: config.type,
               status,
               message: event.success
-                ? (config.getSuccessMessage?.(event) ?? event.message ?? 'Operation completed')
-                : (config.getFailureMessage?.(event) ?? event.message ?? 'Operation failed'),
+                ? (config.getSuccessMessage?.(event) ??
+                  (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
+                  i18n.t('signalr.generic.complete'))
+                : (config.getFailureMessage?.(event) ??
+                  (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
+                  i18n.t('signalr.generic.failed')),
               detailMessage: config.getDetailMessage?.(event),
               startedAt: new Date(),
               progress: 100,
               details: config.getSuccessDetails?.(event),
               error: event.success
                 ? undefined
-                : (config.getFailureMessage?.(event) ?? event.message)
+                : (config.getFailureMessage?.(event) ??
+                  (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
+                  i18n.t('signalr.generic.failed'))
             };
 
             return [...prev, newNotification];
@@ -269,7 +286,10 @@ export function createCompletionHandler<T extends { success: boolean; message?: 
                 ...n,
                 progress: 100,
                 status: 'failed' as const,
-                error: config.getFailureMessage?.(event) ?? event.message ?? 'Operation failed'
+                error:
+                  config.getFailureMessage?.(event) ??
+                  (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
+                  i18n.t('signalr.generic.failed')
               };
             }
           }
@@ -582,7 +602,7 @@ export function createDepotMappingCompletionHandler(
           id: notificationId,
           type: 'depot_mapping',
           status: 'completed',
-          message: 'Depot mapping scan cancelled',
+          message: i18n.t('signalr.depotMapping.cancelled'),
           startedAt: newStartedAt,
           progress: 100,
           details: { cancelled: true }
@@ -596,7 +616,7 @@ export function createDepotMappingCompletionHandler(
           ? {
               ...n,
               status: 'completed' as const,
-              message: 'Depot mapping scan cancelled',
+              message: i18n.t('signalr.depotMapping.cancelled'),
               progress: 100,
               details: { ...n.details, cancelled: true }
             }
@@ -609,7 +629,9 @@ export function createDepotMappingCompletionHandler(
 
   /** Handles successful depot mapping completion */
   const handleSuccess = (event: DepotMappingCompleteEvent): void => {
-    const successMessage = event.message || 'Depot mapping completed';
+    const successMessage = event.stageKey
+      ? i18n.t(event.stageKey, event.context ?? {})
+      : i18n.t('signalr.depotMapping.finalized', { updated: event.downloadsUpdated ?? 0 });
     const successDetails = {
       totalMappings: event.totalMappings,
       downloadsUpdated: event.downloadsUpdated
@@ -688,7 +710,10 @@ export function createDepotMappingCompletionHandler(
 
   /** Handles failed depot mapping with optional full scan modal trigger */
   const handleFailure = (event: DepotMappingCompleteEvent): void => {
-    const errorMessage = event.error || event.message || 'Depot mapping failed';
+    const errorMessage =
+      event.error ??
+      (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
+      i18n.t('signalr.generic.failed');
     const requiresFullScan =
       errorMessage.includes('change gap is too large') ||
       errorMessage.includes('requires full scan') ||

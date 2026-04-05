@@ -42,7 +42,8 @@ public partial class SteamKit2Service
             {
                 operationId,
                 scanMode = "github",
-                message = "Downloading depot mappings from GitHub...",
+                stageKey = "signalr.depotMapping.github.downloading",
+                context = new Dictionary<string, object?>(),
                 isLoggedOn = IsSteamAuthenticated,
                 timestamp = DateTime.UtcNow
             });
@@ -160,7 +161,8 @@ public partial class SteamKit2Service
                 operationId,
                 success = true,
                 scanMode = "github",
-                message = $"GitHub depot data imported — {totalMappings} mappings",
+                stageKey = "signalr.depotMapping.github.complete",
+                context = new Dictionary<string, object?> { ["totalMappings"] = totalMappings },
                 totalMappings,
                 isLoggedOn = IsSteamAuthenticated,
                 timestamp = DateTime.UtcNow
@@ -201,7 +203,8 @@ public partial class SteamKit2Service
                 success = false,
                 cancelled = true,
                 scanMode = "github",
-                message = "Depot mapping scan cancelled",
+                stageKey = "signalr.depotMapping.cancelled",
+                context = new Dictionary<string, object?>(),
                 isLoggedOn = IsSteamAuthenticated,
                 timestamp = DateTime.UtcNow
             });
@@ -231,7 +234,8 @@ public partial class SteamKit2Service
             operationId,
             success = false,
             scanMode = "github",
-            message = $"[GitHub Mode] {errorMessage}",
+            stageKey = "signalr.depotMapping.github.failed",
+            context = new Dictionary<string, object?> { ["errorDetail"] = errorMessage },
             error = errorMessage,
             isLoggedOn = IsSteamAuthenticated,
             timestamp = DateTime.UtcNow

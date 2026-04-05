@@ -96,7 +96,7 @@ public class CorruptionDetectionService
             await _notifications.NotifyAllAsync(SignalREvents.CorruptionDetectionStarted, new
             {
                 OperationId = operationId,
-                Message = "Starting corruption detection scan..."
+                StageKey = "signalr.corruptionDetect.starting"
             });
 
             // Run detection in background with the cancellation token
@@ -184,8 +184,8 @@ public class CorruptionDetectionService
             }
 
             // Update operation via tracker
-            var completionMessage = $"Detection complete. Found {aggregatedCounts.Count} services with corruption.";
-            _operationTracker.UpdateProgress(operationId, 100, completionMessage);
+            var completionCount = aggregatedCounts.Count;
+            _operationTracker.UpdateProgress(operationId, 100, "signalr.corruptionDetect.complete");
             _operationTracker.UpdateMetadata(operationId, metadata =>
             {
                 var metrics = (CorruptionDetectionMetrics)metadata;
@@ -208,7 +208,8 @@ public class CorruptionDetectionService
                 OperationId = operationId,
                 Success = true,
                 Status = OperationStatus.Completed,
-                Message = completionMessage,
+                StageKey = "signalr.corruptionDetect.complete",
+                Context = new Dictionary<string, object?> { ["count"] = completionCount },
                 Cancelled = false,
                 totalServicesWithCorruption = aggregatedCounts.Count,
                 totalCorruptedChunks = aggregatedCounts.Values.Sum()
@@ -233,7 +234,7 @@ public class CorruptionDetectionService
                 OperationId = operationId,
                 Success = false,
                 Status = OperationStatus.Cancelled,
-                Message = "Detection cancelled by user",
+                StageKey = "signalr.corruptionDetect.cancelled",
                 Cancelled = true
             });
         }
@@ -253,7 +254,8 @@ public class CorruptionDetectionService
                 OperationId = operationId,
                 Success = false,
                 Status = OperationStatus.Failed,
-                Message = ex.Message,
+                StageKey = "signalr.corruptionDetect.failed",
+                Context = new Dictionary<string, object?> { ["errorDetail"] = ex.Message },
                 Cancelled = false
             });
         }
@@ -300,13 +302,13 @@ public class CorruptionDetectionService
 
                     if (progressData != null)
                     {
-                        var messageChanged = progressData.Message != lastMessage;
+                        var keyChanged = progressData.StageKey != lastMessage;
                         var percentChanged = Math.Abs(progressData.PercentComplete - lastPercent) >= percentThreshold;
 
-                        // Send update if either message OR percentComplete changes significantly
-                        if (messageChanged || percentChanged)
+                        // Send update if either stageKey OR percentComplete changes significantly
+                        if (keyChanged || percentChanged)
                         {
-                            lastMessage = progressData.Message;
+                            lastMessage = progressData.StageKey ?? string.Empty;
                             lastPercent = progressData.PercentComplete;
 
                             // Send progress notification via SignalR
@@ -315,15 +317,16 @@ public class CorruptionDetectionService
                                 OperationId = operationId,
                                 PercentComplete = progressData.PercentComplete,
                                 Status = OperationStatus.Running,
-                                Message = progressData.Message,
+                                StageKey = progressData.StageKey,
+                                Context = progressData.Context,
                                 filesProcessed = progressData.FilesProcessed,
                                 totalFiles = progressData.TotalFiles,
                                 currentFile = progressData.CurrentFile,
                                 datasourceName
                             });
 
-                            _logger.LogDebug("[CorruptionDetection] Progress: {Percent:F1}% - {Message}",
-                                progressData.PercentComplete, progressData.Message);
+                            _logger.LogDebug("[CorruptionDetection] Progress: {Percent:F1}% - {StageKey}",
+                                progressData.PercentComplete, progressData.StageKey);
                         }
                     }
                 }
@@ -531,7 +534,13 @@ public class CorruptionSummaryData
 public class CorruptionDetectionProgressData
 {
     public string Status { get; set; } = string.Empty;
-    public string Message { get; set; } = string.Empty;
+
+    [System.Text.Json.Serialization.JsonPropertyName("stageKey")]
+    public string? StageKey { get; set; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("context")]
+    public Dictionary<string, object?>? Context { get; set; }
+
     public int FilesProcessed { get; set; }
     public int TotalFiles { get; set; }
     public double PercentComplete { get; set; }
@@ -547,8 +556,11 @@ internal class CorruptionRemovalProgressData
     [System.Text.Json.Serialization.JsonPropertyName("status")]
     public string Status { get; set; } = string.Empty;
 
-    [System.Text.Json.Serialization.JsonPropertyName("message")]
-    public string Message { get; set; } = string.Empty;
+    [System.Text.Json.Serialization.JsonPropertyName("stageKey")]
+    public string? StageKey { get; set; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("context")]
+    public Dictionary<string, object?>? Context { get; set; }
 
     [System.Text.Json.Serialization.JsonPropertyName("percentComplete")]
     public double PercentComplete { get; set; }

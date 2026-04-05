@@ -4,9 +4,9 @@
 //! consumed by the C# host application via stdout capture.
 //!
 //! Event format:
-//! - Start: {"event":"started","operationId":"<uuid>","status":"running"}
-//! - Progress: {"event":"progress","operationId":"<uuid>","percentComplete":<0-100>,"status":"running","message":"..."}
-//! - Complete: {"event":"complete","operationId":"<uuid>","success":true/false,"status":"completed/failed","message":"...","cancelled":false}
+//! - Start: {"event":"started","operationId":"<uuid>","status":"running","stageKey":"...","context":{...}}
+//! - Progress: {"event":"progress","operationId":"<uuid>","percentComplete":<0-100>,"status":"running","stageKey":"...","context":{...}}
+//! - Complete: {"event":"complete","operationId":"<uuid>","success":true/false,"status":"completed/failed","stageKey":"...","context":{...},"cancelled":false}
 
 #![allow(dead_code)]
 
@@ -20,14 +20,18 @@ pub struct ProgressReporter {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct StartEvent {
     event: &'static str,
     #[serde(rename = "operationId")]
     operation_id: String,
     status: &'static str,
+    stage_key: String,
+    context: serde_json::Value,
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct ProgressEvent {
     event: &'static str,
     #[serde(rename = "operationId")]
@@ -35,17 +39,20 @@ struct ProgressEvent {
     #[serde(rename = "percentComplete")]
     percent_complete: f64,
     status: &'static str,
-    message: String,
+    stage_key: String,
+    context: serde_json::Value,
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct CompleteEvent {
     event: &'static str,
     #[serde(rename = "operationId")]
     operation_id: String,
     success: bool,
     status: &'static str,
-    message: String,
+    stage_key: String,
+    context: serde_json::Value,
     cancelled: bool,
 }
 
@@ -72,7 +79,7 @@ impl ProgressReporter {
     }
 
     /// Emit a started event
-    pub fn emit_started(&self) {
+    pub fn emit_started(&self, stage_key: &str, context: serde_json::Value) {
         if !self.enabled {
             return;
         }
@@ -81,6 +88,8 @@ impl ProgressReporter {
             event: "started",
             operation_id: self.operation_id.clone(),
             status: "running",
+            stage_key: stage_key.to_string(),
+            context,
         };
 
         if let Ok(json) = serde_json::to_string(&event) {
@@ -92,8 +101,9 @@ impl ProgressReporter {
     ///
     /// # Arguments
     /// * `percent_complete` - Progress percentage (0-100)
-    /// * `message` - Human-readable progress message
-    pub fn emit_progress(&self, percent_complete: f64, message: &str) {
+    /// * `stage_key` - Semantic i18n stage key
+    /// * `context` - Interpolation variables as JSON object
+    pub fn emit_progress(&self, percent_complete: f64, stage_key: &str, context: serde_json::Value) {
         if !self.enabled {
             return;
         }
@@ -103,7 +113,8 @@ impl ProgressReporter {
             operation_id: self.operation_id.clone(),
             percent_complete: percent_complete.clamp(0.0, 100.0),
             status: "running",
-            message: message.to_string(),
+            stage_key: stage_key.to_string(),
+            context,
         };
 
         if let Ok(json) = serde_json::to_string(&event) {
@@ -114,8 +125,9 @@ impl ProgressReporter {
     /// Emit a complete event (success)
     ///
     /// # Arguments
-    /// * `message` - Completion message
-    pub fn emit_complete(&self, message: &str) {
+    /// * `stage_key` - Semantic i18n stage key
+    /// * `context` - Interpolation variables as JSON object
+    pub fn emit_complete(&self, stage_key: &str, context: serde_json::Value) {
         if !self.enabled {
             return;
         }
@@ -125,7 +137,8 @@ impl ProgressReporter {
             operation_id: self.operation_id.clone(),
             success: true,
             status: "completed",
-            message: message.to_string(),
+            stage_key: stage_key.to_string(),
+            context,
             cancelled: false,
         };
 
@@ -137,8 +150,9 @@ impl ProgressReporter {
     /// Emit a complete event (failure)
     ///
     /// # Arguments
-    /// * `message` - Error message
-    pub fn emit_failed(&self, message: &str) {
+    /// * `stage_key` - Semantic i18n stage key
+    /// * `context` - Interpolation variables as JSON object
+    pub fn emit_failed(&self, stage_key: &str, context: serde_json::Value) {
         if !self.enabled {
             return;
         }
@@ -148,7 +162,8 @@ impl ProgressReporter {
             operation_id: self.operation_id.clone(),
             success: false,
             status: "failed",
-            message: message.to_string(),
+            stage_key: stage_key.to_string(),
+            context,
             cancelled: false,
         };
 
@@ -160,8 +175,9 @@ impl ProgressReporter {
     /// Emit a complete event (cancelled)
     ///
     /// # Arguments
-    /// * `message` - Cancellation message
-    pub fn emit_cancelled(&self, message: &str) {
+    /// * `stage_key` - Semantic i18n stage key
+    /// * `context` - Interpolation variables as JSON object
+    pub fn emit_cancelled(&self, stage_key: &str, context: serde_json::Value) {
         if !self.enabled {
             return;
         }
@@ -171,7 +187,8 @@ impl ProgressReporter {
             operation_id: self.operation_id.clone(),
             success: false,
             status: "cancelled",
-            message: message.to_string(),
+            stage_key: stage_key.to_string(),
+            context,
             cancelled: true,
         };
 

@@ -183,7 +183,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             if (!silent)
             {
                 await _notifications.NotifyAllAsync(SignalREvents.EvictionScanStarted, new EvictionScanStarted(
-                    Message: "Starting eviction scan...",
+                    StageKey: "signalr.evictionScan.scanning",
                     OperationId: operationId));
             }
 
@@ -215,12 +215,13 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         await _notifications.NotifyAllAsync(SignalREvents.EvictionScanProgress, new EvictionScanProgress(
                             OperationId: operationId,
                             Status: progress.Status,
-                            Message: progress.Message,
+                            StageKey: "signalr.evictionScan.progress",
                             PercentComplete: progress.PercentComplete,
                             Processed: progress.Processed,
                             TotalEstimate: progress.TotalEstimate,
                             Evicted: progress.Evicted,
-                            UnEvicted: progress.UnEvicted));
+                            UnEvicted: progress.UnEvicted,
+                            Context: new Dictionary<string, object?> { ["totalProcessed"] = progress.Processed, ["totalEstimate"] = progress.TotalEstimate }));
                     },
                     progressCts.Token);
             }
@@ -286,10 +287,11 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     await _notifications.NotifyAllAsync(SignalREvents.EvictionScanComplete, new EvictionScanComplete(
                         Success: true,
                         OperationId: operationId,
-                        Message: $"Scan complete: {scanResult.Processed} processed, {scanResult.Evicted} newly evicted, {scanResult.UnEvicted} un-evicted.",
+                        StageKey: "signalr.evictionScan.complete",
                         Processed: scanResult.Processed,
                         Evicted: scanResult.Evicted,
-                        UnEvicted: scanResult.UnEvicted));
+                        UnEvicted: scanResult.UnEvicted,
+                        Context: new Dictionary<string, object?> { ["totalProcessed"] = scanResult.Processed, ["totalEvicted"] = scanResult.Evicted, ["totalUnEvicted"] = scanResult.UnEvicted }));
                 }
 
                 // Notify clients to refresh if eviction flags changed
@@ -311,7 +313,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     await _notifications.NotifyAllAsync(SignalREvents.EvictionScanComplete, new EvictionScanComplete(
                         Success: false,
                         OperationId: operationId,
-                        Message: "Eviction scan failed with an error.",
+                        StageKey: "signalr.evictionScan.complete",
                         Processed: 0,
                         Evicted: 0,
                         UnEvicted: 0,
@@ -328,7 +330,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 await _notifications.NotifyAllAsync(SignalREvents.EvictionScanComplete, new EvictionScanComplete(
                     Success: false,
                     OperationId: operationId,
-                    Message: "Eviction scan was cancelled.",
+                    StageKey: "signalr.evictionScan.complete",
                     Processed: 0,
                     Evicted: 0,
                     UnEvicted: 0,
@@ -344,7 +346,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 await _notifications.NotifyAllAsync(SignalREvents.EvictionScanComplete, new EvictionScanComplete(
                     Success: false,
                     OperationId: operationId,
-                    Message: "Eviction scan failed with an error.",
+                    StageKey: "signalr.evictionScan.complete",
                     Processed: 0,
                     Evicted: 0,
                     UnEvicted: 0,
@@ -408,7 +410,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 cts);
 
             await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalStarted,
-                new EvictionRemovalStarted("Removing evicted records from database...", operationId));
+                new EvictionRemovalStarted("signalr.evictionRemove.starting.bulk", operationId));
         }
 
         try
@@ -423,9 +425,9 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
             // Step 0: Upsert CachedGameDetection rows for every evicted game BEFORE deleting Downloads.
             // This ensures evicted games remain visible after Downloads rows are deleted.
-            _operationTracker.UpdateProgress(operationId, 0, "Preserving evicted game records...");
+            _operationTracker.UpdateProgress(operationId, 0, "signalr.evictionRemove.preserving");
             await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
-                new EvictionRemovalProgress(operationId, "preserving_evicted_games", "Preserving evicted game records...", 0, 0, 0));
+                new EvictionRemovalProgress(operationId, "preserving_evicted_games", "signalr.evictionRemove.preserving", 0, 0, 0));
 
             // Load all evicted Downloads grouped by (GameAppId, EpicAppId) — one representative row per game
             var evictedDownloads = await context.Downloads
@@ -516,18 +518,18 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     }
 
                     // Step 1: Delete LogEntries for evicted downloads first (foreign key constraint)
-                    _operationTracker.UpdateProgress(operationId, 33, "Removing associated log entries...");
+                    _operationTracker.UpdateProgress(operationId, 33, "signalr.evictionRemove.removingLogs");
                     await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
-                        new EvictionRemovalProgress(operationId, "removing_log_entries", "Removing associated log entries...", 33, 0, 0));
+                        new EvictionRemovalProgress(operationId, "removing_log_entries", "signalr.evictionRemove.removingLogs", 33, 0, 0));
 
                     logEntriesDeleted = await context.LogEntries
                         .Where(le => le.DownloadId != null && le.Download != null && le.Download.IsEvicted)
                         .ExecuteDeleteAsync(stoppingToken);
 
                     // Step 2: Delete evicted Downloads
-                    _operationTracker.UpdateProgress(operationId, 66, "Removing evicted download records...");
+                    _operationTracker.UpdateProgress(operationId, 66, "signalr.evictionRemove.removingDownloads");
                     await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
-                        new EvictionRemovalProgress(operationId, "removing_downloads", "Removing evicted download records...", 66, 0, logEntriesDeleted));
+                        new EvictionRemovalProgress(operationId, "removing_downloads", "signalr.evictionRemove.removingDownloads", 66, 0, logEntriesDeleted));
 
                     downloadsDeleted = await context.Downloads
                         .Where(d => d.IsEvicted)
@@ -549,17 +551,17 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     downloadsDeleted, logEntriesDeleted);
             }
 
-            _operationTracker.UpdateProgress(operationId, 100, "Eviction removal complete.");
+            _operationTracker.UpdateProgress(operationId, 100, "signalr.evictionRemove.complete");
             _operationTracker.CompleteOperation(operationId, success: true);
             await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalComplete,
-                new EvictionRemovalComplete(true, operationId, "Eviction removal complete.", downloadsDeleted, logEntriesDeleted));
+                new EvictionRemovalComplete(true, operationId, "signalr.evictionRemove.complete", downloadsDeleted, logEntriesDeleted));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[EvictionScan] Error removing evicted records from database");
             _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
             await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalComplete,
-                new EvictionRemovalComplete(false, operationId, "Eviction removal failed.", 0, 0, ex.Message));
+                new EvictionRemovalComplete(false, operationId, "signalr.evictionRemove.failed", 0, 0, ex.Message));
         }
         finally
         {
@@ -618,10 +620,11 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 return;
             }
 
-            _operationTracker.UpdateProgress(operationId, 0, "Purging evicted entries from access.log files...");
+            _operationTracker.UpdateProgress(operationId, 0, "signalr.evictionRemove.purgingLogs");
             await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
                 new EvictionRemovalProgress(operationId, "purging_log_entries",
-                    $"Purging {urls.Count} URLs and {depotIds.Count} depot IDs from log files...", 0, 0, 0));
+                    "signalr.evictionRemove.purgingLogs", 0, 0, 0,
+                    new Dictionary<string, object?> { ["count"] = urls.Count + depotIds.Count }));
 
             var rustBinaryPath = _pathResolver.GetRustCachePurgeLogEntriesPath();
             if (!File.Exists(rustBinaryPath))
@@ -864,7 +867,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 cts);
 
             await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalStarted,
-                new EvictionRemovalStarted($"Removing evicted records for {scope} '{key}'...", operationId));
+                new EvictionRemovalStarted("signalr.evictionRemove.starting.entity", operationId,
+                    new Dictionary<string, object?> { ["scope"] = scope.ToString(), ["key"] = key }));
         }
 
         try
@@ -877,9 +881,9 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             int logEntriesDeleted = 0;
             int downloadsDeleted = 0;
 
-            _operationTracker.UpdateProgress(operationId, 33, "Removing associated log entries...");
+            _operationTracker.UpdateProgress(operationId, 33, "signalr.evictionRemove.removingLogs");
             await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
-                new EvictionRemovalProgress(operationId, "removing_log_entries", "Removing associated log entries...", 33, 0, 0));
+                new EvictionRemovalProgress(operationId, "removing_log_entries", "signalr.evictionRemove.removingLogs", 33, 0, 0));
 
             // EF Core's NpgsqlRetryingExecutionStrategy forbids user-initiated transactions unless
             // they are wrapped in a strategy-controlled retry block. Without this wrapper any call
@@ -922,9 +926,9 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     };
 
                     // Step 2: Delete this entity's evicted Downloads.
-                    _operationTracker.UpdateProgress(operationId, 66, "Removing evicted download records...");
+                    _operationTracker.UpdateProgress(operationId, 66, "signalr.evictionRemove.removingDownloads");
                     await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
-                        new EvictionRemovalProgress(operationId, "removing_downloads", "Removing evicted download records...", 66, 0, logEntriesDeleted));
+                        new EvictionRemovalProgress(operationId, "removing_downloads", "signalr.evictionRemove.removingDownloads", 66, 0, logEntriesDeleted));
 
                     downloadsDeleted = scope switch
                     {
@@ -975,17 +979,17 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 await UnevictCachedGameDetectionsAsync(context, _logger, stoppingToken);
             }
 
-            _operationTracker.UpdateProgress(operationId, 100, "Eviction removal complete.");
+            _operationTracker.UpdateProgress(operationId, 100, "signalr.evictionRemove.complete");
             _operationTracker.CompleteOperation(operationId, success: true);
             await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalComplete,
-                new EvictionRemovalComplete(true, operationId, "Eviction removal complete.", downloadsDeleted, logEntriesDeleted));
+                new EvictionRemovalComplete(true, operationId, "signalr.evictionRemove.complete", downloadsDeleted, logEntriesDeleted));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[EvictionScan] Error removing evicted records for {Scope} '{Key}'", scope, key);
             _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
             await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalComplete,
-                new EvictionRemovalComplete(false, operationId, "Eviction removal failed.", 0, 0, ex.Message));
+                new EvictionRemovalComplete(false, operationId, "signalr.evictionRemove.failed", 0, 0, ex.Message));
         }
         finally
         {
@@ -1149,10 +1153,11 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 return;
             }
 
-            _operationTracker.UpdateProgress(operationId, 0, "Purging evicted entries from access.log files...");
+            _operationTracker.UpdateProgress(operationId, 0, "signalr.evictionRemove.purgingLogs");
             await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
                 new EvictionRemovalProgress(operationId, "purging_log_entries",
-                    $"Purging {urls.Count} URLs and {depotIds.Count} depot IDs from log files...", 0, 0, 0));
+                    "signalr.evictionRemove.purgingLogs", 0, 0, 0,
+                    new Dictionary<string, object?> { ["count"] = urls.Count + depotIds.Count }));
 
             var rustBinaryPath = _pathResolver.GetRustCachePurgeLogEntriesPath();
             if (!File.Exists(rustBinaryPath))

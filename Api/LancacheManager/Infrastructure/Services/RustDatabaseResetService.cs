@@ -58,8 +58,11 @@ public class RustDatabaseResetService
         [System.Text.Json.Serialization.JsonPropertyName("status")]
         public string Status { get; set; } = string.Empty;
 
-        [System.Text.Json.Serialization.JsonPropertyName("message")]
-        public string Message { get; set; } = string.Empty;
+        [System.Text.Json.Serialization.JsonPropertyName("stage_key")]
+        public string StageKey { get; set; } = string.Empty;
+
+        [System.Text.Json.Serialization.JsonPropertyName("context")]
+        public Dictionary<string, object?> Context { get; set; } = new();
 
         [System.Text.Json.Serialization.JsonPropertyName("tablesCleared")]
         public int TablesCleared { get; set; }
@@ -120,7 +123,7 @@ public class RustDatabaseResetService
             {
                 isProcessing = true,
                 status = "starting",
-                message = "Starting database reset..."
+                stageKey = "signalr.dbReset.starting"
             };
         }
 
@@ -129,7 +132,8 @@ public class RustDatabaseResetService
             isProcessing = true,
             status = progress.Status,
             percentComplete = progress.PercentComplete,
-            message = progress.Message,
+            stageKey = progress.StageKey,
+            context = progress.Context,
             tablesCleared = progress.TablesCleared,
             totalTables = progress.TotalTables,
             filesDeleted = progress.FilesDeleted
@@ -169,7 +173,7 @@ public class RustDatabaseResetService
             await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetStarted, new
             {
                 OperationId = _currentTrackerOperationId,
-                Message = "Starting database reset..."
+                StageKey = "signalr.dbReset.starting"
             });
 
             var dataDirectory = _pathResolver.GetDataDirectory();
@@ -193,7 +197,7 @@ public class RustDatabaseResetService
                 isProcessing = true,
                 percentComplete = 0.0,
                 status = "starting",
-                message = "Starting database reset...",
+                StageKey = "signalr.dbReset.starting",
                 tablesCleared = 0,
                 totalTables = 4,
                 filesDeleted = 0,
@@ -252,7 +256,7 @@ public class RustDatabaseResetService
                             isProcessing = false,
                             percentComplete = 100.0,
                             status = OperationStatus.Completed,
-                            message = "Database reset completed successfully",
+                            StageKey = "signalr.dbReset.complete",
                             timestamp = DateTime.UtcNow
                         });
                     }
@@ -289,7 +293,8 @@ public class RustDatabaseResetService
                         isProcessing = false,
                         percentComplete = 0.0,
                         status = "failed",
-                        message = $"Database reset failed with exit code {exitCode}",
+                        StageKey = "signalr.dbReset.failedExitCode",
+                        Context = new Dictionary<string, object?> { ["exitCode"] = exitCode },
                         timestamp = DateTime.UtcNow
                     });
 
@@ -311,7 +316,7 @@ public class RustDatabaseResetService
                 isProcessing = false,
                 percentComplete = 0.0,
                 status = OperationStatus.Cancelled,
-                message = "Database reset was cancelled",
+                StageKey = "signalr.dbReset.cancelled",
                 timestamp = DateTime.UtcNow
             });
 
@@ -331,7 +336,8 @@ public class RustDatabaseResetService
                 isProcessing = false,
                 percentComplete = 0.0,
                 status = "failed",
-                message = $"Database reset failed: {ex.Message}",
+                StageKey = "signalr.dbReset.failed",
+                Context = new Dictionary<string, object?> { ["errorDetail"] = ex.Message },
                 timestamp = DateTime.UtcNow
             });
 

@@ -13,6 +13,7 @@
 
 import type { NotificationRegistryEntry } from './types';
 import { NOTIFICATION_IDS, NOTIFICATION_STORAGE_KEYS } from './constants';
+import i18n from '@/i18n';
 import {
   formatLogProcessingMessage,
   formatLogProcessingCompletionMessage,
@@ -100,7 +101,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     started: {
       defaultMessage: 'Starting log processing...',
       getMessage: (event: LogProcessingStartedEvent) =>
-        event.message || 'Starting log processing...',
+        i18n.t(event.stageKey ?? 'signalr.logProcessing.starting', event.context ?? {}),
       getDetails: (event: LogProcessingStartedEvent) => ({ operationId: event.operationId })
     },
     progress: {
@@ -137,7 +138,8 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     },
     started: {
       defaultMessage: 'Starting log removal...',
-      getMessage: (event: LogRemovalStartedEvent) => event.message || 'Starting log removal...',
+      getMessage: (event: LogRemovalStartedEvent) =>
+        i18n.t(event.stageKey ?? 'signalr.logRemoval.starting.default', event.context ?? {}),
       getDetails: (event: LogRemovalStartedEvent) => ({ operationId: event.operationId })
     },
     progress: {
@@ -150,8 +152,9 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
             ? 'failed'
             : undefined,
       getCompletedMessage: (event: LogRemovalProgressEvent) =>
-        event.message || 'Log removal completed',
-      getErrorMessage: (event: LogRemovalProgressEvent) => event.message || 'Log removal failed',
+        i18n.t(event.stageKey ?? 'signalr.generic.complete', event.context ?? {}),
+      getErrorMessage: (event: LogRemovalProgressEvent) =>
+        i18n.t(event.stageKey ?? 'signalr.generic.failed', event.context ?? {}),
       getDetails: (event: LogRemovalProgressEvent) => ({ operationId: event.operationId })
     },
     complete: {
@@ -176,7 +179,8 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     },
     started: {
       defaultMessage: 'Starting game removal...',
-      getMessage: (event: GameRemovalStartedEvent) => event.message || 'Starting game removal...',
+      getMessage: (event: GameRemovalStartedEvent) =>
+        i18n.t(event.stageKey ?? 'signalr.gameRemove.starting', event.context ?? {}),
       getDetails: (event: GameRemovalStartedEvent) => ({
         operationId: event.operationId,
         gameAppId: event.gameAppId,
@@ -188,8 +192,9 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getProgress: (event: GameRemovalProgressEvent) => event.percentComplete || 0,
       getStatus: (event: GameRemovalProgressEvent) => standardGetStatus(event),
       getCompletedMessage: (event: GameRemovalProgressEvent) =>
-        event.message || 'Game removal completed',
-      getErrorMessage: (event: GameRemovalProgressEvent) => event.message || 'Game removal failed',
+        i18n.t(event.stageKey ?? 'signalr.gameRemove.complete', event.context ?? {}),
+      getErrorMessage: (event: GameRemovalProgressEvent) =>
+        i18n.t(event.stageKey ?? 'signalr.gameRemove.error.fatal', event.context ?? {}),
       getDetails: (event: GameRemovalProgressEvent) => ({
         operationId: event.operationId,
         gameAppId: event.gameAppId,
@@ -221,7 +226,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     started: {
       defaultMessage: 'Starting service removal...',
       getMessage: (event: ServiceRemovalStartedEvent) =>
-        event.message || 'Starting service removal...',
+        i18n.t(event.stageKey ?? 'signalr.serviceRemove.starting.default', event.context ?? {}),
       getDetails: (event: ServiceRemovalStartedEvent) => ({ operationId: event.operationId })
     },
     progress: {
@@ -230,9 +235,15 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getProgress: (event: ServiceRemovalProgressEvent) => event.percentComplete || 0,
       getStatus: (event: ServiceRemovalProgressEvent) => standardGetStatus(event),
       getCompletedMessage: (event: ServiceRemovalProgressEvent) =>
-        event.message || 'Service removal completed',
+        i18n.t(event.stageKey ?? 'signalr.serviceRemove.success', {
+          name: event.serviceName,
+          ...event.context
+        }),
       getErrorMessage: (event: ServiceRemovalProgressEvent) =>
-        event.message || 'Service removal failed',
+        i18n.t(event.stageKey ?? 'signalr.serviceRemove.failed.generic', {
+          name: event.serviceName,
+          ...event.context
+        }),
       getDetails: (event: ServiceRemovalProgressEvent) => ({ operationId: event.operationId })
     },
     complete: {
@@ -266,13 +277,13 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     },
     progress: {
       getMessage: (event: CorruptionRemovalProgressEvent) =>
-        event.message || 'Corruption removal in progress...',
+        i18n.t(event.stageKey ?? 'signalr.corruptionRemove.scanningFiles', event.context ?? {}),
       getProgress: (event: CorruptionRemovalProgressEvent) => event.percentComplete || 0,
       getStatus: (event: CorruptionRemovalProgressEvent) => standardGetStatus(event),
       getCompletedMessage: (event: CorruptionRemovalProgressEvent) =>
-        event.message || 'Corruption removal completed',
+        i18n.t(event.stageKey ?? 'signalr.corruptionRemove.success', event.context ?? {}),
       getErrorMessage: (event: CorruptionRemovalProgressEvent) =>
-        event.message || 'Corruption removal failed',
+        i18n.t(event.stageKey ?? 'signalr.corruptionRemove.failed.generic', event.context ?? {}),
       getDetails: (event: CorruptionRemovalProgressEvent) => ({
         operationId: event.operationId,
         service: event.service
@@ -313,9 +324,9 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getProgress: (event: GameDetectionProgressEvent) => event.percentComplete || 0,
       getStatus: (event: GameDetectionProgressEvent) => standardGetStatus(event),
       getCompletedMessage: (event: GameDetectionProgressEvent) =>
-        event.message || 'Game detection completed',
+        i18n.t(event.stageKey ?? 'signalr.gameDetect.complete.default', event.context ?? {}),
       getErrorMessage: (event: GameDetectionProgressEvent) =>
-        event.message || 'Game detection failed',
+        i18n.t(event.stageKey ?? 'signalr.generic.failed', event.context ?? {}),
       getDetails: (event: GameDetectionProgressEvent) => ({ operationId: event.operationId })
     },
     complete: {
@@ -357,9 +368,9 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getProgress: (event: CorruptionDetectionProgressEvent) => event.percentComplete || 0,
       getStatus: (event: CorruptionDetectionProgressEvent) => standardGetStatus(event),
       getCompletedMessage: (event: CorruptionDetectionProgressEvent) =>
-        event.message || 'Corruption detection completed',
+        i18n.t(event.stageKey ?? 'signalr.corruptionDetect.complete', event.context ?? {}),
       getErrorMessage: (event: CorruptionDetectionProgressEvent) =>
-        event.message || 'Corruption detection failed',
+        i18n.t(event.stageKey ?? 'signalr.corruptionDetect.failed', event.context ?? {}),
       getDetails: (event: CorruptionDetectionProgressEvent) => ({
         operationId: event.operationId
       })
@@ -387,7 +398,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     started: {
       defaultMessage: 'Starting cache clearing...',
       getMessage: (event: CacheClearingStartedEvent) =>
-        event.message || 'Starting cache clearing...',
+        i18n.t(event.stageKey ?? 'signalr.cacheClear.initializing', event.context ?? {}),
       getDetails: (event: CacheClearingStartedEvent) => ({ operationId: event.operationId })
     },
     progress: {
@@ -395,9 +406,14 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getProgress: (event: CacheClearProgressEvent) => event.percentComplete || 0,
       getStatus: (event: CacheClearProgressEvent) => standardGetStatus(event),
       getCompletedMessage: (event: CacheClearProgressEvent) =>
-        event.statusMessage || event.message || 'Cache clearing completed',
+        event.stageKey
+          ? i18n.t(event.stageKey, event.context ?? {})
+          : (event.statusMessage ?? i18n.t('signalr.generic.complete')),
       getErrorMessage: (event: CacheClearProgressEvent) =>
-        event.error || event.statusMessage || event.message || 'Cache clearing failed',
+        event.error ??
+        (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
+        event.statusMessage ??
+        i18n.t('signalr.generic.failed'),
       getDetails: (event: CacheClearProgressEvent) => ({
         operationId: event.operationId,
         filesDeleted: event.filesDeleted,
@@ -438,8 +454,9 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getProgress: (event: DataImportProgressEvent) => event.percentComplete || 0,
       getStatus: (event: DataImportProgressEvent) => standardGetStatus(event),
       getCompletedMessage: (event: DataImportProgressEvent) =>
-        event.message || 'Data import completed',
-      getErrorMessage: (event: DataImportProgressEvent) => event.message || 'Data import failed',
+        i18n.t(event.stageKey ?? 'signalr.generic.complete', event.context ?? {}),
+      getErrorMessage: (event: DataImportProgressEvent) =>
+        i18n.t(event.stageKey ?? 'signalr.generic.failed', event.context ?? {}),
       getDetails: (event: DataImportProgressEvent) => ({ operationId: event.operationId })
     },
     complete: {
@@ -469,25 +486,28 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     },
     started: {
       defaultMessage: 'Starting eviction scan...',
-      getMessage: (event: EvictionScanStartedEvent) => event.message || 'Starting eviction scan...',
+      getMessage: (event: EvictionScanStartedEvent) =>
+        i18n.t(event.stageKey ?? 'signalr.evictionScan.scanning', event.context ?? {}),
       getDetails: (event: EvictionScanStartedEvent) => ({ operationId: event.operationId })
     },
     progress: {
       getMessage: (event: EvictionScanProgressEvent) =>
-        event.message || 'Scanning for evictable cache entries...',
+        i18n.t(event.stageKey ?? 'signalr.evictionScan.progress', event.context ?? {}),
       getProgress: (event: EvictionScanProgressEvent) => event.percentComplete || 0,
       getStatus: (event: EvictionScanProgressEvent) => standardGetStatus(event),
       getCompletedMessage: (event: EvictionScanProgressEvent) =>
-        event.message || 'Eviction scan completed',
+        i18n.t(event.stageKey ?? 'signalr.evictionScan.complete', event.context ?? {}),
       getErrorMessage: (event: EvictionScanProgressEvent) =>
-        event.message || 'Eviction scan failed',
+        i18n.t(event.stageKey ?? 'signalr.generic.failed', event.context ?? {}),
       getDetails: (event: EvictionScanProgressEvent) => ({ operationId: event.operationId })
     },
     complete: {
       getSuccessMessage: (event: EvictionScanCompleteEvent) =>
-        event.message || 'Eviction scan completed',
+        i18n.t(event.stageKey ?? 'signalr.evictionScan.complete', event.context ?? {}),
       getFailureMessage: (event: EvictionScanCompleteEvent) =>
-        event.error || event.message || 'Eviction scan failed',
+        event.error ??
+        (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
+        i18n.t('signalr.generic.failed'),
       supportFastCompletion: true,
       getFastCompletionId: () => NOTIFICATION_IDS.EVICTION_SCAN
     }
@@ -506,25 +526,27 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     started: {
       defaultMessage: 'Removing evicted game data...',
       getMessage: (event: EvictionRemovalStartedEvent) =>
-        event.message || 'Removing evicted game data...',
+        i18n.t(event.stageKey ?? 'signalr.evictionRemove.starting.bulk', event.context ?? {}),
       getDetails: (event: EvictionRemovalStartedEvent) => ({ operationId: event.operationId })
     },
     progress: {
       getMessage: (event: EvictionRemovalProgressEvent) =>
-        event.message || 'Removing evicted data...',
+        i18n.t(event.stageKey ?? 'signalr.evictionRemove.removingDownloads', event.context ?? {}),
       getProgress: (event: EvictionRemovalProgressEvent) => event.percentComplete || 0,
       getStatus: (event: EvictionRemovalProgressEvent) => standardGetStatus(event),
       getCompletedMessage: (event: EvictionRemovalProgressEvent) =>
-        event.message || 'Eviction removal completed',
+        i18n.t(event.stageKey ?? 'signalr.evictionRemove.complete', event.context ?? {}),
       getErrorMessage: (event: EvictionRemovalProgressEvent) =>
-        event.message || 'Eviction removal failed',
+        i18n.t(event.stageKey ?? 'signalr.evictionRemove.failed', event.context ?? {}),
       getDetails: (event: EvictionRemovalProgressEvent) => ({ operationId: event.operationId })
     },
     complete: {
       getSuccessMessage: (event: EvictionRemovalCompleteEvent) =>
-        event.message || 'Eviction removal completed',
+        i18n.t(event.stageKey ?? 'signalr.evictionRemove.complete', event.context ?? {}),
       getFailureMessage: (event: EvictionRemovalCompleteEvent) =>
-        event.error || event.message || 'Eviction removal failed',
+        event.error ??
+        (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
+        i18n.t('signalr.evictionRemove.failed'),
       supportFastCompletion: true,
       getFastCompletionId: () => NOTIFICATION_IDS.EVICTION_REMOVAL
     },

@@ -405,7 +405,7 @@ public class StatsController : ControllerBase
                 cts);
 
             await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalStarted,
-                new EvictionRemovalStarted("Removing evicted records from database...", operationId));
+                new EvictionRemovalStarted("signalr.evictionRemove.starting.bulk", operationId));
 
             _ = Task.Run(async () =>
             {
@@ -421,7 +421,7 @@ public class StatsController : ControllerBase
                     _logger.LogError(ex, "[EvictionRemoval] Unhandled error before removal started");
                     _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
                     await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalComplete,
-                        new EvictionRemovalComplete(false, operationId, "Eviction removal failed to start.", 0, 0, ex.Message));
+                        new EvictionRemovalComplete(false, operationId, "signalr.evictionRemove.failedToStart", 0, 0, ex.Message));
                 }
                 finally
                 {

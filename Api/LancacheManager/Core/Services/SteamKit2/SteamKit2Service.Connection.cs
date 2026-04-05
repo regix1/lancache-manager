@@ -157,7 +157,8 @@ public partial class SteamKit2Service
                 _notifications.NotifyAllFireAndForget(SignalREvents.SteamSessionError, new
                 {
                     errorType = "ConnectionFailed",
-                    message = errorMessage,
+                    stageKey = "signalr.steamSession.reconnectFailed",
+                    context = new Dictionary<string, object?> { ["maxAttempts"] = MaxReconnectAttempts },
                     reconnectAttempts = _reconnectAttempt,
                     timestamp = DateTime.UtcNow,
                     wasRebuildActive = true
@@ -257,7 +258,8 @@ public partial class SteamKit2Service
             _notifications.NotifyAllFireAndForget(SignalREvents.SteamSessionError, new
             {
                 errorType,
-                message = errorMessage,
+                stageKey = "signalr.steamSession.loginFailed",
+                context = new Dictionary<string, object?> { ["result"] = callback.Result.ToString() },
                 result = callback.Result.ToString(),
                 extendedResult = callback.ExtendedResult.ToString(),
                 timestamp = DateTime.UtcNow,
@@ -351,7 +353,8 @@ public partial class SteamKit2Service
                 _notifications.NotifyAllFireAndForget(SignalREvents.SteamSessionError, new
                 {
                     errorType,
-                    message = errorMessage,
+                    stageKey = "signalr.steamSession.disconnected",
+                    context = new Dictionary<string, object?> { ["result"] = callback.Result.ToString() },
                     result = callback.Result.ToString(),
                     timestamp = DateTime.UtcNow,
                     wasRebuildActive = false

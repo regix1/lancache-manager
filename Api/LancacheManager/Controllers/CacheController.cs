@@ -458,7 +458,7 @@ public class CacheController : ControllerBase
                                     var progress = await _rustProcessHelper.ReadProgressFileAsync<CorruptionRemovalProgressData>(progressFilePath);
                                     if (progress != null)
                                     {
-                                        _operationTracker.UpdateProgress(operationId, progress.PercentComplete, progress.Message);
+                                        _operationTracker.UpdateProgress(operationId, progress.PercentComplete, progress.StageKey ?? "");
                                         _operationTracker.UpdateMetadata(operationId, (object meta) =>
                                         {
                                             var m = (RemovalMetrics)meta;
@@ -472,11 +472,12 @@ public class CacheController : ControllerBase
                                                 service,
                                                 operationId,
                                                 progress.Status,
-                                                progress.Message,
+                                                progress.StageKey,
                                                 DateTime.UtcNow,
                                                 progress.FilesProcessed,
                                                 progress.TotalFiles,
-                                                progress.PercentComplete));
+                                                progress.PercentComplete,
+                                                progress.Context));
                                     }
                                 }
                             }
@@ -541,7 +542,9 @@ public class CacheController : ControllerBase
 
                         _operationTracker.CompleteOperation(operationId, success: true);
                         await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
-                            new CorruptionRemovalComplete(true, service, operationId, $"Successfully removed corrupted chunks for {service}"));
+                            new CorruptionRemovalComplete(true, service, operationId,
+                                StageKey: "signalr.corruptionRemove.success",
+                                Context: new Dictionary<string, object?> { ["service"] = service }));
                     }
                     else
                     {
@@ -563,7 +566,8 @@ public class CacheController : ControllerBase
                 _logger.LogInformation("Corruption removal cancelled for service: {Service}", service);
                 _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
                 await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
-                    new CorruptionRemovalComplete(false, service, operationId, Error: "Operation was cancelled."));
+                    new CorruptionRemovalComplete(false, service, operationId,
+                        StageKey: "signalr.corruptionRemove.cancelled"));
 
                 // Resume LiveLogMonitorService on cancellation
                 await LiveLogMonitorService.ResumeAsync();
@@ -573,7 +577,8 @@ public class CacheController : ControllerBase
                 _logger.LogError(ex, "Error during corruption removal for service: {Service}", service);
                 _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
                 await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
-                    new CorruptionRemovalComplete(false, service, operationId, Error: "Operation failed. Check server logs for details."));
+                    new CorruptionRemovalComplete(false, service, operationId,
+                        StageKey: "signalr.corruptionRemove.failed.generic"));
             }
         });
 
@@ -713,7 +718,7 @@ public class CacheController : ControllerBase
                                             var progress = await _rustProcessHelper.ReadProgressFileAsync<CorruptionRemovalProgressData>(progressFilePath);
                                             if (progress != null)
                                             {
-                                                _operationTracker.UpdateProgress(operationId, progress.PercentComplete, progress.Message);
+                                                _operationTracker.UpdateProgress(operationId, progress.PercentComplete, progress.StageKey ?? "");
                                                 _operationTracker.UpdateMetadata(operationId, (object meta) =>
                                                 {
                                                     var m = (RemovalMetrics)meta;
@@ -726,11 +731,12 @@ public class CacheController : ControllerBase
                                                         service,
                                                         operationId,
                                                         progress.Status,
-                                                        progress.Message,
+                                                        progress.StageKey,
                                                         DateTime.UtcNow,
                                                         progress.FilesProcessed,
                                                         progress.TotalFiles,
-                                                        progress.PercentComplete));
+                                                        progress.PercentComplete,
+                                                        progress.Context));
                                             }
                                         }
                                     }
@@ -790,7 +796,9 @@ public class CacheController : ControllerBase
 
                                 _operationTracker.CompleteOperation(operationId, success: true);
                                 await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
-                                    new CorruptionRemovalComplete(true, service, operationId, $"Successfully removed corrupted chunks for {service}"));
+                                    new CorruptionRemovalComplete(true, service, operationId,
+                                        StageKey: "signalr.corruptionRemove.success",
+                                        Context: new Dictionary<string, object?> { ["service"] = service }));
                             }
                             else
                             {
@@ -805,7 +813,8 @@ public class CacheController : ControllerBase
                             _logger.LogInformation("Corruption removal cancelled for service: {Service}", service);
                             _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
                             await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
-                                new CorruptionRemovalComplete(false, service, operationId, Error: "Operation was cancelled."));
+                                new CorruptionRemovalComplete(false, service, operationId,
+                                    StageKey: "signalr.corruptionRemove.cancelled"));
                             // Stop processing further services on cancellation
                             break;
                         }
@@ -814,7 +823,8 @@ public class CacheController : ControllerBase
                             _logger.LogError(ex, "Error during corruption removal for service: {Service}", service);
                             _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
                             await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
-                                new CorruptionRemovalComplete(false, service, operationId, Error: "Operation failed. Check server logs for details."));
+                                new CorruptionRemovalComplete(false, service, operationId,
+                                    StageKey: "signalr.corruptionRemove.failed.generic"));
                         }
                     }
                 }
@@ -930,7 +940,9 @@ public class CacheController : ControllerBase
 
         // Send start notification via SignalR
         _notifications.NotifyAllFireAndForget(SignalREvents.ServiceRemovalStarted,
-            new ServiceRemovalStarted(name, operationId, $"Starting removal of {name}...", DateTime.UtcNow));
+            new ServiceRemovalStarted(name, operationId,
+                "signalr.serviceRemove.starting.byName", DateTime.UtcNow,
+                new Dictionary<string, object?> { ["name"] = name }));
 
         // Fire-and-forget background removal with SignalR notification
         var cancellationToken = cts.Token;
@@ -942,8 +954,10 @@ public class CacheController : ControllerBase
 
                 // Send starting notification
                 await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalProgress,
-                    new ServiceRemovalProgress(name, operationId, "starting", $"Starting removal of {name}..."));
-                _operationTracker.UpdateProgress(operationId, 0, $"Starting removal of {name}...");
+                    new ServiceRemovalProgress(name, operationId, "starting",
+                        "signalr.serviceRemove.starting.byName", 0,
+                        Context: new Dictionary<string, object?> { ["name"] = name }));
+                _operationTracker.UpdateProgress(operationId, 0, "signalr.serviceRemove.starting.byName");
 
                 cancellationToken.ThrowIfCancellationRequested();
 
@@ -954,7 +968,7 @@ public class CacheController : ControllerBase
                         await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalProgress,
                             new ServiceRemovalProgress(name, operationId, "removing_cache", message, percentComplete,
                                 filesDeleted > 0 ? filesDeleted : null, bytesFreed > 0 ? bytesFreed : null));
-                        _operationTracker.UpdateProgress(operationId, percentComplete, message);
+                        _operationTracker.UpdateProgress(operationId, percentComplete, "signalr.serviceRemove.starting.byName");
                         _operationTracker.UpdateMetadata(operationId, (object meta) =>
                         {
                             var m = (RemovalMetrics)meta;
@@ -967,8 +981,8 @@ public class CacheController : ControllerBase
 
                 // Send finalizing progress update
                 await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalProgress,
-                    new ServiceRemovalProgress(name, operationId, "complete", "Finalizing removal...", 100.0, report.CacheFilesDeleted, (long)report.TotalBytesFreed));
-                _operationTracker.UpdateProgress(operationId, 100.0, "Finalizing removal...");
+                    new ServiceRemovalProgress(name, operationId, "complete", "signalr.serviceRemove.finalizing", 100.0, report.CacheFilesDeleted, (long)report.TotalBytesFreed));
+                _operationTracker.UpdateProgress(operationId, 100.0, "signalr.serviceRemove.finalizing");
                 _operationTracker.UpdateMetadata(operationId, (object meta) =>
                 {
                     var m = (RemovalMetrics)meta;
@@ -984,7 +998,9 @@ public class CacheController : ControllerBase
 
                 // Send SignalR notification on success
                 await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalComplete,
-                    new ServiceRemovalComplete(true, name, operationId, $"Successfully removed {name} service from cache", report.CacheFilesDeleted, (long)report.TotalBytesFreed, report.LogEntriesRemoved));
+                    new ServiceRemovalComplete(true, name, operationId,
+                        "signalr.serviceRemove.success", report.CacheFilesDeleted, (long)report.TotalBytesFreed, report.LogEntriesRemoved,
+                        new Dictionary<string, object?> { ["name"] = name }));
             }
             catch (OperationCanceledException)
             {
@@ -992,19 +1008,24 @@ public class CacheController : ControllerBase
                 _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
 
                 await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalComplete,
-                    new ServiceRemovalComplete(false, name, operationId, $"Service removal for {name} was cancelled."));
+                    new ServiceRemovalComplete(false, name, operationId,
+                        "signalr.serviceRemove.cancelled", Context: new Dictionary<string, object?> { ["name"] = name }));
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error during service removal for: {Service}", name);
 
                 await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalProgress,
-                    new ServiceRemovalProgress(name, operationId, "error", $"Error removing {name}: {ex.Message}", 0));
+                    new ServiceRemovalProgress(name, operationId, "error",
+                        "signalr.serviceRemove.error.default", 0,
+                        Context: new Dictionary<string, object?> { ["name"] = name, ["errorDetail"] = ex.Message }));
 
                 _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
 
                 await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalComplete,
-                    new ServiceRemovalComplete(false, name, operationId, $"Failed to remove {name} service. Check server logs for details."));
+                    new ServiceRemovalComplete(false, name, operationId,
+                        "signalr.serviceRemove.failed.generic",
+                        Context: new Dictionary<string, object?> { ["name"] = name }));
             }
         }, cancellationToken);
 
@@ -1218,7 +1239,8 @@ public class CacheController : ControllerBase
             cts);
 
         await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalStarted,
-            new EvictionRemovalStarted($"Removing evicted records for {evictionScope} '{key}'...", operationId));
+            new EvictionRemovalStarted("signalr.evictionRemove.starting.entity", operationId,
+                new Dictionary<string, object?> { ["scope"] = evictionScope.ToString(), ["key"] = key }));
 
         var capturedKey = key;
         _ = Task.Run(async () =>
@@ -1234,7 +1256,7 @@ public class CacheController : ControllerBase
                 _logger.LogError(ex, "[EvictedRemoval] Unhandled error before entity removal started ({Scope} '{Key}')", evictionScope, capturedKey);
                 _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
                 await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalComplete,
-                    new EvictionRemovalComplete(false, operationId, "Eviction removal failed to start.", 0, 0, ex.Message));
+                    new EvictionRemovalComplete(false, operationId, "signalr.evictionRemove.failedToStart", 0, 0, ex.Message));
             }
             finally
             {

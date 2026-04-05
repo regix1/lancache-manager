@@ -23,6 +23,7 @@ import type {
   EpicMappingProgressEvent,
   EpicGameMappingsUpdatedEvent
 } from '../SignalRContext/types';
+import i18n from '@/i18n';
 
 /**
  * Detail message formatter functions for notification events.
@@ -143,7 +144,12 @@ export const formatLogRemovalProgressMessage = (event: LogRemovalProgressEvent):
   if (linesRemoved > 0) {
     return `Removing ${event.service} entries (${linesRemoved.toLocaleString()} removed)...`;
   }
-  return event.message || `Removing ${event.service} entries...`;
+  return event.stageKey
+    ? i18n.t(event.stageKey, event.context ?? {})
+    : i18n.t('signalr.logRemoval.processingDatasource', {
+        service: event.service,
+        datasourceName: event.datasource ?? ''
+      });
 };
 
 /**
@@ -152,7 +158,9 @@ export const formatLogRemovalProgressMessage = (event: LogRemovalProgressEvent):
  * @returns Formatted success message string
  */
 export const formatLogRemovalCompleteMessage = (event: LogRemovalCompleteEvent): string => {
-  return event.message || `Successfully removed ${event.service} entries`;
+  return event.stageKey
+    ? i18n.t(event.stageKey, event.context ?? {})
+    : i18n.t('signalr.generic.complete');
 };
 
 // ============================================================================
@@ -165,7 +173,12 @@ export const formatLogRemovalCompleteMessage = (event: LogRemovalCompleteEvent):
  * @returns Formatted message string
  */
 export const formatGameRemovalProgressMessage = (event: GameRemovalProgressEvent): string => {
-  return event.message || `Removing ${event.gameName}...`;
+  return event.stageKey
+    ? i18n.t(event.stageKey, event.context ?? {})
+    : i18n.t('signalr.gameRemove.starting', {
+        gameName: event.gameName,
+        gameAppId: event.gameAppId
+      });
 };
 
 // ============================================================================
@@ -178,7 +191,9 @@ export const formatGameRemovalProgressMessage = (event: GameRemovalProgressEvent
  * @returns Formatted message string
  */
 export const formatServiceRemovalProgressMessage = (event: ServiceRemovalProgressEvent): string => {
-  return event.message || `Removing ${event.serviceName} cache...`;
+  return event.stageKey
+    ? i18n.t(event.stageKey, event.context ?? {})
+    : i18n.t('signalr.serviceRemove.starting.default', { service: event.serviceName });
 };
 
 // ============================================================================
@@ -193,7 +208,9 @@ export const formatServiceRemovalProgressMessage = (event: ServiceRemovalProgres
 export const formatCorruptionRemovalStartedMessage = (
   event: CorruptionRemovalStartedEvent
 ): string => {
-  return event.message || `Removing corrupted chunks for ${event.service}...`;
+  return event.stageKey
+    ? i18n.t(event.stageKey, event.context ?? {})
+    : i18n.t('signalr.corruptionRemove.starting', { service: event.service });
 };
 
 /**
@@ -204,9 +221,9 @@ export const formatCorruptionRemovalStartedMessage = (
 export const formatCorruptionRemovalCompleteMessage = (
   event: CorruptionRemovalCompleteEvent
 ): string => {
-  return (
-    event.message || `Corruption removal completed${event.service ? ` for ${event.service}` : ''}`
-  );
+  return event.stageKey
+    ? i18n.t(event.stageKey, event.context ?? {})
+    : i18n.t('signalr.corruptionRemove.success', { service: event.service });
 };
 
 // ============================================================================
@@ -219,7 +236,9 @@ export const formatCorruptionRemovalCompleteMessage = (
  * @returns Formatted message string
  */
 export const formatGameDetectionStartedMessage = (event: GameDetectionStartedEvent): string => {
-  return event.message || 'Detecting games and services...';
+  return event.stageKey
+    ? i18n.t(event.stageKey, event.context ?? {})
+    : i18n.t('signalr.gameDetect.starting.default');
 };
 
 /**
@@ -228,7 +247,9 @@ export const formatGameDetectionStartedMessage = (event: GameDetectionStartedEve
  * @returns Formatted progress message string
  */
 export const formatGameDetectionProgressMessage = (event: GameDetectionProgressEvent): string => {
-  return event.message || 'Scanning for games and services...';
+  return event.stageKey
+    ? i18n.t(event.stageKey, event.context ?? {})
+    : i18n.t('signalr.gameDetect.scan.inProgress');
 };
 
 /**
@@ -237,7 +258,11 @@ export const formatGameDetectionProgressMessage = (event: GameDetectionProgressE
  * @returns Formatted success message string
  */
 export const formatGameDetectionCompleteMessage = (event: GameDetectionCompleteEvent): string => {
-  return event.message || 'Game detection completed';
+  return event.stageKey
+    ? i18n.t(event.stageKey, event.context ?? {})
+    : i18n.t('signalr.gameDetect.complete.default', {
+        totalGamesDetected: event.totalGamesDetected ?? 0
+      });
 };
 
 /**
@@ -246,7 +271,9 @@ export const formatGameDetectionCompleteMessage = (event: GameDetectionCompleteE
  * @returns Formatted failure message string
  */
 export const formatGameDetectionFailureMessage = (event: GameDetectionCompleteEvent): string => {
-  return event.message || 'Game detection failed';
+  return event.stageKey
+    ? i18n.t(event.stageKey, event.context ?? {})
+    : i18n.t('signalr.generic.failed');
 };
 
 // ============================================================================
@@ -261,7 +288,9 @@ export const formatGameDetectionFailureMessage = (event: GameDetectionCompleteEv
 export const formatCorruptionDetectionStartedMessage = (
   event: CorruptionDetectionStartedEvent
 ): string => {
-  return event.message || 'Scanning for corrupted cache chunks...';
+  return event.stageKey
+    ? i18n.t(event.stageKey, event.context ?? {})
+    : i18n.t('signalr.corruptionDetect.starting');
 };
 
 /**
@@ -272,13 +301,13 @@ export const formatCorruptionDetectionStartedMessage = (
 export const formatCorruptionDetectionProgressMessage = (
   event: CorruptionDetectionProgressEvent
 ): string => {
-  if (event.message) {
-    return event.message;
+  if (event.stageKey) {
+    return i18n.t(event.stageKey, event.context ?? {});
   }
   if (event.totalFiles && event.filesProcessed !== undefined) {
     return `Scanning file ${event.filesProcessed + 1}/${event.totalFiles}...`;
   }
-  return 'Scanning for corrupted cache chunks...';
+  return i18n.t('signalr.corruptionDetect.scanningLogs');
 };
 
 /**
@@ -289,7 +318,11 @@ export const formatCorruptionDetectionProgressMessage = (
 export const formatCorruptionDetectionCompleteMessage = (
   event: CorruptionDetectionCompleteEvent
 ): string => {
-  return event.message || 'Corruption detection completed';
+  return event.stageKey
+    ? i18n.t(event.stageKey, event.context ?? {})
+    : i18n.t('signalr.corruptionDetect.complete', {
+        count: event.totalServicesWithCorruption ?? 0
+      });
 };
 
 /**
@@ -300,7 +333,9 @@ export const formatCorruptionDetectionCompleteMessage = (
 export const formatCorruptionDetectionFailureMessage = (
   event: CorruptionDetectionCompleteEvent
 ): string => {
-  return event.message || 'Corruption detection failed';
+  return event.stageKey
+    ? i18n.t(event.stageKey, event.context ?? {})
+    : i18n.t('signalr.corruptionDetect.failed', { errorDetail: event.error ?? '' });
 };
 
 // ============================================================================
@@ -313,7 +348,9 @@ export const formatCorruptionDetectionFailureMessage = (
  * @returns Formatted message string
  */
 export const formatDatabaseResetProgressMessage = (event: DatabaseResetProgressEvent): string => {
-  return event.message || 'Resetting database...';
+  return event.stageKey
+    ? i18n.t(event.stageKey, event.context ?? {})
+    : i18n.t('signalr.dbReset.starting');
 };
 
 /**
@@ -322,7 +359,9 @@ export const formatDatabaseResetProgressMessage = (event: DatabaseResetProgressE
  * @returns Formatted completion message string
  */
 export const formatDatabaseResetCompleteMessage = (event: DatabaseResetProgressEvent): string => {
-  return event.message || 'Database reset completed';
+  return event.stageKey
+    ? i18n.t(event.stageKey, event.context ?? {})
+    : i18n.t('signalr.dbReset.complete');
 };
 
 // ============================================================================
@@ -335,7 +374,9 @@ export const formatDatabaseResetCompleteMessage = (event: DatabaseResetProgressE
  * @returns Formatted message string
  */
 export const formatCacheClearProgressMessage = (event: CacheClearProgressEvent): string => {
-  const base = event.message || event.statusMessage || 'Clearing cache...';
+  const base = event.stageKey
+    ? i18n.t(event.stageKey, event.context ?? {})
+    : (event.statusMessage ?? i18n.t('signalr.cacheClear.starting'));
 
   if (event.directoriesProcessed !== undefined && event.totalDirectories) {
     return `${base} (${event.directoriesProcessed}/${event.totalDirectories} directories)`;
@@ -350,7 +391,9 @@ export const formatCacheClearProgressMessage = (event: CacheClearProgressEvent):
  * @returns Formatted success message string
  */
 export const formatCacheClearCompleteMessage = (event: CacheClearCompleteEvent): string => {
-  return event.message || 'Cache clearing completed';
+  return event.stageKey
+    ? i18n.t(event.stageKey, event.context ?? {})
+    : i18n.t('signalr.generic.complete');
 };
 
 /**
@@ -359,7 +402,11 @@ export const formatCacheClearCompleteMessage = (event: CacheClearCompleteEvent):
  * @returns Formatted failure message string
  */
 export const formatCacheClearFailureMessage = (event: CacheClearCompleteEvent): string => {
-  return event.error || event.message || 'Cache clearing failed';
+  return (
+    event.error ??
+    (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??
+    i18n.t('signalr.generic.failed')
+  );
 };
 
 // ============================================================================
@@ -372,7 +419,9 @@ export const formatCacheClearFailureMessage = (event: CacheClearCompleteEvent): 
  * @returns Formatted message string
  */
 export const formatDepotMappingStartedMessage = (event: DepotMappingStartedEvent): string => {
-  return event.message || 'Starting depot mapping scan...';
+  return event.stageKey
+    ? i18n.t(event.stageKey, event.context ?? {})
+    : i18n.t('signalr.depotMapping.github.downloading');
 };
 
 /**
@@ -386,7 +435,10 @@ export const formatDepotMappingProgressMessage = (
   event: DepotMappingProgressEvent,
   existingMessage?: string
 ): string => {
-  return event.message || existingMessage || 'Scanning depot mappings...';
+  return event.stageKey
+    ? i18n.t(event.stageKey, event.context ?? {})
+    : (existingMessage ??
+        i18n.t('signalr.depotMapping.applyingToDownloads', { processed: 0, totalDownloads: 0 }));
 };
 
 // ============================================================================
@@ -399,7 +451,9 @@ export const formatDepotMappingProgressMessage = (
  * @returns Formatted message string
  */
 export const formatDataImportStartedMessage = (event: DataImportStartedEvent): string => {
-  return event.message || 'Starting data import...';
+  return event.stageKey
+    ? i18n.t(event.stageKey, event.context ?? {})
+    : i18n.t('signalr.generic.unknown');
 };
 
 /**
@@ -420,7 +474,9 @@ export const formatDataImportProgressMessage = (event: DataImportProgressEvent):
  * @returns Formatted success message string
  */
 export const formatDataImportCompleteMessage = (event: DataImportCompleteEvent): string => {
-  return event.message || 'Data import completed';
+  return event.stageKey
+    ? i18n.t(event.stageKey, event.context ?? {})
+    : i18n.t('signalr.generic.complete');
 };
 
 /**
@@ -429,7 +485,9 @@ export const formatDataImportCompleteMessage = (event: DataImportCompleteEvent):
  * @returns Formatted failure message string
  */
 export const formatDataImportFailureMessage = (event: DataImportCompleteEvent): string => {
-  return event.message || 'Data import failed';
+  return event.stageKey
+    ? i18n.t(event.stageKey, event.context ?? {})
+    : i18n.t('signalr.generic.failed');
 };
 
 // ============================================================================
@@ -442,7 +500,9 @@ export const formatDataImportFailureMessage = (event: DataImportCompleteEvent): 
  * @returns Formatted progress message string
  */
 export const formatEpicMappingProgressMessage = (event: EpicMappingProgressEvent): string => {
-  return event.message || 'Mapping Epic games...';
+  return event.stageKey
+    ? i18n.t(event.stageKey, event.context ?? {})
+    : i18n.t('signalr.epicMapping.starting');
 };
 
 /**
@@ -451,7 +511,9 @@ export const formatEpicMappingProgressMessage = (event: EpicMappingProgressEvent
  * @returns Formatted completion message string
  */
 export const formatEpicMappingCompleteMessage = (event: EpicMappingProgressEvent): string => {
-  return event.message || 'Epic catalog refresh completed';
+  return event.stageKey
+    ? i18n.t(event.stageKey, event.context ?? {})
+    : i18n.t('signalr.epicMapping.gamesDiscovered', { gamesDiscovered: event.gamesDiscovered });
 };
 
 /**

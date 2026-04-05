@@ -72,10 +72,10 @@ public partial class EpicMappingService
         _notifications.NotifyAllFireAndForget(SignalREvents.EpicMappingProgress, new
         {
             operationId = _currentOperationId,
-            status = "Starting Epic catalog refresh...",
+            status = "starting",
             percentComplete = 0.0,
             gamesDiscovered = _gamesDiscovered,
-            message = "Starting Epic catalog refresh..."
+            stageKey = "signalr.epicMapping.starting"
         });
 
         _ = Task.Run(async () =>
@@ -110,7 +110,7 @@ public partial class EpicMappingService
                     status = "completed",
                     percentComplete = 100.0,
                     gamesDiscovered = _gamesDiscovered,
-                    message = "Epic catalog refresh cancelled",
+                    stageKey = "signalr.epicMapping.cancelled",
                     cancelled = true
                 });
 
@@ -128,7 +128,8 @@ public partial class EpicMappingService
                     status = "failed",
                     percentComplete = 0.0,
                     gamesDiscovered = _gamesDiscovered,
-                    message = $"Epic catalog refresh failed: {ex.Message}"
+                    stageKey = "signalr.epicMapping.failed",
+                    context = new Dictionary<string, object?> { ["errorDetail"] = ex.Message }
                 });
 
                 _currentProgressPercent = 0;
@@ -238,7 +239,8 @@ public partial class EpicMappingService
             status = "Fetching owned games...",
             percentComplete = 15.0,
             gamesDiscovered = _gamesDiscovered,
-            message = "Fetching owned games from Epic catalog..."
+            stageKey = "signalr.epicMapping.fetchingGames",
+            context = new Dictionary<string, object?>()
         });
 
         var games = await _epicApiClient.GetOwnedGamesAsync(_currentTokens.AccessToken, ct);
@@ -267,7 +269,8 @@ public partial class EpicMappingService
             status = "Refreshing CDN patterns...",
             percentComplete = 40.0,
             gamesDiscovered = _gamesDiscovered,
-            message = $"Discovered {_gamesDiscovered} games, refreshing CDN patterns..."
+            stageKey = "signalr.epicMapping.refreshingCdn",
+            context = new Dictionary<string, object?> { ["gamesDiscovered"] = _gamesDiscovered }
         });
 
         try
@@ -294,7 +297,8 @@ public partial class EpicMappingService
             status = "Discovering free games...",
             percentComplete = 60.0,
             gamesDiscovered = _gamesDiscovered,
-            message = "Checking for free game promotions..."
+            stageKey = "signalr.epicMapping.checkingFreeGames",
+            context = new Dictionary<string, object?>()
         });
 
         try
@@ -326,7 +330,8 @@ public partial class EpicMappingService
             status = "Applying mappings to downloads...",
             percentComplete = 85.0,
             gamesDiscovered = _gamesDiscovered,
-            message = "Resolving Epic downloads to game names..."
+            stageKey = "signalr.epicMapping.applyingMappings",
+            context = new Dictionary<string, object?>()
         });
 
         try

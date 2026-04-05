@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use sqlx::Row;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -30,11 +31,12 @@ struct DatasourceConfig {
     is_default: bool,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ProgressData {
     status: String,
-    message: String,
+    stage_key: String,
+    context: serde_json::Value,
     percent_complete: f64,
     processed: usize,
     total_estimate: usize,
@@ -131,7 +133,7 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>) ->
     let default_cache_path = default_cache_path
         .unwrap_or_else(|| PathBuf::from(&datasources[0].cache_path));
 
-    write_progress(progress_path, "running", "Scanning cache files...", 0.0, 0, 0, 0, 0)?;
+    write_progress(progress_path, "running", "signalr.evictionScan.scanning", json!({}), 0.0, 0, 0, 0, 0)?;
 
     // Step 2: Build HashSet of all files on disk across all cache directories
     let mut files_on_disk: HashSet<PathBuf> = HashSet::new();
@@ -352,7 +354,8 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>) ->
         write_progress(
             progress_path,
             "running",
-            &format!("Processed {} of ~{} downloads...", total_processed, total_estimate),
+            "signalr.evictionScan.progress",
+            json!({ "totalProcessed": total_processed, "totalEstimate": total_estimate }),
             percent,
             total_processed,
             total_estimate,
@@ -374,7 +377,8 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>) ->
     write_progress(
         progress_path,
         "completed",
-        &format!("Scan complete: {} processed, {} evicted, {} un-evicted", total_processed, total_evicted, total_un_evicted),
+        "signalr.evictionScan.complete",
+        json!({ "totalProcessed": total_processed, "totalEvicted": total_evicted, "totalUnEvicted": total_un_evicted }),
         100.0,
         total_processed,
         total_estimate,
@@ -395,7 +399,8 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>) ->
 fn write_progress(
     progress_path: Option<&Path>,
     status: &str,
-    message: &str,
+    stage_key: &str,
+    context: serde_json::Value,
     percent_complete: f64,
     processed: usize,
     total_estimate: usize,
@@ -408,7 +413,8 @@ fn write_progress(
 
     let progress = ProgressData {
         status: status.to_string(),
-        message: message.to_string(),
+        stage_key: stage_key.to_string(),
+        context,
         percent_complete,
         processed,
         total_estimate,

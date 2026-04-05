@@ -161,7 +161,7 @@ public class CacheClearingService : ScheduledBackgroundService
             await _notifications.NotifyAllAsync(SignalREvents.CacheClearingStarted, new
             {
                 OperationId = operationId,
-                Message = "Initializing cache clear..."
+                StageKey = "signalr.cacheClear.initializing"
             });
 
             _operationTracker.UpdateProgress(operationId, 0, "Checking permissions...");
@@ -435,18 +435,19 @@ public class CacheClearingService : ScheduledBackgroundService
                                 var currentBytesDeleted = totalBytesDeleted + (long)progressData.BytesDeleted;
                                 var currentFilesDeleted = totalFilesDeleted + (long)progressData.FilesDeleted;
                                 var percentComplete = (double)currentDirsProcessed / totalDirectoriesAllDatasources * 100;
-                                var statusMessage = $"[{GetDeleteModeDisplayName()}] {progressData.Message}";
 
-                                // Update metrics
+                                // Update metrics — forward StageKey/Context from Rust progress
                                 _operationTracker.UpdateMetadata(operationId, (object meta) =>
                                 {
                                     var metricsToUpdate = (CacheClearingMetrics)meta;
                                     metricsToUpdate.DirectoriesProcessed = currentDirsProcessed;
                                     metricsToUpdate.BytesDeleted = currentBytesDeleted;
                                     metricsToUpdate.FilesDeleted = currentFilesDeleted;
+                                    metricsToUpdate.CurrentStageKey = progressData.StageKey;
+                                    metricsToUpdate.CurrentContext = progressData.Context;
                                 });
 
-                                _operationTracker.UpdateProgress(operationId, percentComplete, statusMessage);
+                                _operationTracker.UpdateProgress(operationId, percentComplete, progressData.StageKey ?? string.Empty);
 
                                 await NotifyProgressAsync(operationId);
 
@@ -622,7 +623,13 @@ public class CacheClearingService : ScheduledBackgroundService
         public bool IsProcessing { get; set; }
         public double PercentComplete { get; set; }
         public string Status { get; set; } = "";
-        public string Message { get; set; } = "";
+
+        [System.Text.Json.Serialization.JsonPropertyName("stageKey")]
+        public string? StageKey { get; set; }
+
+        [System.Text.Json.Serialization.JsonPropertyName("context")]
+        public Dictionary<string, object?>? Context { get; set; }
+
         public int DirectoriesProcessed { get; set; }
         public int TotalDirectories { get; set; }
         public ulong BytesDeleted { get; set; }
@@ -689,7 +696,8 @@ public class CacheClearingService : ScheduledBackgroundService
                 OperationId = operation.Id,
                 PercentComplete = operation.PercentComplete,
                 Status = operation.Status,
-                Message = operation.Message,
+                StageKey = metrics?.CurrentStageKey,
+                Context = metrics?.CurrentContext,
                 DirectoriesProcessed = metrics?.DirectoriesProcessed ?? 0,
                 TotalDirectories = metrics?.TotalDirectories ?? 0,
                 BytesDeleted = metrics?.BytesDeleted ?? 0L,

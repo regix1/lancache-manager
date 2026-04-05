@@ -33,6 +33,7 @@ import {
   createStatusAwareProgressHandler,
   createDepotMappingCompletionHandler
 } from './handlerFactories';
+import i18n from '@/i18n';
 import {
   formatDatabaseResetProgressMessage,
   formatDatabaseResetCompleteMessage,
@@ -94,8 +95,9 @@ export function createSpecialCaseHandlers(
         if (e.status === 'failed') return 'failed';
         return undefined;
       },
-      getCompletedMessage: (e) => e.message || 'Depot mapping completed',
-      getErrorMessage: (e) => e.message || 'Depot mapping failed',
+      getCompletedMessage: (e) =>
+        i18n.t(e.stageKey ?? 'signalr.depotMapping.finalized', e.context ?? {}),
+      getErrorMessage: (e) => i18n.t(e.stageKey ?? 'signalr.generic.failed', e.context ?? {}),
       getDetails: (e) => ({ operationId: e.operationId })
     },
     setNotifications,
@@ -115,7 +117,7 @@ export function createSpecialCaseHandlers(
       getId: () => NOTIFICATION_IDS.DATABASE_RESET,
       storageKey: NOTIFICATION_STORAGE_KEYS.DATABASE_RESET,
       defaultMessage: 'Starting database reset...',
-      getMessage: (e) => e.message || 'Starting database reset...',
+      getMessage: (e) => i18n.t(e.stageKey ?? 'signalr.dbReset.starting', e.context ?? {}),
       getDetails: (e) => ({ operationId: e.operationId })
     },
     setNotifications,
@@ -136,7 +138,8 @@ export function createSpecialCaseHandlers(
             ? 'failed'
             : undefined,
       getCompletedMessage: formatDatabaseResetCompleteMessage,
-      getErrorMessage: (e) => e.message,
+      getErrorMessage: (e) =>
+        e.stageKey ? i18n.t(e.stageKey, e.context ?? {}) : i18n.t('signalr.generic.failed'),
       supportFastCompletion: true,
       getDetails: (e) => ({ operationId: e.operationId })
     },
@@ -156,8 +159,8 @@ export function createSpecialCaseHandlers(
       getStatus: (e) =>
         e.status === 'completed' ? 'completed' : e.status === 'failed' ? 'failed' : undefined,
       getCompletedMessage: (e) =>
-        e.cancelled ? 'Epic catalog refresh cancelled' : formatEpicMappingCompleteMessage(e),
-      getErrorMessage: (e) => e.message || 'Epic games mapping failed',
+        e.cancelled ? i18n.t('signalr.epicMapping.cancelled') : formatEpicMappingCompleteMessage(e),
+      getErrorMessage: (e) => i18n.t(e.stageKey ?? 'signalr.epicMapping.failed', e.context ?? {}),
       supportFastCompletion: true,
       getDetails: (e) => ({ operationId: e.operationId, cancelled: e.cancelled })
     },
@@ -236,7 +239,9 @@ export function createSpecialCaseHandlers(
         type: 'generic',
         status: 'failed',
         message: getSteamErrorTitle(event.errorType),
-        detailMessage: event.message || 'An error occurred with the Steam session',
+        detailMessage: event.stageKey
+          ? i18n.t(event.stageKey, event.context ?? {})
+          : i18n.t('signalr.steamSession.disconnected', { result: event.result ?? 'Unknown' }),
         details: {
           notificationType: 'error'
         },

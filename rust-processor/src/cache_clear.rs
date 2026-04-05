@@ -3,6 +3,7 @@ use clap::Parser;
 use rayon::prelude::*;
 use rayon::ThreadPoolBuilder;
 use serde::Serialize;
+use serde_json::json;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
@@ -47,14 +48,16 @@ struct Args {
     progress: bool,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct ProgressData {
     #[serde(rename = "isProcessing")]
     is_processing: bool,
     #[serde(rename = "percentComplete")]
     percent_complete: f64,
     status: String,
-    message: String,
+    stage_key: String,
+    context: serde_json::Value,
     #[serde(rename = "directoriesProcessed")]
     directories_processed: usize,
     #[serde(rename = "totalDirectories")]
@@ -75,7 +78,8 @@ impl ProgressData {
         is_processing: bool,
         percent_complete: f64,
         status: String,
-        message: String,
+        stage_key: String,
+        context: serde_json::Value,
         directories_processed: usize,
         total_directories: usize,
         bytes_deleted: u64,
@@ -87,7 +91,8 @@ impl ProgressData {
             is_processing,
             percent_complete,
             status,
-            message,
+            stage_key,
+            context,
             directories_processed,
             total_directories,
             bytes_deleted,
@@ -382,12 +387,12 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
     eprintln!("Deletion mode: {}", delete_mode);
 
     // Emit started event
-    reporter.emit_started();
+    reporter.emit_started("signalr.cacheClear.starting", json!({}));
 
     let cache_dir = Path::new(cache_path);
     if !cache_dir.exists() {
         let msg = format!("Cache directory does not exist: {}", cache_path);
-        reporter.emit_failed(&msg);
+        reporter.emit_failed("signalr.cacheClear.error.dirNotFound", json!({ "cachePath": cache_path }));
         anyhow::bail!("{}", msg);
     }
 
@@ -419,7 +424,8 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
         true,
         0.0,
         "running".to_string(),
-        "Starting cache deletion...".to_string(),
+        "signalr.cacheClear.starting".to_string(),
+        json!({}),
         0,
         total_dirs,
         0,
@@ -484,17 +490,19 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
                              active_snapshot.join(", "));
                 }
 
-                let message = format!("Clearing cache ({}/{}) - {} active", processed, total_dirs, active_count);
-
                 // Emit JSON progress event if enabled
                 if progress_enabled {
-                    // Use same JSON format as progress_events::ProgressReporter::emit_progress
                     let event = serde_json::json!({
                         "event": "progress",
                         "operationId": operation_id,
                         "percentComplete": percent.clamp(0.0, 100.0),
                         "status": "running",
-                        "message": message
+                        "stageKey": "signalr.cacheClear.progress",
+                        "context": {
+                            "processed": processed,
+                            "totalDirs": total_dirs,
+                            "activeCount": active_count
+                        }
                     });
                     if let Ok(json) = serde_json::to_string(&event) {
                         println!("{}", json);
@@ -505,7 +513,8 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
                     true,
                     percent,
                     "running".to_string(),
-                    message,
+                    "signalr.cacheClear.progress".to_string(),
+                    json!({ "processed": processed, "totalDirs": total_dirs, "activeCount": active_count }),
                     processed,
                     total_dirs,
                     bytes,
@@ -592,13 +601,8 @@ fn clear_cache(cache_path: &str, progress_path: &Path, thread_count: usize, dele
         false,
         100.0,
         "completed".to_string(),
-        format!(
-            "Cache cleared successfully! Deleted {} files ({:.2} GB) from {} directories in {:.2}s",
-            final_files,
-            final_bytes as f64 / 1_073_741_824.0,
-            final_dirs,
-            elapsed.as_secs_f64()
-        ),
+        "signalr.cacheClear.progress".to_string(),
+        json!({ "processed": final_dirs, "totalDirs": total_dirs, "activeCount": 0usize }),
         final_dirs,
         total_dirs,
         final_bytes,
@@ -702,20 +706,19 @@ fn main() {
 
     match clear_cache(cache_path, progress_path, thread_count, delete_mode, &reporter) {
         Ok(_) => {
-            // Emit final completion event
-            let msg = "Cache clear completed successfully";
-            reporter.emit_complete(msg);
+            reporter.emit_complete("signalr.cacheClear.progress", json!({ "processed": 0usize, "totalDirs": 0usize, "activeCount": 0usize }));
             std::process::exit(0);
         }
         Err(e) => {
             eprintln!("Error: {:?}", e);
-            let error_msg = format!("Cache clear failed: {}", e);
-            reporter.emit_failed(&error_msg);
+            let error_detail = format!("{}", e);
+            reporter.emit_failed("signalr.cacheClear.error.fatal", json!({ "errorDetail": error_detail }));
             let error_progress = ProgressData::new(
                 false,
                 0.0,
                 "failed".to_string(),
-                error_msg,
+                "signalr.cacheClear.error.fatal".to_string(),
+                json!({ "errorDetail": error_detail }),
                 0,
                 0,
                 0,

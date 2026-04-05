@@ -471,7 +471,8 @@ public partial class SteamKit2Service
                                 totalMappings = totalDownloads,
                                 mappingsApplied = updated,
                                 isLoggedOn = IsSteamAuthenticated,
-                                message = $"Applying depot mappings to downloads... {processed}/{totalDownloads}"
+                                stageKey = "signalr.depotMapping.applyingToDownloads",
+                                context = new Dictionary<string, object?> { ["processed"] = processed, ["totalDownloads"] = totalDownloads }
                             });
                         }
                         catch (Exception ex)
@@ -507,7 +508,8 @@ public partial class SteamKit2Service
                         totalMappings = totalDownloads,
                         mappingsApplied = updated,
                         isLoggedOn = IsSteamAuthenticated,
-                        message = $"Depot mapping complete - {updated} downloads updated"
+                        stageKey = "signalr.depotMapping.finalized",
+                        context = new Dictionary<string, object?> { ["updated"] = updated }
                     });
                 }
                 catch (Exception ex)

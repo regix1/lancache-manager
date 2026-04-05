@@ -83,7 +83,7 @@ public class RustLogRemovalService
             linesRemoved = progress?.LinesRemoved ?? 0,
             percentComplete = progress?.PercentComplete ?? 0,
             status = progress?.Status ?? (IsProcessing ? "starting" : "idle"),
-            message = progress?.Message ?? ""
+            stageKey = progress?.StageKey ?? ""
         };
     }
 
@@ -128,8 +128,11 @@ public class RustLogRemovalService
         [System.Text.Json.Serialization.JsonPropertyName("status")]
         public string Status { get; set; } = string.Empty;
 
-        [System.Text.Json.Serialization.JsonPropertyName("message")]
-        public string Message { get; set; } = string.Empty;
+        [System.Text.Json.Serialization.JsonPropertyName("stage_key")]
+        public string StageKey { get; set; } = string.Empty;
+
+        [System.Text.Json.Serialization.JsonPropertyName("context")]
+        public Dictionary<string, object?> Context { get; set; } = new();
     }
 
     public async Task<bool> StartRemovalAsync(string service)
@@ -203,7 +206,8 @@ public class RustLogRemovalService
             await _notifications.NotifyAllAsync(SignalREvents.LogRemovalStarted, new
             {
                 OperationId = _currentTrackerOperationId,
-                Message = $"Starting removal of {service} entries from logs..."
+                StageKey = "signalr.logRemoval.starting.default",
+                Context = new Dictionary<string, object?> { ["service"] = service }
             });
 
             // Send initial progress notification
@@ -212,7 +216,8 @@ public class RustLogRemovalService
                 OperationId = _currentTrackerOperationId,
                 PercentComplete = 0.0,
                 Status = OperationStatus.Running,
-                Message = $"Starting removal of {service} entries from {datasources.Count} datasource(s)...",
+                StageKey = "signalr.logRemoval.starting.multi",
+                Context = new Dictionary<string, object?> { ["service"] = service, ["datasourceCount"] = datasources.Count },
                 FilesProcessed = 0,
                 LinesProcessed = 0,
                 LinesRemoved = 0,
@@ -293,7 +298,8 @@ public class RustLogRemovalService
                         OperationId = _currentTrackerOperationId,
                         PercentComplete = (double)datasourcesProcessed / datasources.Count * 100.0,
                         Status = OperationStatus.Running,
-                        Message = $"Removing {service} entries from datasource '{datasource.Name}'...",
+                        StageKey = "signalr.logRemoval.processingDatasource",
+                        Context = new Dictionary<string, object?> { ["service"] = service, ["datasourceName"] = datasource.Name },
                         FilesProcessed = totalFilesProcessed,
                         LinesProcessed = totalLinesProcessed,
                         LinesRemoved = totalLinesRemoved,
@@ -576,7 +582,8 @@ public class RustLogRemovalService
                 await _notifications.NotifyAllAsync(SignalREvents.LogRemovalStarted, new
                 {
                     OperationId = _currentTrackerOperationId,
-                    Message = $"Starting removal of {service} entries from {datasourceName}..."
+                    StageKey = "signalr.logRemoval.starting.single",
+                    Context = new Dictionary<string, object?> { ["service"] = service, ["datasourceName"] = datasourceName }
                 });
 
                 await _notifications.NotifyAllAsync(SignalREvents.LogRemovalProgress, new
@@ -584,7 +591,8 @@ public class RustLogRemovalService
                     OperationId = _currentTrackerOperationId,
                     PercentComplete = 0.0,
                     Status = OperationStatus.Running,
-                    Message = $"Starting removal of {service} entries from {datasourceName}...",
+                    StageKey = "signalr.logRemoval.starting.single",
+                    Context = new Dictionary<string, object?> { ["service"] = service, ["datasourceName"] = datasourceName },
                     FilesProcessed = 0,
                     LinesProcessed = 0,
                     LinesRemoved = 0,
@@ -615,7 +623,7 @@ public class RustLogRemovalService
                     var finalProgress = await ReadProgressFileAsync(progressPath);
                     await _notifications.SendOperationCompleteAsync(
                         SignalREvents.LogRemovalComplete, _currentTrackerOperationId,
-                        success: true, message: finalProgress?.Message ?? $"Successfully removed {service} entries from {datasourceName}", cancelled: false,
+                        success: true, message: finalProgress?.StageKey ?? $"Successfully removed {service} entries from {datasourceName}", cancelled: false,
                         new { FilesProcessed = finalProgress?.FilesProcessed ?? 0, LinesProcessed = finalProgress?.LinesProcessed ?? 0, LinesRemoved = finalProgress?.LinesRemoved ?? 0, Service = service, Datasource = datasourceName });
 
                     _logger.LogInformation("Log removal completed for {Service} in datasource {Datasource}: Removed {LinesRemoved} lines",
@@ -706,7 +714,8 @@ public class RustLogRemovalService
                 OperationId = _currentTrackerOperationId,
                 progress.PercentComplete,
                 Status = OperationStatus.Running,
-                progress.Message,
+                StageKey = progress.StageKey,
+                Context = progress.Context,
                 progress.FilesProcessed,
                 progress.LinesProcessed,
                 progress.LinesRemoved,
@@ -842,7 +851,8 @@ public class RustLogRemovalService
                 OperationId = _currentTrackerOperationId,
                 PercentComplete = 95.0,
                 Status = OperationStatus.Running,
-                Message = $"Cleaning up database records for {service}...",
+                StageKey = "signalr.logRemoval.cleaningDatabase",
+                Context = new Dictionary<string, object?> { ["service"] = service },
                 FilesProcessed = 0,
                 LinesProcessed = 0,
                 LinesRemoved = 0,

@@ -3,6 +3,7 @@ use clap::Parser;
 use sqlx::PgPool;
 use sqlx::Row;
 use serde::Serialize;
+use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{BufWriter, Write as IoWrite};
@@ -53,10 +54,12 @@ struct Args {
     progress: bool,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct ProgressData {
     status: String,
-    message: String,
+    stage_key: String,
+    context: serde_json::Value,
     #[serde(rename = "percentComplete")]
     percent_complete: f64,
     #[serde(rename = "filesProcessed")]
@@ -69,14 +72,16 @@ struct ProgressData {
 fn write_progress(
     progress_path: &Path,
     status: &str,
-    message: &str,
+    stage_key: &str,
+    context: serde_json::Value,
     percent_complete: f64,
     files_processed: usize,
     total_files: usize,
 ) -> Result<()> {
     let progress = ProgressData {
         status: status.to_string(),
-        message: message.to_string(),
+        stage_key: stage_key.to_string(),
+        context,
         percent_complete,
         files_processed,
         total_files,
@@ -294,16 +299,9 @@ fn remove_cache_files_for_epic_game(
                 if last_reported_percent.compare_exchange(prev_pct, current_pct, Ordering::SeqCst, Ordering::Relaxed).is_ok() {
                     let overall_percent = 10.0 + (checked as f64 / total_paths as f64) * 60.0;
                     let del_count = deleted_files.load(Ordering::Relaxed);
-                    let bytes = bytes_freed.load(Ordering::Relaxed);
-                    let msg = format!(
-                        "Removing cache files: {} deleted ({:.2} MB freed), checked {}/{}",
-                        del_count,
-                        bytes as f64 / 1_048_576.0,
-                        checked,
-                        total_paths
-                    );
-                    let _ = write_progress(progress_path, "removing_cache", &msg, overall_percent, del_count, total_paths);
-                    reporter.emit_progress(overall_percent, &msg);
+                    let _ = bytes_freed.load(Ordering::Relaxed);
+                    let _ = write_progress(progress_path, "removing_cache", "signalr.epicRemove.cache.file.progress", json!({ "n": del_count, "total": total_paths }), overall_percent, del_count, total_paths);
+                    reporter.emit_progress(overall_percent, "signalr.epicRemove.cache.file.progress", json!({ "n": del_count, "total": total_paths }));
                 }
             }
         }
@@ -498,29 +496,28 @@ async fn main() -> Result<()> {
     eprintln!("  Cache directory: {}", cache_dir.display());
     eprintln!("  Game name: {}", game_name);
 
-    reporter.emit_started();
+    reporter.emit_started("signalr.epicRemove.starting", json!({ "gameName": game_name }));
 
     if !log_dir.exists() {
         let msg = format!("Log directory not found: {}", log_dir.display());
-        reporter.emit_failed(&msg);
+        reporter.emit_failed("signalr.epicRemove.error.fatal", json!({ "errorDetail": msg }));
         anyhow::bail!("{}", msg);
     }
 
     if !cache_dir.exists() {
         let msg = format!("Cache directory not found: {}", cache_dir.display());
-        reporter.emit_failed(&msg);
+        reporter.emit_failed("signalr.epicRemove.error.fatal", json!({ "errorDetail": msg }));
         anyhow::bail!("{}", msg);
     }
 
     let pool = db::create_pool().await;
 
-    let start_msg = format!("Starting removal for Epic game '{}'", game_name);
-    write_progress(&progress_path, "starting", &start_msg, 0.0, 0, 0)?;
-    reporter.emit_progress(0.0, &start_msg);
+    write_progress(&progress_path, "starting", "signalr.epicRemove.starting", json!({ "gameName": game_name }), 0.0, 0, 0)?;
+    reporter.emit_progress(0.0, "signalr.epicRemove.starting", json!({ "gameName": game_name }));
 
     // Query database for URLs
-    write_progress(&progress_path, "querying_database", "Querying database for game URLs", 5.0, 0, 0)?;
-    reporter.emit_progress(5.0, "Querying database for game URLs");
+    write_progress(&progress_path, "querying_database", "signalr.epicRemove.db.querying", json!({}), 5.0, 0, 0)?;
+    reporter.emit_progress(5.0, "signalr.epicRemove.db.querying", json!({}));
     let url_data = get_epic_game_urls_from_db(&pool, game_name).await?;
 
     if url_data.is_empty() {
@@ -537,30 +534,30 @@ async fn main() -> Result<()> {
         let json = serde_json::to_string_pretty(&report)?;
         fs::write(&output_json, json)?;
 
-        write_progress(&progress_path, "completed", "No URLs found for this game", 100.0, 0, 0)?;
-        reporter.emit_complete("No URLs found for this game");
+        write_progress(&progress_path, "completed", "signalr.epicRemove.noUrls", json!({}), 100.0, 0, 0)?;
+        reporter.emit_complete("signalr.epicRemove.noUrls", json!({}));
         return Ok(());
     }
 
     eprintln!("Found {} unique URLs for '{}'", url_data.len(), game_name);
 
     // Step 1: Remove cache files
-    let remove_msg = format!("Removing cache files for {} URLs", url_data.len());
-    write_progress(&progress_path, "removing_cache", &remove_msg, 10.0, 0, 0)?;
-    reporter.emit_progress(10.0, &remove_msg);
+    let url_count = url_data.len();
+    write_progress(&progress_path, "removing_cache", "signalr.epicRemove.cache.removing", json!({ "count": url_count }), 10.0, 0, 0)?;
+    reporter.emit_progress(10.0, "signalr.epicRemove.cache.removing", json!({ "count": url_count }));
     eprintln!("\nRemoving cache files...");
     let (deleted_files, bytes_freed, parent_dirs, cache_permission_errors) =
         remove_cache_files_for_epic_game(&cache_dir, &url_data, &progress_path, &reporter)?;
 
     // Step 2: Clean up empty directories
-    write_progress(&progress_path, "cleaning_directories", "Cleaning up empty directories", 70.0, 0, 0)?;
-    reporter.emit_progress(70.0, "Cleaning up empty directories");
+    write_progress(&progress_path, "cleaning_directories", "signalr.epicRemove.dirs.cleaning", json!({}), 70.0, 0, 0)?;
+    reporter.emit_progress(70.0, "signalr.epicRemove.dirs.cleaning", json!({}));
     eprintln!("\nCleaning up empty directories...");
     let empty_dirs_removed = cleanup_empty_directories(&cache_dir, parent_dirs);
 
     // Step 3: Remove log entries from access log text files
-    write_progress(&progress_path, "removing_logs", "Removing log entries", 80.0, 0, 0)?;
-    reporter.emit_progress(80.0, "Removing log entries");
+    write_progress(&progress_path, "removing_logs", "signalr.epicRemove.logs.removing", json!({}), 80.0, 0, 0)?;
+    reporter.emit_progress(80.0, "signalr.epicRemove.logs.removing", json!({}));
     eprintln!("\nRemoving log entries...");
     let urls_to_remove: HashSet<String> = url_data.keys().cloned().collect();
     let (log_entries_removed, log_permission_errors) = remove_log_entries_for_epic_game(&log_dir, &urls_to_remove)?;
@@ -589,14 +586,14 @@ async fn main() -> Result<()> {
         let json = serde_json::to_string_pretty(&report)?;
         fs::write(&output_json, json)?;
 
-        write_progress(&progress_path, "failed", &error_msg, 90.0, 0, 0)?;
-        reporter.emit_failed(&error_msg);
+        write_progress(&progress_path, "failed", "signalr.epicRemove.error.fatal", json!({ "errorDetail": error_msg }), 90.0, 0, 0)?;
+        reporter.emit_failed("signalr.epicRemove.error.fatal", json!({ "errorDetail": error_msg }));
         anyhow::bail!("{}", error_msg);
     }
 
     // Step 5: Delete database records
-    write_progress(&progress_path, "removing_database", "Deleting database records", 90.0, 0, 0)?;
-    reporter.emit_progress(90.0, "Deleting database records");
+    write_progress(&progress_path, "removing_database", "signalr.epicRemove.db.deleting", json!({}), 90.0, 0, 0)?;
+    reporter.emit_progress(90.0, "signalr.epicRemove.db.deleting", json!({}));
     eprintln!("\nRemoving database records...");
     let (_log_records, _download_records) = delete_epic_game_from_database(&pool, game_name).await?;
 
@@ -612,16 +609,8 @@ async fn main() -> Result<()> {
     let json = serde_json::to_string_pretty(&report)?;
     fs::write(&output_json, json)?;
 
-    let summary_message = format!(
-        "Removed {} cache files ({:.2} GB), {} log entries for Epic game '{}'",
-        report.cache_files_deleted,
-        report.total_bytes_freed as f64 / 1_073_741_824.0,
-        report.log_entries_removed,
-        game_name
-    );
-
-    write_progress(&progress_path, "completed", &summary_message, 100.0, 0, 0)?;
-    reporter.emit_complete(&summary_message);
+    write_progress(&progress_path, "completed", "signalr.epicRemove.complete", json!({ "files": report.cache_files_deleted, "gb": report.total_bytes_freed as f64 / 1_073_741_824.0, "logEntries": report.log_entries_removed, "gameName": game_name }), 100.0, 0, 0)?;
+    reporter.emit_complete("signalr.epicRemove.complete", json!({ "files": report.cache_files_deleted, "gb": report.total_bytes_freed as f64 / 1_073_741_824.0, "logEntries": report.log_entries_removed, "gameName": game_name }));
 
     eprintln!("\n=== Removal Summary ===");
     eprintln!("Cache files deleted: {}", report.cache_files_deleted);

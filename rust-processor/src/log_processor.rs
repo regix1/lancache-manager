@@ -973,8 +973,8 @@ async fn main() -> Result<()> {
     let log_base_name = "access.log".to_string();
 
     // Emit started event
-    reporter.emit_started();
-    reporter.emit_progress(0.0, "Starting log processing");
+    reporter.emit_started("signalr.logProcessor.starting", serde_json::json!({}));
+    reporter.emit_progress(0.0, "signalr.logProcessor.starting", serde_json::json!({}));
 
     let pool = db::create_pool().await;
 
@@ -1019,11 +1019,11 @@ async fn main() -> Result<()> {
 
     match processor.process().await {
         Ok(()) => {
-            reporter.emit_complete("Log processing completed successfully");
+            reporter.emit_complete("signalr.logProcessor.complete", serde_json::json!({}));
             Ok(())
         }
         Err(e) => {
-            reporter.emit_failed(&format!("Log processing failed: {}", e));
+            reporter.emit_failed("signalr.logProcessor.error.fatal", serde_json::json!({ "errorDetail": format!("{}", e) }));
             Err(e)
         }
     }

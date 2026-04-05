@@ -13,7 +13,8 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
-    "knip": "knip"
+    "knip": "knip",
+    "validate:stage-keys": "node scripts/validate-stage-keys.mjs"
   },
   "dependencies": {
     "@microsoft/signalr": "^8.0.7",

@@ -238,7 +238,7 @@ public class GamesController : ControllerBase
                 _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
 
                 await _notifications.NotifyAllAsync(SignalREvents.GameRemovalComplete,
-                    new GameRemovalComplete(false, operationId, appId, Message: $"Failed to remove {displayName}: {ex.Message}"));
+                    new GameRemovalComplete(false, operationId, appId, StageKey: "signalr.gameRemove.error.fatal"));
             }
         }, cancellationToken);
 

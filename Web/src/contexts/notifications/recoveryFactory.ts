@@ -11,6 +11,7 @@ import {
   formatLogProcessingRecoveryDetailMessage,
   formatDepotMappingRecoveryDetailMessage
 } from './detailMessageFormatters';
+import i18n from '@/i18n';
 
 export type FetchWithAuth = (url: string) => Promise<Response>;
 
@@ -154,7 +155,14 @@ const RECOVERY_CONFIGS = {
       const activeOp = ops?.[0] || {};
       return {
         message:
-          (activeOp.statusMessage as string) || (activeOp.message as string) || 'Clearing cache...',
+          (activeOp.statusMessage as string) ??
+          (activeOp.stageKey
+            ? i18n.t(
+                activeOp.stageKey as string,
+                (activeOp.context as Record<string, string | number | boolean>) ?? {}
+              )
+            : undefined) ??
+          i18n.t('signalr.cacheClear.starting'),
         progress: (activeOp.percentComplete as number) || 0,
         details: {
           operationId: (activeOp.operationId as string) || (activeOp.id as string),
@@ -174,7 +182,12 @@ const RECOVERY_CONFIGS = {
     notificationId: NOTIFICATION_IDS.DATABASE_RESET,
     isProcessing: (data: Record<string, unknown>) => Boolean(data.isProcessing),
     createNotification: (data: Record<string, unknown>) => ({
-      message: (data.message as string) || 'Resetting database...',
+      message: data.stageKey
+        ? i18n.t(
+            data.stageKey as string,
+            (data.context as Record<string, string | number | boolean>) ?? {}
+          )
+        : i18n.t('signalr.dbReset.starting'),
       progress: (data.percentComplete as number) || 0
     }),
     staleMessage: 'Database reset completed'
@@ -217,7 +230,12 @@ const RECOVERY_CONFIGS = {
     isProcessing: (data: Record<string, unknown>) =>
       Boolean(data.isProcessing) && Boolean(data.service),
     createNotification: (data: Record<string, unknown>) => ({
-      message: `Removing ${data.service} entries from logs`,
+      message: data.stageKey
+        ? i18n.t(
+            data.stageKey as string,
+            (data.context as Record<string, string | number | boolean>) ?? {}
+          )
+        : i18n.t('signalr.logRemoval.starting.default', { service: data.service as string }),
       progress: (data.percentComplete as number) || 0,
       details: {
         service: data.service as string,
@@ -256,7 +274,12 @@ const RECOVERY_CONFIGS = {
     notificationId: NOTIFICATION_IDS.CORRUPTION_DETECTION,
     isProcessing: (data: Record<string, unknown>) => Boolean(data.isRunning),
     createNotification: (data: Record<string, unknown>) => ({
-      message: (data.message as string) || 'Scanning for corrupted cache chunks...',
+      message: data.stageKey
+        ? i18n.t(
+            data.stageKey as string,
+            (data.context as Record<string, string | number | boolean>) ?? {}
+          )
+        : i18n.t('signalr.corruptionDetect.scanningLogs'),
       progress: (data.percentComplete as number) || 0,
       details: {
         operationId: data.operationId as string
@@ -272,7 +295,12 @@ const RECOVERY_CONFIGS = {
     notificationId: NOTIFICATION_IDS.DATA_IMPORT,
     isProcessing: (data: Record<string, unknown>) => Boolean(data.isProcessing),
     createNotification: (data: Record<string, unknown>) => ({
-      message: (data.message as string) || 'Importing data...',
+      message: data.stageKey
+        ? i18n.t(
+            data.stageKey as string,
+            (data.context as Record<string, string | number | boolean>) ?? {}
+          )
+        : i18n.t('signalr.generic.unknown'),
       progress: (data.percentComplete as number) || 0,
       details: {
         operationId: data.operationId as string
@@ -306,7 +334,12 @@ const RECOVERY_CONFIGS = {
     shouldSkip: (data: Record<string, unknown>) =>
       Boolean(data.isProcessing) && Boolean(data.silentMode),
     createNotification: (data: Record<string, unknown>) => ({
-      message: (data.message as string) || 'Scanning for evictable cache entries...',
+      message: data.stageKey
+        ? i18n.t(
+            data.stageKey as string,
+            (data.context as Record<string, string | number | boolean>) ?? {}
+          )
+        : i18n.t('signalr.evictionScan.scanning'),
       progress: (data.percentComplete as number) || 0,
       details: {
         operationId: data.operationId as string
@@ -366,7 +399,10 @@ function createCacheRemovalsRecoveryFunction(
         'game_removal',
         () => NOTIFICATION_IDS.GAME_REMOVAL,
         (op) => ({
-          message: op.message || `Removing ${op.gameName}...`,
+          message: i18n.t('signalr.gameRemove.starting', {
+            gameName: op.gameName ?? '',
+            gameAppId: op.gameAppId ?? 0
+          }),
           details: {
             gameAppId: op.gameAppId,
             gameName: op.gameName,
@@ -387,7 +423,9 @@ function createCacheRemovalsRecoveryFunction(
         'service_removal',
         () => NOTIFICATION_IDS.SERVICE_REMOVAL,
         (op) => ({
-          message: op.message || `Removing ${op.serviceName} service...`,
+          message: i18n.t('signalr.serviceRemove.starting.default', {
+            service: op.serviceName ?? ''
+          }),
           details: {
             service: op.serviceName,
             filesDeleted: op.filesDeleted,
@@ -407,7 +445,7 @@ function createCacheRemovalsRecoveryFunction(
         'corruption_removal',
         () => NOTIFICATION_IDS.CORRUPTION_REMOVAL,
         (op) => ({
-          message: op.message || `Removing corrupted chunks for ${op.service}...`,
+          message: i18n.t('signalr.corruptionRemove.starting', { service: op.service ?? '' }),
           details: {
             operationId: op.operationId,
             service: op.service

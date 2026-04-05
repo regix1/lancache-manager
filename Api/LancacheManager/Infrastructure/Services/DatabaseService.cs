@@ -136,7 +136,8 @@ public class DatabaseService : IDatabaseService
                 isProcessing = true,
                 percentComplete = 0.0,
                 status = "starting",
-                message = $"Starting reset of {tableNames.Count} table(s)...",
+                stageKey = "signalr.dbReset.startingTables",
+                context = new Dictionary<string, object?> { ["count"] = tableNames.Count },
                 timestamp = DateTime.UtcNow
             });
 
@@ -153,7 +154,8 @@ public class DatabaseService : IDatabaseService
                     isProcessing = false,
                     percentComplete = 0.0,
                     status = "failed",
-                    message = "No valid tables selected for reset",
+                    stageKey = "signalr.dbReset.noTablesSelected",
+                    context = new Dictionary<string, object?>(),
                     timestamp = DateTime.UtcNow
                 });
                 return;
@@ -316,7 +318,8 @@ public class DatabaseService : IDatabaseService
                                     isProcessing = true,
                                     percentComplete = progressPercent,
                                     status = "deleting",
-                                    message = progressMessage,
+                                    stageKey = "signalr.dbReset.clearingLogEntries",
+                                    context = new Dictionary<string, object?> { ["deleted"] = logEntriesDeleted, ["total"] = logEntriesTotal, ["percent"] = percentDone },
                                     timestamp = DateTime.UtcNow
                                 });
 
@@ -343,7 +346,8 @@ public class DatabaseService : IDatabaseService
                                 isProcessing = true,
                                 percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
                                 status = "deleting",
-                                message = $"Cleared log entries ({logEntriesDeleted:N0} rows)",
+                                stageKey = "signalr.dbReset.clearedLogEntries",
+                                context = new Dictionary<string, object?> { ["count"] = logEntriesDeleted },
                                 timestamp = DateTime.UtcNow
                             });
                             break;
@@ -360,7 +364,8 @@ public class DatabaseService : IDatabaseService
                                 isProcessing = true,
                                 percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
                                 status = "deleting",
-                                message = $"Cleared downloads ({downloadsCount:N0} rows)",
+                                stageKey = "signalr.dbReset.clearedDownloads",
+                                context = new Dictionary<string, object?> { ["count"] = downloadsCount },
                                 timestamp = DateTime.UtcNow
                             });
                             break;
@@ -377,7 +382,8 @@ public class DatabaseService : IDatabaseService
                                 isProcessing = true,
                                 percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
                                 status = "deleting",
-                                message = $"Cleared client stats ({clientStatsCount:N0} rows)",
+                                stageKey = "signalr.dbReset.clearedClientStats",
+                                context = new Dictionary<string, object?> { ["count"] = clientStatsCount },
                                 timestamp = DateTime.UtcNow
                             });
                             break;
@@ -394,7 +400,8 @@ public class DatabaseService : IDatabaseService
                                 isProcessing = true,
                                 percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
                                 status = "deleting",
-                                message = $"Cleared service stats ({serviceStatsCount:N0} rows)",
+                                stageKey = "signalr.dbReset.clearedServiceStats",
+                                context = new Dictionary<string, object?> { ["count"] = serviceStatsCount },
                                 timestamp = DateTime.UtcNow
                             });
                             break;
@@ -436,7 +443,8 @@ public class DatabaseService : IDatabaseService
                                 isProcessing = true,
                                 percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
                                 status = "deleting",
-                                message = $"Cleared depot mappings ({mappingCount:N0} rows) and unmapped all downloads",
+                                stageKey = "signalr.dbReset.clearedDepotMappings",
+                                context = new Dictionary<string, object?> { ["count"] = mappingCount },
                                 timestamp = DateTime.UtcNow
                             });
                             break;
@@ -453,7 +461,8 @@ public class DatabaseService : IDatabaseService
                                 isProcessing = true,
                                 percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
                                 status = "deleting",
-                                message = $"Cleared cached game detections ({gameDetectionCount:N0} rows)",
+                                stageKey = "signalr.dbReset.clearedGameDetections",
+                                context = new Dictionary<string, object?> { ["count"] = gameDetectionCount },
                                 timestamp = DateTime.UtcNow
                             });
                             break;
@@ -470,7 +479,8 @@ public class DatabaseService : IDatabaseService
                                 isProcessing = true,
                                 percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
                                 status = "deleting",
-                                message = $"Cleared user preferences ({userPreferencesCount:N0} rows)",
+                                stageKey = "signalr.dbReset.clearedUserPreferences",
+                                context = new Dictionary<string, object?> { ["count"] = userPreferencesCount },
                                 timestamp = DateTime.UtcNow
                             });
 
@@ -507,7 +517,8 @@ public class DatabaseService : IDatabaseService
                                 isProcessing = true,
                                 percentComplete = Math.Min(currentProgress + progressPerTable, 85.0),
                                 status = "deleting",
-                                message = $"Cleared user sessions ({userSessionsCount:N0} rows) and Steam auth data",
+                                stageKey = "signalr.dbReset.clearedUserSessions",
+                                context = new Dictionary<string, object?> { ["count"] = userSessionsCount },
                                 timestamp = DateTime.UtcNow
                             });
 
@@ -517,7 +528,8 @@ public class DatabaseService : IDatabaseService
                             _logger.LogInformation("Broadcasting UserSessionsCleared event to all clients (immediate logout)");
                             await _notifications.NotifyAllAsync(SignalREvents.UserSessionsCleared, new
                             {
-                                message = "All user sessions have been cleared - logging out immediately",
+                                stageKey = "signalr.dbReset.sessionsCleared.logout",
+                                context = new Dictionary<string, object?>(),
                                 clearCookies = true, // Signal frontend to clear all auth cookies
                                 timestamp = DateTime.UtcNow
                             });

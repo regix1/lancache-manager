@@ -3,6 +3,7 @@ use clap::Parser;
 use sqlx::PgPool;
 use sqlx::Row;
 use serde::Serialize;
+use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -53,10 +54,12 @@ struct Args {
     skip_file_probe: bool,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct ProgressData {
     status: String,
-    message: String,
+    stage_key: String,
+    context: serde_json::Value,
     #[serde(rename = "percentComplete")]
     percent_complete: f64,
     #[serde(rename = "filesProcessed")]
@@ -69,14 +72,16 @@ struct ProgressData {
 fn write_progress(
     progress_path: &Path,
     status: &str,
-    message: &str,
+    stage_key: &str,
+    context: serde_json::Value,
     percent_complete: f64,
     files_processed: usize,
     total_files: usize,
 ) -> Result<()> {
     let progress = ProgressData {
         status: status.to_string(),
-        message: message.to_string(),
+        stage_key: stage_key.to_string(),
+        context,
         percent_complete,
         files_processed,
         total_files,
@@ -372,16 +377,9 @@ fn remove_cache_files_for_game(
                 if last_reported_percent.compare_exchange(prev_pct, current_pct, Ordering::SeqCst, Ordering::Relaxed).is_ok() {
                     let overall_percent = 10.0 + (checked as f64 / total_paths as f64) * 60.0;
                     let del_count = deleted_files.load(Ordering::Relaxed);
-                    let bytes = bytes_freed.load(Ordering::Relaxed);
-                    let msg = format!(
-                        "Removing cache files: {} deleted ({:.2} MB freed), checked {}/{}",
-                        del_count,
-                        bytes as f64 / 1_048_576.0,
-                        checked,
-                        total_paths
-                    );
-                    let _ = write_progress(progress_path, "removing_cache", &msg, overall_percent, del_count, total_paths);
-                    reporter.emit_progress(overall_percent, &msg);
+                    let _ = bytes_freed.load(Ordering::Relaxed);
+                    let _ = write_progress(progress_path, "removing_cache", "signalr.gameRemove.cache.file.progress", json!({ "n": del_count, "total": total_paths }), overall_percent, del_count, total_paths);
+                    reporter.emit_progress(overall_percent, "signalr.gameRemove.cache.file.progress", json!({ "n": del_count, "total": total_paths }));
                 }
             }
         }
@@ -456,17 +454,17 @@ async fn main() -> Result<()> {
     eprintln!("  Game AppID: {}", game_app_id);
 
     // Emit started event
-    reporter.emit_started();
+    reporter.emit_started("signalr.gameRemove.starting", json!({}));
 
     if !log_dir.exists() {
         let msg = format!("Log directory not found: {}", log_dir.display());
-        reporter.emit_failed(&msg);
+        reporter.emit_failed("signalr.gameRemove.error.fatal", json!({ "errorDetail": msg }));
         anyhow::bail!("{}", msg);
     }
 
     if !cache_dir.exists() {
         let msg = format!("Cache directory not found: {}", cache_dir.display());
-        reporter.emit_failed(&msg);
+        reporter.emit_failed("signalr.gameRemove.error.fatal", json!({ "errorDetail": msg }));
         anyhow::bail!("{}", msg);
     }
 
@@ -476,13 +474,12 @@ async fn main() -> Result<()> {
     let game_name = get_game_name_from_db(&pool, game_app_id).await?;
     eprintln!("Game: {}", game_name);
 
-    let start_msg = format!("Starting removal for game '{}' (AppID {})", game_name, game_app_id);
-    write_progress(&progress_path, "starting", &start_msg, 0.0, 0, 0)?;
-    reporter.emit_progress(0.0, &start_msg);
+    write_progress(&progress_path, "starting", "signalr.gameRemove.starting", json!({ "gameName": game_name, "gameAppId": game_app_id }), 0.0, 0, 0)?;
+    reporter.emit_progress(0.0, "signalr.gameRemove.starting", json!({ "gameName": game_name, "gameAppId": game_app_id }));
 
     // Get valid depot IDs for this game from database
-    write_progress(&progress_path, "querying_database", "Querying database for depot IDs and URLs", 5.0, 0, 0)?;
-    reporter.emit_progress(5.0, "Querying database for depot IDs and URLs");
+    write_progress(&progress_path, "querying_database", "signalr.gameRemove.db.querying", json!({}), 5.0, 0, 0)?;
+    reporter.emit_progress(5.0, "signalr.gameRemove.db.querying", json!({}));
     let valid_depot_ids = get_game_depot_ids(&pool, game_app_id).await?;
     eprintln!("Valid depot IDs for this game: {:?}", valid_depot_ids);
 
@@ -506,8 +503,8 @@ async fn main() -> Result<()> {
         fs::write(&output_json, json)?;
         eprintln!("Report saved to: {}", output_json.display());
 
-        write_progress(&progress_path, "completed", "No URLs found for this game", 100.0, 0, 0)?;
-        reporter.emit_complete("No URLs found for this game");
+        write_progress(&progress_path, "completed", "signalr.gameRemove.noUrls", json!({}), 100.0, 0, 0)?;
+        reporter.emit_complete("signalr.gameRemove.noUrls", json!({}));
         return Ok(());
     }
 
@@ -518,34 +515,30 @@ async fn main() -> Result<()> {
     // this game is IsEvicted, so the lancache has nothing to delete on disk).
     // The log rewrite and DB cleanup below still run unconditionally.
     let (deleted_files, bytes_freed, empty_dirs_removed, cache_permission_errors) = if args.skip_file_probe {
-        let skip_msg = format!(
-            "Skipping cache file probe for {} URLs (fully evicted game)",
-            url_data.len()
-        );
-        eprintln!("\n{}", skip_msg);
-        write_progress(&progress_path, "removing_cache", &skip_msg, 10.0, 0, 0)?;
-        reporter.emit_progress(10.0, &skip_msg);
-        write_progress(&progress_path, "cleaning_directories", "Skipping directory cleanup (fully evicted game)", 70.0, 0, 0)?;
-        reporter.emit_progress(70.0, "Skipping directory cleanup (fully evicted game)");
+        eprintln!("\nSkipping cache file probe for {} URLs (fully evicted game)", url_data.len());
+        write_progress(&progress_path, "removing_cache", "signalr.gameRemove.cache.skippedEvicted", json!({}), 10.0, 0, 0)?;
+        reporter.emit_progress(10.0, "signalr.gameRemove.cache.skippedEvicted", json!({}));
+        write_progress(&progress_path, "cleaning_directories", "signalr.gameRemove.dirs.skippedEvicted", json!({}), 70.0, 0, 0)?;
+        reporter.emit_progress(70.0, "signalr.gameRemove.dirs.skippedEvicted", json!({}));
         (0usize, 0u64, 0usize, 0usize)
     } else {
-        let remove_msg = format!("Removing cache files for {} URLs", url_data.len());
-        write_progress(&progress_path, "removing_cache", &remove_msg, 10.0, 0, 0)?;
-        reporter.emit_progress(10.0, &remove_msg);
+        let count = url_data.len();
+        write_progress(&progress_path, "removing_cache", "signalr.gameRemove.cache.removing", json!({ "count": count }), 10.0, 0, 0)?;
+        reporter.emit_progress(10.0, "signalr.gameRemove.cache.removing", json!({ "count": count }));
         eprintln!("\nRemoving cache files...");
         let (deleted, bytes, parent_dirs, cache_errs) =
             remove_cache_files_for_game(&cache_dir, &url_data, &progress_path, &reporter)?;
 
-        write_progress(&progress_path, "cleaning_directories", "Cleaning up empty directories", 70.0, 0, 0)?;
-        reporter.emit_progress(70.0, "Cleaning up empty directories");
+        write_progress(&progress_path, "cleaning_directories", "signalr.gameRemove.dirs.cleaning", json!({}), 70.0, 0, 0)?;
+        reporter.emit_progress(70.0, "signalr.gameRemove.dirs.cleaning", json!({}));
         eprintln!("\nCleaning up empty directories...");
         let empty_dirs = cleanup_empty_directories(&cache_dir, parent_dirs);
         (deleted, bytes, empty_dirs, cache_errs)
     };
 
     // Remove log entries for this game
-    write_progress(&progress_path, "removing_logs", "Removing log entries", 80.0, 0, 0)?;
-    reporter.emit_progress(80.0, "Removing log entries");
+    write_progress(&progress_path, "removing_logs", "signalr.gameRemove.logs.removing", json!({}), 80.0, 0, 0)?;
+    reporter.emit_progress(80.0, "signalr.gameRemove.logs.removing", json!({}));
     eprintln!("\nRemoving log entries...");
     let urls_to_remove: HashSet<String> = url_data.keys().cloned().collect();
     let (log_entries_removed, log_permission_errors) = remove_log_entries_for_game(&log_dir, &urls_to_remove, &valid_depot_ids)?;
@@ -577,14 +570,14 @@ async fn main() -> Result<()> {
         let json = serde_json::to_string_pretty(&report)?;
         fs::write(&output_json, json)?;
 
-        write_progress(&progress_path, "failed", &error_msg, 90.0, 0, 0)?;
-        reporter.emit_failed(&error_msg);
+        write_progress(&progress_path, "failed", "signalr.gameRemove.error.fatal", json!({ "errorDetail": error_msg }), 90.0, 0, 0)?;
+        reporter.emit_failed("signalr.gameRemove.error.fatal", json!({ "errorDetail": error_msg }));
         anyhow::bail!("{}", error_msg);
     }
 
     // Delete database records for this game (only if no permission errors)
-    write_progress(&progress_path, "removing_database", "Deleting database records", 90.0, 0, 0)?;
-    reporter.emit_progress(90.0, "Deleting database records");
+    write_progress(&progress_path, "removing_database", "signalr.gameRemove.db.deleting", json!({}), 90.0, 0, 0)?;
+    reporter.emit_progress(90.0, "signalr.gameRemove.db.deleting", json!({}));
     eprintln!("\nRemoving database records...");
     let _db_records_deleted = delete_game_from_database(&pool, game_app_id).await?;
 
@@ -607,17 +600,8 @@ async fn main() -> Result<()> {
     let json = serde_json::to_string_pretty(&report)?;
     fs::write(&output_json, json)?;
 
-    let summary_message = format!(
-        "Removed {} cache files ({:.2} GB), {} log entries for game '{}' (AppID {})",
-        report.cache_files_deleted,
-        report.total_bytes_freed as f64 / 1_073_741_824.0,
-        report.log_entries_removed,
-        game_name,
-        game_app_id
-    );
-
-    write_progress(&progress_path, "completed", &summary_message, 100.0, 0, 0)?;
-    reporter.emit_complete(&summary_message);
+    write_progress(&progress_path, "completed", "signalr.gameRemove.complete", json!({ "files": report.cache_files_deleted, "gb": report.total_bytes_freed as f64 / 1_073_741_824.0, "logEntries": report.log_entries_removed, "gameName": game_name, "gameAppId": game_app_id }), 100.0, 0, 0)?;
+    reporter.emit_complete("signalr.gameRemove.complete", json!({ "files": report.cache_files_deleted, "gb": report.total_bytes_freed as f64 / 1_073_741_824.0, "logEntries": report.log_entries_removed, "gameName": game_name, "gameAppId": game_app_id }));
 
     eprintln!("\n=== Removal Summary ===");
     eprintln!("Cache files deleted: {}", report.cache_files_deleted);

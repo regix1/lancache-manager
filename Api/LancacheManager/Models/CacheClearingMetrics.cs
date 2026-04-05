@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace LancacheManager.Models;
 
 /// <summary>
@@ -15,6 +17,16 @@ public class CacheClearingMetrics
     /// Name of the datasource being cleared.
     /// </summary>
     public string? DatasourceName { get; set; }
+
+    /// <summary>
+    /// Current stage key for the progress notification (forwarded from Rust progress.json).
+    /// </summary>
+    public string? CurrentStageKey { get; set; }
+
+    /// <summary>
+    /// Current context dict for the progress notification (forwarded from Rust progress.json).
+    /// </summary>
+    public Dictionary<string, object?>? CurrentContext { get; set; }
 
     /// <summary>
     /// Number of cache directories processed so far.

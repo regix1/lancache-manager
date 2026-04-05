@@ -73,7 +73,8 @@ public partial class EpicMappingService
                 status = "Collecting games",
                 percentComplete = 60.0,
                 gamesDiscovered = _gamesDiscovered,
-                message = $"Discovered {_gamesDiscovered} games"
+                stageKey = "signalr.epicMapping.gamesDiscovered",
+                context = new Dictionary<string, object?> { ["gamesDiscovered"] = _gamesDiscovered }
             });
 
             // Collect CDN patterns
@@ -151,7 +152,8 @@ public partial class EpicMappingService
                 status = "completed",
                 percentComplete = 100.0,
                 gamesDiscovered = _gamesDiscovered,
-                message = "Epic game mapping cancelled",
+                stageKey = "signalr.epicMapping.cancelled",
+                context = new Dictionary<string, object?>(),
                 cancelled = true
             });
 

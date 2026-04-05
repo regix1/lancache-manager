@@ -248,7 +248,7 @@ public class RustLogProcessorService
             mbTotal = Math.Round(mbTotal, 1),
             entriesProcessed = progress.EntriesSaved,
             totalLines = progress.TotalLines,
-            message = progress.Message
+            stageKey = progress.StageKey
         };
     }
 
@@ -291,8 +291,11 @@ public class RustLogProcessorService
         [System.Text.Json.Serialization.JsonPropertyName("status")]
         public string Status { get; set; } = string.Empty;
 
-        [System.Text.Json.Serialization.JsonPropertyName("message")]
-        public string Message { get; set; } = string.Empty;
+        [System.Text.Json.Serialization.JsonPropertyName("stage_key")]
+        public string StageKey { get; set; } = string.Empty;
+
+        [System.Text.Json.Serialization.JsonPropertyName("context")]
+        public Dictionary<string, object?> Context { get; set; } = new();
 
         [System.Text.Json.Serialization.JsonPropertyName("timestamp")]
         public DateTime Timestamp { get; set; }
@@ -368,7 +371,8 @@ public class RustLogProcessorService
                 await _notifications.NotifyAllAsync(SignalREvents.LogProcessingStarted, new
                 {
                     OperationId = _currentOperationId,
-                    Message = "Starting log processing..."
+                    StageKey = "signalr.logProcessing.starting",
+                    Context = new Dictionary<string, object?>()
                 });
             }
 
@@ -427,7 +431,8 @@ public class RustLogProcessorService
                     OperationId = _currentOperationId,
                     PercentComplete = 0.0,
                     Status = OperationStatus.Running,
-                    Message = "Starting log processing...",
+                    StageKey = "signalr.logProcessing.starting",
+                    Context = new Dictionary<string, object?>(),
                     TotalLines = 0,
                     LinesParsed = 0,
                     EntriesSaved = 0,
@@ -500,19 +505,19 @@ public class RustLogProcessorService
                 // This catches edge cases where errors were logged but the process still exited cleanly
                 if (finalProgress?.Status == "failed")
                 {
-                    _logger.LogError("Rust processor exited with code 0 but reported failure: {Message}", finalProgress.Message);
+                    _logger.LogError("Rust processor exited with code 0 but reported failure: {StageKey}", finalProgress.StageKey);
 
                     if (!silentMode)
                     {
                         await _notifications.SendOperationCompleteAsync(
                             SignalREvents.LogProcessingComplete, _currentOperationId,
-                            success: false, message: finalProgress.Message ?? "Log processing failed", cancelled: false,
+                            success: false, message: finalProgress.StageKey ?? "Log processing failed", cancelled: false,
                             new { EntriesProcessed = 0, LinesProcessed = finalProgress.LinesParsed });
                     }
 
                     if (_currentOperationId != null)
                     {
-                        _operationTracker.CompleteOperation(_currentOperationId, false, finalProgress.Message);
+                        _operationTracker.CompleteOperation(_currentOperationId, false, finalProgress.StageKey);
                     }
 
                     return false;
@@ -543,7 +548,8 @@ public class RustLogProcessorService
                             OperationId = _currentOperationId,
                             PercentComplete = 100.0,
                             Status = OperationStatus.Completed,
-                            Message = "Processing complete",
+                            StageKey = "signalr.logProcessing.complete",
+                            Context = new Dictionary<string, object?>(),
                             finalProgress.TotalLines,
                             finalProgress.LinesParsed,
                             finalProgress.EntriesSaved,
@@ -762,7 +768,7 @@ public class RustLogProcessorService
             // Update the unified operation tracker with progress
             if (_currentOperationId != null)
             {
-                _operationTracker.UpdateProgress(_currentOperationId, progress.PercentComplete, progress.Message);
+                _operationTracker.UpdateProgress(_currentOperationId, progress.PercentComplete, progress.StageKey ?? "");
             }
 
             // Send progress update via SignalR with standardized format
@@ -771,7 +777,8 @@ public class RustLogProcessorService
                 OperationId = _currentOperationId,
                 progress.PercentComplete,
                 Status = OperationStatus.Running,
-                progress.Message,
+                StageKey = progress.StageKey,
+                Context = progress.Context,
                 progress.TotalLines,
                 progress.LinesParsed,
                 progress.EntriesSaved,

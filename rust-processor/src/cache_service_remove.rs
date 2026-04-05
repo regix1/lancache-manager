@@ -3,6 +3,7 @@ use clap::Parser;
 use sqlx::PgPool;
 use sqlx::Row;
 use serde::Serialize;
+use serde_json::json;
 use std::collections::HashSet;
 use std::fs;
 use std::io::{BufWriter, Write as IoWrite};
@@ -50,10 +51,12 @@ struct Args {
     progress: bool,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct ProgressData {
     status: String,
-    message: String,
+    stage_key: String,
+    context: serde_json::Value,
     #[serde(rename = "percentComplete")]
     percent_complete: f64,
     #[serde(rename = "filesProcessed")]
@@ -66,14 +69,16 @@ struct ProgressData {
 fn write_progress(
     progress_path: &Path,
     status: &str,
-    message: &str,
+    stage_key: &str,
+    context: serde_json::Value,
     percent_complete: f64,
     files_processed: usize,
     total_files: usize,
 ) -> Result<()> {
     let progress = ProgressData {
         status: status.to_string(),
-        message: message.to_string(),
+        stage_key: stage_key.to_string(),
+        context,
         percent_complete,
         files_processed,
         total_files,
@@ -201,15 +206,8 @@ fn remove_cache_files_for_service(
             if current_pct > last_reported_percent {
                 last_reported_percent = current_pct;
                 let overall_percent = 10.0 + (urls_processed as f64 / total_urls as f64) * 60.0;
-                let msg = format!(
-                    "Removing cache files: {} deleted ({:.2} MB freed), processed {}/{}",
-                    deleted_count,
-                    bytes_freed as f64 / 1_048_576.0,
-                    urls_processed,
-                    total_urls
-                );
-                let _ = write_progress(progress_path, "removing_cache", &msg, overall_percent, deleted_count, total_urls);
-                reporter.emit_progress(overall_percent, &msg);
+                let _ = write_progress(progress_path, "removing_cache", "signalr.serviceRemove.cache.file.progress", json!({ "n": deleted_count, "total": total_urls }), overall_percent, deleted_count, total_urls);
+                reporter.emit_progress(overall_percent, "signalr.serviceRemove.cache.file.progress", json!({ "n": deleted_count, "total": total_urls }));
             }
         }
     }
@@ -381,35 +379,34 @@ async fn main() -> Result<()> {
     eprintln!("  Service: {}", service);
 
     // Emit started event
-    reporter.emit_started();
+    reporter.emit_started("signalr.serviceRemove.starting.default", json!({ "service": service }));
 
     let pool = db::create_pool().await;
 
-    let start_msg = format!("Starting removal for service '{}'", service);
-    write_progress(&progress_path, "starting", &start_msg, 0.0, 0, 0)?;
-    reporter.emit_progress(0.0, &start_msg);
+    write_progress(&progress_path, "starting", "signalr.serviceRemove.starting.default", json!({ "service": service }), 0.0, 0, 0)?;
+    reporter.emit_progress(0.0, "signalr.serviceRemove.starting.default", json!({ "service": service }));
 
     // Step 1: Get all URLs for this service from database
-    write_progress(&progress_path, "querying_database", "Querying database for service URLs", 5.0, 0, 0)?;
-    reporter.emit_progress(5.0, "Querying database for service URLs");
+    write_progress(&progress_path, "querying_database", "signalr.serviceRemove.db.querying", json!({}), 5.0, 0, 0)?;
+    reporter.emit_progress(5.0, "signalr.serviceRemove.db.querying", json!({}));
     let urls = get_service_urls_from_db(&pool, service).await?;
 
     if urls.is_empty() {
         eprintln!("No URLs found for service '{}'", service);
-        write_progress(&progress_path, "completed", "No URLs found for this service", 100.0, 0, 0)?;
-        reporter.emit_complete("No URLs found for this service");
+        write_progress(&progress_path, "completed", "signalr.serviceRemove.noUrls", json!({}), 100.0, 0, 0)?;
+        reporter.emit_complete("signalr.serviceRemove.noUrls", json!({}));
         return Ok(());
     }
 
     // Step 2: Remove cache files
-    let remove_msg = format!("Removing cache files for {} URLs", urls.len());
-    write_progress(&progress_path, "removing_cache", &remove_msg, 10.0, 0, urls.len())?;
-    reporter.emit_progress(10.0, &remove_msg);
+    let url_count = urls.len();
+    write_progress(&progress_path, "removing_cache", "signalr.serviceRemove.cache.removing", json!({ "count": url_count }), 10.0, 0, url_count)?;
+    reporter.emit_progress(10.0, "signalr.serviceRemove.cache.removing", json!({ "count": url_count }));
     let (cache_files_deleted, total_bytes_freed, cache_permission_errors) = remove_cache_files_for_service(&cache_dir, service, &urls, &progress_path, &reporter)?;
 
     // Step 3: Remove log entries
-    write_progress(&progress_path, "removing_logs", "Removing log entries", 70.0, cache_files_deleted, urls.len())?;
-    reporter.emit_progress(70.0, "Removing log entries");
+    write_progress(&progress_path, "removing_logs", "signalr.serviceRemove.logs.removing", json!({}), 70.0, cache_files_deleted, url_count)?;
+    reporter.emit_progress(70.0, "signalr.serviceRemove.logs.removing", json!({}));
     let (log_entries_removed, log_permission_errors) = remove_log_entries_for_service(&log_dir, service, &urls)?;
 
     // CRITICAL: Check for permission errors before deleting database records
@@ -425,28 +422,18 @@ async fn main() -> Result<()> {
             total_permission_errors, puid, pgid, cache_permission_errors, log_permission_errors
         );
         eprintln!("\n{}", error_msg);
-        write_progress(&progress_path, "failed", &error_msg, 70.0, cache_files_deleted, urls.len())?;
-        reporter.emit_failed(&error_msg);
+        write_progress(&progress_path, "failed", "signalr.serviceRemove.error.fatal", json!({ "errorDetail": error_msg }), 70.0, cache_files_deleted, url_count)?;
+        reporter.emit_failed("signalr.serviceRemove.error.fatal", json!({ "errorDetail": error_msg }));
         std::process::exit(1);
     }
 
     // Step 4: Delete database records (only if no permission errors)
-    write_progress(&progress_path, "removing_database", "Deleting database records", 90.0, cache_files_deleted, urls.len())?;
-    reporter.emit_progress(90.0, "Deleting database records");
+    write_progress(&progress_path, "removing_database", "signalr.serviceRemove.db.deleting", json!({}), 90.0, cache_files_deleted, url_count)?;
+    reporter.emit_progress(90.0, "signalr.serviceRemove.db.deleting", json!({}));
     let database_entries_deleted = delete_service_from_database(&pool, service).await?;
 
-    // Create summary message
-    let summary_message = format!(
-        "Removed {} cache files ({:.2} GB), {} log entries, {} database records for service '{}'",
-        cache_files_deleted,
-        total_bytes_freed as f64 / 1_073_741_824.0,
-        log_entries_removed,
-        database_entries_deleted,
-        service
-    );
-
-    write_progress(&progress_path, "completed", &summary_message, 100.0, cache_files_deleted, urls.len())?;
-    reporter.emit_complete(&summary_message);
+    write_progress(&progress_path, "completed", "signalr.serviceRemove.complete", json!({ "files": cache_files_deleted, "gb": total_bytes_freed as f64 / 1_073_741_824.0, "logEntries": log_entries_removed, "dbRecords": database_entries_deleted, "service": service }), 100.0, cache_files_deleted, url_count)?;
+    reporter.emit_complete("signalr.serviceRemove.complete", json!({ "files": cache_files_deleted, "gb": total_bytes_freed as f64 / 1_073_741_824.0, "logEntries": log_entries_removed, "dbRecords": database_entries_deleted, "service": service }));
 
     eprintln!("\n=== Removal Summary ===");
     eprintln!("Service: {}", service);

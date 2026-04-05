@@ -5225,5 +5225,276 @@
     "clientIp": {
       "ipLabel": "IP: {{ip}}"
     }
+  },
+  "signalr": {
+    "generic": {
+      "unknown": "Operation in progress...",
+      "failed": "Operation failed",
+      "complete": "Operation complete",
+      "cancelled": "Operation cancelled"
+    },
+    "cacheClear": {
+      "initializing": "Initializing cache clear...",
+      "starting": "Starting cache deletion...",
+      "progress": "Clearing cache ({{processed}}/{{totalDirs}}) — {{activeCount}} active",
+      "error": {
+        "dirNotFound": "Cache directory does not exist: {{cachePath}}",
+        "fatal": "Cache clear failed: {{errorDetail}}"
+      }
+    },
+    "corruptionDetect": {
+      "starting": "Starting corruption detection scan...",
+      "scanningLogs": "Scanning log files...",
+      "found": "Found {{totalCorrupted}} corrupted chunks across {{serviceCount}} services",
+      "reportSaved": "Report saved to: {{outputJson}}",
+      "complete": "Detection complete. Found {{count}} services with corruption.",
+      "cancelled": "Detection cancelled by user",
+      "failed": "Corruption detection failed: {{errorDetail}}"
+    },
+    "corruptionRemove": {
+      "starting": "Starting removal for {{service}}",
+      "scanningRedownload": "Scanning log files for re-download patterns...",
+      "noChunksFound": "No corrupted chunks found, nothing to remove",
+      "filteringLogs": "Filtering {{totalFiles}} log files",
+      "filteringFile": "Filtering file {{fileIndex}}/{{totalFiles}}",
+      "removingCacheFiles": "Removing cache files for {{totalUrls}} corrupted URLs",
+      "removingCacheFile": "Removing cache file {{urlIndex}}/{{totalUrls}}",
+      "deletingDb": "Deleting database records for corrupted chunks",
+      "scanningFiles": "Scanning {{totalFiles}} log files for corrupted chunks...",
+      "scanningFile": "Scanning file {{fileIndex}}/{{totalFiles}}...",
+      "foundUrls": "Found {{count}} corrupted URLs for {{service}}",
+      "complete": "Removed {{count}} corrupted URLs for {{service}} ({{files}} cache files deleted, {{logLines}} log lines removed, {{downloads}} downloads deleted, {{logEntries}} log entries deleted)",
+      "success": "Successfully removed corrupted chunks for {{service}}",
+      "cancelled": "Operation was cancelled.",
+      "redownload": {
+        "complete": "Removed {{count}} re-download corrupted URLs for {{service}} ({{files}} cache files deleted, {{logLines}} log lines removed, {{downloads}} downloads deleted, {{logEntries}} log entries deleted)"
+      },
+      "error": {
+        "fatal": "Corruption removal failed: {{errorDetail}}"
+      },
+      "failed": {
+        "generic": "Operation failed. Check server logs for details."
+      }
+    },
+    "corruptionSummary": {
+      "scanningLogs": "Scanning log files...",
+      "complete": "Corruption summary generated"
+    },
+    "dbReset": {
+      "starting": "Starting database reset...",
+      "complete": "Database reset completed successfully",
+      "failedExitCode": "Database reset failed with exit code {{exitCode}}",
+      "cancelled": "Database reset was cancelled",
+      "failed": "Database reset failed: {{errorDetail}}",
+      "startingTables": "Starting reset of {{count}} table(s)...",
+      "noTablesSelected": "No valid tables selected for reset",
+      "clearingLogEntries": "Clearing log entries... {{deleted}}/{{total}} ({{percent}}%)",
+      "clearedLogEntries": "Cleared log entries ({{count}} rows)",
+      "clearedDownloads": "Cleared downloads ({{count}} rows)",
+      "clearedClientStats": "Cleared client stats ({{count}} rows)",
+      "clearedServiceStats": "Cleared service stats ({{count}} rows)",
+      "clearedDepotMappings": "Cleared depot mappings ({{count}} rows) and unmapped all downloads",
+      "clearedGameDetections": "Cleared cached game detections ({{count}} rows)",
+      "clearedUserPreferences": "Cleared user preferences ({{count}} rows)",
+      "clearedUserSessions": "Cleared user sessions ({{count}} rows) and Steam auth data",
+      "sessionsCleared": {
+        "logout": "All user sessions have been cleared — logging out immediately"
+      }
+    },
+    "depotMapping": {
+      "github": {
+        "downloading": "Downloading depot mappings from GitHub...",
+        "complete": "GitHub depot data imported — {{totalMappings}} mappings",
+        "failed": "[GitHub Mode] {{errorDetail}}"
+      },
+      "cancelled": "Depot mapping scan cancelled",
+      "applyingToDownloads": "Applying depot mappings to downloads... {{processed}}/{{totalDownloads}}",
+      "finalized": "Depot mapping complete — {{updated}} downloads updated",
+      "scan": {
+        "skippedFullRequired": "Scheduled scan skipped — full scan required"
+      }
+    },
+    "epicMapping": {
+      "starting": "Starting Epic catalog refresh...",
+      "fetchingGames": "Fetching owned games from Epic catalog...",
+      "refreshingCdn": "Discovered {{gamesDiscovered}} games, refreshing CDN patterns...",
+      "checkingFreeGames": "Checking for free game promotions...",
+      "applyingMappings": "Resolving Epic downloads to game names...",
+      "gamesDiscovered": "Discovered {{gamesDiscovered}} games",
+      "cancelled": "Epic catalog refresh cancelled",
+      "failed": "Epic catalog refresh failed: {{errorDetail}}"
+    },
+    "epicRemove": {
+      "starting": "Starting removal for Epic game '{{gameName}}'",
+      "noUrls": "No URLs found for this game",
+      "complete": "Removed {{files}} cache files ({{gb}} GB), {{logEntries}} log entries for Epic game '{{gameName}}'",
+      "error": {
+        "fatal": "Epic game removal failed: {{errorDetail}}"
+      },
+      "db": {
+        "querying": "Querying database for game URLs",
+        "deleting": "Deleting database records"
+      },
+      "cache": {
+        "removing": "Removing cache files for {{count}} URLs",
+        "file": {
+          "progress": "Removing file {{n}}/{{total}}"
+        }
+      },
+      "dirs": {
+        "cleaning": "Cleaning up empty directories"
+      },
+      "logs": {
+        "removing": "Removing log entries"
+      }
+    },
+    "evictionRemove": {
+      "starting": {
+        "bulk": "Removing evicted records from database...",
+        "entity": "Removing evicted records for {{scope}} '{{key}}'..."
+      },
+      "failedToStart": "Eviction removal failed to start.",
+      "preserving": "Preserving evicted game records...",
+      "removingLogs": "Removing associated log entries...",
+      "removingDownloads": "Removing evicted download records...",
+      "purgingLogs": "Purging {{count}} log entries...",
+      "complete": "Eviction removal complete.",
+      "failed": "Eviction removal failed."
+    },
+    "evictionScan": {
+      "scanning": "Scanning cache files...",
+      "progress": "Processed {{totalProcessed}} of ~{{totalEstimate}} downloads...",
+      "complete": "Scan complete: {{totalProcessed}} processed, {{totalEvicted}} evicted, {{totalUnEvicted}} un-evicted"
+    },
+    "gameDetect": {
+      "starting": {
+        "default": "Starting game cache detection...",
+        "incremental": "Starting incremental scan (new games and services only)...",
+        "full": "Starting full scan (all games and services)..."
+      },
+      "complete": {
+        "default": "Detection complete",
+        "newGames": "Found {{newGamesCount}} new game(s) ({{totalGamesDetected}} total with cache files)",
+        "noNewGames": "No new games detected ({{totalGamesDetected}} total with cache files)",
+        "full": "Detected {{totalGamesDetected}} games with cache files"
+      },
+      "scan": {
+        "skippedIncremental": "Skipping cache file scan (incremental mode)...",
+        "inProgress": "Scanning cache files...",
+        "complete": "Cache file scan completed"
+      },
+      "db": {
+        "querying": "Querying database for game URLs...",
+        "complete": "Database query completed"
+      },
+      "matching": {
+        "starting": "Matching {{totalGames}} games to cache files...",
+        "progress": "Processing game {{processed}}/{{totalGames}}"
+      },
+      "epic": {
+        "detecting": "Detecting Epic games"
+      },
+      "services": {
+        "detecting": "Detecting non-game services",
+        "progress": "Processing service {{processed}}/{{total}}",
+        "skippedIncremental": "Skipping service detection (incremental mode)"
+      },
+      "writing": "Writing detection report",
+      "loaded": {
+        "gamesAndServices": "Loaded {{gamesCount}} games and {{servicesCount}} services from cache",
+        "gamesOnly": "Loaded {{gamesCount}} games from cache"
+      }
+    },
+    "gameRemove": {
+      "starting": "Starting removal for game '{{gameName}}' (AppID {{gameAppId}})",
+      "noUrls": "No URLs found for this game",
+      "complete": "Removed {{files}} cache files ({{gb}} GB), {{logEntries}} log entries for game '{{gameName}}' (AppID {{gameAppId}})",
+      "error": {
+        "fatal": "Game removal failed: {{errorDetail}}"
+      },
+      "db": {
+        "querying": "Querying database for depot IDs and URLs",
+        "deleting": "Deleting database records"
+      },
+      "cache": {
+        "removing": "Removing cache files for {{count}} URLs",
+        "skippedEvicted": "Skipping cache cleanup (fully evicted game)",
+        "file": {
+          "progress": "Removing file {{n}}/{{total}}"
+        }
+      },
+      "dirs": {
+        "cleaning": "Cleaning up empty directories",
+        "skippedEvicted": "Skipping directory cleanup (fully evicted game)"
+      },
+      "logs": {
+        "removing": "Removing log entries"
+      }
+    },
+    "logProcessing": {
+      "starting": "Starting log processing...",
+      "complete": "Processing complete"
+    },
+    "logProcessor": {
+      "starting": "Starting log processing...",
+      "complete": "Processing complete",
+      "error": {
+        "fatal": "Log processing failed: {{errorDetail}}"
+      }
+    },
+    "logPurge": {
+      "reading": "Reading purge request JSON...",
+      "purging": "Purging logs for {{urlCount}} URLs / {{depotCount}} depot IDs",
+      "rewrote": "Rewrote logs — {{linesRemoved}} lines removed",
+      "complete": "Purged {{linesRemoved}} log lines across access.log files ({{permissionErrors}} permission errors)",
+      "error": {
+        "fatal": "Log purge failed: {{errorDetail}}"
+      }
+    },
+    "logRemoval": {
+      "starting": {
+        "default": "Starting removal of {{service}} entries from logs...",
+        "multi": "Starting removal of {{service}} entries from {{datasourceCount}} datasource(s)...",
+        "single": "Starting removal of {{service}} entries from {{datasourceName}}..."
+      },
+      "processingDatasource": "Removing {{service}} entries from datasource '{{datasourceName}}'...",
+      "cleaningDatabase": "Cleaning up database records for {{service}}..."
+    },
+    "serviceRemove": {
+      "starting": {
+        "default": "Starting removal for service '{{service}}'",
+        "byName": "Starting removal of {{name}}..."
+      },
+      "noUrls": "No URLs found for this service",
+      "complete": "Removed {{files}} cache files ({{gb}} GB), {{logEntries}} log entries, {{dbRecords}} database records for service '{{service}}'",
+      "finalizing": "Finalizing removal...",
+      "success": "Successfully removed {{name}} service from cache",
+      "cancelled": "Service removal for {{name}} was cancelled.",
+      "error": {
+        "default": "Error removing {{name}}: {{errorDetail}}",
+        "fatal": "Service removal failed: {{errorDetail}}"
+      },
+      "failed": {
+        "generic": "Failed to remove {{name}} service. Check server logs for details."
+      },
+      "db": {
+        "querying": "Querying database for service URLs",
+        "deleting": "Deleting database records"
+      },
+      "cache": {
+        "removing": "Removing cache files for {{count}} URLs",
+        "file": {
+          "progress": "Removing file {{n}}/{{total}}"
+        }
+      },
+      "logs": {
+        "removing": "Removing log entries"
+      }
+    },
+    "steamSession": {
+      "reconnectFailed": "Failed to maintain Steam connection after {{maxAttempts}} reconnection attempts. Steam servers may be experiencing issues.",
+      "loginFailed": "Unable to log into Steam: {{result}}. Please try again or re-authenticate.",
+      "disconnected": "Disconnected from Steam: {{result}}"
+    }
   }
 }
