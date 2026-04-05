@@ -648,7 +648,8 @@ public class GameCacheDetectionService : IDisposable
             }
 
             // Save services to database (only for full scan, incremental preserves existing)
-            if (!incremental && aggregatedServices.Count > 0)
+            // Always run on full scan even with zero services — zero incoming means everything should be evicted
+            if (!incremental)
             {
                 await SaveServicesToDatabaseAsync(aggregatedServices);
                 _logger.LogInformation("[GameDetection] Services saved to database - {Count} services total", aggregatedServices.Count);
@@ -879,6 +880,22 @@ public class GameCacheDetectionService : IDisposable
         {
             _logger.LogWarning(selfHealEx,
                 "[GameDetection] Trigger #2 reverse-reconcile failed on cache load — proceeding with stale data");
+        }
+
+        try
+        {
+            var serviceSelfHealedCount = await CacheReconciliationService.UnevictCachedServiceDetectionsAsync(dbContext, _logger, default);
+            if (serviceSelfHealedCount > 0)
+            {
+                _logger.LogInformation(
+                    "[ServiceDetection] Self-healed {Count} CachedServiceDetection rows on cache load",
+                    serviceSelfHealedCount);
+            }
+        }
+        catch (Exception selfHealEx)
+        {
+            _logger.LogWarning(selfHealEx,
+                "[ServiceDetection] Service self-heal failed on cache load — proceeding with stale data");
         }
 
         // Clean up any legacy GameAppId=0 entries that have no EpicAppId — these were left
@@ -1652,26 +1669,72 @@ public class GameCacheDetectionService : IDisposable
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
 
-        // Always clear existing services on detection (services don't support incremental)
-        await dbContext.CachedServiceDetections.ExecuteDeleteAsync();
-
         var now = DateTime.UtcNow;
 
-        foreach (var service in services)
-        {
-            var cachedService = new CachedServiceDetection
-            {
-                ServiceName = service.ServiceName,
-                CacheFilesFound = service.CacheFilesFound,
-                TotalSizeBytes = service.TotalSizeBytes,
-                SampleUrlsJson = JsonSerializer.Serialize(service.SampleUrls),
-                CacheFilePathsJson = JsonSerializer.Serialize(service.CacheFilePaths),
-                DatasourcesJson = JsonSerializer.Serialize(service.Datasources),
-                LastDetectedUtc = now,
-                CreatedAtUtc = now
-            };
+        // Build a lookup of incoming services keyed by lower-invariant name for O(1) matching
+        var incomingByName = services
+            .GroupBy(s => s.ServiceName.ToLowerInvariant())
+            .ToDictionary(g => g.Key, g => g.Last());
 
-            dbContext.CachedServiceDetections.Add(cachedService);
+        // Load all existing rows into a dictionary keyed by lower-invariant ServiceName
+        var existingDict = await dbContext.CachedServiceDetections
+            .ToDictionaryAsync(s => s.ServiceName.ToLowerInvariant());
+
+        // Upsert each incoming service
+        foreach (var kvp in incomingByName)
+        {
+            var service = kvp.Value;
+            if (existingDict.TryGetValue(kvp.Key, out var existing))
+            {
+                existing.CacheFilesFound = service.CacheFilesFound;
+                existing.TotalSizeBytes = service.TotalSizeBytes;
+                existing.SampleUrlsJson = JsonSerializer.Serialize(service.SampleUrls);
+                existing.CacheFilePathsJson = JsonSerializer.Serialize(service.CacheFilePaths);
+                existing.DatasourcesJson = JsonSerializer.Serialize(service.Datasources);
+                existing.LastDetectedUtc = now;
+
+                // Self-heal: if Rust found cache files for a service that was previously evicted,
+                // the files have reappeared — un-evict inline during upsert.
+                if (service.CacheFilesFound > 0 && existing.IsEvicted)
+                {
+                    existing.IsEvicted = false;
+                    _logger.LogInformation(
+                        "[ServiceDetection] Self-healed: service {Name} un-evicted — Rust found {Files} cache files",
+                        existing.ServiceName, service.CacheFilesFound);
+                }
+            }
+            else
+            {
+                dbContext.CachedServiceDetections.Add(new CachedServiceDetection
+                {
+                    ServiceName = service.ServiceName,
+                    CacheFilesFound = service.CacheFilesFound,
+                    TotalSizeBytes = service.TotalSizeBytes,
+                    SampleUrlsJson = JsonSerializer.Serialize(service.SampleUrls),
+                    CacheFilePathsJson = JsonSerializer.Serialize(service.CacheFilePaths),
+                    DatasourcesJson = JsonSerializer.Serialize(service.Datasources),
+                    LastDetectedUtc = now,
+                    CreatedAtUtc = now
+                });
+            }
+        }
+
+        // For every existing row NOT present in the incoming scan results, flip to evicted.
+        // This is the forward-eviction trigger: a full scan that doesn't report a service
+        // means its cache files are gone.
+        foreach (var kvp in existingDict)
+        {
+            if (!incomingByName.ContainsKey(kvp.Key))
+            {
+                var existing = kvp.Value;
+                existing.IsEvicted = true;
+                existing.CacheFilesFound = 0;
+                existing.TotalSizeBytes = 0;
+                existing.LastDetectedUtc = now;
+                _logger.LogInformation(
+                    "[ServiceDetection] Marked {Name} as evicted — no cache files found on latest scan",
+                    existing.ServiceName);
+            }
         }
 
         await dbContext.SaveChangesAsync();
@@ -1798,7 +1861,8 @@ public class GameCacheDetectionService : IDisposable
             TotalSizeBytes = cached.TotalSizeBytes,
             SampleUrls = DeserializeStringList(cached.SampleUrlsJson),
             CacheFilePaths = DeserializeStringList(cached.CacheFilePathsJson),
-            Datasources = DeserializeStringList(datasourcesJson)
+            Datasources = DeserializeStringList(datasourcesJson),
+            IsEvicted = cached.IsEvicted
         };
     }
 

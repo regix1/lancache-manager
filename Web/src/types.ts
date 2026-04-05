@@ -314,6 +314,7 @@ export interface ServiceCacheInfo {
   sample_urls: string[];
   cache_file_paths: string[];
   datasources: string[];
+  is_evicted?: boolean;
 }
 
 // Event Types

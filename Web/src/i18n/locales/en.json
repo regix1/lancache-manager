@@ -1973,6 +1973,8 @@
       "evictedBadge": "Evicted",
       "evictedGamesSection": "Evicted Games",
       "noEvictedGames": "No evicted games found",
+      "evictedItems": "Evicted Items",
+      "noEvictedItems": "No evicted items",
       "loadingEvictedGames": "Loading evicted games...",
       "noGamesMatching": "No games found matching \"{{query}}\"",
       "clearSearch": "Clear search",

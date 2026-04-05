@@ -15,9 +15,17 @@ interface CacheRemovalModalProps {
   target: RemovalTarget | null;
   onClose: () => void;
   onConfirm: () => void;
+  titleOverride?: string;
+  descriptionOverride?: string;
 }
 
-const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({ target, onClose, onConfirm }) => {
+const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({
+  target,
+  onClose,
+  onConfirm,
+  titleOverride,
+  descriptionOverride
+}) => {
   const { t } = useTranslation();
 
   if (!target) return null;
@@ -30,6 +38,15 @@ const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({ target, onClose, 
   const totalSize = target.data.total_size_bytes;
   const depotCount = isGame ? (target.data as GameCacheInfo).depot_ids.length : 0;
 
+  const modalTitle =
+    titleOverride ??
+    (isGame ? t('modals.cacheRemoval.titleGame') : t('modals.cacheRemoval.titleService'));
+  const modalDescription =
+    descriptionOverride ??
+    (isGame
+      ? t('modals.cacheRemoval.confirmGame', { name })
+      : t('modals.cacheRemoval.confirmService', { name }));
+
   return (
     <Modal
       opened={target !== null}
@@ -37,18 +54,12 @@ const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({ target, onClose, 
       title={
         <div className="flex items-center space-x-3">
           <AlertTriangle className="w-6 h-6 text-themed-warning" />
-          <span>
-            {isGame ? t('modals.cacheRemoval.titleGame') : t('modals.cacheRemoval.titleService')}
-          </span>
+          <span>{modalTitle}</span>
         </div>
       }
     >
       <div className="space-y-4">
-        <p className="text-themed-secondary">
-          {isGame
-            ? t('modals.cacheRemoval.confirmGame', { name })
-            : t('modals.cacheRemoval.confirmService', { name })}
-        </p>
+        <p className="text-themed-secondary">{modalDescription}</p>
 
         <Alert color="yellow">
           <div>

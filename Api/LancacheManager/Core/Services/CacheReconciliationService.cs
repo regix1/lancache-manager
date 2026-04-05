@@ -801,6 +801,30 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     }
 
     /// <summary>
+    /// Self-heal: clears IsEvicted on CachedServiceDetection rows that have reappeared on disk
+    /// (CacheFilesFound > 0). Services do not have a Downloads FK relationship so the check is
+    /// simpler — if the Rust scan found cache files again, the service is no longer evicted.
+    /// </summary>
+    public static async Task<int> UnevictCachedServiceDetectionsAsync(
+        AppDbContext context,
+        ILogger logger,
+        CancellationToken ct)
+    {
+        var updated = await context.CachedServiceDetections
+            .Where(s => s.IsEvicted && s.CacheFilesFound > 0)
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.IsEvicted, false), ct);
+
+        if (updated > 0)
+        {
+            logger.LogInformation(
+                "[ServiceDetection] Self-healed {Count} evicted services — cache files found on disk again",
+                updated);
+        }
+
+        return updated;
+    }
+
+    /// <summary>
     /// Deserialized report from the `cache_purge_log_entries` Rust binary's output JSON.
     /// </summary>
     private sealed class PurgeLogEntriesReport

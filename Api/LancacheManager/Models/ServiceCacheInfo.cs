@@ -22,4 +22,7 @@ public class ServiceCacheInfo
     /// </summary>
     [System.Text.Json.Serialization.JsonPropertyName("datasources")]
     public List<string> Datasources { get; set; } = new List<string>();
+
+    [System.Text.Json.Serialization.JsonPropertyName("is_evicted")]
+    public bool IsEvicted { get; set; } = false;
 }

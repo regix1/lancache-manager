@@ -43,4 +43,10 @@ public class CachedServiceDetection
     /// When this record was created
     /// </summary>
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
+
+    /// <summary>
+    /// Persisted. True when the service's cache files have been evicted (first removal step completed).
+    /// The DB row is retained until the user finalizes the removal (second step).
+    /// </summary>
+    public bool IsEvicted { get; set; } = false;
 }

@@ -1462,7 +1462,7 @@ public class CacheManagementService
             // Remove this service from cached service detection results so page reload shows correct data
             await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
             await dbContext.CachedServiceDetections
-                .Where(CachedServiceDetection => CachedServiceDetection.ServiceName == serviceName)
+                .Where(s => s.ServiceName == serviceName)
                 .ExecuteDeleteAsync();
             _logger.LogInformation("[ServiceRemoval] Removed cached service detection entry for: {Service}", serviceName);
 

@@ -91,14 +91,14 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   });
   const [servicesExpanded, setServicesExpanded] = useState(true);
   const [gamesExpanded, setGamesExpanded] = useState(true);
-  const [evictedGamesExpanded, setEvictedGamesExpanded] = useState(() => {
-    const saved = localStorage.getItem('management-evicted-games-expanded');
+  const [evictedItemsExpanded, setEvictedItemsExpanded] = useState(() => {
+    const saved = localStorage.getItem('management-evicted-items-expanded');
     return saved !== null ? saved === 'true' : true;
   });
 
   useEffect(() => {
-    localStorage.setItem('management-evicted-games-expanded', String(evictedGamesExpanded));
-  }, [evictedGamesExpanded]);
+    localStorage.setItem('management-evicted-items-expanded', String(evictedItemsExpanded));
+  }, [evictedItemsExpanded]);
 
   useEffect(() => {
     localStorage.setItem('management-game-cache-expanded', String(sectionExpanded));
@@ -159,7 +159,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const formattedLastDetectionTime = useFormattedDateTime(lastDetectionTime);
 
   // Filter games and services by selected datasource.
-  // Evicted games are excluded from the main list — they are shown in the Evicted Games section.
+  // Evicted games/services are excluded from the main list — they are shown in the Evicted Items section.
   // Note: Items with empty/missing datasources (legacy data) are shown regardless of filter.
   const activeGames = games.filter((g) => !g.is_evicted);
   const filteredGames = selectedDatasource
@@ -167,14 +167,26 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         (g) => !g.datasources?.length || g.datasources.includes(selectedDatasource)
       )
     : activeGames;
+  const evictedServices = useMemo(
+    () => services.filter((service: ServiceCacheInfo) => service.is_evicted === true),
+    [services]
+  );
+  const activeServices = services.filter((s: ServiceCacheInfo) => !s.is_evicted);
   const filteredServices = selectedDatasource
-    ? services.filter((s) => !s.datasources?.length || s.datasources.includes(selectedDatasource))
-    : services;
+    ? activeServices.filter(
+        (s) => !s.datasources?.length || s.datasources.includes(selectedDatasource)
+      )
+    : activeServices;
   const filteredEvictedGames = selectedDatasource
     ? evictedGames.filter(
         (g) => !g.datasources?.length || g.datasources.includes(selectedDatasource)
       )
     : evictedGames;
+  const filteredEvictedServices = selectedDatasource
+    ? evictedServices.filter(
+        (s) => !s.datasources?.length || s.datasources.includes(selectedDatasource)
+      )
+    : evictedServices;
 
   // Auto-collapse sections if they have many items (> 10)
   useEffect(() => {
@@ -300,7 +312,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       const serviceName = notif.details?.service;
       if (!serviceName) return;
 
-      // Remove from UI (backend already removed from database)
       setServices((prev) => prev.filter((s) => s.service_name !== serviceName));
     });
 
@@ -676,15 +687,18 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
   // Expand/Collapse all handler
   const handleExpandCollapseAll = () => {
-    const allExpanded = servicesExpanded && gamesExpanded && evictedGamesExpanded;
+    const allExpanded = servicesExpanded && gamesExpanded && evictedItemsExpanded;
     setServicesExpanded(!allExpanded);
     setGamesExpanded(!allExpanded);
-    setEvictedGamesExpanded(!allExpanded);
+    setEvictedItemsExpanded(!allExpanded);
   };
 
   const hasResults =
-    filteredGames.length > 0 || filteredServices.length > 0 || filteredEvictedGames.length > 0;
-  const allExpanded = servicesExpanded && gamesExpanded && evictedGamesExpanded;
+    filteredGames.length > 0 ||
+    filteredServices.length > 0 ||
+    filteredEvictedGames.length > 0 ||
+    filteredEvictedServices.length > 0;
+  const allExpanded = servicesExpanded && gamesExpanded && evictedItemsExpanded;
 
   // Help content
   // Header actions - scan buttons + expand/collapse all
@@ -767,7 +781,10 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
             badge={
               hasResults ? (
                 <span className="themed-badge status-badge-info">
-                  {filteredGames.length + filteredServices.length + filteredEvictedGames.length}
+                  {filteredGames.length +
+                    filteredServices.length +
+                    filteredEvictedGames.length +
+                    filteredEvictedServices.length}
                 </span>
               ) : undefined
             }
@@ -918,34 +935,52 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                     </AccordionSection>
                   )}
 
-                  {/* Evicted Games Section (Accordion) */}
+                  {/* Evicted Items Section (Accordion) */}
                   <AccordionSection
-                    title={t('management.gameDetection.evictedGamesSection')}
-                    count={filteredEvictedGames.length}
+                    title={t('management.gameDetection.evictedItems')}
+                    count={filteredEvictedGames.length + filteredEvictedServices.length}
                     icon={Database}
                     iconColor="var(--theme-icon-orange)"
-                    isExpanded={evictedGamesExpanded}
-                    onToggle={() => setEvictedGamesExpanded((prev) => !prev)}
+                    isExpanded={evictedItemsExpanded}
+                    onToggle={() => setEvictedItemsExpanded((prev) => !prev)}
                   >
                     {loading ? (
                       <LoadingState message={t('management.gameDetection.loadingEvictedGames')} />
-                    ) : filteredEvictedGames.length === 0 ? (
+                    ) : filteredEvictedGames.length === 0 &&
+                      filteredEvictedServices.length === 0 ? (
                       <EmptyState
                         icon={Database}
-                        title={t('management.gameDetection.noEvictedGames')}
+                        title={t('management.gameDetection.noEvictedItems')}
                       />
                     ) : (
-                      <GamesList
-                        games={filteredEvictedGames}
-                        totalGames={filteredEvictedGames.length}
-                        notifications={notifications}
-                        isAnyRemovalRunning={isAnyRemovalRunning}
-                        isAdmin={isAdmin}
-                        cacheReadOnly={cacheReadOnly}
-                        dockerSocketAvailable={isDockerAvailable}
-                        checkingPermissions={checkingPermissions}
-                        onRemoveGame={handleEvictedGameRemoveClick}
-                      />
+                      <div className="space-y-4">
+                        {filteredEvictedServices.length > 0 && (
+                          <ServicesList
+                            services={filteredEvictedServices}
+                            totalServices={filteredEvictedServices.length}
+                            notifications={notifications}
+                            isAnyRemovalRunning={isAnyRemovalRunning}
+                            isAdmin={isAdmin}
+                            cacheReadOnly={cacheReadOnly}
+                            dockerSocketAvailable={isDockerAvailable}
+                            checkingPermissions={checkingPermissions}
+                            onRemoveService={handleServiceRemoveClick}
+                          />
+                        )}
+                        {filteredEvictedGames.length > 0 && (
+                          <GamesList
+                            games={filteredEvictedGames}
+                            totalGames={filteredEvictedGames.length}
+                            notifications={notifications}
+                            isAnyRemovalRunning={isAnyRemovalRunning}
+                            isAdmin={isAdmin}
+                            cacheReadOnly={cacheReadOnly}
+                            dockerSocketAvailable={isDockerAvailable}
+                            checkingPermissions={checkingPermissions}
+                            onRemoveGame={handleEvictedGameRemoveClick}
+                          />
+                        )}
+                      </div>
                     )}
                   </AccordionSection>
 

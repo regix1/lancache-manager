@@ -1,12 +1,14 @@
 using LancacheManager.Models;
 using LancacheManager.Core.Services;
 using LancacheManager.Infrastructure.Services;
+using LancacheManager.Infrastructure.Data;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Hubs;
 using static LancacheManager.Infrastructure.Utilities.SignalRNotifications;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Controllers;
 
@@ -32,6 +34,7 @@ public class CacheController : ControllerBase
     private readonly CorruptionDetectionService _corruptionDetectionService;
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly DatasourceService _datasourceService;
+    private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
 
     public CacheController(
         CacheManagementService cacheService,
@@ -46,7 +49,8 @@ public class CacheController : ControllerBase
         RustProcessHelper rustProcessHelper,
         NginxLogRotationService nginxLogRotationService,
         IUnifiedOperationTracker operationTracker,
-        DatasourceService datasourceService)
+        DatasourceService datasourceService,
+        IDbContextFactory<AppDbContext> dbContextFactory)
     {
         _cacheService = cacheService;
         _cacheClearingService = cacheClearingService;
@@ -61,6 +65,7 @@ public class CacheController : ControllerBase
         _nginxLogRotationService = nginxLogRotationService;
         _operationTracker = operationTracker;
         _datasourceService = datasourceService;
+        _dbContextFactory = dbContextFactory;
     }
 
     /// <summary>
@@ -886,7 +891,7 @@ public class CacheController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpDelete("services/{name}")]
-    public IActionResult ClearServiceCache(string name)
+    public async Task<IActionResult> ClearServiceCacheAsync(string name)
     {
         // CRITICAL: Check write permissions BEFORE starting the operation
         // This prevents operations from failing partway through due to permission issues
@@ -925,18 +930,23 @@ public class CacheController : ControllerBase
             new ServiceRemovalStarted(name, operationId, $"Starting removal of {name}...", DateTime.UtcNow));
 
         // Fire-and-forget background removal with SignalR notification
+        var cancellationToken = cts.Token;
         _ = Task.Run(async () =>
         {
             try
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
                 // Send starting notification
                 await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalProgress,
                     new ServiceRemovalProgress(name, operationId, "starting", $"Starting removal of {name}..."));
                 _operationTracker.UpdateProgress(operationId, 0, $"Starting removal of {name}...");
 
-                // Use CacheManagementService which actually deletes files via Rust binary
-                var report = await _cacheService.RemoveServiceFromCacheAsync(name, cts.Token,
-                    async (percentComplete, message, filesDeleted, bytesFreed) =>
+                cancellationToken.ThrowIfCancellationRequested();
+
+                // Call with progress callback that sends live SignalR updates
+                var report = await _cacheService.RemoveServiceFromCacheAsync(name, cancellationToken,
+                    async (double percentComplete, string message, int filesDeleted, long bytesFreed) =>
                     {
                         await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalProgress,
                             new ServiceRemovalProgress(name, operationId, "removing_cache", message, percentComplete,
@@ -950,7 +960,9 @@ public class CacheController : ControllerBase
                         });
                     });
 
-                // Send progress update
+                cancellationToken.ThrowIfCancellationRequested();
+
+                // Send finalizing progress update
                 await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalProgress,
                     new ServiceRemovalProgress(name, operationId, "complete", "Finalizing removal...", 100.0, report.CacheFilesDeleted, (long)report.TotalBytesFreed));
                 _operationTracker.UpdateProgress(operationId, 100.0, "Finalizing removal...");
@@ -961,13 +973,10 @@ public class CacheController : ControllerBase
                     m.BytesFreed = (long)report.TotalBytesFreed;
                 });
 
-                // Also remove from detection cache so it doesn't show in UI
-                await _gameCacheDetectionService.RemoveServiceFromCacheAsync(name);
-
-                _logger.LogInformation("Service removal completed for: {Service} - Deleted {Files} files, freed {Bytes} bytes",
+                _logger.LogInformation("Service removal completed for {Service} - Deleted {Files} files, freed {Bytes} bytes",
                     name, report.CacheFilesDeleted, report.TotalBytesFreed);
 
-                // Complete tracking
+                // Mark operation as complete in unified tracker
                 _operationTracker.CompleteOperation(operationId, success: true);
 
                 // Send SignalR notification on success
@@ -986,18 +995,15 @@ public class CacheController : ControllerBase
             {
                 _logger.LogError(ex, "Error during service removal for: {Service}", name);
 
-                // Send error status notification
                 await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalProgress,
                     new ServiceRemovalProgress(name, operationId, "error", $"Error removing {name}: {ex.Message}", 0));
 
-                // Complete tracking with error
                 _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
 
-                // Send SignalR notification on failure
                 await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalComplete,
                     new ServiceRemovalComplete(false, name, operationId, $"Failed to remove {name} service. Check server logs for details."));
             }
-        });
+        }, cancellationToken);
 
         return Accepted(new CacheOperationResponse
         {
