@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* eslint-env node */
 /**
  * validate-stage-keys.mjs
  *
@@ -11,7 +12,7 @@
  *   node scripts/validate-stage-keys.mjs --strict # exit 1 on any missing OR unused key
  */
 
-import { readFileSync, readdirSync, statSync } from 'fs';
+import { readFileSync, readdirSync } from 'fs';
 import { join, resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -42,7 +43,14 @@ function* walkDir(dir) {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
       // Skip common noise dirs
-      if (entry.name === 'node_modules' || entry.name === 'target' || entry.name === 'bin' || entry.name === 'obj' || entry.name === '.git') continue;
+      if (
+        entry.name === 'node_modules' ||
+        entry.name === 'target' ||
+        entry.name === 'bin' ||
+        entry.name === 'obj' ||
+        entry.name === '.git'
+      )
+        continue;
       yield* walkDir(full);
     } else if (entry.isFile()) {
       const ext = full.slice(full.lastIndexOf('.'));
@@ -132,12 +140,11 @@ let collisionCount = 0;
 for (const [key, files] of referencedKeys) {
   if (!definedKeys.has(key)) {
     // Check if the path resolves to an object (leaf/object collision between workers)
-    const parts = key.split('.');
-    const topLevel = parts[0]; // 'signalr'
-    const subPath = parts.slice(1).join('.');
     const resolved = resolveJsonPath(enJson, key);
     if (resolved !== null && typeof resolved === 'object') {
-      console.warn(`COLLISION: ${key}  is an object in en.json, not a leaf (referenced in ${files.join(', ')}) — inter-worker key conflict, needs coordination`);
+      console.warn(
+        `COLLISION: ${key}  is an object in en.json, not a leaf (referenced in ${files.join(', ')}) — inter-worker key conflict, needs coordination`
+      );
       collisionCount++;
     } else {
       console.error(`MISSING: ${key}  (referenced in ${files.join(', ')})`);
@@ -161,8 +168,12 @@ console.log(
 );
 
 if (collisionCount > 0) {
-  console.warn(`\nNOTE: ${collisionCount} collision(s) found where a key is referenced as a leaf but exists as an object in en.json.`);
-  console.warn('These require coordination between worker-rust/worker-csharp to use the sub-key variants (e.g., .default, .fatal).');
+  console.warn(
+    `\nNOTE: ${collisionCount} collision(s) found where a key is referenced as a leaf but exists as an object in en.json.`
+  );
+  console.warn(
+    'These require coordination between worker-rust/worker-csharp to use the sub-key variants (e.g., .default, .fatal).'
+  );
 }
 
 if (missingCount > 0) {
@@ -171,7 +182,9 @@ if (missingCount > 0) {
 }
 
 if (strict && unusedCount > 0) {
-  console.error('\nFAIL (--strict): Unused keys must be removed from en.json or referenced in code.');
+  console.error(
+    '\nFAIL (--strict): Unused keys must be removed from en.json or referenced in code.'
+  );
   process.exit(1);
 }
 
