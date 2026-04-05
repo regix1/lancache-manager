@@ -375,7 +375,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
         addNotification({
           type: 'generic',
           status: 'running',
-          message: 'Waiting for the current scan to finish...',
+          message: t('management.sections.data.evictionScanWaiting'),
           details: { notificationType: 'info' }
         });
 

@@ -121,7 +121,7 @@ const CacheRemovalModal: React.FC<CacheRemovalModalProps> = ({
             onClick={onConfirm}
           >
             {titleOverride !== undefined && evictedCount !== undefined
-              ? t('modals.cacheRemoval.actions.removeEvictedLogEntries', { count: evictedCount })
+              ? t('modals.cacheRemoval.removeEvictedButton')
               : t('modals.cacheRemoval.removeButton')}
           </Button>
         </div>

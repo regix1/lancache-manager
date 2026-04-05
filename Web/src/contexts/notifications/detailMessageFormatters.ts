@@ -204,7 +204,9 @@ export const formatCorruptionRemovalStartedMessage = (
 export const formatCorruptionRemovalCompleteMessage = (
   event: CorruptionRemovalCompleteEvent
 ): string => {
-  return event.message || `Successfully removed corrupted chunks for ${event.service}`;
+  return (
+    event.message || `Corruption removal completed${event.service ? ` for ${event.service}` : ''}`
+  );
 };
 
 // ============================================================================
@@ -217,7 +219,7 @@ export const formatCorruptionRemovalCompleteMessage = (
  * @returns Formatted message string
  */
 export const formatGameDetectionStartedMessage = (event: GameDetectionStartedEvent): string => {
-  return event.message || 'Detecting games and services in cache...';
+  return event.message || 'Detecting games and services...';
 };
 
 /**
@@ -287,7 +289,7 @@ export const formatCorruptionDetectionProgressMessage = (
 export const formatCorruptionDetectionCompleteMessage = (
   event: CorruptionDetectionCompleteEvent
 ): string => {
-  return event.message || 'Corruption scan completed';
+  return event.message || 'Corruption detection completed';
 };
 
 /**
@@ -298,7 +300,7 @@ export const formatCorruptionDetectionCompleteMessage = (
 export const formatCorruptionDetectionFailureMessage = (
   event: CorruptionDetectionCompleteEvent
 ): string => {
-  return event.message || 'Corruption scan failed';
+  return event.message || 'Corruption detection failed';
 };
 
 // ============================================================================
@@ -348,7 +350,7 @@ export const formatCacheClearProgressMessage = (event: CacheClearProgressEvent):
  * @returns Formatted success message string
  */
 export const formatCacheClearCompleteMessage = (event: CacheClearCompleteEvent): string => {
-  return event.message || 'Cache cleared successfully';
+  return event.message || 'Cache clearing completed';
 };
 
 /**
@@ -357,7 +359,7 @@ export const formatCacheClearCompleteMessage = (event: CacheClearCompleteEvent):
  * @returns Formatted failure message string
  */
 export const formatCacheClearFailureMessage = (event: CacheClearCompleteEvent): string => {
-  return event.error || event.message || 'Cache clear failed';
+  return event.error || event.message || 'Cache clearing failed';
 };
 
 // ============================================================================

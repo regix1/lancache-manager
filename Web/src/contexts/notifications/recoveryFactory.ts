@@ -137,7 +137,7 @@ const RECOVERY_CONFIGS = {
         totalLines: data.totalLines as number
       }
     }),
-    staleMessage: 'Processing Complete!'
+    staleMessage: 'Log processing completed'
   } satisfies SimpleRecoveryConfig,
 
   cacheClearing: {

@@ -113,7 +113,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getDetails: (event: ProcessingProgressEvent) => ({ operationId: event.operationId })
     },
     complete: {
-      getSuccessMessage: () => 'Processing Complete!',
+      getSuccessMessage: () => 'Log processing completed',
       getDetailMessage: (event: LogProcessingCompleteEvent) =>
         formatLogProcessingDetailMessage(
           event.entriesProcessed,
@@ -256,7 +256,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       complete: 'CorruptionRemovalComplete'
     },
     started: {
-      defaultMessage: 'Removing corrupted chunks...',
+      defaultMessage: 'Starting corruption removal...',
       getMessage: (event: CorruptionRemovalStartedEvent) =>
         formatCorruptionRemovalStartedMessage(event),
       getDetails: (event: CorruptionRemovalStartedEvent) => ({
@@ -266,7 +266,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     },
     progress: {
       getMessage: (event: CorruptionRemovalProgressEvent) =>
-        event.message || `Removing corrupted chunks: ${event.status}`,
+        event.message || 'Corruption removal in progress...',
       getProgress: (event: CorruptionRemovalProgressEvent) => event.percentComplete || 0,
       getStatus: (event: CorruptionRemovalProgressEvent) => standardGetStatus(event),
       getCompletedMessage: (event: CorruptionRemovalProgressEvent) =>
@@ -385,8 +385,9 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       complete: 'CacheClearingComplete'
     },
     started: {
-      defaultMessage: 'Clearing cache...',
-      getMessage: (event: CacheClearingStartedEvent) => event.message || 'Clearing cache...',
+      defaultMessage: 'Starting cache clearing...',
+      getMessage: (event: CacheClearingStartedEvent) =>
+        event.message || 'Starting cache clearing...',
       getDetails: (event: CacheClearingStartedEvent) => ({ operationId: event.operationId })
     },
     progress: {
@@ -394,9 +395,9 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getProgress: (event: CacheClearProgressEvent) => event.percentComplete || 0,
       getStatus: (event: CacheClearProgressEvent) => standardGetStatus(event),
       getCompletedMessage: (event: CacheClearProgressEvent) =>
-        event.statusMessage || event.message || 'Cache cleared successfully',
+        event.statusMessage || event.message || 'Cache clearing completed',
       getErrorMessage: (event: CacheClearProgressEvent) =>
-        event.error || event.statusMessage || event.message || 'Cache clear failed',
+        event.error || event.statusMessage || event.message || 'Cache clearing failed',
       getDetails: (event: CacheClearProgressEvent) => ({
         operationId: event.operationId,
         filesDeleted: event.filesDeleted,
@@ -521,7 +522,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     },
     complete: {
       getSuccessMessage: (event: EvictionRemovalCompleteEvent) =>
-        event.message || 'Evicted game data removed successfully',
+        event.message || 'Eviction removal completed',
       getFailureMessage: (event: EvictionRemovalCompleteEvent) =>
         event.error || event.message || 'Eviction removal failed',
       supportFastCompletion: true,

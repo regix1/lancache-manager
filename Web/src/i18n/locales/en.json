@@ -1421,6 +1421,7 @@
         "runEvictionScan": "Run Eviction Scan",
         "evictionScanStarted": "Eviction scan started",
         "evictionScanError": "Failed to start eviction scan",
+        "evictionScanWaiting": "Waiting for eviction scan to finish...",
         "evictionScanNotifications": "Show scheduled scan notifications",
         "evictionScanNotificationsDescription": "Notifications are always shown for manual scans. Enable this to also show them for the automatic scan on startup and the recurring 6-hour scan.",
         "resetEvictions": "Reset Evictions",
@@ -3702,6 +3703,7 @@
         "removeEvictedLogEntries": "Remove {{count}} evicted download record(s) and their log entries"
       },
       "removeButton": "Remove from Cache",
+      "removeEvictedButton": "Remove Evicted Data",
       "titlePartialEvictedGame": "Remove Evicted Data",
       "titlePartialEvictedService": "Remove Evicted Data",
       "confirmPartialEvictedGame": "Remove {{count}} evicted download record(s) and their log entries for {{name}}. Active cache files will not be deleted.",
