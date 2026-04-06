@@ -5302,7 +5302,12 @@
         "logout": "All user sessions have been cleared — logging out immediately"
       }
     },
+    "dataImport": {
+      "progress": "Importing: {{processed}} of {{total}} records"
+    },
     "depotMapping": {
+      "batchProgress": "{{processedBatches}} / {{totalBatches}} batches",
+      "batchProgressWithMappings": "{{processedBatches}} / {{totalBatches}} batches \u2022 {{depotMappingsFound}} mappings found",
       "github": {
         "downloading": "Downloading depot mappings from GitHub...",
         "complete": "GitHub depot data imported — {{totalMappings}} mappings",
@@ -5434,7 +5439,11 @@
     },
     "logProcessing": {
       "starting": "Starting log processing...",
-      "complete": "Processing complete"
+      "progress": "Processing: {{mbProcessed}} MB of {{mbTotal}} MB",
+      "complete": "Processing complete",
+      "completedEntries": "Successfully processed {{entriesProcessed}} entries",
+      "completedDetail": "Successfully processed {{entriesProcessed}} entries from {{linesProcessed}} lines in {{elapsed}} minutes.",
+      "recoveryDetail": "{{entriesProcessed}} of {{totalLines}} entries"
     },
     "logProcessor": {
       "starting": "Starting log processing...",
@@ -5453,6 +5462,7 @@
       }
     },
     "logRemoval": {
+      "progressWithCount": "Removing {{service}} entries ({{linesRemoved}} removed)...",
       "starting": {
         "default": "Starting removal of {{service}} entries from logs...",
         "multi": "Starting removal of {{service}} entries from {{datasourceCount}} datasource(s)...",
@@ -5493,6 +5503,14 @@
       }
     },
     "steamSession": {
+      "errorTitle": {
+        "sessionReplaced": "Steam Session Replaced",
+        "autoLogout": "Steam Auto-Logout",
+        "authRequired": "Steam Authentication Required",
+        "serviceUnavailable": "Steam Service Unavailable",
+        "rateLimited": "Steam Rate Limited",
+        "generic": "Steam Error"
+      },
       "reconnectFailed": "Failed to maintain Steam connection after {{maxAttempts}} reconnection attempts. Steam servers may be experiencing issues.",
       "loginFailed": "Unable to log into Steam: {{result}}. Please try again or re-authenticate.",
       "disconnected": "Disconnected from Steam: {{result}}"

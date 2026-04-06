@@ -41,9 +41,10 @@ import i18n from '@/i18n';
  * @returns Formatted message string
  */
 export const formatLogProcessingMessage = (event: ProcessingProgressEvent): string => {
-  const mbProcessed = event.mbProcessed?.toFixed(1) || '0';
-  const mbTotal = event.mbTotal?.toFixed(1) || '0';
-  return `Processing: ${mbProcessed} MB of ${mbTotal} MB`;
+  return i18n.t('signalr.logProcessing.progress', {
+    mbProcessed: event.mbProcessed?.toFixed(1) || '0',
+    mbTotal: event.mbTotal?.toFixed(1) || '0'
+  });
 };
 
 /**
@@ -52,7 +53,9 @@ export const formatLogProcessingMessage = (event: ProcessingProgressEvent): stri
  * @returns Formatted completion message
  */
 export const formatLogProcessingCompletionMessage = (entriesProcessed?: number): string => {
-  return `Successfully processed ${entriesProcessed?.toLocaleString() || 0} entries`;
+  return i18n.t('signalr.logProcessing.completedEntries', {
+    entriesProcessed: entriesProcessed?.toLocaleString() || '0'
+  });
 };
 
 /**
@@ -67,7 +70,11 @@ export const formatLogProcessingDetailMessage = (
   linesProcessed?: number,
   elapsed?: number
 ): string => {
-  return `Successfully processed ${entriesProcessed?.toLocaleString() || 0} entries from ${linesProcessed?.toLocaleString() || 0} lines in ${elapsed?.toFixed(1) || 0} minutes.`;
+  return i18n.t('signalr.logProcessing.completedDetail', {
+    entriesProcessed: entriesProcessed?.toLocaleString() || '0',
+    linesProcessed: linesProcessed?.toLocaleString() || '0',
+    elapsed: elapsed?.toFixed(1) || '0'
+  });
 };
 
 // ============================================================================
@@ -86,11 +93,17 @@ export const formatDepotMappingRecoveryDetailMessage = (data: {
   depotMappingsFound?: number;
 }): string | undefined => {
   if (data.processedBatches !== undefined && data.totalBatches !== undefined) {
-    const batchesStr = `${data.processedBatches.toLocaleString()} / ${data.totalBatches.toLocaleString()} batches`;
     if (data.depotMappingsFound !== undefined) {
-      return `${batchesStr} • ${data.depotMappingsFound.toLocaleString()} mappings found`;
+      return i18n.t('signalr.depotMapping.batchProgressWithMappings', {
+        processedBatches: data.processedBatches.toLocaleString(),
+        totalBatches: data.totalBatches.toLocaleString(),
+        depotMappingsFound: data.depotMappingsFound.toLocaleString()
+      });
     }
-    return batchesStr;
+    return i18n.t('signalr.depotMapping.batchProgress', {
+      processedBatches: data.processedBatches.toLocaleString(),
+      totalBatches: data.totalBatches.toLocaleString()
+    });
   }
   return undefined;
 };
@@ -109,9 +122,10 @@ export const formatLogProcessingRecoveryMessage = (
   mbProcessed?: number,
   mbTotal?: number
 ): string => {
-  const processed = mbProcessed?.toFixed(1) || '0';
-  const total = mbTotal?.toFixed(1) || '0';
-  return `Processing: ${processed} MB of ${total} MB`;
+  return i18n.t('signalr.logProcessing.progress', {
+    mbProcessed: mbProcessed?.toFixed(1) || '0',
+    mbTotal: mbTotal?.toFixed(1) || '0'
+  });
 };
 
 /**
@@ -124,9 +138,10 @@ export const formatLogProcessingRecoveryDetailMessage = (
   entriesProcessed?: number,
   totalLines?: number
 ): string => {
-  const entries = entriesProcessed?.toLocaleString() || '0';
-  const total = totalLines?.toLocaleString() || '0';
-  return `${entries} of ${total} entries`;
+  return i18n.t('signalr.logProcessing.recoveryDetail', {
+    entriesProcessed: entriesProcessed?.toLocaleString() || '0',
+    totalLines: totalLines?.toLocaleString() || '0'
+  });
 };
 
 // ============================================================================
@@ -142,7 +157,10 @@ export const formatLogProcessingRecoveryDetailMessage = (
 export const formatLogRemovalProgressMessage = (event: LogRemovalProgressEvent): string => {
   const linesRemoved = event.linesRemoved || 0;
   if (linesRemoved > 0) {
-    return `Removing ${event.service} entries (${linesRemoved.toLocaleString()} removed)...`;
+    return i18n.t('signalr.logRemoval.progressWithCount', {
+      service: event.service,
+      linesRemoved: linesRemoved.toLocaleString()
+    });
   }
   return event.stageKey
     ? i18n.t(event.stageKey, event.context ?? {})
@@ -304,9 +322,6 @@ export const formatCorruptionDetectionProgressMessage = (
   if (event.stageKey) {
     return i18n.t(event.stageKey, event.context ?? {});
   }
-  if (event.totalFiles && event.filesProcessed !== undefined) {
-    return `Scanning file ${event.filesProcessed + 1}/${event.totalFiles}...`;
-  }
   return i18n.t('signalr.corruptionDetect.scanningLogs');
 };
 
@@ -463,9 +478,10 @@ export const formatDataImportStartedMessage = (event: DataImportStartedEvent): s
  * @returns Formatted progress message string
  */
 export const formatDataImportProgressMessage = (event: DataImportProgressEvent): string => {
-  const processed = event.recordsProcessed?.toLocaleString() || '0';
-  const total = event.totalRecords?.toLocaleString() || '0';
-  return `Importing: ${processed} of ${total} records`;
+  return i18n.t('signalr.dataImport.progress', {
+    processed: event.recordsProcessed?.toLocaleString() || '0',
+    total: event.totalRecords?.toLocaleString() || '0'
+  });
 };
 
 /**

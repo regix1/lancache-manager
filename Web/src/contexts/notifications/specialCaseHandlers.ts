@@ -206,20 +206,20 @@ export function createSpecialCaseHandlers(
       switch (errorType) {
         case 'SessionReplaced':
         case 'LoggedInElsewhere':
-          return 'Steam Session Replaced';
+          return i18n.t('signalr.steamSession.errorTitle.sessionReplaced');
         case 'AutoLogout':
-          return 'Steam Auto-Logout';
+          return i18n.t('signalr.steamSession.errorTitle.autoLogout');
         case 'InvalidCredentials':
         case 'AuthenticationRequired':
         case 'SessionExpired':
-          return 'Steam Authentication Required';
+          return i18n.t('signalr.steamSession.errorTitle.authRequired');
         case 'ServerUnavailable':
         case 'ServiceUnavailable':
-          return 'Steam Service Unavailable';
+          return i18n.t('signalr.steamSession.errorTitle.serviceUnavailable');
         case 'RateLimited':
-          return 'Steam Rate Limited';
+          return i18n.t('signalr.steamSession.errorTitle.rateLimited');
         default:
-          return 'Steam Error';
+          return i18n.t('signalr.steamSession.errorTitle.generic');
       }
     };
 
