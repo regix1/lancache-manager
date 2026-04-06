@@ -17,7 +17,6 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
 import { useNotifications } from '@contexts/notifications/useNotifications';
 import { useGameDetection } from '@contexts/DashboardDataContext/hooks';
-import { formatCount } from '@utils/formatters';
 import CacheRemovalModal from '@components/modals/cache/CacheRemovalModal';
 import EvictedItemsList from '../game-detection/EvictedItemsList';
 import DatasourcesManager from '../datasources/DatasourcesInfo';
