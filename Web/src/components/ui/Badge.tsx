@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react';
-import '@styles/components/badges.css';
 
 interface BadgeProps {
   variant: 'error' | 'warning' | 'success' | 'info';
