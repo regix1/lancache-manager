@@ -203,7 +203,12 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         return;
       }
 
-      const { isInitial = false, forceRefresh = false, trigger: _trigger } = options;
+      const {
+        showLoading = false,
+        isInitial = false,
+        forceRefresh = false,
+        trigger: _trigger
+      } = options;
 
       // Debounce rapid calls (min 250ms between fetches) - skip for initial load or force refresh
       const now = Date.now();
@@ -238,8 +243,11 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       const signal = abortControllerRef.current.signal;
 
       try {
-        // Always show loading state when fetching — skeletons display on every load
-        setLoading(true);
+        // Show skeleton only for user-initiated fetches (initial load, time range change).
+        // Background updates (SignalR live data, auto-refresh) update data silently.
+        if (showLoading) {
+          setLoading(true);
+        }
 
         const isConnected = await checkConnectionStatus();
         if (!isConnected) {
@@ -551,7 +559,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       // Use forceRefresh to bypass debounce - time range changes should always trigger immediate fetch
       // Only show loading if we don't have existing data to prevent UI flashing
       fetchAllData({
-        showLoading: !hasData.current,
+        showLoading: true,
         forceRefresh: true,
         trigger: `timeRangeChange:${timeRange}`
       });
@@ -566,7 +574,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       // Keep previous data visible during fetch - don't clear immediately
       // Only show loading if we don't have existing data to prevent UI flashing
       fetchAllData({
-        showLoading: !hasData.current,
+        showLoading: true,
         forceRefresh: true,
         trigger: 'eventFilterChange'
       });
@@ -585,7 +593,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
           setLastCustomDates({ start: customStartDate, end: customEndDate });
           // Only show loading if we don't have existing data to prevent UI flashing
           fetchAllData({
-            showLoading: !hasData.current,
+            showLoading: true,
             forceRefresh: true,
             trigger: 'customDateChange'
           });
