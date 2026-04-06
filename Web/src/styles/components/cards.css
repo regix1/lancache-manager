@@ -186,4 +186,20 @@
       background-position: -200% 0;
     }
   }
+
+  /* SWR refresh indicator — subtle pulse while data reloads, values stay visible */
+  .stat-card-refreshing {
+    opacity: 0.6;
+    animation: stat-card-refresh-pulse 1.2s ease-in-out infinite;
+  }
+
+  @keyframes stat-card-refresh-pulse {
+    0%,
+    100% {
+      opacity: 0.6;
+    }
+    50% {
+      opacity: 0.85;
+    }
+  }
 }

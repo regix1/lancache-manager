@@ -126,7 +126,8 @@ const getStatTooltips = (t: (key: string) => string): Record<string, React.React
 
 const Dashboard: React.FC = () => {
   const { t } = useTranslation();
-  const { cacheInfo, clientStats, serviceStats, dashboardStats, loading } = useStats();
+  const { cacheInfo, clientStats, serviceStats, dashboardStats, loading, isRefreshing } =
+    useStats();
   const { latestDownloads } = useDownloads();
   const { gameDetectionData, detectionLookup: _detectionLookup } = useGameDetection();
   const { timeRange, getTimeRangeParams, customStartDate, customEndDate, selectedEventIds } =
@@ -195,8 +196,8 @@ const Dashboard: React.FC = () => {
   }, []);
 
   // Sparkline and cache snapshot data from context (batched endpoint)
-  const { sparklines: sparklineData, loading: sparklineLoading } = useSparklines();
-  const { cacheSnapshot, loading: cacheSnapshotLoading } = useCacheSnapshot();
+  const { sparklines: sparklineData } = useSparklines();
+  const { cacheSnapshot } = useCacheSnapshot();
 
   // Filter out services with only small files (< 1MB) and 0-byte files from dashboard data
   const filteredLatestDownloads = useMemo(() => {
@@ -885,14 +886,8 @@ const Dashboard: React.FC = () => {
                 color={card.color}
                 tooltip={card.tooltip}
                 glassmorphism={true}
-                loading={
-                  loading ||
-                  (card.key === 'usedSpace' && isHistoricalView && cacheSnapshotLoading) ||
-                  (['bandwidthSaved', 'cacheHitRatio', 'totalServed', 'addedToCache'].includes(
-                    card.key
-                  ) &&
-                    sparklineLoading)
-                }
+                loading={loading}
+                refreshing={isRefreshing}
                 animateValue={!loading}
                 sparklineData={
                   card.key === 'bandwidthSaved'

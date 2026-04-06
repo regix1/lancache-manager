@@ -37,6 +37,8 @@ interface StatCardProps {
   staggerIndex?: number;
   // Loading skeleton
   loading?: boolean;
+  // Subtle refresh indicator (SWR: values stay visible, card pulses)
+  refreshing?: boolean;
 }
 
 // Color → CSS variable mapping used for sparkline colors (icon backgrounds use CSS data-color selectors)
@@ -65,7 +67,8 @@ const StatCard: React.FC<StatCardProps> = ({
   animateValue = false,
   glassmorphism = false,
   staggerIndex,
-  loading = false
+  loading = false,
+  refreshing = false
 }) => {
   const { t } = useTranslation();
   // Determine sparkline color
@@ -104,7 +107,7 @@ const StatCard: React.FC<StatCardProps> = ({
 
   const cardContent = (
     <div
-      className={`${cardClasses} ${!glassmorphism ? 'bg-[var(--theme-card-bg)] border-[var(--theme-card-border)]' : ''}`}
+      className={`${cardClasses} ${!glassmorphism ? 'bg-[var(--theme-card-bg)] border-[var(--theme-card-border)]' : ''} ${refreshing ? 'stat-card-refreshing' : ''}`}
       data-stat-card={title.toLowerCase().replace(/\s+/g, '')}
     >
       <div className="flex items-start justify-between">
