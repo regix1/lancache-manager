@@ -16,6 +16,7 @@ interface TopClientsTableProps {
   customStartDate?: Date | null;
   customEndDate?: Date | null;
   glassmorphism?: boolean;
+  loading?: boolean;
 }
 
 type SortOption = 'total' | 'hits' | 'misses' | 'hitRate';
@@ -95,7 +96,8 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
     timeRange = 'live',
     customStartDate,
     customEndDate,
-    glassmorphism = false
+    glassmorphism = false,
+    loading = false
   }) => {
     const { t } = useTranslation();
     const { useLocalTimezone } = useTimezone();
@@ -158,7 +160,20 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
           </div>
         </div>
 
-        {displayClients.length > 0 ? (
+        {loading ? (
+          <div className="space-y-3">
+            {Array.from({ length: 5 }, (_, i) => (
+              <div key={i} className="flex items-center gap-4">
+                <div className="h-4 w-24 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse" />
+                <div className="h-4 w-16 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse hidden sm:block" />
+                <div className="h-4 w-16 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse hidden md:block" />
+                <div className="h-4 w-16 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse hidden md:block" />
+                <div className="h-4 w-12 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse" />
+                <div className="h-4 w-20 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse hidden lg:block" />
+              </div>
+            ))}
+          </div>
+        ) : displayClients.length > 0 ? (
           <div className="overflow-x-auto -mx-2 px-2">
             <table className="w-full">
               <thead>
@@ -201,7 +216,8 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
       prevProps.timeRange === nextProps.timeRange &&
       prevProps.glassmorphism === nextProps.glassmorphism &&
       prevProps.customStartDate?.getTime() === nextProps.customStartDate?.getTime() &&
-      prevProps.customEndDate?.getTime() === nextProps.customEndDate?.getTime()
+      prevProps.customEndDate?.getTime() === nextProps.customEndDate?.getTime() &&
+      prevProps.loading === nextProps.loading
     );
   }
 );

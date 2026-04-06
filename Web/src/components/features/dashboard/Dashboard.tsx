@@ -960,6 +960,7 @@ const Dashboard: React.FC = () => {
           customStartDate={customStartDate}
           customEndDate={customEndDate}
           glassmorphism={true}
+          loading={loading}
         />
       </div>
     </div>
