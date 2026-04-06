@@ -29,6 +29,11 @@ public class GameCacheDetectionService : IDisposable
     private CancellationTokenSource? _cancellationTokenSource;
     private string? _currentTrackerOperationId;
 
+    // In-memory cache for detection response — avoids 10+ DB queries on every dashboard load.
+    // Invalidated when detection scans, eviction scans, or game removals change the data.
+    private DetectionOperationResponse? _cachedDetectionResponse;
+    private readonly SemaphoreSlim _detectionCacheLock = new(1, 1);
+
     // Track failed depot resolution attempts: after 3 failures, blacklist for 48 hours
     private static readonly Dictionary<long, (int FailureCount, DateTime? BlacklistedUntil)> _unresolvedDepotTracker = new();
     private const int MaxResolutionAttempts = 3;
@@ -753,6 +758,9 @@ public class GameCacheDetectionService : IDisposable
         string operationId, bool success, string status, string stageKey, bool cancelled,
         Dictionary<string, object?>? context = null, int? gamesDetected = null, int? servicesDetected = null)
     {
+        // Invalidate in-memory detection cache so next dashboard load picks up new data
+        InvalidateDetectionCache();
+
         // Determine error string for tracker (cancelled = "Cancelled by user", failed = stageKey, success = null)
         var trackerError = success ? null : (cancelled ? "Cancelled by user" : stageKey);
 
@@ -906,10 +914,48 @@ public class GameCacheDetectionService : IDisposable
             _logger.LogInformation("[GameDetection] Cleaned up {Count} legacy GameAppId=0 entries from cache on startup", legacyZeroEntries.Count);
         }
 
+        InvalidateDetectionCache();
         _logger.LogInformation("[GameDetection] Startup reconciliation complete");
     }
 
+    /// <summary>
+    /// Clears the in-memory detection cache, forcing the next GetCachedDetectionAsync call
+    /// to re-query the database. Call this after detection scans, eviction scans, or game removals.
+    /// </summary>
+    public void InvalidateDetectionCache()
+    {
+        _cachedDetectionResponse = null;
+        _logger.LogDebug("[GameDetection] In-memory detection cache invalidated");
+    }
+
     public async Task<DetectionOperationResponse?> GetCachedDetectionAsync()
+    {
+        // Return in-memory cached response if available
+        if (_cachedDetectionResponse != null)
+        {
+            return _cachedDetectionResponse;
+        }
+
+        await _detectionCacheLock.WaitAsync();
+        try
+        {
+            // Double-check after acquiring lock
+            if (_cachedDetectionResponse != null)
+            {
+                return _cachedDetectionResponse;
+            }
+
+            var result = await LoadDetectionFromDatabaseAsync();
+            _cachedDetectionResponse = result;
+            return result;
+        }
+        finally
+        {
+            _detectionCacheLock.Release();
+        }
+    }
+
+    private async Task<DetectionOperationResponse?> LoadDetectionFromDatabaseAsync()
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
 
@@ -1212,6 +1258,7 @@ public class GameCacheDetectionService : IDisposable
         await dbContext.CachedGameDetections.ExecuteDeleteAsync();
         await dbContext.CachedServiceDetections.ExecuteDeleteAsync();
         await dbContext.SaveChangesAsync();
+        InvalidateDetectionCache();
         _logger.LogInformation("[GameDetection] Cache invalidated - all cached games and services deleted from database");
     }
 
@@ -1224,6 +1271,7 @@ public class GameCacheDetectionService : IDisposable
         {
             dbContext.CachedGameDetections.Remove(game);
             await dbContext.SaveChangesAsync();
+            InvalidateDetectionCache();
             _logger.LogInformation("[GameDetection] Removed game {AppId} ({GameName}) from cache",
                 gameAppId, game.GameName);
         }
@@ -1239,6 +1287,7 @@ public class GameCacheDetectionService : IDisposable
         {
             dbContext.CachedServiceDetections.Remove(service);
             await dbContext.SaveChangesAsync();
+            InvalidateDetectionCache();
             _logger.LogInformation("[GameDetection] Removed service '{ServiceName}' from cache", serviceName);
         }
     }
