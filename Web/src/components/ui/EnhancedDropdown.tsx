@@ -376,8 +376,8 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
         }}
         disabled={disabled}
         aria-label={resolvedAriaLabel}
-        className={`ed-trigger w-full px-3 py-2 themed-border-radius border text-left flex items-center justify-between text-sm themed-card text-themed-primary ${
-          isOpen ? 'ed-trigger--open border-themed-focus' : 'border-themed-primary'
+        className={`ed-trigger w-full px-3 py-2 themed-border-radius border text-left flex items-center justify-between text-sm bg-themed-tertiary hover:bg-themed-hover text-themed-primary ${
+          isOpen ? 'ed-trigger--open border-themed-focus' : 'border-themed-secondary'
         } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
       >
         <div
