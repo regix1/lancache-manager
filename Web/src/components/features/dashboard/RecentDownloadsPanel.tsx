@@ -9,7 +9,6 @@ import { Card } from '@components/ui/Card';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
-import { useDownloads } from '@contexts/DashboardDataContext/hooks';
 import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import { useClientGroups } from '@contexts/useClientGroups';
 import { useSpeed } from '@contexts/SpeedContext/useSpeed';
@@ -21,6 +20,7 @@ import type { Download, DownloadGroup, EventSummary, GameSpeedInfo } from '@/typ
 
 interface RecentDownloadsPanelProps {
   downloads?: Download[];
+  loading?: boolean;
   timeRange?: string;
   glassmorphism?: boolean;
 }
@@ -189,6 +189,8 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({ item, events = 
 };
 
 const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
+  downloads = [],
+  loading = false,
   timeRange = 'live',
   glassmorphism = false
 }) => {
@@ -196,7 +198,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
   const [selectedService, setSelectedService] = useState<string>('all');
   const [selectedClient, setSelectedClient] = useState<string>('all');
   const [viewMode, setViewMode] = useState<'recent' | 'active'>('recent');
-  const { latestDownloads, loading } = useDownloads();
+  const latestDownloads = downloads ?? [];
   const { fetchAssociations, getAssociations, refreshVersion } = useDownloadAssociations();
   const { getGroupForIp } = useClientGroups();
   const { speedSnapshot, gameSpeeds, refreshSpeed } = useSpeed();
@@ -299,7 +301,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
   }, [timeRange, t]);
 
   const availableServices = useMemo(() => {
-    const services = new Set(latestDownloads.map((d) => d.service));
+    const services = new Set<string>(latestDownloads.map((d: Download) => d.service));
     return ['all', ...Array.from(services).sort()];
   }, [latestDownloads]);
 

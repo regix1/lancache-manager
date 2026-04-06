@@ -1008,6 +1008,7 @@ const Dashboard: React.FC = () => {
         />
         <RecentDownloadsPanel
           downloads={filteredLatestDownloads || []}
+          loading={loading}
           timeRange={timeRange}
           glassmorphism={true}
         />
