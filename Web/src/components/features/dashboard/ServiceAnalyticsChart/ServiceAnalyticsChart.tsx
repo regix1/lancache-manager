@@ -131,7 +131,7 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
           </div>
         </div>
 
-        {loading && chartData.isEmpty ? (
+        {loading ? (
           <div className="service-analytics-skeleton">
             <div className="service-analytics-skeleton-chart" />
             <div className="service-analytics-skeleton-legend">
