@@ -23,7 +23,7 @@ public class DashboardController : ControllerBase
 {
     private readonly CacheManagementService _cacheService;
     private readonly GameCacheDetectionService _gameCacheDetectionService;
-    private readonly AppDbContext _context;
+    private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly StatsDataService _statsService;
     private readonly IStateService _stateRepository;
     private readonly IOptions<ApiOptions> _apiOptions;
@@ -33,7 +33,7 @@ public class DashboardController : ControllerBase
     public DashboardController(
         CacheManagementService cacheService,
         GameCacheDetectionService gameCacheDetectionService,
-        AppDbContext context,
+        IDbContextFactory<AppDbContext> dbContextFactory,
         StatsDataService statsService,
         IStateService stateRepository,
         IOptions<ApiOptions> apiOptions,
@@ -42,7 +42,7 @@ public class DashboardController : ControllerBase
     {
         _cacheService = cacheService;
         _gameCacheDetectionService = gameCacheDetectionService;
-        _context = context;
+        _dbContextFactory = dbContextFactory;
         _statsService = statsService;
         _stateRepository = stateRepository;
         _apiOptions = apiOptions;
@@ -119,11 +119,12 @@ public class DashboardController : ControllerBase
         List<string> hiddenClientIps, string evictedMode,
         List<string> statsExcludedOnlyIps)
     {
+        await using var context = await _dbContextFactory.CreateDbContextAsync();
         var maxLimit = _apiOptions.Value.MaxClientsPerRequest;
         var defaultLimit = _apiOptions.Value.DefaultClientsLimit;
         var effectiveLimit = Math.Min(defaultLimit, maxLimit);
 
-        var query = _context.Downloads.AsNoTracking();
+        var query = context.Downloads.AsNoTracking();
         query = query.ApplyEventFilter(eventIdList, eventDownloadIds);
         query = query.ApplyHiddenClientFilter(hiddenClientIps);
         query = query.ApplyEvictedFilter(evictedMode);
@@ -189,7 +190,8 @@ public class DashboardController : ControllerBase
         List<string> hiddenClientIps, string evictedMode,
         List<string> statsExcludedOnlyIps)
     {
-        var query = _context.Downloads.AsNoTracking()
+        await using var context = await _dbContextFactory.CreateDbContextAsync();
+        var query = context.Downloads.AsNoTracking()
             .ApplyHiddenClientFilter(hiddenClientIps)
             .ApplyEvictedFilter(evictedMode);
 
@@ -233,10 +235,11 @@ public class DashboardController : ControllerBase
         List<string> hiddenClientIps, string evictedMode,
         List<string> statsExcludedOnlyIps)
     {
+        await using var context = await _dbContextFactory.CreateDbContextAsync();
         DateTime? cutoffTime = startTime.HasValue ? startTime.Value.FromUnixSeconds() : null;
         DateTime? endDateTime = endTime.HasValue ? endTime.Value.FromUnixSeconds() : null;
 
-        var downloadsQuery = _context.Downloads.AsNoTracking()
+        var downloadsQuery = context.Downloads.AsNoTracking()
             .ApplyHiddenClientFilter(hiddenClientIps)
             .ApplyEvictedFilter(evictedMode);
 
@@ -260,7 +263,7 @@ public class DashboardController : ControllerBase
 
         // Active downloads (last 5 minutes, not ended)
         var activeThreshold = DateTime.UtcNow.AddMinutes(-5);
-        var activeDownloads = await _context.Downloads.AsNoTracking()
+        var activeDownloads = await context.Downloads.AsNoTracking()
             .ApplyHiddenClientFilter(hiddenClientIps)
             .ApplyEvictedFilter(evictedMode)
             .CountAsync(d => d.StartTimeUtc >= activeThreshold && d.EndTimeUtc == default);
@@ -272,7 +275,7 @@ public class DashboardController : ControllerBase
         var uniqueClientsCount = await uniqueClientsQuery.Select(d => d.ClientIp).Distinct().CountAsync();
 
         // All-time totals from Downloads table (consistent with dashboard)
-        var allTimeQuery = _context.Downloads.AsNoTracking()
+        var allTimeQuery = context.Downloads.AsNoTracking()
             .ApplyHiddenClientFilter(hiddenClientIps)
             .ApplyEvictedFilter(evictedMode);
         if (statsExcludedOnlyIps.Count > 0)
@@ -341,6 +344,7 @@ public class DashboardController : ControllerBase
         List<long> eventIdList, HashSet<long>? eventDownloadIds,
         List<string> excludedClientIps, string evictedMode)
     {
+        await using var context = await _dbContextFactory.CreateDbContextAsync();
         const string PrefillToken = "prefill";
         List<Download> downloads;
 
@@ -357,8 +361,8 @@ public class DashboardController : ControllerBase
 
             if (eventIdList.Count > 0)
             {
-                query = _context.Downloads.AsNoTracking()
-                    .Where(d => _context.EventDownloads
+                query = context.Downloads.AsNoTracking()
+                    .Where(d => context.EventDownloads
                         .Where(ed => eventIdList.Contains(ed.EventId))
                         .Select(ed => ed.DownloadId)
                         .Contains(d.Id))
@@ -366,7 +370,7 @@ public class DashboardController : ControllerBase
             }
             else
             {
-                query = _context.Downloads.AsNoTracking()
+                query = context.Downloads.AsNoTracking()
                     .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate);
             }
 
@@ -393,7 +397,7 @@ public class DashboardController : ControllerBase
         }
 
         // Resolve game names via Steam depot mappings + Epic lookup
-        await ResolveGameNamesAsync(downloads);
+        await ResolveGameNamesAsync(context, downloads);
 
         return downloads;
     }
@@ -430,7 +434,8 @@ public class DashboardController : ControllerBase
         List<string> hiddenClientIps, string evictedMode,
         List<string> statsExcludedOnlyIps)
     {
-        var query = BuildBaseDownloadsQuery(hiddenClientIps, evictedMode);
+        await using var context = await _dbContextFactory.CreateDbContextAsync();
+        var query = BuildBaseDownloadsQuery(context, hiddenClientIps, evictedMode);
         query = query.ApplyEventFilter(eventIdList, eventDownloadIds);
 
         if (startTime.HasValue)
@@ -501,7 +506,8 @@ public class DashboardController : ControllerBase
         List<string> hiddenClientIps, string evictedMode,
         List<string> statsExcludedOnlyIps)
     {
-        var query = BuildBaseDownloadsQuery(hiddenClientIps, evictedMode);
+        await using var context = await _dbContextFactory.CreateDbContextAsync();
+        var query = BuildBaseDownloadsQuery(context, hiddenClientIps, evictedMode);
         query = query.ApplyEventFilter(eventIdList, eventDownloadIds);
 
         DateTime? cutoffTime = null;
@@ -597,6 +603,7 @@ public class DashboardController : ControllerBase
         List<string> hiddenClientIps, string evictedMode,
         List<string> statsExcludedOnlyIps)
     {
+        await using var context = await _dbContextFactory.CreateDbContextAsync();
         const string interval = "daily";
         DateTime? cutoffTime = startTime.HasValue
             ? startTime.Value.FromUnixSeconds()
@@ -609,13 +616,13 @@ public class DashboardController : ControllerBase
         long currentCacheSize = 0;
         long totalCapacity = 0;
 
-        var allTimeQuery = BuildBaseDownloadsQuery(hiddenClientIps, evictedMode);
+        var allTimeQuery = BuildBaseDownloadsQuery(context, hiddenClientIps, evictedMode);
         var totalCacheMiss = await AggregateExcludingAsync(allTimeQuery, statsExcludedOnlyIps,
             q => q.SumAsync(d => (long?)d.CacheMissBytes).ContinueWith(t => t.Result ?? 0L));
 
         currentCacheSize = totalCacheMiss;
 
-        var baseQuery = BuildBaseDownloadsQuery(hiddenClientIps, evictedMode);
+        var baseQuery = BuildBaseDownloadsQuery(context, hiddenClientIps, evictedMode);
         baseQuery = baseQuery.ApplyEventFilter(eventIdList, eventDownloadIds);
 
         if (cutoffTime.HasValue)
@@ -706,7 +713,7 @@ public class DashboardController : ControllerBase
 
         if (actualCacheSize > 0)
         {
-            var allTimeQueryForCumulative = BuildBaseDownloadsQuery(hiddenClientIps, evictedMode);
+            var allTimeQueryForCumulative = BuildBaseDownloadsQuery(context, hiddenClientIps, evictedMode);
             var cumulativeDownloads = await AggregateExcludingAsync(allTimeQueryForCumulative, statsExcludedOnlyIps,
                 q => q.SumAsync(d => (long?)d.CacheMissBytes).ContinueWith(t => t.Result ?? 0L));
 
@@ -797,9 +804,9 @@ public class DashboardController : ControllerBase
 
     // ───────────────────── Shared query helpers ─────────────────────
 
-    private IQueryable<Download> BuildBaseDownloadsQuery(List<string> hiddenClientIps, string evictedMode)
+    private static IQueryable<Download> BuildBaseDownloadsQuery(AppDbContext context, List<string> hiddenClientIps, string evictedMode)
     {
-        return _context.Downloads.AsNoTracking()
+        return context.Downloads.AsNoTracking()
             .ApplyHiddenClientFilter(hiddenClientIps)
             .ApplyEvictedFilter(evictedMode);
     }
@@ -905,7 +912,8 @@ public class DashboardController : ControllerBase
 
     private async Task<HashSet<long>> GetEventDownloadIdsAsync(List<long> eventIdList)
     {
-        var ids = await _context.EventDownloads
+        await using var context = await _dbContextFactory.CreateDbContextAsync();
+        var ids = await context.EventDownloads
             .AsNoTracking()
             .Where(ed => eventIdList.Contains(ed.EventId))
             .Select(ed => ed.DownloadId)
@@ -918,7 +926,7 @@ public class DashboardController : ControllerBase
     /// Resolve game names for downloads using Steam depot mappings and Epic lookup.
     /// Mirrors the logic in DownloadsController.ResolveGameNamesAsync.
     /// </summary>
-    private async Task ResolveGameNamesAsync(List<Download> downloads)
+    private static async Task ResolveGameNamesAsync(AppDbContext context, List<Download> downloads)
     {
         if (downloads.Count == 0) return;
 
@@ -930,7 +938,7 @@ public class DashboardController : ControllerBase
             .ToList();
 
         var steamMappings = depotIds.Count > 0
-            ? await _context.SteamDepotMappings
+            ? await context.SteamDepotMappings
                 .AsNoTracking()
                 .Where(m => m.IsOwner && depotIds.Contains(m.DepotId))
                 .ToDictionaryAsync(m => m.DepotId, m => m)
@@ -944,7 +952,7 @@ public class DashboardController : ControllerBase
             .ToList();
 
         var epicMappings = epicAppIds.Count > 0
-            ? await _context.EpicGameMappings
+            ? await context.EpicGameMappings
                 .AsNoTracking()
                 .Where(m => epicAppIds.Contains(m.AppId))
                 .ToDictionaryAsync(m => m.AppId, m => m.Name)
