@@ -233,8 +233,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
 
       // Read current values from refs - these are always up-to-date
       // IMPORTANT: Capture these at fetch start to detect stale data when fetch completes
-      const currentTimeRange = currentTimeRangeRef.current;
-      const currentEventIds = [...selectedEventIdsRef.current]; // Copy to detect changes
+      const currentEventIds = [...selectedEventIdsRef.current];
       const { startTime, endTime } = getTimeRangeParamsRef.current();
       const eventIds = currentEventIds.length > 0 ? currentEventIds : undefined;
       const cacheBust = forceRefresh ? Date.now() : undefined;
@@ -278,11 +277,8 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
           return; // A newer request has started, don't touch state
         }
 
-        // Only apply results if filters haven't changed during fetch (prevents stale data)
-        const timeRangeStillValid = currentTimeRangeRef.current === currentTimeRange;
-        const eventIdsStillValid =
-          JSON.stringify(selectedEventIdsRef.current) === JSON.stringify(currentEventIds);
-        const filtersStillValid = timeRangeStillValid && eventIdsStillValid;
+        // requestId check above already ensures we're the latest request.
+        // No additional filter validation needed — if requestId matches, this data is current.
 
         // Batch all state updates to prevent multiple re-renders
         startTransition(() => {
@@ -326,41 +322,34 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
             }
           }
 
-          // All other data depends on time range AND event filter
-          // Only update if filters haven't changed; null means server-side sub-query failed — keep stale data
-          if (filtersStillValid) {
-            if (batchResponse.clients !== null && batchResponse.clients !== undefined) {
-              setClientStats(batchResponse.clients);
-            }
-            if (batchResponse.services !== null && batchResponse.services !== undefined) {
-              setServiceStats(batchResponse.services);
-            }
-            if (batchResponse.dashboard !== null && batchResponse.dashboard !== undefined) {
-              setDashboardStats(batchResponse.dashboard);
-              hasData.current = true;
-            }
-            if (batchResponse.downloads !== null && batchResponse.downloads !== undefined) {
-              setLatestDownloads(batchResponse.downloads);
-            }
-            // Sparklines & widget data — time-range dependent
-            if (batchResponse.sparklines !== null && batchResponse.sparklines !== undefined) {
-              setSparklines(batchResponse.sparklines);
-            }
-            if (
-              batchResponse.hourlyActivity !== null &&
-              batchResponse.hourlyActivity !== undefined
-            ) {
-              setHourlyActivity(batchResponse.hourlyActivity);
-            }
-            if (batchResponse.cacheGrowth !== null && batchResponse.cacheGrowth !== undefined) {
-              setCacheGrowth(batchResponse.cacheGrowth);
-            }
-            // cacheSnapshot is null in live mode — only update when backend returns data
-            if (batchResponse.cacheSnapshot !== null && batchResponse.cacheSnapshot !== undefined) {
-              setCacheSnapshot(batchResponse.cacheSnapshot);
-            }
-            setError(null);
+          // Time-range dependent data — null means server-side sub-query failed, keep stale data
+          if (batchResponse.clients !== null && batchResponse.clients !== undefined) {
+            setClientStats(batchResponse.clients);
           }
+          if (batchResponse.services !== null && batchResponse.services !== undefined) {
+            setServiceStats(batchResponse.services);
+          }
+          if (batchResponse.dashboard !== null && batchResponse.dashboard !== undefined) {
+            setDashboardStats(batchResponse.dashboard);
+            hasData.current = true;
+          }
+          if (batchResponse.downloads !== null && batchResponse.downloads !== undefined) {
+            setLatestDownloads(batchResponse.downloads);
+          }
+          if (batchResponse.sparklines !== null && batchResponse.sparklines !== undefined) {
+            setSparklines(batchResponse.sparklines);
+          }
+          if (batchResponse.hourlyActivity !== null && batchResponse.hourlyActivity !== undefined) {
+            setHourlyActivity(batchResponse.hourlyActivity);
+          }
+          if (batchResponse.cacheGrowth !== null && batchResponse.cacheGrowth !== undefined) {
+            setCacheGrowth(batchResponse.cacheGrowth);
+          }
+          // cacheSnapshot is null in live mode — only update when backend returns data
+          if (batchResponse.cacheSnapshot !== null && batchResponse.cacheSnapshot !== undefined) {
+            setCacheSnapshot(batchResponse.cacheSnapshot);
+          }
+          setError(null);
           // Always clear loading when fetch completes — showLoading only controls
           // whether loading is SET to true, not whether it's cleared. This prevents
           // a race where one call sets loading=true but a superseding call with
@@ -376,23 +365,19 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         if (batchResponse.detection) {
           setCachedValue(IDB_KEYS.GAME_DETECTION, batchResponse.detection);
         }
-        if (filtersStillValid) {
-          if (batchResponse.clients) setCachedValue(IDB_KEYS.CLIENT_STATS, batchResponse.clients);
-          if (batchResponse.services)
-            setCachedValue(IDB_KEYS.SERVICE_STATS, batchResponse.services);
-          if (batchResponse.dashboard)
-            setCachedValue(IDB_KEYS.DASHBOARD_STATS, batchResponse.dashboard);
-          if (batchResponse.downloads)
-            setCachedValue(IDB_KEYS.LATEST_DOWNLOADS, batchResponse.downloads);
-          if (batchResponse.sparklines)
-            setCachedValue(IDB_KEYS.SPARKLINES, batchResponse.sparklines);
-          if (batchResponse.hourlyActivity)
-            setCachedValue(IDB_KEYS.HOURLY_ACTIVITY, batchResponse.hourlyActivity);
-          if (batchResponse.cacheGrowth)
-            setCachedValue(IDB_KEYS.CACHE_GROWTH, batchResponse.cacheGrowth);
-          if (batchResponse.cacheSnapshot)
-            setCachedValue(IDB_KEYS.CACHE_SNAPSHOT, batchResponse.cacheSnapshot);
-        }
+        if (batchResponse.clients) setCachedValue(IDB_KEYS.CLIENT_STATS, batchResponse.clients);
+        if (batchResponse.services) setCachedValue(IDB_KEYS.SERVICE_STATS, batchResponse.services);
+        if (batchResponse.dashboard)
+          setCachedValue(IDB_KEYS.DASHBOARD_STATS, batchResponse.dashboard);
+        if (batchResponse.downloads)
+          setCachedValue(IDB_KEYS.LATEST_DOWNLOADS, batchResponse.downloads);
+        if (batchResponse.sparklines) setCachedValue(IDB_KEYS.SPARKLINES, batchResponse.sparklines);
+        if (batchResponse.hourlyActivity)
+          setCachedValue(IDB_KEYS.HOURLY_ACTIVITY, batchResponse.hourlyActivity);
+        if (batchResponse.cacheGrowth)
+          setCachedValue(IDB_KEYS.CACHE_GROWTH, batchResponse.cacheGrowth);
+        if (batchResponse.cacheSnapshot)
+          setCachedValue(IDB_KEYS.CACHE_SNAPSHOT, batchResponse.cacheSnapshot);
       } catch (err: unknown) {
         // Check if we're still the current request before setting error state
         if (currentRequestIdRef.current !== thisRequestId) {

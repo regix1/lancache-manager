@@ -44,6 +44,9 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
 
   const [isOpen, setIsOpen] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  // Local state for date picker — only committed to context on close/apply
+  const [pendingStartDate, setPendingStartDate] = useState<Date | null>(customStartDate);
+  const [pendingEndDate, setPendingEndDate] = useState<Date | null>(customEndDate);
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
   const [dropdownStyle, setDropdownStyle] = useState<{ animation: string }>({ animation: '' });
   const [isMobile, setIsMobile] = useState(false);
@@ -221,6 +224,9 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
       const timeValue = value as TimeRange;
       setTimeRange(timeValue);
       if (timeValue === 'custom') {
+        // Sync local pending dates from context before opening picker
+        setPendingStartDate(customStartDate);
+        setPendingEndDate(customEndDate);
         setShowDatePicker(true);
       } else {
         setShowDatePicker(false);
@@ -530,13 +536,17 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
 
       {showDatePicker && (
         <DateRangePicker
-          startDate={customStartDate}
-          endDate={customEndDate}
-          onStartDateChange={setCustomStartDate}
-          onEndDateChange={setCustomEndDate}
+          startDate={pendingStartDate}
+          endDate={pendingEndDate}
+          onStartDateChange={setPendingStartDate}
+          onEndDateChange={setPendingEndDate}
           onClose={() => {
             setShowDatePicker(false);
-            if (!customStartDate || !customEndDate) {
+            if (pendingStartDate && pendingEndDate) {
+              // Commit to context only on close — triggers the fetch
+              setCustomStartDate(pendingStartDate);
+              setCustomEndDate(pendingEndDate);
+            } else {
               setTimeRange('live');
             }
           }}
