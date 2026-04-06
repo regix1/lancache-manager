@@ -171,4 +171,4 @@ const StatCard: React.FC<StatCardProps> = ({
   return cardContent;
 };
 
-export default StatCard;
+export default React.memo(StatCard);

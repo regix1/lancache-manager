@@ -1218,4 +1218,4 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
 
 RecentDownloadsPanel.displayName = 'RecentDownloadsPanel';
 
-export default RecentDownloadsPanel;
+export default React.memo(RecentDownloadsPanel);

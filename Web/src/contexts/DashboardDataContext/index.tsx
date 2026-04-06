@@ -1,5 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { unstable_batchedUpdates } from 'react-dom';
+import React, { useState, useEffect, useRef, useCallback, useMemo, startTransition } from 'react';
 import { getCachedValue, setCachedValue, IDB_KEYS } from '@utils/idbCache';
 import ApiService from '@services/api.service';
 import { isAbortError } from '@utils/error';
@@ -293,7 +292,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         const filtersStillValid = timeRangeStillValid && eventIdsStillValid;
 
         // Batch all state updates to prevent multiple re-renders
-        unstable_batchedUpdates(() => {
+        startTransition(() => {
           // Cache info is not time-range dependent, always apply (skip if server returned null)
           if (batchResponse.cache !== null && batchResponse.cache !== undefined) {
             setCacheInfo(batchResponse.cache);
@@ -520,7 +519,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       }
 
       // Batch all state updates to prevent multiple re-renders
-      unstable_batchedUpdates(() => {
+      startTransition(() => {
         setLoading(true);
         setConnectionStatus('connected');
         setCacheInfo(mockData.cacheInfo);
@@ -628,7 +627,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       latestDownloads?: (prev: Download[]) => Download[];
     }) => {
       // Batch all state updates to prevent multiple re-renders
-      unstable_batchedUpdates(() => {
+      startTransition(() => {
         if (updater.cacheInfo) {
           setCacheInfo(updater.cacheInfo);
         }
