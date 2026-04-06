@@ -233,7 +233,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
       }
       setIsOpen(false);
     },
-    [setTimeRange]
+    [setTimeRange, customStartDate, customEndDate]
   );
 
   const eventsPerPage = isMobile ? 2 : 5;
