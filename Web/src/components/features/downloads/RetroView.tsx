@@ -12,6 +12,7 @@ import { useTranslation } from 'react-i18next';
 import { HardDrive, Download, Zap } from 'lucide-react';
 
 import { useIsDesktop } from '@hooks/useMediaQuery';
+import EvictedBadge from '@components/common/EvictedBadge';
 import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
 import {
   formatBytes,
@@ -1425,11 +1426,7 @@ const RetroView = memo(
                                     >
                                       {data.gameName || data.service}
                                     </span>
-                                    {data.isEvicted && (
-                                      <span className="themed-badge status-badge-error">
-                                        {t('common.evicted')}
-                                      </span>
-                                    )}
+                                    {data.isEvicted && <EvictedBadge />}
                                     {resolveGameDetection(
                                       data.gameAppId,
                                       data.gameName,
@@ -1603,11 +1600,7 @@ const RetroView = memo(
                                   <div className="flex-1 min-w-0 overflow-hidden">
                                     <div className="text-sm font-medium text-[var(--theme-text-primary)] truncate">
                                       {data.gameName || data.service}
-                                      {data.isEvicted && (
-                                        <span className="themed-badge status-badge-error">
-                                          {t('common.evicted')}
-                                        </span>
-                                      )}
+                                      {data.isEvicted && <EvictedBadge />}
                                       {resolveGameDetection(
                                         data.gameAppId,
                                         data.gameName,

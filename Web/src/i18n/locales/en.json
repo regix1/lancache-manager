@@ -78,6 +78,7 @@
     "hideThisHint": "Hide this hint",
     "remove": "Remove",
     "evicted": "Evicted",
+    "partiallyEvicted": "Partially Evicted",
     "bytes": {
       "units": ["B", "KB", "MB", "GB", "TB"],
       "zero": "0 {{unit}}"

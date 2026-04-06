@@ -5,6 +5,7 @@ import { formatBytes, formatCount } from '@utils/formatters';
 import type { ServiceCacheInfo, CacheEntityVariant } from '../../../../types';
 import ExpandableItemCard, { type ExpandableItemStat } from './ExpandableItemCard';
 import ExpandableList from './ExpandableList';
+import Badge from '@components/ui/Badge';
 
 interface ServiceCardProps {
   service: ServiceCacheInfo;
@@ -61,11 +62,11 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
 
   const subtitle =
     !isEvicted && variant === 'active' && (service.evicted_downloads_count ?? 0) > 0 ? (
-      <span className="themed-badge status-badge-warning">
+      <Badge variant="warning">
         {t('management.gameDetection.partialEvictedBadge', {
           count: service.evicted_downloads_count
         })}
-      </span>
+      </Badge>
     ) : undefined;
 
   const removeTooltip = isEvictedVariant

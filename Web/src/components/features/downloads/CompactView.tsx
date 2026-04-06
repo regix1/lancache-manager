@@ -8,6 +8,7 @@ import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { GameImage } from '@components/common/GameImage';
 import EvictedBadge from '@components/common/EvictedBadge';
+import Badge from '@components/ui/Badge';
 import { useHoldTimer } from '@hooks/useHoldTimer';
 import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
 import { useGroupPagination } from '@hooks/useGroupPagination';
@@ -181,6 +182,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
       ? `https://store.steampowered.com/app/${primaryDownload.gameAppId}`
       : null;
   const isEvicted = group.downloads.every((d: Download) => d.isEvicted);
+  const isPartiallyEvicted = !isEvicted && group.downloads.some((d: Download) => d.isEvicted);
   const detection = resolveGameDetection(
     primaryDownload?.gameAppId,
     primaryDownload?.gameName,
@@ -237,6 +239,9 @@ const GroupRow: React.FC<GroupRowProps> = ({
                     </span>
                   )}
                   {isEvicted && <EvictedBadge />}
+                  {isPartiallyEvicted && (
+                    <Badge variant="warning">{t('common.partiallyEvicted')}</Badge>
+                  )}
                   {shouldShowDatasource && (
                     <Tooltip
                       content={t('downloads.tab.compact.datasourceTooltip', {
@@ -319,6 +324,9 @@ const GroupRow: React.FC<GroupRowProps> = ({
                     </span>
                   )}
                   {isEvicted && <EvictedBadge />}
+                  {isPartiallyEvicted && (
+                    <Badge variant="warning">{t('common.partiallyEvicted')}</Badge>
+                  )}
                   {shouldShowDatasource && (
                     <Tooltip
                       content={t('downloads.tab.compact.datasourceTooltip', {

@@ -13,6 +13,8 @@ import {
 } from 'lucide-react';
 import { formatBytes, formatCount, formatPercent, formatRelativeTime } from '@utils/formatters';
 import { getServiceBadgeStyles } from '@utils/serviceColors';
+import EvictedBadge from '@components/common/EvictedBadge';
+import Badge from '@components/ui/Badge';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { WsusIcon } from '@components/ui/WsusIcon';
 import { RiotIcon } from '@components/ui/RiotIcon';
@@ -172,6 +174,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
   const epicAppId = primaryDownload?.epicAppId ?? null;
   const primaryName = primaryDownload?.gameName ?? '';
   const isEvicted = group.downloads.every((d: Download) => d.isEvicted);
+  const isPartiallyEvicted = !isEvicted && group.downloads.some((d: Download) => d.isEvicted);
   const detection = resolveGameDetection(
     primaryDownload?.gameAppId,
     primaryDownload?.gameName,
@@ -335,8 +338,9 @@ const GroupCard: React.FC<GroupCardProps> = ({
                     {group.name}
                   </h3>
                 )}
-                {isEvicted && (
-                  <span className="themed-badge status-badge-error">{t('common.evicted')}</span>
+                {isEvicted && <EvictedBadge />}
+                {isPartiallyEvicted && (
+                  <Badge variant="warning">{t('common.partiallyEvicted')}</Badge>
                 )}
                 {diskSizeBytes ? (
                   <span className="text-themed-muted text-xs ml-2">
@@ -422,8 +426,9 @@ const GroupCard: React.FC<GroupCardProps> = ({
                     {group.name}
                   </h3>
                 )}
-                {isEvicted && (
-                  <span className="themed-badge status-badge-error">{t('common.evicted')}</span>
+                {isEvicted && <EvictedBadge />}
+                {isPartiallyEvicted && (
+                  <Badge variant="warning">{t('common.partiallyEvicted')}</Badge>
                 )}
                 {hasMultipleDatasources &&
                   showDatasourceLabels &&
@@ -862,11 +867,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                                                 {download.depotId}
                                               </span>
                                             )}
-                                            {download.isEvicted && (
-                                              <span className="themed-badge status-badge-error">
-                                                {t('common.evicted')}
-                                              </span>
-                                            )}
+                                            {download.isEvicted && <EvictedBadge />}
                                           </div>
                                           {showEventBadges && associations.events.length > 0 && (
                                             <div className="mt-1">
@@ -1024,6 +1025,7 @@ const GridCard: React.FC<GridCardProps> = ({
   const artworkId = showSteamImage ? steamAppId : showEpicImage ? `epic-${epicAppId}` : null;
   const hasArtwork = artworkId !== null && !imageErrors.has(artworkId);
   const isEvicted = group.downloads.every((d: Download) => d.isEvicted);
+  const isPartiallyEvicted = !isEvicted && group.downloads.some((d: Download) => d.isEvicted);
   const placeholderIconSize = 48;
 
   React.useEffect(() => {
@@ -1127,8 +1129,11 @@ const GridCard: React.FC<GridCardProps> = ({
           </div>
           <div className="card-grid-item-name" title={group.name}>
             {group.name}
-            {isEvicted && (
-              <span className="themed-badge status-badge-error ml-1">{t('common.evicted')}</span>
+            {isEvicted && <EvictedBadge className="ml-1" />}
+            {isPartiallyEvicted && (
+              <Badge variant="warning" className="ml-1">
+                {t('common.partiallyEvicted')}
+              </Badge>
             )}
           </div>
           <div className="card-grid-item-stats">

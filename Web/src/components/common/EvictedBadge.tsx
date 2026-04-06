@@ -1,14 +1,15 @@
-import React from 'react';
 import { useTranslation } from 'react-i18next';
+import Badge from '@components/ui/Badge';
 
-/**
- * Reusable badge component for displaying evicted status.
- * Renders the themed error badge with localized "Evicted" text.
- * Use alongside `opacity-60` on the parent row when the item is evicted.
- */
-const EvictedBadge: React.FC = () => {
+interface EvictedBadgeProps {
+  className?: string;
+}
+
+export default function EvictedBadge({ className }: EvictedBadgeProps) {
   const { t } = useTranslation();
-  return <span className="themed-badge status-badge-error">{t('common.evicted')}</span>;
-};
-
-export default EvictedBadge;
+  return (
+    <Badge variant="error" className={className}>
+      {t('common.evicted')}
+    </Badge>
+  );
+}

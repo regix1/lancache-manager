@@ -934,13 +934,13 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                         {t('activeSessions.prefill.title', 'Prefill Access')}:
                       </span>
                       <span
-                        className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 ${session.steamPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}
+                        className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 themed-badge ${session.steamPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}
                       >
                         <SteamIcon size={10} />
                         Steam
                       </span>
                       <span
-                        className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 ${session.epicPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}
+                        className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 themed-badge ${session.epicPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}
                       >
                         <EpicIcon size={10} />
                         Epic
@@ -1089,17 +1089,17 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                 </p>
                 <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                   {isGuestSession(session) && !session.isRevoked && !session.isExpired && (
-                    <span className="px-1.5 py-0.5 text-[10px] rounded font-medium status-badge-warning">
+                    <span className="px-1.5 py-0.5 text-[10px] rounded font-medium themed-badge status-badge-warning">
                       {formatTimeRemaining(session.expiresAt)}
                     </span>
                   )}
                   {session.isRevoked && (
-                    <span className="px-1.5 py-0.5 text-[10px] rounded font-medium status-badge-error">
+                    <span className="px-1.5 py-0.5 text-[10px] rounded font-medium themed-badge status-badge-error">
                       {t('activeSessions.status.revoked')}
                     </span>
                   )}
                   {session.isExpired && !session.isRevoked && (
-                    <span className="px-1.5 py-0.5 text-[10px] rounded font-medium status-badge-warning">
+                    <span className="px-1.5 py-0.5 text-[10px] rounded font-medium themed-badge status-badge-warning">
                       {t('activeSessions.prefill.status.expired')}
                     </span>
                   )}
@@ -1193,13 +1193,13 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                     {t('activeSessions.prefill.title', 'Prefill')}:
                   </span>
                   <span
-                    className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 ${session.steamPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}
+                    className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 themed-badge ${session.steamPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}
                   >
                     <SteamIcon size={10} />
                     Steam
                   </span>
                   <span
-                    className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 ${session.epicPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}
+                    className={`px-1.5 py-0.5 text-[10px] rounded-full font-medium inline-flex items-center gap-1 themed-badge ${session.epicPrefillEnabled ? 'status-badge-success' : 'status-badge-warning'}`}
                   >
                     <EpicIcon size={10} />
                     Epic
@@ -1329,12 +1329,12 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                       : t('activeSessions.labels.guestBadge')}
                   </span>
                   {session.isRevoked && (
-                    <span className="px-1.5 py-0.5 text-[10px] rounded font-medium status-badge-error">
+                    <span className="px-1.5 py-0.5 text-[10px] rounded font-medium themed-badge status-badge-error">
                       {t('activeSessions.status.revoked')}
                     </span>
                   )}
                   {session.isExpired && !session.isRevoked && (
-                    <span className="px-1.5 py-0.5 text-[10px] rounded font-medium status-badge-warning">
+                    <span className="px-1.5 py-0.5 text-[10px] rounded font-medium themed-badge status-badge-warning">
                       {t('activeSessions.prefill.status.expired')}
                     </span>
                   )}
@@ -2106,7 +2106,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                           </div>
                           <div className="prefill-service-row-controls">
                             <span
-                              className={`px-2 py-0.5 text-xs rounded-full font-medium ${effective ? 'status-badge-success' : 'status-badge-warning'}`}
+                              className={`px-2 py-0.5 text-xs rounded-full font-medium themed-badge ${effective ? 'status-badge-success' : 'status-badge-warning'}`}
                             >
                               {effective
                                 ? t('activeSessions.prefill.status.enabled')
@@ -2147,7 +2147,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                           </div>
                           <div className="prefill-service-row-controls">
                             <span
-                              className={`px-2 py-0.5 text-xs rounded-full font-medium ${effective ? 'status-badge-success' : 'status-badge-warning'}`}
+                              className={`px-2 py-0.5 text-xs rounded-full font-medium themed-badge ${effective ? 'status-badge-success' : 'status-badge-warning'}`}
                             >
                               {effective
                                 ? t('activeSessions.prefill.status.enabled')

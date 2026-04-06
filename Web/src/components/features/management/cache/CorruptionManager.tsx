@@ -15,6 +15,7 @@ import { Tooltip } from '@components/ui/Tooltip';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { formatCount } from '@utils/formatters';
 import { LoadingState, EmptyState, ReadOnlyBadge } from '@components/ui/ManagerCard';
+import Badge from '@components/ui/Badge';
 import { useFormattedDateTime } from '@/hooks/useFormattedDateTime';
 import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
 import { useManagerLoading } from '@/hooks/useManagerLoading';
@@ -486,9 +487,9 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
             onToggle={() => setSectionExpanded((prev) => !prev)}
             badge={
               corruptionList.length > 0 ? (
-                <span className="themed-badge status-badge-warning">
+                <Badge variant="warning">
                   {corruptionList.reduce((sum, [, count]) => sum + count, 0)}
-                </span>
+                </Badge>
               ) : undefined
             }
           >

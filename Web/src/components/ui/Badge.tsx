@@ -1,0 +1,16 @@
+import type { ReactNode } from 'react';
+import '@styles/components/badges.css';
+
+interface BadgeProps {
+  variant: 'error' | 'warning' | 'success' | 'info';
+  children: ReactNode;
+  className?: string;
+}
+
+export default function Badge({ variant, children, className }: BadgeProps) {
+  return (
+    <span className={`themed-badge status-badge-${variant}${className ? ` ${className}` : ''}`}>
+      {children}
+    </span>
+  );
+}

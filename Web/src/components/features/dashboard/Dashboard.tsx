@@ -44,6 +44,7 @@ import TopClientsTable from './TopClientsTable';
 // Widget imports
 import PeakUsageHours from './widgets/PeakUsageHours';
 import CacheGrowthTrend from './widgets/CacheGrowthTrend';
+import Badge from '@components/ui/Badge';
 
 type CardLayout = '4-column' | '3-column';
 type CardVisibility = Record<string, boolean>;
@@ -632,9 +633,9 @@ const Dashboard: React.FC = () => {
           ? t('dashboard.cards.gamesDetected', { count: gamesOnDiskStats.gameCount })
           : t('dashboard.cards.noScanData'),
         badge: gamesOnDiskStats?.includesEvicted ? (
-          <span className="themed-badge status-badge-warning">
+          <Badge variant="warning">
             {t('dashboard.cards.evictedIncluded', { count: gamesOnDiskStats.evictedCount })}
-          </span>
+          </Badge>
         ) : undefined,
         icon: HardDrive,
         color: 'cyan' as const,

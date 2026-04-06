@@ -118,4 +118,9 @@
     background-color: var(--theme-success-bg);
     color: var(--theme-success-text);
   }
+
+  .status-badge-info {
+    background-color: var(--theme-info-bg);
+    color: var(--theme-info-text);
+  }
 }

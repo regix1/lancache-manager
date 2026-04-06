@@ -17,6 +17,7 @@ import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
 import { useInvalidateImages } from '@components/common/ImageCacheContext';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { LoadingState, EmptyState, ReadOnlyBadge } from '@components/ui/ManagerCard';
+import Badge from '@components/ui/Badge';
 import GamesList from './GamesList';
 import ServicesList from './ServicesList';
 import CacheRemovalModal from '@components/modals/cache/CacheRemovalModal';
@@ -702,9 +703,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
             onToggle={() => setSectionExpanded((prev) => !prev)}
             badge={
               hasResults ? (
-                <span className="themed-badge status-badge-info">
-                  {filteredGames.length + filteredServices.length}
-                </span>
+                <Badge variant="info">{filteredGames.length + filteredServices.length}</Badge>
               ) : undefined
             }
           >

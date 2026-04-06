@@ -7,6 +7,8 @@ import type { GameCacheInfo, CacheEntityVariant } from '../../../../types';
 import ExpandableItemCard, { type ExpandableItemStat } from './ExpandableItemCard';
 import ExpandableList from './ExpandableList';
 import { getGameUniqueId } from './gameUtils';
+import EvictedBadge from '@components/common/EvictedBadge';
+import Badge from '@components/ui/Badge';
 
 interface GameCardProps {
   game: GameCacheInfo;
@@ -93,17 +95,13 @@ const GameCard: React.FC<GameCardProps> = ({
           AppID: {game.game_app_id}
         </span>
       )}
-      {isEvicted && (
-        <span className="themed-badge status-badge-error">
-          {t('management.gameDetection.evictedBadge')}
-        </span>
-      )}
+      {isEvicted && <EvictedBadge />}
       {!isEvicted && variant === 'active' && (game.evicted_downloads_count ?? 0) > 0 && (
-        <span className="themed-badge status-badge-warning">
+        <Badge variant="warning">
           {t('management.gameDetection.partialEvictedBadge', {
             count: game.evicted_downloads_count
           })}
-        </span>
+        </Badge>
       )}
     </span>
   );
