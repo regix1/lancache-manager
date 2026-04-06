@@ -19,7 +19,6 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.AspNetCore.Routing.Constraints;
-using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.RateLimiting;
 using OpenTelemetry.Metrics;
@@ -494,15 +493,6 @@ builder.Services.AddResponseCompression(options =>
 builder.Services.Configure<BrotliCompressionProviderOptions>(options =>
 {
     options.Level = CompressionLevel.Fastest;
-});
-
-// Configure Kestrel for HTTP/2 support (multiplexed streams, header compression)
-builder.WebHost.ConfigureKestrel(options =>
-{
-    options.ConfigureEndpointDefaults(listenOptions =>
-    {
-        listenOptions.Protocols = HttpProtocols.Http1AndHttp2;
-    });
 });
 
 var app = builder.Build();

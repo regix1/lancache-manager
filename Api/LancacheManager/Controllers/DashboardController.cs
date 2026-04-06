@@ -72,34 +72,46 @@ public class DashboardController : ControllerBase
             ? await GetEventDownloadIdsAsync(eventIdList)
             : null;
 
-        // Run queries sequentially to avoid memory pressure from 10 concurrent DbContexts.
-        // Still a single HTTP round-trip — just server-side sequential instead of parallel.
-        var cacheResult = await SafeExecuteAsync("cache", () => GetCacheInfoAsync());
-        var clients = await SafeExecuteAsync("clients", () => GetClientStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
-        var services = await SafeExecuteAsync("services", () => GetServiceStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
-        var dashboard = await SafeExecuteAsync("dashboard", () => GetDashboardStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
-        var downloads = await SafeExecuteAsync("downloads", () => GetLatestDownloadsAsync(startTime, endTime, eventIdList, eventDownloadIds, excludedClientIps, evictedMode));
-        var detection = await SafeExecuteAsync("detection", () => GetCachedDetectionAsync());
-        var sparklines = await SafeExecuteAsync("sparklines", () => GetSparklineDataAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
-        var hourly = await SafeExecuteAsync("hourlyActivity", () => GetHourlyActivityAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
-        var cacheSnapshot = await SafeExecuteAsync("cacheSnapshot", () => GetCacheSnapshotAsync(startTime, endTime));
+        // Throttled parallelism: max 3 concurrent queries to balance speed vs memory.
+        // Each query creates its own DbContext, so 3 concurrent = 3 DbContexts max.
+        using var semaphore = new SemaphoreSlim(3);
 
-        // cacheGrowth depends on actualCacheSize from cache result
+        async Task<object?> ThrottledAsync(string name, Func<Task<object>> action)
+        {
+            await semaphore.WaitAsync();
+            try { return await SafeExecuteAsync(name, action); }
+            finally { semaphore.Release(); }
+        }
+
+        // Cache must complete first (cacheGrowth depends on its result)
+        var cacheResult = await SafeExecuteAsync("cache", () => GetCacheInfoAsync());
         long actualCacheSize = cacheResult?.UsedCacheSize ?? 0;
-        var cacheGrowth = await SafeExecuteAsync("cacheGrowth", () => GetCacheGrowthAsync(startTime, endTime, actualCacheSize, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
+
+        // Launch remaining 9 queries with throttled parallelism
+        var clientsTask = ThrottledAsync("clients", () => GetClientStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
+        var servicesTask = ThrottledAsync("services", () => GetServiceStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
+        var dashboardTask = ThrottledAsync("dashboard", () => GetDashboardStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
+        var downloadsTask = ThrottledAsync("downloads", () => GetLatestDownloadsAsync(startTime, endTime, eventIdList, eventDownloadIds, excludedClientIps, evictedMode));
+        var detectionTask = ThrottledAsync("detection", () => GetCachedDetectionAsync());
+        var sparklinesTask = ThrottledAsync("sparklines", () => GetSparklineDataAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
+        var hourlyTask = ThrottledAsync("hourlyActivity", () => GetHourlyActivityAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
+        var cacheSnapshotTask = ThrottledAsync("cacheSnapshot", () => GetCacheSnapshotAsync(startTime, endTime));
+        var cacheGrowthTask = ThrottledAsync("cacheGrowth", () => GetCacheGrowthAsync(startTime, endTime, actualCacheSize, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
+
+        await Task.WhenAll(clientsTask, servicesTask, dashboardTask, downloadsTask, detectionTask, sparklinesTask, hourlyTask, cacheSnapshotTask, cacheGrowthTask);
 
         return Ok(new DashboardBatchResponse
         {
             Cache = cacheResult,
-            Clients = clients,
-            Services = services,
-            Dashboard = dashboard,
-            Downloads = downloads,
-            Detection = detection,
-            Sparklines = sparklines,
-            HourlyActivity = hourly,
-            CacheSnapshot = cacheSnapshot,
-            CacheGrowth = cacheGrowth
+            Clients = await clientsTask,
+            Services = await servicesTask,
+            Dashboard = await dashboardTask,
+            Downloads = await downloadsTask,
+            Detection = await detectionTask,
+            Sparklines = await sparklinesTask,
+            HourlyActivity = await hourlyTask,
+            CacheSnapshot = await cacheSnapshotTask,
+            CacheGrowth = await cacheGrowthTask
         });
     }
 
