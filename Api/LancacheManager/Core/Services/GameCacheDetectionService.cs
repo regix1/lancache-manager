@@ -842,53 +842,42 @@ public class GameCacheDetectionService : IDisposable
         }
     }
 
-    public async Task<DetectionOperationResponse?> GetCachedDetectionAsync()
+    /// <summary>
+    /// Runs recovery, self-healing, and cleanup operations on cached detection data.
+    /// Called once on startup by GameDetectionStartupService — NOT on every dashboard load.
+    /// </summary>
+    public async Task ReconcileCachedDetectionDataAsync()
     {
-        // Capture the timestamp at the start of this cache-load so Layer 3 below can tell
-        // which CachedGameDetection rows were freshly inserted by RecoverEvictedGamesAsync
-        // during THIS call vs pre-existing rows self-healed by Trigger #2. Rows inserted
-        // by RecoverEvictedGamesAsync always get LastDetectedUtc = DateTime.UtcNow >= scanTimestamp,
-        // so the guard prevents the catch-all from re-evicting a just-self-healed row.
         var scanTimestamp = DateTime.UtcNow;
 
-        // Recover any evicted games that are in Downloads history but not yet in CachedGameDetections.
-        // This runs on every cache load so that evicted games survive restarts without requiring a new scan.
-        // During scans, RecoverEvictedGamesAsync already runs — this covers the no-scan (restart) path.
         var recoveredCount = await RecoverEvictedGamesAsync();
         if (recoveredCount > 0)
         {
-            _logger.LogInformation("[GameDetection] Recovered {Count} evicted games from Downloads history on cache load", recoveredCount);
+            _logger.LogInformation("[GameDetection] Recovered {Count} evicted games from Downloads history on startup", recoveredCount);
         }
 
-        // Try to resolve any unknown games in the cache using available mappings
         var resolvedCount = await ResolveUnknownGamesInCacheAsync();
         if (resolvedCount > 0)
         {
-            _logger.LogInformation("[GameDetection] Auto-resolved {Count} unknown games when loading cache", resolvedCount);
+            _logger.LogInformation("[GameDetection] Auto-resolved {Count} unknown games on startup", resolvedCount);
         }
 
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
 
-        // Fix 3 Trigger #2: reverse-reconcile CachedGameDetections.IsEvicted for any row whose
-        // underlying Downloads have been un-evicted (files reappeared on disk) since the last
-        // detection scan. cache_eviction_scan.rs keeps Downloads.IsEvicted honest every 6h, but
-        // CachedGameDetections.IsEvicted is a derived projection that was never cleared. Running
-        // this BEFORE the cachedGames load below means the subsequent three-layer filter sees
-        // the healed state immediately on the UI cache-load path.
         try
         {
             var selfHealedCount = await CacheReconciliationService.UnevictCachedGameDetectionsAsync(dbContext, _logger, default);
             if (selfHealedCount > 0)
             {
                 _logger.LogInformation(
-                    "[GameDetection] Self-healed {Count} CachedGameDetection rows on cache load (Trigger #2)",
+                    "[GameDetection] Self-healed {Count} CachedGameDetection rows on startup (Trigger #2)",
                     selfHealedCount);
             }
         }
         catch (Exception selfHealEx)
         {
             _logger.LogWarning(selfHealEx,
-                "[GameDetection] Trigger #2 reverse-reconcile failed on cache load — proceeding with stale data");
+                "[GameDetection] Trigger #2 reverse-reconcile failed on startup — proceeding with stale data");
         }
 
         try
@@ -897,19 +886,16 @@ public class GameCacheDetectionService : IDisposable
             if (serviceSelfHealedCount > 0)
             {
                 _logger.LogInformation(
-                    "[ServiceDetection] Self-healed {Count} CachedServiceDetection rows on cache load",
+                    "[ServiceDetection] Self-healed {Count} CachedServiceDetection rows on startup",
                     serviceSelfHealedCount);
             }
         }
         catch (Exception selfHealEx)
         {
             _logger.LogWarning(selfHealEx,
-                "[ServiceDetection] Service self-heal failed on cache load — proceeding with stale data");
+                "[ServiceDetection] Service self-heal failed on startup — proceeding with stale data");
         }
 
-        // Clean up any legacy GameAppId=0 entries that have no EpicAppId — these were left
-        // by the old Epic dedup bug where multiple Epic games all shared GameAppId=0.
-        // Epic games with a valid EpicAppId are NOT legacy entries and must NOT be removed.
         var legacyZeroEntries = await dbContext.CachedGameDetections
             .Where(g => g.GameAppId == 0 && g.EpicAppId == null)
             .ToListAsync();
@@ -917,8 +903,15 @@ public class GameCacheDetectionService : IDisposable
         {
             dbContext.CachedGameDetections.RemoveRange(legacyZeroEntries);
             await dbContext.SaveChangesAsync();
-            _logger.LogInformation("[GameDetection] Cleaned up {Count} legacy GameAppId=0 entries from cache", legacyZeroEntries.Count);
+            _logger.LogInformation("[GameDetection] Cleaned up {Count} legacy GameAppId=0 entries from cache on startup", legacyZeroEntries.Count);
         }
+
+        _logger.LogInformation("[GameDetection] Startup reconciliation complete");
+    }
+
+    public async Task<DetectionOperationResponse?> GetCachedDetectionAsync()
+    {
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
 
         var cachedGames = await dbContext.CachedGameDetections.AsNoTracking().ToListAsync();
         var cachedServices = await dbContext.CachedServiceDetections.AsNoTracking().ToListAsync();
@@ -982,17 +975,9 @@ public class GameCacheDetectionService : IDisposable
 
             // Tertiary: Games with 0 cache files are evicted by definition — they were added by
             // RecoverEvictedGamesAsync because they have Downloads but no files on disk.
-            //
-            // Fix 3 guard: only fire for rows whose LastDetectedUtc is ≥ scanTimestamp captured
-            // at the top of this method. Those are rows inserted by THIS call's RecoverEvictedGamesAsync,
-            // which legitimately have CacheFilesFound = 0. Pre-existing rows that Trigger #2 just
-            // self-healed (IsEvicted → false) have an older LastDetectedUtc and must NOT be re-evicted
-            // here — the reverse-reconcile is the authoritative signal for those.
             foreach (var game in cachedGames)
             {
-                if (!game.IsEvicted
-                    && game.CacheFilesFound == 0
-                    && game.LastDetectedUtc >= scanTimestamp)
+                if (!game.IsEvicted && game.CacheFilesFound == 0)
                 {
                     game.IsEvicted = true;
                 }
