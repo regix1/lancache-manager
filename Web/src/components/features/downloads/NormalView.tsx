@@ -14,7 +14,7 @@ import {
 import { formatBytes, formatCount, formatPercent, formatRelativeTime } from '@utils/formatters';
 import { getServiceBadgeStyles } from '@utils/serviceColors';
 import EvictedBadge from '@components/common/EvictedBadge';
-import Badge from '@components/ui/Badge';
+import BadgesRow from './BadgesRow';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { WsusIcon } from '@components/ui/WsusIcon';
 import { RiotIcon } from '@components/ui/RiotIcon';
@@ -324,9 +324,13 @@ const GroupCard: React.FC<GroupCardProps> = ({
             <div className="flex-1 min-w-0">
               {/* Title Row - Service badge and game name */}
               <div className="flex items-center gap-2 mb-2 flex-wrap">
-                <span className="themed-badge" style={getServiceBadgeStyles(group.service)}>
-                  {group.service.toUpperCase()}
-                </span>
+                <BadgesRow
+                  service={group.service}
+                  datasource={group.downloads[0]?.datasource}
+                  showDatasource={hasMultipleDatasources && showDatasourceLabels}
+                  isEvicted={isEvicted}
+                  isPartiallyEvicted={isPartiallyEvicted}
+                />
                 {group.downloads.some(
                   (d: Download) =>
                     d.gameName && d.gameName !== d.service && !d.gameName.match(/^Steam App \d+$/)
@@ -334,10 +338,6 @@ const GroupCard: React.FC<GroupCardProps> = ({
                   <h3 className="text-sm font-bold text-[var(--theme-text-primary)] truncate flex-1 min-w-0">
                     {group.name}
                   </h3>
-                )}
-                {isEvicted && <EvictedBadge />}
-                {isPartiallyEvicted && (
-                  <Badge variant="warning">{t('common.partiallyEvicted')}</Badge>
                 )}
                 {diskSizeBytes ? (
                   <span className="text-themed-muted text-xs ml-2">
@@ -407,9 +407,13 @@ const GroupCard: React.FC<GroupCardProps> = ({
               <div
                 className={`flex flex-row items-center gap-3 ${fullHeightBanners ? 'mb-2' : 'mb-3'}`}
               >
-                <span className="themed-badge" style={getServiceBadgeStyles(group.service)}>
-                  {group.service.toUpperCase()}
-                </span>
+                <BadgesRow
+                  service={group.service}
+                  datasource={group.downloads[0]?.datasource}
+                  showDatasource={hasMultipleDatasources && showDatasourceLabels}
+                  isEvicted={isEvicted}
+                  isPartiallyEvicted={isPartiallyEvicted}
+                />
                 {group.downloads.some(
                   (d: Download) =>
                     d.gameName && d.gameName !== d.service && !d.gameName.match(/^Steam App \d+$/)
@@ -420,23 +424,6 @@ const GroupCard: React.FC<GroupCardProps> = ({
                     {group.name}
                   </h3>
                 )}
-                {isEvicted && <EvictedBadge />}
-                {isPartiallyEvicted && (
-                  <Badge variant="warning">{t('common.partiallyEvicted')}</Badge>
-                )}
-                {hasMultipleDatasources &&
-                  showDatasourceLabels &&
-                  group.downloads[0]?.datasource && (
-                    <Tooltip
-                      content={t('downloads.tab.normal.datasourceTooltip', {
-                        datasource: group.downloads[0].datasource
-                      })}
-                    >
-                      <span className="themed-badge status-badge-neutral">
-                        {group.downloads[0].datasource}
-                      </span>
-                    </Tooltip>
-                  )}
                 {diskSizeBytes ? (
                   <span className="text-themed-muted text-xs ml-2">
                     {t('dashboard.downloadsPanel.onDisk', { size: formatBytes(diskSizeBytes) })}
@@ -991,7 +978,6 @@ const GridCard: React.FC<GridCardProps> = ({
   hasMultipleDatasources,
   availableImages
 }) => {
-  const { t } = useTranslation();
   const { fetchAssociations, getAssociations, refreshVersion } = useDownloadAssociations();
   const cardRef = React.useRef<HTMLDivElement>(null);
   const hitPercent = group.totalBytes > 0 ? (group.cacheHitBytes / group.totalBytes) * 100 : 0;
@@ -1105,23 +1091,16 @@ const GridCard: React.FC<GridCardProps> = ({
       {!bannerOnly && (
         <div className="card-grid-item-info">
           <div className="flex items-center gap-2 mb-1">
-            <span className="themed-badge" style={getServiceBadgeStyles(group.service)}>
-              {group.service.toUpperCase()}
-            </span>
-            {hasMultipleDatasources && showDatasourceLabels && group.downloads[0]?.datasource && (
-              <span className="themed-badge status-badge-neutral">
-                {group.downloads[0].datasource}
-              </span>
-            )}
+            <BadgesRow
+              service={group.service}
+              datasource={group.downloads[0]?.datasource}
+              showDatasource={hasMultipleDatasources && showDatasourceLabels}
+              isEvicted={isEvicted}
+              isPartiallyEvicted={isPartiallyEvicted}
+            />
           </div>
           <div className="card-grid-item-name" title={group.name}>
             {group.name}
-            {isEvicted && <EvictedBadge className="ml-1" />}
-            {isPartiallyEvicted && (
-              <Badge variant="warning" className="ml-1">
-                {t('common.partiallyEvicted')}
-              </Badge>
-            )}
           </div>
           <div className="card-grid-item-stats">
             <span className="font-semibold text-[var(--theme-text-primary)]">

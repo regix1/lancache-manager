@@ -12,8 +12,6 @@ import { useTranslation } from 'react-i18next';
 import { HardDrive, Download, Zap } from 'lucide-react';
 
 import { useIsDesktop } from '@hooks/useMediaQuery';
-import EvictedBadge from '@components/common/EvictedBadge';
-import Badge from '@components/ui/Badge';
 import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
 import {
   formatBytes,
@@ -41,6 +39,7 @@ import { UnknownServiceIcon } from '@components/ui/UnknownServiceIcon';
 import { GameImage } from '@components/common/GameImage';
 import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import { resolveGameDetection } from '@utils/gameDetection';
+import BadgesRow from './BadgesRow';
 import DownloadBadges from './DownloadBadges';
 import type {
   Download as DownloadType,
@@ -701,6 +700,9 @@ const RetroView = memo(
       const columnWidthsRef = useRef<ColumnWidths>(columnWidths);
       columnWidthsRef.current = columnWidths;
 
+      // Track whether we've auto-fitted this session
+      const hasAutoFittedRef = useRef(false);
+
       // Recalculate widths when items change (for actual data measurement)
       useEffect(() => {
         if (groupedItems.length > 0) {
@@ -830,7 +832,24 @@ const RetroView = memo(
         measureSpan.style.font = '500 14px system-ui, -apple-system, sans-serif';
         grouped.forEach((data) => {
           measureSpan.textContent = data.gameName || data.service;
-          measuredWidths.app = Math.max(measuredWidths.app, measureSpan.offsetWidth + 32);
+          const gameNameWidth = measureSpan.offsetWidth + 32;
+          // Also account for BadgesRow width: service badge + optional eviction badge + padding/gaps
+          measureSpan.style.font = '600 11px system-ui, -apple-system, sans-serif';
+          measureSpan.textContent = data.service.toUpperCase();
+          const serviceBadgeWidth = measureSpan.offsetWidth + 24; // badge text + padding
+          const evictionLabel = data.isPartiallyEvicted
+            ? 'Partially Evicted'
+            : data.isEvicted
+              ? 'Evicted'
+              : '';
+          let evictionBadgeWidth = 0;
+          if (evictionLabel) {
+            measureSpan.textContent = evictionLabel;
+            evictionBadgeWidth = measureSpan.offsetWidth + 24 + 6; // badge padding + gap
+          }
+          const badgesWidth = serviceBadgeWidth + evictionBadgeWidth + 32; // cell padding
+          measureSpan.style.font = '500 14px system-ui, -apple-system, sans-serif';
+          measuredWidths.app = Math.max(measuredWidths.app, gameNameWidth, badgesWidth);
         });
 
         // Datasource column
@@ -969,8 +988,24 @@ const RetroView = memo(
               measureSpan.style.font = '500 14px system-ui, -apple-system, sans-serif';
               grouped.forEach((data) => {
                 measureSpan.textContent = data.gameName || data.service;
-                // App name only (image is in banner column now)
-                maxWidth = Math.max(maxWidth, measureSpan.offsetWidth + 32);
+                const gameNameWidth = measureSpan.offsetWidth + 32;
+                // Also account for BadgesRow width: service badge + optional eviction badge + padding/gaps
+                measureSpan.style.font = '600 11px system-ui, -apple-system, sans-serif';
+                measureSpan.textContent = data.service.toUpperCase();
+                const serviceBadgeWidth = measureSpan.offsetWidth + 24;
+                const evictionLabel = data.isPartiallyEvicted
+                  ? 'Partially Evicted'
+                  : data.isEvicted
+                    ? 'Evicted'
+                    : '';
+                let evictionBadgeWidth = 0;
+                if (evictionLabel) {
+                  measureSpan.textContent = evictionLabel;
+                  evictionBadgeWidth = measureSpan.offsetWidth + 24 + 6;
+                }
+                const badgesWidth = serviceBadgeWidth + evictionBadgeWidth + 32;
+                measureSpan.style.font = '500 14px system-ui, -apple-system, sans-serif';
+                maxWidth = Math.max(maxWidth, gameNameWidth, badgesWidth);
               });
               break;
 
@@ -1094,6 +1129,14 @@ const RetroView = memo(
       const setPageFading = useCallback((fading: boolean) => {
         fadeContainerRef.current?.classList.toggle('page-fading', fading);
       }, []);
+
+      // Auto-fit columns on initial data load
+      useEffect(() => {
+        if (!hasAutoFittedRef.current && groupedItems.length > 0 && containerRef.current) {
+          hasAutoFittedRef.current = true;
+          handleResetWidths();
+        }
+      }, [groupedItems, handleResetWidths]);
 
       // Expose imperative helpers to parent via ref
       useImperativeHandle(
@@ -1440,12 +1483,12 @@ const RetroView = memo(
                                     >
                                       {data.gameName || data.service}
                                     </span>
-                                    {data.isEvicted && <EvictedBadge />}
-                                    {data.isPartiallyEvicted && (
-                                      <Badge variant="warning">
-                                        {t('common.partiallyEvicted')}
-                                      </Badge>
-                                    )}
+                                    <BadgesRow
+                                      service={data.service}
+                                      showDatasource={false}
+                                      isEvicted={data.isEvicted}
+                                      isPartiallyEvicted={data.isPartiallyEvicted}
+                                    />
                                     {resolveGameDetection(
                                       data.gameAppId,
                                       data.gameName,
@@ -1619,7 +1662,6 @@ const RetroView = memo(
                                   <div className="flex-1 min-w-0 overflow-hidden">
                                     <div className="text-sm font-medium text-[var(--theme-text-primary)] truncate">
                                       {data.gameName || data.service}
-                                      {data.isEvicted && <EvictedBadge />}
                                       {resolveGameDetection(
                                         data.gameAppId,
                                         data.gameName,
@@ -1657,6 +1699,12 @@ const RetroView = memo(
                                         </span>
                                       )}
                                     </div>
+                                    <BadgesRow
+                                      service={data.service}
+                                      showDatasource={false}
+                                      isEvicted={data.isEvicted}
+                                      isPartiallyEvicted={data.isPartiallyEvicted}
+                                    />
                                     <div className="flex items-center gap-2 text-xs text-[var(--theme-text-muted)] min-w-0">
                                       <span className="truncate">
                                         <ClientIpDisplay

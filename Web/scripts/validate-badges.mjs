@@ -23,7 +23,13 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const SRC_DIR = resolve(__dirname, '..', 'src');
 
 // Files that are allowed to use raw badge patterns (the Badge component itself, CSS files)
-const ALLOWED_FILES = new Set(['Badge.tsx', 'EvictedBadge.tsx', 'EventList.tsx', 'badges.css']);
+const ALLOWED_FILES = new Set([
+  'Badge.tsx',
+  'EvictedBadge.tsx',
+  'EventList.tsx',
+  'badges.css',
+  'BadgesRow.tsx'
+]);
 
 function* walkDir(dir) {
   let entries;

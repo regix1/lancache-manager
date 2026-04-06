@@ -4,7 +4,7 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import { type TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { formatBytes, formatPercent, formatSpeed } from '@utils/formatters';
-import { getServiceColorClass } from '@utils/serviceColors';
+import BadgesRow from '../downloads/BadgesRow';
 import { Card } from '@components/ui/Card';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
@@ -16,7 +16,6 @@ import { useSpeed } from '@contexts/SpeedContext/useSpeed';
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import EventBadge from '../downloads/EventBadge';
-import EvictedBadge from '@components/common/EvictedBadge';
 import { storage } from '@utils/storage';
 import type { Download, DownloadGroup, EventSummary, GameSpeedInfo } from '@/types';
 
@@ -48,9 +47,7 @@ const ActiveDownloadItem: React.FC<{ game: GameSpeedInfo; index: number; t: TFun
               : game.gameName || (game.depotId ? `Depot ${game.depotId}` : game.service)}
           </div>
           <div className="item-meta">
-            <span className={`service-badge service-badge--${getServiceColorClass(game.service)}`}>
-              {game.service}
-            </span>
+            <BadgesRow service={game.service} showDatasource={false} />
             <span className="meta-separator">•</span>
             <span className="meta-text">{formatBytes(game.totalBytes)}</span>
             <span className="meta-separator">•</span>
@@ -100,6 +97,9 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({ item, events = 
             d.gameName && d.gameName !== d.service && !d.gameName.match(/^Steam App \d+$/)
         ),
         isEvicted: item.downloads.every((d: Download) => d.isEvicted),
+        isPartiallyEvicted:
+          item.downloads.some((d: Download) => d.isEvicted) &&
+          !item.downloads.every((d: Download) => d.isEvicted),
         gameAppId: item.downloads.find((d: Download) => d.gameAppId)?.gameAppId ?? null
       }
     : {
@@ -119,6 +119,7 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({ item, events = 
           item.gameName !== item.service &&
           !item.gameName.match(/^Steam App \d+$/),
         isEvicted: item.isEvicted ?? false,
+        isPartiallyEvicted: false,
         gameAppId: item.gameAppId ?? null
       };
 
@@ -148,14 +149,14 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({ item, events = 
           <div className="item-name">
             {display.name}
             {isGroup && display.count > 1 && <span className="count-badge">{display.count}×</span>}
-            {display.isEvicted && <EvictedBadge />}
           </div>
           <div className="item-meta">
-            <span
-              className={`service-badge service-badge--${getServiceColorClass(display.service)}`}
-            >
-              {display.service}
-            </span>
+            <BadgesRow
+              service={display.service}
+              showDatasource={false}
+              isEvicted={display.isEvicted}
+              isPartiallyEvicted={display.isPartiallyEvicted}
+            />
             <span className="meta-separator">•</span>
             <span className="meta-text">
               {display.clientIp ? (

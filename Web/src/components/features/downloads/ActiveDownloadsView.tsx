@@ -4,8 +4,8 @@ import { Activity, HardDrive, Users, RefreshCw } from 'lucide-react';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useSpeed } from '@contexts/SpeedContext/useSpeed';
 import { formatBytes, formatPercent, formatSpeed } from '@utils/formatters';
-import { getServiceBadgeStyles } from '@utils/serviceColors';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
+import BadgesRow from './BadgesRow';
 import type { GameSpeedInfo, ClientSpeedInfo } from '../../../types';
 
 const ActiveDownloadsView: React.FC = () => {
@@ -86,9 +86,7 @@ const ActiveDownloadsView: React.FC = () => {
 
                 <div className="download-info">
                   <div className="download-name-row">
-                    <span className="themed-badge" style={getServiceBadgeStyles(game.service)}>
-                      {game.service.toUpperCase()}
-                    </span>
+                    <BadgesRow service={game.service} showDatasource={false} />
                     <span
                       className="download-name"
                       title={

@@ -2,13 +2,12 @@ import React from 'react';
 import { useTranslation } from 'react-i18next';
 import { ChevronRight, ExternalLink, ChevronLeft, HardDrive } from 'lucide-react';
 import { formatBytes, formatPercent, formatRelativeTime, formatCount } from '@utils/formatters';
-import { getServiceBadgeStyles } from '@utils/serviceColors';
 import { Tooltip } from '@components/ui/Tooltip';
+import BadgesRow from './BadgesRow';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { SteamIcon } from '@components/ui/SteamIcon';
 import { GameImage } from '@components/common/GameImage';
 import EvictedBadge from '@components/common/EvictedBadge';
-import Badge from '@components/ui/Badge';
 import { useHoldTimer } from '@hooks/useHoldTimer';
 import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
 import { useGroupPagination } from '@hooks/useGroupPagination';
@@ -224,9 +223,13 @@ const GroupRow: React.FC<GroupRowProps> = ({
                       isExpanded ? 'rotate-90' : ''
                     }`}
                   />
-                  <span className="themed-badge" style={getServiceBadgeStyles(group.service)}>
-                    {group.service.toUpperCase()}
-                  </span>
+                  <BadgesRow
+                    service={group.service}
+                    datasource={primaryDatasource}
+                    showDatasource={!!shouldShowDatasource}
+                    isEvicted={isEvicted}
+                    isPartiallyEvicted={isPartiallyEvicted}
+                  />
                   {group.downloads.some(
                     (d: Download) =>
                       d.gameName && d.gameName !== d.service && !d.gameName.match(/^Steam App \d+$/)
@@ -234,19 +237,6 @@ const GroupRow: React.FC<GroupRowProps> = ({
                     <span className="text-sm font-medium text-[var(--theme-text-primary)] truncate flex-1">
                       {group.name}
                     </span>
-                  )}
-                  {isEvicted && <EvictedBadge />}
-                  {isPartiallyEvicted && (
-                    <Badge variant="warning">{t('common.partiallyEvicted')}</Badge>
-                  )}
-                  {shouldShowDatasource && (
-                    <Tooltip
-                      content={t('downloads.tab.compact.datasourceTooltip', {
-                        datasource: primaryDatasource
-                      })}
-                    >
-                      <span className="themed-badge status-badge-neutral">{primaryDatasource}</span>
-                    </Tooltip>
                   )}
                   {diskSizeBytes ? (
                     <span className="text-themed-muted text-xs ml-2">
@@ -304,9 +294,13 @@ const GroupRow: React.FC<GroupRowProps> = ({
                   }`}
                 />
                 <div className="flex items-center gap-2 min-w-0 flex-1">
-                  <span className="themed-badge" style={getServiceBadgeStyles(group.service)}>
-                    {group.service.toUpperCase()}
-                  </span>
+                  <BadgesRow
+                    service={group.service}
+                    datasource={primaryDatasource}
+                    showDatasource={!!shouldShowDatasource}
+                    isEvicted={isEvicted}
+                    isPartiallyEvicted={isPartiallyEvicted}
+                  />
                   {group.downloads.some(
                     (d: Download) =>
                       d.gameName && d.gameName !== d.service && !d.gameName.match(/^Steam App \d+$/)
@@ -314,19 +308,6 @@ const GroupRow: React.FC<GroupRowProps> = ({
                     <span className="text-sm font-medium text-[var(--theme-text-primary)] truncate">
                       {group.name}
                     </span>
-                  )}
-                  {isEvicted && <EvictedBadge />}
-                  {isPartiallyEvicted && (
-                    <Badge variant="warning">{t('common.partiallyEvicted')}</Badge>
-                  )}
-                  {shouldShowDatasource && (
-                    <Tooltip
-                      content={t('downloads.tab.compact.datasourceTooltip', {
-                        datasource: primaryDatasource
-                      })}
-                    >
-                      <span className="themed-badge status-badge-neutral">{primaryDatasource}</span>
-                    </Tooltip>
                   )}
                   {diskSizeBytes ? (
                     <span className="text-themed-muted text-xs ml-2">

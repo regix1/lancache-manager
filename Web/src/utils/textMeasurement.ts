@@ -180,7 +180,13 @@ export function calculateColumnWidths(actualData?: {
   );
 
   // App: text only (image is now in separate banner column)
+  // Also account for BadgesRow below the name: service badge ("STEAM" ~40px) + optional eviction badge
+  // ("Partially Evicted" ~110px) + gap (6px) + badge padding (24px each). Use a representative worst-case.
   const appNameContentWidth = measureMaxTextWidth(appNameSamples, RETRO_VIEW_FONTS.appName, 0);
+  const appServiceBadgeWidth = measureTextWidth('STEAM', RETRO_VIEW_FONTS.header) + 24;
+  const appEvictionBadgeWidth =
+    measureTextWidth('Partially Evicted', RETRO_VIEW_FONTS.header) + 24 + 6;
+  const appBadgesRowWidth = appServiceBadgeWidth + appEvictionBadgeWidth;
 
   // Depot: typical depot IDs are 6-7 digits
   const depotContentWidth = measureTextWidth('1234567', RETRO_VIEW_FONTS.depot);
@@ -217,7 +223,7 @@ export function calculateColumnWidths(actualData?: {
   return {
     timestamp: calculateWidth(headerWidths.timestamp, timestampContentWidth),
     banner: 140, // Fixed width for game banner images (120px image + padding)
-    app: calculateWidth(headerWidths.app, appNameContentWidth, 8), // App name only (no image)
+    app: calculateWidth(headerWidths.app, Math.max(appNameContentWidth, appBadgesRowWidth), 8), // App name or badges row, whichever is wider
     datasource: calculateWidth(headerWidths.datasource, datasourceContentWidth),
     events: calculateWidth(headerWidths.events, eventsContentWidth),
     depot: calculateWidth(headerWidths.depot, depotContentWidth),
