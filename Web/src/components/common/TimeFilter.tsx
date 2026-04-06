@@ -14,6 +14,8 @@ import {
 } from 'lucide-react';
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import type { TimeRange } from '@contexts/TimeFilterContext.types';
+import { computeTimeRangeParams } from '@contexts/TimeFilterContext.utils';
+import ApiService from '@services/api.service';
 import { useEvents } from '@contexts/useEvents';
 import DateRangePicker from './DateRangePicker';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
@@ -52,6 +54,40 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
 
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const prefetchAbortRef = useRef<AbortController | null>(null);
+
+  // Abort any pending prefetch on unmount
+  useEffect(() => {
+    return () => {
+      prefetchAbortRef.current?.abort();
+    };
+  }, []);
+
+  // Prefetch dashboard data on hover over time range options
+  const handlePrefetchHover = useCallback(
+    (rangeValue: string) => {
+      // Skip prefetch for 'custom' (needs date picker) and 'live' (no time params)
+      if (rangeValue === 'custom' || rangeValue === 'live') return;
+      // Skip if already on this range
+      if (rangeValue === timeRange) return;
+
+      // Abort any existing prefetch
+      prefetchAbortRef.current?.abort();
+      const controller = new AbortController();
+      prefetchAbortRef.current = controller;
+
+      // Compute params for the hovered range
+      const { startTime, endTime } = computeTimeRangeParams(rangeValue as TimeRange, Date.now());
+
+      // Determine eventId from current selection
+      const eventId = selectedEventIds.length > 0 ? selectedEventIds[0] : undefined;
+
+      // Fire-and-forget speculative fetch — warms the browser HTTP cache
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      ApiService.getDashboardBatch(controller.signal, startTime, endTime, eventId).catch(() => {});
+    },
+    [timeRange, selectedEventIds]
+  );
 
   // Sort events: active first, then upcoming, then past
   const sortedEvents = useMemo(() => sortEventsByStatus(events), [events]);
@@ -346,6 +382,9 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
                   left: dropdownPosition.left,
                   animation: dropdownStyle.animation
                 }}
+                onMouseLeave={() => {
+                  prefetchAbortRef.current?.abort();
+                }}
               >
                 {/* Title */}
                 <div className="px-3 py-2 text-sm font-medium border-b text-[var(--theme-text-secondary)] border-[var(--theme-border-primary)] bg-[var(--theme-bg-secondary)]">
@@ -362,6 +401,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
                           key={option.value}
                           type="button"
                           onClick={() => handleTimeRangeChange(option.value)}
+                          onMouseEnter={() => handlePrefetchHover(option.value)}
                           className={`ed-option w-full px-3 py-2.5 text-left text-sm cursor-pointer ${isSelected ? 'ed-option-selected' : ''}`}
                           title={option.description}
                         >

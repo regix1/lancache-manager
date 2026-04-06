@@ -1,15 +1,11 @@
 import React, { useMemo, memo } from 'react';
-import { IDB_KEYS } from '@utils/idbCache';
 import { TrendingUp, TrendingDown } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { formatBytes, formatPercent } from '@utils/formatters';
-import { type CacheGrowthResponse } from '../../../../types';
 import Sparkline from '../components/Sparkline';
-import ApiService from '@services/api.service';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { useTimeFilter } from '@contexts/useTimeFilter';
-import { useWidgetData } from '@hooks/useWidgetData';
-import MockDataService from '../../../../test/mockData.service';
+import { useCacheGrowth } from '@contexts/DashboardDataContext/hooks';
 
 interface CacheGrowthTrendProps {
   /** Current used cache size in bytes (from cacheInfo) */
@@ -35,21 +31,9 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
     // Any non-live mode should disable real-time only stats
     const isHistoricalView = timeRange !== 'live';
 
-    // Fetch cache growth data from API using shared hook
-    const { loading, error, displayData } = useWidgetData<CacheGrowthResponse>({
-      cacheKey: IDB_KEYS.CACHE_GROWTH,
-      fetchFn: (signal, params) =>
-        ApiService.getCacheGrowth(
-          signal,
-          params.startTime,
-          params.endTime,
-          'daily',
-          usedCacheSize > 0 ? usedCacheSize : undefined,
-          params.eventId
-        ),
-      mockFn: () => MockDataService.generateMockCacheGrowth(usedCacheSize, totalCacheSize),
-      deps: [usedCacheSize, totalCacheSize]
-    });
+    // Consume cache growth data from batched context
+    const { cacheGrowth: displayData, loading } = useCacheGrowth();
+    const error: string | null = null;
 
     // Extract sparkline data from API response
     const sparklineData = useMemo(() => {

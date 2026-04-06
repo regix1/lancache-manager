@@ -55,6 +55,9 @@ export function useWidgetData<T>(options: UseWidgetDataOptions<T>): UseWidgetDat
   const mockFnRef = useRef(mockFn);
   mockFnRef.current = mockFn;
 
+  const getTimeRangeParamsRef = useRef(getTimeRangeParams);
+  getTimeRangeParamsRef.current = getTimeRangeParams;
+
   const stableDeps = useCallback(() => deps, deps); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -79,7 +82,7 @@ export function useWidgetData<T>(options: UseWidgetDataOptions<T>): UseWidgetDat
         // Only show loading when there's no prior data
         if (!prevDataRef.current) setLoading(true);
         setError(null);
-        const { startTime, endTime } = getTimeRangeParams();
+        const { startTime, endTime } = getTimeRangeParamsRef.current();
         const eventId = selectedEventIds.length > 0 ? selectedEventIds[0] : undefined;
         const response = await fetchFnRef.current(controller.signal, {
           startTime,
@@ -105,7 +108,7 @@ export function useWidgetData<T>(options: UseWidgetDataOptions<T>): UseWidgetDat
 
     return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timeRange, getTimeRangeParams, mockMode, selectedEventIds, cacheKey, stableDeps]);
+  }, [timeRange, mockMode, selectedEventIds, cacheKey, stableDeps]);
 
   // Use displayData to preserve previous values during loading
   const displayData = data || prevDataRef.current;

@@ -36,6 +36,7 @@ import type {
   EpicScheduleStatus,
   PicsStatus
 } from '../types';
+import type { DashboardBatchResponse } from '../contexts/DashboardDataContext/types';
 
 // Response types for API operations
 interface ApiErrorData {
@@ -161,6 +162,34 @@ class ApiService {
         ...(options.headers || {})
       }
     };
+  }
+
+  // Dashboard batch endpoint — fetches all 6 dashboard data sources in a single request
+  static async getDashboardBatch(
+    signal?: AbortSignal,
+    startTime?: number,
+    endTime?: number,
+    eventId?: number,
+    cacheBust?: number
+  ): Promise<DashboardBatchResponse> {
+    try {
+      let url = `${API_BASE}/dashboard/batch`;
+      const params = new URLSearchParams();
+      if (startTime && !isNaN(startTime)) params.append('startTime', startTime.toString());
+      if (endTime && !isNaN(endTime)) params.append('endTime', endTime.toString());
+      if (eventId) params.append('eventId', eventId.toString());
+      if (cacheBust) params.append('cacheBust', cacheBust.toString());
+      if (params.toString()) url += `?${params}`;
+      const res = await fetch(url, this.getFetchOptions({ signal }));
+      return await this.handleResponse<DashboardBatchResponse>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else {
+        console.error('getDashboardBatch error:', error);
+      }
+      throw error;
+    }
   }
 
   static async getCacheInfo(signal?: AbortSignal): Promise<CacheInfo> {

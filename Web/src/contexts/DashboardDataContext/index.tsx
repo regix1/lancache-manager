@@ -15,12 +15,17 @@ import type {
   ServiceStat,
   DashboardStats,
   Download,
-  GameCacheInfo
+  GameCacheInfo,
+  SparklineDataResponse,
+  HourlyActivityResponse,
+  CacheSnapshotResponse,
+  CacheGrowthResponse
 } from '../../types';
 import {
   DashboardDataContext,
   type DashboardDataProviderProps,
-  type CachedDetectionResponse
+  type CachedDetectionResponse,
+  type DashboardBatchResponse
 } from './types';
 
 export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
@@ -96,8 +101,23 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
     }
     return bySvc;
   });
+  // Sparklines & widget data — hydrate from IDB cache
+  const [sparklines, setSparklines] = useState<SparklineDataResponse | null>(
+    () => getCachedValue<SparklineDataResponse>(IDB_KEYS.SPARKLINES) ?? null
+  );
+  const [hourlyActivity, setHourlyActivity] = useState<HourlyActivityResponse | null>(
+    () => getCachedValue<HourlyActivityResponse>(IDB_KEYS.HOURLY_ACTIVITY) ?? null
+  );
+  const [cacheSnapshot, setCacheSnapshot] = useState<CacheSnapshotResponse | null>(
+    () => getCachedValue<CacheSnapshotResponse>(IDB_KEYS.CACHE_SNAPSHOT) ?? null
+  );
+  const [cacheGrowth, setCacheGrowth] = useState<CacheGrowthResponse | null>(
+    () => getCachedValue<CacheGrowthResponse>(IDB_KEYS.CACHE_GROWTH) ?? null
+  );
+
   // loading is false if we have cached data (pre-loaded before render)
   const [loading, setLoading] = useState(() => getCachedValue(IDB_KEYS.CACHE_INFO) === undefined);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [connectionStatus, setConnectionStatus] = useState('checking');
 
@@ -224,8 +244,13 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       const signal = abortControllerRef.current.signal;
 
       try {
-        if (showLoading) {
+        // SWR: Only show loading spinner on initial load when there's no cached data.
+        // For subsequent fetches, keep previous data visible (stale-while-revalidate).
+        if (showLoading && !hasData.current) {
           setLoading(true);
+        }
+        if (hasData.current) {
+          setIsRefreshing(true);
         }
 
         const isConnected = await checkConnectionStatus();
@@ -240,23 +265,15 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         const timeout = 10000;
         const timeoutId = setTimeout(() => abortControllerRef.current?.abort(), timeout);
 
-        // Fetch all data in parallel using Promise.allSettled
-        const [cache, clients, services, dashboard, downloads, detection] =
-          await Promise.allSettled([
-            ApiService.getCacheInfo(signal),
-            ApiService.getClientStats(signal, startTime, endTime, eventIds, undefined, cacheBust),
-            ApiService.getServiceStats(signal, startTime, endTime, eventIds, cacheBust),
-            ApiService.getDashboardStats(signal, startTime, endTime, eventIds, cacheBust),
-            ApiService.getLatestDownloads(
-              signal,
-              'unlimited',
-              startTime,
-              endTime,
-              eventIds,
-              cacheBust
-            ),
-            ApiService.getCachedGameDetection()
-          ]);
+        // Single batch endpoint replaces 6 individual API calls
+        const eventId = eventIds && eventIds.length > 0 ? eventIds[0] : undefined;
+        const batchResponse: DashboardBatchResponse = await ApiService.getDashboardBatch(
+          signal,
+          startTime,
+          endTime,
+          eventId,
+          cacheBust
+        );
 
         clearTimeout(timeoutId);
 
@@ -273,18 +290,14 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
 
         // Batch all state updates to prevent multiple re-renders
         unstable_batchedUpdates(() => {
-          // Cache info is not time-range dependent, always apply
-          if (cache.status === 'fulfilled' && cache.value !== undefined) {
-            setCacheInfo(cache.value);
+          // Cache info is not time-range dependent, always apply (skip if server returned null)
+          if (batchResponse.cache !== null && batchResponse.cache !== undefined) {
+            setCacheInfo(batchResponse.cache);
           }
 
           // Game detection data is not time-range dependent, always apply
-          if (
-            detection.status === 'fulfilled' &&
-            detection.value !== null &&
-            detection.value !== undefined
-          ) {
-            const detectionResult = detection.value as CachedDetectionResponse;
+          if (batchResponse.detection !== null && batchResponse.detection !== undefined) {
+            const detectionResult = batchResponse.detection;
             setGameDetectionData(detectionResult);
             // Build lookup maps: primary by game_app_id, fallback by game_name
             if (detectionResult.games && detectionResult.games.length > 0) {
@@ -318,19 +331,37 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
           }
 
           // All other data depends on time range AND event filter
+          // Only update if filters haven't changed; null means server-side sub-query failed — keep stale data
           if (filtersStillValid) {
-            if (clients.status === 'fulfilled' && clients.value !== undefined) {
-              setClientStats(clients.value);
+            if (batchResponse.clients !== null && batchResponse.clients !== undefined) {
+              setClientStats(batchResponse.clients);
             }
-            if (services.status === 'fulfilled' && services.value !== undefined) {
-              setServiceStats(services.value);
+            if (batchResponse.services !== null && batchResponse.services !== undefined) {
+              setServiceStats(batchResponse.services);
             }
-            if (dashboard.status === 'fulfilled' && dashboard.value !== undefined) {
-              setDashboardStats(dashboard.value);
+            if (batchResponse.dashboard !== null && batchResponse.dashboard !== undefined) {
+              setDashboardStats(batchResponse.dashboard);
               hasData.current = true;
             }
-            if (downloads.status === 'fulfilled' && downloads.value !== undefined) {
-              setLatestDownloads(downloads.value);
+            if (batchResponse.downloads !== null && batchResponse.downloads !== undefined) {
+              setLatestDownloads(batchResponse.downloads);
+            }
+            // Sparklines & widget data — time-range dependent
+            if (batchResponse.sparklines !== null && batchResponse.sparklines !== undefined) {
+              setSparklines(batchResponse.sparklines);
+            }
+            if (
+              batchResponse.hourlyActivity !== null &&
+              batchResponse.hourlyActivity !== undefined
+            ) {
+              setHourlyActivity(batchResponse.hourlyActivity);
+            }
+            if (batchResponse.cacheGrowth !== null && batchResponse.cacheGrowth !== undefined) {
+              setCacheGrowth(batchResponse.cacheGrowth);
+            }
+            // cacheSnapshot is null in live mode — only update when backend returns data
+            if (batchResponse.cacheSnapshot !== null && batchResponse.cacheSnapshot !== undefined) {
+              setCacheSnapshot(batchResponse.cacheSnapshot);
             }
             setError(null);
           }
@@ -343,20 +374,28 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         });
 
         // Write to in-memory cache and IndexedDB (fire-and-forget)
-        if (cache.status === 'fulfilled' && cache.value) {
-          setCachedValue(IDB_KEYS.CACHE_INFO, cache.value);
+        if (batchResponse.cache) {
+          setCachedValue(IDB_KEYS.CACHE_INFO, batchResponse.cache);
         }
-        if (detection.status === 'fulfilled' && detection.value) {
-          setCachedValue(IDB_KEYS.GAME_DETECTION, detection.value);
+        if (batchResponse.detection) {
+          setCachedValue(IDB_KEYS.GAME_DETECTION, batchResponse.detection);
         }
         if (filtersStillValid) {
-          if (clients.status === 'fulfilled') setCachedValue(IDB_KEYS.CLIENT_STATS, clients.value);
-          if (services.status === 'fulfilled')
-            setCachedValue(IDB_KEYS.SERVICE_STATS, services.value);
-          if (dashboard.status === 'fulfilled')
-            setCachedValue(IDB_KEYS.DASHBOARD_STATS, dashboard.value);
-          if (downloads.status === 'fulfilled')
-            setCachedValue(IDB_KEYS.LATEST_DOWNLOADS, downloads.value);
+          if (batchResponse.clients) setCachedValue(IDB_KEYS.CLIENT_STATS, batchResponse.clients);
+          if (batchResponse.services)
+            setCachedValue(IDB_KEYS.SERVICE_STATS, batchResponse.services);
+          if (batchResponse.dashboard)
+            setCachedValue(IDB_KEYS.DASHBOARD_STATS, batchResponse.dashboard);
+          if (batchResponse.downloads)
+            setCachedValue(IDB_KEYS.LATEST_DOWNLOADS, batchResponse.downloads);
+          if (batchResponse.sparklines)
+            setCachedValue(IDB_KEYS.SPARKLINES, batchResponse.sparklines);
+          if (batchResponse.hourlyActivity)
+            setCachedValue(IDB_KEYS.HOURLY_ACTIVITY, batchResponse.hourlyActivity);
+          if (batchResponse.cacheGrowth)
+            setCachedValue(IDB_KEYS.CACHE_GROWTH, batchResponse.cacheGrowth);
+          if (batchResponse.cacheSnapshot)
+            setCachedValue(IDB_KEYS.CACHE_SNAPSHOT, batchResponse.cacheSnapshot);
         }
       } catch (err: unknown) {
         // Check if we're still the current request before setting error state
@@ -374,6 +413,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
             isInitialLoad.current = false;
           }
           fetchInProgress.current = false;
+          setIsRefreshing(false);
         }
       }
     },
@@ -610,7 +650,12 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       gameDetectionLookup,
       gameDetectionByName,
       gameDetectionByService,
+      sparklines,
+      hourlyActivity,
+      cacheSnapshot,
+      cacheGrowth,
       loading,
+      isRefreshing,
       error,
       connectionStatus,
       refreshData,
@@ -626,7 +671,12 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       gameDetectionLookup,
       gameDetectionByName,
       gameDetectionByService,
+      sparklines,
+      hourlyActivity,
+      cacheSnapshot,
+      cacheGrowth,
       loading,
+      isRefreshing,
       error,
       connectionStatus,
       refreshData,

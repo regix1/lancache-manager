@@ -12,7 +12,10 @@ export const IDB_KEYS = {
   LATEST_DOWNLOADS: 'dashboard_latest_downloads',
   PEAK_USAGE: 'widget_peak_usage',
   CACHE_GROWTH: 'widget_cache_growth',
-  GAME_DETECTION: 'dashboard_game_detection'
+  GAME_DETECTION: 'dashboard_game_detection',
+  SPARKLINES: 'dashboard_sparklines',
+  CACHE_SNAPSHOT: 'dashboard_cache_snapshot',
+  HOURLY_ACTIVITY: 'dashboard_hourly_activity'
 } as const;
 
 /**

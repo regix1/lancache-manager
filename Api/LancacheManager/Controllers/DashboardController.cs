@@ -1,0 +1,993 @@
+using LancacheManager.Models;
+using LancacheManager.Core.Services;
+using LancacheManager.Core.Interfaces;
+using LancacheManager.Infrastructure.Data;
+using LancacheManager.Infrastructure.Services;
+using LancacheManager.Infrastructure.Utilities;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+using LancacheManager.Configuration;
+
+namespace LancacheManager.Controllers;
+
+/// <summary>
+/// Batch endpoint for the dashboard — returns all 6 dashboard data sets in a single HTTP round trip.
+/// Each sub-query runs in parallel via Task.WhenAll; partial failures return null for that field.
+/// </summary>
+[ApiController]
+[Route("api/dashboard")]
+[Authorize]
+public class DashboardController : ControllerBase
+{
+    private readonly CacheManagementService _cacheService;
+    private readonly GameCacheDetectionService _gameCacheDetectionService;
+    private readonly AppDbContext _context;
+    private readonly StatsDataService _statsService;
+    private readonly IStateService _stateRepository;
+    private readonly IOptions<ApiOptions> _apiOptions;
+    private readonly ILogger<DashboardController> _logger;
+    private readonly CacheSnapshotService _cacheSnapshotService;
+
+    public DashboardController(
+        CacheManagementService cacheService,
+        GameCacheDetectionService gameCacheDetectionService,
+        AppDbContext context,
+        StatsDataService statsService,
+        IStateService stateRepository,
+        IOptions<ApiOptions> apiOptions,
+        ILogger<DashboardController> logger,
+        CacheSnapshotService cacheSnapshotService)
+    {
+        _cacheService = cacheService;
+        _gameCacheDetectionService = gameCacheDetectionService;
+        _context = context;
+        _statsService = statsService;
+        _stateRepository = stateRepository;
+        _apiOptions = apiOptions;
+        _logger = logger;
+        _cacheSnapshotService = cacheSnapshotService;
+    }
+
+    /// <summary>
+    /// GET /api/dashboard/batch — returns cache, clients, services, dashboard stats, downloads, and detection
+    /// in a single response. All 6 sub-queries execute in parallel.
+    /// </summary>
+    [HttpGet("batch")]
+    public async Task<IActionResult> GetBatchAsync(
+        [FromQuery] long? startTime = null,
+        [FromQuery] long? endTime = null,
+        [FromQuery] long? eventId = null)
+    {
+        // Shared state used by multiple sub-queries
+        var hiddenClientIps = _stateRepository.GetHiddenClientIps();
+        var statsExcludedOnlyIps = _stateRepository.GetStatsExcludedOnlyClientIps();
+        var excludedClientIps = _stateRepository.GetExcludedClientIps();
+        var evictedMode = _stateRepository.GetEvictedDataMode();
+        var eventIdList = eventId.HasValue ? new List<long> { eventId.Value } : new List<long>();
+
+        // Pre-fetch event download IDs once (shared by clients, services, dashboard, downloads)
+        HashSet<long>? eventDownloadIds = eventIdList.Count > 0
+            ? await GetEventDownloadIdsAsync(eventIdList)
+            : null;
+
+        // Phase 1: Launch 9 independent queries in parallel (cacheGrowth depends on cache result)
+        var cacheTask = SafeExecuteAsync("cache", () => GetCacheInfoAsync());
+        var clientsTask = SafeExecuteAsync("clients", () => GetClientStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
+        var servicesTask = SafeExecuteAsync("services", () => GetServiceStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
+        var dashboardTask = SafeExecuteAsync("dashboard", () => GetDashboardStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
+        var downloadsTask = SafeExecuteAsync("downloads", () => GetLatestDownloadsAsync(startTime, endTime, eventIdList, eventDownloadIds, excludedClientIps, evictedMode));
+        var detectionTask = SafeExecuteAsync("detection", () => GetCachedDetectionAsync());
+        var sparklineTask = SafeExecuteAsync("sparklines", () => GetSparklineDataAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
+        var hourlyTask = SafeExecuteAsync("hourlyActivity", () => GetHourlyActivityAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
+        var cacheSnapshotTask = SafeExecuteAsync("cacheSnapshot", () => GetCacheSnapshotAsync(startTime, endTime));
+
+        await Task.WhenAll(cacheTask, clientsTask, servicesTask, dashboardTask, downloadsTask, detectionTask, sparklineTask, hourlyTask, cacheSnapshotTask);
+
+        // Phase 2: cacheGrowth depends on actualCacheSize from the cache result
+        var cacheResult = await cacheTask;
+        long actualCacheSize = cacheResult?.UsedCacheSize ?? 0;
+        var cacheGrowthTask = SafeExecuteAsync("cacheGrowth", () => GetCacheGrowthAsync(startTime, endTime, actualCacheSize, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
+        await cacheGrowthTask;
+
+        return Ok(new DashboardBatchResponse
+        {
+            Cache = cacheResult,
+            Clients = await clientsTask,
+            Services = await servicesTask,
+            Dashboard = await dashboardTask,
+            Downloads = await downloadsTask,
+            Detection = await detectionTask,
+            Sparklines = await sparklineTask,
+            HourlyActivity = await hourlyTask,
+            CacheSnapshot = await cacheSnapshotTask,
+            CacheGrowth = await cacheGrowthTask
+        });
+    }
+
+    // ───────────────────── Sub-query implementations ─────────────────────
+
+    private async Task<CacheInfo> GetCacheInfoAsync()
+    {
+        return await _cacheService.GetCacheInfoAsync();
+    }
+
+    private async Task<object> GetClientStatsAsync(
+        long? startTime, long? endTime,
+        List<long> eventIdList, HashSet<long>? eventDownloadIds,
+        List<string> hiddenClientIps, string evictedMode,
+        List<string> statsExcludedOnlyIps)
+    {
+        var maxLimit = _apiOptions.Value.MaxClientsPerRequest;
+        var defaultLimit = _apiOptions.Value.DefaultClientsLimit;
+        var effectiveLimit = Math.Min(defaultLimit, maxLimit);
+
+        var query = _context.Downloads.AsNoTracking();
+        query = query.ApplyEventFilter(eventIdList, eventDownloadIds);
+        query = query.ApplyHiddenClientFilter(hiddenClientIps);
+        query = query.ApplyEvictedFilter(evictedMode);
+
+        if (startTime.HasValue)
+        {
+            var startDate = startTime.Value.FromUnixSeconds();
+            query = query.Where(d => d.StartTimeUtc >= startDate);
+        }
+        if (endTime.HasValue)
+        {
+            var endDate = endTime.Value.FromUnixSeconds();
+            query = query.Where(d => d.StartTimeUtc <= endDate);
+        }
+
+        var ipStats = await query
+            .GroupBy(d => d.ClientIp)
+            .Select(g => new
+            {
+                ClientIp = g.Key,
+                TotalCacheHitBytes = g.Sum(d => d.CacheHitBytes),
+                TotalCacheMissBytes = g.Sum(d => d.CacheMissBytes),
+                TotalDownloads = g.Count(),
+                MinStartTimeUtc = g.Min(d => d.StartTimeUtc),
+                MaxEndTimeUtc = g.Max(d => d.EndTimeUtc),
+                LastActivityUtc = g.Max(d => d.StartTimeUtc)
+            })
+            .ToListAsync();
+
+        // Calculate duration client-side (DateTime subtraction can't be translated to SQL)
+        var ipStatsWithDuration = ipStats.Select(s => new
+        {
+            s.ClientIp,
+            s.TotalCacheHitBytes,
+            s.TotalCacheMissBytes,
+            s.TotalDownloads,
+            TotalDurationSeconds = s.MaxEndTimeUtc > s.MinStartTimeUtc
+                ? (s.MaxEndTimeUtc - s.MinStartTimeUtc).TotalSeconds
+                : 0,
+            s.LastActivityUtc
+        }).ToList();
+
+        var result = ipStatsWithDuration
+            .OrderByDescending(s => s.TotalCacheHitBytes + s.TotalCacheMissBytes)
+            .Take(effectiveLimit)
+            .Select(s => new ClientStats
+            {
+                ClientIp = s.ClientIp,
+                TotalCacheHitBytes = s.TotalCacheHitBytes,
+                TotalCacheMissBytes = s.TotalCacheMissBytes,
+                TotalDownloads = s.TotalDownloads,
+                TotalDurationSeconds = s.TotalDurationSeconds,
+                LastActivityUtc = s.LastActivityUtc.AsUtc()
+            })
+            .ToList();
+
+        return result;
+    }
+
+    private async Task<object> GetServiceStatsAsync(
+        long? startTime, long? endTime,
+        List<long> eventIdList, HashSet<long>? eventDownloadIds,
+        List<string> hiddenClientIps, string evictedMode,
+        List<string> statsExcludedOnlyIps)
+    {
+        var query = _context.Downloads.AsNoTracking()
+            .ApplyHiddenClientFilter(hiddenClientIps)
+            .ApplyEvictedFilter(evictedMode);
+
+        query = query.ApplyEventFilter(eventIdList, eventDownloadIds);
+
+        if (startTime.HasValue)
+        {
+            var startDate = startTime.Value.FromUnixSeconds();
+            query = query.Where(d => d.StartTimeUtc >= startDate);
+        }
+        if (endTime.HasValue)
+        {
+            var endDate = endTime.Value.FromUnixSeconds();
+            query = query.Where(d => d.StartTimeUtc <= endDate);
+        }
+
+        var serviceStatsQuery = statsExcludedOnlyIps.Count > 0
+            ? query.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp))
+            : query;
+
+        var serviceStats = await serviceStatsQuery
+            .GroupBy(d => d.Service)
+            .Select(g => new ServiceStats
+            {
+                Service = g.Key,
+                TotalCacheHitBytes = g.Sum(d => d.CacheHitBytes),
+                TotalCacheMissBytes = g.Sum(d => d.CacheMissBytes),
+                TotalDownloads = g.Count(),
+                LastActivityUtc = g.Max(d => d.StartTimeUtc),
+                LastActivityLocal = g.Max(d => d.StartTimeLocal)
+            })
+            .OrderByDescending(s => s.TotalCacheHitBytes + s.TotalCacheMissBytes)
+            .ToListAsync();
+
+        return serviceStats.WithUtcMarking();
+    }
+
+    private async Task<object> GetDashboardStatsAsync(
+        long? startTime, long? endTime,
+        List<long> eventIdList, HashSet<long>? eventDownloadIds,
+        List<string> hiddenClientIps, string evictedMode,
+        List<string> statsExcludedOnlyIps)
+    {
+        DateTime? cutoffTime = startTime.HasValue ? startTime.Value.FromUnixSeconds() : null;
+        DateTime? endDateTime = endTime.HasValue ? endTime.Value.FromUnixSeconds() : null;
+
+        var downloadsQuery = _context.Downloads.AsNoTracking()
+            .ApplyHiddenClientFilter(hiddenClientIps)
+            .ApplyEvictedFilter(evictedMode);
+
+        downloadsQuery = downloadsQuery.ApplyEventFilter(eventIdList, eventDownloadIds);
+
+        if (cutoffTime.HasValue)
+            downloadsQuery = downloadsQuery.Where(d => d.StartTimeUtc >= cutoffTime.Value);
+        if (endDateTime.HasValue)
+            downloadsQuery = downloadsQuery.Where(d => d.StartTimeUtc <= endDateTime.Value);
+
+        // Calculate period metrics (exclude stats-excluded IPs)
+        var periodQuery = statsExcludedOnlyIps.Count > 0
+            ? downloadsQuery.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp))
+            : downloadsQuery;
+
+        var periodHitBytes = await periodQuery.SumAsync(d => d.CacheHitBytes);
+        var periodMissBytes = await periodQuery.SumAsync(d => d.CacheMissBytes);
+        var periodTotal = periodHitBytes + periodMissBytes;
+        var periodHitRatio = periodTotal > 0 ? (periodHitBytes * 100.0) / periodTotal : 0;
+        var periodDownloadCount = await periodQuery.CountAsync();
+
+        // Active downloads (last 5 minutes, not ended)
+        var activeThreshold = DateTime.UtcNow.AddMinutes(-5);
+        var activeDownloads = await _context.Downloads.AsNoTracking()
+            .ApplyHiddenClientFilter(hiddenClientIps)
+            .ApplyEvictedFilter(evictedMode)
+            .CountAsync(d => d.StartTimeUtc >= activeThreshold && d.EndTimeUtc == default);
+
+        // Unique clients in period
+        var uniqueClientsQuery = statsExcludedOnlyIps.Count > 0
+            ? downloadsQuery.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp))
+            : downloadsQuery;
+        var uniqueClientsCount = await uniqueClientsQuery.Select(d => d.ClientIp).Distinct().CountAsync();
+
+        // All-time totals from Downloads table (consistent with dashboard)
+        var allTimeQuery = _context.Downloads.AsNoTracking()
+            .ApplyHiddenClientFilter(hiddenClientIps)
+            .ApplyEvictedFilter(evictedMode);
+        if (statsExcludedOnlyIps.Count > 0)
+            allTimeQuery = allTimeQuery.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp));
+
+        var totalHitBytes = await allTimeQuery.SumAsync(d => d.CacheHitBytes);
+        var totalMissBytes = await allTimeQuery.SumAsync(d => d.CacheMissBytes);
+        var totalServed = totalHitBytes + totalMissBytes;
+        var cacheHitRatio = totalServed > 0 ? (totalHitBytes * 100.0) / totalServed : 0;
+
+        // Top service
+        var topService = await periodQuery
+            .GroupBy(d => d.Service)
+            .Select(g => new { Service = g.Key, Bytes = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes) })
+            .OrderByDescending(s => s.Bytes)
+            .FirstOrDefaultAsync();
+
+        string periodLabel = "all";
+        if (cutoffTime.HasValue && endDateTime.HasValue)
+        {
+            var duration = endDateTime.Value - cutoffTime.Value;
+            periodLabel = duration.TotalHours <= 24 ? $"{(int)duration.TotalHours}h" : $"{(int)duration.TotalDays}d";
+        }
+        else if (cutoffTime.HasValue)
+        {
+            periodLabel = "since " + cutoffTime.Value.ToString("yyyy-MM-dd");
+        }
+
+        return new DashboardStatsResponse
+        {
+            TotalBandwidthSaved = totalHitBytes,
+            TotalAddedToCache = totalMissBytes,
+            TotalServed = totalServed,
+            CacheHitRatio = cacheHitRatio,
+            ActiveDownloads = activeDownloads,
+            UniqueClients = uniqueClientsCount,
+            TopService = topService?.Service ?? "N/A",
+            Period = new DashboardPeriodStats
+            {
+                Duration = periodLabel,
+                Since = cutoffTime,
+                BandwidthSaved = periodHitBytes,
+                AddedToCache = periodMissBytes,
+                TotalServed = periodTotal,
+                HitRatio = periodHitRatio,
+                Downloads = periodDownloadCount
+            },
+            ServiceBreakdown = await downloadsQuery
+                .GroupBy(d => d.Service)
+                .Select(g => new ServiceBreakdownItem
+                {
+                    Service = g.Key,
+                    Bytes = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes),
+                    Percentage = periodTotal > 0
+                        ? (g.Sum(d => d.CacheHitBytes + d.CacheMissBytes) * 100.0) / periodTotal
+                        : 0
+                })
+                .OrderByDescending(s => s.Bytes)
+                .ToListAsync(),
+            LastUpdated = DateTime.UtcNow
+        };
+    }
+
+    private async Task<object> GetLatestDownloadsAsync(
+        long? startTime, long? endTime,
+        List<long> eventIdList, HashSet<long>? eventDownloadIds,
+        List<string> excludedClientIps, string evictedMode)
+    {
+        const string PrefillToken = "prefill";
+        List<Download> downloads;
+
+        if (!startTime.HasValue && !endTime.HasValue && eventIdList.Count == 0)
+        {
+            downloads = await _statsService.GetLatestDownloadsAsync(int.MaxValue);
+        }
+        else
+        {
+            var startDate = startTime.HasValue ? startTime.Value.FromUnixSeconds() : DateTime.MinValue;
+            var endDate = endTime.HasValue ? endTime.Value.FromUnixSeconds() : DateTime.UtcNow;
+
+            IQueryable<Download> query;
+
+            if (eventIdList.Count > 0)
+            {
+                query = _context.Downloads.AsNoTracking()
+                    .Where(d => _context.EventDownloads
+                        .Where(ed => eventIdList.Contains(ed.EventId))
+                        .Select(ed => ed.DownloadId)
+                        .Contains(d.Id))
+                    .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate);
+            }
+            else
+            {
+                query = _context.Downloads.AsNoTracking()
+                    .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate);
+            }
+
+            query = query.ApplyEvictedFilter(evictedMode);
+            downloads = await query.OrderByDescending(d => d.StartTimeUtc).ToListAsync();
+        }
+
+        // Filter out excluded and prefill client IPs
+        if (excludedClientIps.Count > 0)
+        {
+            downloads = downloads
+                .Where(d => !excludedClientIps.Contains(d.ClientIp))
+                .ToList();
+        }
+
+        downloads = downloads
+            .Where(d => !string.Equals(d.ClientIp, PrefillToken, StringComparison.OrdinalIgnoreCase))
+            .Where(d => !string.Equals(d.Datasource, PrefillToken, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (evictedMode == EvictedDataModes.ShowClean)
+        {
+            foreach (var d in downloads) d.IsEvicted = false;
+        }
+
+        // Resolve game names via Steam depot mappings + Epic lookup
+        await ResolveGameNamesAsync(downloads);
+
+        return downloads;
+    }
+
+    private async Task<object> GetCachedDetectionAsync()
+    {
+        var cachedResults = await _gameCacheDetectionService.GetCachedDetectionAsync();
+
+        if (cachedResults == null)
+        {
+            return new CachedDetectionResponse { HasCachedResults = false };
+        }
+
+        var lastDetectionTimeUtc = cachedResults.StartTime.AsUtc();
+        var games = cachedResults.Games ?? [];
+        var activeGamesCount = games.Count(g => !g.IsEvicted);
+
+        return new CachedDetectionResponse
+        {
+            HasCachedResults = true,
+            Games = games,
+            Services = cachedResults.Services,
+            TotalGamesDetected = activeGamesCount,
+            TotalServicesDetected = cachedResults.TotalServicesDetected,
+            LastDetectionTime = lastDetectionTimeUtc.ToString("o")
+        };
+    }
+
+    // ───────────────────── New batch sub-queries (sparklines, hourly, cacheGrowth, cacheSnapshot) ─────────────────────
+
+    private async Task<object> GetSparklineDataAsync(
+        long? startTime, long? endTime,
+        List<long> eventIdList, HashSet<long>? eventDownloadIds,
+        List<string> hiddenClientIps, string evictedMode,
+        List<string> statsExcludedOnlyIps)
+    {
+        var query = BuildBaseDownloadsQuery(hiddenClientIps, evictedMode);
+        query = query.ApplyEventFilter(eventIdList, eventDownloadIds);
+
+        if (startTime.HasValue)
+        {
+            var cutoffTime = startTime.Value.FromUnixSeconds();
+            query = query.Where(d => d.StartTimeUtc >= cutoffTime);
+        }
+        if (endTime.HasValue)
+        {
+            var endDateTime = endTime.Value.FromUnixSeconds();
+            query = query.Where(d => d.StartTimeUtc <= endDateTime);
+        }
+
+        // Determine bucket size based on time range
+        int bucketMinutes = 1440; // default: 1 day
+        if (startTime.HasValue && endTime.HasValue)
+        {
+            var rangeHours = (endTime.Value - startTime.Value) / 3600.0;
+            if (rangeHours <= 2) bucketMinutes = 15;
+            else if (rangeHours <= 13) bucketMinutes = 30;
+            else if (rangeHours <= 25) bucketMinutes = 60;
+        }
+
+        var rawData = await query
+            .Select(d => new { d.StartTimeUtc, d.CacheHitBytes, d.CacheMissBytes, d.ClientIp })
+            .ToListAsync();
+
+        var filteredData = statsExcludedOnlyIps.Count > 0
+            ? rawData.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp)).ToList()
+            : rawData;
+
+        var bucketedData = filteredData
+            .GroupBy(d => {
+                var totalMinutes = (long)(d.StartTimeUtc - DateTime.UnixEpoch).TotalMinutes;
+                return totalMinutes / bucketMinutes * bucketMinutes;
+            })
+            .OrderBy(g => g.Key)
+            .Select(g => new
+            {
+                Bucket = g.Key,
+                CacheHitBytes = g.Sum(d => d.CacheHitBytes),
+                CacheMissBytes = g.Sum(d => d.CacheMissBytes)
+            })
+            .ToList();
+
+        var bandwidthSavedData = bucketedData.Select(d => (double)d.CacheHitBytes).ToList();
+        var addedToCacheData = bucketedData.Select(d => (double)d.CacheMissBytes).ToList();
+        var totalServedData = bucketedData.Select(d => (double)(d.CacheHitBytes + d.CacheMissBytes)).ToList();
+        var cacheHitRatioData = bucketedData.Select(d =>
+        {
+            var total = d.CacheHitBytes + d.CacheMissBytes;
+            return total > 0 ? (d.CacheHitBytes * 100.0) / total : 0.0;
+        }).ToList();
+
+        return new SparklineDataResponse
+        {
+            BandwidthSaved = BuildSparklineMetric(bandwidthSavedData),
+            CacheHitRatio = BuildSparklineMetricForRatio(cacheHitRatioData),
+            TotalServed = BuildSparklineMetric(totalServedData),
+            AddedToCache = BuildSparklineMetric(addedToCacheData),
+            Period = startTime.HasValue ? "filtered" : "all"
+        };
+    }
+
+    private async Task<object> GetHourlyActivityAsync(
+        long? startTime, long? endTime,
+        List<long> eventIdList, HashSet<long>? eventDownloadIds,
+        List<string> hiddenClientIps, string evictedMode,
+        List<string> statsExcludedOnlyIps)
+    {
+        var query = BuildBaseDownloadsQuery(hiddenClientIps, evictedMode);
+        query = query.ApplyEventFilter(eventIdList, eventDownloadIds);
+
+        DateTime? cutoffTime = null;
+        DateTime? endDateTime = null;
+
+        if (startTime.HasValue)
+        {
+            cutoffTime = startTime.Value.FromUnixSeconds();
+            query = query.Where(d => d.StartTimeUtc >= cutoffTime);
+        }
+        if (endTime.HasValue)
+        {
+            endDateTime = endTime.Value.FromUnixSeconds();
+            query = query.Where(d => d.StartTimeUtc <= endDateTime);
+        }
+
+        int daysInPeriod = 1;
+        long? periodStartTimestamp = null;
+        long? periodEndTimestamp = null;
+
+        if (startTime.HasValue && endTime.HasValue)
+        {
+            daysInPeriod = Math.Max(1, (int)Math.Ceiling((endDateTime!.Value - cutoffTime!.Value).TotalDays));
+            periodStartTimestamp = startTime.Value;
+            periodEndTimestamp = endTime.Value;
+        }
+        else
+        {
+            var dateRange = await query
+                .Select(d => d.StartTimeLocal.Date)
+                .Distinct()
+                .ToListAsync();
+
+            daysInPeriod = Math.Max(1, dateRange.Count);
+
+            if (dateRange.Count > 0)
+            {
+                var minDate = dateRange.Min();
+                var maxDate = dateRange.Max();
+                periodStartTimestamp = new DateTimeOffset(minDate, TimeSpan.Zero).ToUnixTimeSeconds();
+                periodEndTimestamp = new DateTimeOffset(maxDate.AddDays(1).AddSeconds(-1), TimeSpan.Zero).ToUnixTimeSeconds();
+            }
+        }
+
+        var filteredQuery = statsExcludedOnlyIps.Count > 0
+            ? query.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp))
+            : query;
+
+        var hourlyData = await filteredQuery
+            .GroupBy(d => d.StartTimeLocal.Hour)
+            .Select(g => new HourlyActivityItem
+            {
+                Hour = g.Key,
+                Downloads = g.Count(),
+                BytesServed = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes),
+                CacheHitBytes = g.Sum(d => d.CacheHitBytes),
+                CacheMissBytes = g.Sum(d => d.CacheMissBytes)
+            })
+            .ToListAsync();
+
+        var allHours = Enumerable.Range(0, 24)
+            .Select(h => {
+                var existing = hourlyData.FirstOrDefault(hd => hd.Hour == h);
+                if (existing != null)
+                {
+                    existing.AvgDownloads = Math.Round((double)existing.Downloads / daysInPeriod, 1);
+                    existing.AvgBytesServed = existing.BytesServed / daysInPeriod;
+                    return existing;
+                }
+                return new HourlyActivityItem { Hour = h };
+            })
+            .OrderBy(h => h.Hour)
+            .ToList();
+
+        var peakHour = allHours.OrderByDescending(h => h.Downloads).FirstOrDefault()?.Hour ?? 0;
+
+        return new HourlyActivityResponse
+        {
+            Hours = allHours,
+            PeakHour = peakHour,
+            TotalDownloads = allHours.Sum(h => h.Downloads),
+            TotalBytesServed = allHours.Sum(h => h.BytesServed),
+            DaysInPeriod = daysInPeriod,
+            PeriodStart = periodStartTimestamp,
+            PeriodEnd = periodEndTimestamp,
+            Period = startTime.HasValue ? "filtered" : "all"
+        };
+    }
+
+    private async Task<object> GetCacheGrowthAsync(
+        long? startTime, long? endTime, long actualCacheSize,
+        List<long> eventIdList, HashSet<long>? eventDownloadIds,
+        List<string> hiddenClientIps, string evictedMode,
+        List<string> statsExcludedOnlyIps)
+    {
+        const string interval = "daily";
+        DateTime? cutoffTime = startTime.HasValue
+            ? startTime.Value.FromUnixSeconds()
+            : (DateTime?)null;
+        DateTime? endDateTime = endTime.HasValue
+            ? endTime.Value.FromUnixSeconds()
+            : (DateTime?)null;
+        var intervalMinutes = TimeUtils.ParseInterval(interval);
+
+        long currentCacheSize = 0;
+        long totalCapacity = 0;
+
+        var allTimeQuery = BuildBaseDownloadsQuery(hiddenClientIps, evictedMode);
+        var totalCacheMiss = await AggregateExcludingAsync(allTimeQuery, statsExcludedOnlyIps,
+            q => q.SumAsync(d => (long?)d.CacheMissBytes).ContinueWith(t => t.Result ?? 0L));
+
+        currentCacheSize = totalCacheMiss;
+
+        var baseQuery = BuildBaseDownloadsQuery(hiddenClientIps, evictedMode);
+        baseQuery = baseQuery.ApplyEventFilter(eventIdList, eventDownloadIds);
+
+        if (cutoffTime.HasValue)
+            baseQuery = baseQuery.Where(d => d.StartTimeUtc >= cutoffTime.Value);
+        if (endDateTime.HasValue)
+            baseQuery = baseQuery.Where(d => d.StartTimeUtc <= endDateTime.Value);
+
+        var filteredQuery = statsExcludedOnlyIps.Count > 0
+            ? baseQuery.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp))
+            : baseQuery;
+
+        List<CacheGrowthDataPoint> dataPoints;
+
+        if (intervalMinutes >= 1440)
+        {
+            dataPoints = await filteredQuery
+                .GroupBy(d => d.StartTimeUtc.Date)
+                .OrderBy(g => g.Key)
+                .Select(g => new CacheGrowthDataPoint
+                {
+                    Timestamp = g.Key,
+                    CumulativeCacheMissBytes = 0,
+                    GrowthFromPrevious = g.Sum(d => d.CacheMissBytes)
+                })
+                .ToListAsync();
+        }
+        else
+        {
+            dataPoints = await filteredQuery
+                .GroupBy(d => new { d.StartTimeUtc.Date, d.StartTimeUtc.Hour })
+                .OrderBy(g => g.Key.Date).ThenBy(g => g.Key.Hour)
+                .Select(g => new CacheGrowthDataPoint
+                {
+                    Timestamp = g.Key.Date.AddHours(g.Key.Hour),
+                    CumulativeCacheMissBytes = 0,
+                    GrowthFromPrevious = g.Sum(d => d.CacheMissBytes)
+                })
+                .ToListAsync();
+        }
+
+        long cumulative = 0;
+        foreach (var dp in dataPoints)
+        {
+            cumulative += dp.GrowthFromPrevious;
+            dp.CumulativeCacheMissBytes = cumulative;
+        }
+        dataPoints.WithUtcMarking();
+
+        var trend = "stable";
+        double percentChange = 0;
+        long avgDailyGrowth = 0;
+
+        if (dataPoints.Count >= 2)
+        {
+            var firstValue = dataPoints.First().CumulativeCacheMissBytes;
+            var lastValue = dataPoints.Last().CumulativeCacheMissBytes;
+
+            var daysCovered = (dataPoints.Last().Timestamp - dataPoints.First().Timestamp).TotalDays;
+            if (daysCovered > 0)
+                avgDailyGrowth = (long)((lastValue - firstValue) / daysCovered);
+
+            var growthValues = dataPoints.Select(d => (double)d.GrowthFromPrevious).ToList();
+            var midpoint = growthValues.Count / 2;
+            var olderHalf = growthValues.Take(midpoint).ToList();
+            var recentHalf = growthValues.Skip(midpoint).ToList();
+
+            var olderAvg = olderHalf.Count > 0 ? olderHalf.Average() : 0;
+            var recentAvg = recentHalf.Count > 0 ? recentHalf.Average() : 0;
+
+            if (olderAvg == 0 && recentAvg == 0)
+                percentChange = 0;
+            else if (olderAvg == 0)
+                percentChange = recentAvg > 0 ? 100 : 0;
+            else
+                percentChange = ((recentAvg - olderAvg) / olderAvg) * 100;
+
+            percentChange = Math.Max(-999, Math.Min(999, percentChange));
+            percentChange = Math.Round(percentChange, 1);
+
+            if (percentChange > 5) trend = "up";
+            else if (percentChange < -5) trend = "down";
+        }
+
+        long netAvgDailyGrowth = avgDailyGrowth;
+        long estimatedBytesDeleted = 0;
+        bool hasDataDeletion = false;
+        bool cacheWasCleared = false;
+
+        if (actualCacheSize > 0)
+        {
+            var allTimeQueryForCumulative = BuildBaseDownloadsQuery(hiddenClientIps, evictedMode);
+            var cumulativeDownloads = await AggregateExcludingAsync(allTimeQueryForCumulative, statsExcludedOnlyIps,
+                q => q.SumAsync(d => (long?)d.CacheMissBytes).ContinueWith(t => t.Result ?? 0L));
+
+            if (actualCacheSize < cumulativeDownloads)
+            {
+                hasDataDeletion = true;
+                estimatedBytesDeleted = cumulativeDownloads - actualCacheSize;
+
+                const long CLEARED_THRESHOLD_BYTES = 100L * 1024 * 1024;
+                var cacheRatio = cumulativeDownloads > 0
+                    ? (double)actualCacheSize / cumulativeDownloads
+                    : 1.0;
+
+                cacheWasCleared = actualCacheSize < CLEARED_THRESHOLD_BYTES || cacheRatio < 0.05;
+
+                if (cacheWasCleared)
+                {
+                    netAvgDailyGrowth = avgDailyGrowth;
+                }
+                else if (dataPoints.Count >= 2)
+                {
+                    var firstTimestamp = dataPoints.First().Timestamp;
+                    var lastTimestamp = dataPoints.Last().Timestamp;
+                    var totalDays = (lastTimestamp - firstTimestamp).TotalDays;
+
+                    if (totalDays > 0)
+                    {
+                        var deletionRate = (double)estimatedBytesDeleted / totalDays;
+                        netAvgDailyGrowth = (long)(avgDailyGrowth - deletionRate);
+                    }
+                }
+            }
+        }
+
+        int? daysUntilFull = null;
+        if (netAvgDailyGrowth > 0 && totalCapacity > 0)
+        {
+            var remainingSpace = totalCapacity - (actualCacheSize > 0 ? actualCacheSize : currentCacheSize);
+            if (remainingSpace > 0)
+                daysUntilFull = (int)Math.Ceiling((double)remainingSpace / netAvgDailyGrowth);
+        }
+
+        return new CacheGrowthResponse
+        {
+            DataPoints = dataPoints,
+            CurrentCacheSize = actualCacheSize > 0 ? actualCacheSize : currentCacheSize,
+            TotalCapacity = totalCapacity,
+            AverageDailyGrowth = avgDailyGrowth,
+            NetAverageDailyGrowth = netAvgDailyGrowth,
+            Trend = trend,
+            PercentChange = percentChange,
+            EstimatedDaysUntilFull = daysUntilFull,
+            Period = startTime.HasValue ? "filtered" : "all",
+            HasDataDeletion = hasDataDeletion,
+            EstimatedBytesDeleted = estimatedBytesDeleted,
+            CacheWasCleared = cacheWasCleared
+        };
+    }
+
+    private async Task<object> GetCacheSnapshotAsync(long? startTime, long? endTime)
+    {
+        if (!startTime.HasValue || !endTime.HasValue)
+        {
+            return new CacheSnapshotResponse { HasData = false };
+        }
+
+        var startUtc = startTime.Value.FromUnixSeconds();
+        var endUtc = endTime.Value.FromUnixSeconds();
+
+        var summary = await _cacheSnapshotService.GetSnapshotSummaryAsync(startUtc, endUtc);
+
+        if (summary == null)
+        {
+            return new CacheSnapshotResponse { HasData = false };
+        }
+
+        return new CacheSnapshotResponse
+        {
+            HasData = true,
+            StartUsedSize = summary.StartUsedSize,
+            EndUsedSize = summary.EndUsedSize,
+            AverageUsedSize = summary.AverageUsedSize,
+            TotalCacheSize = summary.TotalCacheSize,
+            SnapshotCount = summary.SnapshotCount,
+            IsEstimate = summary.IsEstimate
+        };
+    }
+
+    // ───────────────────── Shared query helpers ─────────────────────
+
+    private IQueryable<Download> BuildBaseDownloadsQuery(List<string> hiddenClientIps, string evictedMode)
+    {
+        return _context.Downloads.AsNoTracking()
+            .ApplyHiddenClientFilter(hiddenClientIps)
+            .ApplyEvictedFilter(evictedMode);
+    }
+
+    private static async Task<T> AggregateExcludingAsync<T>(
+        IQueryable<Download> query,
+        List<string> statsExcludedIps,
+        Func<IQueryable<Download>, Task<T>> aggregator)
+    {
+        if (statsExcludedIps.Count == 0)
+        {
+            return await aggregator(query);
+        }
+
+        var filtered = query.Where(d => !statsExcludedIps.Contains(d.ClientIp));
+        return await aggregator(filtered);
+    }
+
+    private static SparklineMetric BuildSparklineMetric(List<double> data)
+    {
+        var trimmed = data.ToList();
+        while (trimmed.Count > 1 && trimmed.Last() == 0)
+            trimmed.RemoveAt(trimmed.Count - 1);
+
+        if (trimmed.Count < 2)
+            return new SparklineMetric { Data = trimmed, Trend = "stable" };
+
+        string trend = "stable";
+        if (trimmed.Count >= 4)
+        {
+            int recentCount = Math.Min(3, trimmed.Count / 2);
+            double recent = trimmed.TakeLast(recentCount).Average();
+            double earlier = trimmed.Skip(Math.Max(0, trimmed.Count - recentCount * 2)).Take(recentCount).Average();
+            double diff = (recent - earlier) / Math.Max(earlier, 0.001);
+            trend = diff > 0.05 ? "up" : diff < -0.05 ? "down" : "stable";
+        }
+        else if (trimmed.Count >= 2)
+        {
+            double diff = (trimmed.Last() - trimmed.First()) / Math.Max(trimmed.First(), 0.001);
+            trend = diff > 0.05 ? "up" : diff < -0.05 ? "down" : "stable";
+        }
+
+        return new SparklineMetric { Data = trimmed, Trend = trend };
+    }
+
+    private static SparklineMetric BuildSparklineMetricForRatio(List<double> data)
+    {
+        var trimmed = data.ToList();
+        while (trimmed.Count > 1 && trimmed.Last() == 0)
+            trimmed.RemoveAt(trimmed.Count - 1);
+
+        if (trimmed.Count < 2)
+            return new SparklineMetric { Data = trimmed, Trend = "stable" };
+
+        string trend = "stable";
+        if (trimmed.Count >= 4)
+        {
+            int recentCount = Math.Min(3, trimmed.Count / 2);
+            double recent = trimmed.TakeLast(recentCount).Average();
+            double earlier = trimmed.Skip(Math.Max(0, trimmed.Count - recentCount * 2)).Take(recentCount).Average();
+            double diff = recent - earlier;
+            trend = diff > 2 ? "up" : diff < -2 ? "down" : "stable";
+        }
+        else if (trimmed.Count >= 2)
+        {
+            double diff = trimmed.Last() - trimmed.First();
+            trend = diff > 2 ? "up" : diff < -2 ? "down" : "stable";
+        }
+
+        return new SparklineMetric { Data = trimmed, Trend = trend };
+    }
+
+    // ───────────────────── Helpers ─────────────────────
+
+    private async Task<object?> SafeExecuteAsync(string name, Func<Task<object>> action)
+    {
+        try
+        {
+            return await action();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Dashboard batch sub-query '{Name}' failed", name);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Overload for CacheInfo (value type differs from object)
+    /// </summary>
+    private async Task<CacheInfo?> SafeExecuteAsync(string name, Func<Task<CacheInfo>> action)
+    {
+        try
+        {
+            return await action();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Dashboard batch sub-query '{Name}' failed", name);
+            return null;
+        }
+    }
+
+    private async Task<HashSet<long>> GetEventDownloadIdsAsync(List<long> eventIdList)
+    {
+        var ids = await _context.EventDownloads
+            .AsNoTracking()
+            .Where(ed => eventIdList.Contains(ed.EventId))
+            .Select(ed => ed.DownloadId)
+            .Distinct()
+            .ToListAsync();
+        return new HashSet<long>(ids);
+    }
+
+    /// <summary>
+    /// Resolve game names for downloads using Steam depot mappings and Epic lookup.
+    /// Mirrors the logic in DownloadsController.ResolveGameNamesAsync.
+    /// </summary>
+    private async Task ResolveGameNamesAsync(List<Download> downloads)
+    {
+        if (downloads.Count == 0) return;
+
+        // Build Steam depot mapping lookup for downloads with a DepotId
+        var depotIds = downloads
+            .Where(d => d.DepotId.HasValue)
+            .Select(d => d.DepotId!.Value)
+            .Distinct()
+            .ToList();
+
+        var steamMappings = depotIds.Count > 0
+            ? await _context.SteamDepotMappings
+                .AsNoTracking()
+                .Where(m => m.IsOwner && depotIds.Contains(m.DepotId))
+                .ToDictionaryAsync(m => m.DepotId, m => m)
+            : new Dictionary<long, SteamDepotMapping>();
+
+        // Build Epic game name lookup for Epic downloads
+        var epicAppIds = downloads
+            .Where(d => !string.IsNullOrEmpty(d.EpicAppId))
+            .Select(d => d.EpicAppId!)
+            .Distinct()
+            .ToList();
+
+        var epicMappings = epicAppIds.Count > 0
+            ? await _context.EpicGameMappings
+                .AsNoTracking()
+                .Where(m => epicAppIds.Contains(m.AppId))
+                .ToDictionaryAsync(m => m.AppId, m => m.Name)
+            : new Dictionary<string, string>();
+
+        // Apply name resolution priority: existing GameName -> Steam AppName -> Epic Name -> fallback to Service
+        foreach (var d in downloads)
+        {
+            if (string.IsNullOrEmpty(d.GameName) && d.DepotId.HasValue
+                && steamMappings.TryGetValue(d.DepotId.Value, out var steamMapping))
+            {
+                d.GameName = steamMapping.AppName;
+                d.GameAppId = steamMapping.AppId;
+            }
+
+            if (string.IsNullOrEmpty(d.GameName) && !string.IsNullOrEmpty(d.EpicAppId)
+                && epicMappings.TryGetValue(d.EpicAppId, out var epicName))
+            {
+                d.GameName = epicName;
+            }
+
+            if (string.IsNullOrEmpty(d.GameName))
+            {
+                d.GameName = d.Service;
+            }
+        }
+    }
+}
+
+/// <summary>
+/// Response shape for the dashboard batch endpoint.
+/// Each field is nullable to support partial failure (null = sub-query failed).
+/// </summary>
+public class DashboardBatchResponse
+{
+    public CacheInfo? Cache { get; set; }
+    public object? Clients { get; set; }
+    public object? Services { get; set; }
+    public object? Dashboard { get; set; }
+    public object? Downloads { get; set; }
+    public object? Detection { get; set; }
+    public object? Sparklines { get; set; }
+    public object? HourlyActivity { get; set; }
+    public object? CacheSnapshot { get; set; }
+    public object? CacheGrowth { get; set; }
+}

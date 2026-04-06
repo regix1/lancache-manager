@@ -6,8 +6,25 @@ import type {
   DashboardStats,
   Download,
   GameCacheInfo,
-  ServiceCacheInfo
+  ServiceCacheInfo,
+  SparklineDataResponse,
+  HourlyActivityResponse,
+  CacheSnapshotResponse,
+  CacheGrowthResponse
 } from '../../types';
+
+export interface DashboardBatchResponse {
+  cache: CacheInfo | null;
+  clients: ClientStat[] | null;
+  services: ServiceStat[] | null;
+  dashboard: DashboardStats | null;
+  downloads: Download[] | null;
+  detection: CachedDetectionResponse | null;
+  sparklines: SparklineDataResponse | null;
+  hourlyActivity: HourlyActivityResponse | null;
+  cacheSnapshot: CacheSnapshotResponse | null;
+  cacheGrowth: CacheGrowthResponse | null;
+}
 
 export interface CachedDetectionResponse {
   hasCachedResults: boolean;
@@ -39,8 +56,15 @@ interface DashboardDataContextType {
     { service_name: string; cache_files_found: number; total_size_bytes: number }
   > | null;
 
+  // Sparklines & widget data
+  sparklines: SparklineDataResponse | null;
+  hourlyActivity: HourlyActivityResponse | null;
+  cacheSnapshot: CacheSnapshotResponse | null;
+  cacheGrowth: CacheGrowthResponse | null;
+
   // Loading & Error states
   loading: boolean;
+  isRefreshing: boolean;
   error: string | null;
   connectionStatus: string;
 

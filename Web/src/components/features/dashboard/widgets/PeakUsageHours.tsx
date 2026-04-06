@@ -1,16 +1,13 @@
 import React, { useMemo, memo } from 'react';
-import { IDB_KEYS } from '@utils/idbCache';
 import { Clock, TrendingUp, Zap, Calendar } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { formatBytes, formatCount } from '@utils/formatters';
-import { type HourlyActivityResponse, type HourlyActivityItem } from '../../../../types';
+import { type HourlyActivityItem } from '../../../../types';
 import { Tooltip } from '@components/ui/Tooltip';
 import { HelpPopover, HelpSection, HelpNote, HelpDefinition } from '@components/ui/HelpPopover';
 import { useTimezone } from '@contexts/useTimezone';
-import { useWidgetData } from '@hooks/useWidgetData';
+import { useHourlyActivity } from '@contexts/DashboardDataContext/hooks';
 import { getCurrentHour } from '@utils/timezone';
-import ApiService from '@services/api.service';
-import MockDataService from '../../../../test/mockData.service';
 
 interface PeakUsageHoursProps {
   /** Whether to use glassmorphism style */
@@ -30,13 +27,9 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(
     const { t } = useTranslation();
     const { use24HourFormat, useLocalTimezone } = useTimezone();
 
-    // Fetch hourly activity from backend API using shared hook
-    const { data, loading, error, displayData } = useWidgetData<HourlyActivityResponse>({
-      cacheKey: IDB_KEYS.PEAK_USAGE,
-      fetchFn: (signal, params) =>
-        ApiService.getHourlyActivity(signal, params.startTime, params.endTime, params.eventId),
-      mockFn: () => MockDataService.generateMockHourlyActivity()
-    });
+    // Consume hourly activity data from batched context
+    const { hourlyActivity: displayData, loading } = useHourlyActivity();
+    const error: string | null = null;
 
     // Get current hour based on timezone preference
     const currentHour = useMemo(() => {
@@ -161,7 +154,7 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(
         : '';
 
     // Loading state - only show loading skeleton if we have no data at all
-    if (loading && !data && !displayData) {
+    if (loading && !displayData) {
       return (
         <div className={`widget-card ${glassmorphism ? 'glass' : ''} ${animationClasses}`}>
           <div className="flex items-center gap-2 mb-3">

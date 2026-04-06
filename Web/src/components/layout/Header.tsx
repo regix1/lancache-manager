@@ -7,8 +7,10 @@ import LanguageSelector from '../common/LanguageSelector';
 import GitHubProjectsDropdown from '../common/GitHubProjectsDropdown';
 import { Tooltip } from '@components/ui/Tooltip';
 import LancacheIcon from '../ui/LancacheIcon';
+import LoadingSpinner from '../common/LoadingSpinner';
 import { useMockMode } from '@contexts/useMockMode';
 import { useAuth } from '@contexts/useAuth';
+import { useStats } from '@contexts/DashboardDataContext/hooks';
 
 interface HeaderProps {
   title?: string;
@@ -32,6 +34,7 @@ const Header: React.FC<HeaderProps> = ({ title, subtitle, connectionStatus = 'co
   const { t } = useTranslation();
   const { mockMode } = useMockMode();
   const { authMode, sessionExpiresAt } = useAuth();
+  const { isRefreshing } = useStats();
   const isGuestMode = authMode === 'guest';
   const [timeRemaining, setTimeRemaining] = useState<string | null>(null);
 
@@ -152,6 +155,7 @@ const Header: React.FC<HeaderProps> = ({ title, subtitle, connectionStatus = 'co
               <TimezoneSelector />
               <RefreshRateSelector disabled={mockMode} />
               <TimeFilter disabled={mockMode} />
+              {isRefreshing && <LoadingSpinner inline size="xs" />}
             </div>
           </div>
 
@@ -198,6 +202,7 @@ const Header: React.FC<HeaderProps> = ({ title, subtitle, connectionStatus = 'co
                 <TimezoneSelector iconOnly={true} />
                 <RefreshRateSelector disabled={mockMode} iconOnly={true} />
                 <TimeFilter disabled={mockMode} iconOnly={true} />
+                {isRefreshing && <LoadingSpinner inline size="xs" />}
               </div>
             </div>
 

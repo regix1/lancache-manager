@@ -19,7 +19,13 @@ import {
   Check
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useStats, useDownloads, useGameDetection } from '@contexts/DashboardDataContext/hooks';
+import {
+  useStats,
+  useDownloads,
+  useGameDetection,
+  useSparklines,
+  useCacheSnapshot
+} from '@contexts/DashboardDataContext/hooks';
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import { useEvents } from '@contexts/useEvents';
 import { useSpeed } from '@contexts/SpeedContext/useSpeed';
@@ -27,11 +33,7 @@ import { useDraggableCards } from '@hooks/useDraggableCards';
 import { formatBytes, formatPercent } from '@utils/formatters';
 import { isNonEvictedGame } from '@utils/gameDetection';
 import { STORAGE_KEYS } from '@utils/constants';
-import {
-  type StatCardData,
-  type SparklineDataResponse,
-  type CacheSnapshotResponse
-} from '../../../types';
+import { type StatCardData } from '../../../types';
 import { storage } from '@utils/storage';
 import ApiService from '@services/api.service';
 import StatCard from '@components/common/StatCard';
@@ -192,84 +194,9 @@ const Dashboard: React.FC = () => {
     }
   }, []);
 
-  // Sparkline data from API
-  const [sparklineData, setSparklineData] = useState<SparklineDataResponse | null>(null);
-  const prevSparklineDataRef = useRef<SparklineDataResponse | null>(null);
-
-  // Historical cache snapshot data
-  const [cacheSnapshot, setCacheSnapshot] = useState<CacheSnapshotResponse | null>(null);
-  const prevCacheSnapshotRef = useRef<CacheSnapshotResponse | null>(null);
-
-  // Fetch sparkline data when time range or event filter changes
-  useEffect(() => {
-    const controller = new AbortController();
-
-    // Store current data as previous (keep showing until new data arrives)
-    if (sparklineData) {
-      prevSparklineDataRef.current = sparklineData;
-    }
-
-    const fetchSparklines = async () => {
-      try {
-        const { startTime, endTime } = getTimeRangeParams();
-        const eventId = selectedEventIds.length > 0 ? selectedEventIds[0] : undefined;
-        const data = await ApiService.getSparklineData(
-          controller.signal,
-          startTime,
-          endTime,
-          eventId
-        );
-        setSparklineData(data);
-        prevSparklineDataRef.current = data;
-      } catch (err) {
-        // Ignore abort errors
-        if (!controller.signal.aborted) {
-          console.error('Failed to fetch sparkline data:', err);
-        }
-      }
-    };
-
-    fetchSparklines();
-
-    return () => controller.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timeRange, getTimeRangeParams, selectedEventIds]);
-
-  // Fetch historical cache snapshot when in historical view
-  useEffect(() => {
-    const controller = new AbortController();
-
-    // Store current data as previous
-    if (cacheSnapshot) {
-      prevCacheSnapshotRef.current = cacheSnapshot;
-    }
-
-    // Only fetch when in historical view (not live mode)
-    if (!isHistoricalView) {
-      return;
-    }
-
-    const fetchCacheSnapshot = async () => {
-      try {
-        const { startTime, endTime } = getTimeRangeParams();
-        if (startTime && endTime) {
-          const data = await ApiService.getCacheSnapshot(controller.signal, startTime, endTime);
-          setCacheSnapshot(data);
-          prevCacheSnapshotRef.current = data;
-        }
-      } catch (err) {
-        // Ignore abort errors
-        if (!controller.signal.aborted) {
-          console.error('Failed to fetch cache snapshot:', err);
-        }
-      }
-    };
-
-    fetchCacheSnapshot();
-
-    return () => controller.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timeRange, getTimeRangeParams, isHistoricalView]);
+  // Sparkline and cache snapshot data from context (batched endpoint)
+  const { sparklines: sparklineData, loading: sparklineLoading } = useSparklines();
+  const { cacheSnapshot, loading: cacheSnapshotLoading } = useCacheSnapshot();
 
   // Filter out services with only small files (< 1MB) and 0-byte files from dashboard data
   const filteredLatestDownloads = useMemo(() => {
@@ -958,7 +885,14 @@ const Dashboard: React.FC = () => {
                 color={card.color}
                 tooltip={card.tooltip}
                 glassmorphism={true}
-                loading={loading}
+                loading={
+                  loading ||
+                  (card.key === 'usedSpace' && isHistoricalView && cacheSnapshotLoading) ||
+                  (['bandwidthSaved', 'cacheHitRatio', 'totalServed', 'addedToCache'].includes(
+                    card.key
+                  ) &&
+                    sparklineLoading)
+                }
                 animateValue={!loading}
                 sparklineData={
                   card.key === 'bandwidthSaved'

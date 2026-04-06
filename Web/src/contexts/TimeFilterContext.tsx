@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
 import { storage } from '@utils/storage';
 import { TimeFilterContext, type TimeRange } from './TimeFilterContext.types';
+import { getTimeRangeHours, computeTimeRangeParams } from './TimeFilterContext.utils';
 
 interface TimeFilterProviderProps {
   children: ReactNode;
@@ -64,7 +65,7 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
   });
 
   // Wrapper for setTimeRange that validates the value and sets anchor time
-  const setTimeRange = (range: TimeRange) => {
+  const setTimeRange = useCallback((range: TimeRange) => {
     setTimeRangeState(range);
     // Set anchor time for rolling ranges, clear for live/custom
     if (range !== 'live' && range !== 'custom') {
@@ -72,7 +73,7 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
     } else {
       setRangeAnchorTime(null);
     }
-  };
+  }, []);
 
   // Persist timeRange to localStorage
   useEffect(() => {
@@ -126,58 +127,22 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
   }, [timeRange]);
 
   const getTimeRangeInHours = useCallback((): number => {
-    switch (timeRange) {
-      case '1h':
-        return 1;
-      case '6h':
-        return 6;
-      case '12h':
-        return 12;
-      case '24h':
-        return 24;
-      case '7d':
-        return 168;
-      case '30d':
-        return 720;
-      case 'live':
-        return 999999; // Large number to represent live data (all time)
-      case 'custom':
-        if (customStartDate && customEndDate) {
-          const diffMs = customEndDate.getTime() - customStartDate.getTime();
-          return Math.ceil(diffMs / (1000 * 60 * 60));
-        }
-        return 24;
-      default:
-        return 24;
+    if (timeRange === 'custom' && customStartDate && customEndDate) {
+      const diffMs = customEndDate.getTime() - customStartDate.getTime();
+      return Math.ceil(diffMs / (1000 * 60 * 60));
     }
+    return getTimeRangeHours(timeRange);
   }, [timeRange, customStartDate, customEndDate]);
 
   const getTimeRangeParams = useCallback((): { startTime?: number; endTime?: number } => {
-    if (timeRange === 'custom' && customStartDate && customEndDate) {
-      const startTime = Math.floor(customStartDate.getTime() / 1000);
-      // Set end time to end of day (23:59:59) instead of start of day
-      const endDate = new Date(customEndDate);
-      endDate.setHours(23, 59, 59, 999);
-      // Cap end time at current time to prevent fetching "future" data
-      // This ensures custom ranges are always historical, never live
-      const now = Date.now();
-      const endTimestamp = Math.min(endDate.getTime(), now);
-      const endTime = Math.floor(endTimestamp / 1000);
-      return { startTime, endTime };
-    }
-
-    // Return empty params for 'live' time to fetch everything
-    if (timeRange === 'live') {
-      return {};
-    }
-
-    // Use anchor time if set, otherwise fall back to current time
     const now = rangeAnchorTime ?? Date.now();
-    const hoursMs = getTimeRangeInHours() * 60 * 60 * 1000;
-    const startTime = Math.floor((now - hoursMs) / 1000);
-    const endTime = Math.floor(now / 1000);
-    return { startTime, endTime };
-  }, [timeRange, customStartDate, customEndDate, rangeAnchorTime, getTimeRangeInHours]);
+    return computeTimeRangeParams(
+      timeRange,
+      now,
+      customStartDate?.getTime(),
+      customEndDate?.getTime()
+    );
+  }, [timeRange, customStartDate, customEndDate, rangeAnchorTime]);
 
   // Wrapped setters with optional logging
   const setCustomStartDateWithLogging = useCallback((date: Date | null) => {
@@ -207,6 +172,7 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
     }),
     [
       timeRange,
+      setTimeRange,
       customStartDate,
       customEndDate,
       setCustomStartDateWithLogging,

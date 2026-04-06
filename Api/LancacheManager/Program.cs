@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using FluentValidation;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.EpicMapping;
@@ -16,8 +17,9 @@ using LancacheManager.Security;
 using LancacheManager.Validators;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.DataProtection;
-
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.AspNetCore.Routing.Constraints;
+using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.RateLimiting;
 using OpenTelemetry.Metrics;
@@ -482,6 +484,27 @@ builder.Logging.AddFilter("LancacheManager.Services.PicsDataService", LogLevel.I
 
 builder.Logging.SetMinimumLevel(LogLevel.Information);
 
+// Configure response compression (Brotli + Gzip) to reduce payload sizes
+builder.Services.AddResponseCompression(options =>
+{
+    options.EnableForHttps = true;
+    options.Providers.Add<BrotliCompressionProvider>();
+    options.Providers.Add<GzipCompressionProvider>();
+});
+builder.Services.Configure<BrotliCompressionProviderOptions>(options =>
+{
+    options.Level = CompressionLevel.Fastest;
+});
+
+// Configure Kestrel for HTTP/2 support (multiplexed streams, header compression)
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.ConfigureEndpointDefaults(listenOptions =>
+    {
+        listenOptions.Protocols = HttpProtocols.Http1AndHttp2;
+    });
+});
+
 var app = builder.Build();
 
 // IMPORTANT: Apply database migrations FIRST before any service tries to access the database
@@ -573,6 +596,9 @@ app.UseForwardedHeaders();
 
 
 app.UseCors("AllowAll");
+
+// Response compression - placed after CORS but before static files/routing
+app.UseResponseCompression();
 
 // Global exception handler - must run early to catch all exceptions
 app.UseGlobalExceptionHandler();
