@@ -170,7 +170,7 @@ const ClientCard: React.FC<ClientRowProps> = ({ client }) => {
 
 const ClientsTab: React.FC = () => {
   const { t } = useTranslation();
-  const { clientStats } = useStats();
+  const { clientStats, loading } = useStats();
   const [sortBy, setSortBy] = useState<SortOption>('totalData');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const sortOptions = [
@@ -255,42 +255,76 @@ const ClientsTab: React.FC = () => {
           </div>
         </div>
 
-        {/* Mobile: Card Layout */}
-        <div className="md:hidden space-y-3">
-          {sortedClients.length > 0 ? (
-            sortedClients.map((client, idx) => <ClientCard key={idx} client={client} />)
-          ) : (
-            <p className="py-8 text-center text-themed-muted">{t('clients.empty')}</p>
-          )}
-        </div>
-
-        {/* Desktop: Table Layout */}
-        <div className="hidden md:block overflow-x-auto -mx-2 px-2">
-          <table className="w-full">
-            <thead>
-              <tr className="text-left text-xs text-themed-muted uppercase tracking-wider">
-                <th className="pb-3">{t('clients.table.client')}</th>
-                <th className="pb-3">{t('clients.table.totalDownloads')}</th>
-                <th className="pb-3">{t('clients.table.totalData')}</th>
-                <th className="pb-3">{t('clients.table.cacheHits')}</th>
-                <th className="pb-3">{t('clients.table.cacheMisses')}</th>
-                <th className="pb-3">{t('clients.table.hitRate')}</th>
-                <th className="pb-3 hidden lg:table-cell">{t('clients.table.lastActivity')}</th>
-              </tr>
-            </thead>
-            <tbody className="text-sm">
+        {loading ? (
+          <>
+            {/* Mobile skeleton */}
+            <div className="md:hidden space-y-3">
+              {Array.from({ length: 4 }, (_, i) => (
+                <div
+                  key={i}
+                  className="p-4 rounded-lg border border-[var(--theme-card-border)] bg-[var(--theme-card-bg)] space-y-2"
+                >
+                  <div className="h-4 w-32 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse" />
+                  <div className="h-3 w-48 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse" />
+                  <div className="h-3 w-40 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse" />
+                </div>
+              ))}
+            </div>
+            {/* Desktop skeleton */}
+            <div className="hidden md:block space-y-3">
+              {Array.from({ length: 6 }, (_, i) => (
+                <div key={i} className="flex items-center gap-4">
+                  <div className="h-4 w-28 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse" />
+                  <div className="h-4 w-16 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse" />
+                  <div className="h-4 w-20 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse" />
+                  <div className="h-4 w-20 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse" />
+                  <div className="h-4 w-20 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse" />
+                  <div className="h-4 w-14 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse" />
+                  <div className="h-4 w-24 rounded bg-[var(--theme-skeleton-base,rgba(255,255,255,0.06))] animate-pulse hidden lg:block" />
+                </div>
+              ))}
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Mobile: Card Layout */}
+            <div className="md:hidden space-y-3">
               {sortedClients.length > 0 ? (
-                sortedClients.map((client, idx) => <ClientRow key={idx} client={client} />)
+                sortedClients.map((client, idx) => <ClientCard key={idx} client={client} />)
               ) : (
-                <tr>
-                  <td colSpan={7} className="py-8 text-center text-themed-muted">
-                    {t('clients.empty')}
-                  </td>
-                </tr>
+                <p className="py-8 text-center text-themed-muted">{t('clients.empty')}</p>
               )}
-            </tbody>
-          </table>
-        </div>
+            </div>
+
+            {/* Desktop: Table Layout */}
+            <div className="hidden md:block overflow-x-auto -mx-2 px-2">
+              <table className="w-full">
+                <thead>
+                  <tr className="text-left text-xs text-themed-muted uppercase tracking-wider">
+                    <th className="pb-3">{t('clients.table.client')}</th>
+                    <th className="pb-3">{t('clients.table.totalDownloads')}</th>
+                    <th className="pb-3">{t('clients.table.totalData')}</th>
+                    <th className="pb-3">{t('clients.table.cacheHits')}</th>
+                    <th className="pb-3">{t('clients.table.cacheMisses')}</th>
+                    <th className="pb-3">{t('clients.table.hitRate')}</th>
+                    <th className="pb-3 hidden lg:table-cell">{t('clients.table.lastActivity')}</th>
+                  </tr>
+                </thead>
+                <tbody className="text-sm">
+                  {sortedClients.length > 0 ? (
+                    sortedClients.map((client, idx) => <ClientRow key={idx} client={client} />)
+                  ) : (
+                    <tr>
+                      <td colSpan={7} className="py-8 text-center text-themed-muted">
+                        {t('clients.empty')}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </Card>
     </div>
   );
