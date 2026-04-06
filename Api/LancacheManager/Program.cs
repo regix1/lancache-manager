@@ -597,8 +597,12 @@ app.UseForwardedHeaders();
 
 app.UseCors("AllowAll");
 
-// Response compression - placed after CORS but before static files/routing
-app.UseResponseCompression();
+// Response compression - skip for WebSocket/SignalR to avoid corrupting frames
+app.UseWhen(
+    context => !context.Request.Headers.ContainsKey("Upgrade")
+            && !context.Request.Path.StartsWithSegments("/hubs"),
+    appBuilder => appBuilder.UseResponseCompression()
+);
 
 // Global exception handler - must run early to catch all exceptions
 app.UseGlobalExceptionHandler();

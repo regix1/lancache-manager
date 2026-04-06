@@ -72,37 +72,34 @@ public class DashboardController : ControllerBase
             ? await GetEventDownloadIdsAsync(eventIdList)
             : null;
 
-        // Phase 1: Launch 9 independent queries in parallel (cacheGrowth depends on cache result)
-        var cacheTask = SafeExecuteAsync("cache", () => GetCacheInfoAsync());
-        var clientsTask = SafeExecuteAsync("clients", () => GetClientStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
-        var servicesTask = SafeExecuteAsync("services", () => GetServiceStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
-        var dashboardTask = SafeExecuteAsync("dashboard", () => GetDashboardStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
-        var downloadsTask = SafeExecuteAsync("downloads", () => GetLatestDownloadsAsync(startTime, endTime, eventIdList, eventDownloadIds, excludedClientIps, evictedMode));
-        var detectionTask = SafeExecuteAsync("detection", () => GetCachedDetectionAsync());
-        var sparklineTask = SafeExecuteAsync("sparklines", () => GetSparklineDataAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
-        var hourlyTask = SafeExecuteAsync("hourlyActivity", () => GetHourlyActivityAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
-        var cacheSnapshotTask = SafeExecuteAsync("cacheSnapshot", () => GetCacheSnapshotAsync(startTime, endTime));
+        // Run queries sequentially to avoid memory pressure from 10 concurrent DbContexts.
+        // Still a single HTTP round-trip — just server-side sequential instead of parallel.
+        var cacheResult = await SafeExecuteAsync("cache", () => GetCacheInfoAsync());
+        var clients = await SafeExecuteAsync("clients", () => GetClientStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
+        var services = await SafeExecuteAsync("services", () => GetServiceStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
+        var dashboard = await SafeExecuteAsync("dashboard", () => GetDashboardStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
+        var downloads = await SafeExecuteAsync("downloads", () => GetLatestDownloadsAsync(startTime, endTime, eventIdList, eventDownloadIds, excludedClientIps, evictedMode));
+        var detection = await SafeExecuteAsync("detection", () => GetCachedDetectionAsync());
+        var sparklines = await SafeExecuteAsync("sparklines", () => GetSparklineDataAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
+        var hourly = await SafeExecuteAsync("hourlyActivity", () => GetHourlyActivityAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
+        var cacheSnapshot = await SafeExecuteAsync("cacheSnapshot", () => GetCacheSnapshotAsync(startTime, endTime));
 
-        await Task.WhenAll(cacheTask, clientsTask, servicesTask, dashboardTask, downloadsTask, detectionTask, sparklineTask, hourlyTask, cacheSnapshotTask);
-
-        // Phase 2: cacheGrowth depends on actualCacheSize from the cache result
-        var cacheResult = await cacheTask;
+        // cacheGrowth depends on actualCacheSize from cache result
         long actualCacheSize = cacheResult?.UsedCacheSize ?? 0;
-        var cacheGrowthTask = SafeExecuteAsync("cacheGrowth", () => GetCacheGrowthAsync(startTime, endTime, actualCacheSize, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
-        await cacheGrowthTask;
+        var cacheGrowth = await SafeExecuteAsync("cacheGrowth", () => GetCacheGrowthAsync(startTime, endTime, actualCacheSize, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
 
         return Ok(new DashboardBatchResponse
         {
             Cache = cacheResult,
-            Clients = await clientsTask,
-            Services = await servicesTask,
-            Dashboard = await dashboardTask,
-            Downloads = await downloadsTask,
-            Detection = await detectionTask,
-            Sparklines = await sparklineTask,
-            HourlyActivity = await hourlyTask,
-            CacheSnapshot = await cacheSnapshotTask,
-            CacheGrowth = await cacheGrowthTask
+            Clients = clients,
+            Services = services,
+            Dashboard = dashboard,
+            Downloads = downloads,
+            Detection = detection,
+            Sparklines = sparklines,
+            HourlyActivity = hourly,
+            CacheSnapshot = cacheSnapshot,
+            CacheGrowth = cacheGrowth
         });
     }
 
