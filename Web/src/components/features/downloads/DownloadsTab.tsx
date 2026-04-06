@@ -324,6 +324,20 @@ const DownloadsTab: React.FC = () => {
   const { currentPreferences } = useSessionPreferences();
   const showDatasourceLabels = currentPreferences?.showDatasourceLabels ?? true;
 
+  // Fetch server-side eviction display mode
+  const [evictedDataMode, setEvictedDataMode] = useState<string>('show');
+  useEffect(() => {
+    const controller = new AbortController();
+    ApiService.getEvictionSettings(controller.signal)
+      .then((response: { evictedDataMode: string }) => {
+        setEvictedDataMode(response.evictedDataMode);
+      })
+      .catch(() => {
+        /* ignore abort / network errors */
+      });
+    return () => controller.abort();
+  }, []);
+
   // Load the backend cache generation so image URLs are cache-busted correctly
   useEffect(() => {
     ApiService.getImageCacheVersion().then((v) => {
@@ -684,7 +698,7 @@ const DownloadsTab: React.FC = () => {
       filtered = filtered.filter((d) => d.clientIp !== '127.0.0.1' && d.clientIp !== '::1');
     }
 
-    if (settings.hideEvicted) {
+    if (settings.hideEvicted || evictedDataMode === 'hide') {
       filtered = filtered.filter((d) => !d.isEvicted);
     }
 
@@ -727,6 +741,7 @@ const DownloadsTab: React.FC = () => {
     settings.showSmallFiles,
     settings.hideLocalhost,
     settings.hideEvicted,
+    evictedDataMode,
     settings.selectedService,
     settings.selectedClient,
     settings.searchQuery,

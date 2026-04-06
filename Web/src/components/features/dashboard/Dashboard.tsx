@@ -282,9 +282,13 @@ const Dashboard: React.FC = () => {
       if (download.totalBytes < 1024 * 1024) {
         return false;
       }
+      // Hide evicted downloads when eviction mode is 'hide'
+      if (evictedDataMode === 'hide' && download.isEvicted) {
+        return false;
+      }
       return true;
     });
-  }, [latestDownloads]);
+  }, [latestDownloads, evictedDataMode]);
 
   const filteredServiceStats = useMemo(() => {
     return serviceStats.filter((service) => {
