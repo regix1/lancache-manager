@@ -126,8 +126,7 @@ const getStatTooltips = (t: (key: string) => string): Record<string, React.React
 
 const Dashboard: React.FC = () => {
   const { t } = useTranslation();
-  const { cacheInfo, clientStats, serviceStats, dashboardStats, loading, isRefreshing } =
-    useStats();
+  const { cacheInfo, clientStats, serviceStats, dashboardStats, loading } = useStats();
   const { latestDownloads } = useDownloads();
   const { gameDetectionData, detectionLookup: _detectionLookup } = useGameDetection();
   const { timeRange, getTimeRangeParams, customStartDate, customEndDate, selectedEventIds } =
@@ -887,7 +886,6 @@ const Dashboard: React.FC = () => {
                 tooltip={card.tooltip}
                 glassmorphism={true}
                 loading={loading}
-                refreshing={isRefreshing}
                 animateValue={!loading}
                 sparklineData={
                   card.key === 'bandwidthSaved'

@@ -201,24 +201,19 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         if (!authLoadingRef.current && !hasAccessRef.current) {
           setLoading(false);
         }
-        console.debug('[DashboardData] fetchAllData blocked: auth/access', {
+        console.log('[DashboardData] fetchAllData blocked: auth/access', {
           authLoading: authLoadingRef.current,
           hasAccess: hasAccessRef.current
         });
         return;
       }
 
-      const {
-        showLoading = false,
-        isInitial = false,
-        forceRefresh = false,
-        trigger: _trigger
-      } = options;
+      const { isInitial = false, forceRefresh = false, trigger: _trigger } = options;
 
       // Debounce rapid calls (min 250ms between fetches) - skip for initial load or force refresh
       const now = Date.now();
       if (!isInitial && !forceRefresh && now - lastFetchTime.current < 250) {
-        console.debug('[DashboardData] fetchAllData debounced', { trigger: _trigger });
+        console.log('[DashboardData] fetchAllData debounced', { trigger: _trigger });
         return;
       }
       lastFetchTime.current = now;
@@ -230,13 +225,13 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
 
       // Prevent concurrent fetches (except for initial load or force refresh)
       if (fetchInProgress.current && !isInitial && !forceRefresh) {
-        console.debug('[DashboardData] fetchAllData blocked: fetchInProgress', {
+        console.log('[DashboardData] fetchAllData blocked: fetchInProgress', {
           trigger: _trigger
         });
         return;
       }
       fetchInProgress.current = true;
-      console.debug('[DashboardData] fetchAllData starting', {
+      console.log('[DashboardData] fetchAllData starting', {
         trigger: _trigger,
         isInitial,
         forceRefresh,
@@ -258,14 +253,8 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       const signal = abortControllerRef.current.signal;
 
       try {
-        // SWR: Only show loading spinner on initial load when there's no cached data.
-        // For subsequent fetches, keep previous data visible (stale-while-revalidate).
-        if (showLoading && !hasData.current) {
-          setLoading(true);
-        }
-        if (hasData.current) {
-          setIsRefreshing(true);
-        }
+        // Always show loading state when fetching — skeletons display on every load
+        setLoading(true);
 
         const isConnected = await checkConnectionStatus();
         if (!isConnected) {
@@ -431,7 +420,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         }
         fetchInProgress.current = false;
         setIsRefreshing(false);
-        console.debug('[DashboardData] fetchAllData completed', {
+        console.log('[DashboardData] fetchAllData completed', {
           trigger: _trigger,
           wasSuperseded,
           requestId: thisRequestId,

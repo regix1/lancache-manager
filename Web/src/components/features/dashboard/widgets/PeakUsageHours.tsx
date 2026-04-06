@@ -153,8 +153,8 @@ const PeakUsageHours: React.FC<PeakUsageHoursProps> = memo(
         ? `animate-card-entrance stagger-${Math.min(staggerIndex + 1, 12)}`
         : '';
 
-    // Loading state - only show loading skeleton if we have no data at all
-    if (loading && !displayData) {
+    // Loading state - show skeleton on initial load and every refresh
+    if (loading) {
       return (
         <div className={`widget-card ${glassmorphism ? 'glass' : ''} ${animationClasses}`}>
           <div className="flex items-center gap-2 mb-3">
