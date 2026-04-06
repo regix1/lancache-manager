@@ -13,6 +13,7 @@ import { HardDrive, Download, Zap } from 'lucide-react';
 
 import { useIsDesktop } from '@hooks/useMediaQuery';
 import EvictedBadge from '@components/common/EvictedBadge';
+import Badge from '@components/ui/Badge';
 import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
 import {
   formatBytes,
@@ -265,6 +266,7 @@ interface DepotGroupedData {
   averageBytesPerSecond: number;
   downloadIds: number[]; // Track original download IDs for event associations
   isEvicted?: boolean;
+  isPartiallyEvicted?: boolean;
 }
 
 // Build the grouping key for a single download row.
@@ -301,10 +303,12 @@ const groupByDepot = (
       _weightedSpeedSum: number;
       _speedBytesSum: number;
       _downloads: DownloadType[];
+      _hasEvicted: boolean;
+      _hasNonEvicted: boolean;
     }
   > = {};
 
-  const ingest = (download: DownloadType, fromGroup: boolean) => {
+  const ingest = (download: DownloadType) => {
     const depotKey = buildGroupKey(download, groupByGame);
 
     if (!depotGroups[depotKey]) {
@@ -327,7 +331,10 @@ const groupByDepot = (
         datasource: download.datasource,
         averageBytesPerSecond: 0,
         downloadIds: [],
-        isEvicted: download.isEvicted,
+        isEvicted: false,
+        isPartiallyEvicted: false,
+        _hasEvicted: false,
+        _hasNonEvicted: false,
         _weightedSpeedSum: 0,
         _speedBytesSum: 0,
         _downloads: []
@@ -335,13 +342,11 @@ const groupByDepot = (
     }
 
     const group = depotGroups[depotKey];
-    // Preserve the original isEvicted reconciliation: DownloadGroup iteration
-    // clears the flag on any non-evicted member, single-download iteration
-    // raises it on any evicted member.
-    if (fromGroup) {
-      if (!download.isEvicted) group.isEvicted = false;
+    // Track eviction across all downloads in the group
+    if (download.isEvicted) {
+      group._hasEvicted = true;
     } else {
-      if (download.isEvicted) group.isEvicted = true;
+      group._hasNonEvicted = true;
     }
     group.downloadIds.push(download.id);
     group._downloads.push(download);
@@ -370,15 +375,24 @@ const groupByDepot = (
 
   items.forEach((item) => {
     if (isDownloadGroup(item)) {
-      item.downloads.forEach((download) => ingest(download, true));
+      item.downloads.forEach((download) => ingest(download));
     } else {
-      ingest(item, false);
+      ingest(item);
     }
   });
 
   const grouped = Object.values(depotGroups).map((group) => {
-    const { _weightedSpeedSum, _speedBytesSum, _downloads, ...cleanGroup } = group;
+    const {
+      _weightedSpeedSum,
+      _speedBytesSum,
+      _downloads,
+      _hasEvicted,
+      _hasNonEvicted,
+      ...cleanGroup
+    } = group;
     cleanGroup.averageBytesPerSecond = _speedBytesSum > 0 ? _weightedSpeedSum / _speedBytesSum : 0;
+    cleanGroup.isEvicted = _hasEvicted && !_hasNonEvicted;
+    cleanGroup.isPartiallyEvicted = _hasEvicted && _hasNonEvicted;
     return cleanGroup as DepotGroupedData;
   });
 
@@ -1427,6 +1441,11 @@ const RetroView = memo(
                                       {data.gameName || data.service}
                                     </span>
                                     {data.isEvicted && <EvictedBadge />}
+                                    {data.isPartiallyEvicted && (
+                                      <Badge variant="warning">
+                                        {t('common.partiallyEvicted')}
+                                      </Badge>
+                                    )}
                                     {resolveGameDetection(
                                       data.gameAppId,
                                       data.gameName,
