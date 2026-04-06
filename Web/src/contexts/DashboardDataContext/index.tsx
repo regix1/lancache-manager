@@ -200,10 +200,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         if (!authLoadingRef.current && !hasAccessRef.current) {
           setLoading(false);
         }
-        console.log('[DashboardData] fetchAllData blocked: auth/access', {
-          authLoading: authLoadingRef.current,
-          hasAccess: hasAccessRef.current
-        });
         return;
       }
 
@@ -212,7 +208,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       // Debounce rapid calls (min 250ms between fetches) - skip for initial load or force refresh
       const now = Date.now();
       if (!isInitial && !forceRefresh && now - lastFetchTime.current < 250) {
-        console.log('[DashboardData] fetchAllData debounced', { trigger: _trigger });
         return;
       }
       lastFetchTime.current = now;
@@ -224,18 +219,9 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
 
       // Prevent concurrent fetches (except for initial load or force refresh)
       if (fetchInProgress.current && !isInitial && !forceRefresh) {
-        console.log('[DashboardData] fetchAllData blocked: fetchInProgress', {
-          trigger: _trigger
-        });
         return;
       }
       fetchInProgress.current = true;
-      console.log('[DashboardData] fetchAllData starting', {
-        trigger: _trigger,
-        isInitial,
-        forceRefresh,
-        timeRange: currentTimeRangeRef.current
-      });
 
       // Generate unique request ID - only this request can modify state
       const thisRequestId = ++currentRequestIdRef.current;
@@ -257,7 +243,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
 
         const isConnected = await checkConnectionStatus();
         if (!isConnected) {
-          console.warn('[DashboardData] fetchAllData aborted: not connected');
           if (!hasData.current) {
             setError('Cannot connect to API server');
           }
@@ -419,12 +404,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         }
         fetchInProgress.current = false;
         setIsRefreshing(false);
-        console.log('[DashboardData] fetchAllData completed', {
-          trigger: _trigger,
-          wasSuperseded,
-          requestId: thisRequestId,
-          currentId: currentRequestIdRef.current
-        });
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps

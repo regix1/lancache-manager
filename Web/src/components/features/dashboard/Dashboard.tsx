@@ -549,7 +549,7 @@ const Dashboard: React.FC = () => {
       cacheHitRatio: {
         key: 'cacheHitRatio',
         title: t('dashboard.cards.cacheHitRatio'),
-        value: formatPercent(Math.round(stats.cacheHitRatio * 10) / 10),
+        value: formatPercent(stats.cacheHitRatio),
         subtitle: getTimeRangeLabel().toLowerCase(),
         icon: Activity,
         color: 'cyan' as const,
