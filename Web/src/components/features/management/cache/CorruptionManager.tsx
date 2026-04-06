@@ -410,6 +410,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   const headerActions = (
     <div className="flex items-center gap-2">
       <EnhancedDropdown
+        variant="button"
         options={detectionModeOptions}
         value={detectionMode}
         onChange={(val: string) => setDetectionMode(val)}
@@ -419,6 +420,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         dropdownTitle={t('management.corruption.detectionModeTitle')}
       />
       <EnhancedDropdown
+        variant="button"
         options={thresholdOptions}
         value={String(missThreshold)}
         onChange={(val: string) => setMissThreshold(Number(val))}

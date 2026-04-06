@@ -732,6 +732,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
               {!cacheReadOnly && datasources.length > 1 && (
                 <div className="flex justify-end">
                   <EnhancedDropdown
+                    variant="button"
                     options={[
                       {
                         value: '',

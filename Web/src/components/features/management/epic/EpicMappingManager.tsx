@@ -304,6 +304,7 @@ const EpicMappingManager: React.FC<EpicMappingManagerProps> = ({
             </div>
             <div className="flex flex-col gap-2 w-full lg:w-auto lg:min-w-[200px]">
               <EnhancedDropdown
+                variant="button"
                 options={[
                   { value: '0', label: t('management.epicMapping.intervals.disabled') },
                   { value: '1', label: t('management.epicMapping.intervals.every1Hour') },

@@ -307,6 +307,7 @@ const GcManager: React.FC<GcManagerProps> = ({ isAdmin }) => {
             description={t('management.gc.aggressivenessDesc')}
           >
             <EnhancedDropdown
+              variant="button"
               options={aggressivenessOptions}
               value={settings.aggressiveness}
               onChange={handleAggressivenessChange}
@@ -327,6 +328,7 @@ const GcManager: React.FC<GcManagerProps> = ({ isAdmin }) => {
             description={t('management.gc.thresholdDesc')}
           >
             <EnhancedDropdown
+              variant="button"
               options={memoryThresholdOptions}
               value={settings.memoryThresholdMB.toString()}
               onChange={handleMemoryThresholdChange}

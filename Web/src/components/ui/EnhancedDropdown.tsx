@@ -127,6 +127,8 @@ interface EnhancedDropdownProps {
   footerIcon?: React.ComponentType<IconComponentProps>;
   cleanStyle?: boolean;
   maxHeight?: string;
+  /** Trigger button style variant. 'card' = dark card bg (default, for headers/nav). 'button' = matches Button component (lighter, for toolbars). */
+  variant?: 'card' | 'button';
 }
 
 export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
@@ -148,7 +150,8 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
   footerNote,
   footerIcon: FooterIcon,
   cleanStyle = false,
-  maxHeight
+  maxHeight,
+  variant = 'card'
 }) => {
   const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
@@ -376,8 +379,14 @@ export const EnhancedDropdown: React.FC<EnhancedDropdownProps> = ({
         }}
         disabled={disabled}
         aria-label={resolvedAriaLabel}
-        className={`ed-trigger w-full px-3 py-2 themed-border-radius border text-left flex items-center justify-between text-sm bg-themed-tertiary hover:bg-themed-hover text-themed-primary ${
-          isOpen ? 'ed-trigger--open border-themed-focus' : 'border-themed-secondary'
+        className={`ed-trigger w-full px-3 py-2 themed-border-radius border text-left flex items-center justify-between text-sm text-themed-primary ${
+          variant === 'button' ? 'bg-themed-tertiary hover:bg-themed-hover' : 'themed-card'
+        } ${
+          isOpen
+            ? 'ed-trigger--open border-themed-focus'
+            : variant === 'button'
+              ? 'border-themed-secondary'
+              : 'border-themed-primary'
         } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
       >
         <div

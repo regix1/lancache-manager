@@ -1053,6 +1053,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
         badge={
           <div className="prefill-filter-inline">
             <EnhancedDropdown
+              variant="button"
               options={
                 [
                   { value: '', label: t('management.prefillSessions.statusFilters.all') },
@@ -1078,6 +1079,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
               dropdownWidth="140px"
             />
             <EnhancedDropdown
+              variant="button"
               options={
                 [
                   { value: 'all', label: 'All Platforms' },

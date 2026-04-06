@@ -218,6 +218,7 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({ isAdmin, onErro
               </div>
             )}
             <EnhancedDropdown
+              variant="button"
               options={SCHEDULE_OPTIONS}
               value={getScheduleValue(status.scheduleHours)}
               onChange={handleScheduleChange}

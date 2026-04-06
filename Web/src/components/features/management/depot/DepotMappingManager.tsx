@@ -882,6 +882,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                   return (
                     <div>
                       <EnhancedDropdown
+                        variant="button"
                         options={[
                           { value: '0.5', label: t('management.depotMapping.intervals.every30Min') }
                         ]}
@@ -902,6 +903,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                 // Non-GitHub Modes: User-configurable intervals
                 return (
                   <EnhancedDropdown
+                    variant="button"
                     options={[
                       { value: '0', label: t('management.depotMapping.intervals.disabled') },
                       { value: '1', label: t('management.depotMapping.intervals.everyHour') },
@@ -936,6 +938,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
                 );
               })()}
               <EnhancedDropdown
+                variant="button"
                 options={[
                   {
                     value: 'incremental',
@@ -1050,6 +1053,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
             {t('management.depotMapping.applyNowSource')}
           </label>
           <EnhancedDropdown
+            variant="button"
             options={[
               {
                 value: 'incremental',

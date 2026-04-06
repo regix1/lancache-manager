@@ -324,6 +324,7 @@ const GrafanaEndpoints: React.FC = () => {
             </div>
           </div>
           <EnhancedDropdown
+            variant="button"
             options={dataRefreshOptions}
             value={dataRefreshRate}
             onChange={handleDataRefreshChange}
@@ -361,6 +362,7 @@ const GrafanaEndpoints: React.FC = () => {
             </div>
           </div>
           <EnhancedDropdown
+            variant="button"
             options={scrapeIntervalOptions}
             value={scrapeInterval}
             onChange={handleScrapeIntervalChange}
