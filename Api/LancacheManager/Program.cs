@@ -274,7 +274,8 @@ if (!string.IsNullOrEmpty(pgUser))
 if (!string.IsNullOrEmpty(pgPassword))
     connBuilder.Password = pgPassword;
 
-var dbConnectionString = connBuilder.ConnectionString;
+var dbConnectionString = connBuilder.ConnectionString
+    + ";Minimum Pool Size=3;Maximum Pool Size=30;Max Auto Prepare=20";
 
 // Register pooled DbContext factory — provides IDbContextFactory<AppDbContext> for singleton services
 // and pools context instances to reduce allocation overhead on the dashboard hot path

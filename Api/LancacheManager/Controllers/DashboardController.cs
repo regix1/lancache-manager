@@ -7,6 +7,7 @@ using LancacheManager.Infrastructure.Utilities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using LancacheManager.Configuration;
 
@@ -29,6 +30,7 @@ public class DashboardController : ControllerBase
     private readonly IOptions<ApiOptions> _apiOptions;
     private readonly ILogger<DashboardController> _logger;
     private readonly CacheSnapshotService _cacheSnapshotService;
+    private readonly IMemoryCache _memoryCache;
 
     public DashboardController(
         CacheManagementService cacheService,
@@ -38,7 +40,8 @@ public class DashboardController : ControllerBase
         IStateService stateRepository,
         IOptions<ApiOptions> apiOptions,
         ILogger<DashboardController> logger,
-        CacheSnapshotService cacheSnapshotService)
+        CacheSnapshotService cacheSnapshotService,
+        IMemoryCache memoryCache)
     {
         _cacheService = cacheService;
         _gameCacheDetectionService = gameCacheDetectionService;
@@ -48,6 +51,7 @@ public class DashboardController : ControllerBase
         _apiOptions = apiOptions;
         _logger = logger;
         _cacheSnapshotService = cacheSnapshotService;
+        _memoryCache = memoryCache;
     }
 
     /// <summary>
@@ -66,6 +70,12 @@ public class DashboardController : ControllerBase
         var excludedClientIps = _stateRepository.GetExcludedClientIps();
         var evictedMode = _stateRepository.GetEvictedDataMode();
         var eventIdList = eventId.HasValue ? new List<long> { eventId.Value } : new List<long>();
+
+        var cacheKey = $"dashboard-batch:{startTime}:{endTime}:{eventId}:{evictedMode}";
+        if (_memoryCache.TryGetValue(cacheKey, out DashboardBatchResponse? cachedResponse))
+        {
+            return Ok(cachedResponse);
+        }
 
         // Pre-fetch event download IDs once (shared by clients, services, dashboard, downloads)
         HashSet<long>? eventDownloadIds = eventIdList.Count > 0
@@ -100,7 +110,7 @@ public class DashboardController : ControllerBase
 
         await Task.WhenAll(clientsTask, servicesTask, dashboardTask, downloadsTask, detectionTask, sparklinesTask, hourlyTask, cacheSnapshotTask, cacheGrowthTask);
 
-        return Ok(new DashboardBatchResponse
+        DashboardBatchResponse response = new()
         {
             Cache = cacheResult,
             Clients = await clientsTask,
@@ -112,7 +122,15 @@ public class DashboardController : ControllerBase
             HourlyActivity = await hourlyTask,
             CacheSnapshot = await cacheSnapshotTask,
             CacheGrowth = await cacheGrowthTask
-        });
+        };
+
+        var cacheOptions = new MemoryCacheEntryOptions()
+            .SetAbsoluteExpiration(TimeSpan.FromSeconds(15))
+            .SetSize(50_000)
+            .SetPriority(CacheItemPriority.High);
+        _memoryCache.Set(cacheKey, response, cacheOptions);
+
+        return Ok(response);
     }
 
     // ───────────────────── Sub-query implementations ─────────────────────
