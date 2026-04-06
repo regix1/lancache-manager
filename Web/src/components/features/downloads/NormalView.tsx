@@ -324,10 +324,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
             <div className="flex-1 min-w-0">
               {/* Title Row - Service badge and game name */}
               <div className="flex items-center gap-2 mb-2 flex-wrap">
-                <span
-                  className="px-2 py-0.5 text-[11px] font-extrabold rounded-md shadow-sm flex-shrink-0"
-                  style={getServiceBadgeStyles(group.service)}
-                >
+                <span className="themed-badge" style={getServiceBadgeStyles(group.service)}>
                   {group.service.toUpperCase()}
                 </span>
                 {group.downloads.some(
@@ -410,10 +407,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
               <div
                 className={`flex flex-row items-center gap-3 ${fullHeightBanners ? 'mb-2' : 'mb-3'}`}
               >
-                <span
-                  className={`${fullHeightBanners ? 'px-1.5 py-0.5 text-xs' : 'px-2.5 py-1 text-xs'} font-extrabold rounded-md shadow-sm`}
-                  style={getServiceBadgeStyles(group.service)}
-                >
+                <span className="themed-badge" style={getServiceBadgeStyles(group.service)}>
                   {group.service.toUpperCase()}
                 </span>
                 {group.downloads.some(
@@ -438,9 +432,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                         datasource: group.downloads[0].datasource
                       })}
                     >
-                      <span
-                        className={`${fullHeightBanners ? 'px-1.5 py-0.5 text-xs' : 'px-2.5 py-1 text-xs'} font-medium rounded-md flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)]`}
-                      >
+                      <span className="themed-badge status-badge-neutral">
                         {group.downloads[0].datasource}
                       </span>
                     </Tooltip>
@@ -454,9 +446,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                   <DownloadBadges events={groupEvents} maxVisible={2} size="sm" />
                 )}
                 {group.count > 1 && (
-                  <span
-                    className={`${fullHeightBanners ? 'px-1.5 py-0.5 text-xs' : 'px-2.5 py-1 text-xs'} font-semibold rounded-full bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] flex-shrink-0`}
-                  >
+                  <span className="themed-badge status-badge-neutral">
                     {group.clientsSet.size} client{group.clientsSet.size !== 1 ? 's' : ''} ·{' '}
                     {group.count} request{group.count !== 1 ? 's' : ''}
                   </span>
@@ -1115,14 +1105,11 @@ const GridCard: React.FC<GridCardProps> = ({
       {!bannerOnly && (
         <div className="card-grid-item-info">
           <div className="flex items-center gap-2 mb-1">
-            <span
-              className="px-2 py-0.5 text-[11px] font-extrabold rounded-md shadow-sm flex-shrink-0"
-              style={getServiceBadgeStyles(group.service)}
-            >
+            <span className="themed-badge" style={getServiceBadgeStyles(group.service)}>
               {group.service.toUpperCase()}
             </span>
             {hasMultipleDatasources && showDatasourceLabels && group.downloads[0]?.datasource && (
-              <span className="px-1.5 py-0.5 text-[10px] font-medium rounded-md flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)]">
+              <span className="themed-badge status-badge-neutral">
                 {group.downloads[0].datasource}
               </span>
             )}
@@ -1326,16 +1313,11 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
 
       {/* Title area with service badge */}
       <div className="flex items-center gap-2 mb-4 flex-wrap">
-        <span
-          className="px-2.5 py-1 text-xs font-extrabold rounded-md shadow-sm flex-shrink-0"
-          style={getServiceBadgeStyles(group.service)}
-        >
+        <span className="themed-badge" style={getServiceBadgeStyles(group.service)}>
           {group.service.toUpperCase()}
         </span>
         {hasMultipleDatasources && showDatasourceLabels && group.downloads[0]?.datasource && (
-          <span className="px-2 py-0.5 text-xs font-medium rounded-md flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)]">
-            {group.downloads[0].datasource}
-          </span>
+          <span className="themed-badge status-badge-neutral">{group.downloads[0].datasource}</span>
         )}
         {storeLink && (
           <a

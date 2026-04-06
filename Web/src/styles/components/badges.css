@@ -123,4 +123,10 @@
     background-color: var(--theme-info-bg);
     color: var(--theme-info-text);
   }
+
+  .status-badge-neutral {
+    background-color: var(--theme-bg-tertiary);
+    color: var(--theme-text-secondary);
+    border: 1px solid var(--theme-border-secondary);
+  }
 }

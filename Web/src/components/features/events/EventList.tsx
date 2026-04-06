@@ -233,7 +233,7 @@ const EventCard = React.memo(
                     className="flex items-center justify-between py-2 px-3 rounded-lg bg-[var(--theme-bg-secondary)]"
                   >
                     <div className="flex items-center gap-2 min-w-0">
-                      <span className="px-1.5 py-0.5 text-[10px] font-bold rounded bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)]">
+                      <span className="themed-badge status-badge-neutral">
                         {game.service.toUpperCase()}
                       </span>
                       <span className="text-sm font-medium truncate text-[var(--theme-text-primary)]">

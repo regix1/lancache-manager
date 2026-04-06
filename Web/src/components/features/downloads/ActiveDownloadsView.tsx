@@ -86,10 +86,7 @@ const ActiveDownloadsView: React.FC = () => {
 
                 <div className="download-info">
                   <div className="download-name-row">
-                    <span
-                      className="active-service-badge"
-                      style={getServiceBadgeStyles(game.service)}
-                    >
+                    <span className="themed-badge" style={getServiceBadgeStyles(game.service)}>
                       {game.service.toUpperCase()}
                     </span>
                     <span

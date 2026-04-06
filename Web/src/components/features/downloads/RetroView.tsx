@@ -1490,7 +1490,7 @@ const RetroView = memo(
                                     data-cell
                                   >
                                     <span
-                                      className="px-1.5 py-0.5 text-xs font-medium rounded inline-block truncate max-w-full bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)]"
+                                      className="themed-badge status-badge-neutral inline-block truncate max-w-full"
                                       title={data.datasource}
                                     >
                                       {data.datasource || t('downloads.tab.retro.notAvailable')}
@@ -1694,7 +1694,7 @@ const RetroView = memo(
                                               datasource: data.datasource
                                             })}
                                           >
-                                            <span className="px-1.5 py-0.5 text-xs font-medium rounded flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)]">
+                                            <span className="themed-badge status-badge-neutral">
                                               {data.datasource}
                                             </span>
                                           </Tooltip>

@@ -224,10 +224,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                       isExpanded ? 'rotate-90' : ''
                     }`}
                   />
-                  <span
-                    className="px-2 py-0.5 text-xs font-bold rounded flex-shrink-0"
-                    style={getServiceBadgeStyles(group.service)}
-                  >
+                  <span className="themed-badge" style={getServiceBadgeStyles(group.service)}>
                     {group.service.toUpperCase()}
                   </span>
                   {group.downloads.some(
@@ -248,9 +245,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                         datasource: primaryDatasource
                       })}
                     >
-                      <span className="px-1.5 py-0.5 text-xs font-medium rounded flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)]">
-                        {primaryDatasource}
-                      </span>
+                      <span className="themed-badge status-badge-neutral">{primaryDatasource}</span>
                     </Tooltip>
                   )}
                   {diskSizeBytes ? (
@@ -309,10 +304,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                   }`}
                 />
                 <div className="flex items-center gap-2 min-w-0 flex-1">
-                  <span
-                    className="px-2 py-0.5 text-xs font-bold rounded flex-shrink-0"
-                    style={getServiceBadgeStyles(group.service)}
-                  >
+                  <span className="themed-badge" style={getServiceBadgeStyles(group.service)}>
                     {group.service.toUpperCase()}
                   </span>
                   {group.downloads.some(
@@ -333,9 +325,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                         datasource: primaryDatasource
                       })}
                     >
-                      <span className="px-1.5 py-0.5 text-xs font-medium rounded flex-shrink-0 bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)] border border-[var(--theme-border-secondary)]">
-                        {primaryDatasource}
-                      </span>
+                      <span className="themed-badge status-badge-neutral">{primaryDatasource}</span>
                     </Tooltip>
                   )}
                   {diskSizeBytes ? (
