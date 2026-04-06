@@ -276,7 +276,9 @@ if (!string.IsNullOrEmpty(pgPassword))
 
 var dbConnectionString = connBuilder.ConnectionString;
 
-builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
+// Register pooled DbContext factory — provides IDbContextFactory<AppDbContext> for singleton services
+// and pools context instances to reduce allocation overhead on the dashboard hot path
+builder.Services.AddPooledDbContextFactory<AppDbContext>((serviceProvider, options) =>
 {
     options.UseNpgsql(dbConnectionString, npgsqlOptions =>
     {
@@ -288,10 +290,10 @@ builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
     });
 });
 
-// Register DbContextFactory for singleton services that need to create multiple contexts
-// Use a custom factory to avoid lifetime conflicts with AddDbContext
-builder.Services.AddSingleton<IDbContextFactory<AppDbContext>>(_ =>
-    new CustomDbContextFactory(dbConnectionString));
+// Register scoped AppDbContext resolved from the pooled factory so controllers/services
+// that inject AppDbContext directly continue to work
+builder.Services.AddScoped<AppDbContext>(sp =>
+    sp.GetRequiredService<IDbContextFactory<AppDbContext>>().CreateDbContext());
 
 // Register HttpClientFactory for better HTTP client management
 builder.Services.AddHttpClient();
@@ -781,27 +783,3 @@ static void MigrateDataProtectionKeys(string legacyKeyPath, string securityDir, 
     }
 }
 
-// Custom DbContext factory implementation for singleton services
-class CustomDbContextFactory : IDbContextFactory<AppDbContext>
-{
-    private readonly string _connectionString;
-
-    public CustomDbContextFactory(string connectionString)
-    {
-        _connectionString = connectionString;
-    }
-
-    public AppDbContext CreateDbContext()
-    {
-        var optionsBuilder = new DbContextOptionsBuilder<AppDbContext>();
-        optionsBuilder.UseNpgsql(_connectionString, npgsqlOptions =>
-        {
-            npgsqlOptions.EnableRetryOnFailure(
-                maxRetryCount: 3,
-                maxRetryDelay: TimeSpan.FromSeconds(5),
-                errorCodesToAdd: null
-            );
-        });
-        return new AppDbContext(optionsBuilder.Options);
-    }
-}

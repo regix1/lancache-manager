@@ -68,6 +68,15 @@ public class AppDbContext : DbContext
             .HasIndex(d => d.EpicAppId)
             .HasDatabaseName("IX_Downloads_EpicAppId");
 
+        // Composite indexes for dashboard query performance
+        modelBuilder.Entity<Download>()
+            .HasIndex(d => new { d.IsEvicted, d.StartTimeUtc })
+            .HasDatabaseName("IX_Downloads_IsEvicted_StartTimeUtc");
+
+        modelBuilder.Entity<Download>()
+            .HasIndex(d => new { d.IsEvicted, d.StartTimeUtc, d.ClientIp })
+            .HasDatabaseName("IX_Downloads_IsEvicted_StartTimeUtc_ClientIp");
+
         // ClientStats indexes
         modelBuilder.Entity<ClientStats>()
             .HasIndex(c => c.LastActivityUtc)

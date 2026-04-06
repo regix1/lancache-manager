@@ -264,11 +264,22 @@ public class DashboardController : ControllerBase
             ? downloadsQuery.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp))
             : downloadsQuery;
 
-        var periodHitBytes = await periodQuery.SumAsync(d => d.CacheHitBytes);
-        var periodMissBytes = await periodQuery.SumAsync(d => d.CacheMissBytes);
+        // Combined period aggregates: hitBytes + missBytes + count in ONE query (was 3 round trips)
+        var periodAgg = await periodQuery
+            .GroupBy(d => 1)
+            .Select(g => new
+            {
+                HitBytes = g.Sum(d => (long?)d.CacheHitBytes) ?? 0,
+                MissBytes = g.Sum(d => (long?)d.CacheMissBytes) ?? 0,
+                Count = g.Count()
+            })
+            .FirstOrDefaultAsync();
+
+        var periodHitBytes = periodAgg?.HitBytes ?? 0;
+        var periodMissBytes = periodAgg?.MissBytes ?? 0;
         var periodTotal = periodHitBytes + periodMissBytes;
         var periodHitRatio = periodTotal > 0 ? (periodHitBytes * 100.0) / periodTotal : 0;
-        var periodDownloadCount = await periodQuery.CountAsync();
+        var periodDownloadCount = periodAgg?.Count ?? 0;
 
         // Active downloads (last 5 minutes, not ended)
         var activeThreshold = DateTime.UtcNow.AddMinutes(-5);
@@ -283,24 +294,42 @@ public class DashboardController : ControllerBase
             : downloadsQuery;
         var uniqueClientsCount = await uniqueClientsQuery.Select(d => d.ClientIp).Distinct().CountAsync();
 
-        // All-time totals from Downloads table (consistent with dashboard)
+        // Combined all-time aggregates: hitBytes + missBytes in ONE query (was 2 round trips)
         var allTimeQuery = context.Downloads.AsNoTracking()
             .ApplyHiddenClientFilter(hiddenClientIps)
             .ApplyEvictedFilter(evictedMode);
         if (statsExcludedOnlyIps.Count > 0)
             allTimeQuery = allTimeQuery.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp));
 
-        var totalHitBytes = await allTimeQuery.SumAsync(d => d.CacheHitBytes);
-        var totalMissBytes = await allTimeQuery.SumAsync(d => d.CacheMissBytes);
+        var allTimeAgg = await allTimeQuery
+            .GroupBy(d => 1)
+            .Select(g => new
+            {
+                HitBytes = g.Sum(d => (long?)d.CacheHitBytes) ?? 0,
+                MissBytes = g.Sum(d => (long?)d.CacheMissBytes) ?? 0
+            })
+            .FirstOrDefaultAsync();
+
+        var totalHitBytes = allTimeAgg?.HitBytes ?? 0;
+        var totalMissBytes = allTimeAgg?.MissBytes ?? 0;
         var totalServed = totalHitBytes + totalMissBytes;
         var cacheHitRatio = totalServed > 0 ? (totalHitBytes * 100.0) / totalServed : 0;
 
-        // Top service
-        var topService = await periodQuery
+        // Service breakdown (also provides top service — no separate query needed)
+        var serviceBreakdown = await downloadsQuery
             .GroupBy(d => d.Service)
-            .Select(g => new { Service = g.Key, Bytes = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes) })
+            .Select(g => new ServiceBreakdownItem
+            {
+                Service = g.Key,
+                Bytes = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes),
+                Percentage = periodTotal > 0
+                    ? (g.Sum(d => d.CacheHitBytes + d.CacheMissBytes) * 100.0) / periodTotal
+                    : 0
+            })
             .OrderByDescending(s => s.Bytes)
-            .FirstOrDefaultAsync();
+            .ToListAsync();
+
+        var topServiceName = serviceBreakdown.FirstOrDefault()?.Service ?? "N/A";
 
         string periodLabel = "all";
         if (cutoffTime.HasValue && endDateTime.HasValue)
@@ -321,7 +350,7 @@ public class DashboardController : ControllerBase
             CacheHitRatio = cacheHitRatio,
             ActiveDownloads = activeDownloads,
             UniqueClients = uniqueClientsCount,
-            TopService = topService?.Service ?? "N/A",
+            TopService = topServiceName,
             Period = new DashboardPeriodStats
             {
                 Duration = periodLabel,
@@ -332,18 +361,7 @@ public class DashboardController : ControllerBase
                 HitRatio = periodHitRatio,
                 Downloads = periodDownloadCount
             },
-            ServiceBreakdown = await downloadsQuery
-                .GroupBy(d => d.Service)
-                .Select(g => new ServiceBreakdownItem
-                {
-                    Service = g.Key,
-                    Bytes = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes),
-                    Percentage = periodTotal > 0
-                        ? (g.Sum(d => d.CacheHitBytes + d.CacheMissBytes) * 100.0) / periodTotal
-                        : 0
-                })
-                .OrderByDescending(s => s.Bytes)
-                .ToListAsync(),
+            ServiceBreakdown = serviceBreakdown,
             LastUpdated = DateTime.UtcNow
         };
     }
