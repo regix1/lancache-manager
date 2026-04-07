@@ -25,6 +25,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly IPathResolver _pathResolver;
+    private readonly GameCacheDetectionService _gameCacheDetectionService;
     private bool _isRunning;
     private bool _currentScanIsSilent = true;
     private readonly TaskCompletionSource<bool> _firstStartupScanComplete = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -87,7 +88,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         ISignalRNotificationService notifications,
         IUnifiedOperationTracker operationTracker,
         RustProcessHelper rustProcessHelper,
-        IPathResolver pathResolver)
+        IPathResolver pathResolver,
+        GameCacheDetectionService gameCacheDetectionService)
         : base(serviceProvider, logger, configuration)
     {
         _datasourceService = datasourceService;
@@ -96,6 +98,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         _operationTracker = operationTracker;
         _rustProcessHelper = rustProcessHelper;
         _pathResolver = pathResolver;
+        _gameCacheDetectionService = gameCacheDetectionService;
 
         var savedInterval = _stateService.GetServiceInterval(ServiceKey);
         if (savedInterval.HasValue)
@@ -575,8 +578,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             }
 
             // Invalidate the detection cache so the frontend refetch gets fresh data
-            var detectionService = _serviceProvider.GetService<GameCacheDetectionService>();
-            detectionService?.InvalidateDetectionCache();
+            _gameCacheDetectionService.InvalidateDetectionCache();
+            _logger.LogDebug("[EvictedRemoval] Detection cache invalidated");
 
             _operationTracker.UpdateProgress(operationId, 100, "signalr.evictionRemove.complete");
             _operationTracker.CompleteOperation(operationId, success: true);
