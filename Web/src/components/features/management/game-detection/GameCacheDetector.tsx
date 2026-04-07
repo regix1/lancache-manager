@@ -350,6 +350,35 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     };
   }, [on, off, invalidateImageCache]);
 
+  // Listen for GameRemovalComplete to immediately remove the game from the list
+  useEffect(() => {
+    const handleGameRemovalComplete = () => {
+      setTimeout(() => {
+        ApiService.getCachedGameDetection()
+          .then((result) => {
+            if (result.hasCachedResults) {
+              if (result.games) {
+                setGames(result.games);
+              }
+              if (result.services) {
+                setServices(result.services);
+              }
+            }
+          })
+          .catch((err) => {
+            console.error('[GameCacheDetector] Failed to reload after game removal:', err);
+          });
+      }, 500);
+    };
+
+    on('GameRemovalComplete', handleGameRemovalComplete);
+    on('EvictionRemovalComplete', handleGameRemovalComplete);
+    return () => {
+      off('GameRemovalComplete', handleGameRemovalComplete);
+      off('EvictionRemovalComplete', handleGameRemovalComplete);
+    };
+  }, [on, off]);
+
   const startDetection = useCallback(
     async (forceRefresh: boolean, scanTypeLabel: 'full' | 'incremental') => {
       if (mockMode) {
