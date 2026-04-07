@@ -5466,6 +5466,9 @@
       "removingLogs": "Removing associated log entries...",
       "removingDownloads": "Removing evicted download records...",
       "purgingLogs": "Purging {{count}} log entries...",
+      "updatingEvictionStatus": "Updating eviction status...",
+      "updatingStatus": "Updating game status...",
+      "finalizingRemoval": "Finalizing removal...",
       "complete": "Eviction removal complete.",
       "failed": "Eviction removal failed."
     },
