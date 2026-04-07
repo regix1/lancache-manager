@@ -23,6 +23,7 @@ public class CacheManagementService
     private readonly ISignalRNotificationService _notifications;
     private readonly DatasourceService _datasourceService;
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
+    private readonly GameCacheDetectionService _gameCacheDetectionService;
     private readonly DockerClient? _dockerClient;
 
     // Legacy single-path fields (for backward compatibility)
@@ -55,7 +56,8 @@ public class CacheManagementService
         NginxLogRotationService nginxLogRotationService,
         ISignalRNotificationService notifications,
         DatasourceService datasourceService,
-        IDbContextFactory<AppDbContext> dbContextFactory)
+        IDbContextFactory<AppDbContext> dbContextFactory,
+        GameCacheDetectionService gameCacheDetectionService)
     {
         _configuration = configuration;
         _logger = logger;
@@ -66,6 +68,7 @@ public class CacheManagementService
         _notifications = notifications;
         _datasourceService = datasourceService;
         _dbContextFactory = dbContextFactory;
+        _gameCacheDetectionService = gameCacheDetectionService;
 
         // Use DatasourceService for paths (with backward compatibility)
         var defaultDatasource = _datasourceService.GetDefaultDatasource();
@@ -1071,6 +1074,9 @@ public class CacheManagementService
                 .Where(CachedGameDetection => CachedGameDetection.GameAppId == gameAppId)
                 .ExecuteDeleteAsync();
             _logger.LogInformation("[GameRemoval] Removed cached game detection entry for AppID: {AppId}", gameAppId);
+
+            // Invalidate in-memory detection cache so frontend refetch gets fresh data
+            _gameCacheDetectionService.InvalidateDetectionCache();
 
             // Invalidate service counts cache since logs were modified
             await InvalidateServiceCountsCacheAsync();
