@@ -911,6 +911,7 @@ public class CacheManagementService
                 GameAppId = gameAppId
             };
 
+            int totalDatasources = datasources.Count;
             int datasourcesProcessed = 0;
             int datasourcesSkipped = 0;
 
@@ -949,6 +950,8 @@ public class CacheManagementService
                     continue;
                 }
 
+                int datasourceIndex = datasourcesProcessed;
+
                 var outputJson = Path.Combine(operationsDir,
                     $"game_removal_{gameAppId}_{datasource.Name}_{DateTime.UtcNow:yyyyMMddHHmmss}.json");
                 var progressJson = Path.Combine(operationsDir,
@@ -981,7 +984,8 @@ public class CacheManagementService
                                 var progressData = await _rustProcessHelper.ReadProgressFileAsync<GameRemovalProgressData>(progressJson);
                                 if (progressData != null && onProgress != null)
                                 {
-                                    await onProgress(progressData.PercentComplete, progressData.Message, progressData.FilesProcessed, 0);
+                                    double scaledProgress = (datasourceIndex * 100.0 / totalDatasources) + (progressData.PercentComplete / totalDatasources);
+                                    await onProgress(scaledProgress, progressData.Message, progressData.FilesProcessed, 0);
                                 }
                             }
                             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -1034,7 +1038,8 @@ public class CacheManagementService
                     // Send final progress update from the report
                     if (onProgress != null)
                     {
-                        await onProgress(100, "Complete", dsReport.CacheFilesDeleted, (long)dsReport.TotalBytesFreed);
+                        double scaledProgress = ((datasourceIndex + 1) * 100.0 / totalDatasources);
+                        await onProgress(scaledProgress, "Complete", dsReport.CacheFilesDeleted, (long)dsReport.TotalBytesFreed);
                     }
 
                     // Aggregate results from this datasource
@@ -1121,6 +1126,7 @@ public class CacheManagementService
                 GameName = gameName
             };
 
+            int totalDatasources = datasources.Count;
             int datasourcesProcessed = 0;
             int datasourcesSkipped = 0;
 
@@ -1156,6 +1162,8 @@ public class CacheManagementService
                     continue;
                 }
 
+                int datasourceIndex = datasourcesProcessed;
+
                 var safeGameName = gameName.Replace(" ", "_").Replace("/", "_").Replace("\\", "_");
                 var outputJson = Path.Combine(operationsDir,
                     $"epic_removal_{safeGameName}_{datasource.Name}_{DateTime.UtcNow:yyyyMMddHHmmss}.json");
@@ -1189,7 +1197,8 @@ public class CacheManagementService
                                 var progressData = await _rustProcessHelper.ReadProgressFileAsync<GameRemovalProgressData>(progressJson);
                                 if (progressData != null && onProgress != null)
                                 {
-                                    await onProgress(progressData.PercentComplete, progressData.Message, progressData.FilesProcessed, 0);
+                                    double scaledProgress = (datasourceIndex * 100.0 / totalDatasources) + (progressData.PercentComplete / totalDatasources);
+                                    await onProgress(scaledProgress, progressData.Message, progressData.FilesProcessed, 0);
                                 }
                             }
                             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -1237,7 +1246,8 @@ public class CacheManagementService
 
                     if (onProgress != null)
                     {
-                        await onProgress(100, "Complete", dsReport.CacheFilesDeleted, (long)dsReport.TotalBytesFreed);
+                        double scaledProgress = ((datasourceIndex + 1) * 100.0 / totalDatasources);
+                        await onProgress(scaledProgress, "Complete", dsReport.CacheFilesDeleted, (long)dsReport.TotalBytesFreed);
                     }
 
                     // Aggregate results

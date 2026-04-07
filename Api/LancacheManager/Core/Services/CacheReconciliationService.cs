@@ -450,6 +450,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             int upsertedCount = 0;
             int logEntriesDeleted = 0;
             int downloadsDeleted = 0;
+            int totalGroups = evictedGroups.Count;
+            int processedGroups = 0;
 
             // EF Core's NpgsqlRetryingExecutionStrategy forbids user-initiated transactions unless
             // they are wrapped in a strategy-controlled retry block. Without this wrapper any call
@@ -462,11 +464,14 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 upsertedCount = 0;
                 logEntriesDeleted = 0;
                 downloadsDeleted = 0;
+                processedGroups = 0;
 
                 await using var transaction = await context.Database.BeginTransactionAsync(stoppingToken);
                 try
                 {
                     // Upsert one CachedGameDetection row per evicted game
+                    // Throttle progress reports to ~20 updates (every 5%) to avoid flooding SignalR
+                    int reportEvery = Math.Max(1, totalGroups / 20);
                     foreach (var representative in evictedGroups)
                     {
                         // Find existing row by GameAppId (Steam) or EpicAppId (Epic)
@@ -514,6 +519,16 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         }
 
                         upsertedCount++;
+                        processedGroups++;
+
+                        // Report every ~5% of groups, and always on the final item
+                        if (totalGroups > 0 && (processedGroups % reportEvery == 0 || processedGroups == totalGroups))
+                        {
+                            var progressPercent = (int)(30.0 * processedGroups / totalGroups);
+                            _operationTracker.UpdateProgress(operationId, progressPercent, "signalr.evictionRemove.updatingEvictionStatus");
+                            await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
+                                new EvictionRemovalProgress(operationId, "updating_eviction_status", "signalr.evictionRemove.updatingEvictionStatus", progressPercent, 0, 0));
+                        }
                     }
 
                     await context.SaveChangesAsync(stoppingToken);
@@ -888,14 +903,18 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             // Step -1: Rewrite nginx access.log files to drop entries for this entity's evicted
             // downloads BEFORE deleting LogEntries/Downloads from the database. Best-effort —
             // failures are logged as warnings and do not block the DB delete.
+            _operationTracker.UpdateProgress(operationId, 10, "signalr.evictionRemove.purgingLogs");
+            await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
+                new EvictionRemovalProgress(operationId, "purging_logs", "signalr.evictionRemove.purgingLogs", 10, 0, 0));
+
             await PurgeEvictedLogEntriesForEntityAsync(context, scope, key, operationId, stoppingToken);
 
             int logEntriesDeleted = 0;
             int downloadsDeleted = 0;
 
-            _operationTracker.UpdateProgress(operationId, 33, "signalr.evictionRemove.removingLogs");
+            _operationTracker.UpdateProgress(operationId, 25, "signalr.evictionRemove.removingLogs");
             await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
-                new EvictionRemovalProgress(operationId, "removing_log_entries", "signalr.evictionRemove.removingLogs", 33, 0, 0));
+                new EvictionRemovalProgress(operationId, "removing_log_entries", "signalr.evictionRemove.removingLogs", 25, 0, 0));
 
             // EF Core's NpgsqlRetryingExecutionStrategy forbids user-initiated transactions unless
             // they are wrapped in a strategy-controlled retry block. Without this wrapper any call
@@ -938,9 +957,9 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     };
 
                     // Step 2: Delete this entity's evicted Downloads.
-                    _operationTracker.UpdateProgress(operationId, 66, "signalr.evictionRemove.removingDownloads");
+                    _operationTracker.UpdateProgress(operationId, 50, "signalr.evictionRemove.removingDownloads");
                     await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
-                        new EvictionRemovalProgress(operationId, "removing_downloads", "signalr.evictionRemove.removingDownloads", 66, 0, logEntriesDeleted));
+                        new EvictionRemovalProgress(operationId, "removing_downloads", "signalr.evictionRemove.removingDownloads", 50, 0, logEntriesDeleted));
 
                     downloadsDeleted = scope switch
                     {
@@ -982,6 +1001,10 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
             // Step 3: Defensive self-heal — if all evicted rows for this entity are now gone, clear
             // the aggregate IsEvicted flag so Dashboard stats update on the next GetCachedDetectionAsync.
+            _operationTracker.UpdateProgress(operationId, 75, "signalr.evictionRemove.updatingStatus");
+            await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
+                new EvictionRemovalProgress(operationId, "updating_status", "signalr.evictionRemove.updatingStatus", 75, downloadsDeleted, logEntriesDeleted));
+
             if (scope == EvictionScope.Service)
             {
                 await UnevictCachedServiceDetectionsAsync(context, _logger, stoppingToken);
@@ -992,6 +1015,10 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             }
 
             // Invalidate the detection cache so the frontend refetch gets fresh data
+            _operationTracker.UpdateProgress(operationId, 90, "signalr.evictionRemove.finalizingRemoval");
+            await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
+                new EvictionRemovalProgress(operationId, "finalizing_removal", "signalr.evictionRemove.finalizingRemoval", 90, downloadsDeleted, logEntriesDeleted));
+
             var detectionService = _serviceProvider.GetService<GameCacheDetectionService>();
             detectionService?.InvalidateDetectionCache();
 
