@@ -8,6 +8,7 @@ import {
   Users,
   Palette,
   Container,
+  Calendar,
   type LucideIcon
 } from 'lucide-react';
 
@@ -16,6 +17,7 @@ export type ManagementSection =
   | 'integrations'
   | 'storage'
   | 'data'
+  | 'schedules'
   | 'preferences'
   | 'clients'
   | 'prefill-sessions';
@@ -69,6 +71,13 @@ const ManagementNav: React.FC<ManagementNavProps> = ({
       shortLabelKey: 'management.nav.dataShort',
       icon: FolderCog,
       descriptionKey: 'management.nav.dataDesc'
+    },
+    {
+      id: 'schedules',
+      labelKey: 'management.nav.schedules',
+      shortLabelKey: 'management.nav.schedulesShort',
+      icon: Calendar,
+      descriptionKey: 'management.nav.schedulesDesc'
     },
     {
       id: 'preferences',

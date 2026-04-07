@@ -29,15 +29,23 @@ public class GameDetectionStartupService : ScheduledBackgroundService
         _pathResolver = pathResolver;
         _scopeFactory = scopeFactory;
         _cacheReconciliationService = cacheReconciliationService;
+
+        var savedInterval = _stateService.GetServiceInterval(ServiceKey);
+        if (savedInterval.HasValue)
+        {
+            SetInterval(TimeSpan.FromHours(savedInterval.Value));
+        }
     }
 
     protected override string ServiceName => "GameDetectionStartup";
 
-    protected override bool RunOnStartup => true;
+    public override bool RunOnStartup => true;
 
     protected override TimeSpan StartupDelay => TimeSpan.Zero;
 
     protected override TimeSpan Interval => TimeSpan.FromDays(30);
+
+    public override string ServiceKey => "gameDetection";
 
     protected override async Task OnStartupAsync(CancellationToken stoppingToken)
     {

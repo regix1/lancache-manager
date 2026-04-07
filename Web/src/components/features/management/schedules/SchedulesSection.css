@@ -1,0 +1,290 @@
+.schedules-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.schedules-section-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.schedules-section-header > div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.schedules-section-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--theme-text-primary);
+  margin: 0;
+}
+
+.schedules-section-subtitle {
+  font-size: 0.875rem;
+  color: var(--theme-text-muted);
+  margin: 0;
+}
+
+/* Loading / Error States */
+.schedules-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+}
+
+.schedules-error {
+  padding: 1.5rem;
+  border-radius: var(--theme-border-radius);
+  background-color: var(--theme-error-bg);
+  border: 1px solid var(--theme-error);
+  color: var(--theme-error-text);
+  font-size: 0.875rem;
+}
+
+/* Grid */
+.schedules-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+
+@media (min-width: 768px) {
+  .schedules-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* Individual Schedule Card — Card component provides bg, border, radius, padding */
+.schedule-card {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* Disabled state — service interval is 0 or startup-only */
+.schedule-card-disabled {
+  opacity: 0.55;
+}
+
+.schedule-card-disabled:hover {
+  opacity: 0.7;
+}
+
+/* Card Header */
+.schedule-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.schedule-card-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.schedule-card-name {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--theme-text-primary);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.schedule-card-description {
+  font-size: 0.8125rem;
+  color: var(--theme-text-muted);
+  margin: 0;
+  line-height: 1.4;
+}
+
+/* Status indicator */
+.schedule-status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background-color: var(--theme-border-secondary);
+}
+
+.schedule-status-dot.running {
+  background-color: var(--theme-success);
+  box-shadow: 0 0 0 2px var(--theme-success-bg);
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* Timing Info Row */
+.schedule-timing-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.schedule-timing-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.schedule-timing-label {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--theme-text-muted);
+}
+
+.schedule-timing-value {
+  font-size: 0.8125rem;
+  color: var(--theme-text-secondary);
+}
+
+.schedule-next-run-date {
+  font-size: 0.6875rem;
+  color: var(--theme-text-muted);
+  margin-top: 0.125rem;
+}
+
+.schedule-countdown {
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--theme-text-accent);
+  letter-spacing: 0.02em;
+}
+
+.schedule-countdown.disabled {
+  color: var(--theme-text-muted);
+  font-weight: normal;
+}
+
+/* Controls Row */
+.schedule-controls-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.schedule-dropdown-wrapper {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Button component handles all button styling */
+.schedule-run-button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* Expandable Section */
+.schedule-expand-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  background: none;
+  border: none;
+  padding: 0.25rem 0;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--theme-text-muted);
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.schedule-expand-toggle:hover {
+  color: var(--theme-text-secondary);
+}
+
+.schedule-expand-chevron {
+  transition: transform 0.2s ease;
+  display: inline-block;
+  font-size: 0.625rem;
+  line-height: 1;
+}
+
+.schedule-expand-chevron.open {
+  transform: rotate(180deg);
+}
+
+.schedule-expandable {
+  overflow: hidden;
+  max-height: 0;
+  transition: max-height 0.25s ease;
+}
+
+.schedule-expandable.open {
+  max-height: 400px;
+}
+
+.schedule-expandable-inner {
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--theme-border-secondary);
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.schedule-gain-loss-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.schedule-gain-loss-label {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.schedule-gain-loss-label.gain {
+  color: var(--theme-success-text);
+}
+
+.schedule-gain-loss-label.loss {
+  color: var(--theme-error-text);
+}
+
+.schedule-gain-loss-text {
+  font-size: 0.8125rem;
+  color: var(--theme-text-secondary);
+  line-height: 1.45;
+}
+
+/* Just-completed flash — brief green border pulse */
+.schedule-card-completed {
+  animation: schedule-completed-flash 3s ease-out;
+}
+
+@keyframes schedule-completed-flash {
+  0% {
+    border-color: var(--theme-success);
+    box-shadow: 0 0 0 1px var(--theme-success);
+  }
+  100% {
+    border-color: var(--theme-card-border, var(--theme-border-secondary));
+    box-shadow: none;
+  }
+}

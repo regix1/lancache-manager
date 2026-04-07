@@ -6,7 +6,8 @@ namespace LancacheManager.Infrastructure.Services;
 
 /// <summary>
 /// Hosted service that runs nginx log rotation at startup and on a configurable schedule.
-/// This ensures logs are properly rotated even if the system was down during the scheduled time.
+/// Uses the base class ScheduledBackgroundService loop — ExecuteWorkAsync performs one rotation
+/// and returns; the base class handles the sleep/interval between runs.
 /// </summary>
 public class NginxLogRotationHostedService : ScheduledBackgroundService
 {
@@ -15,16 +16,17 @@ public class NginxLogRotationHostedService : ScheduledBackgroundService
 
     // Status tracking
     private DateTime? _lastRotationTime;
-    private DateTime? _nextScheduledRotation;
     private bool _lastRotationSuccess;
     private string? _lastRotationError;
     private int _currentScheduleHours;
     private readonly object _statusLock = new();
-    private CancellationTokenSource? _scheduleCts;
 
     protected override string ServiceName => "NginxLogRotation";
     protected override TimeSpan StartupDelay => TimeSpan.Zero;
-    protected override TimeSpan Interval => TimeSpan.Zero;
+    protected override TimeSpan Interval => TimeSpan.FromHours(24);
+
+    public override bool RunOnStartup => true;
+    public override string ServiceKey => "logRotation";
 
     public NginxLogRotationHostedService(
         NginxLogRotationService rotationService,
@@ -36,6 +38,9 @@ public class NginxLogRotationHostedService : ScheduledBackgroundService
         _rotationService = rotationService;
         _settingsFilePath = pathResolver.GetSettingsPath("log-rotation-settings.json");
         _currentScheduleHours = LoadScheduleHours();
+
+        // Set the base class interval from the persisted schedule
+        ApplyScheduleInterval(_currentScheduleHours);
     }
 
     private int LoadScheduleHours()
@@ -85,6 +90,23 @@ public class NginxLogRotationHostedService : ScheduledBackgroundService
     }
 
     /// <summary>
+    /// Apply the schedule hours to the base class interval.
+    /// Hours &lt;= 0 sets a negative interval which the base class treats as "sleep until changed".
+    /// </summary>
+    private void ApplyScheduleInterval(int hours)
+    {
+        if (hours > 0)
+        {
+            SetInterval(TimeSpan.FromHours(hours));
+        }
+        else
+        {
+            // Negative TimeSpan tells the base class to sleep indefinitely until interval is changed
+            SetInterval(TimeSpan.FromHours(-1));
+        }
+    }
+
+    /// <summary>
     /// Update the schedule interval in hours
     /// </summary>
     public async Task<bool> UpdateScheduleAsync(int hours)
@@ -97,20 +119,12 @@ public class NginxLogRotationHostedService : ScheduledBackgroundService
         lock (_statusLock)
         {
             _currentScheduleHours = hours;
-            if (hours > 0)
-            {
-                _nextScheduledRotation = DateTime.UtcNow.AddHours(hours);
-            }
-            else
-            {
-                _nextScheduledRotation = null;
-            }
         }
 
         await SaveScheduleHoursAsync(hours);
 
-        // Cancel the current schedule to restart with new interval
-        _scheduleCts?.Cancel();
+        // Update the base class interval — this also wakes the sleep loop
+        ApplyScheduleInterval(hours);
 
         _logger.LogInformation("Log rotation schedule updated to {Hours} hours", hours);
         return true;
@@ -130,7 +144,7 @@ public class NginxLogRotationHostedService : ScheduledBackgroundService
                 Enabled = enabled,
                 ScheduleHours = _currentScheduleHours,
                 LastRotationTime = _lastRotationTime,
-                NextScheduledRotation = _nextScheduledRotation,
+                NextScheduledRotation = NextRunUtc,
                 LastRotationSuccess = _lastRotationSuccess,
                 LastRotationError = _lastRotationError
             };
@@ -149,82 +163,22 @@ public class NginxLogRotationHostedService : ScheduledBackgroundService
     protected override bool IsEnabled()
         => _configuration.GetValue<bool>("NginxLogRotation:Enabled", false);
 
-    protected override async Task ExecuteWorkAsync(CancellationToken stoppingToken)
+    /// <summary>
+    /// Runs once at startup via the base class OnStartupAsync mechanism.
+    /// </summary>
+    protected override async Task OnStartupAsync(CancellationToken stoppingToken)
     {
-        // Run rotation at startup to ensure clean slate
         _logger.LogInformation("Running nginx log rotation at startup...");
         await ExecuteRotationAsync("Startup");
+    }
 
-        // Run scheduled rotation loop
-        while (!stoppingToken.IsCancellationRequested)
-        {
-            int scheduleHours;
-            lock (_statusLock)
-            {
-                scheduleHours = _currentScheduleHours;
-            }
-
-            if (scheduleHours <= 0)
-            {
-                _logger.LogDebug("Scheduled log rotation is disabled (ScheduleHours = 0), waiting for schedule change");
-                // Wait for a schedule update or shutdown
-                _scheduleCts = new CancellationTokenSource();
-                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, _scheduleCts.Token);
-                try
-                {
-                    await Task.Delay(Timeout.Infinite, linkedCts.Token);
-                }
-                catch (OperationCanceledException)
-                {
-                    if (stoppingToken.IsCancellationRequested)
-                        break;
-                    // Schedule was updated, continue loop
-                    continue;
-                }
-            }
-
-            _logger.LogInformation("Scheduled log rotation enabled: every {Hours} hour(s)", scheduleHours);
-            UpdateNextScheduledRotation(scheduleHours);
-
-            try
-            {
-                var delay = TimeSpan.FromHours(scheduleHours);
-                _logger.LogDebug("Next log rotation in {Hours} hour(s) at {Time}",
-                    scheduleHours, DateTime.UtcNow.Add(delay));
-
-                // Create a new CTS for this schedule cycle
-                _scheduleCts = new CancellationTokenSource();
-                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, _scheduleCts.Token);
-
-                await Task.Delay(delay, linkedCts.Token);
-
-                if (!stoppingToken.IsCancellationRequested && !_scheduleCts.IsCancellationRequested)
-                {
-                    await ExecuteRotationAsync("Scheduled");
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                if (stoppingToken.IsCancellationRequested)
-                    break;
-                // Schedule was updated, restart the loop with new schedule
-                _logger.LogDebug("Schedule updated, restarting rotation cycle");
-                continue;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error in log rotation schedule loop");
-                // Wait a bit before retrying
-                try
-                {
-                    await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
-                }
-                catch (OperationCanceledException)
-                {
-                    break;
-                }
-            }
-        }
+    /// <summary>
+    /// Performs a single rotation cycle and returns.
+    /// The base class loop handles the sleep/interval between runs.
+    /// </summary>
+    protected override async Task ExecuteWorkAsync(CancellationToken stoppingToken)
+    {
+        await ExecuteRotationAsync("Scheduled");
     }
 
     private async Task<bool> ExecuteRotationAsync(string trigger)
@@ -263,17 +217,6 @@ public class NginxLogRotationHostedService : ScheduledBackgroundService
             }
 
             return false;
-        }
-    }
-
-    private void UpdateNextScheduledRotation(int scheduleHours)
-    {
-        if (scheduleHours > 0)
-        {
-            lock (_statusLock)
-            {
-                _nextScheduledRotation = DateTime.UtcNow.AddHours(scheduleHours);
-            }
         }
     }
 }

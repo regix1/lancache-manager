@@ -16,6 +16,7 @@ import {
   IntegrationsSection,
   StorageSection,
   DataSection,
+  SchedulesSection,
   PreferencesSection,
   ClientsSection,
   PrefillSessionsSection
@@ -227,6 +228,9 @@ const ManagementTab: React.FC = () => {
             onNavigateToEpicLogin={handleNavigateToEpicLogin}
           />
         );
+
+      case 'schedules':
+        return <SchedulesSection isAdmin={isAdmin} />;
 
       case 'preferences':
         return <PreferencesSection isAdmin={isAdmin} />;

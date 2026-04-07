@@ -37,6 +37,7 @@ import type {
   PicsStatus
 } from '../types';
 import type { DashboardBatchResponse } from '../contexts/DashboardDataContext/types';
+import type { ServiceScheduleInfo } from '../components/features/management/schedules/types';
 
 // Response types for API operations
 interface ApiErrorData {
@@ -2494,6 +2495,63 @@ class ApiService {
     const response = await fetch(`${API_BASE}/version`);
     const data = await ApiService.handleResponse<{ version: string }>(response);
     return data.version;
+  }
+
+  static async getSchedules(signal?: AbortSignal): Promise<ServiceScheduleInfo[]> {
+    try {
+      const res = await fetch(`${API_BASE}/system/schedules`, this.getFetchOptions({ signal }));
+      return await this.handleResponse<ServiceScheduleInfo[]>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else {
+        console.error('getSchedules error:', error);
+      }
+      throw error;
+    }
+  }
+
+  static async updateSchedule(serviceKey: string, intervalHours: number): Promise<void> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/system/schedules/${serviceKey}`,
+        this.getFetchOptions({
+          method: 'PUT',
+          body: JSON.stringify({ intervalHours }),
+          headers: { 'Content-Type': 'application/json' }
+        })
+      );
+      await this.handleResponse<void>(res);
+    } catch (error: unknown) {
+      console.error('updateSchedule error:', error);
+      throw error;
+    }
+  }
+
+  static async triggerSchedule(serviceKey: string): Promise<void> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/system/schedules/${serviceKey}/run`,
+        this.getFetchOptions({ method: 'POST' })
+      );
+      await this.handleResponse<void>(res);
+    } catch (error: unknown) {
+      console.error('triggerSchedule error:', error);
+      throw error;
+    }
+  }
+
+  static async resetSchedules(): Promise<void> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/system/schedules/reset`,
+        this.getFetchOptions({ method: 'POST' })
+      );
+      await this.handleResponse<void>(res);
+    } catch (error: unknown) {
+      console.error('resetSchedules error:', error);
+      throw error;
+    }
   }
 }
 

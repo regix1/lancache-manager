@@ -169,7 +169,10 @@ export const SIGNALR_EVENTS = [
   'EvictionRemovalComplete',
 
   // Game Images
-  'GameImagesUpdated'
+  'GameImagesUpdated',
+
+  // Schedules
+  'SchedulesUpdated'
 ] as const;
 
 /**

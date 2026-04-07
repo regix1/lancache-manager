@@ -1,21 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ExternalLink, CheckCircle, XCircle, Clock } from 'lucide-react';
+import { ExternalLink, CheckCircle, XCircle } from 'lucide-react';
 import { EpicIcon } from '@components/ui/EpicIcon';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { HelpPopover, HelpSection, HelpNote } from '@components/ui/HelpPopover';
-import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { ManagerCardHeader } from '@components/ui/ManagerCard';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useNotifications } from '@contexts/notifications';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import ApiService from '@services/api.service';
-import type {
-  EpicMappingAuthStatus,
-  EpicMappingStats,
-  EpicScheduleStatus
-} from '../../../../types';
+import type { EpicMappingAuthStatus, EpicMappingStats } from '../../../../types';
 
 interface EpicMappingManagerProps {
   isAdmin: boolean;
@@ -44,21 +39,17 @@ const EpicMappingManager: React.FC<EpicMappingManagerProps> = ({
 
   const [authStatus, setAuthStatus] = useState<EpicMappingAuthStatus | null>(null);
   const [stats, setStats] = useState<EpicMappingStats | null>(null);
-  const [schedule, setSchedule] = useState<EpicScheduleStatus | null>(null);
-  const [localNextRefreshIn, setLocalNextRefreshIn] = useState<number | null>(null);
 
   const isAuthenticated = authStatus?.isAuthenticated ?? false;
 
   const loadStatus = useCallback(async () => {
     try {
-      const [auth, statsData, scheduleData] = await Promise.all([
+      const [auth, statsData] = await Promise.all([
         ApiService.getEpicMappingAuthStatus(),
-        ApiService.getEpicMappingStats(),
-        ApiService.getEpicScheduleStatus()
+        ApiService.getEpicMappingStats()
       ]);
       setAuthStatus(auth);
       setStats(statsData);
-      setSchedule(scheduleData);
     } catch {
       setAuthStatus({
         isAuthenticated: false,
@@ -67,7 +58,6 @@ const EpicMappingManager: React.FC<EpicMappingManagerProps> = ({
         gamesDiscovered: 0
       });
       setStats(null);
-      setSchedule(null);
     }
   }, []);
 
@@ -101,46 +91,7 @@ const EpicMappingManager: React.FC<EpicMappingManagerProps> = ({
     }
   }, [connectionState, loadStatus]);
 
-  // Sync localNextRefreshIn when schedule data changes
-  useEffect(() => {
-    if (schedule?.nextRefreshIn !== undefined && schedule.nextRefreshIn > 0) {
-      setLocalNextRefreshIn(schedule.nextRefreshIn);
-    } else {
-      setLocalNextRefreshIn(null);
-    }
-  }, [schedule?.nextRefreshIn]);
-
-  // Countdown timer
-  useEffect(() => {
-    if (!localNextRefreshIn || schedule?.isProcessing || schedule?.refreshIntervalHours === 0) {
-      return;
-    }
-
-    const timer = setInterval(() => {
-      setLocalNextRefreshIn((prev) => {
-        if (prev === null || prev <= 1) return null;
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [localNextRefreshIn, schedule?.isProcessing, schedule?.refreshIntervalHours]);
-
   const formattedLastCollection = useFormattedDateTime(authStatus?.lastCollectionUtc ?? null);
-  const formattedLastRefresh = useFormattedDateTime(schedule?.lastRefreshTime ?? null);
-
-  const formatNextRefresh = (): string => {
-    if (!schedule || schedule.refreshIntervalHours === 0)
-      return t('management.epicMapping.schedule.disabled');
-    if (!localNextRefreshIn || localNextRefreshIn <= 0)
-      return t('management.epicMapping.schedule.calculating');
-    const hours = Math.floor(localNextRefreshIn / 3600);
-    const minutes = Math.floor((localNextRefreshIn % 3600) / 60);
-    const seconds = Math.floor(localNextRefreshIn % 60);
-    if (hours > 0) return `${hours}h ${minutes}m`;
-    if (minutes > 0) return `${minutes}m ${seconds}s`;
-    return `${seconds}s`;
-  };
 
   const handleRefresh = async () => {
     if (isEpicMappingFromNotification) return;
@@ -252,84 +203,11 @@ const EpicMappingManager: React.FC<EpicMappingManagerProps> = ({
         </div>
       }
 
-      {/* Schedule Status */}
+      {/* Schedule redirect note */}
       {isAuthenticated && (
-        <div className="mb-4 p-3 rounded-lg bg-themed-tertiary">
-          <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-            <div className="flex-1">
-              <div className="flex items-center gap-2 mb-3">
-                <Clock className="w-4 h-4 text-themed-primary" />
-                <span className="text-sm font-medium text-themed-secondary">
-                  {t('management.epicMapping.schedule.automaticRefresh')}
-                </span>
-              </div>
-              <div className="text-xs text-themed-muted space-y-2 sm:space-y-1.5">
-                <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-0.5 sm:gap-2">
-                  <span className="opacity-60 text-left whitespace-nowrap">
-                    {t('management.epicMapping.schedule.runsEvery')}
-                  </span>
-                  <span className="font-medium text-themed-primary">
-                    {!schedule
-                      ? t('common.loading')
-                      : schedule.refreshIntervalHours === 0
-                        ? t('management.epicMapping.schedule.disabled')
-                        : t('management.epicMapping.intervals.hours', {
-                            count: schedule.refreshIntervalHours
-                          })}
-                  </span>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-0.5 sm:gap-2">
-                  <span className="opacity-60 text-left whitespace-nowrap">
-                    {t('management.epicMapping.schedule.nextRun')}
-                  </span>
-                  <span className="font-medium text-themed-primary">
-                    {!schedule || schedule.refreshIntervalHours === 0
-                      ? t('management.epicMapping.schedule.disabled')
-                      : formatNextRefresh()}
-                  </span>
-                </div>
-                {schedule?.lastRefreshTime && (
-                  <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-0.5 sm:gap-2">
-                    <span className="opacity-60 text-left whitespace-nowrap">
-                      {t('management.epicMapping.schedule.lastRun')}
-                    </span>
-                    <span className="font-medium text-themed-primary">
-                      {schedule.refreshIntervalHours === 0
-                        ? t('management.epicMapping.schedule.disabled')
-                        : formattedLastRefresh}
-                    </span>
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="flex flex-col gap-2 w-full lg:w-auto lg:min-w-[200px]">
-              <EnhancedDropdown
-                variant="button"
-                options={[
-                  { value: '0', label: t('management.epicMapping.intervals.disabled') },
-                  { value: '1', label: t('management.epicMapping.intervals.every1Hour') },
-                  { value: '6', label: t('management.epicMapping.intervals.every6Hours') },
-                  { value: '12', label: t('management.epicMapping.intervals.every12Hours') },
-                  { value: '24', label: t('management.epicMapping.intervals.every24Hours') },
-                  { value: '48', label: t('management.epicMapping.intervals.every2Days') },
-                  { value: '168', label: t('management.epicMapping.intervals.weekly') }
-                ]}
-                value={schedule ? String(schedule.refreshIntervalHours) : '12'}
-                onChange={async (value: string) => {
-                  const newInterval = Number(value);
-                  try {
-                    await ApiService.setEpicRefreshInterval(newInterval);
-                    loadStatus();
-                  } catch (error) {
-                    console.error('Failed to update Epic refresh interval:', error);
-                  }
-                }}
-                disabled={!isAdmin || mockMode}
-                className="w-full"
-              />
-            </div>
-          </div>
-        </div>
+        <p className="text-xs text-themed-muted mb-4">
+          {t('management.schedules.configuredInSchedules')}
+        </p>
       )}
 
       {/* Not Authenticated Message */}

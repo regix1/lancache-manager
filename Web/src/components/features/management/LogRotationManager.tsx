@@ -4,11 +4,9 @@ import { useDockerSocket } from '@contexts/useDockerSocket';
 import { useNotifications } from '@contexts/notifications';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
-import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import { formatDateTime } from '@utils/formatters';
 import { RefreshCw, Clock, CheckCircle2, XCircle } from 'lucide-react';
 import { LoadingState } from '@components/ui/ManagerCard';
-import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
 
 interface LogRotationStatus {
@@ -26,52 +24,13 @@ interface LogRotationManagerProps {
   onSuccess?: (message: string) => void;
 }
 
-const LogRotationManager: React.FC<LogRotationManagerProps> = ({ isAdmin, onError, onSuccess }) => {
+const LogRotationManager: React.FC<LogRotationManagerProps> = ({ isAdmin }) => {
   const { t } = useTranslation();
   const { isDockerAvailable } = useDockerSocket();
   const { addNotification } = useNotifications();
 
-  const SCHEDULE_OPTIONS: DropdownOption[] = [
-    {
-      value: '0',
-      label: t('management.logRotation.schedule.disabled'),
-      description: t('management.logRotation.schedule.disabledDesc')
-    },
-    {
-      value: '1',
-      label: t('management.logRotation.schedule.everyHour'),
-      description: t('management.logRotation.schedule.everyHourDesc')
-    },
-    {
-      value: '6',
-      label: t('management.logRotation.schedule.every6Hours'),
-      description: t('management.logRotation.schedule.every6HoursDesc')
-    },
-    {
-      value: '12',
-      label: t('management.logRotation.schedule.every12Hours'),
-      description: t('management.logRotation.schedule.every12HoursDesc')
-    },
-    {
-      value: '24',
-      label: t('management.logRotation.schedule.daily'),
-      description: t('management.logRotation.schedule.dailyDesc')
-    },
-    {
-      value: '48',
-      label: t('management.logRotation.schedule.every2Days'),
-      description: t('management.logRotation.schedule.every2DaysDesc')
-    },
-    {
-      value: '168',
-      label: t('management.logRotation.schedule.weekly'),
-      description: t('management.logRotation.schedule.weeklyDesc')
-    }
-  ];
-
   const [status, setStatus] = useState<LogRotationStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isUpdatingSchedule, setIsUpdatingSchedule] = useState(false);
 
   // Track local starting state for immediate UI feedback
   const [isStartingRotation, setIsStartingRotation] = useState(false);
@@ -86,34 +45,6 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({ isAdmin, onErro
       setIsLoading(false);
     }
   }, []);
-
-  const handleScheduleChange = async (value: string) => {
-    if (!isAdmin || isUpdatingSchedule) return;
-
-    const hours = parseInt(value, 10);
-    setIsUpdatingSchedule(true);
-
-    try {
-      const data = (await ApiService.updateLogRotationSchedule(hours)) as {
-        success: boolean;
-        status: LogRotationStatus;
-        message?: string;
-      };
-
-      if (data.success) {
-        setStatus(data.status);
-        onSuccess?.(
-          `Schedule updated to ${SCHEDULE_OPTIONS.find((o) => o.value === value)?.label || value}`
-        );
-      } else {
-        onError?.(data.message || t('management.logRotation.failedToUpdateSchedule'));
-      }
-    } catch {
-      onError?.('Failed to update schedule');
-    } finally {
-      setIsUpdatingSchedule(false);
-    }
-  };
 
   useEffect(() => {
     fetchStatus();
@@ -164,12 +95,6 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({ isAdmin, onErro
     }
   };
 
-  const getScheduleValue = (hours: number): string => {
-    // Find matching option or fall back to closest
-    const option = SCHEDULE_OPTIONS.find((o) => o.value === String(hours));
-    return option ? option.value : '24'; // Default to daily if not found
-  };
-
   if (isLoading) {
     return <LoadingState message={t('management.logRotation.loadingStatus')} />;
   }
@@ -198,37 +123,8 @@ const LogRotationManager: React.FC<LogRotationManagerProps> = ({ isAdmin, onErro
 
   return (
     <div className="space-y-4">
-      {/* Schedule Selection */}
-      <div className="p-4 rounded-lg bg-themed-tertiary">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div>
-            <p className="text-sm font-medium text-themed-primary">
-              {t('management.logRotation.rotationSchedule')}
-            </p>
-            <p className="text-xs text-themed-muted mt-1">
-              {status.scheduleHours > 0
-                ? t('management.logRotation.runsAutomatically')
-                : t('management.logRotation.enableScheduled')}
-            </p>
-          </div>
-          <div className="relative min-w-[180px]">
-            {isUpdatingSchedule && (
-              <div className="absolute inset-0 flex items-center justify-center bg-themed-bg-secondary/50 rounded z-10">
-                <LoadingSpinner inline size="sm" className="text-themed-primary" />
-              </div>
-            )}
-            <EnhancedDropdown
-              variant="button"
-              options={SCHEDULE_OPTIONS}
-              value={getScheduleValue(status.scheduleHours)}
-              onChange={handleScheduleChange}
-              disabled={!isAdmin || isUpdatingSchedule}
-              dropdownWidth="280px"
-              alignRight
-            />
-          </div>
-        </div>
-      </div>
+      {/* Schedule redirect note */}
+      <p className="text-xs text-themed-muted">{t('management.schedules.configuredInSchedules')}</p>
 
       {/* Docker Socket Warning */}
       {!isDockerAvailable && (

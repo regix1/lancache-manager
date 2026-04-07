@@ -49,6 +49,11 @@ public interface IStateService
     DateTime? GetLastPicsCrawl();
     void SetLastPicsCrawl(DateTime crawlTime);
 
+    // Service Interval Methods
+    double? GetServiceInterval(string serviceKey);
+    void SetServiceInterval(string serviceKey, double hours);
+    void ClearServiceInterval(string serviceKey);
+
     // Crawl Interval Methods
     double GetCrawlIntervalHours();
     void SetCrawlIntervalHours(double hours);

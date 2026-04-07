@@ -26,8 +26,10 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
 
     protected override string ServiceName => "GameImageFetch";
     protected override TimeSpan Interval => TimeSpan.FromMinutes(30);
-    protected override bool RunOnStartup => true;
+    public override bool RunOnStartup => true;
     protected override TimeSpan StartupDelay => TimeSpan.Zero;
+
+    public override string ServiceKey => "gameImageFetch";
 
     public GameImageFetchService(
         IServiceProvider serviceProvider,
@@ -41,6 +43,12 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         _stateService = stateService;
         _notifications = notifications;
         _imageCacheService = imageCacheService;
+
+        var savedInterval = _stateService.GetServiceInterval(ServiceKey);
+        if (savedInterval.HasValue)
+        {
+            SetInterval(TimeSpan.FromHours(savedInterval.Value));
+        }
     }
 
     protected override async Task OnStartupAsync(CancellationToken stoppingToken)

@@ -18,6 +18,7 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IStateService _stateService;
     private EpicPrefillDaemonService? _epicDaemonService;
     private string? _currentOperationId;
 
@@ -31,6 +32,7 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
 
     // Scheduling state
     private DateTime _lastRefreshTime = DateTime.MinValue;
+    private Task? _currentRefreshTask;
     private CancellationTokenSource? _currentRefreshCts;
     private readonly CancellationTokenSource _cancellationTokenSource = new();
     private bool _isRunning;
@@ -59,7 +61,8 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
         ISignalRNotificationService notifications,
         IDbContextFactory<AppDbContext> dbContextFactory,
         IUnifiedOperationTracker operationTracker,
-        IServiceScopeFactory scopeFactory)
+        IServiceScopeFactory scopeFactory,
+        IStateService stateService)
         : base(logger, TimeSpan.FromHours(12)) // Default: 12 hour refresh interval
     {
         _epicApiClient = epicApiClient;
@@ -68,12 +71,20 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
         _dbContextFactory = dbContextFactory;
         _operationTracker = operationTracker;
         _scopeFactory = scopeFactory;
+        _stateService = stateService;
     }
 
     protected override async Task InitializeAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("EpicMappingService starting...");
         _isRunning = true;
+
+        // Restore persisted interval so user-saved intervals survive restarts
+        var savedInterval = _stateService.GetServiceInterval("epicMapping");
+        if (savedInterval.HasValue)
+        {
+            UpdateInterval(TimeSpan.FromHours(savedInterval.Value));
+        }
 
         // Load last refresh time from saved auth data (mirrors Steam loading from state.json)
         var savedAuth = _authStorage.GetEpicAuthData();

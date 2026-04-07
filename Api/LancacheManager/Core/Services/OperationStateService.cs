@@ -15,7 +15,7 @@ public class OperationStateService : ScheduledBackgroundService
     protected override string ServiceName => "OperationStateService";
     protected override TimeSpan Interval => TimeSpan.FromMinutes(5);
     protected override TimeSpan StartupDelay => TimeSpan.FromSeconds(2);
-    protected override bool RunOnStartup => true;
+    public override bool RunOnStartup => true;
 
     public OperationStateService(
         ILogger<OperationStateService> logger,

@@ -31,7 +31,9 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
     protected override string ServiceName => "CacheReconciliationService";
     protected override TimeSpan Interval => TimeSpan.FromHours(6);
-    protected override bool RunOnStartup => true;
+    public override bool RunOnStartup => true;
+
+    public override string ServiceKey => "cacheReconciliation";
 
     public bool IsRunning => _isRunning;
     public bool CurrentScanIsSilent => _currentScanIsSilent;
@@ -94,6 +96,12 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         _operationTracker = operationTracker;
         _rustProcessHelper = rustProcessHelper;
         _pathResolver = pathResolver;
+
+        var savedInterval = _stateService.GetServiceInterval(ServiceKey);
+        if (savedInterval.HasValue)
+        {
+            SetInterval(TimeSpan.FromHours(savedInterval.Value));
+        }
     }
 
     protected override bool IsEnabled()

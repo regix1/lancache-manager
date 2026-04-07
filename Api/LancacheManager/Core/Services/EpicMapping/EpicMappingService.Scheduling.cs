@@ -6,23 +6,35 @@ namespace LancacheManager.Core.Services.EpicMapping;
 
 public partial class EpicMappingService
 {
+    public string ScheduleServiceKey => "epicMapping";
+
     /// <summary>
     /// Called by the ConfigurableScheduledService base class on each interval tick.
     /// Checks preconditions and triggers a catalog refresh if appropriate.
+    /// Awaits the background refresh task so the base class sets LastRunUtc and fires
+    /// ServiceWorkCompleted only after the actual catalog refresh finishes.
     /// </summary>
-    protected override Task ExecuteScheduledWorkAsync(CancellationToken stoppingToken)
+    protected override async Task ExecuteScheduledWorkAsync(CancellationToken stoppingToken)
     {
         if (_cancellationTokenSource.Token.IsCancellationRequested || !_isRunning)
-            return Task.CompletedTask;
+            return;
 
         // Skip if not authenticated (need valid tokens to refresh)
         if (!_isAuthenticated || _currentTokens == null)
-            return Task.CompletedTask;
+            return;
 
         _logger.LogInformation("Starting scheduled Epic catalog refresh");
-        TryStartRefresh();
 
-        return Task.CompletedTask;
+        if (TryStartRefresh())
+        {
+            // Await the background task so the base class sets LastRunUtc and fires
+            // ServiceWorkCompleted only after the actual catalog refresh finishes — not
+            // immediately after TryStartRefresh returns.
+            if (_currentRefreshTask is not null)
+            {
+                await _currentRefreshTask;
+            }
+        }
     }
 
     /// <summary>
@@ -78,7 +90,7 @@ public partial class EpicMappingService
             stageKey = "signalr.epicMapping.starting"
         });
 
-        _ = Task.Run(async () =>
+        _currentRefreshTask = Task.Run(async () =>
         {
             var success = false;
             string? errorMessage = null;

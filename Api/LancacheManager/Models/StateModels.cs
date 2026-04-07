@@ -88,6 +88,9 @@ public class AppState
     // LEGACY: SteamAuth has been migrated to separate file (data/security/steam_auth/credentials.json)
     // This property is kept temporarily for backward compatibility during migration
     public SteamAuthState? SteamAuth { get; set; }
+
+    // Per-service interval overrides (keyed by ServiceKey, value in hours)
+    public Dictionary<string, double> ServiceIntervals { get; set; } = new();
 }
 
 /// <summary>

@@ -432,6 +432,9 @@ builder.Services.AddSingletonHostedService<RustSpeedTrackerService>();
 // Register GameDetectionStartupService to auto-trigger game cache detection at startup
 builder.Services.AddSingletonHostedService<GameDetectionStartupService>();
 
+// Register service schedule registry — collects all ScheduledBackgroundService / ConfigurableScheduledService instances
+builder.Services.AddSingleton<IServiceScheduleRegistry, ServiceScheduleRegistry>();
+
 // Configure OpenTelemetry Metrics for Prometheus + Grafana
 builder.Services.AddOpenTelemetry()
     .WithMetrics(metrics =>

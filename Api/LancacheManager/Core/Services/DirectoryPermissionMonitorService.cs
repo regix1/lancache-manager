@@ -22,7 +22,7 @@ public class DirectoryPermissionMonitorService : ScheduledBackgroundService
     protected override string ServiceName => "DirectoryPermissionMonitor";
     protected override TimeSpan Interval => TimeSpan.FromSeconds(30);
     protected override TimeSpan StartupDelay => TimeSpan.Zero;
-    protected override bool RunOnStartup => true;
+    public override bool RunOnStartup => true;
 
     public DirectoryPermissionMonitorService(
         ILogger<DirectoryPermissionMonitorService> logger,

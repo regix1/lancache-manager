@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Database, Clock, Zap, AlertCircle, ExternalLink } from 'lucide-react';
+import { Database, Zap, AlertCircle, ExternalLink } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
@@ -10,10 +10,9 @@ import { FullScanRequiredModal } from '@components/modals/setup/FullScanRequired
 import { useNotifications } from '@contexts/notifications';
 import { usePicsProgress } from '@contexts/usePicsProgress';
 import { useSteamWebApiStatus } from '@contexts/useSteamWebApiStatus';
-import { formatNextCrawlTime, toTotalSeconds } from '@utils/timeFormatters';
+import { toTotalSeconds } from '@utils/timeFormatters';
 import { storage } from '@utils/storage';
 import { isAbortError } from '@utils/error';
-import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { ManagerCardHeader } from '@components/ui/ManagerCard';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 
@@ -46,7 +45,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
 }) => {
   const { t } = useTranslation();
   const { notifications } = useNotifications();
-  const { progress: picsProgress, isLoading: picsLoading, refreshProgress } = usePicsProgress();
+  const { progress: picsProgress, refreshProgress } = usePicsProgress();
   const { status: webApiStatus, loading: webApiLoading } = useSteamWebApiStatus();
 
   // Derive depot mapping operation state from notifications (standardized pattern)
@@ -54,11 +53,6 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     (n) => n.type === 'depot_mapping' && n.status === 'running'
   );
   const isDepotMappingFromNotification = !!activeDepotNotification;
-  const [localNextCrawlIn, setLocalNextCrawlIn] = useState<{
-    hours: number;
-    minutes: number;
-    seconds: number;
-  } | null>(null);
   const [depotSource, setDepotSource] = useState<DepotSource>(() => {
     // Load last selected source from localStorage
     const savedSource = storage.getItem('depotSource');
@@ -71,7 +65,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     message?: string;
   } | null>(null);
   const [operationType, setOperationType] = useState<'downloading' | 'scanning' | null>(null);
-  const [fullScanRequired, setFullScanRequired] = useState(false);
+  const [, setFullScanRequired] = useState(false);
   const [githubDownloadComplete, setGithubDownloadComplete] = useState(false);
   const [githubDownloading, setGithubDownloading] = useState(false);
   const lastViabilityCheck = useRef<number>(0);
@@ -104,9 +98,6 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     };
   }, [picsProgress]);
 
-  // Format last crawl time with timezone awareness
-  const formattedLastCrawlTime = useFormattedDateTime(depotConfig?.lastCrawlTime || null);
-
   // Restore depot mapping operation state from notifications on mount
   // Note: NotificationsContext handles the actual recovery via recoverDepotMapping
   useEffect(() => {
@@ -135,52 +126,6 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     refreshProgress();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only on mount
-
-  // Update local countdown when depotConfig changes
-  useEffect(() => {
-    if (depotConfig?.nextCrawlIn) {
-      setLocalNextCrawlIn(depotConfig.nextCrawlIn);
-    } else {
-      setLocalNextCrawlIn(null);
-    }
-  }, [depotConfig?.nextCrawlIn]);
-
-  // Countdown timer - decrements localNextCrawlIn every second
-  useEffect(() => {
-    if (!localNextCrawlIn || depotConfig?.isProcessing || depotConfig?.crawlIntervalHours === 0) {
-      return;
-    }
-
-    const timer = setInterval(() => {
-      setLocalNextCrawlIn((prev) => {
-        if (!prev) return null;
-
-        let { hours, minutes, seconds } = prev;
-
-        // Decrement seconds
-        seconds--;
-
-        if (seconds < 0) {
-          seconds = 59;
-          minutes--;
-        }
-
-        if (minutes < 0) {
-          minutes = 59;
-          hours--;
-        }
-
-        // If we've counted down to zero, stop
-        if (hours <= 0 && minutes <= 0 && seconds <= 0) {
-          return { hours: 0, minutes: 0, seconds: 0 };
-        }
-
-        return { hours, minutes, seconds };
-      });
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [localNextCrawlIn, depotConfig?.isProcessing, depotConfig?.crawlIntervalHours]);
 
   // Auto-select GitHub when Web API is not available (for Apply Now Source)
   // This runs whenever Web API status changes to ensure we don't have an invalid selection
@@ -363,7 +308,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     }
 
     // Calculate if scan is due
-    const totalSeconds = toTotalSeconds(localNextCrawlIn);
+    const totalSeconds = toTotalSeconds(depotConfig.nextCrawlIn ?? null);
     const isDue = totalSeconds <= 0;
 
     // Only check viability when due and not running (for UI display)
@@ -386,7 +331,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
       setFullScanRequired(false);
       lastViabilityCheck.current = 0;
     }
-  }, [depotConfig, localNextCrawlIn, mockMode, isAdmin, actionLoading]);
+  }, [depotConfig, mockMode, isAdmin, actionLoading]);
 
   // Listen for PICS scan completion via SignalR and refresh state
   // ONLY react if we're expecting a completion (operationType is set)
@@ -656,18 +601,6 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     }
   };
 
-  const formatNextRun = () => {
-    if (picsLoading || !depotConfig) return t('common.loading');
-    if (depotConfig.crawlIntervalHours === 0) return t('management.depotMapping.schedule.disabled');
-    if (!localNextCrawlIn) return t('management.depotMapping.schedule.calculating');
-    return formatNextCrawlTime(
-      localNextCrawlIn,
-      depotConfig.isProcessing,
-      fullScanRequired,
-      depotConfig.crawlIncrementalMode
-    );
-  };
-
   return (
     <>
       <Card>
@@ -779,273 +712,10 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
           </div>
         )}
 
-        {/* Schedule Status */}
-        <div className="mb-4 p-3 rounded-lg bg-themed-tertiary">
-          <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-            <div className="flex-1">
-              <div className="flex items-center gap-2 mb-3">
-                <Clock className="w-4 h-4 text-themed-primary" />
-                <span className="text-sm font-medium text-themed-secondary">
-                  {t('management.depotMapping.schedule.automaticSchedule')}
-                </span>
-              </div>
-              <div className="text-xs text-themed-muted space-y-2 sm:space-y-1.5">
-                <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-0.5 sm:gap-2">
-                  <span className="opacity-60 text-left whitespace-nowrap">
-                    {t('management.depotMapping.schedule.runsEvery')}
-                  </span>
-                  <span className="font-medium text-themed-primary">
-                    {!depotConfig
-                      ? t('common.loading')
-                      : depotConfig.crawlIntervalHours === 0
-                        ? t('management.depotMapping.schedule.disabled')
-                        : (() => {
-                            // If Web API is unavailable (V2 down AND no API key), show GitHub interval
-                            const webApiNotAvailable =
-                              !webApiStatus?.isV2Available && !webApiStatus?.hasApiKey;
-
-                            if (webApiNotAvailable) {
-                              return t('management.depotMapping.intervals.30min');
-                            }
-
-                            // Otherwise show backend value
-                            return depotConfig.crawlIncrementalMode === 'github'
-                              ? t('management.depotMapping.intervals.30min')
-                              : depotConfig.crawlIntervalHours === 0.5
-                                ? t('management.depotMapping.intervals.30min')
-                                : t('management.depotMapping.intervals.hours', {
-                                    count: depotConfig.crawlIntervalHours
-                                  });
-                          })()}
-                  </span>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-0.5 sm:gap-2">
-                  <span className="opacity-60 text-left whitespace-nowrap">
-                    {t('management.depotMapping.schedule.scanMode')}
-                  </span>
-                  <span className="font-medium text-themed-primary">
-                    {!depotConfig
-                      ? t('common.loading')
-                      : depotConfig.crawlIntervalHours === 0
-                        ? t('management.depotMapping.schedule.disabled')
-                        : (() => {
-                            // If Web API is unavailable (V2 down AND no API key), show GitHub mode
-                            const webApiNotAvailable =
-                              !webApiStatus?.isV2Available && !webApiStatus?.hasApiKey;
-
-                            if (webApiNotAvailable) {
-                              return t('management.depotMapping.modes.github');
-                            }
-
-                            // Otherwise show backend value
-                            return depotConfig.crawlIncrementalMode === 'github'
-                              ? t('management.depotMapping.modes.github')
-                              : depotConfig.crawlIncrementalMode
-                                ? t('management.depotMapping.modes.incremental')
-                                : t('management.depotMapping.modes.full');
-                          })()}
-                  </span>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-0.5 sm:gap-2">
-                  <span className="opacity-60 text-left whitespace-nowrap">
-                    {t('management.depotMapping.schedule.nextRun')}
-                  </span>
-                  <span className="font-medium text-themed-primary">
-                    {!depotConfig || depotConfig.crawlIntervalHours === 0
-                      ? t('management.depotMapping.schedule.disabled')
-                      : formatNextRun()}
-                  </span>
-                </div>
-                {depotConfig?.lastCrawlTime && (
-                  <div className="grid grid-cols-1 sm:grid-cols-[auto_1fr] gap-0.5 sm:gap-2">
-                    <span className="opacity-60 text-left whitespace-nowrap">
-                      {t('management.depotMapping.schedule.lastRun')}
-                    </span>
-                    <span className="font-medium text-themed-primary">
-                      {depotConfig.crawlIntervalHours === 0
-                        ? t('management.depotMapping.schedule.disabled')
-                        : formattedLastCrawlTime}
-                    </span>
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="flex flex-col gap-2 w-full lg:w-auto lg:min-w-[200px]">
-              {/* GitHub Mode: Fixed 30-minute interval (either actual GitHub mode or forced due to Web API unavailability) */}
-              {(() => {
-                // Web API is unavailable only if V2 is down AND there's no API key
-                const webApiNotAvailable = !webApiStatus?.isV2Available && !webApiStatus?.hasApiKey;
-                const isGithubMode =
-                  depotConfig?.crawlIncrementalMode === 'github' || webApiNotAvailable;
-
-                if (isGithubMode) {
-                  return (
-                    <div>
-                      <EnhancedDropdown
-                        variant="button"
-                        options={[
-                          { value: '0.5', label: t('management.depotMapping.intervals.every30Min') }
-                        ]}
-                        value="0.5"
-                        onChange={() => {
-                          /* noop */
-                        }}
-                        disabled={true}
-                        className="w-full"
-                      />
-                      <p className="text-xs text-themed-muted mt-1">
-                        {t('management.depotMapping.intervalFixedNote')}
-                      </p>
-                    </div>
-                  );
-                }
-
-                // Non-GitHub Modes: User-configurable intervals
-                return (
-                  <EnhancedDropdown
-                    variant="button"
-                    options={[
-                      { value: '0', label: t('management.depotMapping.intervals.disabled') },
-                      { value: '1', label: t('management.depotMapping.intervals.everyHour') },
-                      { value: '6', label: t('management.depotMapping.intervals.every6Hours') },
-                      { value: '12', label: t('management.depotMapping.intervals.every12Hours') },
-                      { value: '24', label: t('management.depotMapping.intervals.every24Hours') },
-                      { value: '48', label: t('management.depotMapping.intervals.every2Days') },
-                      { value: '168', label: t('management.depotMapping.intervals.weekly') }
-                    ]}
-                    value={depotConfig ? String(depotConfig.crawlIntervalHours) : '1'}
-                    onChange={async (value) => {
-                      const newInterval = Number(value);
-                      try {
-                        await fetch(
-                          '/api/depots/rebuild/config/interval',
-                          ApiService.getFetchOptions({
-                            method: 'PUT',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(newInterval)
-                          })
-                        );
-
-                        // Refresh the progress data after updating the interval
-                        refreshProgress();
-                      } catch (error) {
-                        console.error('Failed to update crawl interval:', error);
-                      }
-                    }}
-                    disabled={!isAdmin || mockMode}
-                    className="w-full"
-                  />
-                );
-              })()}
-              <EnhancedDropdown
-                variant="button"
-                options={[
-                  {
-                    value: 'incremental',
-                    label:
-                      picsProgress?.isWebApiAvailable ||
-                      webApiStatus?.isFullyOperational ||
-                      webApiStatus?.hasApiKey
-                        ? t('management.depotMapping.modes.incremental')
-                        : t('management.depotMapping.modes.incrementalWebApiRequired'),
-                    disabled: !(
-                      picsProgress?.isWebApiAvailable ||
-                      webApiStatus?.isFullyOperational ||
-                      webApiStatus?.hasApiKey
-                    )
-                  },
-                  {
-                    value: 'full',
-                    label:
-                      picsProgress?.isWebApiAvailable ||
-                      webApiStatus?.isFullyOperational ||
-                      webApiStatus?.hasApiKey
-                        ? t('management.depotMapping.modes.full')
-                        : t('management.depotMapping.modes.fullWebApiRequired'),
-                    disabled: !(
-                      picsProgress?.isWebApiAvailable ||
-                      webApiStatus?.isFullyOperational ||
-                      webApiStatus?.hasApiKey
-                    )
-                  },
-                  { value: 'github', label: t('management.depotMapping.modes.github') }
-                ]}
-                value={(() => {
-                  // If Web API is unavailable (V2 down AND no API key), force GitHub mode
-                  const webApiNotAvailable =
-                    !webApiStatus?.isV2Available && !webApiStatus?.hasApiKey;
-
-                  if (webApiNotAvailable) {
-                    return 'github';
-                  }
-
-                  // Otherwise use backend value
-                  return depotConfig?.crawlIncrementalMode === 'github'
-                    ? 'github'
-                    : depotConfig?.crawlIncrementalMode === false
-                      ? 'full'
-                      : 'incremental';
-                })()}
-                onChange={async (value) => {
-                  try {
-                    const wasGithubMode = depotConfig?.crawlIncrementalMode === 'github';
-
-                    // If switching FROM GitHub to another mode, reset interval to 1 hour
-                    if (wasGithubMode && value !== 'github') {
-                      await fetch(
-                        '/api/depots/rebuild/config/interval',
-                        ApiService.getFetchOptions({
-                          method: 'PUT',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify(1)
-                        })
-                      );
-                    }
-
-                    // If GitHub is selected, force 30-minute interval
-                    if (value === 'github') {
-                      // Set interval to 0.5 hours (30 minutes)
-                      await fetch(
-                        '/api/depots/rebuild/config/interval',
-                        ApiService.getFetchOptions({
-                          method: 'PUT',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify(0.5)
-                        })
-                      );
-
-                      // IMPORTANT: Also update the "Apply Now Source" to match
-                      // When user selects GitHub schedule, they likely want GitHub for manual apply too
-                      setDepotSource('github');
-                      storage.setItem('depotSource', 'github');
-                    }
-
-                    // Set scan mode
-                    const incremental =
-                      value === 'incremental' ? true : value === 'github' ? 'github' : false;
-                    await fetch(
-                      '/api/depots/rebuild/config/mode',
-                      ApiService.getFetchOptions({
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(incremental)
-                      })
-                    );
-
-                    // Refresh the progress data after updating the scan mode
-                    refreshProgress();
-                  } catch (error) {
-                    console.error('Failed to update scan mode:', error);
-                  }
-                }}
-                disabled={
-                  !isAdmin || mockMode || !depotConfig || depotConfig.crawlIntervalHours === 0
-                }
-                className="w-full"
-              />
-            </div>
-          </div>
-        </div>
+        {/* Schedule redirect note */}
+        <p className="text-xs text-themed-muted mb-4">
+          {t('management.schedules.configuredInSchedules')}
+        </p>
 
         {/* Depot Source Selection */}
         <div className="mb-4">

@@ -4,6 +4,8 @@ namespace LancacheManager.Core.Services.SteamKit2;
 
 public partial class SteamKit2Service
 {
+    public string ScheduleServiceKey => "depotMapping";
+
     /// <summary>
     /// Called by the ConfigurableScheduledService base class on each interval tick.
     /// Checks preconditions and triggers a PICS crawl if appropriate.
@@ -106,6 +108,14 @@ public partial class SteamKit2Service
 
             if (TryStartRebuild(_cancellationTokenSource.Token, incrementalOnly: IsIncrementalMode(_crawlIncrementalMode)))
             {
+                // Await the background task so the base class sets LastRunUtc and fires
+                // ServiceWorkCompleted only after the actual PICS crawl finishes — not
+                // immediately after TryStartRebuild returns.
+                if (_currentBuildTask is not null)
+                {
+                    await _currentBuildTask;
+                }
+
                 _lastCrawlTime = DateTime.UtcNow;
                 SaveLastCrawlTime(); // Persist to state.json
             }

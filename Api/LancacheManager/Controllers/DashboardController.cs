@@ -86,26 +86,15 @@ public class DashboardController : ControllerBase
         // Each query creates its own DbContext, so 3 concurrent = 3 DbContexts max.
         using var semaphore = new SemaphoreSlim(3);
 
-        var queryTimings = new System.Collections.Concurrent.ConcurrentDictionary<string, long>();
-
         async Task<object?> ThrottledAsync(string name, Func<Task<object>> action)
         {
             await semaphore.WaitAsync();
-            var sw = System.Diagnostics.Stopwatch.StartNew();
             try { return await SafeExecuteAsync(name, action); }
-            finally
-            {
-                sw.Stop();
-                queryTimings[name] = sw.ElapsedMilliseconds;
-                semaphore.Release();
-            }
+            finally { semaphore.Release(); }
         }
 
         // Cache must complete first (cacheGrowth depends on its result)
-        var cacheSw = System.Diagnostics.Stopwatch.StartNew();
         var cacheResult = await SafeExecuteAsync("cache", () => GetCacheInfoAsync());
-        cacheSw.Stop();
-        queryTimings["cache"] = cacheSw.ElapsedMilliseconds;
         long actualCacheSize = cacheResult?.UsedCacheSize ?? 0;
 
         // Launch remaining 9 queries with throttled parallelism
@@ -120,10 +109,6 @@ public class DashboardController : ControllerBase
         var cacheGrowthTask = ThrottledAsync("cacheGrowth", () => GetCacheGrowthAsync(startTime, endTime, actualCacheSize, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
 
         await Task.WhenAll(clientsTask, servicesTask, dashboardTask, downloadsTask, detectionTask, sparklinesTask, hourlyTask, cacheSnapshotTask, cacheGrowthTask);
-
-        var sortedTimings = queryTimings.OrderByDescending(kv => kv.Value);
-        _logger.LogInformation("Dashboard batch query timings: {Timings}",
-            string.Join(", ", sortedTimings.Select(kv => $"{kv.Key}={kv.Value}ms")));
 
         DashboardBatchResponse response = new()
         {

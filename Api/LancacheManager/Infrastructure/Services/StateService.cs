@@ -132,6 +132,9 @@ public class StateService : IStateService
         public string? DataSourceChoice { get; set; }
         public string? CompletedPlatforms { get; set; }
 
+        // Per-service interval overrides (keyed by ServiceKey, value in hours)
+        public Dictionary<string, double> ServiceIntervals { get; set; } = new();
+
         // LEGACY: SteamAuth migrated to separate file - kept for reading old state.json during migration
         // JsonIgnore(Condition = WhenWritingNull) excludes it when saving (always null after migration)
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -729,6 +732,29 @@ public class StateService : IStateService
         UpdateState(state => state.CrawlIncrementalMode = mode);
     }
 
+    // Service Interval Methods
+    public double? GetServiceInterval(string serviceKey)
+    {
+        var intervals = GetState().ServiceIntervals;
+        return intervals.TryGetValue(serviceKey, out var value) ? value : null;
+    }
+
+    public void SetServiceInterval(string serviceKey, double hours)
+    {
+        UpdateState(state =>
+        {
+            state.ServiceIntervals[serviceKey] = hours;
+        });
+    }
+
+    public void ClearServiceInterval(string serviceKey)
+    {
+        UpdateState(state =>
+        {
+            state.ServiceIntervals.Remove(serviceKey);
+        });
+    }
+
     // Depot Processing Methods
     public DepotProcessingState GetDepotProcessingState()
     {
@@ -867,6 +893,8 @@ public class StateService : IStateService
             CurrentSetupStep = persisted.CurrentSetupStep,
             DataSourceChoice = persisted.DataSourceChoice,
             CompletedPlatforms = persisted.CompletedPlatforms,
+            // Per-service interval overrides
+            ServiceIntervals = persisted.ServiceIntervals ?? new Dictionary<string, double>(),
             // LEGACY: Only load SteamAuth if present (for migration from old state.json)
             SteamAuth = persisted.SteamAuth != null ? new SteamAuthState
             {
@@ -943,6 +971,8 @@ public class StateService : IStateService
             CurrentSetupStep = state.CurrentSetupStep,
             DataSourceChoice = state.DataSourceChoice,
             CompletedPlatforms = state.CompletedPlatforms,
+            // Per-service interval overrides
+            ServiceIntervals = state.ServiceIntervals ?? new Dictionary<string, double>(),
             // LEGACY: Only persist SteamAuth if not null (will be null after migration)
             // JsonIgnore(WhenWritingNull) on property will exclude from JSON when null
             SteamAuth = state.SteamAuth != null ? new SteamAuthState

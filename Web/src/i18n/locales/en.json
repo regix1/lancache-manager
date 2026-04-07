@@ -1376,7 +1376,10 @@
       "clientsDesc": "Assign nicknames to client IPs",
       "prefillSessions": "Prefill Sessions",
       "prefillSessionsShort": "Prefill",
-      "prefillSessionsDesc": "Manage Steam Prefill daemon sessions"
+      "prefillSessionsDesc": "Manage Steam Prefill daemon sessions",
+      "schedules": "Schedules",
+      "schedulesShort": "Schedules",
+      "schedulesDesc": "Configure service run intervals"
     },
     "sections": {
       "authRequired": "Authentication Required",
@@ -2856,6 +2859,105 @@
         "every2DaysDesc": "Rotate logs every 48 hours",
         "weekly": "Weekly",
         "weeklyDesc": "Rotate logs once per week"
+      }
+    },
+    "schedules": {
+      "title": "Service Schedules",
+      "subtitle": "Configure how often background services run",
+      "configuredInSchedules": "Schedule is configured in the Schedules section.",
+      "fetchError": "Failed to load schedules",
+      "resetToDefaults": "Reset to Defaults",
+      "runNowTriggered": "{{service}} triggered manually",
+      "runNowFailed": "Failed to trigger {{service}}",
+      "resetComplete": "All schedules reset to defaults",
+      "resetFailed": "Failed to reset schedules",
+      "neverRun": "Never",
+      "justNow": "Just now",
+      "minutesAgo": "{{count}}m ago",
+      "hoursAgo": "{{count}}h ago",
+      "daysAgo": "{{count}}d ago",
+      "soon": "Soon",
+      "disabled": "Disabled",
+      "lastRun": "Last run",
+      "nextRun": "Next run",
+      "runNow": "Run Now",
+      "statusRunning": "Running",
+      "statusIdle": "Idle",
+      "showDetails": "Show details",
+      "hideDetails": "Hide details",
+      "gain": "More frequent",
+      "loss": "Less frequent",
+      "everyNMinutes": "Every {{count}} minutes",
+      "everyNHours": "Every {{count}} hours",
+      "intervals": {
+        "disabled": "Disabled",
+        "startupOnly": "Startup only",
+        "every30Minutes": "Every 30 minutes",
+        "everyHour": "Every hour",
+        "every3Hours": "Every 3 hours",
+        "every6Hours": "Every 6 hours",
+        "every12Hours": "Every 12 hours",
+        "daily": "Daily",
+        "every2Days": "Every 2 days",
+        "weekly": "Weekly",
+        "every2Weeks": "Every 2 weeks",
+        "monthly": "Monthly"
+      },
+      "services": {
+        "depotMapping": {
+          "displayName": "Steam Depot Mapping",
+          "description": "Periodically downloads Steam depot-to-game mappings from PICS or GitHub so that cached files on disk can be matched to the correct Steam game in the UI.",
+          "gain": "New game downloads are identified faster, reducing the time items appear as 'Unknown Game'",
+          "loss": "Recently cached games may show as 'Unknown Game' for longer until the next mapping refresh"
+        },
+        "epicMapping": {
+          "displayName": "Epic Game Mapping",
+          "description": "Connects to the Epic Games Store catalog to refresh game titles, CDN URL patterns, and depot mappings used to identify Epic downloads in the cache.",
+          "gain": "Newly released or updated Epic games are recognized in the cache sooner after download",
+          "loss": "New or renamed Epic games may not appear correctly until the next scheduled refresh"
+        },
+        "logRotation": {
+          "displayName": "Log Rotation",
+          "description": "Rotates the nginx access log file to keep it from growing unbounded, which prevents disk pressure and keeps log parsing fast for real-time download tracking.",
+          "gain": "Log files stay small, freeing disk space and keeping the live download feed responsive",
+          "loss": "The access log grows continuously, which can slow down log parsing and consume significant disk space"
+        },
+        "cacheReconciliation": {
+          "displayName": "Cache Reconciliation",
+          "description": "Walks the cache directory on disk and cross-references it with the database to determine which downloads are still physically cached versus evicted by nginx.",
+          "gain": "Eviction badges and cache status in the UI are more accurate and up to date",
+          "loss": "The UI may show stale eviction status — items marked as cached might actually be evicted, or vice versa"
+        },
+        "gameDetection": {
+          "displayName": "Game Detection",
+          "description": "Scans all cached files and uses depot mappings to detect which games are present in the cache, building the game list shown on the dashboard.",
+          "gain": "Newly downloaded games appear in the game list sooner after being cached",
+          "loss": "Games downloaded between scans won't show up in the game list until the next detection run"
+        },
+        "gameImageFetch": {
+          "displayName": "Game Image Fetch",
+          "description": "Downloads banner and cover art images from Steam and Epic for any detected games that are missing artwork, so game cards display properly in the UI.",
+          "gain": "Game cards get their artwork faster, giving the dashboard a more polished appearance",
+          "loss": "Some game cards may display without cover art for longer until the next image fetch cycle"
+        },
+        "steamService": {
+          "displayName": "Steam App Metadata",
+          "description": "Refreshes game names, app types, and other metadata from the Steam Web API so that depot IDs in the cache can be displayed with human-readable game titles.",
+          "gain": "Game name changes on Steam (renames, delisted titles) are reflected in the UI faster",
+          "loss": "Games that were renamed or delisted on Steam may show outdated names until the next metadata refresh"
+        },
+        "cacheSnapshot": {
+          "displayName": "Cache Snapshots",
+          "description": "Records a point-in-time snapshot of the total cache size and file count, which is used to render the cache growth history chart on the dashboard.",
+          "gain": "The cache growth chart has finer granularity, making it easier to spot trends and spikes",
+          "loss": "The growth chart will have wider gaps between data points, making short-term trends harder to see"
+        },
+        "cacheClearing": {
+          "displayName": "Cache Clearing",
+          "description": "Evaluates and enforces the configured cache clearing rules — such as maximum cache size or file age limits — by removing the oldest or largest items as needed.",
+          "gain": "Cache size and age limits are enforced more promptly, keeping disk usage within bounds",
+          "loss": "The cache may temporarily exceed configured size or age limits between clearing runs"
+        }
       }
     },
     "auth": {

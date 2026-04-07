@@ -856,8 +856,6 @@ public class GameCacheDetectionService : IDisposable
     /// </summary>
     public async Task ReconcileCachedDetectionDataAsync()
     {
-        var scanTimestamp = DateTime.UtcNow;
-
         var recoveredCount = await RecoverEvictedGamesAsync();
         if (recoveredCount > 0)
         {
@@ -1019,8 +1017,7 @@ public class GameCacheDetectionService : IDisposable
                 }
             }
 
-            // Tertiary: Games with 0 cache files are evicted by definition — they were added by
-            // RecoverEvictedGamesAsync because they have Downloads but no files on disk.
+            // Tertiary: Games with 0 cache files are evicted by definition.
             foreach (var game in cachedGames)
             {
                 if (!game.IsEvicted && game.CacheFilesFound == 0)

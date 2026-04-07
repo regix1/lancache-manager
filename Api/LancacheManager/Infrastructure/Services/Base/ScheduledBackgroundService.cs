@@ -4,11 +4,45 @@ namespace LancacheManager.Infrastructure.Services.Base;
 /// Base class for background services that run on a schedule.
 /// Provides common functionality for startup delay, configuration checking,
 /// error handling, and interval-based execution.
+/// Supports runtime-configurable intervals via SetInterval() and TriggerImmediateRun().
 /// </summary>
 public abstract class ScheduledBackgroundService : BackgroundService
 {
+    /// <summary>
+    /// Fired whenever a scheduled service completes a unit of work (startup or interval run).
+    /// Subscribers receive the ServiceKey of the service that completed.
+    /// </summary>
+    public static event Action<string>? ServiceWorkCompleted;
     protected readonly ILogger _logger;
     protected readonly IConfiguration _configuration;
+
+    // Runtime interval override state
+    private TimeSpan? _intervalOverride;
+    private CancellationTokenSource? _intervalChangedCts;
+    private readonly object _intervalLock = new();
+    private volatile bool _intervalJustChanged;
+
+    // Schedule tracking properties
+    public DateTime? LastRunUtc { get; private set; }
+    public DateTime? NextRunUtc { get; private set; }
+    public bool IsCurrentlyExecuting { get; private set; }
+
+    // Schedule metadata — override in subclasses to register as user-configurable
+    public virtual string ServiceKey => GetType().Name;
+
+    /// <summary>
+    /// The effective interval used by the loop: override if set, otherwise the abstract default.
+    /// </summary>
+    public TimeSpan EffectiveInterval
+    {
+        get
+        {
+            lock (_intervalLock)
+            {
+                return _intervalOverride ?? Interval;
+            }
+        }
+    }
 
     /// <summary>
     /// The name of this service for logging purposes.
@@ -22,7 +56,8 @@ public abstract class ScheduledBackgroundService : BackgroundService
     protected virtual TimeSpan StartupDelay => TimeSpan.FromSeconds(5);
 
     /// <summary>
-    /// Time between work executions. Return TimeSpan.Zero to run continuously.
+    /// Default time between work executions. Return TimeSpan.Zero to run continuously.
+    /// Use EffectiveInterval in the loop — this is the hardcoded default only.
     /// </summary>
     protected abstract TimeSpan Interval { get; }
 
@@ -46,6 +81,70 @@ public abstract class ScheduledBackgroundService : BackgroundService
     {
         _logger = logger;
         _configuration = configuration;
+    }
+
+    /// <summary>
+    /// Override the scheduling interval at runtime. Interrupts any current sleep
+    /// so the new interval takes effect immediately on the next loop.
+    /// </summary>
+    public void SetInterval(TimeSpan newInterval)
+    {
+        lock (_intervalLock)
+        {
+            _intervalOverride = newInterval;
+            _intervalJustChanged = true;
+
+            try
+            {
+                _intervalChangedCts?.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Already disposed — will be recreated on next loop iteration
+            }
+        }
+
+        _logger.LogDebug("{ServiceName} interval changed to {Interval}", ServiceName, newInterval);
+    }
+
+    /// <summary>
+    /// Clear the runtime interval override, reverting to the hardcoded default.
+    /// </summary>
+    public void ResetInterval()
+    {
+        lock (_intervalLock)
+        {
+            _intervalOverride = null;
+            _intervalJustChanged = true;
+
+            try
+            {
+                _intervalChangedCts?.Cancel();
+            }
+            catch (ObjectDisposedException) { }
+        }
+
+        _logger.LogDebug("{ServiceName} interval reset to default ({Interval})", ServiceName, Interval);
+    }
+
+    /// <summary>
+    /// Wake the service immediately — cancels the current sleep so work runs on the next loop.
+    /// </summary>
+    public void TriggerImmediateRun()
+    {
+        lock (_intervalLock)
+        {
+            try
+            {
+                _intervalChangedCts?.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Already disposed — will be recreated on next loop iteration
+            }
+        }
+
+        _logger.LogDebug("{ServiceName} immediate run triggered", ServiceName);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -72,15 +171,22 @@ public abstract class ScheduledBackgroundService : BackgroundService
         {
             try
             {
+                IsCurrentlyExecuting = true;
                 await OnStartupAsync(stoppingToken);
+                LastRunUtc = DateTime.UtcNow;
+                ServiceWorkCompleted?.Invoke(ServiceKey);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 _logger.LogError(ex, "{ServiceName} startup execution failed", ServiceName);
             }
+            finally
+            {
+                IsCurrentlyExecuting = false;
+            }
         }
 
-        // Main execution loop
+        // Main execution loop.
         // If RunOnStartup already ran, sleep first before the first interval execution
         // to avoid running twice back-to-back at startup.
         bool skipFirstExecution = RunOnStartup;
@@ -90,35 +196,95 @@ public abstract class ScheduledBackgroundService : BackgroundService
             if (skipFirstExecution)
             {
                 skipFirstExecution = false;
-                if (Interval > TimeSpan.Zero)
+                var skipInterval = EffectiveInterval;
+                if (skipInterval > TimeSpan.Zero)
                 {
-                    await SafeDelayAsync(Interval, stoppingToken);
+                    NextRunUtc = DateTime.UtcNow + skipInterval;
+                    await InterruptibleDelayAsync(skipInterval, stoppingToken);
                 }
                 continue;
             }
 
-            try
+            // Skip work if woken by an interval change — just re-sleep with the new interval
+            if (_intervalJustChanged)
             {
-                await ExecuteWorkAsync(stoppingToken);
+                _intervalJustChanged = false;
             }
-            catch (OperationCanceledException)
+            else
             {
-                break;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "{ServiceName} error in execution loop", ServiceName);
-                await SafeDelayAsync(ErrorRetryDelay, stoppingToken);
-                continue;
+                try
+                {
+                    IsCurrentlyExecuting = true;
+                    await ExecuteWorkAsync(stoppingToken);
+                    LastRunUtc = DateTime.UtcNow;
+                    ServiceWorkCompleted?.Invoke(ServiceKey);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "{ServiceName} error in execution loop", ServiceName);
+                    await SafeDelayAsync(ErrorRetryDelay, stoppingToken);
+                    continue;
+                }
+                finally
+                {
+                    IsCurrentlyExecuting = false;
+                }
             }
 
-            if (Interval > TimeSpan.Zero)
+            var interval = EffectiveInterval;
+            if (interval.TotalHours < 0 || interval == TimeSpan.Zero)
             {
-                await SafeDelayAsync(Interval, stoppingToken);
+                // Zero = disabled, negative = startup only — sleep until interval is changed or service stops
+                NextRunUtc = null;
+                await InterruptibleDelayAsync(Timeout.InfiniteTimeSpan, stoppingToken);
+            }
+            else
+            {
+                NextRunUtc = DateTime.UtcNow + interval;
+                await InterruptibleDelayAsync(interval, stoppingToken);
             }
         }
 
         _logger.LogInformation("{ServiceName} stopped", ServiceName);
+    }
+
+    /// <summary>
+    /// Delay that can be interrupted by SetInterval() or TriggerImmediateRun().
+    /// On interruption (not a shutdown), the loop continues immediately to pick up the change.
+    /// </summary>
+    private async Task InterruptibleDelayAsync(TimeSpan delay, CancellationToken stoppingToken)
+    {
+        CancellationTokenSource? linkedCts = null;
+        try
+        {
+            lock (_intervalLock)
+            {
+                _intervalChangedCts?.Dispose();
+                _intervalChangedCts = new CancellationTokenSource();
+            }
+
+            linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+                stoppingToken, _intervalChangedCts!.Token);
+
+            await Task.Delay(delay, linkedCts.Token);
+        }
+        catch (OperationCanceledException) when (!stoppingToken.IsCancellationRequested)
+        {
+            // Interval changed or immediate run triggered — loop back to pick up the change
+            _logger.LogDebug("{ServiceName} sleep interrupted by interval change or trigger", ServiceName);
+        }
+        catch (OperationCanceledException)
+        {
+            // Service is shutting down — let the loop exit
+        }
+        finally
+        {
+            linkedCts?.Dispose();
+        }
     }
 
     /// <summary>
@@ -130,7 +296,7 @@ public abstract class ScheduledBackgroundService : BackgroundService
     /// <summary>
     /// Whether to run OnStartupAsync before the main loop.
     /// </summary>
-    protected virtual bool RunOnStartup => false;
+    public virtual bool RunOnStartup => false;
 
     /// <summary>
     /// The main work to execute on each interval.
@@ -161,5 +327,15 @@ public abstract class ScheduledBackgroundService : BackgroundService
         {
             // Expected during shutdown
         }
+    }
+
+    public override void Dispose()
+    {
+        lock (_intervalLock)
+        {
+            _intervalChangedCts?.Dispose();
+            _intervalChangedCts = null;
+        }
+        base.Dispose();
     }
 }

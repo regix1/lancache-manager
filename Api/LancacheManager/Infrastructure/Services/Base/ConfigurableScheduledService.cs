@@ -11,11 +11,23 @@ namespace LancacheManager.Infrastructure.Services.Base;
 /// </summary>
 public abstract class ConfigurableScheduledService : BackgroundService
 {
+    /// <summary>
+    /// Fired when a configurable service completes work. Subscribers receive the service key.
+    /// </summary>
+    public static event Action<string>? ServiceWorkCompleted;
+
     protected readonly ILogger _logger;
 
+    private readonly TimeSpan _defaultInterval;
     private TimeSpan _interval;
     private CancellationTokenSource? _intervalChangedCts;
     private readonly object _intervalLock = new();
+    private volatile bool _intervalJustChanged;
+
+    // Schedule tracking properties
+    public DateTime? LastRunUtc { get; private set; }
+    public DateTime? NextRunUtc { get; private set; }
+    public bool IsCurrentlyExecuting { get; private set; }
 
     /// <summary>
     /// The name of this service for logging purposes.
@@ -27,7 +39,7 @@ public abstract class ConfigurableScheduledService : BackgroundService
     /// and ExecuteScheduledWorkAsync will not be called.
     /// Thread-safe: reads/writes are protected by a lock.
     /// </summary>
-    protected TimeSpan ConfiguredInterval
+    public TimeSpan ConfiguredInterval
     {
         get { lock (_intervalLock) return _interval; }
     }
@@ -40,6 +52,7 @@ public abstract class ConfigurableScheduledService : BackgroundService
     protected ConfigurableScheduledService(ILogger logger, TimeSpan initialInterval)
     {
         _logger = logger;
+        _defaultInterval = initialInterval;
         _interval = initialInterval;
     }
 
@@ -52,8 +65,9 @@ public abstract class ConfigurableScheduledService : BackgroundService
         lock (_intervalLock)
         {
             _interval = newInterval;
+            _intervalJustChanged = true;
 
-            // Cancel the current sleep to wake the loop immediately
+            // Cancel the current sleep to wake the loop — it will skip work and re-sleep with new interval
             try
             {
                 _intervalChangedCts?.Cancel();
@@ -66,6 +80,39 @@ public abstract class ConfigurableScheduledService : BackgroundService
 
         _logger.LogInformation("{ServiceName} interval updated to {Hours:F1} hour(s)",
             ServiceName, newInterval.TotalHours);
+    }
+
+    /// <summary>
+    /// Resets the scheduling interval to the constructor's initial value.
+    /// Wakes the loop so the default interval takes effect immediately.
+    /// </summary>
+    public void ResetInterval()
+    {
+        UpdateInterval(_defaultInterval);
+        _logger.LogInformation("{ServiceName} interval reset to default ({Hours:F1} hour(s))",
+            ServiceName, _defaultInterval.TotalHours);
+    }
+
+    /// <summary>
+    /// Wake the service immediately — cancels the current sleep so work runs on the next loop.
+    /// Unlike UpdateInterval, this does NOT set _intervalJustChanged, so the loop will
+    /// execute work rather than just re-sleeping.
+    /// </summary>
+    public void TriggerImmediateRun()
+    {
+        lock (_intervalLock)
+        {
+            try
+            {
+                _intervalChangedCts?.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Already disposed — will be recreated on next loop iteration
+            }
+        }
+
+        _logger.LogDebug("{ServiceName} immediate run triggered", ServiceName);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -82,11 +129,19 @@ public abstract class ConfigurableScheduledService : BackgroundService
         {
             var interval = ConfiguredInterval;
 
-            if (interval > TimeSpan.Zero)
+            // Skip work if woken by an interval change — just re-sleep with the new interval
+            if (_intervalJustChanged)
+            {
+                _intervalJustChanged = false;
+            }
+            else if (interval > TimeSpan.Zero)
             {
                 try
                 {
+                    IsCurrentlyExecuting = true;
                     await ExecuteScheduledWorkAsync(stoppingToken);
+                    LastRunUtc = DateTime.UtcNow;
+                    ServiceWorkCompleted?.Invoke(ServiceName);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
@@ -96,12 +151,17 @@ public abstract class ConfigurableScheduledService : BackgroundService
                 {
                     _logger.LogError(ex, "{ServiceName} error in scheduled work", ServiceName);
                 }
+                finally
+                {
+                    IsCurrentlyExecuting = false;
+                }
             }
 
-            // Sleep for the configured interval (or a fallback if disabled)
+            // Sleep for the configured interval (or indefinitely if disabled)
             // Use a linked CTS so UpdateInterval() can wake us up
             interval = ConfiguredInterval;
-            var sleepDuration = interval > TimeSpan.Zero ? interval : TimeSpan.FromMinutes(5);
+            var sleepDuration = interval > TimeSpan.Zero ? interval : Timeout.InfiniteTimeSpan;
+            NextRunUtc = interval > TimeSpan.Zero ? DateTime.UtcNow + interval : null;
 
             CancellationTokenSource? linkedCts = null;
             try

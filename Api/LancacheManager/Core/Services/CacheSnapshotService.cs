@@ -28,8 +28,10 @@ public class CacheSnapshotService : ScopedScheduledBackgroundService
     protected override string ServiceName => "CacheSnapshotService";
     protected override TimeSpan StartupDelay => TimeSpan.Zero; // Run immediately
     protected override TimeSpan Interval => _snapshotInterval;
-    protected override bool RunOnStartup => true;
+    public override bool RunOnStartup => true;
     protected override TimeSpan ErrorRetryDelay => TimeSpan.FromMinutes(5);
+
+    public override string ServiceKey => "cacheSnapshot";
 
     public CacheSnapshotService(
         IServiceProvider serviceProvider,
@@ -50,6 +52,12 @@ public class CacheSnapshotService : ScopedScheduledBackgroundService
 
         _logger.LogInformation("Cache snapshot service initialized. Interval: {Interval}, Retention: {Retention} days",
             _snapshotInterval, _retentionDays);
+
+        var savedInterval = _stateService.GetServiceInterval(ServiceKey);
+        if (savedInterval.HasValue)
+        {
+            SetInterval(TimeSpan.FromHours(savedInterval.Value));
+        }
     }
 
     protected override async Task OnStartupAsync(CancellationToken stoppingToken)
