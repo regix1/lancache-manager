@@ -559,6 +559,10 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     downloadsDeleted, logEntriesDeleted);
             }
 
+            // Invalidate the detection cache so the frontend refetch gets fresh data
+            var detectionService = _serviceProvider.GetService<GameCacheDetectionService>();
+            detectionService?.InvalidateDetectionCache();
+
             _operationTracker.UpdateProgress(operationId, 100, "signalr.evictionRemove.complete");
             _operationTracker.CompleteOperation(operationId, success: true);
             await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalComplete,
@@ -986,6 +990,10 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             {
                 await UnevictCachedGameDetectionsAsync(context, _logger, stoppingToken);
             }
+
+            // Invalidate the detection cache so the frontend refetch gets fresh data
+            var detectionService = _serviceProvider.GetService<GameCacheDetectionService>();
+            detectionService?.InvalidateDetectionCache();
 
             _operationTracker.UpdateProgress(operationId, 100, "signalr.evictionRemove.complete");
             _operationTracker.CompleteOperation(operationId, success: true);
