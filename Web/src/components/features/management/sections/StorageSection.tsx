@@ -93,6 +93,22 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     (n) => (n.type === 'game_removal' || n.type === 'service_removal') && n.status === 'running'
   );
 
+  // Optimistic removal tracking — items disappear instantly after API returns 202
+  const [removedGameAppIds, setRemovedGameAppIds] = useState<Set<number>>(() => new Set());
+  const [removedServiceNames, setRemovedServiceNames] = useState<Set<string>>(() => new Set());
+
+  const visibleEvictedGames = useMemo(
+    () => evictedGames.filter((game: GameCacheInfo) => !removedGameAppIds.has(game.game_app_id)),
+    [evictedGames, removedGameAppIds]
+  );
+  const visibleEvictedServices = useMemo(
+    () =>
+      evictedServices.filter(
+        (service: ServiceCacheInfo) => !removedServiceNames.has(service.service_name)
+      ),
+    [evictedServices, removedServiceNames]
+  );
+
   // Evicted removal state (migrated from GameCacheDetector)
   const [evictedGameToRemove, setEvictedGameToRemove] = useState<GameCacheInfo | null>(null);
   const [partialEvictedTarget, setPartialEvictedTarget] = useState<
@@ -145,9 +161,13 @@ const StorageSection: React.FC<StorageSectionProps> = ({
       const service = partialEvictedTarget as ServiceCacheInfo;
       const serviceName = service.service_name;
       setPartialEvictedTarget(null);
+      // Optimistic removal — service disappears instantly before API call
+      setRemovedServiceNames((prev: Set<string>) => new Set([...prev, serviceName]));
       try {
         await ApiService.removeEvictedForService(serviceName);
-        onDataRefresh?.();
+        setTimeout(() => {
+          onDataRefresh?.();
+        }, 30000);
       } catch (err: unknown) {
         const errorMsg =
           (err instanceof Error ? err.message : String(err)) ||
@@ -159,13 +179,17 @@ const StorageSection: React.FC<StorageSectionProps> = ({
       const gameAppId = game.game_app_id;
       const isEpic = game.service === 'epicgames';
       setPartialEvictedTarget(null);
+      // Optimistic removal — game disappears instantly before API call
+      setRemovedGameAppIds((prev: Set<number>) => new Set([...prev, gameAppId]));
       try {
         if (isEpic && game.epic_app_id) {
           await ApiService.removeEvictedForEpicGame(game.epic_app_id);
         } else {
           await ApiService.removeEvictedForGame(gameAppId);
         }
-        onDataRefresh?.();
+        setTimeout(() => {
+          onDataRefresh?.();
+        }, 30000);
       } catch (err: unknown) {
         const errorMsg =
           (err instanceof Error ? err.message : String(err)) ||
@@ -190,6 +214,8 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     });
 
     setEvictedGameToRemove(null);
+    // Optimistic removal — game disappears instantly before API call
+    setRemovedGameAppIds((prev: Set<number>) => new Set([...prev, gameAppId]));
 
     try {
       if (isEpic) {
@@ -197,7 +223,9 @@ const StorageSection: React.FC<StorageSectionProps> = ({
       } else {
         await ApiService.removeGameFromCache(gameAppId);
       }
-      onDataRefresh?.();
+      setTimeout(() => {
+        onDataRefresh?.();
+      }, 30000);
     } catch (err: unknown) {
       const errorMsg =
         (err instanceof Error ? err.message : String(err)) ||
@@ -219,6 +247,8 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     });
 
     setEvictedServiceToRemove(null);
+    // Optimistic removal — service disappears instantly before API call
+    setRemovedServiceNames((prev: Set<string>) => new Set([...prev, serviceName]));
 
     try {
       await ApiService.removeServiceFromCache(serviceName);
@@ -619,8 +649,8 @@ const StorageSection: React.FC<StorageSectionProps> = ({
                 <AccordionSection
                   title={t('management.sections.data.evictedItemsHeading')}
                   count={
-                    evictedGames.length + evictedServices.length > 0
-                      ? evictedGames.length + evictedServices.length
+                    visibleEvictedGames.length + visibleEvictedServices.length > 0
+                      ? visibleEvictedGames.length + visibleEvictedServices.length
                       : undefined
                   }
                   icon={Database}
@@ -629,8 +659,8 @@ const StorageSection: React.FC<StorageSectionProps> = ({
                   onToggle={() => setEvictedItemsExpanded((prev) => !prev)}
                 >
                   <EvictedItemsList
-                    games={evictedGames}
-                    services={evictedServices}
+                    games={visibleEvictedGames}
+                    services={visibleEvictedServices}
                     notifications={notifications}
                     isAdmin={isAdmin}
                     cacheReadOnly={cacheReadOnly}
