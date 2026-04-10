@@ -664,7 +664,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
     []
   );
 
-  const clearEvictionFromDetection = useCallback(
+  const removeEvictionFromDetection = useCallback(
     (target: { gameAppId?: number; serviceName?: string }) => {
       setGameDetectionData((prev) => {
         if (!prev) return prev;
@@ -711,7 +711,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       refreshData,
       updateData,
       removeFromDetection,
-      clearEvictionFromDetection
+      removeEvictionFromDetection
     }),
     [
       cacheInfo,
@@ -734,7 +734,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       refreshData,
       updateData,
       removeFromDetection,
-      clearEvictionFromDetection
+      removeEvictionFromDetection
     ]
   );
 

@@ -15,7 +15,7 @@ import { useDockerSocket } from '@contexts/useDockerSocket';
 import { ImageCacheContext, ImageInvalidateContext } from '@components/common/ImageCacheContext';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
-import { useNotifications } from '@contexts/notifications/useNotifications';
+import { useNotifications, NOTIFICATION_IDS } from '@contexts/notifications';
 import { useGameDetection } from '@contexts/DashboardDataContext/hooks';
 import CacheRemovalModal from '@components/modals/cache/CacheRemovalModal';
 import EvictedItemsList from '../game-detection/EvictedItemsList';
@@ -74,7 +74,8 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     evictionScanNotifications !== savedEvictionScanNotifications;
 
   const { notifications, addNotification, updateNotification } = useNotifications();
-  const { gameDetectionData, removeFromDetection, clearEvictionFromDetection } = useGameDetection();
+  const { gameDetectionData, removeFromDetection, removeEvictionFromDetection } =
+    useGameDetection();
   const evictedGames =
     gameDetectionData?.games?.filter(
       (game) => (game.evicted_downloads_count ?? 0) > 0 || game.is_evicted === true
@@ -93,6 +94,8 @@ const StorageSection: React.FC<StorageSectionProps> = ({
   useEffect(() => {
     notifications.forEach((notif) => {
       if (notif.status !== 'completed' || processedRemovalIds.current.has(notif.id)) return;
+      // Partial eviction removals are handled inline via removeEvictionFromDetection
+      if (notif.details?.partial) return;
 
       if (notif.type === 'game_removal') {
         processedRemovalIds.current.add(notif.id);
@@ -164,11 +167,21 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     if (isService) {
       const service = partialEvictedTarget as ServiceCacheInfo;
       const serviceName = service.service_name;
+
+      addNotification({
+        type: 'service_removal',
+        status: 'running',
+        message: t('management.gameDetection.removingService', { name: serviceName }),
+        details: { service: serviceName, partial: true }
+      });
+
       setPartialEvictedTarget(null);
       try {
         await ApiService.removeEvictedForService(serviceName);
         // Clear eviction fields — service stays in detection but leaves eviction list
-        clearEvictionFromDetection({ serviceName });
+        removeEvictionFromDetection({ serviceName });
+        const notifId = `service_removal-${serviceName}`;
+        updateNotification(notifId, { status: 'completed' });
         setTimeout(() => {
           onDataRefresh?.();
         }, 30000);
@@ -176,20 +189,33 @@ const StorageSection: React.FC<StorageSectionProps> = ({
         const errorMsg =
           (err instanceof Error ? err.message : String(err)) ||
           t('management.gameDetection.failedToRemoveService');
+        const notifId = `service_removal-${serviceName}`;
+        updateNotification(notifId, { status: 'failed', error: errorMsg });
         console.error('Partial evicted service removal error:', errorMsg);
       }
     } else {
       const game = partialEvictedTarget as GameCacheInfo;
+      const gameAppId = game.game_app_id;
+      const gameName = game.game_name;
       const isEpic = game.service === 'epicgames';
+
+      addNotification({
+        type: 'game_removal',
+        status: 'running',
+        message: t('management.gameDetection.removingGame', { name: gameName }),
+        details: { gameAppId, gameName, partial: true }
+      });
+
       setPartialEvictedTarget(null);
       try {
         if (isEpic && game.epic_app_id) {
           await ApiService.removeEvictedForEpicGame(game.epic_app_id);
         } else {
-          await ApiService.removeEvictedForGame(game.game_app_id);
+          await ApiService.removeEvictedForGame(gameAppId);
         }
         // Clear eviction fields — game stays in detection but leaves eviction list
-        clearEvictionFromDetection({ gameAppId: game.game_app_id });
+        removeEvictionFromDetection({ gameAppId });
+        updateNotification(NOTIFICATION_IDS.GAME_REMOVAL, { status: 'completed' });
         setTimeout(() => {
           onDataRefresh?.();
         }, 30000);
@@ -197,6 +223,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
         const errorMsg =
           (err instanceof Error ? err.message : String(err)) ||
           t('management.gameDetection.failedToRemoveGame');
+        updateNotification(NOTIFICATION_IDS.GAME_REMOVAL, { status: 'failed', error: errorMsg });
         console.error('Partial evicted game removal error:', errorMsg);
       }
     }

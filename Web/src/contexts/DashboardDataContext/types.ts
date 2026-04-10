@@ -82,7 +82,7 @@ interface DashboardDataContextType {
     gameName?: string;
     serviceName?: string;
   }) => void;
-  clearEvictionFromDetection: (target: { gameAppId?: number; serviceName?: string }) => void;
+  removeEvictionFromDetection: (target: { gameAppId?: number; serviceName?: string }) => void;
 }
 
 export interface DashboardDataProviderProps {
