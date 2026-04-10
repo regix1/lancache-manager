@@ -15,7 +15,6 @@ import type {
   DashboardStats,
   Download,
   GameCacheInfo,
-  ServiceCacheInfo,
   SparklineDataResponse,
   HourlyActivityResponse,
   CacheSnapshotResponse,
@@ -621,73 +620,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
     []
   );
 
-  const removeFromDetection = useCallback(
-    (target: { gameAppId?: number; gameName?: string; serviceName?: string }) => {
-      setGameDetectionData((prev) => {
-        if (!prev) return prev;
-        const nextGames = prev.games?.filter((g: GameCacheInfo) => {
-          if (target.gameAppId && g.game_app_id === target.gameAppId) return false;
-          if (target.gameName && g.game_name === target.gameName) return false;
-          return true;
-        });
-        const nextServices = prev.services?.filter(
-          (s: ServiceCacheInfo) => !(target.serviceName && s.service_name === target.serviceName)
-        );
-        return { ...prev, games: nextGames, services: nextServices };
-      });
-      // Also update lookup maps
-      if (target.gameAppId) {
-        setGameDetectionLookup((prev) => {
-          if (!prev) return prev;
-          const next = new Map(prev);
-          next.delete(target.gameAppId!);
-          return next;
-        });
-      }
-      if (target.gameName) {
-        setGameDetectionByName((prev) => {
-          if (!prev) return prev;
-          const next = new Map(prev);
-          next.delete(target.gameName!.toLowerCase());
-          return next;
-        });
-      }
-      if (target.serviceName) {
-        setGameDetectionByService((prev) => {
-          if (!prev) return prev;
-          const next = new Map(prev);
-          next.delete(target.serviceName!);
-          return next;
-        });
-      }
-    },
-    []
-  );
-
-  const removeEvictionFromDetection = useCallback(
-    (target: { gameAppId?: number; serviceName?: string }) => {
-      setGameDetectionData((prev) => {
-        if (!prev) return prev;
-        const nextGames = target.gameAppId
-          ? prev.games?.map((g: GameCacheInfo) =>
-              g.game_app_id === target.gameAppId
-                ? { ...g, is_evicted: false, evicted_downloads_count: 0, evicted_bytes: 0 }
-                : g
-            )
-          : prev.games;
-        const nextServices = target.serviceName
-          ? prev.services?.map((s: ServiceCacheInfo) =>
-              s.service_name === target.serviceName
-                ? { ...s, is_evicted: false, evicted_downloads_count: 0, evicted_bytes: 0 }
-                : s
-            )
-          : prev.services;
-        return { ...prev, games: nextGames, services: nextServices };
-      });
-    },
-    []
-  );
-
   // Memoize context value to prevent unnecessary re-renders of consumers
   const value = useMemo(
     () => ({
@@ -709,9 +641,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       error,
       connectionStatus,
       refreshData,
-      updateData,
-      removeFromDetection,
-      removeEvictionFromDetection
+      updateData
     }),
     [
       cacheInfo,
@@ -732,9 +662,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       error,
       connectionStatus,
       refreshData,
-      updateData,
-      removeFromDetection,
-      removeEvictionFromDetection
+      updateData
     ]
   );
 

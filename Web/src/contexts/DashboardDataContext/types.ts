@@ -77,12 +77,6 @@ interface DashboardDataContextType {
     dashboardStats?: (prev: DashboardStats | null) => DashboardStats | null;
     latestDownloads?: (prev: Download[]) => Download[];
   }) => void;
-  removeFromDetection: (target: {
-    gameAppId?: number;
-    gameName?: string;
-    serviceName?: string;
-  }) => void;
-  removeEvictionFromDetection: (target: { gameAppId?: number; serviceName?: string }) => void;
 }
 
 export interface DashboardDataProviderProps {

@@ -86,8 +86,6 @@ export interface UnifiedNotification {
     gameName?: string;
     bytesFreed?: number;
     logEntriesRemoved?: number;
-    /** True when only evicted data is removed (game stays in detection) */
-    partial?: boolean;
 
     // For depot_mapping
     totalMappings?: number;
