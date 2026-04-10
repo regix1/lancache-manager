@@ -167,22 +167,22 @@ const StorageSection: React.FC<StorageSectionProps> = ({
       suppressRegistryNotification();
       const runningNotif = findRunningRemovalNotif();
       if (runningNotif) {
+        // Extract details BEFORE removing the notification
+        const gameAppId = runningNotif.details?.gameAppId;
+        const gameName = runningNotif.details?.gameName;
+        const serviceName = runningNotif.details?.service;
         removeNotification(runningNotif.id);
+
+        // Filter from local state immediately — same pattern as full removal useEffect
+        if (gameAppId) {
+          setEvictedGames((prev) => prev.filter((g) => g.game_app_id !== gameAppId));
+        } else if (gameName) {
+          setEvictedGames((prev) => prev.filter((g) => g.game_name !== gameName));
+        }
+        if (serviceName) {
+          setEvictedServices((prev) => prev.filter((s) => s.service_name !== serviceName));
+        }
       }
-      // Re-derive evicted items from fresh context
-      setTimeout(() => {
-        const data = gameDetectionDataRef.current;
-        const games =
-          data?.games?.filter(
-            (g) => (g.evicted_downloads_count ?? 0) > 0 || g.is_evicted === true
-          ) ?? [];
-        const services =
-          data?.services?.filter(
-            (s) => (s.evicted_downloads_count ?? 0) > 0 || s.is_evicted === true
-          ) ?? [];
-        setEvictedGames(games);
-        setEvictedServices(services);
-      }, 1000);
     };
 
     on('EvictionRemovalStarted', handleEvictionRemovalStarted);
