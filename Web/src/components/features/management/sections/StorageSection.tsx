@@ -136,6 +136,13 @@ const StorageSection: React.FC<StorageSectionProps> = ({
   // GameCacheDetector's handleGameRemovalComplete SignalR listener (line 350)
   useEffect(() => {
     const handleEvictionRemovalComplete = () => {
+      // Complete any running game/service removal notification (from partial eviction)
+      const runningNotif = notifications.find(
+        (n) => (n.type === 'game_removal' || n.type === 'service_removal') && n.status === 'running'
+      );
+      if (runningNotif) {
+        updateNotification(runningNotif.id, { status: 'completed' });
+      }
       // Re-derive evicted items from fresh context after backend finishes
       setTimeout(() => {
         const games =
@@ -155,7 +162,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     return () => {
       off('EvictionRemovalComplete', handleEvictionRemovalComplete);
     };
-  }, [on, off, gameDetectionData]);
+  }, [on, off, gameDetectionData, notifications, updateNotification]);
 
   // Evicted removal state (migrated from GameCacheDetector)
   const [evictedGameToRemove, setEvictedGameToRemove] = useState<GameCacheInfo | null>(null);
@@ -204,11 +211,16 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     if (!partialEvictedTarget) return;
 
     const isService = 'service_name' in partialEvictedTarget;
-    // Close modal immediately — progress shown via EvictionRemoval* SignalR notifications (registry-managed)
-    setPartialEvictedTarget(null);
 
     if (isService) {
       const service = partialEvictedTarget as ServiceCacheInfo;
+      addNotification({
+        type: 'service_removal',
+        status: 'running',
+        message: t('management.gameDetection.removingService', { name: service.service_name }),
+        details: { service: service.service_name }
+      });
+      setPartialEvictedTarget(null);
       try {
         await ApiService.removeEvictedForService(service.service_name);
         setTimeout(() => {
@@ -223,6 +235,13 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     } else {
       const game = partialEvictedTarget as GameCacheInfo;
       const isEpic = game.service === 'epicgames';
+      addNotification({
+        type: 'game_removal',
+        status: 'running',
+        message: t('management.gameDetection.removingGame', { name: game.game_name }),
+        details: { gameAppId: game.game_app_id, gameName: game.game_name }
+      });
+      setPartialEvictedTarget(null);
       try {
         if (isEpic && game.epic_app_id) {
           await ApiService.removeEvictedForEpicGame(game.epic_app_id);
