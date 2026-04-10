@@ -284,6 +284,21 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     }
                 }
 
+                // Fix A + B: Propagate eviction to CachedGameDetection and bust the in-memory cache
+                if (scanResult.Evicted > 0)
+                {
+                    try
+                    {
+                        var evictedCount = await EvictCachedGameDetectionsAsync(context, _logger, stoppingToken);
+                        _logger.LogInformation("Marked {Count} CachedGameDetection rows as evicted", evictedCount);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Failed to propagate eviction to CachedGameDetection rows");
+                    }
+                    _gameCacheDetectionService.InvalidateDetectionCache();
+                }
+
                 // Handle evicted data "remove" mode — only run if there are evicted records
                 var evictedDataMode = _stateService.GetEvictedDataMode();
                 if (evictedDataMode == EvictedDataModes.Remove
@@ -844,6 +859,74 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         }
 
         return totalUnevicted;
+    }
+
+    public static async Task<int> EvictCachedGameDetectionsAsync(
+        AppDbContext context,
+        ILogger logger,
+        CancellationToken ct)
+    {
+        int totalEvicted = 0;
+
+        // Steam: rows matched by GameAppId (EpicAppId is null)
+        var unevictedSteamGameIds = await context.CachedGameDetections
+            .Where(g => !g.IsEvicted && g.EpicAppId == null)
+            .Select(g => g.GameAppId)
+            .ToListAsync(ct);
+
+        if (unevictedSteamGameIds.Count > 0)
+        {
+            var steamGamesToEvict = await context.Downloads
+                .Where(d => d.GameAppId != null
+                         && unevictedSteamGameIds.Contains(d.GameAppId.Value))
+                .GroupBy(d => d.GameAppId!.Value)
+                .Where(g => g.All(d => d.IsEvicted))
+                .Select(g => g.Key)
+                .ToListAsync(ct);
+
+            if (steamGamesToEvict.Count > 0)
+            {
+                var steamUpdated = await context.CachedGameDetections
+                    .Where(g => g.EpicAppId == null && steamGamesToEvict.Contains(g.GameAppId))
+                    .ExecuteUpdateAsync(s => s.SetProperty(g => g.IsEvicted, true), ct);
+
+                totalEvicted += steamUpdated;
+                logger.LogInformation(
+                    "[GameDetection] Marked {Count} Steam games as evicted — all Downloads now evicted",
+                    steamUpdated);
+            }
+        }
+
+        // Epic: rows matched by EpicAppId
+        var unevictedEpicAppIds = await context.CachedGameDetections
+            .Where(g => !g.IsEvicted && g.EpicAppId != null)
+            .Select(g => g.EpicAppId!)
+            .ToListAsync(ct);
+
+        if (unevictedEpicAppIds.Count > 0)
+        {
+            var epicGamesToEvict = await context.Downloads
+                .Where(d => d.EpicAppId != null
+                         && unevictedEpicAppIds.Contains(d.EpicAppId))
+                .GroupBy(d => d.EpicAppId!)
+                .Where(g => g.All(d => d.IsEvicted))
+                .Select(g => g.Key)
+                .ToListAsync(ct);
+
+            if (epicGamesToEvict.Count > 0)
+            {
+                var epicUpdated = await context.CachedGameDetections
+                    .Where(g => g.EpicAppId != null && epicGamesToEvict.Contains(g.EpicAppId!))
+                    .ExecuteUpdateAsync(s => s.SetProperty(g => g.IsEvicted, true), ct);
+
+                totalEvicted += epicUpdated;
+                logger.LogInformation(
+                    "[GameDetection] Marked {Count} Epic games as evicted — all Downloads now evicted",
+                    epicUpdated);
+            }
+        }
+
+        return totalEvicted;
     }
 
     /// <summary>

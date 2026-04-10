@@ -103,13 +103,15 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   // Filter games and services by selected datasource.
   // Evicted games/services are excluded from the main list — they are shown in the Evicted Items section.
   // Note: Items with empty/missing datasources (legacy data) are shown regardless of filter.
-  const activeGames = games.filter((g) => !g.is_evicted);
+  const activeGames = games.filter((g) => !g.is_evicted && (g.evicted_downloads_count ?? 0) === 0);
   const filteredGames = selectedDatasource
     ? activeGames.filter(
         (g) => !g.datasources?.length || g.datasources.includes(selectedDatasource)
       )
     : activeGames;
-  const activeServices = services.filter((s: ServiceCacheInfo) => !s.is_evicted);
+  const activeServices = services.filter(
+    (s: ServiceCacheInfo) => !s.is_evicted && (s.evicted_downloads_count ?? 0) === 0
+  );
   const filteredServices = selectedDatasource
     ? activeServices.filter(
         (s) => !s.datasources?.length || s.datasources.includes(selectedDatasource)
@@ -373,6 +375,35 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     return () => {
       off('GameRemovalComplete', handleGameRemovalComplete);
       off('EvictionRemovalComplete', handleGameRemovalComplete);
+    };
+  }, [on, off]);
+
+  // Listen for EvictionScanComplete — reloads detection results so evicted games surface immediately
+  // without requiring a full Game Cache Detection scan or service restart.
+  useEffect(() => {
+    const handleEvictionScanComplete = () => {
+      // Small delay to allow backend to finish writing cached results before we fetch
+      setTimeout(() => {
+        ApiService.getCachedGameDetection()
+          .then((result) => {
+            if (result.hasCachedResults) {
+              if (result.games) {
+                setGames(result.games);
+              }
+              if (result.services) {
+                setServices(result.services);
+              }
+            }
+          })
+          .catch((err) => {
+            console.error('[GameCacheDetector] Failed to reload after eviction scan:', err);
+          });
+      }, 500);
+    };
+
+    on('EvictionScanComplete', handleEvictionScanComplete);
+    return () => {
+      off('EvictionScanComplete', handleEvictionScanComplete);
     };
   }, [on, off]);
 

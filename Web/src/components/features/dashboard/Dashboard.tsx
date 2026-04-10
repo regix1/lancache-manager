@@ -149,9 +149,12 @@ const Dashboard: React.FC = () => {
     return () => controller.abort();
   }, []);
 
-  // Derive evicted count directly from gameDetectionData (is_evicted === true)
+  // Derive evicted count directly from gameDetectionData (is_evicted === true OR partial eviction via evicted_downloads_count > 0)
   const evictedGamesCount = useMemo(
-    () => gameDetectionData?.games?.filter((game) => game.is_evicted === true).length ?? 0,
+    () =>
+      gameDetectionData?.games?.filter(
+        (game) => game.is_evicted === true || (game.evicted_downloads_count ?? 0) > 0
+      ).length ?? 0,
     [gameDetectionData]
   );
 
