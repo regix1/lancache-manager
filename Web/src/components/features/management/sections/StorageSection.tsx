@@ -87,28 +87,28 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     (n) => (n.type === 'game_removal' || n.type === 'service_removal') && n.status === 'running'
   );
 
-  // Remove evicted items from context when notification confirms removal is done
+  // Remove evicted items from context when notification confirms removal is done.
+  // Track processed IDs so each completion is handled exactly once.
+  const processedRemovalIds = useRef(new Set<string>());
   useEffect(() => {
-    const completedGameRemovals = notifications.filter(
-      (n) => n.type === 'game_removal' && n.status === 'completed'
-    );
-    completedGameRemovals.forEach((notif) => {
-      const gameAppId = notif.details?.gameAppId;
-      const gameName = notif.details?.gameName;
-      if (gameAppId) {
-        removeFromDetection({ gameAppId });
-      } else if (gameName) {
-        removeFromDetection({ gameName });
-      }
-    });
+    notifications.forEach((notif) => {
+      if (notif.status !== 'completed' || processedRemovalIds.current.has(notif.id)) return;
 
-    const completedServiceRemovals = notifications.filter(
-      (n) => n.type === 'service_removal' && n.status === 'completed'
-    );
-    completedServiceRemovals.forEach((notif) => {
-      const serviceName = notif.details?.service;
-      if (serviceName) {
-        removeFromDetection({ serviceName });
+      if (notif.type === 'game_removal') {
+        processedRemovalIds.current.add(notif.id);
+        const gameAppId = notif.details?.gameAppId;
+        const gameName = notif.details?.gameName;
+        if (gameAppId) {
+          removeFromDetection({ gameAppId });
+        } else if (gameName) {
+          removeFromDetection({ gameName });
+        }
+      } else if (notif.type === 'service_removal') {
+        processedRemovalIds.current.add(notif.id);
+        const serviceName = notif.details?.service;
+        if (serviceName) {
+          removeFromDetection({ serviceName });
+        }
       }
     });
   }, [notifications, removeFromDetection]);
