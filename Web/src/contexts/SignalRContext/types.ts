@@ -841,6 +841,8 @@ export interface EvictionRemovalStartedEvent {
   context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
   message?: string;
+  gameName?: string;
+  gameAppId?: string;
 }
 
 export interface EvictionRemovalProgressEvent {

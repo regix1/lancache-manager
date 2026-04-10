@@ -73,8 +73,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     evictionMode !== savedEvictionMode ||
     evictionScanNotifications !== savedEvictionScanNotifications;
 
-  const { notifications, addNotification, updateNotification, removeNotification } =
-    useNotifications();
+  const { notifications, addNotification, updateNotification } = useNotifications();
   const { gameDetectionData } = useGameDetection();
 
   // Local state for evicted items — same pattern as GameCacheDetector's games/services.
@@ -145,16 +144,9 @@ const StorageSection: React.FC<StorageSectionProps> = ({
       if (serviceName) {
         setEvictedServices((prev) => prev.filter((s) => s.service_name !== serviceName));
       }
-      // Also clean up the stuck game_removal/service_removal notification we added for button state
-      const stuckNotif = notifications.find(
-        (n) => (n.type === 'game_removal' || n.type === 'service_removal') && n.status === 'running'
-      );
-      if (stuckNotif) {
-        removeNotification(stuckNotif.id);
-      }
       partialRemovalTargetRef.current = null;
     }
-  }, [notifications, removeNotification]);
+  }, [notifications]);
 
   // Evicted removal state (migrated from GameCacheDetector)
   const [evictedGameToRemove, setEvictedGameToRemove] = useState<GameCacheInfo | null>(null);
@@ -207,12 +199,6 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     if (isService) {
       const service = partialEvictedTarget as ServiceCacheInfo;
       partialRemovalTargetRef.current = { serviceName: service.service_name };
-      addNotification({
-        type: 'service_removal',
-        status: 'running',
-        message: t('management.gameDetection.removingService', { name: service.service_name }),
-        details: { service: service.service_name }
-      });
       setPartialEvictedTarget(null);
       try {
         await ApiService.removeEvictedForService(service.service_name);
@@ -229,12 +215,6 @@ const StorageSection: React.FC<StorageSectionProps> = ({
       const game = partialEvictedTarget as GameCacheInfo;
       const isEpic = game.service === 'epicgames';
       partialRemovalTargetRef.current = { gameAppId: game.game_app_id };
-      addNotification({
-        type: 'game_removal',
-        status: 'running',
-        message: t('management.gameDetection.removingGame', { name: game.game_name }),
-        details: { gameAppId: game.game_app_id, gameName: game.game_name }
-      });
       setPartialEvictedTarget(null);
       try {
         if (isEpic && game.epic_app_id) {

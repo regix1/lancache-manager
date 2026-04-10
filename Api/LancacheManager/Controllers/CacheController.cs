@@ -1238,9 +1238,40 @@ public class CacheController : ControllerBase
             $"Eviction Removal ({evictionScope}: {key})",
             cts);
 
+        // For Epic or Steam scope, look up the game name so the frontend can display it in the notification bar.
+        string? resolvedGameName = null;
+        string? resolvedGameAppId = null;
+        if (evictionScope == EvictionScope.Epic)
+        {
+            await using var lookupDb = await _dbContextFactory.CreateDbContextAsync();
+            var detection = await lookupDb.CachedGameDetections
+                .Where(g => g.EpicAppId == key)
+                .Select(g => new { g.GameName, g.GameAppId })
+                .FirstOrDefaultAsync();
+            if (detection != null)
+            {
+                resolvedGameName = detection.GameName;
+                resolvedGameAppId = detection.GameAppId.ToString();
+            }
+        }
+        else if (evictionScope == EvictionScope.Steam)
+        {
+            await using var lookupDb = await _dbContextFactory.CreateDbContextAsync();
+            var detection = await lookupDb.CachedGameDetections
+                .Where(g => g.GameAppId == steamAppId)
+                .Select(g => new { g.GameName, g.GameAppId })
+                .FirstOrDefaultAsync();
+            if (detection != null)
+            {
+                resolvedGameName = detection.GameName;
+                resolvedGameAppId = detection.GameAppId.ToString();
+            }
+        }
+
         await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalStarted,
             new EvictionRemovalStarted("signalr.evictionRemove.starting.entity", operationId,
-                new Dictionary<string, object?> { ["scope"] = evictionScope.ToString(), ["key"] = key }));
+                new Dictionary<string, object?> { ["scope"] = evictionScope.ToString(), ["key"] = key },
+                resolvedGameName, resolvedGameAppId));
 
         var capturedKey = key;
         _ = Task.Run(async () =>

@@ -35,7 +35,7 @@ public record EvictionScanComplete(
 /// <summary>
 /// SignalR event payload emitted when an eviction removal operation starts.
 /// </summary>
-public record EvictionRemovalStarted(string? StageKey, string OperationId, Dictionary<string, object?>? Context = null);
+public record EvictionRemovalStarted(string? StageKey, string OperationId, Dictionary<string, object?>? Context = null, string? GameName = null, string? GameAppId = null);
 
 /// <summary>
 /// SignalR event payload emitted during an eviction removal operation.

@@ -526,8 +526,18 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     started: {
       defaultMessage: 'Removing evicted game data...',
       getMessage: (event: EvictionRemovalStartedEvent) =>
-        i18n.t(event.stageKey ?? 'signalr.evictionRemove.starting.bulk', event.context ?? {}),
-      getDetails: (event: EvictionRemovalStartedEvent) => ({ operationId: event.operationId })
+        event.gameName
+          ? i18n.t('management.gameDetection.removingGame', { name: event.gameName })
+          : i18n.t(event.stageKey ?? 'signalr.evictionRemove.starting.bulk', event.context ?? {}),
+      getDetails: (event: EvictionRemovalStartedEvent) => {
+        const scope = (event.context?.scope as string | undefined)?.toLowerCase();
+        return {
+          operationId: event.operationId,
+          ...(event.gameName !== undefined && { gameName: event.gameName }),
+          ...(event.gameAppId !== undefined && scope === 'epic' && { epicAppId: event.gameAppId }),
+          ...(event.gameAppId !== undefined && scope === 'steam' && { steamAppId: event.gameAppId })
+        };
+      }
     },
     progress: {
       getMessage: (event: EvictionRemovalProgressEvent) =>

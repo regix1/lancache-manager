@@ -84,6 +84,8 @@ export interface UnifiedNotification {
     // For game_removal
     gameAppId?: number;
     gameName?: string;
+    epicAppId?: string;
+    steamAppId?: string;
     bytesFreed?: number;
     logEntriesRemoved?: number;
 
