@@ -74,7 +74,8 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     evictionMode !== savedEvictionMode ||
     evictionScanNotifications !== savedEvictionScanNotifications;
 
-  const { notifications, addNotification, updateNotification } = useNotifications();
+  const { notifications, addNotification, updateNotification, removeNotification } =
+    useNotifications();
   const { gameDetectionData } = useGameDetection();
   const { on, off } = useSignalR();
 
@@ -132,41 +133,67 @@ const StorageSection: React.FC<StorageSectionProps> = ({
       });
   }, [notifications]);
 
-  // Ref to access latest notifications without re-subscribing the SignalR handler
+  // Refs to avoid stale closures in SignalR handlers
   const notificationsRef = useRef(notifications);
   notificationsRef.current = notifications;
+  const gameDetectionDataRef = useRef(gameDetectionData);
+  gameDetectionDataRef.current = gameDetectionData;
 
-  // Listen for EvictionRemovalComplete (partial eviction) — same pattern as
-  // GameCacheDetector's handleGameRemovalComplete SignalR listener (line 350)
+  // Bridge EvictionRemoval* events to our game_removal/service_removal notification.
+  // Suppresses the registry's duplicate eviction_removal notification.
   useEffect(() => {
-    const handleEvictionRemovalComplete = () => {
-      // Complete any running game/service removal notification (from partial eviction)
-      const runningNotif = notificationsRef.current.find(
+    const suppressRegistryNotification = () => {
+      removeNotification(NOTIFICATION_IDS.EVICTION_REMOVAL);
+    };
+
+    const findRunningRemovalNotif = () =>
+      notificationsRef.current.find(
         (n) => (n.type === 'game_removal' || n.type === 'service_removal') && n.status === 'running'
       );
-      if (runningNotif) {
-        updateNotification(runningNotif.id, { status: 'completed' });
+
+    const handleEvictionRemovalStarted = () => {
+      suppressRegistryNotification();
+    };
+
+    const handleEvictionRemovalProgress = (event: { percentComplete?: number }) => {
+      suppressRegistryNotification();
+      const runningNotif = findRunningRemovalNotif();
+      if (runningNotif && event.percentComplete !== undefined) {
+        updateNotification(runningNotif.id, { progress: event.percentComplete });
       }
-      // Re-derive evicted items from fresh context after backend finishes
+    };
+
+    const handleEvictionRemovalComplete = () => {
+      suppressRegistryNotification();
+      const runningNotif = findRunningRemovalNotif();
+      if (runningNotif) {
+        removeNotification(runningNotif.id);
+      }
+      // Re-derive evicted items from fresh context
       setTimeout(() => {
+        const data = gameDetectionDataRef.current;
         const games =
-          gameDetectionData?.games?.filter(
+          data?.games?.filter(
             (g) => (g.evicted_downloads_count ?? 0) > 0 || g.is_evicted === true
           ) ?? [];
         const services =
-          gameDetectionData?.services?.filter(
+          data?.services?.filter(
             (s) => (s.evicted_downloads_count ?? 0) > 0 || s.is_evicted === true
           ) ?? [];
         setEvictedGames(games);
         setEvictedServices(services);
-      }, 500);
+      }, 1000);
     };
 
+    on('EvictionRemovalStarted', handleEvictionRemovalStarted);
+    on('EvictionRemovalProgress', handleEvictionRemovalProgress);
     on('EvictionRemovalComplete', handleEvictionRemovalComplete);
     return () => {
+      off('EvictionRemovalStarted', handleEvictionRemovalStarted);
+      off('EvictionRemovalProgress', handleEvictionRemovalProgress);
       off('EvictionRemovalComplete', handleEvictionRemovalComplete);
     };
-  }, [on, off, gameDetectionData, updateNotification]);
+  }, [on, off, updateNotification, removeNotification]);
 
   // Evicted removal state (migrated from GameCacheDetector)
   const [evictedGameToRemove, setEvictedGameToRemove] = useState<GameCacheInfo | null>(null);
