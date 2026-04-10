@@ -132,12 +132,16 @@ const StorageSection: React.FC<StorageSectionProps> = ({
       });
   }, [notifications]);
 
+  // Ref to access latest notifications without re-subscribing the SignalR handler
+  const notificationsRef = useRef(notifications);
+  notificationsRef.current = notifications;
+
   // Listen for EvictionRemovalComplete (partial eviction) — same pattern as
   // GameCacheDetector's handleGameRemovalComplete SignalR listener (line 350)
   useEffect(() => {
     const handleEvictionRemovalComplete = () => {
       // Complete any running game/service removal notification (from partial eviction)
-      const runningNotif = notifications.find(
+      const runningNotif = notificationsRef.current.find(
         (n) => (n.type === 'game_removal' || n.type === 'service_removal') && n.status === 'running'
       );
       if (runningNotif) {
@@ -162,7 +166,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     return () => {
       off('EvictionRemovalComplete', handleEvictionRemovalComplete);
     };
-  }, [on, off, gameDetectionData, notifications, updateNotification]);
+  }, [on, off, gameDetectionData, updateNotification]);
 
   // Evicted removal state (migrated from GameCacheDetector)
   const [evictedGameToRemove, setEvictedGameToRemove] = useState<GameCacheInfo | null>(null);
