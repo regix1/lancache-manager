@@ -17,7 +17,6 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
 import { useNotifications, NOTIFICATION_IDS } from '@contexts/notifications';
 import { useGameDetection } from '@contexts/DashboardDataContext/hooks';
-import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import CacheRemovalModal from '@components/modals/cache/CacheRemovalModal';
 import EvictedItemsList from '../game-detection/EvictedItemsList';
 import DatasourcesManager from '../datasources/DatasourcesInfo';
@@ -77,7 +76,6 @@ const StorageSection: React.FC<StorageSectionProps> = ({
   const { notifications, addNotification, updateNotification, removeNotification } =
     useNotifications();
   const { gameDetectionData } = useGameDetection();
-  const { on, off } = useSignalR();
 
   // Local state for evicted items — same pattern as GameCacheDetector's games/services.
   // Items only disappear when explicitly filtered by notification completion.
@@ -93,7 +91,6 @@ const StorageSection: React.FC<StorageSectionProps> = ({
   );
 
   // Sync from context when detection data changes — but NOT during active removal
-  // (prevents context refresh from hiding items before notification confirms completion)
   useEffect(() => {
     if (isAnyEvictedRemovalRunning) return;
     const games =
@@ -108,9 +105,13 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     setEvictedServices(services);
   }, [gameDetectionData, isAnyEvictedRemovalRunning]);
 
+  // Track partial eviction target so we know which item to filter on eviction_removal completion
+  const partialRemovalTargetRef = useRef<{ gameAppId?: number; serviceName?: string } | null>(null);
+
   // Remove evicted items from local state when notification confirms removal is done
-  // (identical pattern to GameCacheDetector lines 216-241 — idempotent, no ref needed)
+  // (identical pattern to GameCacheDetector lines 216-241)
   useEffect(() => {
+    // Full eviction: game_removal/service_removal completed via GameRemoval*/ServiceRemoval* SignalR
     notifications
       .filter((n) => n.type === 'game_removal' && n.status === 'completed')
       .forEach((notif) => {
@@ -131,69 +132,29 @@ const StorageSection: React.FC<StorageSectionProps> = ({
           setEvictedServices((prev) => prev.filter((s) => s.service_name !== serviceName));
         }
       });
-  }, [notifications]);
 
-  // Refs to avoid stale closures in SignalR handlers
-  const notificationsRef = useRef(notifications);
-  notificationsRef.current = notifications;
-  const gameDetectionDataRef = useRef(gameDetectionData);
-  gameDetectionDataRef.current = gameDetectionData;
-
-  // Bridge EvictionRemoval* events to our game_removal/service_removal notification.
-  // Suppresses the registry's duplicate eviction_removal notification.
-  useEffect(() => {
-    const suppressRegistryNotification = () => {
-      removeNotification(NOTIFICATION_IDS.EVICTION_REMOVAL);
-    };
-
-    const findRunningRemovalNotif = () =>
-      notificationsRef.current.find(
+    // Partial eviction: eviction_removal completed via EvictionRemoval* SignalR (registry-managed)
+    const evictionComplete = notifications.some(
+      (n) => n.type === 'eviction_removal' && n.status === 'completed'
+    );
+    if (evictionComplete && partialRemovalTargetRef.current) {
+      const { gameAppId, serviceName } = partialRemovalTargetRef.current;
+      if (gameAppId) {
+        setEvictedGames((prev) => prev.filter((g) => g.game_app_id !== gameAppId));
+      }
+      if (serviceName) {
+        setEvictedServices((prev) => prev.filter((s) => s.service_name !== serviceName));
+      }
+      // Also clean up the stuck game_removal/service_removal notification we added for button state
+      const stuckNotif = notifications.find(
         (n) => (n.type === 'game_removal' || n.type === 'service_removal') && n.status === 'running'
       );
-
-    const handleEvictionRemovalStarted = () => {
-      suppressRegistryNotification();
-    };
-
-    const handleEvictionRemovalProgress = (event: { percentComplete?: number }) => {
-      suppressRegistryNotification();
-      const runningNotif = findRunningRemovalNotif();
-      if (runningNotif && event.percentComplete !== undefined) {
-        updateNotification(runningNotif.id, { progress: event.percentComplete });
+      if (stuckNotif) {
+        removeNotification(stuckNotif.id);
       }
-    };
-
-    const handleEvictionRemovalComplete = () => {
-      suppressRegistryNotification();
-      const runningNotif = findRunningRemovalNotif();
-      if (runningNotif) {
-        // Extract details BEFORE removing the notification
-        const gameAppId = runningNotif.details?.gameAppId;
-        const gameName = runningNotif.details?.gameName;
-        const serviceName = runningNotif.details?.service;
-        removeNotification(runningNotif.id);
-
-        // Filter from local state immediately — same pattern as full removal useEffect
-        if (gameAppId) {
-          setEvictedGames((prev) => prev.filter((g) => g.game_app_id !== gameAppId));
-        } else if (gameName) {
-          setEvictedGames((prev) => prev.filter((g) => g.game_name !== gameName));
-        }
-        if (serviceName) {
-          setEvictedServices((prev) => prev.filter((s) => s.service_name !== serviceName));
-        }
-      }
-    };
-
-    on('EvictionRemovalStarted', handleEvictionRemovalStarted);
-    on('EvictionRemovalProgress', handleEvictionRemovalProgress);
-    on('EvictionRemovalComplete', handleEvictionRemovalComplete);
-    return () => {
-      off('EvictionRemovalStarted', handleEvictionRemovalStarted);
-      off('EvictionRemovalProgress', handleEvictionRemovalProgress);
-      off('EvictionRemovalComplete', handleEvictionRemovalComplete);
-    };
-  }, [on, off, updateNotification, removeNotification]);
+      partialRemovalTargetRef.current = null;
+    }
+  }, [notifications, removeNotification]);
 
   // Evicted removal state (migrated from GameCacheDetector)
   const [evictedGameToRemove, setEvictedGameToRemove] = useState<GameCacheInfo | null>(null);
@@ -245,6 +206,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
 
     if (isService) {
       const service = partialEvictedTarget as ServiceCacheInfo;
+      partialRemovalTargetRef.current = { serviceName: service.service_name };
       addNotification({
         type: 'service_removal',
         status: 'running',
@@ -266,6 +228,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     } else {
       const game = partialEvictedTarget as GameCacheInfo;
       const isEpic = game.service === 'epicgames';
+      partialRemovalTargetRef.current = { gameAppId: game.game_app_id };
       addNotification({
         type: 'game_removal',
         status: 'running',
