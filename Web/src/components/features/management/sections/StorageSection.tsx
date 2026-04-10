@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import './StorageSection.css';
 import { useTranslation } from 'react-i18next';
 import { RefreshCw, AlertTriangle, Archive, Sliders, Database } from 'lucide-react';
@@ -74,40 +74,44 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     evictionScanNotifications !== savedEvictionScanNotifications;
 
   const { notifications, addNotification, updateNotification } = useNotifications();
-  const { gameDetectionData } = useGameDetection();
-  const evictedGames = useMemo(
-    () =>
-      gameDetectionData?.games?.filter(
-        (game) => (game.evicted_downloads_count ?? 0) > 0 || game.is_evicted === true
-      ) ?? [],
-    [gameDetectionData]
-  );
-  const evictedServices = useMemo(
-    () =>
-      gameDetectionData?.services?.filter(
-        (service) => (service.evicted_downloads_count ?? 0) > 0 || service.is_evicted === true
-      ) ?? [],
-    [gameDetectionData]
-  );
+  const { gameDetectionData, removeFromDetection, clearEvictionFromDetection } = useGameDetection();
+  const evictedGames =
+    gameDetectionData?.games?.filter(
+      (game) => (game.evicted_downloads_count ?? 0) > 0 || game.is_evicted === true
+    ) ?? [];
+  const evictedServices =
+    gameDetectionData?.services?.filter(
+      (service) => (service.evicted_downloads_count ?? 0) > 0 || service.is_evicted === true
+    ) ?? [];
   const isAnyEvictedRemovalRunning = notifications.some(
     (n) => (n.type === 'game_removal' || n.type === 'service_removal') && n.status === 'running'
   );
 
-  // Optimistic removal tracking — items disappear instantly after API returns 202
-  const [removedGameAppIds, setRemovedGameAppIds] = useState<Set<number>>(() => new Set());
-  const [removedServiceNames, setRemovedServiceNames] = useState<Set<string>>(() => new Set());
+  // Remove evicted items from context when notification confirms removal is done
+  useEffect(() => {
+    const completedGameRemovals = notifications.filter(
+      (n) => n.type === 'game_removal' && n.status === 'completed'
+    );
+    completedGameRemovals.forEach((notif) => {
+      const gameAppId = notif.details?.gameAppId;
+      const gameName = notif.details?.gameName;
+      if (gameAppId) {
+        removeFromDetection({ gameAppId });
+      } else if (gameName) {
+        removeFromDetection({ gameName });
+      }
+    });
 
-  const visibleEvictedGames = useMemo(
-    () => evictedGames.filter((game: GameCacheInfo) => !removedGameAppIds.has(game.game_app_id)),
-    [evictedGames, removedGameAppIds]
-  );
-  const visibleEvictedServices = useMemo(
-    () =>
-      evictedServices.filter(
-        (service: ServiceCacheInfo) => !removedServiceNames.has(service.service_name)
-      ),
-    [evictedServices, removedServiceNames]
-  );
+    const completedServiceRemovals = notifications.filter(
+      (n) => n.type === 'service_removal' && n.status === 'completed'
+    );
+    completedServiceRemovals.forEach((notif) => {
+      const serviceName = notif.details?.service;
+      if (serviceName) {
+        removeFromDetection({ serviceName });
+      }
+    });
+  }, [notifications, removeFromDetection]);
 
   // Evicted removal state (migrated from GameCacheDetector)
   const [evictedGameToRemove, setEvictedGameToRemove] = useState<GameCacheInfo | null>(null);
@@ -161,10 +165,10 @@ const StorageSection: React.FC<StorageSectionProps> = ({
       const service = partialEvictedTarget as ServiceCacheInfo;
       const serviceName = service.service_name;
       setPartialEvictedTarget(null);
-      // Optimistic removal — service disappears instantly before API call
-      setRemovedServiceNames((prev: Set<string>) => new Set([...prev, serviceName]));
       try {
         await ApiService.removeEvictedForService(serviceName);
+        // Clear eviction fields — service stays in detection but leaves eviction list
+        clearEvictionFromDetection({ serviceName });
         setTimeout(() => {
           onDataRefresh?.();
         }, 30000);
@@ -176,17 +180,16 @@ const StorageSection: React.FC<StorageSectionProps> = ({
       }
     } else {
       const game = partialEvictedTarget as GameCacheInfo;
-      const gameAppId = game.game_app_id;
       const isEpic = game.service === 'epicgames';
       setPartialEvictedTarget(null);
-      // Optimistic removal — game disappears instantly before API call
-      setRemovedGameAppIds((prev: Set<number>) => new Set([...prev, gameAppId]));
       try {
         if (isEpic && game.epic_app_id) {
           await ApiService.removeEvictedForEpicGame(game.epic_app_id);
         } else {
-          await ApiService.removeEvictedForGame(gameAppId);
+          await ApiService.removeEvictedForGame(game.game_app_id);
         }
+        // Clear eviction fields — game stays in detection but leaves eviction list
+        clearEvictionFromDetection({ gameAppId: game.game_app_id });
         setTimeout(() => {
           onDataRefresh?.();
         }, 30000);
@@ -214,8 +217,6 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     });
 
     setEvictedGameToRemove(null);
-    // Optimistic removal — game disappears instantly before API call
-    setRemovedGameAppIds((prev: Set<number>) => new Set([...prev, gameAppId]));
 
     try {
       if (isEpic) {
@@ -223,6 +224,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
       } else {
         await ApiService.removeGameFromCache(gameAppId);
       }
+      // Item disappears when notification completes via useEffect + removeFromDetection
       setTimeout(() => {
         onDataRefresh?.();
       }, 30000);
@@ -247,11 +249,10 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     });
 
     setEvictedServiceToRemove(null);
-    // Optimistic removal — service disappears instantly before API call
-    setRemovedServiceNames((prev: Set<string>) => new Set([...prev, serviceName]));
 
     try {
       await ApiService.removeServiceFromCache(serviceName);
+      // Item disappears when notification completes via useEffect + removeFromDetection
       setTimeout(() => {
         onDataRefresh?.();
       }, 30000);
@@ -649,8 +650,8 @@ const StorageSection: React.FC<StorageSectionProps> = ({
                 <AccordionSection
                   title={t('management.sections.data.evictedItemsHeading')}
                   count={
-                    visibleEvictedGames.length + visibleEvictedServices.length > 0
-                      ? visibleEvictedGames.length + visibleEvictedServices.length
+                    evictedGames.length + evictedServices.length > 0
+                      ? evictedGames.length + evictedServices.length
                       : undefined
                   }
                   icon={Database}
@@ -659,8 +660,8 @@ const StorageSection: React.FC<StorageSectionProps> = ({
                   onToggle={() => setEvictedItemsExpanded((prev) => !prev)}
                 >
                   <EvictedItemsList
-                    games={visibleEvictedGames}
-                    services={visibleEvictedServices}
+                    games={evictedGames}
+                    services={evictedServices}
                     notifications={notifications}
                     isAdmin={isAdmin}
                     cacheReadOnly={cacheReadOnly}

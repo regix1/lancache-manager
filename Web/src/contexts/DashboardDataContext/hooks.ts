@@ -67,6 +67,12 @@ export const useGameDetection = (): {
     lastDetectionTime?: string;
   } | null;
   isLoading: boolean;
+  removeFromDetection: (target: {
+    gameAppId?: number;
+    gameName?: string;
+    serviceName?: string;
+  }) => void;
+  clearEvictionFromDetection: (target: { gameAppId?: number; serviceName?: string }) => void;
 } => {
   const context = useContext(DashboardDataContext);
   if (!context) {
@@ -77,7 +83,9 @@ export const useGameDetection = (): {
     detectionByName: context.gameDetectionByName,
     detectionByService: context.gameDetectionByService,
     gameDetectionData: context.gameDetectionData,
-    isLoading: context.loading
+    isLoading: context.loading,
+    removeFromDetection: context.removeFromDetection,
+    clearEvictionFromDetection: context.clearEvictionFromDetection
   };
 };
 

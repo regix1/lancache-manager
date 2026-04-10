@@ -213,9 +213,33 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   }, [mockMode, refreshKey]); // Re-run when mockMode or refreshKey changes
 
   // Listen for notification events from SignalR (consolidated)
-  // Note: game/service removal is handled optimistically in confirmRemoval/confirmServiceRemoval
-  // and synced via handleGameRemovalComplete SignalR handler — no notification-based removal needed.
   useEffect(() => {
+    // Handle completed game removals — remove from local state when backend confirms done
+    const gameRemovalNotifs = notifications.filter(
+      (n) => n.type === 'game_removal' && n.status === 'completed'
+    );
+    gameRemovalNotifs.forEach((notif) => {
+      const gameAppId = notif.details?.gameAppId;
+      const gameName = notif.details?.gameName;
+
+      if (gameAppId) {
+        setGames((prev) => prev.filter((g) => g.game_app_id !== gameAppId));
+      } else if (gameName) {
+        setGames((prev) => prev.filter((g) => g.game_name !== gameName));
+      }
+    });
+
+    // Handle completed service removals
+    const serviceRemovalNotifs = notifications.filter(
+      (n) => n.type === 'service_removal' && n.status === 'completed'
+    );
+    serviceRemovalNotifs.forEach((notif) => {
+      const serviceName = notif.details?.service;
+      if (!serviceName) return;
+
+      setServices((prev) => prev.filter((s) => s.service_name !== serviceName));
+    });
+
     // Handle database reset completion
     const databaseResetNotifs = notifications.filter(
       (n) => n.type === 'database_reset' && n.status === 'completed'
@@ -527,12 +551,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
     // Close modal immediately - progress shown via notifications
     setGameToRemove(null);
-    // Optimistic removal — game disappears instantly before API call
-    if (isEpic) {
-      setGames((prev) => prev.filter((g: GameCacheInfo) => g.game_name !== gameName));
-    } else {
-      setGames((prev) => prev.filter((g: GameCacheInfo) => g.game_app_id !== gameAppId));
-    }
 
     try {
       if (isEpic) {
@@ -542,17 +560,17 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       }
 
       // Fire-and-forget: API returned 202 Accepted, removal is happening in background
+      // Game disappears when notification becomes 'completed' (via useEffect above)
 
       // Trigger a refetch after removal likely completes to refresh downloads
       setTimeout(() => {
         onDataRefresh?.();
-      }, 30000); // Refresh after 30 seconds
+      }, 30000);
     } catch (err: unknown) {
       const errorMsg =
         (err instanceof Error ? err.message : String(err)) ||
         t('management.gameDetection.failedToRemoveGame');
 
-      // Update the game_removal notification to failed
       updateNotification(NOTIFICATION_IDS.GAME_REMOVAL, {
         status: 'failed',
         error: errorMsg
@@ -593,24 +611,22 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
     // Close modal immediately - progress shown via notifications
     setServiceToRemove(null);
-    // Optimistic removal — service disappears instantly before API call
-    setServices((prev) => prev.filter((s: ServiceCacheInfo) => s.service_name !== serviceName));
 
     try {
       await ApiService.removeServiceFromCache(serviceName);
 
       // Fire-and-forget: API returned 202 Accepted, removal is happening in background
+      // Service disappears when notification becomes 'completed' (via useEffect above)
 
       // Trigger a refetch after removal likely completes to refresh downloads
       setTimeout(() => {
         onDataRefresh?.();
-      }, 30000); // Refresh after 30 seconds
+      }, 30000);
     } catch (err: unknown) {
       const errorMsg =
         (err instanceof Error ? err.message : String(err)) ||
         t('management.gameDetection.failedToRemoveService');
 
-      // Update notification to failed (ID is "service_removal-{serviceName}")
       const notifId = `service_removal-${serviceName}`;
       updateNotification(notifId, {
         status: 'failed',
