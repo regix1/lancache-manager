@@ -34,7 +34,7 @@ public class LiveLogMonitorService : ScheduledBackgroundService
     protected override string ServiceName => "LiveLogMonitor";
     protected override TimeSpan Interval => TimeSpan.FromSeconds(1);
     protected override TimeSpan StartupDelay => TimeSpan.Zero;
-    public override bool RunOnStartup => true;
+    public override bool DefaultRunOnStartup => true;
 
     /// <summary>
     /// Temporarily pause the log monitor to allow other operations (like corruption removal) to modify log files

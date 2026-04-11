@@ -40,7 +40,6 @@ const ManagementTab: React.FC = () => {
   });
 
   const [optimizationsEnabled, setOptimizationsEnabled] = useState(false);
-  const [logRotationEnabled, setLogRotationEnabled] = useState(false);
   const [gameCacheRefreshKey, setGameCacheRefreshKey] = useState(0);
   const [highlightSteamApi, setHighlightSteamApi] = useState(false);
   const [highlightEpic, setHighlightEpic] = useState(false);
@@ -104,20 +103,6 @@ const ManagementTab: React.FC = () => {
     checkOptimizations();
   }, []);
 
-  // Check if log rotation is enabled
-  useEffect(() => {
-    const checkLogRotation = async () => {
-      try {
-        const data = (await ApiService.getLogRotationStatus()) as { enabled: boolean };
-        setLogRotationEnabled(data.enabled === true);
-      } catch {
-        setLogRotationEnabled(false);
-      }
-    };
-
-    checkLogRotation();
-  }, []);
-
   // Initialize with migration
   useEffect(() => {
     const initialize = async () => {
@@ -163,13 +148,7 @@ const ManagementTab: React.FC = () => {
   const renderActiveSection = () => {
     // Settings section is always available
     if (activeSection === 'settings') {
-      return (
-        <SettingsSection
-          optimizationsEnabled={optimizationsEnabled}
-          logRotationEnabled={logRotationEnabled}
-          isAdmin={isAdmin}
-        />
-      );
+      return <SettingsSection optimizationsEnabled={optimizationsEnabled} isAdmin={isAdmin} />;
     }
 
     // Other sections require authentication

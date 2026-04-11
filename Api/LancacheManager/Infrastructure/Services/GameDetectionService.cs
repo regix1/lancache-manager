@@ -6,7 +6,13 @@ using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Infrastructure.Services;
 
-public class GameDetectionStartupService : ScheduledBackgroundService
+/// <summary>
+/// Scheduled service that runs game cache detection on a user-configurable interval.
+/// Whether it also runs at startup is controlled by the user via the Schedules UI
+/// (persisted in IStateService.GetServiceRunOnStartup) — defaults to true so that
+/// existing installs continue to seed the detection cache on first boot.
+/// </summary>
+public class GameDetectionService : ScheduledBackgroundService
 {
     private readonly GameCacheDetectionService _detectionService;
     private readonly IStateService _stateService;
@@ -14,13 +20,13 @@ public class GameDetectionStartupService : ScheduledBackgroundService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly CacheReconciliationService _cacheReconciliationService;
 
-    public GameDetectionStartupService(
+    public GameDetectionService(
         GameCacheDetectionService detectionService,
         IStateService stateService,
         IPathResolver pathResolver,
         IServiceScopeFactory scopeFactory,
         CacheReconciliationService cacheReconciliationService,
-        ILogger<GameDetectionStartupService> logger,
+        ILogger<GameDetectionService> logger,
         IConfiguration configuration)
         : base(logger, configuration)
     {
@@ -30,16 +36,12 @@ public class GameDetectionStartupService : ScheduledBackgroundService
         _scopeFactory = scopeFactory;
         _cacheReconciliationService = cacheReconciliationService;
 
-        var savedInterval = _stateService.GetServiceInterval(ServiceKey);
-        if (savedInterval.HasValue)
-        {
-            SetInterval(TimeSpan.FromHours(savedInterval.Value));
-        }
+        LoadStateOverrides(stateService);
     }
 
-    protected override string ServiceName => "GameDetectionStartup";
+    protected override string ServiceName => "GameDetection";
 
-    public override bool RunOnStartup => true;
+    public override bool DefaultRunOnStartup => true;
 
     protected override TimeSpan StartupDelay => TimeSpan.Zero;
 
@@ -55,35 +57,35 @@ public class GameDetectionStartupService : ScheduledBackgroundService
             var rustBinaryPath = _pathResolver.GetRustGameDetectorPath();
             if (!File.Exists(rustBinaryPath))
             {
-                _logger.LogWarning("[GameDetectionStartup] Game detection binary not found at {Path}, game detection disabled", rustBinaryPath);
+                _logger.LogWarning("[GameDetection] Game detection binary not found at {Path}, game detection disabled", rustBinaryPath);
                 return;
             }
 
             // Wait for setup/initialization to complete before running detection.
             // Uses async signaling — resumes instantly when setup completes, no polling.
-            _logger.LogInformation("[GameDetectionStartup] Waiting for setup to complete...");
+            _logger.LogInformation("[GameDetection] Waiting for setup to complete...");
             await _stateService.WaitForSetupCompletedAsync(stoppingToken);
-            _logger.LogInformation("[GameDetectionStartup] Setup completed");
+            _logger.LogInformation("[GameDetection] Setup completed");
 
             // Wait for log processing to complete before running detection.
             // Detection needs LogEntries in the database to map games to downloads.
-            _logger.LogInformation("[GameDetectionStartup] Waiting for logs to be processed...");
+            _logger.LogInformation("[GameDetection] Waiting for logs to be processed...");
             await _stateService.WaitForLogsProcessedAsync(stoppingToken);
-            _logger.LogInformation("[GameDetectionStartup] Logs processed");
+            _logger.LogInformation("[GameDetection] Logs processed");
 
             // Wait for CacheReconciliationService to complete its first startup eviction scan.
             // This ensures evicted games are upserted into CachedGameDetections BEFORE we read from it,
             // so GetCachedDetectionAsync sees a consistent state even in "Remove" eviction mode.
-            _logger.LogInformation("[GameDetectionStartup] Waiting for CacheReconciliationService first startup scan to complete...");
+            _logger.LogInformation("[GameDetection] Waiting for CacheReconciliationService first startup scan to complete...");
             var completionTask = _cacheReconciliationService.FirstStartupScanComplete;
             var timeoutTask = Task.Delay(TimeSpan.FromSeconds(60), stoppingToken);
             if (await Task.WhenAny(completionTask, timeoutTask) == timeoutTask)
             {
-                _logger.LogWarning("[GameDetectionStartup] Timed out waiting for CacheReconciliationService first scan; proceeding anyway");
+                _logger.LogWarning("[GameDetection] Timed out waiting for CacheReconciliationService first scan; proceeding anyway");
             }
             else
             {
-                _logger.LogInformation("[GameDetectionStartup] CacheReconciliationService first scan complete");
+                _logger.LogInformation("[GameDetection] CacheReconciliationService first scan complete");
             }
 
             // Skip detection if there are no downloads in the database yet
@@ -91,31 +93,31 @@ public class GameDetectionStartupService : ScheduledBackgroundService
             var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
             if (!await context.Downloads.AnyAsync(stoppingToken))
             {
-                _logger.LogInformation("[GameDetectionStartup] No downloads in database, skipping startup detection scan");
+                _logger.LogInformation("[GameDetection] No downloads in database, skipping startup detection scan");
                 return;
             }
 
             // Run recovery, self-healing, and cleanup ONCE on startup — not on every dashboard load.
-            _logger.LogInformation("[GameDetectionStartup] Running detection data reconciliation...");
+            _logger.LogInformation("[GameDetection] Running detection data reconciliation...");
             await _detectionService.ReconcileCachedDetectionDataAsync();
 
             var cached = await _detectionService.GetCachedDetectionAsync();
             if (cached != null)
             {
-                _logger.LogInformation("[GameDetectionStartup] Game detection data already cached, skipping startup scan");
+                _logger.LogInformation("[GameDetection] Game detection data already cached, skipping startup scan");
                 return;
             }
 
-            _logger.LogInformation("[GameDetectionStartup] No cached game detection data found, starting incremental detection scan");
+            _logger.LogInformation("[GameDetection] No cached game detection data found, starting incremental detection scan");
             await _detectionService.StartDetectionAsync(incremental: true);
         }
         catch (OperationCanceledException)
         {
-            _logger.LogInformation("[GameDetectionStartup] Cancelled during startup wait");
+            _logger.LogInformation("[GameDetection] Cancelled during startup wait");
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[GameDetectionStartup] Error during startup game detection scan");
+            _logger.LogError(ex, "[GameDetection] Error during startup game detection scan");
         }
     }
 
@@ -123,12 +125,12 @@ public class GameDetectionStartupService : ScheduledBackgroundService
     {
         try
         {
-            _logger.LogInformation("[GameDetectionStartup] Running scheduled monthly game detection scan");
+            _logger.LogInformation("[GameDetection] Running scheduled game detection scan");
             await _detectionService.StartDetectionAsync(incremental: true);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[GameDetectionStartup] Error during scheduled game detection scan");
+            _logger.LogError(ex, "[GameDetection] Error during scheduled game detection scan");
         }
     }
 }

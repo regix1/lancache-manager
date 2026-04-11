@@ -72,19 +72,15 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
         _operationTracker = operationTracker;
         _scopeFactory = scopeFactory;
         _stateService = stateService;
+
+        // Apply user-saved interval and run-on-startup overrides before the loop starts.
+        LoadStateOverrides(stateService, ScheduleServiceKey);
     }
 
-    protected override async Task InitializeAsync(CancellationToken cancellationToken)
+    protected override Task InitializeAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("EpicMappingService starting...");
         _isRunning = true;
-
-        // Restore persisted interval so user-saved intervals survive restarts
-        var savedInterval = _stateService.GetServiceInterval("epicMapping");
-        if (savedInterval.HasValue)
-        {
-            UpdateInterval(TimeSpan.FromHours(savedInterval.Value));
-        }
 
         // Load last refresh time from saved auth data (mirrors Steam loading from state.json)
         var savedAuth = _authStorage.GetEpicAuthData();
@@ -116,6 +112,8 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
 
         // Subscribe to Epic prefill daemon auth state change events
         SubscribeToDaemonEvents();
+
+        return Task.CompletedTask;
     }
 
     protected override Task CleanupAsync(CancellationToken cancellationToken)

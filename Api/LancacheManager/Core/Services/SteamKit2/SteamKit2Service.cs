@@ -132,6 +132,11 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
         // Use range 16384-65535 to avoid collision with steam-prefill-daemon (0-16383)
         _steamLoginId = (uint)new Random().Next(16384, 65536);
         _logger.LogInformation("Generated unique Steam LoginID: {LoginID} (0x{LoginIDHex:X8})", _steamLoginId, _steamLoginId);
+
+        // Apply user-saved schedule overrides (interval is also loaded later from
+        // GetCrawlIntervalHours during InitializeAsync — that path uses a separate state key
+        // for backward compat; this call only matters for the run-on-startup override).
+        LoadStateOverrides(stateService, ScheduleServiceKey);
     }
 
     /// <summary>

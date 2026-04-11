@@ -1,3 +1,5 @@
+using LancacheManager.Core.Interfaces;
+
 namespace LancacheManager.Infrastructure.Services.Base;
 
 /// <summary>
@@ -49,11 +51,61 @@ public abstract class ConfigurableScheduledService : BackgroundService
     /// </summary>
     protected virtual TimeSpan StartupDelay => TimeSpan.FromSeconds(5);
 
+    /// <summary>
+    /// Hardcoded default for whether the loop runs work on its very first iteration
+    /// (i.e., at app startup). Subclasses override this to express their *intended* default.
+    /// The user can override this at runtime via SetRunOnStartup() — typically loaded from
+    /// IStateService and updated via the Schedules UI.
+    /// </summary>
+    public virtual bool DefaultRunOnStartup => true;
+
+    /// <summary>
+    /// User-controlled override for RunOnStartup (null = use DefaultRunOnStartup).
+    /// </summary>
+    private bool? _runOnStartupOverride;
+
+    /// <summary>
+    /// Effective value of RunOnStartup: user override if set, else DefaultRunOnStartup.
+    /// </summary>
+    public bool RunOnStartup => _runOnStartupOverride ?? DefaultRunOnStartup;
+
+    /// <summary>
+    /// Set the user-controlled RunOnStartup override. Pass null to clear and revert
+    /// to DefaultRunOnStartup. Note: this only affects future startups — once a service
+    /// has already started its loop, toggling this won't retroactively run or skip
+    /// the startup pass.
+    /// </summary>
+    public void SetRunOnStartup(bool? value)
+    {
+        _runOnStartupOverride = value;
+        _logger.LogDebug("{ServiceName} RunOnStartup override set to {Value}", ServiceName, value);
+    }
+
     protected ConfigurableScheduledService(ILogger logger, TimeSpan initialInterval)
     {
         _logger = logger;
         _defaultInterval = initialInterval;
         _interval = initialInterval;
+    }
+
+    /// <summary>
+    /// Convenience helper for subclass constructors: applies any user-saved interval and
+    /// run-on-startup overrides for this service from the state store. Pass the same
+    /// service key the registry uses (typically the subclass's ScheduleServiceKey property).
+    /// </summary>
+    protected void LoadStateOverrides(IStateService stateService, string serviceKey)
+    {
+        var savedInterval = stateService.GetServiceInterval(serviceKey);
+        if (savedInterval.HasValue)
+        {
+            UpdateInterval(TimeSpan.FromHours(savedInterval.Value));
+        }
+
+        var savedRunOnStartup = stateService.GetServiceRunOnStartup(serviceKey);
+        if (savedRunOnStartup.HasValue)
+        {
+            SetRunOnStartup(savedRunOnStartup.Value);
+        }
     }
 
     /// <summary>
@@ -125,6 +177,11 @@ public abstract class ConfigurableScheduledService : BackgroundService
 
         _logger.LogInformation("{ServiceName} scheduling loop started", ServiceName);
 
+        // If RunOnStartup is false, skip the very first work execution and go straight
+        // to the sleep — work will only run after the first interval has elapsed (or
+        // when TriggerImmediateRun() is called manually).
+        bool skipFirstExecution = !RunOnStartup;
+
         while (!stoppingToken.IsCancellationRequested)
         {
             var interval = ConfiguredInterval;
@@ -133,6 +190,12 @@ public abstract class ConfigurableScheduledService : BackgroundService
             if (_intervalJustChanged)
             {
                 _intervalJustChanged = false;
+            }
+            else if (skipFirstExecution)
+            {
+                // Honor user's "do not run on startup" preference for this very first iteration only
+                skipFirstExecution = false;
+                _logger.LogInformation("{ServiceName} skipping startup run (RunOnStartup is false)", ServiceName);
             }
             else if (interval > TimeSpan.Zero)
             {

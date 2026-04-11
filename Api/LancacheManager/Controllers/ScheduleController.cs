@@ -62,6 +62,23 @@ public class ScheduleController : ControllerBase
     }
 
     /// <summary>
+    /// Updates whether the service runs at app startup.
+    /// </summary>
+    [HttpPut("{serviceKey}/runOnStartup")]
+    public async Task<ActionResult> SetRunOnStartupAsync(string serviceKey, [FromBody] UpdateScheduleRunOnStartupRequest request)
+    {
+        var info = _registry.Get(serviceKey);
+        if (info == null)
+        {
+            return NotFound();
+        }
+
+        _registry.SetRunOnStartup(serviceKey, request.RunOnStartup);
+        await _hubContext.Clients.All.SendAsync("SchedulesUpdated", _registry.GetAll());
+        return NoContent();
+    }
+
+    /// <summary>
     /// Triggers an immediate run of the service, bypassing the scheduled interval.
     /// </summary>
     [HttpPost("{serviceKey}/run")]
@@ -93,4 +110,9 @@ public class ScheduleController : ControllerBase
 public class UpdateScheduleIntervalRequest
 {
     public double IntervalHours { get; set; }
+}
+
+public class UpdateScheduleRunOnStartupRequest
+{
+    public bool RunOnStartup { get; set; }
 }

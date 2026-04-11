@@ -28,7 +28,7 @@ public class CacheClearingService : ScheduledBackgroundService
 
     protected override string ServiceName => "CacheClearingService";
     protected override TimeSpan Interval => TimeSpan.FromMinutes(5);
-    public override bool RunOnStartup => true;
+    public override bool DefaultRunOnStartup => true;
 
     public override string ServiceKey => "cacheClearing";
 
@@ -56,11 +56,7 @@ public class CacheClearingService : ScheduledBackgroundService
 
         _deleteMode = "preserve";
 
-        var savedInterval = _stateService.GetServiceInterval(ServiceKey);
-        if (savedInterval.HasValue)
-        {
-            SetInterval(TimeSpan.FromHours(savedInterval.Value));
-        }
+        LoadStateOverrides(stateService);
     }
 
     protected override Task OnStartupAsync(CancellationToken stoppingToken)

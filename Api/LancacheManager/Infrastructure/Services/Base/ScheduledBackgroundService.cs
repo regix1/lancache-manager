@@ -1,3 +1,5 @@
+using LancacheManager.Core.Interfaces;
+
 namespace LancacheManager.Infrastructure.Services.Base;
 
 /// <summary>
@@ -187,9 +189,12 @@ public abstract class ScheduledBackgroundService : BackgroundService
         }
 
         // Main execution loop.
-        // If RunOnStartup already ran, sleep first before the first interval execution
-        // to avoid running twice back-to-back at startup.
-        bool skipFirstExecution = RunOnStartup;
+        // Always sleep one interval before the first ExecuteWorkAsync — this honors both:
+        //   1. RunOnStartup=true: OnStartupAsync already ran above, so we skip back-to-back work
+        //   2. RunOnStartup=false: user explicitly opted out of startup runs, so ExecuteWorkAsync
+        //      must NOT fire on the first iteration either (otherwise "disabling startup" is a lie)
+        // The first ExecuteWorkAsync only runs after the interval has elapsed (or via Run Now).
+        bool skipFirstExecution = true;
 
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -294,9 +299,55 @@ public abstract class ScheduledBackgroundService : BackgroundService
         => Task.CompletedTask;
 
     /// <summary>
-    /// Whether to run OnStartupAsync before the main loop.
+    /// Hardcoded default for whether OnStartupAsync runs before the main loop.
+    /// Subclasses override this to express their *intended* default. The user can override
+    /// this at runtime via SetRunOnStartup() — typically loaded from IStateService in
+    /// each service's constructor and updated via the Schedules UI.
     /// </summary>
-    public virtual bool RunOnStartup => false;
+    public virtual bool DefaultRunOnStartup => false;
+
+    /// <summary>
+    /// User-controlled override for RunOnStartup (null = use DefaultRunOnStartup).
+    /// </summary>
+    private bool? _runOnStartupOverride;
+
+    /// <summary>
+    /// Effective value of RunOnStartup: user override if set, else DefaultRunOnStartup.
+    /// </summary>
+    public bool RunOnStartup => _runOnStartupOverride ?? DefaultRunOnStartup;
+
+    /// <summary>
+    /// Set the user-controlled RunOnStartup override. Pass null to clear and revert
+    /// to DefaultRunOnStartup. Note: this only affects future startups — once a service
+    /// has already started its loop, toggling this won't retroactively run or skip
+    /// the startup pass.
+    /// </summary>
+    public void SetRunOnStartup(bool? value)
+    {
+        _runOnStartupOverride = value;
+        _logger.LogDebug("{ServiceName} RunOnStartup override set to {Value}", ServiceName, value);
+    }
+
+    /// <summary>
+    /// Convenience helper for subclass constructors: applies any user-saved interval and
+    /// run-on-startup overrides for this ServiceKey from the state store. Call this from
+    /// the constructor after the base constructor has run, to avoid duplicating the same
+    /// load-from-state pattern in every scheduled service.
+    /// </summary>
+    protected void LoadStateOverrides(IStateService stateService)
+    {
+        var savedInterval = stateService.GetServiceInterval(ServiceKey);
+        if (savedInterval.HasValue)
+        {
+            SetInterval(TimeSpan.FromHours(savedInterval.Value));
+        }
+
+        var savedRunOnStartup = stateService.GetServiceRunOnStartup(ServiceKey);
+        if (savedRunOnStartup.HasValue)
+        {
+            SetRunOnStartup(savedRunOnStartup.Value);
+        }
+    }
 
     /// <summary>
     /// The main work to execute on each interval.

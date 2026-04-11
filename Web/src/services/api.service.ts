@@ -2093,18 +2093,6 @@ class ApiService {
     return ApiService.handleResponse<unknown>(response);
   }
 
-  static async updateLogRotationSchedule(scheduleHours: number): Promise<unknown> {
-    const response = await fetch(
-      `${API_BASE}/system/log-rotation/schedule`,
-      this.getFetchOptions({
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scheduleHours })
-      })
-    );
-    return ApiService.handleResponse<unknown>(response);
-  }
-
   static async triggerLogRotation(): Promise<unknown> {
     const response = await fetch(
       `${API_BASE}/system/log-rotation/trigger`,
@@ -2524,6 +2512,23 @@ class ApiService {
       await this.handleResponse<void>(res);
     } catch (error: unknown) {
       console.error('updateSchedule error:', error);
+      throw error;
+    }
+  }
+
+  static async setScheduleRunOnStartup(serviceKey: string, runOnStartup: boolean): Promise<void> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/system/schedules/${serviceKey}/runOnStartup`,
+        this.getFetchOptions({
+          method: 'PUT',
+          body: JSON.stringify({ runOnStartup }),
+          headers: { 'Content-Type': 'application/json' }
+        })
+      );
+      await this.handleResponse<void>(res);
+    } catch (error: unknown) {
+      console.error('setScheduleRunOnStartup error:', error);
       throw error;
     }
   }

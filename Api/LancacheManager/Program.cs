@@ -429,8 +429,9 @@ builder.Services.AddHostedService<DirectoryPermissionMonitorService>();
 // Register RustSpeedTrackerService for real-time per-game download speed monitoring (uses Rust for faster parsing)
 builder.Services.AddSingletonHostedService<RustSpeedTrackerService>();
 
-// Register GameDetectionStartupService to auto-trigger game cache detection at startup
-builder.Services.AddSingletonHostedService<GameDetectionStartupService>();
+// Register GameDetectionService — runs scheduled game cache detection. Whether it
+// also runs at startup is user-controlled via the Schedules UI (DefaultRunOnStartup = true).
+builder.Services.AddSingletonHostedService<GameDetectionService>();
 
 // Register service schedule registry — collects all ScheduledBackgroundService / ConfigurableScheduledService instances
 builder.Services.AddSingleton<IServiceScheduleRegistry, ServiceScheduleRegistry>();

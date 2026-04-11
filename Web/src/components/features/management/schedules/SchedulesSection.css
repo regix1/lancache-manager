@@ -198,6 +198,29 @@
   white-space: nowrap;
 }
 
+/* Run-on-startup row sits between the controls row and the expandable section */
+.schedule-startup-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-top: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--theme-text-muted);
+}
+
+.schedule-startup-row label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.schedule-startup-row label.disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 /* Expandable Section */
 .schedule-expand-toggle {
   display: inline-flex;

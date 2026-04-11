@@ -16,7 +16,7 @@ public class DownloadCleanupService : ScopedScheduledBackgroundService
     protected override string ServiceName => "DownloadCleanupService";
     protected override TimeSpan StartupDelay => TimeSpan.Zero;
     protected override TimeSpan Interval => TimeSpan.FromSeconds(10);
-    public override bool RunOnStartup => true;
+    public override bool DefaultRunOnStartup => true;
 
     public DownloadCleanupService(
         IServiceProvider serviceProvider,

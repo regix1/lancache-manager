@@ -111,18 +111,38 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         }
     }
 
+    public void SetRunOnStartup(string serviceKey, bool runOnStartup)
+    {
+        if (_scheduledServices.TryGetValue(serviceKey, out var scheduled))
+        {
+            scheduled.SetRunOnStartup(runOnStartup);
+            _stateService.SetServiceRunOnStartup(serviceKey, runOnStartup);
+            return;
+        }
+
+        if (_configurableServices.TryGetValue(serviceKey, out var configurable))
+        {
+            configurable.SetRunOnStartup(runOnStartup);
+            _stateService.SetServiceRunOnStartup(serviceKey, runOnStartup);
+        }
+    }
+
     public void ResetToDefaults()
     {
         foreach (var (key, service) in _scheduledServices)
         {
             service.ResetInterval();
+            service.SetRunOnStartup(null);
             _stateService.ClearServiceInterval(key);
+            _stateService.ClearServiceRunOnStartup(key);
         }
 
         foreach (var (key, service) in _configurableServices)
         {
             service.ResetInterval();
+            service.SetRunOnStartup(null);
             _stateService.ClearServiceInterval(key);
+            _stateService.ClearServiceRunOnStartup(key);
         }
     }
 
@@ -157,13 +177,11 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
 
     private static ServiceScheduleInfo MapConfigurableService(ConfigurableScheduledService service)
     {
-        var serviceType = service.GetType();
-
         return new ServiceScheduleInfo
         {
             Key = GetConfigurableServiceKey(service),
             IntervalHours = service.ConfiguredInterval.TotalHours,
-            RunOnStartup = false,
+            RunOnStartup = service.RunOnStartup,
             IsRunning = service.IsCurrentlyExecuting,
             LastRunUtc = service.LastRunUtc,
             NextRunUtc = service.NextRunUtc,

@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
+import { Checkbox } from '@components/ui/Checkbox';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
 import { useNotifications } from '@contexts/notifications';
@@ -67,6 +68,7 @@ interface ScheduleCardProps {
   service: ServiceScheduleInfo;
   isAdmin: boolean;
   onIntervalChange: (key: string, intervalHours: number) => Promise<void>;
+  onRunOnStartupChange: (key: string, runOnStartup: boolean) => Promise<void>;
   onRunNow: (key: string) => Promise<void>;
   runningKey: string | null;
   savingKey: string | null;
@@ -77,6 +79,7 @@ const ScheduleCard = memo(function ScheduleCard({
   service,
   isAdmin,
   onIntervalChange,
+  onRunOnStartupChange,
   onRunNow,
   runningKey,
   savingKey,
@@ -155,6 +158,13 @@ const ScheduleCard = memo(function ScheduleCard({
     onRunNow(service.key);
   }, [service.key, onRunNow]);
 
+  const handleRunOnStartupChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      onRunOnStartupChange(service.key, e.target.checked);
+    },
+    [service.key, onRunOnStartupChange]
+  );
+
   const handleToggleExpand = useCallback(() => {
     setExpanded((prev) => !prev);
   }, []);
@@ -227,6 +237,18 @@ const ScheduleCard = memo(function ScheduleCard({
         >
           {t('management.schedules.runNow')}
         </Button>
+      </div>
+
+      {/* Run-on-startup toggle */}
+      <div className="schedule-startup-row">
+        <Checkbox
+          id={`run-on-startup-${service.key}`}
+          checked={service.runOnStartup}
+          disabled={isDisabled}
+          onChange={handleRunOnStartupChange}
+          title={t('management.schedules.runOnStartupTooltip')}
+          label={t('management.schedules.runOnStartup')}
+        />
       </div>
 
       {/* Expandable Gain/Loss */}
@@ -326,6 +348,31 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({ isAdmin }) => {
       }
     },
     [fetchSchedules]
+  );
+
+  const handleRunOnStartupChange = useCallback(
+    async (key: string, runOnStartup: boolean) => {
+      const displayName = t(`management.schedules.services.${key}.displayName`);
+      setSavingKey(key);
+      // Optimistic update so the checkbox state flips immediately even before the server responds
+      setSchedules((prev) => prev.map((s) => (s.key === key ? { ...s, runOnStartup } : s)));
+      try {
+        await ApiService.setScheduleRunOnStartup(key, runOnStartup);
+        await fetchSchedules();
+      } catch {
+        // Revert optimistic update by refetching authoritative state
+        await fetchSchedules();
+        addNotification({
+          type: 'generic',
+          status: 'failed',
+          message: t('management.schedules.runOnStartupFailed', { service: displayName }),
+          details: { notificationType: 'error' }
+        });
+      } finally {
+        setSavingKey(null);
+      }
+    },
+    [fetchSchedules, addNotification, t]
   );
 
   const handleResetDefaults = useCallback(async () => {
@@ -433,6 +480,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({ isAdmin }) => {
             service={service}
             isAdmin={isAdmin}
             onIntervalChange={handleIntervalChange}
+            onRunOnStartupChange={handleRunOnStartupChange}
             onRunNow={handleRunNow}
             runningKey={runningKey}
             savingKey={savingKey}

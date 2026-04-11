@@ -135,6 +135,10 @@ public class StateService : IStateService
         // Per-service interval overrides (keyed by ServiceKey, value in hours)
         public Dictionary<string, double> ServiceIntervals { get; set; } = new();
 
+        // Per-service "run on startup" overrides (keyed by ServiceKey).
+        // Absent key = use the service's hardcoded DefaultRunOnStartup.
+        public Dictionary<string, bool> ServiceRunOnStartup { get; set; } = new();
+
         // LEGACY: SteamAuth migrated to separate file - kept for reading old state.json during migration
         // JsonIgnore(Condition = WhenWritingNull) excludes it when saving (always null after migration)
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
@@ -755,6 +759,29 @@ public class StateService : IStateService
         });
     }
 
+    // Service RunOnStartup Methods
+    public bool? GetServiceRunOnStartup(string serviceKey)
+    {
+        var values = GetState().ServiceRunOnStartup;
+        return values.TryGetValue(serviceKey, out var value) ? value : null;
+    }
+
+    public void SetServiceRunOnStartup(string serviceKey, bool runOnStartup)
+    {
+        UpdateState(state =>
+        {
+            state.ServiceRunOnStartup[serviceKey] = runOnStartup;
+        });
+    }
+
+    public void ClearServiceRunOnStartup(string serviceKey)
+    {
+        UpdateState(state =>
+        {
+            state.ServiceRunOnStartup.Remove(serviceKey);
+        });
+    }
+
     // Depot Processing Methods
     public DepotProcessingState GetDepotProcessingState()
     {
@@ -895,6 +922,8 @@ public class StateService : IStateService
             CompletedPlatforms = persisted.CompletedPlatforms,
             // Per-service interval overrides
             ServiceIntervals = persisted.ServiceIntervals ?? new Dictionary<string, double>(),
+            // Per-service "run on startup" overrides
+            ServiceRunOnStartup = persisted.ServiceRunOnStartup ?? new Dictionary<string, bool>(),
             // LEGACY: Only load SteamAuth if present (for migration from old state.json)
             SteamAuth = persisted.SteamAuth != null ? new SteamAuthState
             {
@@ -973,6 +1002,8 @@ public class StateService : IStateService
             CompletedPlatforms = state.CompletedPlatforms,
             // Per-service interval overrides
             ServiceIntervals = state.ServiceIntervals ?? new Dictionary<string, double>(),
+            // Per-service "run on startup" overrides
+            ServiceRunOnStartup = state.ServiceRunOnStartup ?? new Dictionary<string, bool>(),
             // LEGACY: Only persist SteamAuth if not null (will be null after migration)
             // JsonIgnore(WhenWritingNull) on property will exclude from JSON when null
             SteamAuth = state.SteamAuth != null ? new SteamAuthState

@@ -1,6 +1,6 @@
 import React, { useCallback, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Shield, Sparkles, Settings, ToggleLeft, ToggleRight, Gauge, RotateCw } from 'lucide-react';
+import { Shield, Sparkles, Settings, ToggleLeft, ToggleRight, Gauge } from 'lucide-react';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
@@ -9,19 +9,13 @@ import { useNotifications } from '@contexts/notifications';
 import AuthenticationManager from '../steam/AuthenticationManager';
 import DisplayPreferences from './DisplayPreferences';
 import GcManager from '../gc/GcManager';
-import LogRotationManager from '../LogRotationManager';
 
 interface SettingsSectionProps {
   optimizationsEnabled: boolean;
-  logRotationEnabled: boolean;
   isAdmin: boolean;
 }
 
-const SettingsSection: React.FC<SettingsSectionProps> = ({
-  optimizationsEnabled,
-  logRotationEnabled,
-  isAdmin
-}) => {
+const SettingsSection: React.FC<SettingsSectionProps> = ({ optimizationsEnabled, isAdmin }) => {
   const { t } = useTranslation();
   const { mockMode, setMockMode } = useMockMode();
   const { addNotification } = useNotifications();
@@ -156,42 +150,6 @@ const SettingsSection: React.FC<SettingsSectionProps> = ({
             </div>
           </div>
           <DisplayPreferences />
-        </Card>
-
-        {/* Log Rotation Card */}
-        <Card>
-          <div className="flex items-center gap-3 mb-4">
-            <div
-              className={`w-10 h-10 rounded-lg flex items-center justify-center ${logRotationEnabled ? 'icon-bg-cyan' : 'icon-bg-gray'}`}
-            >
-              <RotateCw className={`w-5 h-5 ${logRotationEnabled ? 'icon-cyan' : 'icon-gray'}`} />
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-themed-primary">
-                {t('management.sections.settings.nginxLogRotation')}
-              </h3>
-              <p className="text-xs text-themed-muted">
-                {t('management.sections.settings.nginxLogRotationDesc')}
-              </p>
-            </div>
-          </div>
-          {logRotationEnabled ? (
-            <LogRotationManager isAdmin={isAdmin} onError={handleError} onSuccess={handleSuccess} />
-          ) : (
-            <Alert color="yellow">
-              <div className="min-w-0">
-                <p className="font-medium">
-                  {t('management.sections.settings.nginxLogRotationDisabled')}
-                </p>
-                <p className="text-sm mt-1 mb-2">
-                  {t('management.sections.settings.nginxLogRotationEnvVar')}
-                </p>
-                <pre className="px-3 py-2 rounded text-xs overflow-x-auto break-all whitespace-pre-wrap bg-themed-tertiary">
-                  - NginxLogRotation__Enabled=true
-                </pre>
-              </div>
-            </Alert>
-          )}
         </Card>
 
         {/* Performance Optimizations Card */}

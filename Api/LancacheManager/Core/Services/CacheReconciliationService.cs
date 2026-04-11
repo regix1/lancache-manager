@@ -32,7 +32,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
     protected override string ServiceName => "CacheReconciliationService";
     protected override TimeSpan Interval => TimeSpan.FromHours(6);
-    public override bool RunOnStartup => true;
+    public override bool DefaultRunOnStartup => true;
 
     public override string ServiceKey => "cacheReconciliation";
 
@@ -41,7 +41,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
     /// <summary>
     /// Completes when the first startup eviction scan (and any RemoveEvictedRecordsAsync cleanup) has finished.
-    /// GameDetectionStartupService awaits this before calling GetCachedDetectionAsync to ensure evicted
+    /// GameDetectionService awaits this before calling GetCachedDetectionAsync to ensure evicted
     /// Downloads have already been upserted into CachedGameDetections before detection reads the DB.
     /// </summary>
     public Task FirstStartupScanComplete => _firstStartupScanComplete.Task;
@@ -100,11 +100,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         _pathResolver = pathResolver;
         _gameCacheDetectionService = gameCacheDetectionService;
 
-        var savedInterval = _stateService.GetServiceInterval(ServiceKey);
-        if (savedInterval.HasValue)
-        {
-            SetInterval(TimeSpan.FromHours(savedInterval.Value));
-        }
+        LoadStateOverrides(stateService);
     }
 
     protected override bool IsEnabled()
@@ -151,7 +147,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         finally
         {
             _isRunning = false;
-            // Signal GameDetectionStartupService that the first startup scan (and any removal cleanup) is done.
+            // Signal GameDetectionService that the first startup scan (and any removal cleanup) is done.
             // TrySetResult is safe to call multiple times — only the first call has effect.
             _firstStartupScanComplete.TrySetResult(true);
         }

@@ -227,11 +227,6 @@ public class SetPrefillDefaultsRequest
 
 #region System Requests
 
-public class UpdateLogRotationScheduleRequest
-{
-    public int ScheduleHours { get; set; }
-}
-
 public class SetAllowedTimeFormatsRequest
 {
     public List<string> Formats { get; set; } = new();

@@ -613,7 +613,7 @@ public class RustLogProcessorService
                     // NOTE: GameImageFetchService runs on its own 30-minute schedule and will
                     // fetch image binaries after all game detection, mapping, and DB saves complete.
                     // We do NOT trigger it here to avoid fetching images mid-pipeline before
-                    // game detection (GameDetectionStartupService) has finished.
+                    // game detection (GameDetectionService) has finished.
                 });
 
                 if (!silentMode)

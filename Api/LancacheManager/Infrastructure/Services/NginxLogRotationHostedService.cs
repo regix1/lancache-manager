@@ -12,122 +12,83 @@ namespace LancacheManager.Infrastructure.Services;
 public class NginxLogRotationHostedService : ScheduledBackgroundService
 {
     private readonly NginxLogRotationService _rotationService;
-    private readonly string _settingsFilePath;
 
     // Status tracking
     private DateTime? _lastRotationTime;
     private bool _lastRotationSuccess;
     private string? _lastRotationError;
-    private int _currentScheduleHours;
     private readonly object _statusLock = new();
+
+    // Default interval pulled from configuration on construction. Runtime overrides
+    // (Schedules UI) come from state.json via the base class LoadStateOverrides helper.
+    private readonly TimeSpan _defaultInterval;
 
     protected override string ServiceName => "NginxLogRotation";
     protected override TimeSpan StartupDelay => TimeSpan.Zero;
-    protected override TimeSpan Interval => TimeSpan.FromHours(24);
+    protected override TimeSpan Interval => _defaultInterval;
 
-    public override bool RunOnStartup => true;
+    public override bool DefaultRunOnStartup => true;
     public override string ServiceKey => "logRotation";
 
     public NginxLogRotationHostedService(
         NginxLogRotationService rotationService,
         IConfiguration configuration,
         ILogger<NginxLogRotationHostedService> logger,
-        IPathResolver pathResolver)
+        IPathResolver pathResolver,
+        IStateService stateService)
         : base(logger, configuration)
     {
         _rotationService = rotationService;
-        _settingsFilePath = pathResolver.GetSettingsPath("log-rotation-settings.json");
-        _currentScheduleHours = LoadScheduleHours();
 
-        // Set the base class interval from the persisted schedule
-        ApplyScheduleInterval(_currentScheduleHours);
+        var configHours = configuration.GetValue<int>("NginxLogRotation:ScheduleHours", 24);
+        _defaultInterval = TimeSpan.FromHours(configHours);
+
+        // One-time migration: copy any legacy log-rotation-settings.json value into state.json,
+        // then delete the file. After this runs, state.json is the sole source of truth and
+        // all schedule changes flow through the Schedules UI.
+        MigrateLegacySettingsFile(pathResolver, stateService);
+
+        // Apply persisted overrides (interval + run-on-startup) from state.json
+        LoadStateOverrides(stateService);
     }
 
-    private int LoadScheduleHours()
+    private void MigrateLegacySettingsFile(IPathResolver pathResolver, IStateService stateService)
     {
         try
         {
-            if (File.Exists(_settingsFilePath))
+            var legacyPath = pathResolver.GetSettingsPath("log-rotation-settings.json");
+            if (!File.Exists(legacyPath))
             {
-                var json = File.ReadAllText(_settingsFilePath);
-                var settings = JsonSerializer.Deserialize<LogRotationSettings>(json);
-                if (settings != null)
-                {
-                    _logger.LogInformation("Loaded log rotation schedule: {Hours} hours", settings.ScheduleHours);
-                    return settings.ScheduleHours;
-                }
+                return;
             }
+
+            var stateInterval = stateService.GetServiceInterval(ServiceKey);
+            if (stateInterval.HasValue)
+            {
+                // state.json already holds the canonical value — the legacy file is stale
+                File.Delete(legacyPath);
+                _logger.LogInformation(
+                    "Removed stale legacy log-rotation-settings.json (state.json already has interval={Hours}h)",
+                    stateInterval.Value);
+                return;
+            }
+
+            var json = File.ReadAllText(legacyPath);
+            var settings = JsonSerializer.Deserialize<LegacyLogRotationSettings>(json);
+            if (settings != null && settings.ScheduleHours >= 0)
+            {
+                stateService.SetServiceInterval(ServiceKey, settings.ScheduleHours);
+                _logger.LogInformation(
+                    "Migrated legacy log-rotation-settings.json ({Hours}h) into state.json",
+                    settings.ScheduleHours);
+            }
+
+            File.Delete(legacyPath);
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to load log rotation settings, using config default");
+            _logger.LogWarning(ex, "Failed to migrate legacy log-rotation-settings.json");
         }
-
-        // Fall back to configuration
-        return _configuration.GetValue<int>("NginxLogRotation:ScheduleHours", 24);
-    }
-
-    private async Task SaveScheduleHoursAsync(int hours)
-    {
-        try
-        {
-            var settingsDir = Path.GetDirectoryName(_settingsFilePath);
-            if (!string.IsNullOrEmpty(settingsDir) && !Directory.Exists(settingsDir))
-            {
-                Directory.CreateDirectory(settingsDir);
-            }
-
-            var settings = new LogRotationSettings { ScheduleHours = hours };
-            var json = JsonSerializer.Serialize(settings, new JsonSerializerOptions { WriteIndented = true });
-            await File.WriteAllTextAsync(_settingsFilePath, json);
-            _logger.LogInformation("Saved log rotation schedule: {Hours} hours", hours);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to save log rotation settings");
-            throw;
-        }
-    }
-
-    /// <summary>
-    /// Apply the schedule hours to the base class interval.
-    /// Hours &lt;= 0 sets a negative interval which the base class treats as "sleep until changed".
-    /// </summary>
-    private void ApplyScheduleInterval(int hours)
-    {
-        if (hours > 0)
-        {
-            SetInterval(TimeSpan.FromHours(hours));
-        }
-        else
-        {
-            // Negative TimeSpan tells the base class to sleep indefinitely until interval is changed
-            SetInterval(TimeSpan.FromHours(-1));
-        }
-    }
-
-    /// <summary>
-    /// Update the schedule interval in hours
-    /// </summary>
-    public async Task<bool> UpdateScheduleAsync(int hours)
-    {
-        if (hours < 0 || hours > 168) // 0 = disabled, max 1 week
-        {
-            return false;
-        }
-
-        lock (_statusLock)
-        {
-            _currentScheduleHours = hours;
-        }
-
-        await SaveScheduleHoursAsync(hours);
-
-        // Update the base class interval — this also wakes the sleep loop
-        ApplyScheduleInterval(hours);
-
-        _logger.LogInformation("Log rotation schedule updated to {Hours} hours", hours);
-        return true;
     }
 
     /// <summary>
@@ -142,7 +103,7 @@ public class NginxLogRotationHostedService : ScheduledBackgroundService
             return new LogRotationStatus
             {
                 Enabled = enabled,
-                ScheduleHours = _currentScheduleHours,
+                ScheduleHours = (int)EffectiveInterval.TotalHours,
                 LastRotationTime = _lastRotationTime,
                 NextScheduledRotation = NextRunUtc,
                 LastRotationSuccess = _lastRotationSuccess,
@@ -235,9 +196,11 @@ public class LogRotationStatus
 }
 
 /// <summary>
-/// Settings for nginx log rotation (persisted to file)
+/// Schema for the legacy log-rotation-settings.json file. Used only for one-time
+/// migration into state.json — after migration this file is deleted and never
+/// re-created. Do not reference outside the migration code path.
 /// </summary>
-public class LogRotationSettings
+internal class LegacyLogRotationSettings
 {
     public int ScheduleHours { get; set; } = 24;
 }

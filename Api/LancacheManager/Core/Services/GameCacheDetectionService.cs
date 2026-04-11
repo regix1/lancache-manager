@@ -852,7 +852,7 @@ public class GameCacheDetectionService : IDisposable
 
     /// <summary>
     /// Runs recovery, self-healing, and cleanup operations on cached detection data.
-    /// Called once on startup by GameDetectionStartupService — NOT on every dashboard load.
+    /// Called once on startup by GameDetectionService — NOT on every dashboard load.
     /// </summary>
     public async Task ReconcileCachedDetectionDataAsync()
     {

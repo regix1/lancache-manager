@@ -54,6 +54,11 @@ public interface IStateService
     void SetServiceInterval(string serviceKey, double hours);
     void ClearServiceInterval(string serviceKey);
 
+    // Service RunOnStartup Methods
+    bool? GetServiceRunOnStartup(string serviceKey);
+    void SetServiceRunOnStartup(string serviceKey, bool runOnStartup);
+    void ClearServiceRunOnStartup(string serviceKey);
+
     // Crawl Interval Methods
     double GetCrawlIntervalHours();
     void SetCrawlIntervalHours(double hours);

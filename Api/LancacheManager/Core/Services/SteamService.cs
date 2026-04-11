@@ -32,7 +32,7 @@ public class SteamService : ScopedScheduledBackgroundService
 
     protected override string ServiceName => "SteamService";
     protected override TimeSpan Interval => TimeSpan.FromHours(6);
-    public override bool RunOnStartup => true;
+    public override bool DefaultRunOnStartup => true;
 
     public override string ServiceKey => "steamService";
 
@@ -72,11 +72,7 @@ public class SteamService : ScopedScheduledBackgroundService
         _scopeFactory = scopeFactory;
         _stateService = stateService;
 
-        var savedInterval = _stateService.GetServiceInterval(ServiceKey);
-        if (savedInterval.HasValue)
-        {
-            SetInterval(TimeSpan.FromHours(savedInterval.Value));
-        }
+        LoadStateOverrides(stateService);
     }
 
     protected override async Task OnStartupAsync(CancellationToken stoppingToken)
