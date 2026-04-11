@@ -1091,6 +1091,42 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
                 new EvictionRemovalProgress(operationId, "updating_status", "signalr.evictionRemove.updatingStatus", 75, downloadsDeleted, logEntriesDeleted));
 
+            // Step 3a: Targeted un-evict — clear IsEvicted on the specific entity we just removed
+            // downloads for. This is the equivalent of Game Cache Removal's row-delete for the
+            // partial-eviction case: after the user removes the evicted portion, the entity is no
+            // longer considered evicted regardless of CacheFilesFound (per CachedGameDetection.IsEvicted
+            // docstring: "Games with no matching downloads are NOT considered evicted"). Any remaining
+            // non-evicted downloads keep their row with IsEvicted=false. The next detection scan will
+            // refresh CacheFilesFound / TotalSizeBytes if they drifted.
+            int targetedUnevicted = scope switch
+            {
+                EvictionScope.Steam => await context.CachedGameDetections
+                    .Where(g => g.IsEvicted
+                             && g.GameAppId == long.Parse(key)
+                             && g.EpicAppId == null)
+                    .ExecuteUpdateAsync(g => g.SetProperty(x => x.IsEvicted, false), stoppingToken),
+
+                EvictionScope.Epic => await context.CachedGameDetections
+                    .Where(g => g.IsEvicted && g.EpicAppId == key)
+                    .ExecuteUpdateAsync(g => g.SetProperty(x => x.IsEvicted, false), stoppingToken),
+
+                EvictionScope.Service => await context.CachedServiceDetections
+                    .Where(s => s.IsEvicted && s.ServiceName.ToLower() == key.ToLower())
+                    .ExecuteUpdateAsync(s => s.SetProperty(x => x.IsEvicted, false), stoppingToken),
+
+                _ => 0
+            };
+
+            if (targetedUnevicted > 0)
+            {
+                _logger.LogInformation(
+                    "[EvictionRemoval] Targeted un-evict for {Scope} '{Key}': cleared IsEvicted on {Count} detection row(s)",
+                    scope, key, targetedUnevicted);
+            }
+
+            // Step 3b: Bulk self-heal helper stays for the separate "files reappeared on disk"
+            // use case (background reconciliation). Its `CacheFilesFound > 0` filter is correct
+            // for that scenario; the targeted un-evict above handles the user-triggered removal.
             if (scope == EvictionScope.Service)
             {
                 await UnevictCachedServiceDetectionsAsync(context, _logger, stoppingToken);
