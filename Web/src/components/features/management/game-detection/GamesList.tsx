@@ -145,7 +145,7 @@ const GamesList: React.FC<GamesListProps> = ({
                   isExpanding={expandingGameId === uniqueId}
                   isRemoving={notifications.some(
                     (n) =>
-                      n.type === 'game_removal' &&
+                      (n.type === 'game_removal' || n.type === 'eviction_removal') &&
                       n.status === 'running' &&
                       (game.service === 'epicgames'
                         ? n.details?.gameName === game.game_name

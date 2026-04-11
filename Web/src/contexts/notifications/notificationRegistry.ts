@@ -531,11 +531,15 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
           : i18n.t(event.stageKey ?? 'signalr.evictionRemove.starting.bulk', event.context ?? {}),
       getDetails: (event: EvictionRemovalStartedEvent) => {
         const scope = (event.context?.scope as string | undefined)?.toLowerCase();
+        const key = event.context?.key as string | undefined;
+        const gameAppIdNum = event.gameAppId !== undefined ? Number(event.gameAppId) : undefined;
         return {
           operationId: event.operationId,
           ...(event.gameName !== undefined && { gameName: event.gameName }),
-          ...(event.gameAppId !== undefined && scope === 'epic' && { epicAppId: event.gameAppId }),
-          ...(event.gameAppId !== undefined && scope === 'steam' && { steamAppId: event.gameAppId })
+          ...(gameAppIdNum !== undefined && { gameAppId: gameAppIdNum }),
+          ...(gameAppIdNum !== undefined && scope === 'epic' && { epicAppId: event.gameAppId }),
+          ...(gameAppIdNum !== undefined && scope === 'steam' && { steamAppId: event.gameAppId }),
+          ...(scope === 'service' && key !== undefined && { service: key })
         };
       }
     },

@@ -132,7 +132,7 @@ const ServicesList: React.FC<ServicesListProps> = ({
                 isExpanding={expandingServiceName === service.service_name}
                 isRemoving={notifications.some(
                   (n) =>
-                    n.type === 'service_removal' &&
+                    (n.type === 'service_removal' || n.type === 'eviction_removal') &&
                     n.details?.service === service.service_name &&
                     n.status === 'running'
                 )}
