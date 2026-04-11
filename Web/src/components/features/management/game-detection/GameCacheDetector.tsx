@@ -118,18 +118,20 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       )
     : activeServices;
 
-  // Auto-collapse sections if they have many items (> 10)
+  // Auto-collapse sections only on the empty→populated transition (fresh scan or
+  // initial load). This avoids overriding the user's manual toggle when subsequent
+  // updates (game removals, SignalR reloads, partial refreshes) change the counts.
+  const prevServicesLenRef = useRef(0);
+  const prevGamesLenRef = useRef(0);
   useEffect(() => {
-    if (filteredServices.length > 10) {
-      setServicesExpanded(false);
-    } else {
-      setServicesExpanded(true);
+    if (prevServicesLenRef.current === 0 && filteredServices.length > 0) {
+      setServicesExpanded(filteredServices.length <= 10);
     }
-    if (filteredGames.length > 10) {
-      setGamesExpanded(false);
-    } else {
-      setGamesExpanded(true);
+    if (prevGamesLenRef.current === 0 && filteredGames.length > 0) {
+      setGamesExpanded(filteredGames.length <= 10);
     }
+    prevServicesLenRef.current = filteredServices.length;
+    prevGamesLenRef.current = filteredGames.length;
   }, [filteredServices.length, filteredGames.length]);
 
   // Load cached games and services from backend on mount and when refreshKey changes
