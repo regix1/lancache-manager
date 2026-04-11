@@ -177,6 +177,13 @@ public abstract class ConfigurableScheduledService : BackgroundService
 
         _logger.LogInformation("{ServiceName} scheduling loop started", ServiceName);
 
+        // Discard any "_intervalJustChanged" flag that was set during construction or
+        // InitializeAsync — e.g. LoadStateOverrides → UpdateInterval sets that flag to
+        // wake a sleeping loop, but there's no loop yet, so the flag is meaningless here
+        // and must not leak into the first iteration (it would eat the skip-first-execution
+        // check and delay the first real work run by an extra full interval).
+        _intervalJustChanged = false;
+
         // If RunOnStartup is false, skip the very first work execution and go straight
         // to the sleep — work will only run after the first interval has elapsed (or
         // when TriggerImmediateRun() is called manually).

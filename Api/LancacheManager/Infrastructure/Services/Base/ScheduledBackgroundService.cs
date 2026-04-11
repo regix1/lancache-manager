@@ -188,6 +188,13 @@ public abstract class ScheduledBackgroundService : BackgroundService
             }
         }
 
+        // Discard any "_intervalJustChanged" flag that was set during construction or
+        // InitializeAsync — e.g. LoadStateOverrides → SetInterval sets that flag to wake
+        // a sleeping loop, but there's no loop yet, so the flag is meaningless here and
+        // must not leak into the first iteration (it would cause the first real work run
+        // to be delayed by an extra full interval).
+        _intervalJustChanged = false;
+
         // Main execution loop.
         // Always sleep one interval before the first ExecuteWorkAsync — this honors both:
         //   1. RunOnStartup=true: OnStartupAsync already ran above, so we skip back-to-back work
