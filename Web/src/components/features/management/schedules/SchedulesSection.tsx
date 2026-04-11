@@ -239,17 +239,20 @@ const ScheduleCard = memo(function ScheduleCard({
         </Button>
       </div>
 
-      {/* Run-on-startup toggle */}
-      <div className="schedule-startup-row">
-        <Checkbox
-          id={`run-on-startup-${service.key}`}
-          checked={service.runOnStartup}
-          disabled={isDisabled}
-          onChange={handleRunOnStartupChange}
-          title={t('management.schedules.runOnStartupTooltip')}
-          label={t('management.schedules.runOnStartup')}
-        />
-      </div>
+      {/* Run-on-startup toggle — hidden when interval is "Startup only" (-1) since the
+          entire point of that schedule IS to run at startup, making the toggle redundant. */}
+      {service.intervalHours !== -1 && (
+        <div className="schedule-startup-row">
+          <Checkbox
+            id={`run-on-startup-${service.key}`}
+            checked={service.runOnStartup}
+            disabled={isDisabled}
+            onChange={handleRunOnStartupChange}
+            title={t('management.schedules.runOnStartupTooltip')}
+            label={t('management.schedules.runOnStartup')}
+          />
+        </div>
+      )}
 
       {/* Expandable Gain/Loss */}
       {hasExpandableContent && (
@@ -340,6 +343,18 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({ isAdmin }) => {
       setSavingKey(key);
       try {
         await ApiService.updateSchedule(key, intervalHours);
+
+        // If the user selects "Startup only" (-1), force runOnStartup=true on the backend.
+        // Otherwise the service would never run at all: interval=-1 means "no scheduled
+        // runs" in the base class loop, so the ONLY way work can happen is via the
+        // startup pass — which requires runOnStartup=true.
+        if (intervalHours === -1) {
+          const current = schedules.find((s) => s.key === key);
+          if (current && !current.runOnStartup) {
+            await ApiService.setScheduleRunOnStartup(key, true);
+          }
+        }
+
         await fetchSchedules();
       } catch {
         // Revert silently — polling will correct state
@@ -347,7 +362,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({ isAdmin }) => {
         setSavingKey(null);
       }
     },
-    [fetchSchedules]
+    [fetchSchedules, schedules]
   );
 
   const handleRunOnStartupChange = useCallback(

@@ -13,12 +13,6 @@ public class NginxLogRotationHostedService : ScheduledBackgroundService
 {
     private readonly NginxLogRotationService _rotationService;
 
-    // Status tracking
-    private DateTime? _lastRotationTime;
-    private bool _lastRotationSuccess;
-    private string? _lastRotationError;
-    private readonly object _statusLock = new();
-
     // Default interval pulled from configuration on construction. Runtime overrides
     // (Schedules UI) come from state.json via the base class LoadStateOverrides helper.
     private readonly TimeSpan _defaultInterval;
@@ -91,36 +85,6 @@ public class NginxLogRotationHostedService : ScheduledBackgroundService
         }
     }
 
-    /// <summary>
-    /// Get the current status of log rotation
-    /// </summary>
-    public LogRotationStatus GetStatus()
-    {
-        lock (_statusLock)
-        {
-            var enabled = _configuration.GetValue<bool>("NginxLogRotation:Enabled", false);
-
-            return new LogRotationStatus
-            {
-                Enabled = enabled,
-                ScheduleHours = (int)EffectiveInterval.TotalHours,
-                LastRotationTime = _lastRotationTime,
-                NextScheduledRotation = NextRunUtc,
-                LastRotationSuccess = _lastRotationSuccess,
-                LastRotationError = _lastRotationError
-            };
-        }
-    }
-
-    /// <summary>
-    /// Force an immediate log rotation
-    /// </summary>
-    public async Task<bool> ForceRotationAsync()
-    {
-        _logger.LogInformation("Force log rotation requested");
-        return await ExecuteRotationAsync("Manual trigger");
-    }
-
     protected override bool IsEnabled()
         => _configuration.GetValue<bool>("NginxLogRotation:Enabled", false);
 
@@ -142,18 +106,11 @@ public class NginxLogRotationHostedService : ScheduledBackgroundService
         await ExecuteRotationAsync("Scheduled");
     }
 
-    private async Task<bool> ExecuteRotationAsync(string trigger)
+    private async Task ExecuteRotationAsync(string trigger)
     {
         try
         {
             var result = await _rotationService.ReopenNginxLogsAsync();
-
-            lock (_statusLock)
-            {
-                _lastRotationTime = DateTime.UtcNow;
-                _lastRotationSuccess = result.Success;
-                _lastRotationError = result.ErrorMessage;
-            }
 
             if (result.Success)
             {
@@ -163,36 +120,12 @@ public class NginxLogRotationHostedService : ScheduledBackgroundService
             {
                 _logger.LogWarning("Log rotation failed (trigger: {Trigger}): {Error}", trigger, result.ErrorMessage);
             }
-
-            return result.Success;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error executing log rotation (trigger: {Trigger})", trigger);
-
-            lock (_statusLock)
-            {
-                _lastRotationTime = DateTime.UtcNow;
-                _lastRotationSuccess = false;
-                _lastRotationError = ex.Message;
-            }
-
-            return false;
         }
     }
-}
-
-/// <summary>
-/// Status information for nginx log rotation
-/// </summary>
-public class LogRotationStatus
-{
-    public bool Enabled { get; set; }
-    public int ScheduleHours { get; set; }
-    public DateTime? LastRotationTime { get; set; }
-    public DateTime? NextScheduledRotation { get; set; }
-    public bool LastRotationSuccess { get; set; }
-    public string? LastRotationError { get; set; }
 }
 
 /// <summary>

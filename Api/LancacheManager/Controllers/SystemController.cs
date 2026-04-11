@@ -29,7 +29,6 @@ public class SystemController : ControllerBase
     private readonly SteamKit2Service _steamKit2Service;
     private readonly DatasourceService _datasourceService;
     private readonly ISignalRNotificationService _notifications;
-    private readonly NginxLogRotationHostedService _logRotationService;
     private readonly UserPreferencesService _userPreferencesService;
 
     public SystemController(
@@ -41,7 +40,6 @@ public class SystemController : ControllerBase
         SteamKit2Service steamKit2Service,
         DatasourceService datasourceService,
         ISignalRNotificationService notifications,
-        NginxLogRotationHostedService logRotationService,
         UserPreferencesService userPreferencesService)
     {
         _stateService = stateService;
@@ -52,7 +50,6 @@ public class SystemController : ControllerBase
         _steamKit2Service = steamKit2Service;
         _datasourceService = datasourceService;
         _notifications = notifications;
-        _logRotationService = logRotationService;
         _userPreferencesService = userPreferencesService;
     }
 

@@ -2088,19 +2088,6 @@ class ApiService {
 
   // ── Log Rotation ──────────────────────────────────────────────────────────
 
-  static async getLogRotationStatus(): Promise<unknown> {
-    const response = await fetch(`${API_BASE}/system/log-rotation/status`, this.getFetchOptions());
-    return ApiService.handleResponse<unknown>(response);
-  }
-
-  static async triggerLogRotation(): Promise<unknown> {
-    const response = await fetch(
-      `${API_BASE}/system/log-rotation/trigger`,
-      this.getFetchOptions({ method: 'POST' })
-    );
-    return ApiService.handleResponse<unknown>(response);
-  }
-
   // ── GC Management ─────────────────────────────────────────────────────────
 
   static async getGcManagementStatus(): Promise<unknown> {
