@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, memo } from 'react';
+import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
 import './SchedulesSection.css';
 import { useTranslation } from 'react-i18next';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
@@ -64,6 +64,58 @@ const CountdownDisplay = memo(function CountdownDisplay({
   return <span className="schedule-countdown">{display}</span>;
 });
 
+// Isolated, memoized dropdown — only takes primitive props so it short-circuits re-renders
+// when unrelated fields on the parent `service` object change (e.g. a run-on-startup toggle
+// causing an optimistic state update). Without this, the dropdown's EnhancedDropdown would
+// receive a new options array + onChange callback on every parent re-render and flicker.
+interface ScheduleIntervalDropdownProps {
+  intervalHours: number;
+  isDisabled: boolean;
+  onChange: (hours: number) => void;
+}
+
+const ScheduleIntervalDropdown = memo(function ScheduleIntervalDropdown({
+  intervalHours,
+  isDisabled,
+  onChange
+}: ScheduleIntervalDropdownProps) {
+  const { t } = useTranslation();
+
+  const formatIntervalLabel = (hours: number): string => {
+    if (hours <= 0) return '';
+    if (hours < 1) {
+      const minutes = Math.round(hours * 60);
+      return t('management.schedules.everyNMinutes', { count: minutes });
+    }
+    return t('management.schedules.everyNHours', { count: hours });
+  };
+
+  const standardOptions = getScheduleIntervalOptions(t);
+  const currentVal =
+    intervalHours === 0 ? '0' : intervalHours === -1 ? '-1' : String(intervalHours);
+  const hasCurrentOption = standardOptions.some((opt) => opt.value === currentVal);
+  const allOptions = hasCurrentOption
+    ? standardOptions
+    : [{ value: currentVal, label: formatIntervalLabel(intervalHours) }, ...standardOptions];
+
+  const handleChange = useCallback(
+    (value: string) => {
+      onChange(parseFloat(value));
+    },
+    [onChange]
+  );
+
+  return (
+    <EnhancedDropdown
+      options={allOptions}
+      value={currentVal}
+      onChange={handleChange}
+      disabled={isDisabled}
+      variant="button"
+    />
+  );
+});
+
 interface ScheduleCardProps {
   service: ServiceScheduleInfo;
   isAdmin: boolean;
@@ -92,30 +144,6 @@ const ScheduleCard = memo(function ScheduleCard({
   const isRunningThis = runningKey === service.key;
   const isSavingThis = savingKey === service.key;
 
-  const formatIntervalLabel = (hours: number): string => {
-    if (hours <= 0) return '';
-    if (hours < 1) {
-      const minutes = Math.round(hours * 60);
-      return t('management.schedules.everyNMinutes', { count: minutes });
-    }
-    return t('management.schedules.everyNHours', { count: hours });
-  };
-
-  const standardOptions = getScheduleIntervalOptions(t);
-  const currentVal =
-    service.intervalHours === 0
-      ? '0'
-      : service.intervalHours === -1
-        ? '-1'
-        : String(service.intervalHours);
-  const hasCurrentOption = standardOptions.some((opt) => opt.value === currentVal);
-  const allOptions = hasCurrentOption
-    ? standardOptions
-    : [
-        { value: currentVal, label: formatIntervalLabel(service.intervalHours) },
-        ...standardOptions
-      ];
-
   const formatLastRun = (lastRunUtc: string | null): string => {
     if (!lastRunUtc) {
       return t('management.schedules.neverRun');
@@ -139,16 +167,8 @@ const ScheduleCard = memo(function ScheduleCard({
     return t('management.schedules.daysAgo', { count: diffDays });
   };
 
-  const currentIntervalValue =
-    service.intervalHours === 0
-      ? '0'
-      : service.intervalHours === -1
-        ? '-1'
-        : String(service.intervalHours);
-
   const handleIntervalChange = useCallback(
-    (value: string) => {
-      const hours = parseFloat(value);
+    (hours: number) => {
       onIntervalChange(service.key, hours);
     },
     [service.key, onIntervalChange]
@@ -219,12 +239,10 @@ const ScheduleCard = memo(function ScheduleCard({
       {/* Controls */}
       <div className="schedule-controls-row">
         <div className="schedule-dropdown-wrapper">
-          <EnhancedDropdown
-            options={allOptions}
-            value={currentIntervalValue}
+          <ScheduleIntervalDropdown
+            intervalHours={service.intervalHours}
+            isDisabled={isDisabled}
             onChange={handleIntervalChange}
-            disabled={isDisabled}
-            variant="button"
           />
         </div>
         <Button
@@ -305,6 +323,15 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({ isAdmin }) => {
   const { on, off, connectionState } = useSignalR();
   const { addNotification } = useNotifications();
 
+  // Keep a ref in sync with schedules so callbacks can read the latest value without
+  // needing `schedules` in their useCallback deps — that would cause every callback to
+  // re-create on every optimistic update and propagate new references through memoized
+  // children, defeating memo and causing visible dropdown flicker on unrelated toggles.
+  const schedulesRef = useRef(schedules);
+  useEffect(() => {
+    schedulesRef.current = schedules;
+  }, [schedules]);
+
   const fetchSchedules = useCallback(async () => {
     try {
       const data = (await ApiService.getSchedules()) as ServiceScheduleInfo[];
@@ -349,7 +376,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({ isAdmin }) => {
         // runs" in the base class loop, so the ONLY way work can happen is via the
         // startup pass — which requires runOnStartup=true.
         if (intervalHours === -1) {
-          const current = schedules.find((s) => s.key === key);
+          const current = schedulesRef.current.find((s) => s.key === key);
           if (current && !current.runOnStartup) {
             await ApiService.setScheduleRunOnStartup(key, true);
           }
@@ -362,7 +389,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({ isAdmin }) => {
         setSavingKey(null);
       }
     },
-    [fetchSchedules, schedules]
+    [fetchSchedules]
   );
 
   const handleRunOnStartupChange = useCallback(
