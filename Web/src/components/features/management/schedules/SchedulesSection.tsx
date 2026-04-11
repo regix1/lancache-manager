@@ -123,7 +123,6 @@ interface ScheduleCardProps {
   onRunOnStartupChange: (key: string, runOnStartup: boolean) => Promise<void>;
   onRunNow: (key: string) => Promise<void>;
   runningKey: string | null;
-  savingKey: string | null;
   justCompleted: boolean;
 }
 
@@ -134,7 +133,6 @@ const ScheduleCard = memo(function ScheduleCard({
   onRunOnStartupChange,
   onRunNow,
   runningKey,
-  savingKey,
   justCompleted
 }: ScheduleCardProps) {
   const { t } = useTranslation();
@@ -142,7 +140,6 @@ const ScheduleCard = memo(function ScheduleCard({
   const formattedNextRun = useFormattedDateTime(service.nextRunUtc);
 
   const isRunningThis = runningKey === service.key;
-  const isSavingThis = savingKey === service.key;
 
   const formatLastRun = (lastRunUtc: string | null): string => {
     if (!lastRunUtc) {
@@ -189,7 +186,12 @@ const ScheduleCard = memo(function ScheduleCard({
     setExpanded((prev) => !prev);
   }, []);
 
-  const isDisabled = !isAdmin || isRunningThis || isSavingThis;
+  // NOTE: do NOT include a "saving" flag here. Toggling isDisabled on and off for the
+  // ~50ms an API save is in flight causes every control on the card to briefly flash to
+  // disabled styling and back — that's the source of the flicker the user reported on the
+  // interval dropdown and Run Now button. Optimistic updates already make the UI feel
+  // instant; there's no UX benefit to disabling siblings mid-save.
+  const isDisabled = !isAdmin || isRunningThis;
 
   const hasExpandableContent = true;
 
@@ -317,7 +319,6 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({ isAdmin }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [runningKey, setRunningKey] = useState<string | null>(null);
-  const [savingKey, setSavingKey] = useState<string | null>(null);
   const [resetting, setResetting] = useState(false);
   const [completedKeys, setCompletedKeys] = useState<Set<string>>(new Set());
   const { on, off, connectionState } = useSignalR();
@@ -367,7 +368,6 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({ isAdmin }) => {
 
   const handleIntervalChange = useCallback(
     async (key: string, intervalHours: number) => {
-      setSavingKey(key);
       try {
         await ApiService.updateSchedule(key, intervalHours);
 
@@ -385,8 +385,6 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({ isAdmin }) => {
         await fetchSchedules();
       } catch {
         // Revert silently — polling will correct state
-      } finally {
-        setSavingKey(null);
       }
     },
     [fetchSchedules]
@@ -395,7 +393,6 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({ isAdmin }) => {
   const handleRunOnStartupChange = useCallback(
     async (key: string, runOnStartup: boolean) => {
       const displayName = t(`management.schedules.services.${key}.displayName`);
-      setSavingKey(key);
       // Optimistic update so the checkbox state flips immediately even before the server responds
       setSchedules((prev) => prev.map((s) => (s.key === key ? { ...s, runOnStartup } : s)));
       try {
@@ -410,8 +407,6 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({ isAdmin }) => {
           message: t('management.schedules.runOnStartupFailed', { service: displayName }),
           details: { notificationType: 'error' }
         });
-      } finally {
-        setSavingKey(null);
       }
     },
     [fetchSchedules, addNotification, t]
@@ -525,7 +520,6 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({ isAdmin }) => {
             onRunOnStartupChange={handleRunOnStartupChange}
             onRunNow={handleRunNow}
             runningKey={runningKey}
-            savingKey={savingKey}
             justCompleted={completedKeys.has(service.key)}
           />
         ))}
