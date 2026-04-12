@@ -457,21 +457,34 @@
       font-size: 1.5rem;
     }
 
+    .downloads-header .right-section {
+      flex-direction: row;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .downloads-header .tab-container {
+      width: 100%;
+      justify-content: center;
+    }
+
     .downloads-header .tab-button {
       padding: 0.4rem 0.75rem;
       font-size: 0.75rem;
+      flex: 1;
+      justify-content: center;
     }
 
     .downloads-header .today-stat {
+      flex: 1;
+      min-width: 0;
       padding: 0.4rem 0.6rem;
+      justify-content: center;
     }
 
     .downloads-header .stats-row {
       flex-wrap: wrap;
-    }
-
-    .downloads-header .right-section {
-      align-items: center;
     }
   }
 

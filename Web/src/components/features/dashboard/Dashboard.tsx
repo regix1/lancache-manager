@@ -639,16 +639,18 @@ const Dashboard: React.FC = () => {
             )}
           </div>
 
-          {/* Card Layout Toggle */}
-          <SegmentedControl
-            options={[
-              { value: '4-column', label: '4 Column' },
-              { value: '3-column', label: '3 Column' }
-            ]}
-            value={cardLayout}
-            onChange={handleCardLayoutChange}
-            size="md"
-          />
+          {/* Card Layout Toggle - hidden on mobile since cards are always single column */}
+          <div className="hidden md:block">
+            <SegmentedControl
+              options={[
+                { value: '4-column', label: '4 Column' },
+                { value: '3-column', label: '3 Column' }
+              ]}
+              value={cardLayout}
+              onChange={handleCardLayoutChange}
+              size="md"
+            />
+          </div>
 
           {/* Hidden Cards Button - only shows when cards are hidden */}
           {hiddenCardsCount > 0 && (
