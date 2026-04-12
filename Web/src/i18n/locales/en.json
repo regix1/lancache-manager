@@ -2848,21 +2848,21 @@
       "services": {
         "depotMapping": {
           "displayName": "Steam Depot Mapping",
-          "description": "Periodically downloads Steam depot-to-game mappings from PICS or GitHub so that cached files on disk can be matched to the correct Steam game in the UI.",
+          "description": "Downloads Steam depot-to-game mappings from PICS or GitHub, then immediately applies them to match all cached files on disk with their correct Steam game names and IDs in the UI.",
           "gain": "New game downloads are identified faster, reducing the time items appear as 'Unknown Game'",
-          "loss": "Recently cached games may show as 'Unknown Game' for longer until the next mapping refresh"
+          "loss": "Delisted or newly released games may show as 'Unknown Game' until the next mapping refresh detects them"
         },
         "epicMapping": {
           "displayName": "Epic Game Mapping",
           "description": "Connects to the Epic Games Store catalog to refresh game titles, CDN URL patterns, and depot mappings used to identify Epic downloads in the cache.",
-          "gain": "Newly released or updated Epic games are recognized in the cache sooner after download",
-          "loss": "New or renamed Epic games may not appear correctly until the next scheduled refresh"
+          "gain": "Newly released or updated Epic games are mapped to their cached downloads sooner, allowing them to appear in the game list without waiting for the next detection cycle",
+          "loss": "New or renamed Epic games may not appear in the game list until the next scheduled refresh"
         },
         "logRotation": {
           "displayName": "Log Rotation",
-          "description": "Rotates the nginx access log file to keep it from growing unbounded, which prevents disk pressure and keeps log parsing fast for real-time download tracking.",
-          "gain": "Log files stay small, freeing disk space and keeping the live download feed responsive",
-          "loss": "The access log grows continuously, which can slow down log parsing and consume significant disk space"
+          "description": "Sends a USR1 signal to the nginx master process (kill -USR1), forcing it to reopen its log file. This fixes cases where nginx loses access to the log file and stops writing to it.",
+          "gain": "Nginx reliably reattaches to the log file, ensuring download activity is captured correctly",
+          "loss": "If nginx has lost log access, new download activity will not be recorded until the next rotation run"
         },
         "cacheReconciliation": {
           "displayName": "Cache Reconciliation",
@@ -2872,37 +2872,37 @@
         },
         "gameDetection": {
           "displayName": "Game Detection",
-          "description": "Scans all cached files and uses depot mappings to detect which games are present in the cache, building the game list shown on the dashboard.",
-          "gain": "Newly downloaded games appear in the game list sooner after being cached",
+          "description": "Runs a Rust binary to scan cached files and map detected depots to games using Steam and Epic mappings. Supports incremental scans that skip already-detected games, and resolves previously unknown depot IDs when new mappings become available.",
+          "gain": "Newly downloaded games appear in the game list sooner, and previously unknown depots are resolved as new mappings arrive",
           "loss": "Games downloaded between scans won't show up in the game list until the next detection run"
         },
         "gameImageFetch": {
           "displayName": "Game Image Fetch",
-          "description": "Downloads banner and cover art images from Steam and Epic for any detected games that are missing artwork, so game cards display properly in the UI.",
-          "gain": "Game cards get their artwork faster, giving the dashboard a more polished appearance",
-          "loss": "Some game cards may display without cover art for longer until the next image fetch cycle"
+          "description": "Fetches header images from Steam and Epic for detected games that are missing artwork, and refreshes stale images older than 7 days. Uses a multi-CDN fallback strategy with parent app lookup for Steam.",
+          "gain": "Game cards get their artwork faster and stale images are kept up to date",
+          "loss": "Some game cards may display without artwork for longer until the next image fetch cycle"
         },
         "steamService": {
           "displayName": "Steam App Metadata",
-          "description": "Loads Steam app names and depot mappings from the local database into memory so the UI can display human-readable game titles. App data is sourced from PICS depot mapping scans.",
-          "gain": "In-memory game metadata is refreshed more often, picking up newly imported PICS data sooner",
-          "loss": "Newly imported PICS data may take longer to appear in the UI until the next metadata reload"
+          "description": "Loads Steam depot-to-app mappings from the database into an in-memory cache for fast lookup, and caches game metadata from the Steam Store API on demand. Depot data is sourced from PICS mapping scans.",
+          "gain": "Depot-to-app lookups stay fast and newly discovered PICS mappings are picked up sooner",
+          "loss": "Newly discovered PICS mappings may take longer to appear in depot lookups until the next reload"
         },
         "cacheSnapshot": {
           "displayName": "Cache Snapshots",
-          "description": "Records a point-in-time snapshot of the total cache size and file count, which is used to render the cache growth history chart on the dashboard.",
+          "description": "Records periodic snapshots of used cache size and total capacity, enabling the dashboard to show cache growth trends and historical utilization. Snapshots older than 90 days are automatically cleaned up.",
           "gain": "The cache growth chart has finer granularity, making it easier to spot trends and spikes",
           "loss": "The growth chart will have wider gaps between data points, making short-term trends harder to see"
         },
         "operationHistoryCleanup": {
           "displayName": "Operation History Cleanup",
-          "description": "Cleans up completed and expired cache clearing operation records. Actual cache clearing is triggered manually from the Cache Management page.",
-          "gain": "Stale operation records are cleaned up more frequently, keeping the operation history tidy",
-          "loss": "Completed operation records may linger longer before being cleaned up"
+          "description": "Removes completed cache clearing operation records older than 24 hours. Actual cache clearing is triggered manually from the Cache Management page.",
+          "gain": "Completed operation records are automatically cleaned up after 24 hours, keeping the history tidy",
+          "loss": "Operation records older than 24 hours are permanently removed and cannot be reviewed later"
         },
         "performanceOptimization": {
           "displayName": "Performance Optimizations",
-          "description": "Runs garbage collection on a schedule to keep the lancache-manager process memory footprint small. Enable it on the Performance Optimizations page in Settings to activate.",
+          "description": "Monitors memory usage on a schedule and triggers garbage collection only when the process working set exceeds a configurable threshold. Also clears database connection pools. Enable it on the Performance Optimizations page in Settings to activate.",
           "gain": "Memory usage stays lower and the UI feels snappier on memory-constrained hosts",
           "loss": "Brief CPU spikes during each collection pass can cause small pauses in background work"
         }
