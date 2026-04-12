@@ -10,6 +10,8 @@
 
 #![allow(dead_code)]
 
+use std::io::Write;
+
 use serde::Serialize;
 use uuid::Uuid;
 
@@ -94,6 +96,7 @@ impl ProgressReporter {
 
         if let Ok(json) = serde_json::to_string(&event) {
             println!("{}", json);
+            let _ = std::io::stdout().flush();
         }
     }
 
@@ -119,6 +122,7 @@ impl ProgressReporter {
 
         if let Ok(json) = serde_json::to_string(&event) {
             println!("{}", json);
+            let _ = std::io::stdout().flush();
         }
     }
 
@@ -144,6 +148,7 @@ impl ProgressReporter {
 
         if let Ok(json) = serde_json::to_string(&event) {
             println!("{}", json);
+            let _ = std::io::stdout().flush();
         }
     }
 
@@ -169,6 +174,7 @@ impl ProgressReporter {
 
         if let Ok(json) = serde_json::to_string(&event) {
             println!("{}", json);
+            let _ = std::io::stdout().flush();
         }
     }
 
@@ -194,6 +200,7 @@ impl ProgressReporter {
 
         if let Ok(json) = serde_json::to_string(&event) {
             println!("{}", json);
+            let _ = std::io::stdout().flush();
         }
     }
 }
