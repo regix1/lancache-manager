@@ -2894,9 +2894,9 @@
           "gain": "The cache growth chart has finer granularity, making it easier to spot trends and spikes",
           "loss": "The growth chart will have wider gaps between data points, making short-term trends harder to see"
         },
-        "cacheClearing": {
-          "displayName": "Cache Clearing",
-          "description": "Manages cache clearing operation history by cleaning up completed and expired operation records. Actual cache clearing is triggered manually from the Cache Management page.",
+        "operationHistoryCleanup": {
+          "displayName": "Operation History Cleanup",
+          "description": "Cleans up completed and expired cache clearing operation records. Actual cache clearing is triggered manually from the Cache Management page.",
           "gain": "Stale operation records are cleaned up more frequently, keeping the operation history tidy",
           "loss": "Completed operation records may linger longer before being cleaned up"
         },

@@ -15,7 +15,7 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         "gameImageFetch",
         "steamService",
         "cacheSnapshot",
-        "cacheClearing",
+        "operationHistoryCleanup",
         "logRotation"
     };
 

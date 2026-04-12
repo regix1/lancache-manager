@@ -389,6 +389,9 @@ builder.Services.AddSingletonHostedService<NginxLogRotationHostedService>();
 // Register CacheClearingService
 builder.Services.AddSingletonHostedService<CacheClearingService>();
 
+// Register OperationHistoryCleanupService (cleans up expired cache clear operation records)
+builder.Services.AddSingletonHostedService<OperationHistoryCleanupService>();
+
 // Register GameCacheDetectionService
 builder.Services.AddSingleton<GameCacheDetectionService>();
 

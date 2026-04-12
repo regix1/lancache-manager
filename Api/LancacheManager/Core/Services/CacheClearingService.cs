@@ -82,7 +82,6 @@ public class CacheClearingService : ScheduledBackgroundService
 
     protected override Task ExecuteWorkAsync(CancellationToken stoppingToken)
     {
-        CleanupOldOperations();
         return Task.CompletedTask;
     }
 
@@ -1049,33 +1048,6 @@ public class CacheClearingService : ScheduledBackgroundService
         }
     }
 
-    private void CleanupOldOperations()
-    {
-        try
-        {
-            var cutoff = DateTime.UtcNow.AddHours(-24);
-
-            // Clean up old operations from state service
-            var stateOps = _stateService.GetCacheClearOperations().ToList();
-            var toRemove = stateOps
-                .Where(op => op.EndTime.HasValue && op.EndTime.Value < cutoff)
-                .Select(op => op.Id)
-                .ToList();
-
-            if (toRemove.Count > 0)
-            {
-                foreach (var id in toRemove)
-                {
-                    _stateService.RemoveCacheClearOperation(id);
-                }
-                _logger.LogDebug("Cleaned up {Count} old cache clear operations from state", toRemove.Count);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error cleaning up old operations");
-        }
-    }
 }
 
 public class CacheClearProgress
