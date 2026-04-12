@@ -27,6 +27,10 @@ use crate::{log_discovery, service_utils};
 ///
 /// Returns `(lines_removed, permission_errors)`.
 ///
+/// An optional `on_file_processed` callback is invoked after each file completes,
+/// receiving `(files_processed_so_far, total_files)`. The callback must be
+/// `Send + Sync` because files are processed in parallel via rayon.
+///
 /// Safe to run against a live cache host: each target file is rewritten via a
 /// temp file in the same directory and then atomically persisted (or copy +
 /// delete fallback) so partially-written files are never observed.
@@ -34,6 +38,7 @@ pub(crate) fn remove_log_entries_for_game(
     log_dir: &Path,
     urls_to_remove: &HashSet<String>,
     valid_depot_ids: &HashSet<u32>,
+    on_file_processed: Option<&(dyn Fn(usize, usize) + Send + Sync)>,
 ) -> Result<(u64, usize)> {
     use rayon::prelude::*;
     use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
@@ -42,9 +47,11 @@ pub(crate) fn remove_log_entries_for_game(
 
     let parser = LogParser::new(chrono_tz::UTC);
     let log_files = log_discovery::discover_log_files(log_dir, "access.log")?;
+    let total_files = log_files.len();
 
     let total_lines_removed = AtomicU64::new(0);
     let permission_errors = AtomicUsize::new(0);
+    let files_done = AtomicUsize::new(0);
 
     // Process log files in parallel for faster removal
     log_files.par_iter().enumerate().for_each(|(file_index, log_file)| {
@@ -160,6 +167,12 @@ pub(crate) fn remove_log_entries_for_game(
                     eprintln!("  WARNING: Skipping file {}: {}", log_file.path.display(), e);
                 }
             }
+        }
+
+        // Report per-file progress to the caller (if callback provided)
+        if let Some(cb) = on_file_processed {
+            let done = files_done.fetch_add(1, Ordering::Relaxed) + 1;
+            cb(done, total_files);
         }
     });
 

@@ -157,9 +157,23 @@ fn run_purge(args: &Args, reporter: &ProgressReporter) -> Result<PurgeReport> {
         anyhow::bail!("Log directory does not exist: {}", args.log_dir);
     }
 
-    // Call the shared helper (same function used by cache_game_remove)
+    // Call the shared helper (same function used by cache_game_remove).
+    // Pass a progress callback that maps per-file completion into the 15%-95% range
+    // so the C# stdout reader sees granular progress between the existing ticks.
+    let progress_cb = |files_done: usize, total_files: usize| {
+        if total_files > 0 {
+            let fraction = files_done as f64 / total_files as f64;
+            // Map into [15, 95) — the gap between the "purging" and "rewrote" ticks
+            let mapped = 15.0 + fraction * 80.0;
+            reporter.emit_progress(
+                mapped,
+                "signalr.logPurge.purging",
+                json!({ "urlCount": url_count, "depotCount": depot_count, "filesProcessed": files_done, "totalFiles": total_files }),
+            );
+        }
+    };
     let (lines_removed, permission_errors) =
-        remove_log_entries_for_game(log_dir_path, &urls, &depot_ids)
+        remove_log_entries_for_game(log_dir_path, &urls, &depot_ids, Some(&progress_cb))
             .context("remove_log_entries_for_game failed")?;
 
     reporter.emit_progress(
