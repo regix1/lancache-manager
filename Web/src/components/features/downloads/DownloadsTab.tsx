@@ -1283,10 +1283,10 @@ const DownloadsTab: React.FC = () => {
         {/* Skeleton Controls */}
         <Card padding="sm" className="animate-pulse">
           <div className="flex flex-col gap-3">
-            <div className="flex gap-2">
-              <div className="h-10 bg-[var(--theme-bg-tertiary)] rounded w-40"></div>
-              <div className="h-10 bg-[var(--theme-bg-tertiary)] rounded w-32"></div>
-              <div className="h-10 bg-[var(--theme-bg-tertiary)] rounded w-40"></div>
+            <div className="flex flex-wrap gap-2">
+              <div className="h-10 bg-[var(--theme-bg-tertiary)] rounded w-full sm:w-40"></div>
+              <div className="h-10 bg-[var(--theme-bg-tertiary)] rounded flex-1 sm:flex-initial sm:w-32 min-w-0"></div>
+              <div className="h-10 bg-[var(--theme-bg-tertiary)] rounded flex-1 sm:flex-initial sm:w-40 min-w-0"></div>
             </div>
           </div>
         </Card>

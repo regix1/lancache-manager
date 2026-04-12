@@ -349,14 +349,14 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
           if (batchResponse.cacheSnapshot !== null && batchResponse.cacheSnapshot !== undefined) {
             setCacheSnapshot(batchResponse.cacheSnapshot);
           }
-          setError(null);
-          // Always clear loading when fetch completes — showLoading only controls
-          // whether loading is SET to true, not whether it's cleared. This prevents
-          // a race where one call sets loading=true but a superseding call with
-          // showLoading=false never clears it (e.g. auth transition triggers both
-          // the initial load effect and the time range change effect simultaneously).
-          setLoading(false);
         });
+
+        // Clear loading/error URGENTLY (outside startTransition) so the skeleton
+        // disappears immediately. Keeping these inside the transition made them
+        // non-urgent, which on slow mobile CPUs could leave widgets stuck showing
+        // skeletons when a higher-priority render interrupted the transition.
+        setError(null);
+        setLoading(false);
 
         // Write to in-memory cache and IndexedDB (fire-and-forget)
         if (batchResponse.cache) {
@@ -392,11 +392,24 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         // Only the requestId guard on STATE UPDATES (above) prevents stale data.
         // Flags must always reset or subsequent fetches get permanently blocked.
         const wasSuperseded = currentRequestIdRef.current !== thisRequestId;
-        if (isInitial && !wasSuperseded) {
+        // Clear initial-load flag unconditionally for any initial request. If this
+        // request was superseded, the superseding request has taken over — we're
+        // no longer in "initial loading" state either way. Leaving this flag stuck
+        // at true would break the time-range change effect (which gates fetches on
+        // `!isInitialLoad.current`), forcing the user to manually refresh.
+        if (isInitial) {
           isInitialLoad.current = false;
         }
         fetchInProgress.current = false;
         setIsRefreshing(false);
+        // Safety net: if we're the latest request but the try/catch returned early
+        // without clearing loading (e.g., the requestId check at line 276 returned
+        // AFTER a rapid re-entry where currentRequestIdRef already bumped past us),
+        // ensure loading doesn't get stuck. Idempotent with the urgent setLoading(false)
+        // above — no flicker.
+        if (!wasSuperseded) {
+          setLoading(false);
+        }
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
