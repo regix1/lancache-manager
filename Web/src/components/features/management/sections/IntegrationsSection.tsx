@@ -47,37 +47,31 @@ const IntegrationsSection: React.FC<IntegrationsSectionProps> = ({
         </p>
       </div>
 
-      <div className="space-y-4">
-        {/* Steam Integration */}
+      <div className="space-y-6">
+        {/* Steam Integration - side by side grid */}
         <HighlightGlow enabled={highlightSteamApi}>
-          <Card className="integrations-platform-card">
-            <div className="integrations-split">
-              <SteamLoginManager
-                authMode={authMode}
-                mockMode={mockMode}
-                onError={onError}
-                onSuccess={onSuccess}
-              />
-              <div className="integrations-split-divider" />
-              <SteamWebApiStatus steamAuthMode={steamAuthMode} />
-            </div>
-          </Card>
+          <div className="integrations-grid">
+            <SteamLoginManager
+              authMode={authMode}
+              mockMode={mockMode}
+              onError={onError}
+              onSuccess={onSuccess}
+            />
+            <SteamWebApiStatus steamAuthMode={steamAuthMode} />
+          </div>
         </HighlightGlow>
 
-        {/* Epic Integration */}
+        {/* Epic Integration - stacked (auth is compact, library needs full width) */}
         <HighlightGlow enabled={highlightEpic}>
-          <Card className="integrations-platform-card">
-            <div className="integrations-split">
-              <EpicDaemonStatus
-                authMode={authMode}
-                mockMode={mockMode}
-                onError={onError}
-                onSuccess={onSuccess}
-              />
-              <div className="integrations-split-divider" />
-              <EpicGameMappings />
-            </div>
-          </Card>
+          <div className="space-y-4">
+            <EpicDaemonStatus
+              authMode={authMode}
+              mockMode={mockMode}
+              onError={onError}
+              onSuccess={onSuccess}
+            />
+            <EpicGameMappings />
+          </div>
         </HighlightGlow>
 
         {/* Grafana - monitoring */}

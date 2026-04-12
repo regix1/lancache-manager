@@ -185,6 +185,20 @@
   border: 1px solid var(--theme-text-secondary-muted);
 }
 
+/* Integration sections - responsive grid layout (replaces merged split cards) */
+.integrations-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  align-items: stretch;
+}
+
+@media (max-width: 1023px) {
+  .integrations-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Mobile tab scrollbar styling - thin and subtle */
 @media (max-width: 768px) {
   .management-nav-container .custom-scrollbar::-webkit-scrollbar {
