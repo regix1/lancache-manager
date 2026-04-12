@@ -20,14 +20,20 @@ public class GcController : ControllerBase
     private readonly SettingsService _gcSettingsService;
     private readonly IMemoryManager _memoryManager;
     private readonly ILogger<GcController> _logger;
+    private readonly IServiceScheduleRegistry _scheduleRegistry;
     private static DateTime _lastGcTriggerTime = DateTime.MinValue;
     private static readonly object _gcTriggerLock = new object();
 
-    public GcController(SettingsService gcSettingsService, IMemoryManager memoryManager, ILogger<GcController> logger)
+    public GcController(
+        SettingsService gcSettingsService,
+        IMemoryManager memoryManager,
+        ILogger<GcController> logger,
+        IServiceScheduleRegistry scheduleRegistry)
     {
         _gcSettingsService = gcSettingsService;
         _memoryManager = memoryManager;
         _logger = logger;
+        _scheduleRegistry = scheduleRegistry;
     }
 
     [HttpGet("settings")]
@@ -36,7 +42,7 @@ public class GcController : ControllerBase
         var settings = _gcSettingsService.GetSettings();
         return Ok(new GcSettingsResponse
         {
-            Aggressiveness = settings.Aggressiveness.ToString().ToLower(),
+            Enabled = settings.Enabled,
             MemoryThresholdMB = settings.MemoryThresholdMB
         });
     }
@@ -44,27 +50,49 @@ public class GcController : ControllerBase
     [HttpPut("settings")]
     public async Task<IActionResult> UpdateSettingsAsync([FromBody] UpdateGcSettingsRequest request)
     {
-        if (!Enum.TryParse<GcAggressiveness>(request.Aggressiveness, true, out var aggressiveness))
-        {
-            return BadRequest(new ErrorResponse { Error = "Invalid aggressiveness level" });
-        }
-
         if (request.MemoryThresholdMB < 512 || request.MemoryThresholdMB > 32768)
         {
             return BadRequest(new ErrorResponse { Error = "Memory threshold must be between 512MB and 32GB" });
         }
 
+        // Resolve the Enabled flag. Prefer the new field; fall back to the legacy
+        // Aggressiveness string for one release of backward compat with older frontends.
+        bool enabled;
+        if (request.Enabled.HasValue)
+        {
+            enabled = request.Enabled.Value;
+        }
+        else if (!string.IsNullOrEmpty(request.Aggressiveness))
+        {
+#pragma warning disable CS0618 // Type or member is obsolete — legacy DTO compat path
+            if (!Enum.TryParse<GcAggressiveness>(request.Aggressiveness, true, out var aggressiveness))
+            {
+                return BadRequest(new ErrorResponse { Error = "Invalid aggressiveness level" });
+            }
+            enabled = aggressiveness != GcAggressiveness.Disabled;
+#pragma warning restore CS0618
+        }
+        else
+        {
+            enabled = false;
+        }
+
         var newSettings = new GcSettings
         {
-            Aggressiveness = aggressiveness,
+            Enabled = enabled,
             MemoryThresholdMB = request.MemoryThresholdMB
         };
 
         var updatedSettings = await _gcSettingsService.UpdateSettingsAsync(newSettings);
 
+        // Broadcast so the Schedules page shows/hides the performanceOptimization card
+        // as soon as the Enabled flag flips. Interval changes flow through the standard
+        // ServiceScheduleRegistry.SetInterval path, not from here.
+        _scheduleRegistry.NotifySchedulesChanged();
+
         return Ok(new GcSettingsResponse
         {
-            Aggressiveness = updatedSettings.Aggressiveness.ToString().ToLower(),
+            Enabled = updatedSettings.Enabled,
             MemoryThresholdMB = updatedSettings.MemoryThresholdMB,
             Message = "GC settings updated successfully"
         });

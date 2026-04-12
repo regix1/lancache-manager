@@ -62,17 +62,47 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         }
     }
 
+    public void NotifySchedulesChanged()
+    {
+        // Re-use the same fire-and-forget SignalR broadcast path as work-completed ticks
+        // so conditional-visibility changes (e.g. GC Aggressiveness flip) propagate to the
+        // Schedules UI without a page reload. Any error is swallowed — matches existing pattern.
+        _ = BroadcastSchedulesUpdatedAsync();
+    }
+
+    private async Task BroadcastSchedulesUpdatedAsync()
+    {
+        try
+        {
+            await _hubContext.Clients.All.SendAsync("SchedulesUpdated", GetAll());
+        }
+        catch
+        {
+            // Non-fatal — SignalR broadcast failure should not affect service execution
+        }
+    }
+
     public IReadOnlyList<ServiceScheduleInfo> GetAll()
     {
         var results = new List<ServiceScheduleInfo>();
 
         foreach (var service in _scheduledServices.Values)
         {
+            if (service is IConditionallyVisibleSchedule scheduledVisibility && !scheduledVisibility.IsScheduleVisible())
+            {
+                continue;
+            }
+
             results.Add(MapScheduledService(service));
         }
 
         foreach (var service in _configurableServices.Values)
         {
+            if (service is IConditionallyVisibleSchedule configurableVisibility && !configurableVisibility.IsScheduleVisible())
+            {
+                continue;
+            }
+
             results.Add(MapConfigurableService(service));
         }
 
@@ -83,11 +113,21 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
     {
         if (_scheduledServices.TryGetValue(serviceKey, out var scheduled))
         {
+            if (scheduled is IConditionallyVisibleSchedule scheduledVisibility && !scheduledVisibility.IsScheduleVisible())
+            {
+                return null;
+            }
+
             return MapScheduledService(scheduled);
         }
 
         if (_configurableServices.TryGetValue(serviceKey, out var configurable))
         {
+            if (configurable is IConditionallyVisibleSchedule configurableVisibility && !configurableVisibility.IsScheduleVisible())
+            {
+                return null;
+            }
+
             return MapConfigurableService(configurable);
         }
 

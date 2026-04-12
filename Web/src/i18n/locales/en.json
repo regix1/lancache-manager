@@ -2764,10 +2764,10 @@
       }
     },
     "gc": {
-      "collectionFrequency": "Collection Frequency",
+      "statusSection": "Status",
+      "enabledLabel": "Enable automatic garbage collection",
+      "enabledDesc": "When enabled, the Performance Optimizations service runs on the interval configured on the Schedules page and cleans up memory when the threshold is exceeded.",
       "memorySettings": "Memory Settings",
-      "aggressivenessLabel": "Aggressiveness",
-      "aggressivenessDesc": "How often the system checks and cleans memory",
       "thresholdLabel": "Threshold",
       "thresholdDesc": "Memory limit that triggers cleanup when exceeded",
       "actions": "Actions",
@@ -2784,25 +2784,7 @@
       "after": "After",
       "freed": "Freed",
       "cooldown": "Cooldown",
-      "remaining": "remaining",
-      "aggressiveness": {
-        "disabled": "Disabled",
-        "disabledDesc": "Memory cleaned by .NET runtime only",
-        "onPageLoad": "On Page Load",
-        "onPageLoadDesc": "Recommended for most users",
-        "every60min": "Every 60 Minutes",
-        "every60minDesc": "Minimal performance impact",
-        "every60sec": "Every 60 Seconds",
-        "every60secDesc": "Low frequency cleanup",
-        "every30sec": "Every 30 Seconds",
-        "every30secDesc": "Balanced management",
-        "every10sec": "Every 10 Seconds",
-        "every10secDesc": "Frequent cleanup",
-        "every5sec": "Every 5 Seconds",
-        "every5secDesc": "Aggressive cleanup",
-        "every1sec": "Every 1 Second",
-        "every1secDesc": "Very aggressive"
-      }
+      "remaining": "remaining"
     },
     "fileBrowser": {
       "home": "Home",
@@ -2917,6 +2899,12 @@
           "description": "Evaluates and enforces the configured cache clearing rules — such as maximum cache size or file age limits — by removing the oldest or largest items as needed.",
           "gain": "Cache size and age limits are enforced more promptly, keeping disk usage within bounds",
           "loss": "The cache may temporarily exceed configured size or age limits between clearing runs"
+        },
+        "performanceOptimization": {
+          "displayName": "Performance Optimizations",
+          "description": "Runs garbage collection on a schedule to keep the lancache-manager process memory footprint small. Enable it on the Performance Optimizations page in Settings to activate.",
+          "gain": "Memory usage stays lower and the UI feels snappier on memory-constrained hosts",
+          "loss": "Brief CPU spikes during each collection pass can cause small pauses in background work"
         }
       }
     },
@@ -3361,10 +3349,6 @@
         }
       },
       "threads": {
-        "auto": {
-          "label": "Auto (30)",
-          "description": "Recommended for most setups"
-        },
         "1": {
           "label": "1",
           "description": "Single connection"
@@ -3400,6 +3384,10 @@
         "256": {
           "label": "256",
           "description": "256 concurrent connections"
+        },
+        "auto": {
+          "label": "Auto (30)",
+          "description": "Recommended for most setups"
         }
       }
     },
@@ -5369,7 +5357,7 @@
     },
     "depotMapping": {
       "batchProgress": "{{processedBatches}} / {{totalBatches}} batches",
-      "batchProgressWithMappings": "{{processedBatches}} / {{totalBatches}} batches \u2022 {{depotMappingsFound}} mappings found",
+      "batchProgressWithMappings": "{{processedBatches}} / {{totalBatches}} batches • {{depotMappingsFound}} mappings found",
       "github": {
         "downloading": "Downloading depot mappings from GitHub...",
         "complete": "GitHub depot data imported — {{totalMappings}} mappings",

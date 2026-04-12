@@ -54,8 +54,8 @@ public class SettingsService : ISettingsService
         // Save to file
         await SaveSettingsAsync(newSettings);
 
-        _logger.LogInformation("GC settings updated: Aggressiveness={Aggressiveness}, ThresholdMB={ThresholdMB}",
-            newSettings.Aggressiveness, newSettings.MemoryThresholdMB);
+        _logger.LogInformation("GC settings updated: Enabled={Enabled}, ThresholdMB={ThresholdMB}",
+            newSettings.Enabled, newSettings.MemoryThresholdMB);
 
         return newSettings;
     }
@@ -70,8 +70,34 @@ public class SettingsService : ISettingsService
                 var settings = JsonSerializer.Deserialize<GcSettings>(json);
                 if (settings != null)
                 {
-                    _logger.LogInformation("Loaded GC settings: Aggressiveness={Aggressiveness}, ThresholdMB={ThresholdMB}",
-                        settings.Aggressiveness, settings.MemoryThresholdMB);
+                    // One-time legacy migration: pre-Option-B gc-settings.json files store
+                    // Aggressiveness only. If we find such a file (Enabled default-false but
+                    // a non-Disabled legacy Aggressiveness), flip Enabled=true and persist.
+                    // Idempotent on re-read because after save the legacy field is serialized
+                    // alongside Enabled=true and the branch condition is false next time.
+#pragma warning disable CS0618 // Type or member is obsolete — migration path only
+                    if (!settings.Enabled && settings.Aggressiveness != GcAggressiveness.Disabled)
+                    {
+                        _logger.LogInformation(
+                            "Migrating legacy GC settings: Aggressiveness={Aggressiveness} -> Enabled=true, ThresholdMB={ThresholdMB}",
+                            settings.Aggressiveness, settings.MemoryThresholdMB);
+                        settings.Enabled = true;
+                        // Persist migrated shape synchronously so subsequent reads see the
+                        // normalized form. We're inside the ctor path, so fire-and-forget
+                        // with .GetAwaiter().GetResult() is acceptable here.
+                        try
+                        {
+                            SaveSettingsAsync(settings).GetAwaiter().GetResult();
+                        }
+                        catch (Exception saveEx)
+                        {
+                            _logger.LogWarning(saveEx, "Failed to persist migrated GC settings; will retry on next update");
+                        }
+                    }
+#pragma warning restore CS0618
+
+                    _logger.LogInformation("Loaded GC settings: Enabled={Enabled}, ThresholdMB={ThresholdMB}",
+                        settings.Enabled, settings.MemoryThresholdMB);
                     return settings;
                 }
             }
@@ -96,28 +122,5 @@ public class SettingsService : ISettingsService
             _logger.LogError(ex, "Failed to save GC settings");
             throw;
         }
-    }
-
-    public (long thresholdBytes, TimeSpan minTimeBetweenChecks, bool onPageLoadOnly, bool disabled) GetComputedSettings()
-    {
-        var settings = GetSettings();
-        var thresholdBytes = settings.MemoryThresholdMB * 1024L * 1024L;
-        var onPageLoadOnly = settings.Aggressiveness == GcAggressiveness.OnPageLoad;
-        var disabled = settings.Aggressiveness == GcAggressiveness.Disabled;
-
-        var minTimeBetweenChecks = settings.Aggressiveness switch
-        {
-            GcAggressiveness.Disabled => TimeSpan.MaxValue,
-            GcAggressiveness.OnPageLoad => TimeSpan.FromSeconds(5), // Cooldown period to prevent spam
-            GcAggressiveness.Every60Minutes => TimeSpan.FromMinutes(60),
-            GcAggressiveness.Every60Seconds => TimeSpan.FromSeconds(60),
-            GcAggressiveness.Every30Seconds => TimeSpan.FromSeconds(30),
-            GcAggressiveness.Every10Seconds => TimeSpan.FromSeconds(10),
-            GcAggressiveness.Every5Seconds => TimeSpan.FromSeconds(5),
-            GcAggressiveness.Every1Second => TimeSpan.FromSeconds(1),
-            _ => TimeSpan.FromSeconds(5)
-        };
-
-        return (thresholdBytes, minTimeBetweenChecks, onPageLoadOnly, disabled);
     }
 }

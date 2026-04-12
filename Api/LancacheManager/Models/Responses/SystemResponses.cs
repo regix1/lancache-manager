@@ -171,7 +171,7 @@ public class RefreshRateResponse
 /// </summary>
 public class GcSettingsResponse
 {
-    public string Aggressiveness { get; set; } = "disabled";
+    public bool Enabled { get; set; }
     public long MemoryThresholdMB { get; set; }
     public string? Message { get; set; }
 }

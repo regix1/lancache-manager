@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Cpu, Save, Play, Gauge, HardDrive } from 'lucide-react';
+import { Cpu, Save, Play, Power, HardDrive } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Alert } from '@components/ui/Alert';
 import { Button } from '@components/ui/Button';
+import { Checkbox } from '@components/ui/Checkbox';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useNotifications } from '@contexts/notifications';
@@ -10,7 +11,7 @@ import { API_BASE } from '@utils/constants';
 import ApiService from '@services/api.service';
 
 interface GcSettings {
-  aggressiveness: string;
+  enabled: boolean;
   memoryThresholdMB: number;
 }
 
@@ -30,26 +31,25 @@ interface GcManagerProps {
 
 // Fetch GC settings
 const fetchGcSettings = async (): Promise<GcSettings> => {
+  const fallback: GcSettings = { enabled: false, memoryThresholdMB: 4096 };
   try {
     const response = await fetch(`${API_BASE}/gc/settings`, ApiService.getFetchOptions());
     if (response.ok) {
       const data = await response.json();
-      return data;
+      // Backend normalizes legacy settings via one-time migration, so we only read `enabled`.
+      const enabled = typeof data?.enabled === 'boolean' ? data.enabled : false;
+      const memoryThresholdMB =
+        typeof data?.memoryThresholdMB === 'number' ? data.memoryThresholdMB : 4096;
+      return { enabled, memoryThresholdMB };
     } else if (response.status === 404) {
       // GC feature is disabled on backend, return default settings
-      return {
-        aggressiveness: 'disabled',
-        memoryThresholdMB: 4096
-      };
+      return fallback;
     } else {
       throw new Error('Failed to load GC settings');
     }
   } catch (err) {
     console.error('[GcManager] Failed to load settings:', err);
-    return {
-      aggressiveness: 'disabled',
-      memoryThresholdMB: 4096
-    };
+    return fallback;
   }
 };
 
@@ -101,49 +101,6 @@ const GcManager: React.FC<GcManagerProps> = ({ isAdmin }) => {
   const { addNotification } = useNotifications();
   const [loading, setLoading] = useState(true);
 
-  const aggressivenessOptions: DropdownOption[] = [
-    {
-      value: 'disabled',
-      label: t('management.gc.aggressiveness.disabled'),
-      description: t('management.gc.aggressiveness.disabledDesc')
-    },
-    {
-      value: 'onpageload',
-      label: t('management.gc.aggressiveness.onPageLoad'),
-      description: t('management.gc.aggressiveness.onPageLoadDesc')
-    },
-    {
-      value: 'every60minutes',
-      label: t('management.gc.aggressiveness.every60min'),
-      description: t('management.gc.aggressiveness.every60minDesc')
-    },
-    {
-      value: 'every60seconds',
-      label: t('management.gc.aggressiveness.every60sec'),
-      description: t('management.gc.aggressiveness.every60secDesc')
-    },
-    {
-      value: 'every30seconds',
-      label: t('management.gc.aggressiveness.every30sec'),
-      description: t('management.gc.aggressiveness.every30secDesc')
-    },
-    {
-      value: 'every10seconds',
-      label: t('management.gc.aggressiveness.every10sec'),
-      description: t('management.gc.aggressiveness.every10secDesc')
-    },
-    {
-      value: 'every5seconds',
-      label: t('management.gc.aggressiveness.every5sec'),
-      description: t('management.gc.aggressiveness.every5secDesc')
-    },
-    {
-      value: 'every1second',
-      label: t('management.gc.aggressiveness.every1sec'),
-      description: t('management.gc.aggressiveness.every1secDesc')
-    }
-  ];
-
   const memoryThresholdOptions: DropdownOption[] = [
     { value: '2048', label: '2 GB' },
     { value: '3072', label: '3 GB' },
@@ -157,7 +114,7 @@ const GcManager: React.FC<GcManagerProps> = ({ isAdmin }) => {
   ];
 
   const [settings, setSettings] = useState<GcSettings>({
-    aggressiveness: 'disabled',
+    enabled: false,
     memoryThresholdMB: 4096
   });
   const [saving, setSaving] = useState(false);
@@ -186,13 +143,21 @@ const GcManager: React.FC<GcManagerProps> = ({ isAdmin }) => {
         ApiService.getFetchOptions({
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(settings)
+          body: JSON.stringify({
+            enabled: settings.enabled,
+            memoryThresholdMB: settings.memoryThresholdMB
+          })
         })
       );
 
       if (response.ok) {
         const data = await response.json();
-        setSettings(data);
+        const enabled = typeof data?.enabled === 'boolean' ? data.enabled : settings.enabled;
+        const memoryThresholdMB =
+          typeof data?.memoryThresholdMB === 'number'
+            ? data.memoryThresholdMB
+            : settings.memoryThresholdMB;
+        setSettings({ enabled, memoryThresholdMB });
         addNotification({
           type: 'generic',
           status: 'completed',
@@ -216,8 +181,9 @@ const GcManager: React.FC<GcManagerProps> = ({ isAdmin }) => {
     }
   };
 
-  const handleAggressivenessChange = (value: string) => {
-    setSettings((prev) => ({ ...prev, aggressiveness: value }));
+  const handleEnabledChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const next = event.target.checked;
+    setSettings((prev) => ({ ...prev, enabled: next }));
     setHasChanges(true);
   };
 
@@ -266,7 +232,7 @@ const GcManager: React.FC<GcManagerProps> = ({ isAdmin }) => {
   }
 
   return (
-    <div className="space-y-4 pb-32">
+    <div className="space-y-4">
       {/* Trigger Result Alert */}
       {triggerResult && (
         <Alert color={triggerResult.skipped ? 'yellow' : 'green'}>
@@ -296,25 +262,32 @@ const GcManager: React.FC<GcManagerProps> = ({ isAdmin }) => {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Collection Frequency */}
+        {/* Status — Enable toggle */}
         <SettingSection
-          icon={Gauge}
-          title={t('management.gc.collectionFrequency')}
+          icon={Power}
+          title={t('management.gc.statusSection')}
           iconColorVar="--theme-icon-green"
         >
-          <SettingRow
-            label={t('management.gc.aggressivenessLabel')}
-            description={t('management.gc.aggressivenessDesc')}
+          <label
+            htmlFor="gc-enabled"
+            className={`flex items-start gap-3 ${
+              !isAdmin || saving ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'
+            }`}
           >
-            <EnhancedDropdown
-              variant="button"
-              options={aggressivenessOptions}
-              value={settings.aggressiveness}
-              onChange={handleAggressivenessChange}
+            <Checkbox
+              id="gc-enabled"
+              checked={settings.enabled}
+              onChange={handleEnabledChange}
               disabled={!isAdmin || saving}
-              className="w-full"
+              className="mt-0.5 flex-shrink-0"
             />
-          </SettingRow>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-themed-primary">
+                {t('management.gc.enabledLabel')}
+              </p>
+              <p className="text-xs mt-0.5 text-themed-muted">{t('management.gc.enabledDesc')}</p>
+            </div>
+          </label>
         </SettingSection>
 
         {/* Memory Settings */}

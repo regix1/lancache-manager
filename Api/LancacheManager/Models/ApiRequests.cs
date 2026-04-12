@@ -89,7 +89,21 @@ public class UpdateEventRequest
 
 public class UpdateGcSettingsRequest
 {
-    public string Aggressiveness { get; set; } = "disabled";
+    /// <summary>
+    /// New-style flag: when true, the scheduled Performance Optimizations service runs
+    /// on its Schedules-page interval. When nullable-null, the controller falls back to
+    /// interpreting the legacy <see cref="Aggressiveness"/> field for one release of
+    /// backward compat.
+    /// </summary>
+    public bool? Enabled { get; set; }
+
+    /// <summary>
+    /// Legacy field. Older frontends send this as "disabled" / "every60minutes" / etc.
+    /// Retained so an in-flight client mid-deploy keeps working. New code should ignore
+    /// this value and read <see cref="Enabled"/> instead.
+    /// </summary>
+    public string? Aggressiveness { get; set; }
+
     public long MemoryThresholdMB { get; set; } = 4096;
 }
 

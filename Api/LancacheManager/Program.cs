@@ -416,6 +416,12 @@ builder.Services.AddSingleton<EpicAuthStorageService>();
 // Register unified EpicMappingService for game discovery, mapping, and scheduling
 builder.Services.AddSingletonHostedService<EpicMappingService>();
 
+// Register GcScheduledService — runs on a user-configurable interval (managed through the
+// unified Schedules page) and performs aggressive GC when the working set exceeds the
+// configured threshold. Surfaces on the unified Schedules page as "performanceOptimization"
+// only when IsScheduleVisible() returns true.
+builder.Services.AddSingletonHostedService<GcScheduledService>();
+
 // Register OperationStateService
 builder.Services.AddSingletonHostedService<OperationStateService>();
 
@@ -604,8 +610,8 @@ app.UseWhen(
 // Global exception handler - must run early to catch all exceptions
 app.UseGlobalExceptionHandler();
 
-// GC Middleware - must run BEFORE static files to catch all requests
-app.UseMiddleware<GcMiddleware>();
+// GC management now runs as a scheduled BackgroundService (GcScheduledService) rather than
+// a request-pipeline middleware — see Infrastructure/Services/GcScheduledService.cs.
 
 // Serve static files (UseDefaultFiles rewrites / to /index.html for faster static serving)
 app.UseDefaultFiles();
