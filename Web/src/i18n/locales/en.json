@@ -2884,9 +2884,9 @@
         },
         "steamService": {
           "displayName": "Steam App Metadata",
-          "description": "Refreshes game names, app types, and other metadata from the Steam Web API so that depot IDs in the cache can be displayed with human-readable game titles.",
-          "gain": "Game name changes on Steam (renames, delisted titles) are reflected in the UI faster",
-          "loss": "Games that were renamed or delisted on Steam may show outdated names until the next metadata refresh"
+          "description": "Loads Steam app names and depot mappings from the local database into memory so the UI can display human-readable game titles. App data is sourced from PICS depot mapping scans.",
+          "gain": "In-memory game metadata is refreshed more often, picking up newly imported PICS data sooner",
+          "loss": "Newly imported PICS data may take longer to appear in the UI until the next metadata reload"
         },
         "cacheSnapshot": {
           "displayName": "Cache Snapshots",
@@ -2896,9 +2896,9 @@
         },
         "cacheClearing": {
           "displayName": "Cache Clearing",
-          "description": "Evaluates and enforces the configured cache clearing rules — such as maximum cache size or file age limits — by removing the oldest or largest items as needed.",
-          "gain": "Cache size and age limits are enforced more promptly, keeping disk usage within bounds",
-          "loss": "The cache may temporarily exceed configured size or age limits between clearing runs"
+          "description": "Manages cache clearing operation history by cleaning up completed and expired operation records. Actual cache clearing is triggered manually from the Cache Management page.",
+          "gain": "Stale operation records are cleaned up more frequently, keeping the operation history tidy",
+          "loss": "Completed operation records may linger longer before being cleaned up"
         },
         "performanceOptimization": {
           "displayName": "Performance Optimizations",
