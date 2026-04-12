@@ -1396,7 +1396,11 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             int datasourcesProcessed = 0;
             int datasourcesFailed = 0;
 
-            foreach (var datasource in _datasourceService.GetDatasources())
+            var allDatasources = _datasourceService.GetDatasources().ToList();
+            var totalDatasources = Math.Max(1, allDatasources.Count);
+            var dsIndex = 0;
+
+            foreach (var datasource in allDatasources)
             {
                 if (stoppingToken.IsCancellationRequested) break;
 
@@ -1406,13 +1410,14 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     _logger.LogDebug(
                         "[EvictedLogPurge] Skipping datasource '{Datasource}': log dir '{LogPath}' does not exist",
                         datasource.Name, dsLogPath);
+                    dsIndex++;
                     continue;
                 }
 
                 var outputJsonPath = Path.Combine(operationsDir,
                     $"evicted_entity_log_purge_output_{datasource.Name}_{timestamp}.json");
 
-                var args = $"\"{dsLogPath}\" \"{inputJsonPath}\" \"{outputJsonPath}\"";
+                var args = $"\"{dsLogPath}\" \"{inputJsonPath}\" \"{outputJsonPath}\" --progress";
                 var startInfo = _rustProcessHelper.CreateProcessStartInfo(rustBinaryPath, args);
 
                 _logger.LogInformation(
@@ -1421,14 +1426,56 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
                 try
                 {
-                    var result = await _rustProcessHelper.ExecuteProcessAsync(startInfo, stoppingToken);
+                    // Launch process and read stdout line-by-line for real-time progress
+                    using var process = Process.Start(startInfo);
+                    if (process == null)
+                        throw new InvalidOperationException($"Failed to start cache_purge_log_entries for datasource '{datasource.Name}'");
 
-                    if (result.ExitCode != 0)
+                    // Read stdout line-by-line to capture progress events in real-time
+                    var stderrTask = process.StandardError.ReadToEndAsync(stoppingToken);
+                    var progressOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+
+                    string? line;
+                    while ((line = await process.StandardOutput.ReadLineAsync(stoppingToken)) != null)
+                    {
+                        stoppingToken.ThrowIfCancellationRequested();
+                        if (string.IsNullOrWhiteSpace(line)) continue;
+
+                        try
+                        {
+                            var progressEvent = JsonSerializer.Deserialize<PurgeLogProgressEvent>(line, progressOptions);
+                            if (progressEvent?.Event == "progress" && progressEvent.PercentComplete.HasValue)
+                            {
+                                // Map Rust binary's 0-100% into the per-datasource sub-range of the entity purge step.
+                                // The caller sets 10% before calling us and 25% after, so purge maps into 10-25%.
+                                // Within that 15% range, each datasource gets an equal slice.
+                                var dsSliceStart = 10.0 + (15.0 * dsIndex / totalDatasources);
+                                var dsSliceSize = 15.0 / totalDatasources;
+                                var mappedPercent = dsSliceStart + (progressEvent.PercentComplete.Value / 100.0) * dsSliceSize;
+
+                                _operationTracker.UpdateProgress(operationId, mappedPercent, "signalr.evictionRemove.purgingLogs");
+                                await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
+                                    new EvictionRemovalProgress(operationId, "purging_log_entries",
+                                        "signalr.evictionRemove.purgingLogs", mappedPercent, 0, 0,
+                                        new Dictionary<string, object?> { ["count"] = urls.Count + depotIds.Count, ["datasource"] = datasource.Name }));
+                            }
+                        }
+                        catch (JsonException)
+                        {
+                            // Non-JSON stdout line — ignore (e.g. plain text log output)
+                        }
+                    }
+
+                    await process.WaitForExitAsync(stoppingToken);
+                    var stderr = await stderrTask;
+
+                    if (process.ExitCode != 0)
                     {
                         datasourcesFailed++;
                         _logger.LogWarning(
                             "[EvictedLogPurge] cache_purge_log_entries exited {Code} for datasource '{Datasource}'. stderr: {Err}",
-                            result.ExitCode, datasource.Name, result.Error);
+                            process.ExitCode, datasource.Name, stderr);
+                        dsIndex++;
                         continue;
                     }
 
@@ -1461,6 +1508,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         "[EvictedLogPurge] Failed to run cache_purge_log_entries for datasource '{Datasource}' — DB deletes will still proceed",
                         datasource.Name);
                 }
+
+                dsIndex++;
             }
 
             _logger.LogInformation(
