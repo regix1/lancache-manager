@@ -1,0 +1,86 @@
+/* Pagination — styles for 'group' and 'inline' variants (merged from former GroupPagination). */
+
+.pagination-group {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  padding-top: 0.5rem;
+}
+
+.pagination-group__btn {
+  padding: 0.375rem;
+  border-radius: 9999px;
+  background-color: transparent;
+  color: var(--theme-text-primary);
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease,
+    opacity 150ms ease;
+}
+
+.pagination-group__btn:hover:not(:disabled) {
+  background-color: var(--theme-bg-tertiary);
+}
+
+.pagination-group__btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.pagination-group__label {
+  font-size: 0.75rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 500;
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+  color: var(--theme-text-secondary);
+}
+
+.pagination-inline {
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+  justify-content: flex-start;
+}
+
+.pagination-inline__btn {
+  padding: 0.125rem;
+  border-radius: 0.25rem;
+  background-color: transparent;
+  color: var(--theme-text-secondary);
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease,
+    opacity 150ms ease;
+}
+
+.pagination-inline__btn:hover:not(:disabled) {
+  background-color: var(--theme-bg-tertiary);
+  color: var(--theme-text-primary);
+}
+
+.pagination-inline__btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.pagination-inline__label {
+  font-size: 0.625rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 500;
+  min-width: 28px;
+  text-align: center;
+  color: var(--theme-text-muted);
+}

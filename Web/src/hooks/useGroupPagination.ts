@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useMemo,
   type Dispatch,
   type SetStateAction,
   type PointerEvent as ReactPointerEvent
@@ -66,31 +67,46 @@ export function useGroupPagination({
   stopHoldTimer
 }: UseGroupPaginationOptions): UseGroupPaginationReturn {
   // Group ALL filtered downloads by IP
-  const allIpGroups = filteredDownloads.reduce(
-    (acc: Record<string, Download[]>, d: Download) => {
-      if (!acc[d.clientIp]) acc[d.clientIp] = [];
-      acc[d.clientIp].push(d);
-      return acc;
-    },
-    {} as Record<string, Download[]>
+  const allIpGroups = useMemo<Record<string, Download[]>>(
+    () =>
+      filteredDownloads.reduce(
+        (acc: Record<string, Download[]>, d: Download) => {
+          if (!acc[d.clientIp]) acc[d.clientIp] = [];
+          acc[d.clientIp].push(d);
+          return acc;
+        },
+        {} as Record<string, Download[]>
+      ),
+    [filteredDownloads]
   );
-  const allIpEntries = Object.entries(allIpGroups);
+
+  const allIpEntries = useMemo<[string, Download[]][]>(
+    () => Object.entries(allIpGroups),
+    [allIpGroups]
+  );
 
   // Paginate IP groups
   const rawCurrentPage = groupPages[groupId] || 1;
-  const totalPages = Math.ceil(allIpEntries.length / sessionsPerPage);
+  const totalPages = Math.max(1, Math.ceil(allIpEntries.length / sessionsPerPage));
   const currentPage = Math.min(rawCurrentPage, Math.max(1, totalPages));
-  const startIndex = (currentPage - 1) * sessionsPerPage;
-  const endIndex = startIndex + sessionsPerPage;
-  const paginatedIpEntries = allIpEntries.slice(startIndex, endIndex);
+
+  const paginatedIpEntries = useMemo<[string, Download[]][]>(() => {
+    const startIndex = (currentPage - 1) * sessionsPerPage;
+    const endIndex = startIndex + sessionsPerPage;
+    return allIpEntries.slice(startIndex, endIndex);
+  }, [allIpEntries, currentPage, sessionsPerPage]);
 
   // Limit items within each IP group
-  const ipGroups = Object.fromEntries(
-    paginatedIpEntries.map(([ip, downloads]: [string, Download[]]) => [
-      ip,
-      downloads.slice(0, itemsPerSession)
-    ])
-  ) as Record<string, Download[]>;
+  const ipGroups = useMemo<Record<string, Download[]>>(
+    () =>
+      Object.fromEntries(
+        paginatedIpEntries.map(([ip, downloads]: [string, Download[]]) => [
+          ip,
+          downloads.slice(0, itemsPerSession)
+        ])
+      ) as Record<string, Download[]>,
+    [paginatedIpEntries, itemsPerSession]
+  );
 
   const handlePageChange = useCallback(
     (newPage: number): void => {

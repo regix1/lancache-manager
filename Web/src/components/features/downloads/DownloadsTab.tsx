@@ -9,6 +9,7 @@ import React, {
   Suspense
 } from 'react';
 
+import { useQueryState, parseAsInteger, createParser } from 'nuqs';
 import { useTranslation } from 'react-i18next';
 import {
   Database,
@@ -367,7 +368,22 @@ const DownloadsTab: React.FC = () => {
     };
   }, [on, off]);
 
-  const [currentPage, setCurrentPage] = useState(1);
+  // Page number synced to URL via nuqs; on page 1 the param is omitted (clean URLs).
+  const [currentPageRaw, setCurrentPageUrl] = useQueryState('page', parseAsInteger.withDefault(1));
+  const currentPage = currentPageRaw ?? 1;
+  const setCurrentPage = useCallback(
+    (updater: number | ((prev: number) => number)) => {
+      if (typeof updater === 'function') {
+        void setCurrentPageUrl((prev) => {
+          const next = (updater as (p: number) => number)(prev ?? 1);
+          return next === 1 ? null : next;
+        });
+      } else {
+        void setCurrentPageUrl(updater === 1 ? null : updater);
+      }
+    },
+    [setCurrentPageUrl]
+  );
   const nonRetroContentRef = useRef<HTMLDivElement>(null);
   const currentPageRef = useRef(currentPage);
   const pageChangeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -443,6 +459,43 @@ const DownloadsTab: React.FC = () => {
       groupByGameRetro: storage.getItem(STORAGE_KEYS.GROUP_BY_GAME_RETRO) === 'true'
     };
   });
+
+  // Page size synced to URL via nuqs. Supports number | 'unlimited'. URL wins on first
+  // visit when present; otherwise localStorage-derived default (already in `settings`) is used.
+  const pageSizeParser = useMemo(
+    () =>
+      createParser<number | 'unlimited'>({
+        parse: (v: string): number | 'unlimited' | null => {
+          if (v === 'unlimited') return 'unlimited';
+          const parsed = parseInt(v, 10);
+          return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+        },
+        serialize: (v: number | 'unlimited'): string => (typeof v === 'number' ? String(v) : v),
+        eq: (a, b) => a === b
+      }).withDefault(settings.itemsPerPage),
+    // Default captured at mount only; subsequent changes flow via the sync effects below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
+  );
+  const [pageSizeUrl, setPageSizeUrl] = useQueryState('pageSize', pageSizeParser);
+
+  // URL → settings sync: if URL has pageSize and it differs from settings, adopt it into settings
+  // so localStorage persistence stays in sync via the existing settings effect.
+  useEffect(() => {
+    if (pageSizeUrl !== null && pageSizeUrl !== settings.itemsPerPage) {
+      setSettings((prev) => ({ ...prev, itemsPerPage: pageSizeUrl }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageSizeUrl]);
+
+  // settings → URL sync: whenever itemsPerPage changes (e.g. view-mode switch updates it),
+  // keep the URL param in sync so refresh/back-forward stay accurate.
+  useEffect(() => {
+    if (settings.itemsPerPage !== pageSizeUrl) {
+      void setPageSizeUrl(settings.itemsPerPage);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.itemsPerPage]);
 
   // useTransition for view mode switching - prevents UI jank
   const [, startTransition] = useTransition();
@@ -669,12 +722,11 @@ const DownloadsTab: React.FC = () => {
     return options;
   }, [t, settings.viewMode]);
 
-  // Handler for items-per-page changes
+  // Handler for items-per-page changes — writes both settings (localStorage) and URL.
   const handleItemsPerPageChange = (value: string) => {
-    setSettings((prev) => ({
-      ...prev,
-      itemsPerPage: value === 'unlimited' ? 'unlimited' : parseInt(value)
-    }));
+    const newValue: number | 'unlimited' = value === 'unlimited' ? 'unlimited' : parseInt(value);
+    setSettings((prev) => ({ ...prev, itemsPerPage: newValue }));
+    void setPageSizeUrl(newValue);
   };
 
   const filteredDownloads = useMemo(() => {
@@ -1897,7 +1949,7 @@ const DownloadsTab: React.FC = () => {
                 {retroEverMounted.current && (
                   <RetroView
                     ref={retroViewRef}
-                    items={allItemsSorted}
+                    items={[]}
                     sortOrder={settings.sortOrder}
                     itemsPerPage={
                       typeof settings.itemsPerPage === 'number' ? settings.itemsPerPage : 100
@@ -1913,6 +1965,13 @@ const DownloadsTab: React.FC = () => {
                     detectionLookup={detectionLookup}
                     detectionByName={detectionByName}
                     detectionByService={detectionByService}
+                    serverMode={settings.viewMode === 'retro'}
+                    filterService={settings.selectedService}
+                    filterClient={settings.selectedClient}
+                    filterSearch={settings.searchQuery}
+                    filterHideLocalhost={settings.hideLocalhost}
+                    filterShowZeroBytes={settings.showZeroBytes}
+                    filterHideUnknown={settings.hideUnknownGames}
                   />
                 )}
               </Suspense>

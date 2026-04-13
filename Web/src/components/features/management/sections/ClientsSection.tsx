@@ -7,6 +7,7 @@ import { Alert } from '@components/ui/Alert';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import { Pagination } from '@components/ui/Pagination';
 import { MultiSelectDropdown } from '@components/ui/MultiSelectDropdown';
+import { usePaginatedList } from '@hooks/usePaginatedList';
 import { useClientGroups } from '@contexts/useClientGroups';
 import { useStats, useDownloads } from '@contexts/DashboardDataContext/hooks';
 import ApiService from '@services/api.service';
@@ -221,7 +222,6 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
     null
   );
   const [deleteConfirmGroup, setDeleteConfirmGroup] = useState<ClientGroup | null>(null);
-  const [ungroupedPage, setUngroupedPage] = useState(1);
 
   // Get all IPs that are in groups
   const groupedIps = useMemo(() => {
@@ -236,11 +236,15 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
   }, [allClientIps, groupedIps]);
 
   // Pagination for ungrouped clients
-  const totalUngroupedPages = Math.ceil(ungroupedClients.length / UNGROUPED_IPS_PER_PAGE);
-  const paginatedUngroupedClients = useMemo(() => {
-    const startIndex = (ungroupedPage - 1) * UNGROUPED_IPS_PER_PAGE;
-    return ungroupedClients.slice(startIndex, startIndex + UNGROUPED_IPS_PER_PAGE);
-  }, [ungroupedClients, ungroupedPage]);
+  const {
+    page: ungroupedPage,
+    setPage: setUngroupedPage,
+    totalPages: totalUngroupedPages,
+    paginatedItems: paginatedUngroupedClients
+  } = usePaginatedList<string>({
+    items: ungroupedClients,
+    pageSize: UNGROUPED_IPS_PER_PAGE
+  });
 
   const handleCreateGroup = () => {
     setEditingGroup(null);

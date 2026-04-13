@@ -1,8 +1,9 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Search } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Pagination } from '@components/ui/Pagination';
+import { usePaginatedList } from '@hooks/usePaginatedList';
 import GameCard from './GameCard';
 import { getGameUniqueId } from './gameUtils';
 import type { GameCacheInfo, CacheEntityVariant } from '../../../../types';
@@ -37,16 +38,10 @@ const GamesList: React.FC<GamesListProps> = ({
 }) => {
   const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
   const [expandedGameId, setExpandedGameId] = useState<string | null>(null);
   const [expandingGameId, setExpandingGameId] = useState<string | null>(null);
 
-  // Reset page when search query changes
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchQuery]);
-
-  // Memoized filtered, sorted, and paginated games list
+  // Memoized filtered and sorted games list
   const filteredAndSortedGames = useMemo(() => {
     // Filter by search query (search in game name, app ID, or service name)
     const query = searchQuery.toLowerCase();
@@ -65,13 +60,16 @@ const GamesList: React.FC<GamesListProps> = ({
     return filtered;
   }, [games, searchQuery]);
 
-  const paginatedGames = useMemo(() => {
-    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-    const endIndex = startIndex + ITEMS_PER_PAGE;
-    return filteredAndSortedGames.slice(startIndex, endIndex);
-  }, [filteredAndSortedGames, currentPage]);
-
-  const totalPages = Math.ceil(filteredAndSortedGames.length / ITEMS_PER_PAGE);
+  const {
+    page: currentPage,
+    setPage: setCurrentPage,
+    totalPages,
+    paginatedItems: paginatedGames
+  } = usePaginatedList<GameCacheInfo>({
+    items: filteredAndSortedGames,
+    pageSize: ITEMS_PER_PAGE,
+    resetKey: searchQuery
+  });
 
   const toggleGameDetails = (gameId: number | string) => {
     const id = String(gameId);

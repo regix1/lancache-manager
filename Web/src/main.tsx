@@ -1,4 +1,5 @@
 import ReactDOM from 'react-dom/client';
+import { NuqsAdapter } from 'nuqs/adapters/react';
 import App from './App';
 import './index.css';
 import './i18n';
@@ -42,7 +43,11 @@ const renderApp = () => {
   // Pre-load cached dashboard data before React renders to eliminate skeleton flash
   preloadDashboardCache().finally(() => {
     const root = ReactDOM.createRoot(rootEl);
-    root.render(<App />);
+    root.render(
+      <NuqsAdapter>
+        <App />
+      </NuqsAdapter>
+    );
   });
 };
 

@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useRef } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { useTranslation } from 'react-i18next';
-import { ChevronRight, ExternalLink, ChevronLeft, HardDrive } from 'lucide-react';
+import './VirtualizedList.css';
+import { ChevronRight, ExternalLink, HardDrive } from 'lucide-react';
 import { formatBytes, formatPercent, formatRelativeTime, formatCount } from '@utils/formatters';
-import { Tooltip } from '@components/ui/Tooltip';
 import BadgesRow from './BadgesRow';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { SteamIcon } from '@components/ui/SteamIcon';
@@ -13,6 +14,7 @@ import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
 import { useGroupPagination } from '@hooks/useGroupPagination';
 import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import DownloadBadges from './DownloadBadges';
+import { Pagination } from '@components/ui/Pagination';
 import { useSessionFilters } from './useSessionFilters';
 import SessionFilterBar from './SessionFilterBar';
 import { resolveGameDetection } from '@utils/gameDetection';
@@ -444,39 +446,19 @@ const GroupRow: React.FC<GroupRowProps> = ({
                         )}
                       </span>
                       {/* Inline pagination */}
-                      {totalFilteredPages > 1 && (
-                        <div className="flex items-center gap-0.5">
-                          <Tooltip content={t('downloads.tab.compact.pagination.previous')}>
-                            <button
-                              onClick={() => handlePageChange(safePage - 1)}
-                              onPointerDown={(event) => handlePointerHoldStart(event, 'prev')}
-                              onPointerUp={handlePointerHoldEnd}
-                              onPointerCancel={handlePointerHoldEnd}
-                              onLostPointerCapture={stopHoldTimer}
-                              disabled={safePage === 1}
-                              className="p-0.5 rounded transition-colors disabled:opacity-30 hover:bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)]"
-                            >
-                              <ChevronLeft size={12} />
-                            </button>
-                          </Tooltip>
-                          <span className="text-[10px] text-[var(--theme-text-muted)] font-mono min-w-[28px] text-center">
-                            {safePage}/{totalFilteredPages}
-                          </span>
-                          <Tooltip content={t('downloads.tab.compact.pagination.next')}>
-                            <button
-                              onClick={() => handlePageChange(safePage + 1)}
-                              onPointerDown={(event) => handlePointerHoldStart(event, 'next')}
-                              onPointerUp={handlePointerHoldEnd}
-                              onPointerCancel={handlePointerHoldEnd}
-                              onLostPointerCapture={stopHoldTimer}
-                              disabled={safePage === totalFilteredPages}
-                              className="p-0.5 rounded transition-colors disabled:opacity-30 hover:bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-secondary)]"
-                            >
-                              <ChevronRight size={12} />
-                            </button>
-                          </Tooltip>
-                        </div>
-                      )}
+                      <Pagination
+                        variant="inline"
+                        showCard={false}
+                        currentPage={safePage}
+                        totalPages={totalFilteredPages}
+                        onPageChange={handlePageChange}
+                        holdToRepeat
+                        onPointerHoldStart={handlePointerHoldStart}
+                        onPointerHoldEnd={handlePointerHoldEnd}
+                        onLostPointerCapture={stopHoldTimer}
+                        previousLabel={t('downloads.tab.compact.pagination.previous')}
+                        nextLabel={t('downloads.tab.compact.pagination.next')}
+                      />
                     </div>
 
                     {/* Collapsible IP groups */}
@@ -698,6 +680,58 @@ const CompactView = React.memo(function CompactView({
 
     return renderGroupRow(fakeGroup);
   };
+
+  // Virtualization threshold: >200 rows AND no section headers.
+  // Compact rows have roughly constant height (~48px); variance from row
+  // expansion is absorbed by `measureElement`.
+  const VIRTUALIZATION_THRESHOLD = 200;
+  const shouldVirtualize = !groupByFrequency && items.length > VIRTUALIZATION_THRESHOLD;
+  const virtualParentRef = useRef<HTMLDivElement | null>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: shouldVirtualize ? items.length : 0,
+    getScrollElement: () => virtualParentRef.current,
+    estimateSize: () => 48,
+    overscan: 5,
+    measureElement: (el) => el?.getBoundingClientRect().height ?? 48
+  });
+
+  if (shouldVirtualize) {
+    const virtualItems = rowVirtualizer.getVirtualItems();
+    return (
+      <div className="space-y-1">
+        <div className="px-3 py-2 text-sm font-semibold text-themed-primary">
+          Downloads Overview
+        </div>
+        <div ref={virtualParentRef} className="virtual-list-parent virtual-list-parent-compact">
+          <div
+            className="virtual-list-inner"
+            style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+          >
+            {virtualItems.map((virtualRow) => {
+              const item = items[virtualRow.index];
+              const isGroup = 'downloads' in item;
+              const key = isGroup
+                ? (item as DownloadGroup).id
+                : `download-${(item as Download).id}`;
+              return (
+                <div
+                  key={key}
+                  data-index={virtualRow.index}
+                  ref={rowVirtualizer.measureElement}
+                  className="virtual-row"
+                  style={{ transform: `translateY(${virtualRow.start}px)` }}
+                >
+                  {isGroup
+                    ? renderGroupRow(item as DownloadGroup)
+                    : renderDownloadRow(item as Download)}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   let multipleDownloadsHeaderRendered = false;
   let singleDownloadsHeaderRendered = false;

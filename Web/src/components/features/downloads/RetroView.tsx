@@ -10,7 +10,9 @@ import React, {
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import { HardDrive, Download, Zap } from 'lucide-react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 
+import './VirtualizedList.css';
 import { useIsDesktop } from '@hooks/useMediaQuery';
 import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
 import {
@@ -39,8 +41,11 @@ import { UnknownServiceIcon } from '@components/ui/UnknownServiceIcon';
 import { GameImage } from '@components/common/GameImage';
 import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import { resolveGameDetection } from '@utils/gameDetection';
+import LoadingSpinner from '@components/common/LoadingSpinner';
+import type { RetroDownloadDto } from '@services/api.service';
 import BadgesRow from './BadgesRow';
 import DownloadBadges from './DownloadBadges';
+import { useRetroDownloads } from './useRetroDownloads';
 import type {
   Download as DownloadType,
   DownloadGroup,
@@ -100,6 +105,23 @@ interface RetroViewProps {
     string,
     { service_name: string; cache_files_found: number; total_size_bytes: number }
   > | null;
+  /**
+   * When true, RetroView fetches its own server-paginated data from
+   * `/api/downloads/retro` instead of consuming the `items` prop.
+   */
+  serverMode?: boolean;
+  /** Server-side filter: service name or 'all'. Only used when serverMode is true. */
+  filterService?: string;
+  /** Server-side filter: client IP or 'all'. Only used when serverMode is true. */
+  filterClient?: string;
+  /** Server-side filter: free-text search. Only used when serverMode is true. */
+  filterSearch?: string;
+  /** Server-side filter: hide localhost rows. Only used when serverMode is true. */
+  filterHideLocalhost?: boolean;
+  /** Server-side filter: include zero-byte rows. Only used when serverMode is true. */
+  filterShowZeroBytes?: boolean;
+  /** Server-side filter: hide rows whose game name is unknown. Only used when serverMode is true. */
+  filterHideUnknown?: boolean;
 }
 
 const STORAGE_KEY = 'retro-view-column-widths';
@@ -429,6 +451,43 @@ const groupByDepot = (
   });
 };
 
+/**
+ * Map server-paginated RetroDownloadDto rows into the in-memory DepotGroupedData
+ * shape used by the retro row renderer. The server already groups by
+ * (depotId, clientIp), sorts, and paginates, so no further regrouping is
+ * required when `serverMode` is active.
+ */
+const mapDtoToDepotGroupedData = (dto: RetroDownloadDto): DepotGroupedData => {
+  const clientsSet = new Set<string>();
+  clientsSet.add(dto.clientIp);
+  const depotsSet = new Set<number>();
+  if (dto.depotId != null) {
+    depotsSet.add(dto.depotId);
+  }
+  return {
+    id: dto.id,
+    service: dto.service,
+    gameName: dto.appName,
+    gameAppId: dto.steamAppId,
+    epicAppId: dto.epicAppId,
+    depotId: dto.depotId,
+    clientIp: dto.clientIp,
+    startTimeUtc: dto.startTimeUtc,
+    endTimeUtc: dto.endTimeUtc,
+    cacheHitBytes: dto.cacheHitBytes,
+    cacheMissBytes: dto.cacheMissBytes,
+    totalBytes: dto.totalBytes,
+    requestCount: dto.requestCount,
+    clientsSet,
+    depotsSet,
+    datasource: dto.datasource,
+    averageBytesPerSecond: dto.averageBytesPerSecond,
+    downloadIds: dto.downloadIds,
+    isEvicted: false,
+    isPartiallyEvicted: false
+  };
+};
+
 // Circular Efficiency Gauge Component
 const EfficiencyGauge: React.FC<{ percent: number; size?: number }> = ({ percent, size = 56 }) => {
   const { t } = useTranslation();
@@ -624,7 +683,14 @@ const RetroView = memo(
         groupByGame = false,
         detectionLookup = null,
         detectionByName = null,
-        detectionByService = null
+        detectionByService = null,
+        serverMode = false,
+        filterService = 'all',
+        filterClient = 'all',
+        filterSearch = '',
+        filterHideLocalhost = false,
+        filterShowZeroBytes = false,
+        filterHideUnknown = false
       },
       ref
     ) => {
@@ -639,22 +705,58 @@ const RetroView = memo(
       // Event associations for download badges
       const { fetchAssociations, getAssociations, refreshVersion } = useDownloadAssociations();
 
-      // Group all items (memoized)
-      const allGroupedItems = useMemo(
-        () => groupByDepot(items, sortOrder as SortOrder, groupByGame),
-        [items, sortOrder, groupByGame]
-      );
+      // Server-paginated fetch via /api/downloads/retro. The hook is always
+      // declared (hooks cannot be conditional), but it only fetches when
+      // `serverMode` is true.
+      const serverRetro = useRetroDownloads({
+        enabled: serverMode,
+        page: currentPage,
+        pageSize: itemsPerPage,
+        sort: sortOrder,
+        service: filterService,
+        client: filterClient,
+        search: filterSearch,
+        hideLocalhost: filterHideLocalhost,
+        showZeroBytes: filterShowZeroBytes,
+        hideUnknown: filterHideUnknown
+      });
 
-      // Calculate total pages
+      // Client-side grouping path: only runs in non-server mode.
+      const clientGroupedItems = useMemo(() => {
+        if (serverMode) return [] as DepotGroupedData[];
+        return groupByDepot(items, sortOrder as SortOrder, groupByGame);
+      }, [serverMode, items, sortOrder, groupByGame]);
+
+      // Server-mode page rows: one DepotGroupedData per server DTO.
+      const serverGroupedItems = useMemo(() => {
+        if (!serverMode) return [] as DepotGroupedData[];
+        return serverRetro.items.map(mapDtoToDepotGroupedData);
+      }, [serverMode, serverRetro.items]);
+
+      // For widths/caches, we expose a single "all grouped items" array. In
+      // server mode, totals come from the server response so this is the
+      // current page slice only.
+      const allGroupedItems = serverMode ? serverGroupedItems : clientGroupedItems;
+
+      // Calculate total pages — server response wins when available.
       const totalPages = useMemo(() => {
-        return Math.max(1, Math.ceil(allGroupedItems.length / itemsPerPage));
-      }, [allGroupedItems.length, itemsPerPage]);
+        if (serverMode) {
+          return Math.max(1, serverRetro.totalPages);
+        }
+        return Math.max(1, Math.ceil(clientGroupedItems.length / itemsPerPage));
+      }, [serverMode, serverRetro.totalPages, clientGroupedItems.length, itemsPerPage]);
 
-      // Slice for current page
+      // Page slice. In server mode the rows ARE the page; no slicing.
       const groupedItems = useMemo(() => {
+        if (serverMode) {
+          return serverGroupedItems;
+        }
         const start = (currentPage - 1) * itemsPerPage;
-        return allGroupedItems.slice(start, start + itemsPerPage);
-      }, [allGroupedItems, currentPage, itemsPerPage]);
+        return clientGroupedItems.slice(start, start + itemsPerPage);
+      }, [serverMode, serverGroupedItems, clientGroupedItems, currentPage, itemsPerPage]);
+
+      // Total items for pagination footer label.
+      const totalItems = serverMode ? serverRetro.totalItems : allGroupedItems.length;
 
       // Calculate smart default widths based on content
       const smartDefaultWidths = useMemo(() => {
@@ -1245,6 +1347,19 @@ const RetroView = memo(
         return parts.join(' ');
       }, [columnWidths, showDatasourceColumn, showTimestamps, showBannerColumn]);
 
+      // Virtualization: RetroView rows have heavy content (banners, columns,
+      // tooltips). Threshold is lower (>100) because row cost is high.
+      const RETRO_VIRTUALIZATION_THRESHOLD = 100;
+      const shouldVirtualize = rowsWithEvents.length > RETRO_VIRTUALIZATION_THRESHOLD;
+      const virtualParentRef = useRef<HTMLDivElement | null>(null);
+      const rowVirtualizer = useVirtualizer({
+        count: shouldVirtualize ? rowsWithEvents.length : 0,
+        getScrollElement: () => virtualParentRef.current,
+        estimateSize: () => (isDesktop ? 90 : 200),
+        overscan: 5,
+        measureElement: (el) => el?.getBoundingClientRect().height ?? (isDesktop ? 90 : 200)
+      });
+
       return (
         <>
           {/* Pagination controls */}
@@ -1254,7 +1369,7 @@ const RetroView = memo(
                 <Pagination
                   currentPage={currentPage}
                   totalPages={totalPages}
-                  totalItems={allGroupedItems.length}
+                  totalItems={totalItems}
                   itemsPerPage={itemsPerPage}
                   onPageChange={onPageChange}
                   itemLabel="depot groups"
@@ -1262,6 +1377,14 @@ const RetroView = memo(
                   compact={!isDesktop}
                 />
               </div>
+            </div>
+          )}
+
+          {/* First-load spinner (server mode). Subsequent page fetches keep
+              previous rows visible via the keep-previous-data pattern. */}
+          {serverMode && serverRetro.isLoading && groupedItems.length === 0 && (
+            <div className="flex justify-center py-8">
+              <LoadingSpinner size="lg" />
             </div>
           )}
 
@@ -1406,8 +1529,15 @@ const RetroView = memo(
 
                 {/* Table Body */}
                 {rowsWithEvents.length > 0 ? (
-                  <div>
-                    {rowsWithEvents.map((data) => {
+                  (() => {
+                    const renderRetroRow = (
+                      data: (typeof rowsWithEvents)[number],
+                      virtualAttrs: {
+                        dataIndex?: number;
+                        measureRef?: (el: Element | null) => void;
+                        translateY?: number;
+                      } = {}
+                    ) => {
                       // All values are pre-computed in rowsWithEvents useMemo
                       const {
                         totalBytes,
@@ -1420,8 +1550,18 @@ const RetroView = memo(
                         events
                       } = data;
 
+                      const { dataIndex, measureRef, translateY } = virtualAttrs;
+                      const isVirtual = translateY !== undefined;
                       return (
-                        <div key={data.id}>
+                        <div
+                          key={data.id}
+                          data-index={dataIndex}
+                          ref={measureRef as React.Ref<HTMLDivElement> | undefined}
+                          className={isVirtual ? 'virtual-row' : undefined}
+                          style={
+                            isVirtual ? { transform: `translateY(${translateY}px)` } : undefined
+                          }
+                        >
                           <div
                             className={`w-full hover:bg-[var(--theme-bg-tertiary)]/50 group relative border-b border-[var(--theme-border-secondary)]${data.isEvicted ? ' opacity-60' : ''}`}
                           >
@@ -1778,8 +1918,32 @@ const RetroView = memo(
                           </div>
                         </div>
                       );
-                    })}
-                  </div>
+                    };
+
+                    if (shouldVirtualize) {
+                      return (
+                        <div
+                          ref={virtualParentRef}
+                          className="virtual-list-parent virtual-list-parent-retro"
+                        >
+                          <div
+                            className="virtual-list-inner"
+                            style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+                          >
+                            {rowVirtualizer.getVirtualItems().map((virtualRow) =>
+                              renderRetroRow(rowsWithEvents[virtualRow.index], {
+                                dataIndex: virtualRow.index,
+                                measureRef: rowVirtualizer.measureElement,
+                                translateY: virtualRow.start
+                              })
+                            )}
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    return <div>{rowsWithEvents.map((data) => renderRetroRow(data))}</div>;
+                  })()
                 ) : (
                   <EmptyState />
                 )}

@@ -37,6 +37,7 @@ import ApiService, {
 import { getErrorMessage } from '@utils/error';
 import { formatBytes } from '@utils/formatters';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
+import { usePaginatedList } from '@hooks/usePaginatedList';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { cleanIpAddress } from '@components/features/user/types';
 import LoadingSpinner from '@components/common/LoadingSpinner';
@@ -252,9 +253,14 @@ const SessionCard: React.FC<{
     : 0;
   const gamesCount = historyData?.length || 0;
 
-  const totalPages = historyData ? Math.ceil(historyData.length / historyPageSize) : 0;
-  const startIdx = (historyPage - 1) * historyPageSize;
-  const paginatedEntries = historyData?.slice(startIdx, startIdx + historyPageSize) || [];
+  const { paginatedItems: paginatedEntries, totalPages } = usePaginatedList<PrefillHistoryEntryDto>(
+    {
+      items: historyData ?? [],
+      pageSize: historyPageSize,
+      page: historyPage,
+      onPageChange: onHistoryPageChange
+    }
+  );
 
   return (
     <Card className="prefill-session-card">

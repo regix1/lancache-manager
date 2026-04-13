@@ -1,0 +1,51 @@
+/* Shared styles for virtualized lists in downloads views.
+ * The translateY transform on `.virtual-row` is set inline by
+ * @tanstack/react-virtual — this is a library API requirement.
+ * All other styling (parent/inner containers, relative positioning)
+ * lives in this file per project convention (no inline styles).
+ */
+
+.virtual-list-parent {
+  /* Bounded scroll container. Height is capped so the window
+   * virtualizer only renders what's visible plus overscan. */
+  max-height: calc(100vh - 220px);
+  min-height: 400px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  contain: strict;
+  width: 100%;
+}
+
+.virtual-list-parent-normal {
+  /* NormalView keeps roomy vertical spacing inside each card. */
+  max-height: calc(100vh - 200px);
+}
+
+.virtual-list-parent-compact {
+  /* CompactView rows are dense; tighter container works better. */
+  max-height: calc(100vh - 220px);
+}
+
+.virtual-list-parent-retro {
+  /* RetroView holds a table body only; header stays outside. */
+  max-height: calc(100vh - 260px);
+}
+
+.virtual-list-inner {
+  position: relative;
+  width: 100%;
+}
+
+.virtual-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  width: 100%;
+}
+
+.virtual-row-normal {
+  /* NormalView rows need the same vertical rhythm the non-virtual
+   * `space-y-4` container provides — replicate via padding. */
+  padding-bottom: 1rem;
+}

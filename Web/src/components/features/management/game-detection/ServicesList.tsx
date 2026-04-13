@@ -1,8 +1,9 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Search } from 'lucide-react';
 import { Button } from '@components/ui/Button';
 import { Pagination } from '@components/ui/Pagination';
+import { usePaginatedList } from '@hooks/usePaginatedList';
 import ServiceCard from './ServiceCard';
 import type { ServiceCacheInfo, CacheEntityVariant } from '../../../../types';
 import type { UnifiedNotification } from '@contexts/notifications';
@@ -36,14 +37,8 @@ const ServicesList: React.FC<ServicesListProps> = ({
 }) => {
   const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
   const [expandedServiceName, setExpandedServiceName] = useState<string | null>(null);
   const [expandingServiceName, setExpandingServiceName] = useState<string | null>(null);
-
-  // Reset page when search query changes
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchQuery]);
 
   const filteredAndSortedServices = useMemo(() => {
     const query = searchQuery.toLowerCase();
@@ -58,13 +53,16 @@ const ServicesList: React.FC<ServicesListProps> = ({
     return filtered;
   }, [services, searchQuery]);
 
-  const paginatedServices = useMemo(() => {
-    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
-    const endIndex = startIndex + ITEMS_PER_PAGE;
-    return filteredAndSortedServices.slice(startIndex, endIndex);
-  }, [filteredAndSortedServices, currentPage]);
-
-  const totalPages = Math.ceil(filteredAndSortedServices.length / ITEMS_PER_PAGE);
+  const {
+    page: currentPage,
+    setPage: setCurrentPage,
+    totalPages,
+    paginatedItems: paginatedServices
+  } = usePaginatedList<ServiceCacheInfo>({
+    items: filteredAndSortedServices,
+    pageSize: ITEMS_PER_PAGE,
+    resetKey: searchQuery
+  });
 
   const toggleServiceDetails = (serviceName: string) => {
     if (expandedServiceName === serviceName) {

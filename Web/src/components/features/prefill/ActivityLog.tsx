@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, memo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { usePaginatedList } from '@/hooks/usePaginatedList';
 import {
   CheckCircle2,
   AlertCircle,
@@ -144,18 +145,21 @@ export function ActivityLog({ entries, className = '' }: ActivityLogProps) {
   const [currentPage, setCurrentPage] = useState(1);
   const locale = i18n.language || 'en-US';
 
-  // Calculate pagination
-  const totalPages = Math.ceil(entries.length / ENTRIES_PER_PAGE);
-  const startIndex = (currentPage - 1) * ENTRIES_PER_PAGE;
-  const endIndex = startIndex + ENTRIES_PER_PAGE;
-  const visibleEntries = entries.slice(startIndex, endIndex);
+  // Controlled pagination via shared hook; hook handles clamping and slice math.
+  const { totalPages, paginatedItems: visibleEntries } = usePaginatedList<LogEntry>({
+    items: entries,
+    pageSize: ENTRIES_PER_PAGE,
+    page: currentPage,
+    onPageChange: setCurrentPage
+  });
 
-  // Auto-advance to last page when new entries are added
+  // Auto-advance to last page when new entries are added.
+  // Hook clamps setPage(totalPages) to a safe range automatically.
   useEffect(() => {
-    const newTotalPages = Math.ceil(entries.length / ENTRIES_PER_PAGE);
-    if (shouldAutoScroll.current && newTotalPages > 0) {
-      setCurrentPage(newTotalPages);
+    if (shouldAutoScroll.current && totalPages > 0) {
+      setCurrentPage(totalPages);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entries.length]);
 
   const handlePageChange = (page: number) => {
@@ -164,8 +168,9 @@ export function ActivityLog({ entries, className = '' }: ActivityLogProps) {
     shouldAutoScroll.current = page === totalPages;
   };
 
-  const startItem = startIndex + 1;
-  const endItem = Math.min(endIndex, entries.length);
+  // Page position for the count label, computed from hook outputs (no slice math).
+  const endItem = Math.min(currentPage * ENTRIES_PER_PAGE, entries.length);
+  const startItem = entries.length === 0 ? 0 : endItem - visibleEntries.length + 1;
 
   return (
     <div

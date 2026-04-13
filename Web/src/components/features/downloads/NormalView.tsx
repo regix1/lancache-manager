@@ -1,5 +1,7 @@
-import React, { memo, useState } from 'react';
+import React, { memo, useRef, useState } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { useTranslation } from 'react-i18next';
+import './VirtualizedList.css';
 import Drawer from '@components/ui/Drawer';
 import {
   ChevronRight,
@@ -8,7 +10,6 @@ import {
   ExternalLink,
   CheckCircle,
   AlertCircle,
-  ChevronLeft,
   HardDrive
 } from 'lucide-react';
 import { formatBytes, formatCount, formatPercent, formatRelativeTime } from '@utils/formatters';
@@ -23,7 +24,6 @@ import { EAIcon } from '@components/ui/EAIcon';
 import { BlizzardIcon } from '@components/ui/BlizzardIcon';
 import { XboxIcon } from '@components/ui/XboxIcon';
 import { UnknownServiceIcon } from '@components/ui/UnknownServiceIcon';
-import { Tooltip } from '@components/ui/Tooltip';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
 import { GameImage } from '@components/common/GameImage';
 import { useHoldTimer } from '@hooks/useHoldTimer';
@@ -31,6 +31,7 @@ import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
 import { useGroupPagination } from '@hooks/useGroupPagination';
 import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import DownloadBadges from './DownloadBadges';
+import { Pagination } from '@components/ui/Pagination';
 import { useSessionFilters } from './useSessionFilters';
 import SessionFilterBar from './SessionFilterBar';
 import { resolveGameDetection } from '@utils/gameDetection';
@@ -896,41 +897,19 @@ const GroupCard: React.FC<GroupCardProps> = ({
                     </div>
 
                     {/* Pagination Controls */}
-                    {totalPages > 1 && (
-                      <div className="flex items-center justify-center gap-2 mt-4 pt-2">
-                        <Tooltip content={t('downloads.tab.normal.pagination.previous')}>
-                          <button
-                            onClick={() => handlePageChange(currentPage - 1)}
-                            onPointerDown={(event) => handlePointerHoldStart(event, 'prev')}
-                            onPointerUp={handlePointerHoldEnd}
-                            onPointerCancel={handlePointerHoldEnd}
-                            onLostPointerCapture={stopHoldTimer}
-                            disabled={currentPage === 1}
-                            className="p-1.5 rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)]"
-                          >
-                            <ChevronLeft size={16} />
-                          </button>
-                        </Tooltip>
-
-                        <span className="text-xs text-[var(--theme-text-secondary)] font-medium font-mono px-2">
-                          {currentPage} of {totalPages}
-                        </span>
-
-                        <Tooltip content={t('downloads.tab.normal.pagination.next')}>
-                          <button
-                            onClick={() => handlePageChange(currentPage + 1)}
-                            onPointerDown={(event) => handlePointerHoldStart(event, 'next')}
-                            onPointerUp={handlePointerHoldEnd}
-                            onPointerCancel={handlePointerHoldEnd}
-                            onLostPointerCapture={stopHoldTimer}
-                            disabled={currentPage === totalPages}
-                            className="p-1.5 rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)]"
-                          >
-                            <ChevronRight size={16} />
-                          </button>
-                        </Tooltip>
-                      </div>
-                    )}
+                    <Pagination
+                      variant="group"
+                      showCard={false}
+                      currentPage={currentPage}
+                      totalPages={totalPages}
+                      onPageChange={handlePageChange}
+                      holdToRepeat
+                      onPointerHoldStart={handlePointerHoldStart}
+                      onPointerHoldEnd={handlePointerHoldEnd}
+                      onLostPointerCapture={stopHoldTimer}
+                      previousLabel={t('downloads.tab.normal.pagination.previous')}
+                      nextLabel={t('downloads.tab.normal.pagination.next')}
+                    />
                   </div>
                 );
               })()}
@@ -1620,39 +1599,19 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
             })}
           </div>
 
-          {totalPages > 1 && (
-            <div className="flex items-center justify-center gap-2 mt-4 pt-2">
-              <Tooltip content={t('downloads.tab.normal.pagination.previous')}>
-                <button
-                  onClick={() => handlePageChange(currentPage - 1)}
-                  onPointerDown={(event) => handlePointerHoldStart(event, 'prev')}
-                  onPointerUp={handlePointerHoldEnd}
-                  onPointerCancel={handlePointerHoldEnd}
-                  onLostPointerCapture={stopHoldTimer}
-                  disabled={currentPage === 1}
-                  className="p-1.5 rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)]"
-                >
-                  <ChevronLeft size={16} />
-                </button>
-              </Tooltip>
-              <span className="text-xs text-[var(--theme-text-secondary)] font-medium font-mono px-2">
-                {currentPage} of {totalPages}
-              </span>
-              <Tooltip content={t('downloads.tab.normal.pagination.next')}>
-                <button
-                  onClick={() => handlePageChange(currentPage + 1)}
-                  onPointerDown={(event) => handlePointerHoldStart(event, 'next')}
-                  onPointerUp={handlePointerHoldEnd}
-                  onPointerCancel={handlePointerHoldEnd}
-                  onLostPointerCapture={stopHoldTimer}
-                  disabled={currentPage === totalPages}
-                  className="p-1.5 rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[var(--theme-bg-tertiary)] text-[var(--theme-text-primary)]"
-                >
-                  <ChevronRight size={16} />
-                </button>
-              </Tooltip>
-            </div>
-          )}
+          <Pagination
+            variant="group"
+            showCard={false}
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={handlePageChange}
+            holdToRepeat
+            onPointerHoldStart={handlePointerHoldStart}
+            onPointerHoldEnd={handlePointerHoldEnd}
+            onLostPointerCapture={stopHoldTimer}
+            previousLabel={t('downloads.tab.normal.pagination.previous')}
+            nextLabel={t('downloads.tab.normal.pagination.next')}
+          />
         </div>
       )}
     </div>
@@ -1688,6 +1647,20 @@ const NormalView: React.FC<NormalViewProps> = ({
   const availableImages = useAvailableGameImages();
 
   const SESSIONS_PER_PAGE = 10;
+
+  // Virtualization hooks must be declared unconditionally (before any early
+  // return) to satisfy the Rules of Hooks.
+  const VIRTUALIZATION_THRESHOLD = 200;
+  const shouldVirtualizeList =
+    !cardGridLayout && !groupByFrequency && items.length > VIRTUALIZATION_THRESHOLD;
+  const virtualParentRef = useRef<HTMLDivElement | null>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: shouldVirtualizeList ? items.length : 0,
+    getScrollElement: () => virtualParentRef.current,
+    estimateSize: () => 240,
+    overscan: 5,
+    measureElement: (el) => el?.getBoundingClientRect().height ?? 240
+  });
 
   const handleImageError = (gameAppId: string) => {
     setImageErrors((prev) => new Set(prev).add(gameAppId));
@@ -1850,6 +1823,41 @@ const NormalView: React.FC<NormalViewProps> = ({
   }
 
   // Standard list layout
+  // Virtualization threshold: >200 items AND no section headers to track.
+  // groupByFrequency interleaves stateful section headers that break a pure
+  // `items[index]` mapping, so fall back to the non-virtual path in that case.
+  // cardGridLayout is also skipped — it has its own grid/drawer layout above.
+  if (shouldVirtualizeList) {
+    const virtualItems = rowVirtualizer.getVirtualItems();
+    return (
+      <div ref={virtualParentRef} className="virtual-list-parent virtual-list-parent-normal">
+        <div
+          className="virtual-list-inner"
+          style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+        >
+          {virtualItems.map((virtualRow) => {
+            const item = items[virtualRow.index];
+            const isGroup = 'downloads' in item;
+            const key = isGroup ? (item as DownloadGroup).id : `download-${(item as Download).id}`;
+            return (
+              <div
+                key={key}
+                data-index={virtualRow.index}
+                ref={rowVirtualizer.measureElement}
+                className="virtual-row virtual-row-normal"
+                style={{ transform: `translateY(${virtualRow.start}px)` }}
+              >
+                {isGroup
+                  ? renderGroupCard(item as DownloadGroup)
+                  : renderDownloadCard(item as Download)}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
   let multipleDownloadsHeaderRendered = false;
   let singleDownloadsHeaderRendered = false;
   let individualHeaderRendered = false;

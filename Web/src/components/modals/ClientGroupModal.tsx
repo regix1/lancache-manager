@@ -5,6 +5,7 @@ import { Button } from '@components/ui/Button';
 import { Pagination } from '@components/ui/Pagination';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { useClientGroups } from '@contexts/useClientGroups';
+import { usePaginatedList } from '@hooks/usePaginatedList';
 import { useTranslation } from 'react-i18next';
 import type { ClientGroup } from '../../types';
 
@@ -83,18 +84,21 @@ const ClientGroupModal: React.FC<ClientGroupModalProps> = ({
     [filteredIps, pendingIps]
   );
 
-  const totalPagesCreate = Math.ceil(availableIpsForCreate.length / IPS_PER_PAGE);
-  const totalPagesEdit = Math.ceil(availableIpsForEdit.length / IPS_PER_PAGE);
+  const { paginatedItems: paginatedIpsForCreate, totalPages: totalPagesCreate } =
+    usePaginatedList<string>({
+      items: availableIpsForCreate,
+      pageSize: IPS_PER_PAGE,
+      page: ipPage,
+      onPageChange: setIpPage
+    });
 
-  const paginatedIpsForCreate = useMemo(() => {
-    const startIndex = (ipPage - 1) * IPS_PER_PAGE;
-    return availableIpsForCreate.slice(startIndex, startIndex + IPS_PER_PAGE);
-  }, [availableIpsForCreate, ipPage]);
-
-  const paginatedIpsForEdit = useMemo(() => {
-    const startIndex = (ipPage - 1) * IPS_PER_PAGE;
-    return availableIpsForEdit.slice(startIndex, startIndex + IPS_PER_PAGE);
-  }, [availableIpsForEdit, ipPage]);
+  const { paginatedItems: paginatedIpsForEdit, totalPages: totalPagesEdit } =
+    usePaginatedList<string>({
+      items: availableIpsForEdit,
+      pageSize: IPS_PER_PAGE,
+      page: ipPage,
+      onPageChange: setIpPage
+    });
 
   const handleAddIp = (ip: string) => {
     if (!selectedIps.includes(ip)) {

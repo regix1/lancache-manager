@@ -65,6 +65,63 @@ interface OperationResponse {
   estimatedApps?: number;
 }
 
+export interface RetroDownloadDto {
+  /** Composite key: depotId_clientIp or nodepot_service_clientIp_downloadId */
+  id: string;
+  /** Earliest download start time in the group (UTC, ISO 8601 string) */
+  startTimeUtc: string;
+  /** Latest download end time in the group (UTC, ISO 8601 string) */
+  endTimeUtc: string;
+  /** Steam depot ID, null if non-Steam */
+  depotId: number | null;
+  /** Resolved game/app name from depot mapping or download record */
+  appName: string;
+  /** Steam app ID for game image lookup */
+  steamAppId: number | null;
+  /** Epic Games app ID for game image lookup */
+  epicAppId: string | null;
+  /** Service name (steam, epic, wsus, etc.) */
+  service: string;
+  /** Datasource name for multi-datasource support */
+  datasource: string;
+  /** Client IP address */
+  clientIp: string;
+  /** Weighted average download speed in bytes per second */
+  averageBytesPerSecond: number;
+  /** Total cache hit bytes across all downloads in group */
+  cacheHitBytes: number;
+  /** Total cache miss bytes across all downloads in group */
+  cacheMissBytes: number;
+  /** Cache hit percentage (0-100) */
+  cacheHitPercent: number;
+  /** Total bytes (hit + miss) across all downloads in group */
+  totalBytes: number;
+  /** Number of individual download sessions in this group */
+  requestCount: number;
+  /** List of original download IDs for event association lookups */
+  downloadIds: number[];
+}
+
+export interface RetroDownloadResponse {
+  items: RetroDownloadDto[];
+  totalItems: number;
+  totalPages: number;
+  currentPage: number;
+  pageSize: number;
+}
+
+export interface RetroDownloadQueryParams {
+  page: number;
+  pageSize: number;
+  sort?: string;
+  service?: string;
+  client?: string;
+  search?: string;
+  hideLocalhost?: boolean;
+  showZeroBytes?: boolean;
+  hideUnknown?: boolean;
+}
+
 class ApiService {
   static async handleResponse<T>(response: Response): Promise<T> {
     // Handle 401 Unauthorized - dispatch event to trigger auth refresh
@@ -232,6 +289,37 @@ class ApiService {
         // Silently ignore abort errors
       } else {
         console.error('getLatestDownloads error:', error);
+      }
+      throw error;
+    }
+  }
+
+  static async getRetroDownloads(
+    params: RetroDownloadQueryParams,
+    signal?: AbortSignal
+  ): Promise<RetroDownloadResponse> {
+    try {
+      const qs = new URLSearchParams();
+      qs.append('page', String(params.page));
+      qs.append('pageSize', String(params.pageSize));
+      if (params.sort) qs.append('sort', params.sort);
+      if (params.service) qs.append('service', params.service);
+      if (params.client) qs.append('client', params.client);
+      if (params.search) qs.append('search', params.search);
+      if (params.hideLocalhost !== undefined)
+        qs.append('hideLocalhost', String(params.hideLocalhost));
+      if (params.showZeroBytes !== undefined)
+        qs.append('showZeroBytes', String(params.showZeroBytes));
+      if (params.hideUnknown !== undefined) qs.append('hideUnknown', String(params.hideUnknown));
+
+      const url = `${API_BASE}/downloads/retro?${qs.toString()}`;
+      const res = await fetch(url, this.getFetchOptions({ signal }));
+      return await this.handleResponse<RetroDownloadResponse>(res);
+    } catch (error: unknown) {
+      if (isAbortError(error)) {
+        // Silently ignore abort errors
+      } else {
+        console.error('getRetroDownloads error:', error);
       }
       throw error;
     }
