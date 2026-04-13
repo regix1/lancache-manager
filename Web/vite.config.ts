@@ -79,7 +79,8 @@ export default defineConfig({
             if (
               id.includes('react') ||
               id.includes('scheduler') ||
-              id.includes('number-flow')
+              id.includes('number-flow') ||
+              id.includes('nuqs')
             ) {
               return 'react-vendor';
             }
