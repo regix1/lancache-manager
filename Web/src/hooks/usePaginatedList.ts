@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-export interface UsePaginatedListOptions<T> {
+interface UsePaginatedListOptions<T> {
   items: T[];
   pageSize: number;
   page?: number; // controlled mode if provided
@@ -9,7 +9,7 @@ export interface UsePaginatedListOptions<T> {
   resetKey?: string | number | boolean;
 }
 
-export interface UsePaginatedListResult<T> {
+interface UsePaginatedListResult<T> {
   page: number;
   setPage: (page: number) => void;
   pageSize: number;

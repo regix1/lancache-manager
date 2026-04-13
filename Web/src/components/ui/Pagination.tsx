@@ -6,11 +6,11 @@ import { Tooltip } from './Tooltip';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 import './Pagination.css';
 
-export type PaginationVariant = 'default' | 'compact' | 'inline' | 'group';
+type PaginationVariant = 'default' | 'compact' | 'inline' | 'group';
 
-export type PaginationHoldDirection = 'prev' | 'next';
+type PaginationHoldDirection = 'prev' | 'next';
 
-export interface PaginationProps {
+interface PaginationProps {
   currentPage: number;
   totalPages: number;
   onPageChange: (page: number) => void;

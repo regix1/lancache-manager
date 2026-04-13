@@ -1243,7 +1243,7 @@ const DownloadsTab: React.FC = () => {
         });
       }, 150);
     },
-    [setContentFade]
+    [setContentFade, setCurrentPage]
   );
 
   const handleExport = (format: 'json' | 'csv') => {

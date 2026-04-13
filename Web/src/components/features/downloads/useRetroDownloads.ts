@@ -6,7 +6,7 @@ import ApiService, {
   type RetroDownloadQueryParams
 } from '@services/api.service';
 
-export interface RetroDownloadsHookOptions {
+interface RetroDownloadsHookOptions {
   /** Active gating — if false, the hook does not fetch. */
   enabled: boolean;
   /** 1-based page. */
@@ -29,7 +29,7 @@ export interface RetroDownloadsHookOptions {
   hideUnknown: boolean;
 }
 
-export interface RetroDownloadsHookResult {
+interface RetroDownloadsHookResult {
   items: RetroDownloadDto[];
   totalItems: number;
   totalPages: number;
