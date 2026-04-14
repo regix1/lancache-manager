@@ -64,3 +64,13 @@
   gap: 1rem;
   padding-bottom: 1rem;
 }
+
+.ip-session-pagination {
+  /* Inline pagination rendered below the sessions of a single IP group.
+   * Nudges the chevrons away from the last session row without adding a
+   * full card border. */
+  justify-content: flex-end;
+  padding: 0.375rem 0.75rem;
+  border-top: 1px solid var(--theme-border-secondary);
+  background-color: var(--theme-bg-tertiary);
+}

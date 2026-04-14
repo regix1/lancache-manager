@@ -15,6 +15,7 @@ import { useGroupPagination } from '@hooks/useGroupPagination';
 import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import DownloadBadges from './DownloadBadges';
 import { Pagination } from '@components/ui/Pagination';
+import IpSessionList from './IpSessionList';
 import { useSessionFilters } from './useSessionFilters';
 import SessionFilterBar from './SessionFilterBar';
 import { resolveGameDetection } from '@utils/gameDetection';
@@ -125,7 +126,6 @@ const GroupRow: React.FC<GroupRowProps> = ({
   } = useGroupPagination({
     filteredDownloads,
     sessionsPerPage: filters.sessionsPerPage,
-    itemsPerSession: filters.itemsPerSession,
     groupId: group.id,
     groupPages,
     setGroupPages,
@@ -508,8 +508,12 @@ const GroupRow: React.FC<GroupRowProps> = ({
 
                             {/* Session rows — only when expanded */}
                             {expanded && (
-                              <div className="divide-y divide-[var(--theme-border-secondary)]">
-                                {ipDownloads.map((download) => {
+                              <IpSessionList
+                                ip={ip}
+                                items={ipDownloads}
+                                itemsPerPage={filters.itemsPerSession}
+                                className="divide-y divide-[var(--theme-border-secondary)]"
+                                renderItem={(download) => {
                                   const totalBytes = download.totalBytes || 0;
                                   const cachePercent =
                                     totalBytes > 0
@@ -597,8 +601,8 @@ const GroupRow: React.FC<GroupRowProps> = ({
                                       </div>
                                     </div>
                                   );
-                                })}
-                              </div>
+                                }}
+                              />
                             )}
                           </div>
                         );

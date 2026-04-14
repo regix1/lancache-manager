@@ -12,8 +12,6 @@ interface UseGroupPaginationOptions {
   filteredDownloads: Download[];
   /** Number of IP groups to show per page */
   sessionsPerPage: number;
-  /** Maximum number of items to show within each IP group */
-  itemsPerSession: number;
   /** The group ID used as the key in the pages map */
   groupId: string;
   /** Shared pages state from the parent component */
@@ -31,7 +29,11 @@ interface UseGroupPaginationReturn {
   currentPage: number;
   /** Total number of pages */
   totalPages: number;
-  /** Paginated and limited IP groups: { [ip]: Download[] } */
+  /**
+   * IP groups for the current page: { [ip]: Download[] }. Each IP's download
+   * list is returned in FULL — consumers are expected to paginate items within
+   * each IP via `<IpSessionList>` (which uses `usePaginatedList`).
+   */
   ipGroups: Record<string, Download[]>;
   /** All IP entries before pagination (for total count) */
   allIpEntries: [string, Download[]][];
@@ -52,14 +54,16 @@ interface UseGroupPaginationReturn {
  *
  * Given a list of filtered downloads it:
  *  1. Groups them by client IP
- *  2. Paginates the IP groups
- *  3. Limits items within each IP group
- *  4. Provides page-change handlers including long-press rapid navigation
+ *  2. Paginates the IP groups (which IPs are visible on the current page)
+ *  3. Provides page-change handlers including long-press rapid navigation
+ *
+ * NOTE: Items within each IP are NOT capped here. Consumers must render
+ * each IP's downloads through `<IpSessionList>` so per-IP pagination
+ * (driven by `itemsPerSession`) is applied correctly.
  */
 export function useGroupPagination({
   filteredDownloads,
   sessionsPerPage,
-  itemsPerSession,
   groupId,
   groupPages,
   setGroupPages,
@@ -96,16 +100,12 @@ export function useGroupPagination({
     return allIpEntries.slice(startIndex, endIndex);
   }, [allIpEntries, currentPage, sessionsPerPage]);
 
-  // Limit items within each IP group
+  // Return ALL items for each visible IP — per-IP pagination is handled by
+  // `<IpSessionList>` (which uses `usePaginatedList`) so that the "Items/IP"
+  // dropdown acts as a page size rather than a hard cap.
   const ipGroups = useMemo<Record<string, Download[]>>(
-    () =>
-      Object.fromEntries(
-        paginatedIpEntries.map(([ip, downloads]: [string, Download[]]) => [
-          ip,
-          downloads.slice(0, itemsPerSession)
-        ])
-      ) as Record<string, Download[]>,
-    [paginatedIpEntries, itemsPerSession]
+    () => Object.fromEntries(paginatedIpEntries) as Record<string, Download[]>,
+    [paginatedIpEntries]
   );
 
   const handlePageChange = useCallback(

@@ -32,6 +32,7 @@ import { useGroupPagination } from '@hooks/useGroupPagination';
 import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import DownloadBadges from './DownloadBadges';
 import { Pagination } from '@components/ui/Pagination';
+import IpSessionList from './IpSessionList';
 import { useSessionFilters } from './useSessionFilters';
 import SessionFilterBar from './SessionFilterBar';
 import { resolveGameDetection } from '@utils/gameDetection';
@@ -152,7 +153,6 @@ const GroupCard: React.FC<GroupCardProps> = ({
   } = useGroupPagination({
     filteredDownloads,
     sessionsPerPage: filters.sessionsPerPage,
-    itemsPerSession: filters.itemsPerSession,
     groupId: group.id,
     groupPages,
     setGroupPages,
@@ -810,8 +810,12 @@ const GroupCard: React.FC<GroupCardProps> = ({
 
                             {/* Sessions Table-like list — shown only when expanded */}
                             {expanded && (
-                              <div className="divide-y divide-[var(--theme-border-secondary)]">
-                                {clientDownloads.map((download) => {
+                              <IpSessionList
+                                ip={clientIp}
+                                items={clientDownloads}
+                                itemsPerPage={filters.itemsPerSession}
+                                className="divide-y divide-[var(--theme-border-secondary)]"
+                                renderItem={(download) => {
                                   const totalBytes = download.totalBytes || 0;
                                   const cachePercent =
                                     totalBytes > 0
@@ -890,8 +894,8 @@ const GroupCard: React.FC<GroupCardProps> = ({
                                       </div>
                                     </div>
                                   );
-                                })}
-                              </div>
+                                }}
+                              />
                             )}
                           </div>
                         );
@@ -1258,7 +1262,6 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
   } = useGroupPagination({
     filteredDownloads,
     sessionsPerPage: filters.sessionsPerPage,
-    itemsPerSession: filters.itemsPerSession,
     groupId: group.id,
     groupPages,
     setGroupPages,
@@ -1519,8 +1522,12 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
                   </button>
 
                   {expanded && (
-                    <div className="divide-y divide-[var(--theme-border-secondary)]">
-                      {clientDownloads.map((download) => {
+                    <IpSessionList
+                      ip={clientIp}
+                      items={clientDownloads}
+                      itemsPerPage={filters.itemsPerSession}
+                      className="divide-y divide-[var(--theme-border-secondary)]"
+                      renderItem={(download) => {
                         const totalBytes = download.totalBytes || 0;
                         const cachePercent =
                           totalBytes > 0 ? ((download.cacheHitBytes || 0) / totalBytes) * 100 : 0;
@@ -1593,8 +1600,8 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
                             </div>
                           </div>
                         );
-                      })}
-                    </div>
+                      }}
+                    />
                   )}
                 </div>
               );
