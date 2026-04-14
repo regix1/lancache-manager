@@ -37,7 +37,7 @@ public class ConnectionTrackingService
         _sessionToConnection[sessionId] = connectionId;
         _connectionToSession[connectionId] = sessionId;
 
-        _logger.LogInformation("Registered SignalR connection {ConnectionId} for session {SessionId}",
+        _logger.LogDebug("Registered SignalR connection {ConnectionId} for session {SessionId}",
             connectionId, sessionId);
     }
 
@@ -60,7 +60,7 @@ public class ConnectionTrackingService
                 _sessionToConnection[sessionId] = currentConnectionId;
             }
 
-            _logger.LogInformation("Unregistered SignalR connection {ConnectionId} for session {SessionId}",
+            _logger.LogDebug("Unregistered SignalR connection {ConnectionId} for session {SessionId}",
                 connectionId, sessionId);
         }
     }

@@ -49,3 +49,18 @@
    * `space-y-4` container provides — replicate via padding. */
   padding-bottom: 1rem;
 }
+
+.virtual-list-parent-cardgrid {
+  /* CardGridLayout viewport — mirrors virtual-list-parent-normal cap. */
+  max-height: calc(100vh - 200px);
+}
+
+.virtual-grid-row {
+  /* A single virtualized row of the card grid. The column count and
+   * `grid-template-columns` value are computed from viewport width and
+   * applied as inline style (only the column count is dynamic). Gap and
+   * row bottom padding match the non-virtualized `.card-grid-container`. */
+  display: grid;
+  gap: 1rem;
+  padding-bottom: 1rem;
+}

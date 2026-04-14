@@ -1,4 +1,4 @@
-import React, { memo, useRef, useState } from 'react';
+import React, { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useTranslation } from 'react-i18next';
 import './VirtualizedList.css';
@@ -36,6 +36,8 @@ import { useSessionFilters } from './useSessionFilters';
 import SessionFilterBar from './SessionFilterBar';
 import { resolveGameDetection } from '@utils/gameDetection';
 import type { Download, DownloadGroup, GameCacheInfo } from '../../../types';
+import { useFlatRows } from '@hooks/useFlatRows';
+import type { HeaderRowKind } from './types';
 
 interface NormalViewSectionLabels {
   multipleDownloads: string;
@@ -1651,16 +1653,146 @@ const NormalView: React.FC<NormalViewProps> = ({
   // Virtualization hooks must be declared unconditionally (before any early
   // return) to satisfy the Rules of Hooks.
   const VIRTUALIZATION_THRESHOLD = 200;
-  const shouldVirtualizeList =
-    !cardGridLayout && !groupByFrequency && items.length > VIRTUALIZATION_THRESHOLD;
+
+  // Flatten `items` (and optional section headers from `groupByFrequency`) into
+  // a single typed row array. A discriminated union keeps the virtualizer's
+  // index-based lookup strongly typed: each row is either a synthetic section
+  // header or a real download/group card.
+  const flatRows = useFlatRows({ items, groupByFrequency });
+
+  // List-mode virtualization (with or without groupByFrequency).
+  const shouldVirtualizeList = !cardGridLayout && flatRows.length > VIRTUALIZATION_THRESHOLD;
   const virtualParentRef = useRef<HTMLDivElement | null>(null);
   const rowVirtualizer = useVirtualizer({
-    count: shouldVirtualizeList ? items.length : 0,
+    count: shouldVirtualizeList ? flatRows.length : 0,
     getScrollElement: () => virtualParentRef.current,
-    estimateSize: () => 240,
+    estimateSize: (index) => (flatRows[index]?.kind === 'header' ? 88 : 240),
     overscan: 5,
     measureElement: (el) => el?.getBoundingClientRect().height ?? 240
   });
+
+  // Reset virtualized scroll to top when filters/sort change the row set, preventing a stale offset.
+  useEffect(() => {
+    if (virtualParentRef.current) {
+      virtualParentRef.current.scrollTop = 0;
+    }
+  }, [flatRows]);
+
+  // Card-grid virtualization: chunk flat `items` into rows of `gridCols` cards
+  // and virtualize the resulting row list. Column count is measured from the
+  // parent width via a ResizeObserver so it mirrors the CSS grid's auto-fill
+  // behaviour (which otherwise cannot be observed from JS).
+  const GRID_MIN_WIDTH: Record<'small' | 'medium' | 'large', number> = {
+    small: 200,
+    medium: 280,
+    large: 360
+  };
+  const GRID_GAP_PX = 16; // matches `gap: 1rem` in .card-grid-container
+  const shouldVirtualizeGrid = cardGridLayout && items.length > VIRTUALIZATION_THRESHOLD;
+  const gridParentRef = useRef<HTMLDivElement | null>(null);
+  const [gridCols, setGridCols] = useState<number>(1);
+
+  useEffect(() => {
+    if (!shouldVirtualizeGrid) return;
+    const el = gridParentRef.current;
+    if (!el) return;
+    const minWidth = GRID_MIN_WIDTH[cardSize];
+    const computeCols = (width: number): number => {
+      if (width <= 0) return 1;
+      const usable = width + GRID_GAP_PX;
+      const per = minWidth + GRID_GAP_PX;
+      return Math.max(1, Math.floor(usable / per));
+    };
+    setGridCols(computeCols(el.clientWidth));
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const next = computeCols(entry.contentRect.width);
+        setGridCols((prev) => (prev === next ? prev : next));
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+    // GRID_MIN_WIDTH is a stable literal; only cardSize/shouldVirtualizeGrid matter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cardSize, shouldVirtualizeGrid]);
+
+  const gridRowGroups = useMemo<(Download | DownloadGroup)[][]>(() => {
+    if (!shouldVirtualizeGrid) return [];
+    const cols = Math.max(1, gridCols);
+    const rows: (Download | DownloadGroup)[][] = [];
+    for (let i = 0; i < items.length; i += cols) {
+      rows.push(items.slice(i, i + cols));
+    }
+    return rows;
+  }, [items, gridCols, shouldVirtualizeGrid]);
+
+  const gridVirtualizer = useVirtualizer({
+    count: shouldVirtualizeGrid ? gridRowGroups.length : 0,
+    getScrollElement: () => gridParentRef.current,
+    estimateSize: () => 320,
+    overscan: 4,
+    measureElement: (el) => el?.getBoundingClientRect().height ?? 320
+  });
+
+  // Column count changes → re-measure every row so previously cached sizes are invalidated.
+  useEffect(() => {
+    if (shouldVirtualizeGrid) {
+      gridVirtualizer.measure();
+    }
+  }, [gridCols, shouldVirtualizeGrid, gridVirtualizer]);
+
+  // Reset grid scroll when the item set changes.
+  useEffect(() => {
+    if (gridParentRef.current) {
+      gridParentRef.current.scrollTop = 0;
+    }
+  }, [gridRowGroups]);
+
+  const renderSectionHeader = (variant: HeaderRowKind): React.ReactNode => {
+    if (variant === 'multiple') {
+      return (
+        <div className="section-divider mb-5 mt-8 first:mt-0">
+          <div className="section-divider-inner">
+            <div className="section-divider-accent" />
+            <div className="section-divider-content">
+              <h2 className="section-divider-title">{labels.multipleDownloads}</h2>
+              <p className="section-divider-description">
+                Games that have been downloaded multiple times
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    if (variant === 'single') {
+      return (
+        <div className="section-divider mb-5 mt-8 first:mt-0">
+          <div className="section-divider-inner">
+            <div className="section-divider-accent" />
+            <div className="section-divider-content">
+              <h2 className="section-divider-title">{labels.singleDownloads}</h2>
+              <p className="section-divider-description">
+                Games downloaded once in a single session
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div className="section-divider mb-5 mt-8 first:mt-0">
+        <div className="section-divider-inner">
+          <div className="section-divider-accent" />
+          <div className="section-divider-content">
+            <h2 className="section-divider-title">{labels.individual}</h2>
+            <p className="section-divider-description">
+              {t('downloads.tab.normal.sections.individualDescription')}
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   const handleImageError = (gameAppId: string) => {
     setImageErrors((prev) => new Set(prev).add(gameAppId));
@@ -1753,80 +1885,121 @@ const NormalView: React.FC<NormalViewProps> = ({
       }
     };
 
+    const itemKey = (item: Download | DownloadGroup): string =>
+      'downloads' in item ? (item as DownloadGroup).id : `download-${(item as Download).id}`;
+
+    const renderGridCard = (item: Download | DownloadGroup): React.ReactNode => {
+      const group = toGroup(item);
+      return (
+        <GridCard
+          key={itemKey(item)}
+          group={group}
+          isExpanded={false}
+          onItemClick={handleGridCardClick}
+          imageErrors={imageErrors}
+          handleImageError={handleImageError}
+          showCacheHitBar={showCacheHitBar}
+          showEventBadges={showEventBadges}
+          bannerOnly={bannerOnly}
+          groupPages={groupPages}
+          setGroupPages={setGroupPages}
+          startHoldTimer={startHoldTimer}
+          stopHoldTimer={stopHoldTimer}
+          enableScrollIntoView={false}
+          showDatasourceLabels={showDatasourceLabels}
+          hasMultipleDatasources={hasMultipleDatasources}
+          availableImages={availableImages}
+        />
+      );
+    };
+
+    const drawerNode = (
+      <Drawer
+        opened={drawerItem !== null}
+        onClose={() => setDrawerItem(null)}
+        position="right"
+        title={drawerItem?.name ?? ''}
+        classNames={{
+          header: 'drawer-header',
+          body: 'drawer-body',
+          content: 'drawer-content',
+          title: 'drawer-title'
+        }}
+      >
+        {drawerItem && (
+          <GridCardDrawerContent
+            group={drawerItem}
+            imageErrors={imageErrors}
+            handleImageError={handleImageError}
+            showEventBadges={showEventBadges}
+            showDatasourceLabels={showDatasourceLabels}
+            hasMultipleDatasources={hasMultipleDatasources}
+            groupPages={groupPages}
+            setGroupPages={setGroupPages}
+            startHoldTimer={startHoldTimer}
+            stopHoldTimer={stopHoldTimer}
+            availableImages={availableImages}
+            detectionLookup={detectionLookup}
+            detectionByName={detectionByName}
+            detectionByService={detectionByService}
+          />
+        )}
+      </Drawer>
+    );
+
+    if (shouldVirtualizeGrid) {
+      const virtualItems = gridVirtualizer.getVirtualItems();
+      // Dynamic `--grid-cols` must be per-element (viewport derived). All other
+      // styling (gap, padding, track sizing) lives in VirtualizedList.css.
+      const gridTemplateStyle: React.CSSProperties = {
+        gridTemplateColumns: `repeat(${Math.max(1, gridCols)}, minmax(0, 1fr))`
+      };
+      return (
+        <>
+          <div ref={gridParentRef} className="virtual-list-parent virtual-list-parent-cardgrid">
+            <div
+              className="virtual-list-inner"
+              style={{ height: `${gridVirtualizer.getTotalSize()}px` }}
+            >
+              {virtualItems.map((virtualRow) => {
+                const rowItems = gridRowGroups[virtualRow.index];
+                if (!rowItems) return null;
+                return (
+                  <div
+                    key={virtualRow.key}
+                    data-index={virtualRow.index}
+                    ref={gridVirtualizer.measureElement}
+                    className={`virtual-row virtual-grid-row ${gridSizeClass}`}
+                    style={{
+                      transform: `translateY(${virtualRow.start}px)`,
+                      ...gridTemplateStyle
+                    }}
+                  >
+                    {rowItems.map((item) => renderGridCard(item))}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          {drawerNode}
+        </>
+      );
+    }
+
     return (
       <>
-        <div className={gridSizeClass}>
-          {items.map((item) => {
-            const group = toGroup(item);
-            const key =
-              'downloads' in item
-                ? (item as DownloadGroup).id
-                : `download-${(item as Download).id}`;
-
-            return (
-              <GridCard
-                key={key}
-                group={group}
-                isExpanded={false}
-                onItemClick={handleGridCardClick}
-                imageErrors={imageErrors}
-                handleImageError={handleImageError}
-                showCacheHitBar={showCacheHitBar}
-                showEventBadges={showEventBadges}
-                bannerOnly={bannerOnly}
-                groupPages={groupPages}
-                setGroupPages={setGroupPages}
-                startHoldTimer={startHoldTimer}
-                stopHoldTimer={stopHoldTimer}
-                enableScrollIntoView={false}
-                showDatasourceLabels={showDatasourceLabels}
-                hasMultipleDatasources={hasMultipleDatasources}
-                availableImages={availableImages}
-              />
-            );
-          })}
+        <div ref={gridParentRef} className={gridSizeClass}>
+          {items.map((item) => renderGridCard(item))}
         </div>
-
-        <Drawer
-          opened={drawerItem !== null}
-          onClose={() => setDrawerItem(null)}
-          position="right"
-          title={drawerItem?.name ?? ''}
-          classNames={{
-            header: 'drawer-header',
-            body: 'drawer-body',
-            content: 'drawer-content',
-            title: 'drawer-title'
-          }}
-        >
-          {drawerItem && (
-            <GridCardDrawerContent
-              group={drawerItem}
-              imageErrors={imageErrors}
-              handleImageError={handleImageError}
-              showEventBadges={showEventBadges}
-              showDatasourceLabels={showDatasourceLabels}
-              hasMultipleDatasources={hasMultipleDatasources}
-              groupPages={groupPages}
-              setGroupPages={setGroupPages}
-              startHoldTimer={startHoldTimer}
-              stopHoldTimer={stopHoldTimer}
-              availableImages={availableImages}
-              detectionLookup={detectionLookup}
-              detectionByName={detectionByName}
-              detectionByService={detectionByService}
-            />
-          )}
-        </Drawer>
+        {drawerNode}
       </>
     );
   }
 
   // Standard list layout
-  // Virtualization threshold: >200 items AND no section headers to track.
-  // groupByFrequency interleaves stateful section headers that break a pure
-  // `items[index]` mapping, so fall back to the non-virtual path in that case.
-  // cardGridLayout is also skipped — it has its own grid/drawer layout above.
+  // Virtualization now covers BOTH plain list and `groupByFrequency` modes by
+  // flattening section headers into the same typed row array. cardGridLayout
+  // still bypasses (handled in its own branch above).
   if (shouldVirtualizeList) {
     const virtualItems = rowVirtualizer.getVirtualItems();
     return (
@@ -1836,20 +2009,21 @@ const NormalView: React.FC<NormalViewProps> = ({
           style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
         >
           {virtualItems.map((virtualRow) => {
-            const item = items[virtualRow.index];
-            const isGroup = 'downloads' in item;
-            const key = isGroup ? (item as DownloadGroup).id : `download-${(item as Download).id}`;
+            const row = flatRows[virtualRow.index];
+            if (!row) return null;
             return (
               <div
-                key={key}
+                key={row.id}
                 data-index={virtualRow.index}
                 ref={rowVirtualizer.measureElement}
                 className="virtual-row virtual-row-normal"
                 style={{ transform: `translateY(${virtualRow.start}px)` }}
               >
-                {isGroup
-                  ? renderGroupCard(item as DownloadGroup)
-                  : renderDownloadCard(item as Download)}
+                {row.kind === 'header'
+                  ? renderSectionHeader(row.variant)
+                  : 'downloads' in row.item
+                    ? renderGroupCard(row.item as DownloadGroup)
+                    : renderDownloadCard(row.item as Download)}
               </div>
             );
           })}
@@ -1858,79 +2032,17 @@ const NormalView: React.FC<NormalViewProps> = ({
     );
   }
 
-  let multipleDownloadsHeaderRendered = false;
-  let singleDownloadsHeaderRendered = false;
-  let individualHeaderRendered = false;
-
   return (
     <div className="space-y-4">
-      {items.map((item) => {
-        const isGroup = 'downloads' in item;
-        const key = isGroup ? (item as DownloadGroup).id : `download-${(item as Download).id}`;
-        let header: React.ReactNode = null;
-
-        // Only show section headers if groupByFrequency is enabled
-        if (groupByFrequency) {
-          if (isGroup) {
-            const group = item as DownloadGroup;
-            if (group.count > 1 && !multipleDownloadsHeaderRendered) {
-              multipleDownloadsHeaderRendered = true;
-              header = (
-                <div className="section-divider mb-5 mt-8 first:mt-0">
-                  <div className="section-divider-inner">
-                    <div className="section-divider-accent" />
-                    <div className="section-divider-content">
-                      <h2 className="section-divider-title">{labels.multipleDownloads}</h2>
-                      <p className="section-divider-description">
-                        Games that have been downloaded multiple times
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              );
-            } else if (group.count === 1 && !singleDownloadsHeaderRendered) {
-              singleDownloadsHeaderRendered = true;
-              header = (
-                <div className="section-divider mb-5 mt-8 first:mt-0">
-                  <div className="section-divider-inner">
-                    <div className="section-divider-accent" />
-                    <div className="section-divider-content">
-                      <h2 className="section-divider-title">{labels.singleDownloads}</h2>
-                      <p className="section-divider-description">
-                        Games downloaded once in a single session
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              );
-            }
-          } else if (!isGroup && !individualHeaderRendered) {
-            individualHeaderRendered = true;
-            header = (
-              <div className="section-divider mb-5 mt-8 first:mt-0">
-                <div className="section-divider-inner">
-                  <div className="section-divider-accent" />
-                  <div className="section-divider-content">
-                    <h2 className="section-divider-title">{labels.individual}</h2>
-                    <p className="section-divider-description">
-                      {t('downloads.tab.normal.sections.individualDescription')}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            );
-          }
-        }
-
-        return (
-          <React.Fragment key={key}>
-            {header}
-            {isGroup
-              ? renderGroupCard(item as DownloadGroup)
-              : renderDownloadCard(item as Download)}
-          </React.Fragment>
-        );
-      })}
+      {flatRows.map((row) => (
+        <React.Fragment key={row.id}>
+          {row.kind === 'header'
+            ? renderSectionHeader(row.variant)
+            : 'downloads' in row.item
+              ? renderGroupCard(row.item as DownloadGroup)
+              : renderDownloadCard(row.item as Download)}
+        </React.Fragment>
+      ))}
     </div>
   );
 };

@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useTranslation } from 'react-i18next';
 import './VirtualizedList.css';
@@ -19,6 +19,8 @@ import { useSessionFilters } from './useSessionFilters';
 import SessionFilterBar from './SessionFilterBar';
 import { resolveGameDetection } from '@utils/gameDetection';
 import type { Download, DownloadGroup, GameCacheInfo } from '../../../types';
+import { useFlatRows } from '@hooks/useFlatRows';
+import type { HeaderRowKind } from './types';
 
 interface CompactViewSectionLabels {
   multipleDownloads: string;
@@ -681,19 +683,46 @@ const CompactView = React.memo(function CompactView({
     return renderGroupRow(fakeGroup);
   };
 
-  // Virtualization threshold: >200 rows AND no section headers.
-  // Compact rows have roughly constant height (~48px); variance from row
-  // expansion is absorbed by `measureElement`.
+  // Virtualization threshold: >200 rows. Section headers from `groupByFrequency`
+  // are flattened into the same typed row array so the virtualizer can index
+  // over them uniformly. Compact rows have roughly constant height (~48px);
+  // variance from row expansion / header size is absorbed by `measureElement`.
   const VIRTUALIZATION_THRESHOLD = 200;
-  const shouldVirtualize = !groupByFrequency && items.length > VIRTUALIZATION_THRESHOLD;
+
+  const flatRows = useFlatRows({ items, groupByFrequency });
+
+  const shouldVirtualize = flatRows.length > VIRTUALIZATION_THRESHOLD;
   const virtualParentRef = useRef<HTMLDivElement | null>(null);
   const rowVirtualizer = useVirtualizer({
-    count: shouldVirtualize ? items.length : 0,
+    count: shouldVirtualize ? flatRows.length : 0,
     getScrollElement: () => virtualParentRef.current,
-    estimateSize: () => 48,
+    estimateSize: (index) => (flatRows[index]?.kind === 'header' ? 36 : 48),
     overscan: 5,
     measureElement: (el) => el?.getBoundingClientRect().height ?? 48
   });
+
+  // Reset virtualized scroll to top when filters/sort change the row set, preventing a stale offset.
+  useEffect(() => {
+    if (virtualParentRef.current) {
+      virtualParentRef.current.scrollTop = 0;
+    }
+  }, [flatRows]);
+
+  const renderSectionHeader = (variant: HeaderRowKind): React.ReactNode => {
+    const text =
+      variant === 'multiple'
+        ? labels.multipleDownloads
+        : variant === 'single'
+          ? labels.singleDownloads
+          : labels.individual;
+    return (
+      <div className="px-3 py-1.5 mt-2 mb-1">
+        <div className="text-xs font-semibold text-themed-muted uppercase tracking-wide">
+          {text}
+        </div>
+      </div>
+    );
+  };
 
   if (shouldVirtualize) {
     const virtualItems = rowVirtualizer.getVirtualItems();
@@ -708,22 +737,21 @@ const CompactView = React.memo(function CompactView({
             style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
           >
             {virtualItems.map((virtualRow) => {
-              const item = items[virtualRow.index];
-              const isGroup = 'downloads' in item;
-              const key = isGroup
-                ? (item as DownloadGroup).id
-                : `download-${(item as Download).id}`;
+              const row = flatRows[virtualRow.index];
+              if (!row) return null;
               return (
                 <div
-                  key={key}
+                  key={row.id}
                   data-index={virtualRow.index}
                   ref={rowVirtualizer.measureElement}
                   className="virtual-row"
                   style={{ transform: `translateY(${virtualRow.start}px)` }}
                 >
-                  {isGroup
-                    ? renderGroupRow(item as DownloadGroup)
-                    : renderDownloadRow(item as Download)}
+                  {row.kind === 'header'
+                    ? renderSectionHeader(row.variant)
+                    : 'downloads' in row.item
+                      ? renderGroupRow(row.item as DownloadGroup)
+                      : renderDownloadRow(row.item as Download)}
                 </div>
               );
             })}
@@ -733,62 +761,19 @@ const CompactView = React.memo(function CompactView({
     );
   }
 
-  let multipleDownloadsHeaderRendered = false;
-  let singleDownloadsHeaderRendered = false;
-  let individualHeaderRendered = false;
-
   return (
     <div className="space-y-1">
       <div className="px-3 py-2 text-sm font-semibold text-themed-primary">Downloads Overview</div>
       <div>
-        {items.map((item) => {
-          const isGroup = 'downloads' in item;
-          const key = isGroup ? (item as DownloadGroup).id : `download-${(item as Download).id}`;
-          let header: React.ReactNode = null;
-
-          if (groupByFrequency) {
-            if (isGroup) {
-              const group = item as DownloadGroup;
-              if (group.count > 1 && !multipleDownloadsHeaderRendered) {
-                multipleDownloadsHeaderRendered = true;
-                header = (
-                  <div className="px-3 py-1.5 mt-2 mb-1">
-                    <div className="text-xs font-semibold text-themed-muted uppercase tracking-wide">
-                      {labels.multipleDownloads}
-                    </div>
-                  </div>
-                );
-              } else if (group.count === 1 && !singleDownloadsHeaderRendered) {
-                singleDownloadsHeaderRendered = true;
-                header = (
-                  <div className="px-3 py-1.5 mt-2 mb-1">
-                    <div className="text-xs font-semibold text-themed-muted uppercase tracking-wide">
-                      {labels.singleDownloads}
-                    </div>
-                  </div>
-                );
-              }
-            } else if (!isGroup && !individualHeaderRendered) {
-              individualHeaderRendered = true;
-              header = (
-                <div className="px-3 py-1.5 mt-2 mb-1">
-                  <div className="text-xs font-semibold text-themed-muted uppercase tracking-wide">
-                    {labels.individual}
-                  </div>
-                </div>
-              );
-            }
-          }
-
-          return (
-            <React.Fragment key={key}>
-              {header}
-              {isGroup
-                ? renderGroupRow(item as DownloadGroup)
-                : renderDownloadRow(item as Download)}
-            </React.Fragment>
-          );
-        })}
+        {flatRows.map((row) => (
+          <React.Fragment key={row.id}>
+            {row.kind === 'header'
+              ? renderSectionHeader(row.variant)
+              : 'downloads' in row.item
+                ? renderGroupRow(row.item as DownloadGroup)
+                : renderDownloadRow(row.item as Download)}
+          </React.Fragment>
+        ))}
       </div>
     </div>
   );

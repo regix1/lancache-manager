@@ -6,6 +6,7 @@ import './i18n';
 import themeService from './services/theme.service';
 import { initializeFavicon } from './utils/favicon';
 import { preloadDashboardCache } from './utils/idbCache';
+import { preloadAvailableGameImages } from './hooks/useAvailableGameImages';
 
 // Bootstrap the UI with cached/default theme values only.
 // Authenticated preference hydration happens after auth settles inside the app.
@@ -40,8 +41,11 @@ const renderApp = () => {
     return;
   }
 
-  // Pre-load cached dashboard data before React renders to eliminate skeleton flash
-  preloadDashboardCache().finally(() => {
+  // Pre-load cached dashboard data AND the game-image availability set before
+  // React renders. Populating `availableIds` synchronously on first mount
+  // eliminates both the skeleton flash and the banner empty-then-pop-in flash.
+  // `allSettled` so a failure in one preload does not block the other.
+  Promise.allSettled([preloadDashboardCache(), preloadAvailableGameImages()]).finally(() => {
     const root = ReactDOM.createRoot(rootEl);
     root.render(
       <NuqsAdapter>

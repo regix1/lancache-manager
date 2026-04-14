@@ -80,8 +80,15 @@ const STORAGE_KEYS = {
   SHOW_TIMESTAMPS: 'lancache_downloads_show_timestamps',
   SHOW_BANNER_COLUMN: 'lancache_downloads_show_banner_column',
   BANNER_ONLY: 'downloads_banner_only',
-  GROUP_BY_GAME_RETRO: 'lancache_downloads_group_by_game_retro'
+  GROUP_BY_GAME_RETRO: 'lancache_downloads_group_by_game_retro',
+  EVICTED_DATA_MODE: 'lancache_downloads_evicted_data_mode'
 };
+
+// Server-side eviction display mode (mirrors backend contract).
+type EvictedDataMode = 'show' | 'hide' | 'showClean';
+
+const isEvictedDataMode = (value: unknown): value is EvictedDataMode =>
+  value === 'show' || value === 'hide' || value === 'showClean';
 
 // Default items per page for each view mode
 const DEFAULT_ITEMS_PER_PAGE = {
@@ -325,16 +332,37 @@ const DownloadsTab: React.FC = () => {
   const { currentPreferences } = useSessionPreferences();
   const showDatasourceLabels = currentPreferences?.showDatasourceLabels ?? true;
 
-  // Fetch server-side eviction display mode
-  const [evictedDataMode, setEvictedDataMode] = useState<string>('show');
+  // Fetch server-side eviction display mode.
+  // Seeding strategy:
+  //   1. Read the last-known-good value from localStorage — this survives REST failures so a
+  //      user who previously opted into 'show'/'showClean' keeps seeing evicted rows even if
+  //      /api/state/get-evicted-data-mode starts returning 500.
+  //   2. Fall back to 'hide' when nothing is cached (safe default — see worker-u1-results.md:
+  //      first paint hides evicted rows to prevent the "badge flashes then disappears" flicker
+  //      in unlimited-pagination mode).
+  //   3. On REST success, persist the response to localStorage for the next mount.
+  //   4. On REST failure, keep the cached value (no overwrite) and warn to console.
+  const readCachedEvictedDataMode = (): EvictedDataMode => {
+    const cached = storage.getItem(STORAGE_KEYS.EVICTED_DATA_MODE);
+    return isEvictedDataMode(cached) ? cached : 'hide';
+  };
+  const [evictedDataMode, setEvictedDataMode] =
+    useState<EvictedDataMode>(readCachedEvictedDataMode);
   useEffect(() => {
     const controller = new AbortController();
     ApiService.getEvictionSettings(controller.signal)
       .then((response: { evictedDataMode: string }) => {
-        setEvictedDataMode(response.evictedDataMode);
+        if (isEvictedDataMode(response.evictedDataMode)) {
+          setEvictedDataMode(response.evictedDataMode);
+          storage.setItem(STORAGE_KEYS.EVICTED_DATA_MODE, response.evictedDataMode);
+        }
       })
-      .catch(() => {
-        /* ignore abort / network errors */
+      .catch((err: unknown) => {
+        // Abort errors are expected on unmount; log other failures so the cached value is
+        // visible as the in-session fallback. Do NOT overwrite storage — last-known-good stays.
+        if (!controller.signal.aborted) {
+          console.warn('[DownloadsTab] Failed to load evictedDataMode; using cached/default:', err);
+        }
       });
     return () => controller.abort();
   }, []);
