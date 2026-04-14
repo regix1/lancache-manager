@@ -15,8 +15,6 @@ interface CacheGrowthTrendProps {
   totalCacheSize: number;
   /** Whether to use glassmorphism style */
   glassmorphism?: boolean;
-  /** Stagger index for entrance animation */
-  staggerIndex?: number;
 }
 
 /**
@@ -24,7 +22,7 @@ interface CacheGrowthTrendProps {
  * Uses real API data from /api/stats/cache-growth
  */
 const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
-  ({ usedCacheSize, totalCacheSize, glassmorphism = true, staggerIndex }) => {
+  ({ usedCacheSize, totalCacheSize, glassmorphism = true }) => {
     const { t } = useTranslation();
     const { timeRange } = useTimeFilter();
 
@@ -95,16 +93,10 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
       return 'var(--theme-success)';
     };
 
-    // Build animation classes
-    const animationClasses =
-      staggerIndex !== undefined
-        ? `animate-card-entrance stagger-${Math.min(staggerIndex + 1, 12)}`
-        : '';
-
     // Loading state - show skeleton on initial load and every refresh
     if (loading) {
       return (
-        <div className={`widget-card ${glassmorphism ? 'glass' : ''} ${animationClasses}`}>
+        <div className={`widget-card ${glassmorphism ? 'glass' : ''}`}>
           <div className="flex items-center gap-2 mb-3">
             <TrendingUp className="w-5 h-5 text-themed-muted" />
             <h3 className="text-sm font-semibold text-themed-primary">
@@ -140,7 +132,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
     // Error state
     if (error) {
       return (
-        <div className={`widget-card ${glassmorphism ? 'glass' : ''} ${animationClasses}`}>
+        <div className={`widget-card ${glassmorphism ? 'glass' : ''}`}>
           <div className="flex items-center gap-2 mb-3">
             <TrendingUp className="w-5 h-5 text-themed-muted" />
             <h3 className="text-sm font-semibold text-themed-primary">
@@ -153,7 +145,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
     }
 
     return (
-      <div className={`widget-card ${glassmorphism ? 'glass' : ''} ${animationClasses}`}>
+      <div className={`widget-card ${glassmorphism ? 'glass' : ''}`}>
         {/* Header */}
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">

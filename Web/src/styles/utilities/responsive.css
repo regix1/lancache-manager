@@ -202,7 +202,6 @@
 
 /* Reduced motion support */
 @media (prefers-reduced-motion: reduce) {
-  .animate-card-entrance,
   .animate-sparkline,
   .animate-count {
     animation: none;

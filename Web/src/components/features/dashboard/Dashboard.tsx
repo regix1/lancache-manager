@@ -168,10 +168,6 @@ const Dashboard: React.FC = () => {
     localStorage.setItem('dashboard-card-layout', value);
   };
 
-  // Track if initial card animations have completed - prevents re-animation on reorder
-  const initialAnimationCompleteRef = useRef(false);
-  const [initialAnimationComplete, setInitialAnimationComplete] = useState(false);
-
   // Track previous stats to prevent values from flashing to 0 during fetches
   const previousStatsRef = useRef({
     bandwidthSaved: 0,
@@ -186,17 +182,6 @@ const Dashboard: React.FC = () => {
   // Determine if we're viewing historical/filtered data (not live)
   // Any non-live mode should disable real-time only stats
   const isHistoricalView = timeRange !== 'live' || selectedEventIds.length > 0;
-
-  // Mark initial animation as complete after entrance animations finish
-  useEffect(() => {
-    if (!initialAnimationCompleteRef.current) {
-      const timer = setTimeout(() => {
-        initialAnimationCompleteRef.current = true;
-        setInitialAnimationComplete(true);
-      }, 800); // Allow time for staggered entrance animations to complete
-      return () => clearTimeout(timer);
-    }
-  }, []);
 
   // Sparkline and cache snapshot data from context (batched endpoint)
   const { sparklines: sparklineData } = useSparklines();
@@ -940,7 +925,6 @@ const Dashboard: React.FC = () => {
                           : undefined
                 }
                 sparklineKey={timeRange}
-                staggerIndex={initialAnimationComplete ? undefined : visualIndex}
               />
 
               <Tooltip
@@ -985,12 +969,11 @@ const Dashboard: React.FC = () => {
 
       {/* Analytics Widgets Row */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <PeakUsageHours glassmorphism={true} staggerIndex={8} />
+        <PeakUsageHours glassmorphism={true} />
         <CacheGrowthTrend
           usedCacheSize={cacheInfo?.usedCacheSize || 0}
           totalCacheSize={cacheInfo?.totalCacheSize || 0}
           glassmorphism={true}
-          staggerIndex={9}
         />
       </div>
 

@@ -38,8 +38,6 @@ interface StatCardProps {
   animateValue?: boolean;
   // Glassmorphism
   glassmorphism?: boolean;
-  // Stagger index for entrance animation
-  staggerIndex?: number;
   // Loading skeleton
   loading?: boolean;
 }
@@ -70,7 +68,6 @@ const StatCard: React.FC<StatCardProps> = ({
   tooltip,
   animateValue = false,
   glassmorphism = false,
-  staggerIndex,
   loading = false
 }) => {
   const { t } = useTranslation();
@@ -86,7 +83,6 @@ const StatCard: React.FC<StatCardProps> = ({
   // Determine sparkline color
   const resolvedSparklineColor = sparklineColor || statCardColorMap[color];
 
-  // Build class names - animation classes only added when staggerIndex is provided
   const cardClasses = useMemo(() => {
     const classes = [
       'rounded-lg',
@@ -107,15 +103,8 @@ const StatCard: React.FC<StatCardProps> = ({
       classes.push('hover:shadow-lg');
     }
 
-    // Only add animation classes when staggerIndex is provided
-    // Parent component controls when to stop providing staggerIndex (after initial animation)
-    if (staggerIndex !== undefined) {
-      classes.push('animate-card-entrance');
-      classes.push(`stagger-${Math.min(staggerIndex + 1, 12)}`);
-    }
-
     return classes.join(' ');
-  }, [glassmorphism, staggerIndex]);
+  }, [glassmorphism]);
 
   const cardContent = (
     <div
