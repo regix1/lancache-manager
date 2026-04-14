@@ -35,13 +35,12 @@ const Sparkline: React.FC<SparklineProps> = memo(
     color = 'var(--theme-primary)',
     height = 32,
     showArea = true,
-    animated = true,
+    animated: _animated = true,
     className = '',
     ariaLabel
   }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const chartRef = useRef<Chart | null>(null);
-    const [hasAnimated, setHasAnimated] = useState(false);
     const [themeVersion, setThemeVersion] = useState(0);
 
     console.log('[SPARKDBG] Sparkline/render', {
@@ -60,15 +59,6 @@ const Sparkline: React.FC<SparklineProps> = memo(
       window.addEventListener('themechange', handleThemeChange);
       return () => window.removeEventListener('themechange', handleThemeChange);
     }, []);
-
-    // Check for reduced motion preference
-    const prefersReducedMotion = useMemo(() => {
-      if (typeof window === 'undefined') return true;
-      return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    }, []);
-
-    // Only animate on first render, not on data updates
-    const shouldAnimate = animated && !prefersReducedMotion && !hasAnimated;
 
     // Helper to resolve CSS variable
     const resolveCssVar = (cssVar: string): string => {
@@ -178,6 +168,9 @@ const Sparkline: React.FC<SparklineProps> = memo(
           newDataFirst: data[0]
         });
 
+        // Kill any pending animation frames before mutating data
+        chart.stop();
+
         // Update data in-place
         chart.data.labels = labels;
         chart.data.datasets[0].data = data;
@@ -231,13 +224,17 @@ const Sparkline: React.FC<SparklineProps> = memo(
         options: {
           responsive: true,
           maintainAspectRatio: false,
-          animation: shouldAnimate
-            ? {
-                duration: 800,
-                easing: 'easeOutQuart',
-                onComplete: () => setHasAnimated(true)
-              }
-            : false,
+          animation: false,
+          animations: {
+            colors: false,
+            x: false,
+            y: false
+          },
+          transitions: {
+            active: {
+              animation: { duration: 0 }
+            }
+          },
           plugins: {
             legend: { display: false },
             tooltip: { enabled: false }
@@ -303,7 +300,7 @@ const Sparkline: React.FC<SparklineProps> = memo(
           rafId = null;
         }
       };
-    }, [data, gradientColor, height, showArea, shouldAnimate]);
+    }, [data, gradientColor, height, showArea]);
 
     // Separate cleanup effect that only runs on unmount
     useEffect(() => {
