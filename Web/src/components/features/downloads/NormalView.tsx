@@ -32,6 +32,7 @@ import { useGroupPagination } from '@hooks/useGroupPagination';
 import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import DownloadBadges from './DownloadBadges';
 import { Pagination } from '@components/ui/Pagination';
+import { BackToTopButton } from '@components/ui/BackToTopButton';
 import IpSessionList from './IpSessionList';
 import { useSessionFilters } from './useSessionFilters';
 import SessionFilterBar from './SessionFilterBar';
@@ -1169,6 +1170,17 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
     hasActiveFilters
   } = useSessionFilters(group.downloads);
   const [expandedIps, setExpandedIps] = React.useState<Record<string, boolean>>({});
+  const drawerContentRef = React.useRef<HTMLDivElement>(null);
+  const drawerScrollRef = React.useRef<HTMLElement | null>(null);
+
+  React.useEffect(() => {
+    const contentEl = drawerContentRef.current;
+    if (!contentEl) {
+      drawerScrollRef.current = null;
+      return;
+    }
+    drawerScrollRef.current = contentEl.closest<HTMLElement>('.drawer-body');
+  }, [group.id]);
   const hitPercent = group.totalBytes > 0 ? (group.cacheHitBytes / group.totalBytes) * 100 : 0;
   const primaryDownload = group.downloads[0];
   const serviceLower = (group.service ?? '').toLowerCase();
@@ -1270,7 +1282,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
   });
 
   return (
-    <div className="drawer-detail-content">
+    <div className="drawer-detail-content" ref={drawerContentRef}>
       {/* Banner */}
       {drawerBanner && <div className="drawer-banner-wrapper">{drawerBanner}</div>}
 
@@ -1623,6 +1635,8 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
           />
         </div>
       )}
+
+      <BackToTopButton scrollContainerRef={drawerScrollRef} />
     </div>
   );
 };

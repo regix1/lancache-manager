@@ -198,3 +198,15 @@
     box-shadow: 0 0 16px 4px var(--glow-color-intense, var(--theme-glow-intense));
   }
 }
+
+/* Subtle variant — smaller blur/spread for bulk acknowledgements (e.g. Reset to
+   Defaults flashing every schedule card at once). */
+@keyframes highlightGlowPulseSubtle {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+  50% {
+    box-shadow: 0 0 8px 1px var(--glow-color-soft, var(--theme-primary-strong));
+  }
+}

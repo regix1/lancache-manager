@@ -24,6 +24,7 @@ interface DataSectionProps {
   onDataRefresh: () => void;
   onNavigateToSteamApi?: () => void;
   onNavigateToEpicLogin?: () => void;
+  onNavigateToSchedule?: (scheduleKey: string) => void;
 }
 
 const DataSection: React.FC<DataSectionProps> = ({
@@ -36,7 +37,8 @@ const DataSection: React.FC<DataSectionProps> = ({
   onSuccess,
   onDataRefresh,
   onNavigateToSteamApi,
-  onNavigateToEpicLogin
+  onNavigateToEpicLogin,
+  onNavigateToSchedule
 }) => {
   const { t } = useTranslation();
 
@@ -294,6 +296,9 @@ const DataSection: React.FC<DataSectionProps> = ({
           onSuccess={onSuccess}
           onDataRefresh={onDataRefresh}
           onNavigateToSteamApi={onNavigateToSteamApi}
+          onNavigateToSchedule={
+            onNavigateToSchedule ? () => onNavigateToSchedule('depotMapping') : undefined
+          }
         />
       </div>
 
@@ -313,6 +318,9 @@ const DataSection: React.FC<DataSectionProps> = ({
           onSuccess={onSuccess}
           onDataRefresh={onDataRefresh}
           onNavigateToEpicLogin={onNavigateToEpicLogin}
+          onNavigateToSchedule={
+            onNavigateToSchedule ? () => onNavigateToSchedule('epicMapping') : undefined
+          }
         />
       </div>
 

@@ -113,9 +113,23 @@
     border-radius: inherit;
   }
 
-  .highlight-glow-wrapper.highlight-glow-active > .themed-card,
-  .highlight-glow-wrapper.highlight-glow-active > .glass-card {
-    animation: highlightGlowPulse calc(var(--glow-duration, 2000ms) / 2) cubic-bezier(0.4, 0, 0.6, 1) 2;
+  /* Descendant combinator (not >) so the glow still reaches cards nested under
+     layout wrappers like .integrations-grid or .space-y-4 in IntegrationsSection.
+     Default "navigate" variant pulses twice to draw the user's eye to a single
+     target they just jumped to (Run Now, View Schedule, Configure buttons). */
+  .highlight-glow-wrapper.highlight-glow-active .themed-card,
+  .highlight-glow-wrapper.highlight-glow-active .glass-card {
+    animation: highlightGlowPulse calc(var(--glow-duration, 2000ms) / 2)
+      cubic-bezier(0.4, 0, 0.6, 1) 2;
+    will-change: box-shadow;
+  }
+
+  /* "Subtle" variant — used for bulk confirmations like Reset to Defaults where
+     every card flashes at once. A single, shorter, smaller-radius pulse feels
+     like an acknowledgement rather than an attention-grab. */
+  .highlight-glow-wrapper.highlight-glow-subtle.highlight-glow-active .themed-card,
+  .highlight-glow-wrapper.highlight-glow-subtle.highlight-glow-active .glass-card {
+    animation: highlightGlowPulseSubtle var(--glow-duration, 900ms) cubic-bezier(0.4, 0, 0.6, 1) 1;
     will-change: box-shadow;
   }
 
@@ -158,5 +172,4 @@
   .custom-scrollbar::-webkit-scrollbar-corner {
     background: var(--theme-scrollbar-track);
   }
-
 }

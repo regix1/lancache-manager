@@ -1,0 +1,44 @@
+.back-to-top-button {
+  position: sticky;
+  bottom: 1rem;
+  align-self: flex-end;
+  margin-top: 1rem;
+  margin-right: 0.25rem;
+  width: 2.5rem;
+  height: 2.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  border: 1px solid var(--theme-border-secondary);
+  background-color: var(--theme-bg-secondary);
+  color: var(--theme-text-secondary);
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(0.5rem);
+  pointer-events: none;
+  transition:
+    opacity 200ms ease,
+    transform 200ms ease,
+    background-color 150ms ease,
+    color 150ms ease;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.18);
+  z-index: 5;
+}
+
+.back-to-top-button.is-visible {
+  opacity: 0.8;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.back-to-top-button.is-visible:hover {
+  opacity: 1;
+  background-color: var(--theme-bg-tertiary);
+  color: var(--theme-text-primary);
+}
+
+.back-to-top-button:focus-visible {
+  outline: 2px solid var(--theme-border-focus);
+  outline-offset: 2px;
+}

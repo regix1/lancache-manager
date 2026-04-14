@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Database, Zap, AlertCircle, ExternalLink } from 'lucide-react';
+import { Database, Zap, AlertCircle, ExternalLink, Calendar } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { Button } from '@components/ui/Button';
 import { Card } from '@components/ui/Card';
@@ -27,6 +27,7 @@ interface DepotMappingManagerProps {
   onSuccess?: (message: string) => void;
   onDataRefresh?: () => void;
   onNavigateToSteamApi?: () => void;
+  onNavigateToSchedule?: () => void;
 }
 
 type DepotSource = 'incremental' | 'full' | 'github';
@@ -41,7 +42,8 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
   onError,
   onSuccess,
   onDataRefresh,
-  onNavigateToSteamApi
+  onNavigateToSteamApi,
+  onNavigateToSchedule
 }) => {
   const { t } = useTranslation();
   const { notifications } = useNotifications();
@@ -646,15 +648,29 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
             </HelpPopover>
           }
           actions={
-            onNavigateToSteamApi && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onNavigateToSteamApi}
-                rightSection={<ExternalLink className="w-3.5 h-3.5" />}
-              >
-                {t('management.depotMapping.configureSteamApi')}
-              </Button>
+            (onNavigateToSteamApi || onNavigateToSchedule) && (
+              <>
+                {onNavigateToSteamApi && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={onNavigateToSteamApi}
+                    rightSection={<ExternalLink className="w-3.5 h-3.5" />}
+                  >
+                    {t('management.depotMapping.configureSteamApi')}
+                  </Button>
+                )}
+                {onNavigateToSchedule && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={onNavigateToSchedule}
+                    rightSection={<Calendar className="w-3.5 h-3.5" />}
+                  >
+                    {t('management.depotMapping.viewSchedule')}
+                  </Button>
+                )}
+              </>
             )
           }
         />

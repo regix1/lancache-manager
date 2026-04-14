@@ -18,6 +18,7 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import type { ClientGroup } from '../../../../types';
 
 const UNGROUPED_IPS_PER_PAGE = 20;
+const PAGINATION_TOP_THRESHOLD = 100;
 
 interface ClientsSectionProps {
   isAdmin: boolean;
@@ -475,6 +476,21 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
                   <p className="text-sm text-themed-muted mb-3">
                     {t('management.sections.clients.withoutNicknamesDesc')}
                   </p>
+                  {/* Top Pagination Controls (shown for long lists) */}
+                  {ungroupedClients.length > PAGINATION_TOP_THRESHOLD &&
+                    totalUngroupedPages > 1 && (
+                      <Pagination
+                        currentPage={ungroupedPage}
+                        totalPages={totalUngroupedPages}
+                        totalItems={ungroupedClients.length}
+                        itemsPerPage={UNGROUPED_IPS_PER_PAGE}
+                        onPageChange={setUngroupedPage}
+                        itemLabel={t('management.sections.clients.ipsLabel')}
+                        showCard={false}
+                        compact
+                        className="mb-3"
+                      />
+                    )}
                   <div className="flex flex-wrap gap-2">
                     {paginatedUngroupedClients.map((ip) => (
                       <Tooltip

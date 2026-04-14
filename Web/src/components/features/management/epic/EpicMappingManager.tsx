@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ExternalLink, CheckCircle, XCircle } from 'lucide-react';
+import { ExternalLink, CheckCircle, XCircle, Calendar } from 'lucide-react';
 import { EpicIcon } from '@components/ui/EpicIcon';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
@@ -19,13 +19,15 @@ interface EpicMappingManagerProps {
   onSuccess?: (message: string) => void;
   onDataRefresh?: () => void;
   onNavigateToEpicLogin?: () => void;
+  onNavigateToSchedule?: () => void;
 }
 
 const EpicMappingManager: React.FC<EpicMappingManagerProps> = ({
   isAdmin,
   mockMode,
   onError,
-  onNavigateToEpicLogin
+  onNavigateToEpicLogin,
+  onNavigateToSchedule
 }) => {
   const { t } = useTranslation();
   const { on, off, connectionState } = useSignalR();
@@ -128,15 +130,29 @@ const EpicMappingManager: React.FC<EpicMappingManagerProps> = ({
           </HelpPopover>
         }
         actions={
-          onNavigateToEpicLogin && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onNavigateToEpicLogin}
-              rightSection={<ExternalLink className="w-3.5 h-3.5" />}
-            >
-              {t('management.epicMapping.configureLogin')}
-            </Button>
+          (onNavigateToEpicLogin || onNavigateToSchedule) && (
+            <>
+              {onNavigateToEpicLogin && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onNavigateToEpicLogin}
+                  rightSection={<ExternalLink className="w-3.5 h-3.5" />}
+                >
+                  {t('management.epicMapping.configureLogin')}
+                </Button>
+              )}
+              {onNavigateToSchedule && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onNavigateToSchedule}
+                  rightSection={<Calendar className="w-3.5 h-3.5" />}
+                >
+                  {t('management.epicMapping.viewSchedule')}
+                </Button>
+              )}
+            </>
           )
         }
       />

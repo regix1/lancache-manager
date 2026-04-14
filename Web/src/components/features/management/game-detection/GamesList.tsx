@@ -23,6 +23,7 @@ interface GamesListProps {
 }
 
 const ITEMS_PER_PAGE = 20;
+const PAGINATION_TOP_THRESHOLD = 100;
 
 const GamesList: React.FC<GamesListProps> = ({
   games,
@@ -132,6 +133,18 @@ const GamesList: React.FC<GamesListProps> = ({
 
       {filteredAndSortedGames.length > 0 && (
         <>
+          {/* Top Pagination Controls (shown for long lists) */}
+          {filteredAndSortedGames.length > PAGINATION_TOP_THRESHOLD && totalPages > 1 && (
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalItems={filteredAndSortedGames.length}
+              itemsPerPage={ITEMS_PER_PAGE}
+              onPageChange={setCurrentPage}
+              itemLabel={t('management.gameDetection.gamesLabel')}
+            />
+          )}
+
           <div className="space-y-3">
             {paginatedGames.map((game) => {
               const uniqueId = getGameUniqueId(game);

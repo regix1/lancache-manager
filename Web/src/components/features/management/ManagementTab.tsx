@@ -43,6 +43,7 @@ const ManagementTab: React.FC = () => {
   const [gameCacheRefreshKey, setGameCacheRefreshKey] = useState(0);
   const [highlightSteamApi, setHighlightSteamApi] = useState(false);
   const [highlightEpic, setHighlightEpic] = useState(false);
+  const [highlightScheduleKey, setHighlightScheduleKey] = useState<string | null>(null);
 
   // Derive log processing state from notifications for DepotMappingManager
   const activeProcessingNotification = notifications.find(
@@ -144,6 +145,16 @@ const ManagementTab: React.FC = () => {
     }, 2000);
   }, []);
 
+  // Handle navigation to a specific schedule card in the Schedules section
+  const handleNavigateToSchedule = useCallback((scheduleKey: string) => {
+    setActiveSection('schedules');
+    setHighlightScheduleKey(scheduleKey);
+    // Clear highlight after flash animation completes (matches schedule-completed-flash 3s)
+    setTimeout(() => {
+      setHighlightScheduleKey(null);
+    }, 3000);
+  }, []);
+
   // Render the active section
   const renderActiveSection = () => {
     // Settings section is always available
@@ -205,11 +216,12 @@ const ManagementTab: React.FC = () => {
             onDataRefresh={refreshStatsAndGameCache}
             onNavigateToSteamApi={handleNavigateToSteamApi}
             onNavigateToEpicLogin={handleNavigateToEpicLogin}
+            onNavigateToSchedule={handleNavigateToSchedule}
           />
         );
 
       case 'schedules':
-        return <SchedulesSection isAdmin={isAdmin} />;
+        return <SchedulesSection isAdmin={isAdmin} highlightScheduleKey={highlightScheduleKey} />;
 
       case 'preferences':
         return <PreferencesSection isAdmin={isAdmin} />;

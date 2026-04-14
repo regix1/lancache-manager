@@ -22,6 +22,7 @@ interface ServicesListProps {
 }
 
 const ITEMS_PER_PAGE = 20;
+const PAGINATION_TOP_THRESHOLD = 100;
 
 const ServicesList: React.FC<ServicesListProps> = ({
   services,
@@ -121,6 +122,18 @@ const ServicesList: React.FC<ServicesListProps> = ({
 
       {filteredAndSortedServices.length > 0 && (
         <>
+          {/* Top Pagination Controls (shown for long lists) */}
+          {filteredAndSortedServices.length > PAGINATION_TOP_THRESHOLD && totalPages > 1 && (
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalItems={filteredAndSortedServices.length}
+              itemsPerPage={ITEMS_PER_PAGE}
+              onPageChange={setCurrentPage}
+              itemLabel={t('management.gameDetection.servicesLabel')}
+            />
+          )}
+
           <div className="space-y-3">
             {paginatedServices.map((service) => (
               <ServiceCard

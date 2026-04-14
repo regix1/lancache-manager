@@ -60,6 +60,29 @@
   }
 }
 
+/* Wrapper around each ScheduleCard — carries the data-schedule-key attribute so
+   external callers (e.g. View Schedule buttons in DataSection) can scrollIntoView
+   the target card. Layout chain (.schedules-grid-item -> .highlight-glow-wrapper
+   -> .themed-card) is forced to height:100% so every card in the row stretches
+   to match the tallest card, even when cards have different amounts of content. */
+.schedules-grid-item {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.schedules-grid-item > .highlight-glow-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.schedules-grid-item .themed-card {
+  flex: 1;
+  width: 100%;
+}
+
 /* Individual Schedule Card — Card component provides bg, border, radius, padding */
 .schedule-card {
   display: flex;
@@ -296,18 +319,6 @@
   line-height: 1.45;
 }
 
-/* Just-completed flash — brief green border pulse */
-.schedule-card-completed {
-  animation: schedule-completed-flash 3s ease-out;
-}
-
-@keyframes schedule-completed-flash {
-  0% {
-    border-color: var(--theme-success);
-    box-shadow: 0 0 0 1px var(--theme-success);
-  }
-  100% {
-    border-color: var(--theme-card-border, var(--theme-border-secondary));
-    box-shadow: none;
-  }
-}
+/* The just-completed flash is now provided by the shared HighlightGlow component
+   (see overlays.css / animations.css), so the Schedules page uses the same pulse
+   animation as the Integrations-section Configure buttons. */

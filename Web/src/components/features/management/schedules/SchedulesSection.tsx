@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
+import HighlightGlow from '@components/ui/HighlightGlow';
 import { Checkbox } from '@components/ui/Checkbox';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
@@ -16,6 +17,7 @@ import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 
 interface SchedulesSectionProps {
   isAdmin: boolean;
+  highlightScheduleKey?: string | null;
 }
 
 // Isolated countdown component — ticks every second without re-rendering the parent card
@@ -124,6 +126,7 @@ interface ScheduleCardProps {
   onRunNow: (key: string) => Promise<void>;
   runningKey: string | null;
   justCompleted: boolean;
+  completedVariant: 'navigate' | 'subtle';
 }
 
 const ScheduleCard = memo(function ScheduleCard({
@@ -133,7 +136,8 @@ const ScheduleCard = memo(function ScheduleCard({
   onRunOnStartupChange,
   onRunNow,
   runningKey,
-  justCompleted
+  justCompleted,
+  completedVariant
 }: ScheduleCardProps) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
@@ -196,131 +200,137 @@ const ScheduleCard = memo(function ScheduleCard({
   const hasExpandableContent = true;
 
   return (
-    <Card
-      className={`schedule-card${service.intervalHours === 0 ? ' schedule-card-disabled' : ''}${justCompleted ? ' schedule-card-completed' : ''}`}
-    >
-      {/* Header */}
-      <div className="schedule-card-header">
-        <div className="schedule-card-title-group">
-          <h3 className="schedule-card-name">
-            <span
-              className={`schedule-status-dot${service.isRunning && service.intervalHours > 0 ? ' running' : ''}`}
-              aria-label={
-                service.isRunning
-                  ? t('management.schedules.statusRunning')
-                  : t('management.schedules.statusIdle')
-              }
+    <HighlightGlow enabled={justCompleted} variant={completedVariant}>
+      <Card
+        className={`schedule-card${service.intervalHours === 0 ? ' schedule-card-disabled' : ''}`}
+      >
+        {/* Header */}
+        <div className="schedule-card-header">
+          <div className="schedule-card-title-group">
+            <h3 className="schedule-card-name">
+              <span
+                className={`schedule-status-dot${service.isRunning && service.intervalHours > 0 ? ' running' : ''}`}
+                aria-label={
+                  service.isRunning
+                    ? t('management.schedules.statusRunning')
+                    : t('management.schedules.statusIdle')
+                }
+              />
+              {t(`management.schedules.services.${service.key}.displayName`)}
+            </h3>
+            <p className="schedule-card-description">
+              {t(`management.schedules.services.${service.key}.description`)}
+            </p>
+          </div>
+        </div>
+
+        {/* Timing Info */}
+        <div className="schedule-timing-row">
+          <div className="schedule-timing-item">
+            <span className="schedule-timing-label">{t('management.schedules.lastRun')}</span>
+            <span className="schedule-timing-value">{formatLastRun(service.lastRunUtc)}</span>
+          </div>
+          <div className="schedule-timing-item">
+            <span className="schedule-timing-label">{t('management.schedules.nextRun')}</span>
+            <CountdownDisplay
+              nextRunUtc={service.nextRunUtc}
+              intervalHours={service.intervalHours}
+              isRunning={service.isRunning}
             />
-            {t(`management.schedules.services.${service.key}.displayName`)}
-          </h3>
-          <p className="schedule-card-description">
-            {t(`management.schedules.services.${service.key}.description`)}
-          </p>
+            {service.nextRunUtc && service.intervalHours > 0 && !service.isRunning && (
+              <span className="schedule-next-run-date">{formattedNextRun}</span>
+            )}
+          </div>
         </div>
-      </div>
 
-      {/* Timing Info */}
-      <div className="schedule-timing-row">
-        <div className="schedule-timing-item">
-          <span className="schedule-timing-label">{t('management.schedules.lastRun')}</span>
-          <span className="schedule-timing-value">{formatLastRun(service.lastRunUtc)}</span>
-        </div>
-        <div className="schedule-timing-item">
-          <span className="schedule-timing-label">{t('management.schedules.nextRun')}</span>
-          <CountdownDisplay
-            nextRunUtc={service.nextRunUtc}
-            intervalHours={service.intervalHours}
-            isRunning={service.isRunning}
-          />
-          {service.nextRunUtc && service.intervalHours > 0 && !service.isRunning && (
-            <span className="schedule-next-run-date">{formattedNextRun}</span>
-          )}
-        </div>
-      </div>
-
-      {/* Controls */}
-      <div className="schedule-controls-row">
-        <div className="schedule-dropdown-wrapper">
-          <ScheduleIntervalDropdown
-            intervalHours={service.intervalHours}
-            isDisabled={isDisabled}
-            onChange={handleIntervalChange}
-          />
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleRunNow}
-          disabled={isDisabled}
-          loading={isRunningThis}
-          className="schedule-run-button"
-        >
-          {t('management.schedules.runNow')}
-        </Button>
-      </div>
-
-      {/* Run-on-startup toggle — hidden when interval is "Startup only" (-1) since the
-          entire point of that schedule IS to run at startup, making the toggle redundant. */}
-      {service.intervalHours !== -1 && (
-        <div className="schedule-startup-row">
-          <Checkbox
-            id={`run-on-startup-${service.key}`}
-            checked={service.runOnStartup}
+        {/* Controls */}
+        <div className="schedule-controls-row">
+          <div className="schedule-dropdown-wrapper">
+            <ScheduleIntervalDropdown
+              intervalHours={service.intervalHours}
+              isDisabled={isDisabled}
+              onChange={handleIntervalChange}
+            />
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRunNow}
             disabled={isDisabled}
-            onChange={handleRunOnStartupChange}
-            title={t('management.schedules.runOnStartupTooltip')}
-            label={t('management.schedules.runOnStartup')}
-          />
-        </div>
-      )}
-
-      {/* Expandable Gain/Loss */}
-      {hasExpandableContent && (
-        <div>
-          <button
-            className="schedule-expand-toggle"
-            onClick={handleToggleExpand}
-            aria-expanded={expanded}
+            loading={isRunningThis}
+            className="schedule-run-button"
           >
-            <span className={`schedule-expand-chevron${expanded ? ' open' : ''}`}>▼</span>
-            {expanded
-              ? t('management.schedules.hideDetails')
-              : t('management.schedules.showDetails')}
-          </button>
-          <div className={`schedule-expandable${expanded ? ' open' : ''}`}>
-            <div className="schedule-expandable-inner">
-              <div className="schedule-gain-loss-item">
-                <span className="schedule-gain-loss-label gain">
-                  {t('management.schedules.gain')}
-                </span>
-                <p className="schedule-gain-loss-text">
-                  {t(`management.schedules.services.${service.key}.gain`)}
-                </p>
-              </div>
-              <div className="schedule-gain-loss-item">
-                <span className="schedule-gain-loss-label loss">
-                  {t('management.schedules.loss')}
-                </span>
-                <p className="schedule-gain-loss-text">
-                  {t(`management.schedules.services.${service.key}.loss`)}
-                </p>
+            {t('management.schedules.runNow')}
+          </Button>
+        </div>
+
+        {/* Run-on-startup toggle — hidden when interval is "Startup only" (-1) since the
+          entire point of that schedule IS to run at startup, making the toggle redundant. */}
+        {service.intervalHours !== -1 && (
+          <div className="schedule-startup-row">
+            <Checkbox
+              id={`run-on-startup-${service.key}`}
+              checked={service.runOnStartup}
+              disabled={isDisabled}
+              onChange={handleRunOnStartupChange}
+              title={t('management.schedules.runOnStartupTooltip')}
+              label={t('management.schedules.runOnStartup')}
+            />
+          </div>
+        )}
+
+        {/* Expandable Gain/Loss */}
+        {hasExpandableContent && (
+          <div>
+            <button
+              className="schedule-expand-toggle"
+              onClick={handleToggleExpand}
+              aria-expanded={expanded}
+            >
+              <span className={`schedule-expand-chevron${expanded ? ' open' : ''}`}>▼</span>
+              {expanded
+                ? t('management.schedules.hideDetails')
+                : t('management.schedules.showDetails')}
+            </button>
+            <div className={`schedule-expandable${expanded ? ' open' : ''}`}>
+              <div className="schedule-expandable-inner">
+                <div className="schedule-gain-loss-item">
+                  <span className="schedule-gain-loss-label gain">
+                    {t('management.schedules.gain')}
+                  </span>
+                  <p className="schedule-gain-loss-text">
+                    {t(`management.schedules.services.${service.key}.gain`)}
+                  </p>
+                </div>
+                <div className="schedule-gain-loss-item">
+                  <span className="schedule-gain-loss-label loss">
+                    {t('management.schedules.loss')}
+                  </span>
+                  <p className="schedule-gain-loss-text">
+                    {t(`management.schedules.services.${service.key}.loss`)}
+                  </p>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
-    </Card>
+        )}
+      </Card>
+    </HighlightGlow>
   );
 });
 
-const SchedulesSection: React.FC<SchedulesSectionProps> = ({ isAdmin }) => {
+const SchedulesSection: React.FC<SchedulesSectionProps> = ({ isAdmin, highlightScheduleKey }) => {
   const { t } = useTranslation();
   const [schedules, setSchedules] = useState<ServiceScheduleInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [runningKey, setRunningKey] = useState<string | null>(null);
   const [resetting, setResetting] = useState(false);
-  const [completedKeys, setCompletedKeys] = useState<Set<string>>(new Set());
+  // Map of schedule key -> glow variant. `navigate` is the default (2-pulse attention
+  // grab) used by Run Now and external View Schedule navigation. `subtle` is used by
+  // Reset to Defaults where every card flashes at once and needs to feel like an
+  // acknowledgement rather than an attention-grab.
+  const [completedKeys, setCompletedKeys] = useState<Record<string, 'navigate' | 'subtle'>>({});
   const { on, off, connectionState } = useSignalR();
   const { addNotification } = useNotifications();
 
@@ -365,6 +375,50 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({ isAdmin }) => {
       fetchSchedules();
     }
   }, [connectionState, fetchSchedules]);
+
+  // React to external navigation (e.g. from Data section cards): flash the target card
+  // border and scroll it into view. Uses the same completed-flash animation as Run Now.
+  //
+  // Why the retry loop: when the user clicks View Schedule, both `activeSection` and
+  // `highlightScheduleKey` flip in the same tick. The SchedulesSection mounts fresh and
+  // `schedules` starts empty while the initial fetch is in flight — so the target card
+  // does not exist in the DOM yet when this effect first runs. We retry the querySelector
+  // for up to ~2s so the scroll fires as soon as the card renders.
+  useEffect(() => {
+    if (!highlightScheduleKey) return;
+    const key = highlightScheduleKey;
+
+    setCompletedKeys((prev) => ({ ...prev, [key]: 'navigate' }));
+
+    let cancelled = false;
+    let attempts = 0;
+    const maxAttempts = 40; // 40 * 50ms = 2s
+    const tryScroll = () => {
+      if (cancelled) return;
+      const el = document.querySelector<HTMLElement>(`[data-schedule-key="${key}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
+      if (++attempts < maxAttempts) {
+        setTimeout(tryScroll, 50);
+      }
+    };
+    tryScroll();
+
+    const flashTimeoutId = setTimeout(() => {
+      setCompletedKeys((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    }, 3000);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(flashTimeoutId);
+    };
+  }, [highlightScheduleKey]);
 
   const handleIntervalChange = useCallback(
     async (key: string, intervalHours: number) => {
@@ -425,10 +479,12 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({ isAdmin }) => {
         details: { notificationType: 'success' }
       });
 
-      // Flash all cards to confirm reset
-      const allKeys = new Set(schedules.map((s) => s.key));
-      setCompletedKeys(allKeys);
-      setTimeout(() => setCompletedKeys(new Set()), 3000);
+      // Flash all cards to confirm reset — subtle variant since every card glows at
+      // once. Duration matches HighlightGlow's SUBTLE_DEFAULT_DURATION so the
+      // enabled/class flip and the animation end happen on the same timeline.
+      const flashed = Object.fromEntries(schedules.map((s) => [s.key, 'subtle' as const]));
+      setCompletedKeys(flashed);
+      setTimeout(() => setCompletedKeys({}), 1400);
     } catch {
       addNotification({
         type: 'generic',
@@ -447,12 +503,12 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({ isAdmin }) => {
       setRunningKey(key);
 
       // Flash the card border immediately on click
-      setCompletedKeys((prev) => new Set([...prev, key]));
+      setCompletedKeys((prev) => ({ ...prev, [key]: 'navigate' }));
       setTimeout(
         () =>
           setCompletedKeys((prev) => {
-            const next = new Set(prev);
-            next.delete(key);
+            const next = { ...prev };
+            delete next[key];
             return next;
           }),
         3000
@@ -512,16 +568,18 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({ isAdmin }) => {
 
       <div className="schedules-grid">
         {schedules.map((service) => (
-          <ScheduleCard
-            key={service.key}
-            service={service}
-            isAdmin={isAdmin}
-            onIntervalChange={handleIntervalChange}
-            onRunOnStartupChange={handleRunOnStartupChange}
-            onRunNow={handleRunNow}
-            runningKey={runningKey}
-            justCompleted={completedKeys.has(service.key)}
-          />
+          <div key={service.key} data-schedule-key={service.key} className="schedules-grid-item">
+            <ScheduleCard
+              service={service}
+              isAdmin={isAdmin}
+              onIntervalChange={handleIntervalChange}
+              onRunOnStartupChange={handleRunOnStartupChange}
+              onRunNow={handleRunNow}
+              runningKey={runningKey}
+              justCompleted={!!completedKeys[service.key]}
+              completedVariant={completedKeys[service.key] ?? 'navigate'}
+            />
+          </div>
         ))}
       </div>
     </div>
