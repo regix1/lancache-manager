@@ -582,9 +582,10 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
     prevTimeRangeRef.current = timeRange;
     if (!mockMode && hasAccess && !isInitialLoad.current) {
       // Use forceRefresh to bypass debounce - time range changes should always trigger immediate fetch
-      // Only show loading if we don't have existing data to prevent UI flashing
+      // Keep previous values visible and let them update in place when new data arrives;
+      // the skeleton would just hide the old values without replacing them until the fetch completes.
       fetchAllData({
-        showLoading: true,
+        showLoading: false,
         forceRefresh: true,
         trigger: `timeRangeChange:${timeRange}`
       });
@@ -596,10 +597,9 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
     const currentEventIdsKey = JSON.stringify(selectedEventIds);
     if (!mockMode && hasAccess && prevEventIdsRef.current !== currentEventIdsKey) {
       prevEventIdsRef.current = currentEventIdsKey;
-      // Keep previous data visible during fetch - don't clear immediately
-      // Only show loading if we don't have existing data to prevent UI flashing
+      // Keep previous data visible during fetch - update in place when new data arrives.
       fetchAllData({
-        showLoading: true,
+        showLoading: false,
         forceRefresh: true,
         trigger: 'eventFilterChange'
       });
@@ -616,9 +616,9 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
 
         if (datesChanged) {
           setLastCustomDates({ start: customStartDate, end: customEndDate });
-          // Only show loading if we don't have existing data to prevent UI flashing
+          // Keep previous values visible during fetch - update in place when new data arrives.
           fetchAllData({
-            showLoading: true,
+            showLoading: false,
             forceRefresh: true,
             trigger: 'customDateChange'
           });
