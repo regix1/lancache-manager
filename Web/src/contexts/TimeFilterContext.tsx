@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 import React, { useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
 import { storage } from '@utils/storage';
 import { TimeFilterContext, type TimeRange } from './TimeFilterContext.types';
@@ -66,7 +67,10 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
 
   // Wrapper for setTimeRange that validates the value and sets anchor time
   const setTimeRange = useCallback((range: TimeRange) => {
-    setTimeRangeState(range);
+    setTimeRangeState((prev) => {
+      console.log('[SPARKDBG] useTimeFilter/setTimeRange', { from: prev, to: range });
+      return range;
+    });
     // Set anchor time for rolling ranges, clear for live/custom
     if (range !== 'live' && range !== 'custom') {
       setRangeAnchorTime(Date.now());

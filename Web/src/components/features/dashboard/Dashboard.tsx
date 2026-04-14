@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   HardDrive,
@@ -200,6 +201,24 @@ const Dashboard: React.FC = () => {
   // Sparkline and cache snapshot data from context (batched endpoint)
   const { sparklines: sparklineData } = useSparklines();
   const { cacheSnapshot } = useCacheSnapshot();
+
+  console.log('[SPARKDBG] Dashboard/render', {
+    timeRange,
+    loading,
+    sparklineKeys: sparklineData ? Object.keys(sparklineData) : null,
+    sparklineIdentity: sparklineData,
+    bandwidthSavedLen: sparklineData?.bandwidthSaved?.data?.length,
+    cacheHitRatioLen: sparklineData?.cacheHitRatio?.data?.length,
+    totalServedLen: sparklineData?.totalServed?.data?.length,
+    addedToCacheLen: sparklineData?.addedToCache?.data?.length
+  });
+
+  // One-time mount log — also reports StrictMode status (checked in main.tsx: DISABLED — no <StrictMode> wrapper)
+  useEffect(() => {
+    console.log('[SPARKDBG] Dashboard/mounted', {
+      strictMode: 'DISABLED (main.tsx does not wrap App in <StrictMode>)'
+    });
+  }, []);
 
   // Filter out services with only small files (< 1MB) and 0-byte files from dashboard data
   const filteredLatestDownloads = useMemo(() => {
@@ -821,6 +840,23 @@ const Dashboard: React.FC = () => {
           // Note: usedSpace now supports historical data via snapshots, so it's never disabled
           const isLiveOnlyCard = card.key === 'activeDownloads' || card.key === 'activeClients';
           const isCardDisabled = isLiveOnlyCard && isHistoricalView;
+
+          const cardSparklineData =
+            card.key === 'bandwidthSaved'
+              ? sparklineData?.bandwidthSaved?.data
+              : card.key === 'cacheHitRatio'
+                ? sparklineData?.cacheHitRatio?.data
+                : card.key === 'totalServed'
+                  ? sparklineData?.totalServed?.data
+                  : card.key === 'addedToCache'
+                    ? sparklineData?.addedToCache?.data
+                    : undefined;
+          console.log('[SPARKDBG] Dashboard/card', {
+            cardKey: card.key,
+            sparklineKey: timeRange,
+            dataLen: cardSparklineData?.length,
+            visualIndex
+          });
 
           return (
             <div

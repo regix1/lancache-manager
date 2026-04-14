@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 import React, { useState, useEffect, useRef, useCallback, useMemo, startTransition } from 'react';
 import { getCachedValue, setCachedValue, IDB_KEYS } from '@utils/idbCache';
 import ApiService from '@services/api.service';
@@ -245,6 +246,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         // Show skeleton only for user-initiated fetches (initial load, time range change).
         // Background updates (SignalR live data, auto-refresh) update data silently.
         if (showLoading) {
+          console.log('[SPARKDBG] Ctx/setLoading', { loading: true, trigger: _trigger });
           setLoading(true);
         }
 
@@ -337,7 +339,18 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
             setLatestDownloads(batchResponse.downloads);
           }
           if (batchResponse.sparklines !== null && batchResponse.sparklines !== undefined) {
-            setSparklines(batchResponse.sparklines);
+            const sparks = batchResponse.sparklines;
+            console.log('[SPARKDBG] Ctx/setSparklines', {
+              trigger: _trigger,
+              keys: Object.keys(sparks),
+              lengths: {
+                bandwidthSaved: sparks.bandwidthSaved?.data?.length,
+                cacheHitRatio: sparks.cacheHitRatio?.data?.length,
+                totalServed: sparks.totalServed?.data?.length,
+                addedToCache: sparks.addedToCache?.data?.length
+              }
+            });
+            setSparklines(sparks);
           }
           if (batchResponse.hourlyActivity !== null && batchResponse.hourlyActivity !== undefined) {
             setHourlyActivity(batchResponse.hourlyActivity);
@@ -356,6 +369,10 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         // non-urgent, which on slow mobile CPUs could leave widgets stuck showing
         // skeletons when a higher-priority render interrupted the transition.
         setError(null);
+        console.log('[SPARKDBG] Ctx/setLoading', {
+          loading: false,
+          trigger: `${_trigger}:after-success`
+        });
         setLoading(false);
 
         // Write to in-memory cache and IndexedDB (fire-and-forget)
@@ -551,8 +568,18 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
     };
   }, [mockMode, authLoading, hasAccess, fetchAllData]);
 
+  // Track previous timeRange for debug logging only — logic unchanged.
+  const prevTimeRangeRef = useRef<string>(timeRange);
   // Handle time range changes - fetch new data
   useEffect(() => {
+    console.log('[SPARKDBG] Ctx/timeRange-effect', {
+      newTimeRange: timeRange,
+      prev: prevTimeRangeRef.current,
+      mockMode,
+      hasAccess,
+      isInitialLoad: isInitialLoad.current
+    });
+    prevTimeRangeRef.current = timeRange;
     if (!mockMode && hasAccess && !isInitialLoad.current) {
       // Use forceRefresh to bypass debounce - time range changes should always trigger immediate fetch
       // Only show loading if we don't have existing data to prevent UI flashing

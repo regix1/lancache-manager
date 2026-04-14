@@ -1,4 +1,5 @@
-import React, { useMemo, memo } from 'react';
+/* eslint-disable no-console */
+import React, { useMemo, useEffect, memo } from 'react';
 import { TrendingUp, TrendingDown } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { formatBytes, formatPercent } from '@utils/formatters';
@@ -35,11 +36,31 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
     const { cacheGrowth: displayData, loading } = useCacheGrowth();
     const error: string | null = null;
 
+    // [SPARKDBG] Fetch-trigger fires when timeRange changes (fetch happens in DashboardDataContext batch endpoint).
+    useEffect(() => {
+      console.log('[SPARKDBG] CacheGrowthTrend/fetch-trigger', { timeRange });
+    }, [timeRange]);
+
+    // [SPARKDBG] Fetch-response fires when new cacheGrowth data arrives from the batched endpoint.
+    useEffect(() => {
+      console.log('[SPARKDBG] CacheGrowthTrend/fetch-response', {
+        timeRange,
+        dataPoints: displayData?.dataPoints?.length,
+        displayDataIdentity: displayData
+      });
+    }, [displayData, timeRange]);
+
     // Extract sparkline data from API response
     const sparklineData = useMemo(() => {
       if (!displayData?.dataPoints?.length) return [];
       return displayData.dataPoints.map((dp) => dp.cumulativeCacheMissBytes);
     }, [displayData]);
+
+    console.log('[SPARKDBG] CacheGrowthTrend/render', {
+      timeRange,
+      sparklineDataLen: sparklineData.length,
+      loading
+    });
 
     // Calculate total growth during the selected period
     const periodGrowth = useMemo(() => {
