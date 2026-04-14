@@ -250,6 +250,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
         {sparklineData.length > 1 && (
           <div className="mb-3">
             <Sparkline
+              key={timeRange}
               data={sparklineData}
               color={hasDataDeletion ? 'var(--theme-info)' : 'var(--theme-primary)'}
               height={40}

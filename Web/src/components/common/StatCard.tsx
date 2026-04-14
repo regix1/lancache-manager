@@ -27,6 +27,10 @@ interface StatCardProps {
   // Sparkline props
   sparklineData?: number[];
   sparklineColor?: string;
+  // Optional remount key for the sparkline — changing this value forces the
+  // underlying Chart.js instance to be destroyed and recreated instead of
+  // reusing in-place state (needed for time-range switches).
+  sparklineKey?: string;
   // Tooltip shown next to title (help icon)
   tooltip?: React.ReactNode;
   // Animation props
@@ -61,6 +65,7 @@ const StatCard: React.FC<StatCardProps> = ({
   color,
   sparklineData,
   sparklineColor,
+  sparklineKey,
   tooltip,
   animateValue = false,
   glassmorphism = false,
@@ -153,6 +158,7 @@ const StatCard: React.FC<StatCardProps> = ({
           <div className="stat-card-skeleton-sparkline h-8 mt-2" />
         ) : sparklineData && sparklineData.length >= 1 ? (
           <Sparkline
+            key={sparklineKey}
             data={sparklineData.length === 1 ? [sparklineData[0], sparklineData[0]] : sparklineData}
             color={resolvedSparklineColor}
             height={32}
