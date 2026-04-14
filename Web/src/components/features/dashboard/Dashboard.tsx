@@ -924,7 +924,6 @@ const Dashboard: React.FC = () => {
                           ? sparklineData?.addedToCache?.data
                           : undefined
                 }
-                sparklineKey={timeRange}
               />
 
               <Tooltip

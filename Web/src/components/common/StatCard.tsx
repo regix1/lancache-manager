@@ -28,10 +28,6 @@ interface StatCardProps {
   // Sparkline props
   sparklineData?: number[];
   sparklineColor?: string;
-  // Optional remount key for the sparkline — changing this value forces the
-  // underlying Chart.js instance to be destroyed and recreated instead of
-  // reusing in-place state (needed for time-range switches).
-  sparklineKey?: string;
   // Tooltip shown next to title (help icon)
   tooltip?: React.ReactNode;
   // Animation props
@@ -64,7 +60,6 @@ const StatCard: React.FC<StatCardProps> = ({
   color,
   sparklineData,
   sparklineColor,
-  sparklineKey,
   tooltip,
   animateValue = false,
   glassmorphism = false,
@@ -74,7 +69,6 @@ const StatCard: React.FC<StatCardProps> = ({
 
   console.log('[SPARKDBG] StatCard/render', {
     title,
-    sparklineKey,
     loading,
     dataLen: sparklineData?.length,
     hasSparklineData: sparklineData !== undefined
@@ -155,7 +149,7 @@ const StatCard: React.FC<StatCardProps> = ({
       <div className="mt-auto">
         {loading ? (
           <>
-            {console.log('[SPARKDBG] StatCard/branch', { title, branch: 'skeleton', sparklineKey })}
+            {console.log('[SPARKDBG] StatCard/branch', { title, branch: 'skeleton' })}
             <div className="stat-card-skeleton-sparkline h-8 mt-2" />
           </>
         ) : sparklineData && sparklineData.length >= 1 ? (
@@ -163,11 +157,9 @@ const StatCard: React.FC<StatCardProps> = ({
             {console.log('[SPARKDBG] StatCard/branch', {
               title,
               branch: 'sparkline',
-              sparklineKey,
               dataLen: sparklineData.length
             })}
             <Sparkline
-              key={sparklineKey}
               data={
                 sparklineData.length === 1 ? [sparklineData[0], sparklineData[0]] : sparklineData
               }
@@ -182,8 +174,7 @@ const StatCard: React.FC<StatCardProps> = ({
           <>
             {console.log('[SPARKDBG] StatCard/branch', {
               title,
-              branch: 'placeholder',
-              sparklineKey
+              branch: 'placeholder'
             })}
             {/* Empty spacer to maintain consistent card height when no sparkline */}
             <div className="sparkline-placeholder h-8 mt-2" />
