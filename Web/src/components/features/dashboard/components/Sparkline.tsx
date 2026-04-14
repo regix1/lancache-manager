@@ -121,6 +121,8 @@ const Sparkline: React.FC<SparklineProps> = memo(
       const ctx = canvasRef.current.getContext('2d');
       if (!ctx) return;
 
+      let rafId: number | null = null;
+
       // Calculate min/max for Y axis
       const minVal = Math.min(...data);
       const maxVal = Math.max(...data);
@@ -234,7 +236,21 @@ const Sparkline: React.FC<SparklineProps> = memo(
         }
       };
 
-      chartRef.current = new Chart(ctx, config);
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        if (!canvasRef.current) return;
+        const liveCtx: CanvasRenderingContext2D | null = canvasRef.current.getContext('2d');
+        if (!liveCtx) return;
+        chartRef.current = new Chart(liveCtx, config);
+        queueMicrotask(() => chartRef.current?.resize());
+      });
+
+      return () => {
+        if (rafId !== null) {
+          cancelAnimationFrame(rafId);
+          rafId = null;
+        }
+      };
     }, [data, gradientColor, height, showArea, shouldAnimate]);
 
     // Separate cleanup effect that only runs on unmount
