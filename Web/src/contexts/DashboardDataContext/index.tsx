@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { getCachedValue, setCachedValue, IDB_KEYS } from '@utils/idbCache';
 import ApiService from '@services/api.service';
-import { mark as markTiming } from '@utils/timingTracker';
+import { mark as markTiming, isActive as isTimingActive } from '@utils/timingTracker';
 import { computeTimeRangeParams } from '@contexts/TimeFilterContext.utils';
 import type { TimeRange } from '@contexts/TimeFilterContext.types';
 import { isAbortError } from '@utils/error';
@@ -244,6 +244,10 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         // Game detection data is not time-range dependent, always apply
         if (batchResponse.detection !== null && batchResponse.detection !== undefined) {
           const detectionResult = batchResponse.detection;
+          const detectionRebuildStart = isTimingActive() ? performance.now() : 0;
+          if (isTimingActive()) {
+            markTiming('detection-rebuild-start');
+          }
           setGameDetectionData(detectionResult);
           // Build lookup maps: primary by game_app_id, fallback by game_name
           if (detectionResult.games && detectionResult.games.length > 0) {
@@ -274,6 +278,16 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
               setGameDetectionByService(bySvc);
             }
           }
+          if (isTimingActive()) {
+            const elapsed = performance.now() - detectionRebuildStart;
+            if (elapsed > 5) {
+              markTiming(
+                `detection-rebuild-end +${elapsed.toFixed(1)}ms (games=${detectionResult.games?.length ?? 0})`
+              );
+            } else {
+              markTiming('detection-rebuild-end');
+            }
+          }
         }
 
         // Time-range dependent data — apply unconditionally. A null from a failed
@@ -291,6 +305,9 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         setCacheGrowth(batchResponse.cacheGrowth);
         // cacheSnapshot is null in live mode — only update when backend returns data
         if (batchResponse.cacheSnapshot !== null && batchResponse.cacheSnapshot !== undefined) {
+          if (isTimingActive()) {
+            markTiming('cache-snapshot-applied');
+          }
           setCacheSnapshot(batchResponse.cacheSnapshot);
         }
 
@@ -305,11 +322,23 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         // hourlyActivity, cacheGrowth, cacheSnapshot) is NOT persisted — the 30s
         // apiCache handles warm reuse, and each structuredClone during setCachedValue
         // was adding meaningful latency (LATEST_DOWNLOADS is up to 500 rows).
+        const idbWritesStart = isTimingActive() ? performance.now() : 0;
+        if (isTimingActive()) {
+          markTiming('idb-writes-start');
+        }
         if (batchResponse.cache) {
           setCachedValue(IDB_KEYS.CACHE_INFO, batchResponse.cache);
         }
         if (batchResponse.detection) {
           setCachedValue(IDB_KEYS.GAME_DETECTION, batchResponse.detection);
+        }
+        if (isTimingActive()) {
+          const elapsed = performance.now() - idbWritesStart;
+          if (elapsed > 5) {
+            markTiming(`idb-writes-end +${elapsed.toFixed(1)}ms`);
+          } else {
+            markTiming('idb-writes-end');
+          }
         }
         markTiming('state-applied');
       } catch (err: unknown) {

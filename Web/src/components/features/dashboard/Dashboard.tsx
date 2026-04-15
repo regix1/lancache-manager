@@ -36,7 +36,11 @@ import { STORAGE_KEYS } from '@utils/constants';
 import { type StatCardData } from '../../../types';
 import { storage } from '@utils/storage';
 import ApiService from '@services/api.service';
-import { end as endTiming, isActive as isTimingActive } from '@utils/timingTracker';
+import {
+  end as endTiming,
+  isActive as isTimingActive,
+  mark as markTiming
+} from '@utils/timingTracker';
 import StatCard from '@components/common/StatCard';
 import { Tooltip } from '@components/ui/Tooltip';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
@@ -596,6 +600,43 @@ const Dashboard: React.FC = () => {
       .map((key: string) => allStatCards[key])
       .filter((card: StatCardData | undefined): card is StatCardData => card !== undefined);
   }, [cardOrder, allStatCards]);
+
+  // Bisection timing: detect which memo commit is slow
+  const allStatCardsTimerRef = useRef<number>(0);
+  allStatCardsTimerRef.current = performance.now();
+  useEffect(() => {
+    if (isTimingActive()) {
+      const elapsed = performance.now() - allStatCardsTimerRef.current;
+      if (elapsed > 5) markTiming(`statcards-commit +${elapsed.toFixed(1)}ms`);
+    }
+  }, [allStatCards]);
+
+  const filteredServiceStatsTimerRef = useRef<number>(0);
+  filteredServiceStatsTimerRef.current = performance.now();
+  useEffect(() => {
+    if (isTimingActive()) {
+      const elapsed = performance.now() - filteredServiceStatsTimerRef.current;
+      if (elapsed > 5) markTiming(`filteredServiceStats-commit +${elapsed.toFixed(1)}ms`);
+    }
+  }, [filteredServiceStats]);
+
+  const filteredLatestDownloadsTimerRef = useRef<number>(0);
+  filteredLatestDownloadsTimerRef.current = performance.now();
+  useEffect(() => {
+    if (isTimingActive()) {
+      const elapsed = performance.now() - filteredLatestDownloadsTimerRef.current;
+      if (elapsed > 5) markTiming(`filteredLatestDownloads-commit +${elapsed.toFixed(1)}ms`);
+    }
+  }, [filteredLatestDownloads]);
+
+  const statsTimerRef = useRef<number>(0);
+  statsTimerRef.current = performance.now();
+  useEffect(() => {
+    if (isTimingActive()) {
+      const elapsed = performance.now() - statsTimerRef.current;
+      if (elapsed > 5) markTiming(`stats-commit +${elapsed.toFixed(1)}ms`);
+    }
+  }, [stats]);
 
   const visibleCards = orderedStatCards.filter((card: StatCardData) => card.visible);
   const hiddenCards = orderedStatCards.filter((card: StatCardData) => !card.visible);

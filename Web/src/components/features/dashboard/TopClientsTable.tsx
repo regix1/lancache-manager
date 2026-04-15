@@ -1,4 +1,5 @@
-import React, { useMemo, memo, useState } from 'react';
+import React, { useMemo, memo, useState, useEffect, useRef } from 'react';
+import { mark as markTiming, isActive as isTimingActive } from '@utils/timingTracker';
 import { useTranslation } from 'react-i18next';
 import { formatBytes, formatPercent } from '@utils/formatters';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
@@ -102,6 +103,17 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
     const { t } = useTranslation();
     const { useLocalTimezone } = useTimezone();
     const [sortBy, setSortBy] = useState<SortOption>('total');
+
+    // Bisection timing for render cost
+    const topClientsRenderStartRef = useRef<number>(0);
+    topClientsRenderStartRef.current = performance.now();
+    useEffect(() => {
+      if (isTimingActive()) {
+        const elapsed = performance.now() - topClientsRenderStartRef.current;
+        if (elapsed > 5) markTiming(`topClients-render +${elapsed.toFixed(1)}ms`);
+      }
+    });
+
     const timeRangeLabel = useMemo(() => {
       if (timeRange === 'custom' && customStartDate && customEndDate) {
         const timezone = getEffectiveTimezone(useLocalTimezone);

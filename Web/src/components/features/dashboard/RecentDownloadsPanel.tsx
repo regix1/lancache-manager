@@ -1,4 +1,5 @@
-import React, { useMemo, useState, useCallback, useEffect } from 'react';
+import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
+import { mark as markTiming, isActive as isTimingActive } from '@utils/timingTracker';
 import { Activity, Clock, HardDrive, TrendingUp, RefreshCw } from 'lucide-react';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { type TFunction } from 'i18next';
@@ -198,6 +199,17 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
   const [selectedService, setSelectedService] = useState<string>('all');
   const [selectedClient, setSelectedClient] = useState<string>('all');
   const [viewMode, setViewMode] = useState<'recent' | 'active'>('recent');
+
+  // Bisection timing for render cost
+  const recentDownloadsRenderStartRef = useRef<number>(0);
+  recentDownloadsRenderStartRef.current = performance.now();
+  useEffect(() => {
+    if (isTimingActive()) {
+      const elapsed = performance.now() - recentDownloadsRenderStartRef.current;
+      if (elapsed > 5) markTiming(`recentDownloads-render +${elapsed.toFixed(1)}ms`);
+    }
+  });
+
   const latestDownloads = useMemo(() => downloads ?? [], [downloads]);
   const { fetchAssociations, getAssociations, refreshVersion } = useDownloadAssociations();
   const { getGroupForIp } = useClientGroups();

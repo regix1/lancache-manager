@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useMemo, memo, useState } from 'react';
 import { Chart, type ChartConfiguration, registerables } from 'chart.js';
+import { mark as markTiming, isActive as isTimingActive } from '@utils/timingTracker';
 
 // Register Chart.js components
 Chart.register(...registerables);
@@ -167,7 +168,14 @@ const Sparkline: React.FC<SparklineProps> = memo(
         }
 
         // Update without animation for smooth transition
+        const sparklineUpdateStart = isTimingActive() ? performance.now() : 0;
         chart.update('none');
+        if (isTimingActive()) {
+          const elapsed = performance.now() - sparklineUpdateStart;
+          if (elapsed > 5) {
+            markTiming(`sparkline-update +${elapsed.toFixed(1)}ms`);
+          }
+        }
         return;
       }
 
