@@ -36,6 +36,7 @@ import { STORAGE_KEYS } from '@utils/constants';
 import { type StatCardData } from '../../../types';
 import { storage } from '@utils/storage';
 import ApiService from '@services/api.service';
+import { end as endTiming, isActive as isTimingActive } from '@utils/timingTracker';
 import StatCard from '@components/common/StatCard';
 import { Tooltip } from '@components/ui/Tooltip';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
@@ -185,6 +186,12 @@ const Dashboard: React.FC = () => {
   // Sparkline and cache snapshot data from context (batched endpoint)
   const { sparklines: sparklineData } = useSparklines();
   const { cacheSnapshot } = useCacheSnapshot();
+
+  // Timing: log "render-done" after the commit lands following a click. useEffect
+  // fires post-paint, so this is the true "user sees new data" signal.
+  useEffect(() => {
+    if (isTimingActive()) endTiming('render-done');
+  }, [sparklineData, latestDownloads, dashboardStats, cacheSnapshot]);
 
   // Filter out services with only small files (< 1MB) and 0-byte files from dashboard data
   const filteredLatestDownloads = useMemo(() => {

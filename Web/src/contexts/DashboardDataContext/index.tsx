@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { getCachedValue, setCachedValue, IDB_KEYS } from '@utils/idbCache';
 import ApiService from '@services/api.service';
+import { mark as markTiming } from '@utils/timingTracker';
 import { computeTimeRangeParams } from '@contexts/TimeFilterContext.utils';
 import type { TimeRange } from '@contexts/TimeFilterContext.types';
 import { isAbortError } from '@utils/error';
@@ -214,12 +215,14 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
 
         // Single batch endpoint replaces 6 individual API calls
         const eventId = eventIds && eventIds.length > 0 ? eventIds[0] : undefined;
+        markTiming('fetch-start');
         const batchResponse: DashboardBatchResponse = await ApiService.getDashboardBatch(
           signal,
           startTime,
           endTime,
           eventId
         );
+        markTiming('fetch-done');
 
         clearTimeout(timeoutId);
 
@@ -308,6 +311,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         if (batchResponse.detection) {
           setCachedValue(IDB_KEYS.GAME_DETECTION, batchResponse.detection);
         }
+        markTiming('state-applied');
       } catch (err: unknown) {
         // Check if we're still the current request before setting error state
         if (currentRequestIdRef.current !== thisRequestId) {
