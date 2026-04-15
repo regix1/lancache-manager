@@ -154,36 +154,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   authLoadingRef.current = authLoading;
   hasAccessRef.current = hasAccess;
 
-  const getApiUrl = (): string => {
-    if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) {
-      return import.meta.env.VITE_API_URL;
-    }
-    return '';
-  };
-
-  const checkConnectionStatus = async () => {
-    if (mockModeRef.current) {
-      setConnectionStatus('connected');
-      return true;
-    }
-
-    try {
-      const apiUrl = getApiUrl();
-      const response = await fetch(`${apiUrl}/health`, {
-        signal: AbortSignal.timeout(5000)
-      });
-      if (response.ok) {
-        setConnectionStatus('connected');
-        return true;
-      }
-      setConnectionStatus('error');
-      return false;
-    } catch (_err) {
-      setConnectionStatus('disconnected');
-      return false;
-    }
-  };
-
   // Single unified fetch function that fetches all data in parallel
   const fetchAllData = useCallback(
     async (
@@ -248,15 +218,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
           setLoading(true);
         }
 
-        const isConnected = await checkConnectionStatus();
-        if (!isConnected) {
-          if (!hasData.current) {
-            setError('Cannot connect to API server');
-          }
-          setLoading(false);
-          return;
-        }
-
         const timeout = 10000;
         const timeoutId = setTimeout(() => abortControllerRef.current?.abort(), timeout);
 
@@ -280,81 +241,67 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         // requestId check above already ensures we're the latest request.
         // No additional filter validation needed — if requestId matches, this data is current.
 
-        // Batch all state updates to prevent multiple re-renders
-        startTransition(() => {
-          // Cache info is not time-range dependent, always apply (skip if server returned null)
-          if (batchResponse.cache !== null && batchResponse.cache !== undefined) {
-            setCacheInfo(batchResponse.cache);
-          }
+        // Apply state updates directly — React 18+ auto-batches setState in
+        // async handlers/microtasks, so no explicit transition wrapper is needed.
+        // Cache info is not time-range dependent, always apply (skip if server returned null)
+        if (batchResponse.cache !== null && batchResponse.cache !== undefined) {
+          setCacheInfo(batchResponse.cache);
+        }
 
-          // Game detection data is not time-range dependent, always apply
-          if (batchResponse.detection !== null && batchResponse.detection !== undefined) {
-            const detectionResult = batchResponse.detection;
-            setGameDetectionData(detectionResult);
-            // Build lookup maps: primary by game_app_id, fallback by game_name
-            if (detectionResult.games && detectionResult.games.length > 0) {
-              const byAppId = new Map<number, GameCacheInfo>();
-              const byName = new Map<string, GameCacheInfo>();
-              for (const game of detectionResult.games) {
-                if (game.game_app_id) {
-                  byAppId.set(game.game_app_id, game);
-                }
-                if (game.game_name) {
-                  byName.set(game.game_name.toLowerCase(), game);
-                }
+        // Game detection data is not time-range dependent, always apply
+        if (batchResponse.detection !== null && batchResponse.detection !== undefined) {
+          const detectionResult = batchResponse.detection;
+          setGameDetectionData(detectionResult);
+          // Build lookup maps: primary by game_app_id, fallback by game_name
+          if (detectionResult.games && detectionResult.games.length > 0) {
+            const byAppId = new Map<number, GameCacheInfo>();
+            const byName = new Map<string, GameCacheInfo>();
+            for (const game of detectionResult.games) {
+              if (game.game_app_id) {
+                byAppId.set(game.game_app_id, game);
               }
-              setGameDetectionLookup(byAppId);
-              setGameDetectionByName(byName);
-
-              // Build service-level lookup
-              if (detectionResult.services) {
-                const bySvc = new Map<
-                  string,
-                  { service_name: string; cache_files_found: number; total_size_bytes: number }
-                >();
-                for (const svc of detectionResult.services) {
-                  if (svc.service_name) {
-                    bySvc.set(svc.service_name.toLowerCase(), svc);
-                  }
-                }
-                setGameDetectionByService(bySvc);
+              if (game.game_name) {
+                byName.set(game.game_name.toLowerCase(), game);
               }
             }
-          }
+            setGameDetectionLookup(byAppId);
+            setGameDetectionByName(byName);
 
-          // Time-range dependent data — null means server-side sub-query failed, keep stale data
-          if (batchResponse.clients !== null && batchResponse.clients !== undefined) {
-            setClientStats(batchResponse.clients);
+            // Build service-level lookup
+            if (detectionResult.services) {
+              const bySvc = new Map<
+                string,
+                { service_name: string; cache_files_found: number; total_size_bytes: number }
+              >();
+              for (const svc of detectionResult.services) {
+                if (svc.service_name) {
+                  bySvc.set(svc.service_name.toLowerCase(), svc);
+                }
+              }
+              setGameDetectionByService(bySvc);
+            }
           }
-          if (batchResponse.services !== null && batchResponse.services !== undefined) {
-            setServiceStats(batchResponse.services);
-          }
-          if (batchResponse.dashboard !== null && batchResponse.dashboard !== undefined) {
-            setDashboardStats(batchResponse.dashboard);
-            hasData.current = true;
-          }
-          if (batchResponse.downloads !== null && batchResponse.downloads !== undefined) {
-            setLatestDownloads(batchResponse.downloads);
-          }
-          if (batchResponse.sparklines !== null && batchResponse.sparklines !== undefined) {
-            setSparklines(batchResponse.sparklines);
-          }
-          if (batchResponse.hourlyActivity !== null && batchResponse.hourlyActivity !== undefined) {
-            setHourlyActivity(batchResponse.hourlyActivity);
-          }
-          if (batchResponse.cacheGrowth !== null && batchResponse.cacheGrowth !== undefined) {
-            setCacheGrowth(batchResponse.cacheGrowth);
-          }
-          // cacheSnapshot is null in live mode — only update when backend returns data
-          if (batchResponse.cacheSnapshot !== null && batchResponse.cacheSnapshot !== undefined) {
-            setCacheSnapshot(batchResponse.cacheSnapshot);
-          }
-        });
+        }
 
-        // Clear loading/error URGENTLY (outside startTransition) so the skeleton
-        // disappears immediately. Keeping these inside the transition made them
-        // non-urgent, which on slow mobile CPUs could leave widgets stuck showing
-        // skeletons when a higher-priority render interrupted the transition.
+        // Time-range dependent data — apply unconditionally. A null from a failed
+        // sub-query should NOT freeze stale Live values; let it overwrite so the
+        // bug surfaces instead of silently preserving old data.
+        setClientStats(batchResponse.clients ?? []);
+        setServiceStats(batchResponse.services ?? []);
+        setDashboardStats(batchResponse.dashboard);
+        if (batchResponse.dashboard) {
+          hasData.current = true;
+        }
+        setLatestDownloads(batchResponse.downloads ?? []);
+        setSparklines(batchResponse.sparklines);
+        setHourlyActivity(batchResponse.hourlyActivity);
+        setCacheGrowth(batchResponse.cacheGrowth);
+        // cacheSnapshot is null in live mode — only update when backend returns data
+        if (batchResponse.cacheSnapshot !== null && batchResponse.cacheSnapshot !== undefined) {
+          setCacheSnapshot(batchResponse.cacheSnapshot);
+        }
+
+        setConnectionStatus('connected');
         setError(null);
         setLoading(false);
 
@@ -383,8 +330,11 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         if (currentRequestIdRef.current !== thisRequestId) {
           return; // A newer request has started, don't touch state
         }
-        if (!hasData.current && !isAbortError(err)) {
-          setError('Failed to fetch dashboard data from API');
+        if (!isAbortError(err)) {
+          setConnectionStatus('disconnected');
+          if (!hasData.current) {
+            setError('Failed to fetch dashboard data from API');
+          }
         }
         setLoading(false);
       } finally {
@@ -412,7 +362,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         }
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     []
   );
 

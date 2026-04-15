@@ -82,31 +82,20 @@ public class DashboardController : ControllerBase
             ? await GetEventDownloadIdsAsync(eventIdList)
             : null;
 
-        // Throttled parallelism: max 3 concurrent queries to balance speed vs memory.
-        // Each query creates its own DbContext, so 3 concurrent = 3 DbContexts max.
-        using var semaphore = new SemaphoreSlim(3);
-
-        async Task<object?> ThrottledAsync(string name, Func<Task<object>> action)
-        {
-            await semaphore.WaitAsync();
-            try { return await SafeExecuteAsync(name, action); }
-            finally { semaphore.Release(); }
-        }
-
         // Cache must complete first (cacheGrowth depends on its result)
         var cacheResult = await SafeExecuteAsync("cache", () => GetCacheInfoAsync());
         long actualCacheSize = cacheResult?.UsedCacheSize ?? 0;
 
-        // Launch remaining 9 queries with throttled parallelism
-        var clientsTask = ThrottledAsync("clients", () => GetClientStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
-        var servicesTask = ThrottledAsync("services", () => GetServiceStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
-        var dashboardTask = ThrottledAsync("dashboard", () => GetDashboardStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
-        var downloadsTask = ThrottledAsync("downloads", () => GetLatestDownloadsAsync(startTime, endTime, eventIdList, eventDownloadIds, excludedClientIps, evictedMode));
-        var detectionTask = ThrottledAsync("detection", () => GetCachedDetectionAsync());
-        var sparklinesTask = ThrottledAsync("sparklines", () => GetSparklineDataAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
-        var hourlyTask = ThrottledAsync("hourlyActivity", () => GetHourlyActivityAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
-        var cacheSnapshotTask = ThrottledAsync("cacheSnapshot", () => GetCacheSnapshotAsync(startTime, endTime));
-        var cacheGrowthTask = ThrottledAsync("cacheGrowth", () => GetCacheGrowthAsync(startTime, endTime, actualCacheSize, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
+        // Launch remaining 9 queries fully in parallel. AddPooledDbContextFactory bounds concurrency.
+        var clientsTask = SafeExecuteAsync("clients", () => GetClientStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
+        var servicesTask = SafeExecuteAsync("services", () => GetServiceStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
+        var dashboardTask = SafeExecuteAsync("dashboard", () => GetDashboardStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
+        var downloadsTask = SafeExecuteAsync("downloads", () => GetLatestDownloadsAsync(startTime, endTime, eventIdList, eventDownloadIds, excludedClientIps, evictedMode));
+        var detectionTask = SafeExecuteAsync("detection", () => GetCachedDetectionAsync());
+        var sparklinesTask = SafeExecuteAsync("sparklines", () => GetSparklineDataAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
+        var hourlyTask = SafeExecuteAsync("hourlyActivity", () => GetHourlyActivityAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
+        var cacheSnapshotTask = SafeExecuteAsync("cacheSnapshot", () => GetCacheSnapshotAsync(startTime, endTime));
+        var cacheGrowthTask = SafeExecuteAsync("cacheGrowth", () => GetCacheGrowthAsync(startTime, endTime, actualCacheSize, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
 
         await Task.WhenAll(clientsTask, servicesTask, dashboardTask, downloadsTask, detectionTask, sparklinesTask, hourlyTask, cacheSnapshotTask, cacheGrowthTask);
 
@@ -124,8 +113,10 @@ public class DashboardController : ControllerBase
             CacheGrowth = await cacheGrowthTask
         };
 
+        // Non-live ranges (startTime/endTime fixed) cache for 60s; live (no bounds) cache for 15s.
+        var isLive = !startTime.HasValue && !endTime.HasValue;
         var cacheOptions = new MemoryCacheEntryOptions()
-            .SetAbsoluteExpiration(TimeSpan.FromSeconds(15))
+            .SetAbsoluteExpiration(TimeSpan.FromSeconds(isLive ? 15 : 60))
             .SetSize(50_000)
             .SetPriority(CacheItemPriority.High);
         _memoryCache.Set(cacheKey, response, cacheOptions);
@@ -504,27 +495,55 @@ public class DashboardController : ControllerBase
             else if (rangeHours <= 25) bucketMinutes = 60;
         }
 
-        var rawData = await query
-            .Select(d => new { d.StartTimeUtc, d.CacheHitBytes, d.CacheMissBytes, d.ClientIp })
-            .ToListAsync();
+        var filteredQuery = statsExcludedOnlyIps.Count > 0
+            ? query.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp))
+            : query;
 
-        var filteredData = statsExcludedOnlyIps.Count > 0
-            ? rawData.Where(d => !statsExcludedOnlyIps.Contains(d.ClientIp)).ToList()
-            : rawData;
-
-        var bucketedData = filteredData
-            .GroupBy(d => {
-                var totalMinutes = (long)(d.StartTimeUtc - DateTime.UnixEpoch).TotalMinutes;
-                return totalMinutes / bucketMinutes * bucketMinutes;
-            })
-            .OrderBy(g => g.Key)
-            .Select(g => new
-            {
-                Bucket = g.Key,
-                CacheHitBytes = g.Sum(d => d.CacheHitBytes),
-                CacheMissBytes = g.Sum(d => d.CacheMissBytes)
-            })
-            .ToList();
+        // Group in SQL — mirrors the HourlyActivity / CacheGrowth SQL-side GroupBy pattern.
+        // Returns 10-60 aggregated rows instead of tens of thousands of raw rows.
+        List<BucketAggregate> bucketedData;
+        if (bucketMinutes >= 1440)
+        {
+            bucketedData = await filteredQuery
+                .GroupBy(d => d.StartTimeUtc.Date)
+                .OrderBy(g => g.Key)
+                .Select(g => new BucketAggregate
+                {
+                    CacheHitBytes = g.Sum(d => d.CacheHitBytes),
+                    CacheMissBytes = g.Sum(d => d.CacheMissBytes)
+                })
+                .ToListAsync();
+        }
+        else if (bucketMinutes >= 60)
+        {
+            bucketedData = await filteredQuery
+                .GroupBy(d => new { d.StartTimeUtc.Date, d.StartTimeUtc.Hour })
+                .OrderBy(g => g.Key.Date).ThenBy(g => g.Key.Hour)
+                .Select(g => new BucketAggregate
+                {
+                    CacheHitBytes = g.Sum(d => d.CacheHitBytes),
+                    CacheMissBytes = g.Sum(d => d.CacheMissBytes)
+                })
+                .ToListAsync();
+        }
+        else
+        {
+            // Sub-hour buckets: group by Date + Hour + (Minute / bucketMinutes).
+            bucketedData = await filteredQuery
+                .GroupBy(d => new
+                {
+                    d.StartTimeUtc.Date,
+                    d.StartTimeUtc.Hour,
+                    MinuteBucket = d.StartTimeUtc.Minute / bucketMinutes
+                })
+                .OrderBy(g => g.Key.Date).ThenBy(g => g.Key.Hour).ThenBy(g => g.Key.MinuteBucket)
+                .Select(g => new BucketAggregate
+                {
+                    CacheHitBytes = g.Sum(d => d.CacheHitBytes),
+                    CacheMissBytes = g.Sum(d => d.CacheMissBytes)
+                })
+                .ToListAsync();
+        }
 
         var bandwidthSavedData = bucketedData.Select(d => (double)d.CacheHitBytes).ToList();
         var addedToCacheData = bucketedData.Select(d => (double)d.CacheMissBytes).ToList();
@@ -868,6 +887,12 @@ public class DashboardController : ControllerBase
 
         var filtered = query.Where(d => !statsExcludedIps.Contains(d.ClientIp));
         return await aggregator(filtered);
+    }
+
+    private sealed class BucketAggregate
+    {
+        public long CacheHitBytes { get; set; }
+        public long CacheMissBytes { get; set; }
     }
 
     private static SparklineMetric BuildSparklineMetric(List<double> data)
