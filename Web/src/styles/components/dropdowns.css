@@ -33,6 +33,13 @@
       border-color 0.15s ease;
   }
 
+  /* Header dropdown triggers: stable min-width so changing labels (e.g. time
+     range "Live" → "Last 30 Days" → "Mar 12 - Mar 19") don't shift siblings.
+     Mobile uses iconOnly + a separate container, so it's unaffected. */
+  .header-controls .ed-trigger {
+    min-width: 9rem;
+  }
+
   /* When open: highlight trigger border */
   .ed-trigger.ed-trigger--open {
     /* No corner changes - dropdown is a separate floating bubble */

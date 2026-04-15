@@ -149,7 +149,7 @@ const Header: React.FC<HeaderProps> = ({ title, subtitle, connectionStatus = 'co
               </div>
             </div>
 
-            <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+            <div className="header-controls flex items-center gap-2 sm:gap-3 flex-shrink-0">
               <GitHubProjectsDropdown />
               <LanguageSelector />
               <TimezoneSelector />

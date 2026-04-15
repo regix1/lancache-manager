@@ -114,7 +114,6 @@ const StatCard: React.FC<StatCardProps> = ({
               <AnimatedValue
                 value={value}
                 className="text-2xl font-bold transition-all duration-300"
-                animate={false}
               />
             ) : (
               <p className="text-2xl font-bold transition-all duration-300 text-[var(--theme-text-primary)]">
