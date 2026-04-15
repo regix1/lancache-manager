@@ -64,6 +64,9 @@ public class DashboardController : ControllerBase
         [FromQuery] long? endTime = null,
         [FromQuery] long? eventId = null)
     {
+        var totalSw = System.Diagnostics.Stopwatch.StartNew();
+        var rangeLabel = !startTime.HasValue && !endTime.HasValue ? "live" : $"{startTime}-{endTime}";
+
         // Shared state used by multiple sub-queries
         var hiddenClientIps = _stateRepository.GetHiddenClientIps();
         var statsExcludedOnlyIps = _stateRepository.GetStatsExcludedOnlyClientIps();
@@ -74,8 +77,11 @@ public class DashboardController : ControllerBase
         var cacheKey = $"dashboard-batch:{startTime}:{endTime}:{eventId}:{evictedMode}";
         if (_memoryCache.TryGetValue(cacheKey, out DashboardBatchResponse? cachedResponse))
         {
+            _logger.LogInformation("[batch] HIT range={Range} eventId={EventId} +{Ms}ms", rangeLabel, eventId, totalSw.ElapsedMilliseconds);
             return Ok(cachedResponse);
         }
+
+        _logger.LogInformation("[batch] MISS range={Range} eventId={EventId} — starting sub-queries", rangeLabel, eventId);
 
         // Pre-fetch event download IDs once (shared by clients, services, dashboard, downloads)
         HashSet<long>? eventDownloadIds = eventIdList.Count > 0
@@ -120,6 +126,16 @@ public class DashboardController : ControllerBase
             .SetSize(50_000)
             .SetPriority(CacheItemPriority.High);
         _memoryCache.Set(cacheKey, response, cacheOptions);
+
+        totalSw.Stop();
+        _logger.LogInformation(
+            "[batch] DONE range={Range} eventId={EventId} +{Ms}ms (downloads={DownloadsCount}, clients={ClientsCount}, services={ServicesCount})",
+            rangeLabel,
+            eventId,
+            totalSw.ElapsedMilliseconds,
+            (response.Downloads as System.Collections.ICollection)?.Count ?? -1,
+            (response.Clients as System.Collections.ICollection)?.Count ?? -1,
+            (response.Services as System.Collections.ICollection)?.Count ?? -1);
 
         return Ok(response);
     }
@@ -957,13 +973,18 @@ public class DashboardController : ControllerBase
 
     private async Task<object?> SafeExecuteAsync(string name, Func<Task<object>> action)
     {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
-            return await action();
+            var result = await action();
+            sw.Stop();
+            _logger.LogInformation("[batch] sub-query '{Name}' completed in {Ms}ms", name, sw.ElapsedMilliseconds);
+            return result;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Dashboard batch sub-query '{Name}' failed", name);
+            sw.Stop();
+            _logger.LogWarning(ex, "[batch] sub-query '{Name}' failed after {Ms}ms", name, sw.ElapsedMilliseconds);
             return null;
         }
     }
@@ -973,13 +994,18 @@ public class DashboardController : ControllerBase
     /// </summary>
     private async Task<CacheInfo?> SafeExecuteAsync(string name, Func<Task<CacheInfo>> action)
     {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
-            return await action();
+            var result = await action();
+            sw.Stop();
+            _logger.LogInformation("[batch] sub-query '{Name}' completed in {Ms}ms", name, sw.ElapsedMilliseconds);
+            return result;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Dashboard batch sub-query '{Name}' failed", name);
+            sw.Stop();
+            _logger.LogWarning(ex, "[batch] sub-query '{Name}' failed after {Ms}ms", name, sw.ElapsedMilliseconds);
             return null;
         }
     }

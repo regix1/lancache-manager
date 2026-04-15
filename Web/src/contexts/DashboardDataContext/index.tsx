@@ -2,8 +2,6 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { getCachedValue, setCachedValue, IDB_KEYS } from '@utils/idbCache';
 import ApiService from '@services/api.service';
 import { mark as markTiming, isActive as isTimingActive } from '@utils/timingTracker';
-import { computeTimeRangeParams } from '@contexts/TimeFilterContext.utils';
-import type { TimeRange } from '@contexts/TimeFilterContext.types';
 import { isAbortError } from '@utils/error';
 import MockDataService from '../../test/mockData.service';
 import { useTimeFilter } from '../useTimeFilter';
@@ -586,157 +584,9 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customStartDate, customEndDate, timeRange, mockMode, hasAccess, fetchAllData]);
 
-  // Background sequential prefetcher for non-current time ranges.
-  // Warms apiCache so a subsequent time-range click resolves instantly from
-  // the 30s single-flight cache. Strict sequential execution (NO parallel
-  // fan-out) to protect the 6GB server.
-  useEffect(() => {
-    if (mockMode) return;
-    if (!hasAccess) return;
-    if (connectionStatus !== 'connected') {
-      // eslint-disable-next-line no-console
-      console.log(`[bg-prefetch] skipped — connectionStatus=${connectionStatus}`);
-      return;
-    }
-    if (isInitialLoad.current) {
-      // eslint-disable-next-line no-console
-      console.log('[bg-prefetch] skipped — initial load not complete');
-      return;
-    }
-
-    interface NavigatorConnection {
-      readonly saveData?: boolean;
-      readonly effectiveType?: string;
-    }
-    const connection = (navigator as Navigator & { connection?: NavigatorConnection }).connection;
-    if (connection?.saveData === true) {
-      // eslint-disable-next-line no-console
-      console.log('[bg-prefetch] skipped — Save-Data enabled');
-      return;
-    }
-    if (connection?.effectiveType !== undefined && connection.effectiveType !== '4g') {
-      // eslint-disable-next-line no-console
-      console.log(`[bg-prefetch] skipped — slow connection (${connection.effectiveType})`);
-      return;
-    }
-
-    const RANGES_TO_WARM: readonly TimeRange[] = ['24h', '1h', '6h', '12h', '7d', '30d'];
-    const queue: TimeRange[] = RANGES_TO_WARM.filter((r) => r !== timeRange);
-    // eslint-disable-next-line no-console
-    console.log(`[bg-prefetch] queue start — current=${timeRange}, warming=[${queue.join(', ')}]`);
-
-    let cancelled = false;
-    const currentEventId = selectedEventIds[0];
-
-    const scheduleIdle = (fn: () => void): void => {
-      const scheduler = (
-        globalThis as unknown as {
-          scheduler?: {
-            postTask?: (cb: () => void, opts?: { priority: string }) => Promise<void>;
-          };
-        }
-      ).scheduler;
-      if (scheduler?.postTask) {
-        void scheduler.postTask(fn, { priority: 'background' });
-        return;
-      }
-      const rIC = (
-        window as Window &
-          typeof globalThis & {
-            requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
-          }
-      ).requestIdleCallback;
-      if (typeof rIC === 'function') {
-        rIC(fn, { timeout: 2000 });
-        return;
-      }
-      setTimeout(fn, 1000);
-    };
-
-    const waitMs = (ms: number): Promise<void> =>
-      new Promise<void>((resolve) => {
-        const id = setTimeout(resolve, ms);
-        // Best-effort cancel; cancelled flag is checked post-resolve anyway.
-        if (cancelled) clearTimeout(id);
-      });
-
-    const waitUntilVisible = async (): Promise<void> => {
-      if (document.visibilityState === 'visible') return;
-      await new Promise<void>((resolve) => {
-        const handler = () => {
-          if (document.visibilityState === 'visible') {
-            document.removeEventListener('visibilitychange', handler);
-            resolve();
-          }
-        };
-        document.addEventListener('visibilitychange', handler);
-      });
-    };
-
-    const run = async (): Promise<void> => {
-      for (const range of queue) {
-        if (cancelled) return;
-        if (document.visibilityState !== 'visible') {
-          // eslint-disable-next-line no-console
-          console.log(`[bg-prefetch] paused — tab hidden (pending ${range})`);
-        }
-        await waitUntilVisible();
-        if (cancelled) return;
-
-        // Pause while the user's real fetch is in flight.
-        if (fetchInProgress.current) {
-          // eslint-disable-next-line no-console
-          console.log(`[bg-prefetch] waiting — user fetch in flight (pending ${range})`);
-        }
-        let guard = 0;
-        while (fetchInProgress.current && guard < 20) {
-          await waitMs(1000);
-          if (cancelled) return;
-          guard += 1;
-        }
-
-        const quantizedNow = Math.floor(Date.now() / 60_000) * 60_000;
-        const { startTime, endTime } = computeTimeRangeParams(range, quantizedNow);
-        if (startTime === undefined || endTime === undefined) continue;
-
-        // eslint-disable-next-line no-console
-        console.log(`[bg-prefetch] → warming ${range}`);
-        await new Promise<void>((resolve) => {
-          scheduleIdle(() => {
-            if (cancelled) {
-              resolve();
-              return;
-            }
-            // Fire-and-forget. getDashboardBatch routes through apiCache.getOrFetch
-            // for single-flight + TTL dedupe; no outer wrap needed.
-            void ApiService.getDashboardBatch(
-              new AbortController().signal,
-              startTime,
-              endTime,
-              currentEventId
-            ).catch(() => {
-              // prefetch errors non-fatal
-            });
-            resolve();
-          });
-        });
-
-        await waitMs(1000);
-      }
-      if (!cancelled) {
-        // eslint-disable-next-line no-console
-        console.log('[bg-prefetch] queue complete — all ranges warmed');
-      }
-    };
-
-    void run();
-
-    return () => {
-      cancelled = true;
-      // eslint-disable-next-line no-console
-      console.log('[bg-prefetch] cancelled (effect re-run or unmount)');
-    };
-  }, [connectionStatus, timeRange, mockMode, hasAccess, selectedEventIds]);
+  // Background prefetch was REMOVED — caching 6 batch responses simultaneously
+  // OOM-crashed the browser tab. The backend IMemoryCache (60s for non-live,
+  // 15s for live) handles range-switch caching at the server level.
 
   const updateData = useCallback(
     (updater: {

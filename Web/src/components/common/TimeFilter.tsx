@@ -14,14 +14,12 @@ import {
 } from 'lucide-react';
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import type { TimeRange } from '@contexts/TimeFilterContext.types';
-import { computeTimeRangeParams } from '@contexts/TimeFilterContext.utils';
 import { useEvents } from '@contexts/useEvents';
 import DateRangePicker from './DateRangePicker';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import { getEventColorVar } from '@utils/eventColors';
 import { formatEventDateRange } from '@utils/formatters';
 import { sortEventsByStatus, getEventStatus } from '@utils/eventUtils';
-import ApiService from '@services/api.service';
 import { start as startTiming } from '@utils/timingTracker';
 
 interface TimeFilterProps {
@@ -222,41 +220,6 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
     };
   }, [isOpen]);
 
-  // Warm the dashboard-batch cache for the range the user is committing to
-  // (on mousedown/focus). Skips `custom` (needs picker input) and `live` (no
-  // time bounds). Single-range at a time; repeats are idempotent via the
-  // per-key single-flight cache.
-  const prefetchTimeRange = useCallback(
-    (value: string) => {
-      const timeValue = value as TimeRange;
-      if (timeValue === 'custom' || timeValue === 'live') return;
-      // Quantize to minute buckets so this prefetch key matches the real
-      // fetch's key (which also quantizes in TimeFilterContext.getTimeRangeParams).
-      const quantizedNow = Math.floor(Date.now() / 60_000) * 60_000;
-      const { startTime, endTime } = computeTimeRangeParams(
-        timeValue,
-        quantizedNow,
-        customStartDate?.getTime(),
-        customEndDate?.getTime()
-      );
-      if (startTime === undefined || endTime === undefined) return;
-      const eventId = selectedEventIds[0];
-      // eslint-disable-next-line no-console
-      console.log(`[prefetch] mousedown/focus → range=${timeValue}`);
-      // Fire-and-forget. getDashboardBatch routes through apiCache.getOrFetch
-      // for single-flight + TTL dedupe; no outer wrap needed.
-      void ApiService.getDashboardBatch(
-        new AbortController().signal,
-        startTime,
-        endTime,
-        eventId
-      ).catch(() => {
-        // prefetch errors non-fatal
-      });
-    },
-    [customStartDate, customEndDate, selectedEventIds]
-  );
-
   const handleTimeRangeChange = useCallback(
     (value: string) => {
       const timeValue = value as TimeRange;
@@ -408,8 +371,6 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
                           key={option.value}
                           type="button"
                           onClick={() => handleTimeRangeChange(option.value)}
-                          onMouseDown={() => prefetchTimeRange(option.value)}
-                          onFocus={() => prefetchTimeRange(option.value)}
                           className={`ed-option w-full px-3 py-2.5 text-left text-sm cursor-pointer ${isSelected ? 'ed-option-selected' : ''}`}
                           title={option.description}
                         >
