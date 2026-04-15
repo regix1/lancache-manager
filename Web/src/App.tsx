@@ -1,12 +1,4 @@
-import React, {
-  useState,
-  useEffect,
-  useCallback,
-  useRef,
-  lazy,
-  Suspense,
-  useTransition
-} from 'react';
+import React, { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useStats } from '@contexts/DashboardDataContext/hooks';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
@@ -66,12 +58,9 @@ const AppContent: React.FC = () => {
   const isMemoryRoute = window.location.pathname === '/memory';
 
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [isPending, startTransition] = useTransition();
 
   const handleTabChange = useCallback((tab: string) => {
-    startTransition(() => {
-      setActiveTab(tab);
-    });
+    setActiveTab(tab);
   }, []);
 
   const handleTabHover = useCallback((tab: string) => {
@@ -583,7 +572,7 @@ const AppContent: React.FC = () => {
         {/* Only show Universal Notification Bar to authenticated users */}
         {authMode === 'authenticated' && <UniversalNotificationBar />}
         <main className="container mx-auto px-4 py-6 flex-grow">
-          <div className={`app-content-area${isPending ? ' app-content-pending' : ''}`}>
+          <div className="app-content-area">
             <Suspense fallback={<LoadingSpinner fullScreen={false} />}>{renderContent()}</Suspense>
           </div>
         </main>

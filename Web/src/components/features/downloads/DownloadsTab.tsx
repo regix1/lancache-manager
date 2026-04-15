@@ -1,13 +1,4 @@
-import React, {
-  useState,
-  useEffect,
-  useMemo,
-  useRef,
-  useCallback,
-  useTransition,
-  lazy,
-  Suspense
-} from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react';
 
 import { useQueryState, parseAsInteger, createParser } from 'nuqs';
 import { useTranslation } from 'react-i18next';
@@ -524,9 +515,6 @@ const DownloadsTab: React.FC = () => {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings.itemsPerPage]);
-
-  // useTransition for view mode switching - prevents UI jank
-  const [, startTransition] = useTransition();
 
   // hasEverMounted refs for display:none pattern - keep views mounted once visited
   const compactEverMounted = useRef(settings.viewMode === 'compact');
@@ -1533,11 +1521,7 @@ const DownloadsTab: React.FC = () => {
                       { value: 'retro', icon: <Table />, tooltip: t('downloads.tab.view.retro') }
                     ]}
                     value={settings.viewMode}
-                    onChange={(value) =>
-                      startTransition(() =>
-                        setSettings({ ...settings, viewMode: value as ViewMode })
-                      )
-                    }
+                    onChange={(value) => setSettings({ ...settings, viewMode: value as ViewMode })}
                     size="sm"
                     className="flex-shrink-0"
                   />
@@ -1607,11 +1591,7 @@ const DownloadsTab: React.FC = () => {
                       { value: 'retro', label: t('downloads.tab.view.retro'), icon: <Table /> }
                     ]}
                     value={settings.viewMode}
-                    onChange={(value) =>
-                      startTransition(() =>
-                        setSettings({ ...settings, viewMode: value as ViewMode })
-                      )
-                    }
+                    onChange={(value) => setSettings({ ...settings, viewMode: value as ViewMode })}
                     size="md"
                     showLabels="responsive"
                   />

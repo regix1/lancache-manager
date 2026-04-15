@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useTransition } from 'react';
+import React, { useState, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CalendarDays, Trash2, Calendar, Check, BarChart3 } from 'lucide-react';
 import { Modal } from '@components/ui/Modal';
@@ -25,7 +25,6 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
   const { createEvent, updateEvent, deleteEvent } = useEvents();
   const { use24HourFormat, useLocalTimezone } = useTimezone();
   const { setTimeRange, setSelectedEventIds } = useTimeFilter();
-  const [, startTransition] = useTransition();
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -178,10 +177,8 @@ const EventModal: React.FC<EventModalProps> = ({ event, onClose, onSave }) => {
 
     // Set the event filter to show only downloads tagged to this event
     // Use 'live' time range to show all stats for the event
-    startTransition(() => {
-      setSelectedEventIds([event.id]);
-      setTimeRange('live');
-    });
+    setSelectedEventIds([event.id]);
+    setTimeRange('live');
 
     // Close modal and navigate to dashboard via custom event
     onClose();

@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback, useRef, useTransition } from 'react';
+import React, { useMemo, useState, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Calendar,
@@ -273,7 +273,6 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
   const { t } = useTranslation();
   const { use24HourFormat } = useTimezone();
   const { setTimeRange, setSelectedEventIds } = useTimeFilter();
-  const [, startTransition] = useTransition();
   const [expandedEventId, setExpandedEventId] = useState<number | null>(null);
   const [downloadsCache, setDownloadsCache] = useState<EventDownloadsCache>({});
   const fetchingRef = useRef<Set<number>>(new Set());
@@ -391,10 +390,8 @@ const EventList: React.FC<EventListProps> = ({ events, onEventClick }) => {
   const handleViewStats = useCallback(
     (event: Event) => {
       // Set the event filter to show only downloads tagged to this event
-      startTransition(() => {
-        setSelectedEventIds([event.id]);
-        setTimeRange('live');
-      });
+      setSelectedEventIds([event.id]);
+      setTimeRange('live');
 
       // Navigate to dashboard via custom event
       window.dispatchEvent(new CustomEvent('navigate-to-tab', { detail: { tab: 'dashboard' } }));

@@ -1,5 +1,6 @@
 import { API_BASE } from '../utils/constants';
 import { isAbortError } from '../utils/error';
+import { getOrFetch } from './apiCache';
 import type {
   CacheInfo,
   CacheSizeInfo,
@@ -230,24 +231,45 @@ class ApiService {
     eventId?: number,
     cacheBust?: number
   ): Promise<DashboardBatchResponse> {
-    try {
-      let url = `${API_BASE}/dashboard/batch`;
-      const params = new URLSearchParams();
-      if (startTime && !isNaN(startTime)) params.append('startTime', startTime.toString());
-      if (endTime && !isNaN(endTime)) params.append('endTime', endTime.toString());
-      if (eventId) params.append('eventId', eventId.toString());
-      if (cacheBust) params.append('cacheBust', cacheBust.toString());
-      if (params.toString()) url += `?${params}`;
-      const res = await fetch(url, this.getFetchOptions({ signal }));
-      return await this.handleResponse<DashboardBatchResponse>(res);
-    } catch (error: unknown) {
-      if (isAbortError(error)) {
-        // Silently ignore abort errors
-      } else {
-        console.error('getDashboardBatch error:', error);
+    let url = `${API_BASE}/dashboard/batch`;
+    const params = new URLSearchParams();
+    if (startTime && !isNaN(startTime)) params.append('startTime', startTime.toString());
+    if (endTime && !isNaN(endTime)) params.append('endTime', endTime.toString());
+    if (eventId) params.append('eventId', eventId.toString());
+    if (cacheBust) params.append('cacheBust', cacheBust.toString());
+    if (params.toString()) url += `?${params}`;
+
+    // cacheBust is a per-call anti-cache token — never route those through the
+    // shared single-flight cache, otherwise the "force refresh" path reuses a
+    // stale in-flight response.
+    if (cacheBust) {
+      try {
+        const res = await fetch(url, this.getFetchOptions({ signal }));
+        return await this.handleResponse<DashboardBatchResponse>(res);
+      } catch (error: unknown) {
+        if (!isAbortError(error)) {
+          console.error('getDashboardBatch error:', error);
+        }
+        throw error;
       }
-      throw error;
     }
+
+    const cacheKey = `batch|${startTime ?? ''}|${endTime ?? ''}|${eventId ?? ''}`;
+    return getOrFetch<DashboardBatchResponse>(cacheKey, async (cacheSignal) => {
+      // Prefer the caller-provided signal (they own lifecycle), fall back to
+      // the cache's internal controller when called fire-and-forget from a
+      // prefetch trigger.
+      const effectiveSignal = signal ?? cacheSignal;
+      try {
+        const res = await fetch(url, this.getFetchOptions({ signal: effectiveSignal }));
+        return await this.handleResponse<DashboardBatchResponse>(res);
+      } catch (error: unknown) {
+        if (!isAbortError(error)) {
+          console.error('getDashboardBatch error:', error);
+        }
+        throw error;
+      }
+    });
   }
 
   static async getCacheInfo(signal?: AbortSignal): Promise<CacheInfo> {

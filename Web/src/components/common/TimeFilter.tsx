@@ -1,12 +1,4 @@
-import React, {
-  useState,
-  useMemo,
-  useRef,
-  useLayoutEffect,
-  useEffect,
-  useCallback,
-  useTransition
-} from 'react';
+import React, { useState, useMemo, useRef, useLayoutEffect, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import {
@@ -22,12 +14,15 @@ import {
 } from 'lucide-react';
 import { useTimeFilter } from '@contexts/useTimeFilter';
 import type { TimeRange } from '@contexts/TimeFilterContext.types';
+import { computeTimeRangeParams } from '@contexts/TimeFilterContext.utils';
 import { useEvents } from '@contexts/useEvents';
 import DateRangePicker from './DateRangePicker';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import { getEventColorVar } from '@utils/eventColors';
 import { formatEventDateRange } from '@utils/formatters';
 import { sortEventsByStatus, getEventStatus } from '@utils/eventUtils';
+import ApiService from '@services/api.service';
+import { prefetchRange } from '@services/apiCache';
 
 interface TimeFilterProps {
   disabled?: boolean;
@@ -50,7 +45,6 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
 
   const { events } = useEvents();
 
-  const [, startTransition] = useTransition();
   const [isOpen, setIsOpen] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   // Local state for date picker — only committed to context on close/apply
@@ -228,6 +222,30 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
     };
   }, [isOpen]);
 
+  // Warm the dashboard-batch cache for the range the user is committing to
+  // (on mousedown/focus). Skips `custom` (needs picker input) and `live` (no
+  // time bounds). Single-range at a time; repeats are idempotent via the
+  // per-key single-flight cache.
+  const prefetchTimeRange = useCallback(
+    (value: string) => {
+      const timeValue = value as TimeRange;
+      if (timeValue === 'custom' || timeValue === 'live') return;
+      const { startTime, endTime } = computeTimeRangeParams(
+        timeValue,
+        Date.now(),
+        customStartDate?.getTime(),
+        customEndDate?.getTime()
+      );
+      if (startTime === undefined || endTime === undefined) return;
+      const eventId = selectedEventIds[0];
+      const cacheKey = `batch|${startTime}|${endTime}|${eventId ?? ''}`;
+      prefetchRange(cacheKey, (signal) =>
+        ApiService.getDashboardBatch(signal, startTime, endTime, eventId)
+      );
+    },
+    [customStartDate, customEndDate, selectedEventIds]
+  );
+
   const handleTimeRangeChange = useCallback(
     (value: string) => {
       const timeValue = value as TimeRange;
@@ -239,7 +257,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
         setTimeRange(timeValue);
       } else {
         setShowDatePicker(false);
-        startTransition(() => setTimeRange(timeValue));
+        setTimeRange(timeValue);
       }
       setIsOpen(false);
     },
@@ -378,6 +396,8 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
                           key={option.value}
                           type="button"
                           onClick={() => handleTimeRangeChange(option.value)}
+                          onMouseDown={() => prefetchTimeRange(option.value)}
+                          onFocus={() => prefetchTimeRange(option.value)}
                           className={`ed-option w-full px-3 py-2.5 text-left text-sm cursor-pointer ${isSelected ? 'ed-option-selected' : ''}`}
                           title={option.description}
                         >
@@ -557,7 +577,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
               setCustomStartDate(pendingStartDate);
               setCustomEndDate(pendingEndDate);
             } else {
-              startTransition(() => setTimeRange('live'));
+              setTimeRange('live');
             }
           }}
         />

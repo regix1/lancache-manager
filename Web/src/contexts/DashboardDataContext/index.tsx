@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo, startTransition } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { getCachedValue, setCachedValue, IDB_KEYS } from '@utils/idbCache';
 import ApiService from '@services/api.service';
 import { isAbortError } from '@utils/error';
@@ -452,21 +452,19 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         }
       }
 
-      // Batch all state updates to prevent multiple re-renders
-      startTransition(() => {
-        setLoading(true);
-        setConnectionStatus('connected');
-        setCacheInfo(mockData.cacheInfo);
-        setClientStats(mockData.clientStats);
-        setServiceStats(mockData.serviceStats);
-        setDashboardStats(mockData.dashboardStats);
-        setLatestDownloads(mockData.latestDownloads);
-        setGameDetectionData(mockDetection);
-        setGameDetectionLookup(lookup);
-        setGameDetectionByName(nameLookup);
-        setError(null);
-        setLoading(false);
-      });
+      // React 18+ auto-batches setState calls in event handlers; no transition needed.
+      setLoading(true);
+      setConnectionStatus('connected');
+      setCacheInfo(mockData.cacheInfo);
+      setClientStats(mockData.clientStats);
+      setServiceStats(mockData.serviceStats);
+      setDashboardStats(mockData.dashboardStats);
+      setLatestDownloads(mockData.latestDownloads);
+      setGameDetectionData(mockDetection);
+      setGameDetectionLookup(lookup);
+      setGameDetectionByName(nameLookup);
+      setError(null);
+      setLoading(false);
 
       hasData.current = true;
       isInitialLoad.current = false;
@@ -580,24 +578,22 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       dashboardStats?: (prev: DashboardStats | null) => DashboardStats | null;
       latestDownloads?: (prev: Download[]) => Download[];
     }) => {
-      // Batch all state updates to prevent multiple re-renders
-      startTransition(() => {
-        if (updater.cacheInfo) {
-          setCacheInfo(updater.cacheInfo);
-        }
-        if (updater.clientStats) {
-          setClientStats(updater.clientStats);
-        }
-        if (updater.serviceStats) {
-          setServiceStats(updater.serviceStats);
-        }
-        if (updater.dashboardStats) {
-          setDashboardStats(updater.dashboardStats);
-        }
-        if (updater.latestDownloads) {
-          setLatestDownloads(updater.latestDownloads);
-        }
-      });
+      // React 18+ auto-batches setState calls in event handlers; no transition needed.
+      if (updater.cacheInfo) {
+        setCacheInfo(updater.cacheInfo);
+      }
+      if (updater.clientStats) {
+        setClientStats(updater.clientStats);
+      }
+      if (updater.serviceStats) {
+        setServiceStats(updater.serviceStats);
+      }
+      if (updater.dashboardStats) {
+        setDashboardStats(updater.dashboardStats);
+      }
+      if (updater.latestDownloads) {
+        setLatestDownloads(updater.latestDownloads);
+      }
     },
     []
   );
