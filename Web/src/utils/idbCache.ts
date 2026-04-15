@@ -3,19 +3,12 @@ import { get as idbGet, set as idbSet } from 'idb-keyval';
 // Module-level in-memory cache — populated before React renders
 const cache = new Map<string, unknown>();
 
-// Cache keys
+// Cache keys — only the two that genuinely benefit from cold-start hydration:
+// CACHE_INFO shows cache size immediately; GAME_DETECTION prevents icon flash.
+// Other dashboard fields start empty and populate on first batch fetch.
 export const IDB_KEYS = {
   CACHE_INFO: 'dashboard_cache_info',
-  CLIENT_STATS: 'dashboard_client_stats',
-  SERVICE_STATS: 'dashboard_service_stats',
-  DASHBOARD_STATS: 'dashboard_stats',
-  LATEST_DOWNLOADS: 'dashboard_latest_downloads',
-  PEAK_USAGE: 'widget_peak_usage',
-  CACHE_GROWTH: 'widget_cache_growth',
-  GAME_DETECTION: 'dashboard_game_detection',
-  SPARKLINES: 'dashboard_sparklines',
-  CACHE_SNAPSHOT: 'dashboard_cache_snapshot',
-  HOURLY_ACTIVITY: 'dashboard_hourly_activity'
+  GAME_DETECTION: 'dashboard_game_detection'
 } as const;
 
 /**

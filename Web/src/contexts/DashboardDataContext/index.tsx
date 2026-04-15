@@ -40,22 +40,15 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   const { hasSession, isLoading: authLoading } = useAuth();
   const hasAccess = hasSession;
 
-  // State — initializers read from pre-loaded IDB cache (synchronous, no skeleton flash)
+  // State. Only CACHE_INFO and GAME_DETECTION hydrate from IDB (cold-start win);
+  // all other fields start empty and populate on first batch fetch (fast enough now).
   const [cacheInfo, setCacheInfo] = useState<CacheInfo | null>(
     () => getCachedValue<CacheInfo>(IDB_KEYS.CACHE_INFO) ?? null
   );
-  const [clientStats, setClientStats] = useState<ClientStat[]>(
-    () => getCachedValue<ClientStat[]>(IDB_KEYS.CLIENT_STATS) ?? []
-  );
-  const [serviceStats, setServiceStats] = useState<ServiceStat[]>(
-    () => getCachedValue<ServiceStat[]>(IDB_KEYS.SERVICE_STATS) ?? []
-  );
-  const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(
-    () => getCachedValue<DashboardStats>(IDB_KEYS.DASHBOARD_STATS) ?? null
-  );
-  const [latestDownloads, setLatestDownloads] = useState<Download[]>(
-    () => getCachedValue<Download[]>(IDB_KEYS.LATEST_DOWNLOADS) ?? []
-  );
+  const [clientStats, setClientStats] = useState<ClientStat[]>([]);
+  const [serviceStats, setServiceStats] = useState<ServiceStat[]>([]);
+  const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
+  const [latestDownloads, setLatestDownloads] = useState<Download[]>([]);
   const [gameDetectionData, setGameDetectionData] = useState<CachedDetectionResponse | null>(
     () => getCachedValue<CachedDetectionResponse>(IDB_KEYS.GAME_DETECTION) ?? null
   );
@@ -102,21 +95,13 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
     }
     return bySvc;
   });
-  // Sparklines & widget data — hydrate from IDB cache
-  const [sparklines, setSparklines] = useState<SparklineDataResponse | null>(
-    () => getCachedValue<SparklineDataResponse>(IDB_KEYS.SPARKLINES) ?? null
-  );
-  const [hourlyActivity, setHourlyActivity] = useState<HourlyActivityResponse | null>(
-    () => getCachedValue<HourlyActivityResponse>(IDB_KEYS.HOURLY_ACTIVITY) ?? null
-  );
-  const [cacheSnapshot, setCacheSnapshot] = useState<CacheSnapshotResponse | null>(
-    () => getCachedValue<CacheSnapshotResponse>(IDB_KEYS.CACHE_SNAPSHOT) ?? null
-  );
-  const [cacheGrowth, setCacheGrowth] = useState<CacheGrowthResponse | null>(
-    () => getCachedValue<CacheGrowthResponse>(IDB_KEYS.CACHE_GROWTH) ?? null
-  );
+  // Transient widget data — no IDB hydration; starts empty, populates on first fetch.
+  const [sparklines, setSparklines] = useState<SparklineDataResponse | null>(null);
+  const [hourlyActivity, setHourlyActivity] = useState<HourlyActivityResponse | null>(null);
+  const [cacheSnapshot, setCacheSnapshot] = useState<CacheSnapshotResponse | null>(null);
+  const [cacheGrowth, setCacheGrowth] = useState<CacheGrowthResponse | null>(null);
 
-  // loading is false if we have cached data (pre-loaded before render)
+  // loading is false if we have cached CACHE_INFO (pre-loaded before render)
   const [loading, setLoading] = useState(() => getCachedValue(IDB_KEYS.CACHE_INFO) === undefined);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
