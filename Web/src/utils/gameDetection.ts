@@ -1,11 +1,11 @@
-import type { GameCacheInfo } from '../types';
+import type { GameDetectionSummary } from '../types';
 
 /** Returns true when the game has NOT been evicted and occupies disk space. */
-export const isActiveGame = (game: GameCacheInfo): boolean =>
+export const isActiveGame = (game: GameDetectionSummary): boolean =>
   game.is_evicted !== true && game.total_size_bytes > 0;
 
 /** Returns true when the game has NOT been evicted (regardless of size). */
-export const isNonEvictedGame = (game: GameCacheInfo): boolean => game.is_evicted !== true;
+export const isNonEvictedGame = (game: GameDetectionSummary): boolean => game.is_evicted !== true;
 
 interface DetectionResult {
   total_size_bytes: number;
@@ -21,8 +21,8 @@ interface DetectionResult {
 export function resolveGameDetection(
   gameAppId: number | undefined | null,
   gameName: string | undefined | null,
-  detectionLookup: Map<number, GameCacheInfo> | null | undefined,
-  detectionByName: Map<string, GameCacheInfo> | null | undefined,
+  detectionLookup: Map<number, GameDetectionSummary> | null | undefined,
+  detectionByName: Map<string, GameDetectionSummary> | null | undefined,
   service?: string | null,
   detectionByService?: Map<string, DetectionResult> | null
 ): DetectionResult | undefined {

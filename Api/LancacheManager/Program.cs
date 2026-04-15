@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Text.Json.Serialization;
 using FluentValidation;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.EpicMapping;
@@ -58,6 +59,12 @@ builder.Services.AddControllers(options =>
 {
     // Add validation filter for FluentValidation error responses
     options.Filters.Add<ValidationFilter>();
+})
+.AddJsonOptions(options =>
+{
+    // Omit null fields from REST JSON payloads to reduce response size on the dashboard hot path.
+    // Does NOT affect SignalR serialization — that is configured separately via AddJsonProtocol below.
+    options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
 });
 builder.Services.AddEndpointsApiExplorer();
 

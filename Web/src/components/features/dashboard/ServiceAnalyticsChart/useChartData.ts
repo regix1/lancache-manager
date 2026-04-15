@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import type { GameCacheInfo, ServiceStat } from '@/types';
+import type { GameDetectionSummary, ServiceStat } from '@/types';
 import { isActiveGame } from '@utils/gameDetection';
 import type { ChartData, GameSliceExtra, TabId } from './types';
 import { useGameColors } from './useGameColors';
@@ -70,7 +70,7 @@ const MAX_GAME_SLICES = 20;
 export function useChartData(
   serviceStats: ServiceStat[],
   activeTab: TabId,
-  games?: GameCacheInfo[]
+  games?: GameDetectionSummary[]
 ): ChartData {
   const { getColor, getCacheHitColor, getCacheMissColor, getBorderColor } = useServiceColors();
   const { getGameColors, getOtherColor } = useGameColors();

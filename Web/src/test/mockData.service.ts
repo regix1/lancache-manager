@@ -9,7 +9,8 @@ import type {
   HourlyActivityItem,
   CacheGrowthResponse,
   CacheGrowthDataPoint,
-  GameCacheInfo
+  GameDetectionSummary,
+  ServiceDetectionSummary
 } from '../types';
 import type { CachedDetectionResponse } from '../contexts/DashboardDataContext/types';
 
@@ -529,7 +530,7 @@ class MockDataService {
    * can resolve "on disk" sizes for mock downloads.
    */
   static generateMockGameDetection(): CachedDetectionResponse {
-    const games: GameCacheInfo[] = STEAM_GAMES.map((game) => {
+    const games: GameDetectionSummary[] = STEAM_GAMES.map((game) => {
       const appId = parseInt(game.appId, 10);
       // Simulate on-disk size as 70-100% of full game size (some updates not fully cached)
       const totalSizeBytes = Math.floor(game.size * (0.7 + Math.random() * 0.3));
@@ -540,28 +541,23 @@ class MockDataService {
         game_name: game.name,
         cache_files_found: filesCount,
         total_size_bytes: totalSizeBytes,
-        depot_ids: [appId + 1],
-        sample_urls: [],
-        cache_file_paths: [],
-        datasources: ['Default'],
         service: 'steam',
         image_url: undefined
       };
     });
 
+    const services: ServiceDetectionSummary[] = [
+      {
+        service_name: 'steam',
+        cache_files_found: games.reduce((s, g) => s + g.cache_files_found, 0),
+        total_size_bytes: games.reduce((s, g) => s + g.total_size_bytes, 0)
+      }
+    ];
+
     return {
       hasCachedResults: true,
       games,
-      services: [
-        {
-          service_name: 'steam',
-          cache_files_found: games.reduce((s, g) => s + g.cache_files_found, 0),
-          total_size_bytes: games.reduce((s, g) => s + g.total_size_bytes, 0),
-          sample_urls: [],
-          cache_file_paths: [],
-          datasources: []
-        }
-      ],
+      services,
       totalGamesDetected: games.length,
       totalServicesDetected: 1,
       lastDetectionTime: new Date().toISOString()

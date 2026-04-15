@@ -15,7 +15,7 @@ import type {
   ServiceStat,
   DashboardStats,
   Download,
-  GameCacheInfo,
+  GameDetectionSummary,
   SparklineDataResponse,
   HourlyActivityResponse,
   CacheSnapshotResponse,
@@ -51,32 +51,34 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   const [gameDetectionData, setGameDetectionData] = useState<CachedDetectionResponse | null>(
     () => getCachedValue<CachedDetectionResponse>(IDB_KEYS.GAME_DETECTION) ?? null
   );
-  const [gameDetectionLookup, setGameDetectionLookup] = useState<Map<number, GameCacheInfo> | null>(
-    () => {
-      const cached = getCachedValue<CachedDetectionResponse>(IDB_KEYS.GAME_DETECTION);
-      if (!cached?.games || cached.games.length === 0) return null;
-      const byAppId = new Map<number, GameCacheInfo>();
-      for (const game of cached.games) {
-        if (game.game_app_id) {
-          byAppId.set(game.game_app_id, game);
-        }
+  const [gameDetectionLookup, setGameDetectionLookup] = useState<Map<
+    number,
+    GameDetectionSummary
+  > | null>(() => {
+    const cached = getCachedValue<CachedDetectionResponse>(IDB_KEYS.GAME_DETECTION);
+    if (!cached?.games || cached.games.length === 0) return null;
+    const byAppId = new Map<number, GameDetectionSummary>();
+    for (const game of cached.games) {
+      if (game.game_app_id) {
+        byAppId.set(game.game_app_id, game);
       }
-      return byAppId;
     }
-  );
-  const [gameDetectionByName, setGameDetectionByName] = useState<Map<string, GameCacheInfo> | null>(
-    () => {
-      const cached = getCachedValue<CachedDetectionResponse>(IDB_KEYS.GAME_DETECTION);
-      if (!cached?.games || cached.games.length === 0) return null;
-      const byName = new Map<string, GameCacheInfo>();
-      for (const game of cached.games) {
-        if (game.game_name) {
-          byName.set(game.game_name.toLowerCase(), game);
-        }
+    return byAppId;
+  });
+  const [gameDetectionByName, setGameDetectionByName] = useState<Map<
+    string,
+    GameDetectionSummary
+  > | null>(() => {
+    const cached = getCachedValue<CachedDetectionResponse>(IDB_KEYS.GAME_DETECTION);
+    if (!cached?.games || cached.games.length === 0) return null;
+    const byName = new Map<string, GameDetectionSummary>();
+    for (const game of cached.games) {
+      if (game.game_name) {
+        byName.set(game.game_name.toLowerCase(), game);
       }
-      return byName;
     }
-  );
+    return byName;
+  });
   const [gameDetectionByService, setGameDetectionByService] = useState<Map<
     string,
     { service_name: string; cache_files_found: number; total_size_bytes: number }
@@ -249,8 +251,8 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
           setGameDetectionData(detectionResult);
           // Build lookup maps: primary by game_app_id, fallback by game_name
           if (detectionResult.games && detectionResult.games.length > 0) {
-            const byAppId = new Map<number, GameCacheInfo>();
-            const byName = new Map<string, GameCacheInfo>();
+            const byAppId = new Map<number, GameDetectionSummary>();
+            const byName = new Map<string, GameDetectionSummary>();
             for (const game of detectionResult.games) {
               if (game.game_app_id) {
                 byAppId.set(game.game_app_id, game);
@@ -453,8 +455,8 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       const mockDetection = MockDataService.generateMockGameDetection();
 
       // Build detection lookup maps: primary by game_app_id, fallback by game_name
-      const lookup = new Map<number, GameCacheInfo>();
-      const nameLookup = new Map<string, GameCacheInfo>();
+      const lookup = new Map<number, GameDetectionSummary>();
+      const nameLookup = new Map<string, GameDetectionSummary>();
       if (mockDetection.games) {
         for (const game of mockDetection.games) {
           if (game.game_app_id) {

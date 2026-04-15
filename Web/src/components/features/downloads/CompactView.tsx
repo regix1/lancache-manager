@@ -19,7 +19,7 @@ import IpSessionList from './IpSessionList';
 import { useSessionFilters } from './useSessionFilters';
 import SessionFilterBar from './SessionFilterBar';
 import { resolveGameDetection } from '@utils/gameDetection';
-import type { Download, DownloadGroup, GameCacheInfo } from '../../../types';
+import type { Download, DownloadGroup, GameDetectionSummary } from '../../../types';
 import { useFlatRows } from '@hooks/useFlatRows';
 import type { HeaderRowKind } from './types';
 
@@ -51,8 +51,8 @@ interface CompactViewProps {
   enableScrollIntoView?: boolean;
   showDatasourceLabels?: boolean;
   hasMultipleDatasources?: boolean;
-  detectionLookup?: Map<number, GameCacheInfo> | null;
-  detectionByName?: Map<string, GameCacheInfo> | null;
+  detectionLookup?: Map<number, GameDetectionSummary> | null;
+  detectionByName?: Map<string, GameDetectionSummary> | null;
   detectionByService?: Map<
     string,
     { service_name: string; cache_files_found: number; total_size_bytes: number }
@@ -74,8 +74,8 @@ interface GroupRowProps {
   enableScrollIntoView: boolean;
   showDatasourceLabels: boolean;
   hasMultipleDatasources: boolean;
-  detectionLookup?: Map<number, GameCacheInfo> | null;
-  detectionByName?: Map<string, GameCacheInfo> | null;
+  detectionLookup?: Map<number, GameDetectionSummary> | null;
+  detectionByName?: Map<string, GameDetectionSummary> | null;
   detectionByService?: Map<
     string,
     { service_name: string; cache_files_found: number; total_size_bytes: number }

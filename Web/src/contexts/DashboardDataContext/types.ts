@@ -5,8 +5,8 @@ import type {
   ServiceStat,
   DashboardStats,
   Download,
-  GameCacheInfo,
-  ServiceCacheInfo,
+  GameDetectionSummary,
+  ServiceDetectionSummary,
   SparklineDataResponse,
   HourlyActivityResponse,
   CacheSnapshotResponse,
@@ -26,10 +26,16 @@ export interface DashboardBatchResponse {
   cacheGrowth: CacheGrowthResponse | null;
 }
 
+/**
+ * Detection payload shipped by /api/dashboard/batch. Uses slim summary DTOs
+ * to minimize payload size — the full GameCacheInfo / ServiceCacheInfo shapes
+ * (with cache_file_paths, sample_urls, depot_ids, datasources) are only
+ * served by /api/games/cached-detection for the Management tab.
+ */
 export interface CachedDetectionResponse {
   hasCachedResults: boolean;
-  games?: GameCacheInfo[];
-  services?: ServiceCacheInfo[];
+  games?: GameDetectionSummary[];
+  services?: ServiceDetectionSummary[];
   totalGamesDetected?: number;
   totalServicesDetected?: number;
   lastDetectionTime?: string;
@@ -49,8 +55,8 @@ interface DashboardDataContextType {
 
   // Game detection
   gameDetectionData: CachedDetectionResponse | null;
-  gameDetectionLookup: Map<number, GameCacheInfo> | null;
-  gameDetectionByName: Map<string, GameCacheInfo> | null;
+  gameDetectionLookup: Map<number, GameDetectionSummary> | null;
+  gameDetectionByName: Map<string, GameDetectionSummary> | null;
   gameDetectionByService: Map<
     string,
     { service_name: string; cache_files_found: number; total_size_bytes: number }

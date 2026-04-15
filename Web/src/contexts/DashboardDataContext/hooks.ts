@@ -6,8 +6,8 @@ import type {
   ServiceStat,
   DashboardStats,
   Download,
-  GameCacheInfo,
-  ServiceCacheInfo,
+  GameDetectionSummary,
+  ServiceDetectionSummary,
   SparklineDataResponse,
   HourlyActivityResponse,
   CacheSnapshotResponse,
@@ -54,16 +54,16 @@ export const useDownloads = () => {
 };
 
 export const useGameDetection = (): {
-  detectionLookup: Map<number, GameCacheInfo> | null;
-  detectionByName: Map<string, GameCacheInfo> | null;
+  detectionLookup: Map<number, GameDetectionSummary> | null;
+  detectionByName: Map<string, GameDetectionSummary> | null;
   detectionByService: Map<
     string,
     { service_name: string; cache_files_found: number; total_size_bytes: number }
   > | null;
   gameDetectionData: {
     hasCachedResults: boolean;
-    games?: GameCacheInfo[];
-    services?: ServiceCacheInfo[];
+    games?: GameDetectionSummary[];
+    services?: ServiceDetectionSummary[];
     lastDetectionTime?: string;
   } | null;
   isLoading: boolean;

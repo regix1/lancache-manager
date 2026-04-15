@@ -51,7 +51,7 @@ import type {
   Download as DownloadType,
   DownloadGroup,
   EventSummary,
-  GameCacheInfo
+  GameDetectionSummary
 } from '../../../types';
 
 type SortOrder =
@@ -100,8 +100,8 @@ interface RetroViewProps {
   showDatasourceLabels?: boolean;
   hasMultipleDatasources?: boolean;
   groupByGame?: boolean;
-  detectionLookup?: Map<number, GameCacheInfo> | null;
-  detectionByName?: Map<string, GameCacheInfo> | null;
+  detectionLookup?: Map<number, GameDetectionSummary> | null;
+  detectionByName?: Map<string, GameDetectionSummary> | null;
   detectionByService?: Map<
     string,
     { service_name: string; cache_files_found: number; total_size_bytes: number }

@@ -37,7 +37,7 @@ import IpSessionList from './IpSessionList';
 import { useSessionFilters } from './useSessionFilters';
 import SessionFilterBar from './SessionFilterBar';
 import { resolveGameDetection } from '@utils/gameDetection';
-import type { Download, DownloadGroup, GameCacheInfo } from '../../../types';
+import type { Download, DownloadGroup, GameDetectionSummary } from '../../../types';
 import { useFlatRows } from '@hooks/useFlatRows';
 import type { HeaderRowKind } from './types';
 
@@ -71,8 +71,8 @@ interface NormalViewProps {
   showCacheHitBar?: boolean;
   showEventBadges?: boolean;
   bannerOnly?: boolean;
-  detectionLookup?: Map<number, GameCacheInfo> | null;
-  detectionByName?: Map<string, GameCacheInfo> | null;
+  detectionLookup?: Map<number, GameDetectionSummary> | null;
+  detectionByName?: Map<string, GameDetectionSummary> | null;
   detectionByService?: Map<
     string,
     { service_name: string; cache_files_found: number; total_size_bytes: number }
@@ -98,8 +98,8 @@ interface GroupCardProps {
   showCacheHitBar: boolean;
   showEventBadges: boolean;
   availableImages: Set<string>;
-  detectionLookup?: Map<number, GameCacheInfo> | null;
-  detectionByName?: Map<string, GameCacheInfo> | null;
+  detectionLookup?: Map<number, GameDetectionSummary> | null;
+  detectionByName?: Map<string, GameDetectionSummary> | null;
   detectionByService?: Map<
     string,
     { service_name: string; cache_files_found: number; total_size_bytes: number }
@@ -1133,8 +1133,8 @@ interface GridCardDrawerContentProps {
   startHoldTimer: (callback: () => void) => void;
   stopHoldTimer: () => void;
   availableImages: Set<string>;
-  detectionLookup?: Map<number, GameCacheInfo> | null;
-  detectionByName?: Map<string, GameCacheInfo> | null;
+  detectionLookup?: Map<number, GameDetectionSummary> | null;
+  detectionByName?: Map<string, GameDetectionSummary> | null;
   detectionByService?: Map<
     string,
     { service_name: string; cache_files_found: number; total_size_bytes: number }

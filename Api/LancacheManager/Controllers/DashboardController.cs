@@ -1,4 +1,5 @@
 using LancacheManager.Models;
+using LancacheManager.Models.Responses;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Data;
@@ -471,11 +472,42 @@ public class DashboardController : ControllerBase
         var games = cachedResults.Games ?? [];
         var activeGamesCount = games.Count(g => !g.IsEvicted);
 
+        // Project into slim DTOs — the dashboard does NOT read cache_file_paths,
+        // sample_urls, datasources, depot_ids, evicted_sample_urls, evicted_depot_ids,
+        // or evicted_bytes. These unbounded list fields inflate the /api/dashboard/batch
+        // payload by ~70-90% on large caches. The full GameCacheInfo / ServiceCacheInfo
+        // shape remains on /api/games/cached-detection for the Management tab.
+        var slimGames = games
+            .Select(g => new DashboardGameSummary
+            {
+                GameAppId = g.GameAppId,
+                GameName = g.GameName,
+                CacheFilesFound = g.CacheFilesFound,
+                TotalSizeBytes = g.TotalSizeBytes,
+                Service = g.Service,
+                ImageUrl = g.ImageUrl,
+                EpicAppId = g.EpicAppId,
+                IsEvicted = g.IsEvicted,
+                EvictedDownloadsCount = g.EvictedDownloadsCount
+            })
+            .ToList();
+
+        var slimServices = (cachedResults.Services ?? new List<ServiceCacheInfo>())
+            .Select(s => new DashboardServiceSummary
+            {
+                ServiceName = s.ServiceName,
+                CacheFilesFound = s.CacheFilesFound,
+                TotalSizeBytes = s.TotalSizeBytes,
+                IsEvicted = s.IsEvicted,
+                EvictedDownloadsCount = s.EvictedDownloadsCount
+            })
+            .ToList();
+
         return new CachedDetectionResponse
         {
             HasCachedResults = true,
-            Games = games,
-            Services = cachedResults.Services,
+            Games = slimGames,
+            Services = slimServices,
             TotalGamesDetected = activeGamesCount,
             TotalServicesDetected = cachedResults.TotalServicesDetected,
             LastDetectionTime = lastDetectionTimeUtc.ToString("o")

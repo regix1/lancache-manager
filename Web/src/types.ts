@@ -294,6 +294,39 @@ export interface CorruptedChunkDetail {
 
 export type CacheEntityVariant = 'active' | 'evicted';
 
+/**
+ * Slim projection of GameCacheInfo returned by the dashboard batch endpoint
+ * (/api/dashboard/batch → detection.games). Drops heavy list fields
+ * (cache_file_paths, sample_urls, depot_ids, datasources, evicted_sample_urls,
+ * evicted_depot_ids) that only the Management tab consumes via
+ * /api/games/cached-detection. Field names match the backend JsonPropertyName
+ * snake_case serialization. Must stay in sync with DashboardGameSummary.cs.
+ */
+export interface GameDetectionSummary {
+  game_app_id: number;
+  game_name: string;
+  cache_files_found: number;
+  total_size_bytes: number;
+  service?: string;
+  image_url?: string;
+  epic_app_id?: string;
+  is_evicted?: boolean;
+  evicted_downloads_count?: number;
+}
+
+/**
+ * Slim projection of ServiceCacheInfo returned by the dashboard batch endpoint.
+ * Drops cache_file_paths, sample_urls, datasources, evicted_sample_urls,
+ * evicted_bytes which are only consumed by the Management tab.
+ */
+export interface ServiceDetectionSummary {
+  service_name: string;
+  cache_files_found: number;
+  total_size_bytes: number;
+  is_evicted?: boolean;
+  evicted_downloads_count?: number;
+}
+
 export interface GameCacheInfo {
   game_app_id: number;
   game_name: string;

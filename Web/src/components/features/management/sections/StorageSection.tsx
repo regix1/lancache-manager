@@ -16,7 +16,6 @@ import { ImageCacheContext, ImageInvalidateContext } from '@components/common/Im
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
 import { useNotifications, NOTIFICATION_IDS } from '@contexts/notifications';
-import { useGameDetection } from '@contexts/DashboardDataContext/hooks';
 import CacheRemovalModal from '@components/modals/cache/CacheRemovalModal';
 import EvictedItemsList from '../game-detection/EvictedItemsList';
 import DatasourcesManager from '../datasources/DatasourcesInfo';
@@ -74,10 +73,12 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     evictionScanNotifications !== savedEvictionScanNotifications;
 
   const { notifications, addNotification, updateNotification } = useNotifications();
-  const { gameDetectionData } = useGameDetection();
 
   // Local state for evicted items — same pattern as GameCacheDetector's games/services.
   // Items only disappear when explicitly filtered by notification completion.
+  // StorageSection needs the FULL GameCacheInfo shape (depot_ids, sample_urls,
+  // cache_file_paths) to render cards correctly, so we fetch directly from
+  // /api/games/cached-detection instead of the slim dashboard batch context.
   const [evictedGames, setEvictedGames] = useState<GameCacheInfo[]>([]);
   const [evictedServices, setEvictedServices] = useState<ServiceCacheInfo[]>([]);
 
@@ -89,20 +90,30 @@ const StorageSection: React.FC<StorageSectionProps> = ({
       n.status === 'running'
   );
 
-  // Sync from context when detection data changes — but NOT during active removal
+  // Fetch full detection data (fat shape) for evicted items rendering
+  const fetchEvictedItems = useCallback(async () => {
+    try {
+      const result = await ApiService.getCachedGameDetection();
+      const games =
+        result?.games?.filter(
+          (g) => (g.evicted_downloads_count ?? 0) > 0 || g.is_evicted === true
+        ) ?? [];
+      const services =
+        result?.services?.filter(
+          (s) => (s.evicted_downloads_count ?? 0) > 0 || s.is_evicted === true
+        ) ?? [];
+      setEvictedGames(games);
+      setEvictedServices(services);
+    } catch (err) {
+      console.error('Failed to fetch evicted items:', err);
+    }
+  }, []);
+
+  // Sync from API when refresh key changes — but NOT during active removal
   useEffect(() => {
     if (isAnyEvictedRemovalRunning) return;
-    const games =
-      gameDetectionData?.games?.filter(
-        (g) => (g.evicted_downloads_count ?? 0) > 0 || g.is_evicted === true
-      ) ?? [];
-    const services =
-      gameDetectionData?.services?.filter(
-        (s) => (s.evicted_downloads_count ?? 0) > 0 || s.is_evicted === true
-      ) ?? [];
-    setEvictedGames(games);
-    setEvictedServices(services);
-  }, [gameDetectionData, isAnyEvictedRemovalRunning]);
+    void fetchEvictedItems();
+  }, [fetchEvictedItems, gameCacheRefreshKey, isAnyEvictedRemovalRunning]);
 
   // Track partial eviction target so we know which item to filter on eviction_removal completion
   const partialRemovalTargetRef = useRef<{ gameAppId?: number; serviceName?: string } | null>(null);
