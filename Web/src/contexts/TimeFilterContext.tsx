@@ -139,7 +139,10 @@ export const TimeFilterProvider: React.FC<TimeFilterProviderProps> = ({ children
   }, [timeRange, customStartDate, customEndDate]);
 
   const getTimeRangeParams = useCallback((): { startTime?: number; endTime?: number } => {
-    const now = rangeAnchorTime ?? Date.now();
+    // Quantize to minute buckets so mousedown-prefetch and click-fetch
+    // (often <500ms apart) produce identical cache keys → cache hit.
+    const rawNow = rangeAnchorTime ?? Date.now();
+    const now = Math.floor(rawNow / 60_000) * 60_000;
     return computeTimeRangeParams(
       timeRange,
       now,

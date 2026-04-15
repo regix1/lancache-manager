@@ -382,11 +382,12 @@ public class DashboardController : ControllerBase
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
         const string PrefillToken = "prefill";
+        const int DashboardLatestDownloadsLimit = 500;
         List<Download> downloads;
 
         if (!startTime.HasValue && !endTime.HasValue && eventIdList.Count == 0)
         {
-            downloads = await _statsService.GetLatestDownloadsAsync(int.MaxValue);
+            downloads = await _statsService.GetLatestDownloadsAsync(DashboardLatestDownloadsLimit);
         }
         else
         {
@@ -411,7 +412,10 @@ public class DashboardController : ControllerBase
             }
 
             query = query.ApplyEvictedFilter(evictedMode);
-            downloads = await query.OrderByDescending(d => d.StartTimeUtc).ToListAsync();
+            downloads = await query
+                .OrderByDescending(d => d.StartTimeUtc)
+                .Take(DashboardLatestDownloadsLimit)
+                .ToListAsync();
         }
 
         // Filter out excluded and prefill client IPs

@@ -224,16 +224,23 @@ const Dashboard: React.FC = () => {
     });
   }, [latestDownloads, evictedDataMode]);
 
-  const filteredServiceStats = useMemo(() => {
-    return serviceStats.filter((service) => {
-      // Filter out services that only have small files
-      const serviceDownloads = latestDownloads.filter(
-        (d) => d.service.toLowerCase() === service.service.toLowerCase()
-      );
-      const hasLargeFiles = serviceDownloads.some((d) => d.totalBytes > 1024 * 1024);
-      return hasLargeFiles;
-    });
-  }, [serviceStats, latestDownloads]);
+  // Precompute the set of services that have at least one large (>1MB) download.
+  // Single O(n) pass over latestDownloads — replaces a nested filter that was O(services × downloads).
+  const servicesWithLargeFiles = useMemo<Set<string>>(() => {
+    const set = new Set<string>();
+    for (const download of latestDownloads) {
+      if (download.totalBytes > 1024 * 1024) {
+        set.add(download.service.toLowerCase());
+      }
+    }
+    return set;
+  }, [latestDownloads]);
+
+  const filteredServiceStats = useMemo(
+    () =>
+      serviceStats.filter((service) => servicesWithLargeFiles.has(service.service.toLowerCase())),
+    [serviceStats, servicesWithLargeFiles]
+  );
 
   // Filter client stats based on date range
   const filteredClientStats = useMemo(() => {

@@ -230,9 +230,12 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
     (value: string) => {
       const timeValue = value as TimeRange;
       if (timeValue === 'custom' || timeValue === 'live') return;
+      // Quantize to minute buckets so this prefetch key matches the real
+      // fetch's key (which also quantizes in TimeFilterContext.getTimeRangeParams).
+      const quantizedNow = Math.floor(Date.now() / 60_000) * 60_000;
       const { startTime, endTime } = computeTimeRangeParams(
         timeValue,
-        Date.now(),
+        quantizedNow,
         customStartDate?.getTime(),
         customEndDate?.getTime()
       );

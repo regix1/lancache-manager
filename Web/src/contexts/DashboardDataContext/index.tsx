@@ -1,6 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { getCachedValue, setCachedValue, IDB_KEYS } from '@utils/idbCache';
 import ApiService from '@services/api.service';
+import { prefetchRange } from '@services/apiCache';
+import { computeTimeRangeParams } from '@contexts/TimeFilterContext.utils';
+import type { TimeRange } from '@contexts/TimeFilterContext.types';
 import { isAbortError } from '@utils/error';
 import MockDataService from '../../test/mockData.service';
 import { useTimeFilter } from '../useTimeFilter';
@@ -206,7 +209,11 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       const currentEventIds = [...selectedEventIdsRef.current];
       const { startTime, endTime } = getTimeRangeParamsRef.current();
       const eventIds = currentEventIds.length > 0 ? currentEventIds : undefined;
-      const cacheBust = forceRefresh ? Date.now() : undefined;
+      // NOTE: we no longer pass a `cacheBust` token on forceRefresh. The 30s
+      // TTL single-flight cache (apiCache.getOrFetch) already dedupes; passing
+      // cacheBust would bypass warm prefetched entries and double-fetch.
+      // The minute-bucket quantization in getTimeRangeParams ensures prefetch
+      // and click land on identical keys within the minute.
 
       abortControllerRef.current = new AbortController();
       const signal = abortControllerRef.current.signal;
@@ -227,8 +234,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
           signal,
           startTime,
           endTime,
-          eventId,
-          cacheBust
+          eventId
         );
 
         clearTimeout(timeoutId);
@@ -318,11 +324,10 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
           setCachedValue(IDB_KEYS.DASHBOARD_STATS, batchResponse.dashboard);
         if (batchResponse.downloads)
           setCachedValue(IDB_KEYS.LATEST_DOWNLOADS, batchResponse.downloads);
-        if (batchResponse.sparklines) setCachedValue(IDB_KEYS.SPARKLINES, batchResponse.sparklines);
-        if (batchResponse.hourlyActivity)
-          setCachedValue(IDB_KEYS.HOURLY_ACTIVITY, batchResponse.hourlyActivity);
-        if (batchResponse.cacheGrowth)
-          setCachedValue(IDB_KEYS.CACHE_GROWTH, batchResponse.cacheGrowth);
+        // Transient widget data (sparklines, hourlyActivity, cacheGrowth) is NOT
+        // persisted to IDB — the 30s apiCache already handles warm-cache reuse,
+        // and these payloads would serialize on every fetch. Cold-start users
+        // see a brief placeholder rather than stale widget snapshots.
         if (batchResponse.cacheSnapshot)
           setCachedValue(IDB_KEYS.CACHE_SNAPSHOT, batchResponse.cacheSnapshot);
       } catch (err: unknown) {
@@ -569,6 +574,121 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customStartDate, customEndDate, timeRange, mockMode, hasAccess, fetchAllData]);
+
+  // Background sequential prefetcher for non-current time ranges.
+  // Warms apiCache so a subsequent time-range click resolves instantly from
+  // the 30s single-flight cache. Strict sequential execution (NO parallel
+  // fan-out) to protect the 6GB server.
+  useEffect(() => {
+    if (mockMode) return;
+    if (!hasAccess) return;
+    if (connectionStatus !== 'connected') return;
+    if (isInitialLoad.current) return;
+
+    interface NavigatorConnection {
+      readonly saveData?: boolean;
+      readonly effectiveType?: string;
+    }
+    const connection = (navigator as Navigator & { connection?: NavigatorConnection }).connection;
+    if (connection?.saveData === true) return;
+    if (connection?.effectiveType !== undefined && connection.effectiveType !== '4g') {
+      return;
+    }
+
+    const RANGES_TO_WARM: readonly TimeRange[] = ['24h', '1h', '6h', '12h', '7d', '30d'];
+    const queue: TimeRange[] = RANGES_TO_WARM.filter((r) => r !== timeRange);
+
+    let cancelled = false;
+    const currentEventId = selectedEventIds[0];
+
+    const scheduleIdle = (fn: () => void): void => {
+      const scheduler = (
+        globalThis as unknown as {
+          scheduler?: {
+            postTask?: (cb: () => void, opts?: { priority: string }) => Promise<void>;
+          };
+        }
+      ).scheduler;
+      if (scheduler?.postTask) {
+        void scheduler.postTask(fn, { priority: 'background' });
+        return;
+      }
+      const rIC = (
+        window as Window &
+          typeof globalThis & {
+            requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+          }
+      ).requestIdleCallback;
+      if (typeof rIC === 'function') {
+        rIC(fn, { timeout: 2000 });
+        return;
+      }
+      setTimeout(fn, 1000);
+    };
+
+    const waitMs = (ms: number): Promise<void> =>
+      new Promise<void>((resolve) => {
+        const id = setTimeout(resolve, ms);
+        // Best-effort cancel; cancelled flag is checked post-resolve anyway.
+        if (cancelled) clearTimeout(id);
+      });
+
+    const waitUntilVisible = async (): Promise<void> => {
+      if (document.visibilityState === 'visible') return;
+      await new Promise<void>((resolve) => {
+        const handler = () => {
+          if (document.visibilityState === 'visible') {
+            document.removeEventListener('visibilitychange', handler);
+            resolve();
+          }
+        };
+        document.addEventListener('visibilitychange', handler);
+      });
+    };
+
+    const run = async (): Promise<void> => {
+      for (const range of queue) {
+        if (cancelled) return;
+        await waitUntilVisible();
+        if (cancelled) return;
+
+        // Pause while the user's real fetch is in flight.
+        let guard = 0;
+        while (fetchInProgress.current && guard < 20) {
+          await waitMs(1000);
+          if (cancelled) return;
+          guard += 1;
+        }
+
+        const quantizedNow = Math.floor(Date.now() / 60_000) * 60_000;
+        const { startTime, endTime } = computeTimeRangeParams(range, quantizedNow);
+        if (startTime === undefined || endTime === undefined) continue;
+
+        const cacheKey = `batch|${startTime}|${endTime}|${currentEventId ?? ''}`;
+
+        await new Promise<void>((resolve) => {
+          scheduleIdle(() => {
+            if (cancelled) {
+              resolve();
+              return;
+            }
+            prefetchRange(cacheKey, (signal) =>
+              ApiService.getDashboardBatch(signal, startTime, endTime, currentEventId)
+            );
+            resolve();
+          });
+        });
+
+        await waitMs(1000);
+      }
+    };
+
+    void run();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [connectionStatus, timeRange, mockMode, hasAccess, selectedEventIds]);
 
   const updateData = useCallback(
     (updater: {
