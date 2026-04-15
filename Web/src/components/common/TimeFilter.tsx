@@ -242,6 +242,8 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
       if (startTime === undefined || endTime === undefined) return;
       const eventId = selectedEventIds[0];
       const cacheKey = `batch|${startTime}|${endTime}|${eventId ?? ''}`;
+      // eslint-disable-next-line no-console
+      console.log(`[prefetch] mousedown/focus → range=${timeValue}`);
       prefetchRange(cacheKey, (signal) =>
         ApiService.getDashboardBatch(signal, startTime, endTime, eventId)
       );

@@ -7,6 +7,11 @@ interface CacheEntry<T> {
 const cache = new Map<string, CacheEntry<unknown>>();
 const DEFAULT_TTL_MS = 30_000;
 
+function shortKey(key: string): string {
+  // Trim "batch|<startTime>|<endTime>|<eventId>" to its last ~32 chars for log readability.
+  return key.length > 48 ? `…${key.slice(-44)}` : key;
+}
+
 /**
  * Returns a cached in-flight promise if its entry is still fresh; otherwise
  * starts a new fetch. All concurrent callers for the same key share one request.
@@ -18,12 +23,19 @@ export function getOrFetch<T>(
 ): Promise<T> {
   const existing = cache.get(cacheKey);
   if (existing && Date.now() - existing.timestamp < ttlMs) {
+    const ageMs = Date.now() - existing.timestamp;
+    // eslint-disable-next-line no-console
+    console.log(`[apiCache] HIT ${shortKey(cacheKey)} age=${ageMs}ms`);
     return existing.promise as Promise<T>;
   }
   if (existing) {
+    // eslint-disable-next-line no-console
+    console.log(`[apiCache] EVICT ${shortKey(cacheKey)} (TTL expired)`);
     existing.controller.abort();
     cache.delete(cacheKey);
   }
+  // eslint-disable-next-line no-console
+  console.log(`[apiCache] MISS ${shortKey(cacheKey)} — starting fetch`);
   const controller = new AbortController();
   const promise = fetcher(controller.signal);
   const entry: CacheEntry<unknown> = {
@@ -36,6 +48,8 @@ export function getOrFetch<T>(
     // Prune failed entries so the next call can retry.
     const current = cache.get(cacheKey);
     if (current && current.promise === (promise as Promise<unknown>)) {
+      // eslint-disable-next-line no-console
+      console.log(`[apiCache] FAIL ${shortKey(cacheKey)} — pruned`);
       cache.delete(cacheKey);
     }
   });

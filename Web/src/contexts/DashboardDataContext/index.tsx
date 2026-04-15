@@ -582,21 +582,37 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   useEffect(() => {
     if (mockMode) return;
     if (!hasAccess) return;
-    if (connectionStatus !== 'connected') return;
-    if (isInitialLoad.current) return;
+    if (connectionStatus !== 'connected') {
+      // eslint-disable-next-line no-console
+      console.log(`[bg-prefetch] skipped — connectionStatus=${connectionStatus}`);
+      return;
+    }
+    if (isInitialLoad.current) {
+      // eslint-disable-next-line no-console
+      console.log('[bg-prefetch] skipped — initial load not complete');
+      return;
+    }
 
     interface NavigatorConnection {
       readonly saveData?: boolean;
       readonly effectiveType?: string;
     }
     const connection = (navigator as Navigator & { connection?: NavigatorConnection }).connection;
-    if (connection?.saveData === true) return;
+    if (connection?.saveData === true) {
+      // eslint-disable-next-line no-console
+      console.log('[bg-prefetch] skipped — Save-Data enabled');
+      return;
+    }
     if (connection?.effectiveType !== undefined && connection.effectiveType !== '4g') {
+      // eslint-disable-next-line no-console
+      console.log(`[bg-prefetch] skipped — slow connection (${connection.effectiveType})`);
       return;
     }
 
     const RANGES_TO_WARM: readonly TimeRange[] = ['24h', '1h', '6h', '12h', '7d', '30d'];
     const queue: TimeRange[] = RANGES_TO_WARM.filter((r) => r !== timeRange);
+    // eslint-disable-next-line no-console
+    console.log(`[bg-prefetch] queue start — current=${timeRange}, warming=[${queue.join(', ')}]`);
 
     let cancelled = false;
     const currentEventId = selectedEventIds[0];
@@ -649,10 +665,18 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
     const run = async (): Promise<void> => {
       for (const range of queue) {
         if (cancelled) return;
+        if (document.visibilityState !== 'visible') {
+          // eslint-disable-next-line no-console
+          console.log(`[bg-prefetch] paused — tab hidden (pending ${range})`);
+        }
         await waitUntilVisible();
         if (cancelled) return;
 
         // Pause while the user's real fetch is in flight.
+        if (fetchInProgress.current) {
+          // eslint-disable-next-line no-console
+          console.log(`[bg-prefetch] waiting — user fetch in flight (pending ${range})`);
+        }
         let guard = 0;
         while (fetchInProgress.current && guard < 20) {
           await waitMs(1000);
@@ -666,6 +690,8 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
 
         const cacheKey = `batch|${startTime}|${endTime}|${currentEventId ?? ''}`;
 
+        // eslint-disable-next-line no-console
+        console.log(`[bg-prefetch] → warming ${range}`);
         await new Promise<void>((resolve) => {
           scheduleIdle(() => {
             if (cancelled) {
@@ -681,12 +707,18 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
 
         await waitMs(1000);
       }
+      if (!cancelled) {
+        // eslint-disable-next-line no-console
+        console.log('[bg-prefetch] queue complete — all ranges warmed');
+      }
     };
 
     void run();
 
     return () => {
       cancelled = true;
+      // eslint-disable-next-line no-console
+      console.log('[bg-prefetch] cancelled (effect re-run or unmount)');
     };
   }, [connectionStatus, timeRange, mockMode, hasAccess, selectedEventIds]);
 
