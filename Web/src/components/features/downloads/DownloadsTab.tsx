@@ -49,7 +49,7 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 // Import view components
 import CompactView from './CompactView';
 import NormalView from './NormalView';
-import type { RetroViewHandle } from './RetroView';
+import type { RetroViewHandle } from './RetroView.types';
 const RetroView = lazy(() => import('./RetroView'));
 import DownloadsHeader from './DownloadsHeader';
 import ActiveDownloadsView from './ActiveDownloadsView';

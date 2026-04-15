@@ -19,6 +19,7 @@
 @import './styles/components/service-selector.css';
 @import './styles/components/toggle-pill.css';
 @import './styles/components/drawer.css';
+@import './styles/components/error-boundary.css';
 
 /* Utilities */
 @import './styles/utilities/colors.css';

@@ -6,6 +6,7 @@ import type { SignalRContextType, SignalRProviderProps, EventHandler } from './t
 import { SIGNALR_EVENTS } from './types';
 import authService from '@services/auth.service';
 import { SignalRContext } from './SignalRContext.types';
+import { InfiniteBackoffRetryPolicy } from './retryPolicy';
 
 export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mockMode = false }) => {
   const [isConnected, setIsConnected] = useState(false);
@@ -23,8 +24,6 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
   const hasInitializedRef = useRef(false);
   // Track page visibility state
   const isPageVisibleRef = useRef(!document.hidden);
-  // Track consecutive reconnection failures for exponential backoff
-  const reconnectAttemptsRef = useRef(0);
 
   // Store event handlers - using Map for better performance
   const eventHandlersRef = useRef<Map<string, Set<EventHandler>>>(new Map());
@@ -68,21 +67,6 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
     } else {
       console.warn(`[SignalR] Cannot invoke ${methodName}: not connected`);
     }
-  }, []);
-
-  // Calculate backoff delay with exponential increase and jitter
-  const getReconnectDelay = useCallback(() => {
-    const baseDelay = 2000; // 2 seconds
-    const maxDelay = 60000; // 60 seconds max
-    const attempts = reconnectAttemptsRef.current;
-
-    // Exponential backoff: 2s, 4s, 8s, 16s, 32s, 60s (capped)
-    const exponentialDelay = Math.min(baseDelay * Math.pow(2, attempts), maxDelay);
-
-    // Add jitter (±25%) to prevent thundering herd
-    const jitter = exponentialDelay * 0.25 * (Math.random() * 2 - 1);
-
-    return Math.round(exponentialDelay + jitter);
   }, []);
 
   // Setup SignalR connection
@@ -146,21 +130,7 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
           withCredentials: true,
           accessTokenFactory: () => authService.getSessionToken() || ''
         })
-        .withAutomaticReconnect({
-          nextRetryDelayInMilliseconds: (retryContext) => {
-            // Don't auto-reconnect if page is hidden
-            if (!isPageVisibleRef.current) {
-              return null; // Stop auto-reconnect, will reconnect when page becomes visible
-            }
-            // Progressive backoff: 0ms, 2s, 5s, 10s, 30s, then 30s
-            if (retryContext.previousRetryCount === 0) return 0;
-            if (retryContext.previousRetryCount === 1) return 2000;
-            if (retryContext.previousRetryCount === 2) return 5000;
-            if (retryContext.previousRetryCount === 3) return 10000;
-            if (retryContext.previousRetryCount > 10) return null; // Give up after 10 attempts
-            return 30000;
-          }
-        })
+        .withAutomaticReconnect(new InfiniteBackoffRetryPolicy(() => isPageVisibleRef.current))
         // Increase timeout to prevent disconnections during heavy processing
         // Must match server settings: KeepAliveInterval=10s, ClientTimeoutInterval=60s
         .withServerTimeout(60000) // 60 seconds (default: 30 seconds)
@@ -176,13 +146,17 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
         }
       });
 
-      connection.onreconnected((connectionId) => {
+      connection.onreconnected((connectionId: string | undefined) => {
         if (isMountedRef.current) {
           setConnectionState('connected');
           setIsConnected(true);
           setConnectionId(connectionId || null);
-          // Reset reconnect attempts on successful reconnection
-          reconnectAttemptsRef.current = 0;
+          // Notify the rest of the app that SignalR reconnected so consumers
+          // (e.g. DashboardDataContext) can refetch authoritative state that
+          // may have drifted during the disconnect window.
+          window.dispatchEvent(
+            new CustomEvent('signalr-reconnected', { detail: { connectionId } })
+          );
         }
       });
 
@@ -191,36 +165,9 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
           setConnectionState('disconnected');
           setIsConnected(false);
           setConnectionId(null);
-
-          // Don't auto-reconnect if in mock mode or component unmounted
-          if (mockModeRef.current || !isMountedRef.current) {
-            return;
-          }
-
-          // Don't reconnect if page is hidden - wait until visible
-          if (!isPageVisibleRef.current) {
-            return;
-          }
-
-          // Don't reconnect while unauthenticated
-          if (!authService.getSessionToken()) {
-            return;
-          }
-
-          // Clear any pending reconnection
-          if (reconnectTimeoutRef.current) {
-            clearTimeout(reconnectTimeoutRef.current);
-          }
-
-          // Calculate delay with exponential backoff
-          const delay = getReconnectDelay();
-          reconnectAttemptsRef.current++;
-
-          reconnectTimeoutRef.current = setTimeout(() => {
-            if (isMountedRef.current && !mockModeRef.current && isPageVisibleRef.current) {
-              setupConnection();
-            }
-          }, delay);
+          // Reconnect logic is owned by withAutomaticReconnect(InfiniteBackoffRetryPolicy).
+          // handleVisibilityChange re-invokes setupConnection when the page becomes visible
+          // again after a full close.
         }
       });
 
@@ -255,8 +202,6 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
         setConnectionState('connected');
         setIsConnected(true);
         setConnectionId(connection.connectionId || null);
-        // Reset reconnect attempts on successful connection
-        reconnectAttemptsRef.current = 0;
         isSettingUpRef.current = false;
       } else {
         // Component unmounted while connecting, clean up
@@ -270,34 +215,13 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
         setConnectionState('disconnected');
         setIsConnected(false);
         setConnectionId(null);
-
-        // Don't retry if in mock mode or component unmounted or page hidden
-        if (mockModeRef.current || !isMountedRef.current || !isPageVisibleRef.current) {
-          return;
-        }
-
-        // Don't retry while unauthenticated
-        if (!authService.getSessionToken()) {
-          return;
-        }
-
-        // Clear any pending reconnection
-        if (reconnectTimeoutRef.current) {
-          clearTimeout(reconnectTimeoutRef.current);
-        }
-
-        // Calculate delay with exponential backoff
-        const delay = getReconnectDelay();
-        reconnectAttemptsRef.current++;
-
-        reconnectTimeoutRef.current = setTimeout(() => {
-          if (isMountedRef.current && !mockModeRef.current && isPageVisibleRef.current) {
-            setupConnection();
-          }
-        }, delay);
+        // Retry logic is owned by withAutomaticReconnect(InfiniteBackoffRetryPolicy)
+        // once the connection has been started. If the initial start() fails,
+        // handleVisibilityChange or handleAuthSessionUpdated will re-invoke
+        // setupConnection when conditions allow.
       }
     }
-  }, [getReconnectDelay]);
+  }, []);
 
   // Respond to auth session changes by connecting only when authenticated
   // and disconnecting immediately when auth/session is cleared.
@@ -310,8 +234,6 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
       const hasToken = Boolean(authService.getSessionToken());
 
       if (!hasToken) {
-        reconnectAttemptsRef.current = 0;
-
         if (reconnectTimeoutRef.current) {
           clearTimeout(reconnectTimeoutRef.current);
           reconnectTimeoutRef.current = null;
@@ -333,7 +255,6 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
         return;
       }
 
-      reconnectAttemptsRef.current = 0;
       if (isPageVisibleRef.current) {
         setupConnection();
       }
@@ -360,8 +281,6 @@ export const SignalRProvider: React.FC<SignalRProviderProps> = ({ children, mock
           !connectionRef.current ||
           connectionRef.current.state === signalR.HubConnectionState.Disconnected
         ) {
-          // Reset backoff since this is a user-initiated visibility change
-          reconnectAttemptsRef.current = 0;
           // Clear any pending reconnection and connect immediately
           if (reconnectTimeoutRef.current) {
             clearTimeout(reconnectTimeoutRef.current);

@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback, useEffect } from 'react';
+import React, { useMemo, useState, useCallback, useEffect, useDeferredValue } from 'react';
 import { Activity, Clock, HardDrive, TrendingUp, RefreshCw } from 'lucide-react';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import { type TFunction } from 'i18next';
@@ -198,7 +198,8 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
   const [selectedService, setSelectedService] = useState<string>('all');
   const [selectedClient, setSelectedClient] = useState<string>('all');
   const [viewMode, setViewMode] = useState<'recent' | 'active'>('recent');
-  const latestDownloads = useMemo(() => downloads ?? [], [downloads]);
+  const latestDownloadsRaw = useMemo(() => downloads ?? [], [downloads]);
+  const latestDownloads = useDeferredValue(latestDownloadsRaw);
   const { fetchAssociations, getAssociations, refreshVersion } = useDownloadAssociations();
   const { getGroupForIp } = useClientGroups();
   const { speedSnapshot, gameSpeeds, refreshSpeed } = useSpeed();

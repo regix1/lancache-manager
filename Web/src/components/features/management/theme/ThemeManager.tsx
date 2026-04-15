@@ -32,6 +32,7 @@ import CreateThemeModal from '@components/modals/theme/CreateThemeModal';
 import EditThemeModal from '@components/modals/theme/EditThemeModal';
 import { ConfirmationModal } from '@components/common/ConfirmationModal';
 import LoadingSpinner from '@components/common/LoadingSpinner';
+import { useManagerLoading } from '@hooks/useManagerLoading';
 import { CommunityThemeImporter } from './CommunityThemeImporter';
 import { colorGroups } from './constants';
 import { type Theme, type ThemeManagerProps, type EditableTheme, type ThemeColors } from './types';
@@ -44,7 +45,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
   // State Management
   const [themes, setThemes] = useState<Theme[]>([]);
   const [currentTheme, setCurrentTheme] = useState('dark-default');
-  const [loading, setLoading] = useState(false);
+  const { isLoading, setLoading } = useManagerLoading(false);
   const [dragActive, setDragActive] = useState(false);
   const [previewTheme, setPreviewTheme] = useState<string | null>(null);
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -117,7 +118,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [setLoading]);
 
   const handleThemeChange = async (themeId: string) => {
     if (authService.authMode === 'guest') {
@@ -592,7 +593,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
                     variant="default"
                     size="sm"
                     onClick={cleanupThemes}
-                    disabled={loading || customThemes.length === 0}
+                    disabled={isLoading || customThemes.length === 0}
                   >
                     <Sparkles className="w-4 h-4" />
                   </Button>
@@ -606,8 +607,12 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
               </Tooltip>
             )}
             <Tooltip content={t('management.themes.refreshThemes')} position="bottom">
-              <Button variant="default" size="sm" onClick={() => loadThemes()} disabled={loading}>
-                {loading ? <LoadingSpinner inline size="sm" /> : <RefreshCw className="w-4 h-4" />}
+              <Button variant="default" size="sm" onClick={() => loadThemes()} disabled={isLoading}>
+                {isLoading ? (
+                  <LoadingSpinner inline size="sm" />
+                ) : (
+                  <RefreshCw className="w-4 h-4" />
+                )}
               </Button>
             </Tooltip>
           </div>
@@ -802,8 +807,8 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
                     color="purple"
                     size="sm"
                     onClick={() => fileInputRef.current?.click()}
-                    disabled={loading}
-                    loading={loading}
+                    disabled={isLoading}
+                    loading={isLoading}
                   >
                     {t('management.themes.browseFiles')}
                   </Button>
@@ -905,7 +910,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
         isAdmin={isAdmin}
         newTheme={newTheme}
         setNewTheme={setNewTheme}
-        loading={loading}
+        loading={isLoading}
       />
 
       <EditThemeModal
@@ -919,7 +924,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
         editingTheme={editingTheme}
         editedTheme={editedTheme}
         setEditedTheme={setEditedTheme}
-        loading={loading}
+        loading={isLoading}
       />
 
       <ConfirmationModal
@@ -928,7 +933,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
         onConfirm={confirmDelete}
         title={t('modals.theme.delete.title')}
         confirmLabel={t('modals.theme.delete.confirmButton')}
-        loading={loading}
+        loading={isLoading}
       >
         <p
           className="text-themed-secondary"
@@ -947,7 +952,7 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
         onConfirm={confirmCleanup}
         title={t('modals.theme.delete.title')}
         confirmLabel={t('modals.theme.delete.confirmButton')}
-        loading={loading}
+        loading={isLoading}
       >
         <p
           className="text-themed-secondary"

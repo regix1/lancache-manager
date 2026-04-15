@@ -13,6 +13,7 @@ import { HardDrive, Download, Zap } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 
 import './VirtualizedList.css';
+import type { RetroViewHandle } from './RetroView.types';
 import { useIsDesktop } from '@hooks/useMediaQuery';
 import { useAvailableGameImages } from '@hooks/useAvailableGameImages';
 import {
@@ -659,12 +660,6 @@ const ResizeHandle: React.FC<{
     <div className="absolute h-full w-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity bg-[var(--theme-primary)]" />
   </div>
 );
-
-// Expose handleResetWidths to parent components
-export interface RetroViewHandle {
-  resetWidths: () => void;
-  setPageFading: (fading: boolean) => void;
-}
 
 const RetroView = memo(
   forwardRef<RetroViewHandle, RetroViewProps>(

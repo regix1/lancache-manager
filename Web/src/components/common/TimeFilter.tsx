@@ -1,4 +1,12 @@
-import React, { useState, useMemo, useRef, useLayoutEffect, useEffect, useCallback } from 'react';
+import React, {
+  useState,
+  useMemo,
+  useRef,
+  useLayoutEffect,
+  useEffect,
+  useCallback,
+  useTransition
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import { createPortal } from 'react-dom';
 import {
@@ -42,6 +50,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
 
   const { events } = useEvents();
 
+  const [, startTransition] = useTransition();
   const [isOpen, setIsOpen] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   // Local state for date picker — only committed to context on close/apply
@@ -222,14 +231,15 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
   const handleTimeRangeChange = useCallback(
     (value: string) => {
       const timeValue = value as TimeRange;
-      setTimeRange(timeValue);
       if (timeValue === 'custom') {
         // Sync local pending dates from context before opening picker
         setPendingStartDate(customStartDate);
         setPendingEndDate(customEndDate);
         setShowDatePicker(true);
+        setTimeRange(timeValue);
       } else {
         setShowDatePicker(false);
+        startTransition(() => setTimeRange(timeValue));
       }
       setIsOpen(false);
     },
@@ -547,7 +557,7 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
               setCustomStartDate(pendingStartDate);
               setCustomEndDate(pendingEndDate);
             } else {
-              setTimeRange('live');
+              startTransition(() => setTimeRange('live'));
             }
           }}
         />

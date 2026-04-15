@@ -1,5 +1,5 @@
 /* eslint-disable no-console */
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef, useDeferredValue } from 'react';
 import {
   HardDrive,
   Download,
@@ -205,9 +205,13 @@ const Dashboard: React.FC = () => {
     });
   }, []);
 
+  // Defer heavy derived values to keep interactions snappy during large reconciliations
+  const deferredLatestDownloads = useDeferredValue(latestDownloads);
+  const deferredSparklineData = useDeferredValue(sparklineData);
+
   // Filter out services with only small files (< 1MB) and 0-byte files from dashboard data
   const filteredLatestDownloads = useMemo(() => {
-    return latestDownloads.filter((download) => {
+    return deferredLatestDownloads.filter((download) => {
       // Filter out 0-byte files
       if (download.totalBytes === 0) {
         return false;
@@ -222,18 +226,18 @@ const Dashboard: React.FC = () => {
       }
       return true;
     });
-  }, [latestDownloads, evictedDataMode]);
+  }, [deferredLatestDownloads, evictedDataMode]);
 
   const filteredServiceStats = useMemo(() => {
     return serviceStats.filter((service) => {
       // Filter out services that only have small files
-      const serviceDownloads = latestDownloads.filter(
+      const serviceDownloads = deferredLatestDownloads.filter(
         (d) => d.service.toLowerCase() === service.service.toLowerCase()
       );
       const hasLargeFiles = serviceDownloads.some((d) => d.totalBytes > 1024 * 1024);
       return hasLargeFiles;
     });
-  }, [serviceStats, latestDownloads]);
+  }, [serviceStats, deferredLatestDownloads]);
 
   // Filter client stats based on date range
   const filteredClientStats = useMemo(() => {
@@ -828,13 +832,13 @@ const Dashboard: React.FC = () => {
 
           const cardSparklineData =
             card.key === 'bandwidthSaved'
-              ? sparklineData?.bandwidthSaved?.data
+              ? deferredSparklineData?.bandwidthSaved?.data
               : card.key === 'cacheHitRatio'
-                ? sparklineData?.cacheHitRatio?.data
+                ? deferredSparklineData?.cacheHitRatio?.data
                 : card.key === 'totalServed'
-                  ? sparklineData?.totalServed?.data
+                  ? deferredSparklineData?.totalServed?.data
                   : card.key === 'addedToCache'
-                    ? sparklineData?.addedToCache?.data
+                    ? deferredSparklineData?.addedToCache?.data
                     : undefined;
           console.log('[SPARKDBG] Dashboard/card', {
             cardKey: card.key,
@@ -915,13 +919,13 @@ const Dashboard: React.FC = () => {
                 animateValue={!loading}
                 sparklineData={
                   card.key === 'bandwidthSaved'
-                    ? sparklineData?.bandwidthSaved?.data
+                    ? deferredSparklineData?.bandwidthSaved?.data
                     : card.key === 'cacheHitRatio'
-                      ? sparklineData?.cacheHitRatio?.data
+                      ? deferredSparklineData?.cacheHitRatio?.data
                       : card.key === 'totalServed'
-                        ? sparklineData?.totalServed?.data
+                        ? deferredSparklineData?.totalServed?.data
                         : card.key === 'addedToCache'
-                          ? sparklineData?.addedToCache?.data
+                          ? deferredSparklineData?.addedToCache?.data
                           : undefined
                 }
               />

@@ -1,0 +1,61 @@
+/* ==============================================
+ * HEADER - Icon animations and connection indicators
+ * ============================================== */
+
+@keyframes header-float-bounce {
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes header-shadow-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.3;
+  }
+  50% {
+    transform: scale(0.85);
+    opacity: 0.15;
+  }
+}
+
+.header-float-bounce {
+  animation: header-float-bounce 2.5s ease-in-out infinite;
+}
+
+.header-shadow-pulse {
+  background: radial-gradient(
+    ellipse at center,
+    var(--theme-text-primary-emphasis) 0%,
+    var(--theme-text-primary-strong) 40%,
+    transparent 70%
+  );
+  animation: header-shadow-pulse 2.5s ease-in-out infinite;
+}
+
+.header-guest-pill {
+  background-color: var(--theme-warning-bg);
+  color: var(--theme-warning-text);
+  border: 1px solid var(--theme-warning);
+}
+
+.connection-dot {
+  border: 2px solid var(--theme-nav-bg);
+}
+
+.connection-dot--connected {
+  background-color: var(--theme-success);
+}
+
+.connection-dot--disconnected {
+  background-color: var(--theme-error);
+}
+
+.connection-dot--reconnecting {
+  background-color: var(--theme-warning);
+}

@@ -12,6 +12,7 @@ import { useNotifications } from '@contexts/notifications';
 import { getScheduleIntervalOptions } from './constants';
 import { useCountdownTimer } from '@hooks/useCountdownTimer';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
+import { useManagerLoading } from '@hooks/useManagerLoading';
 import type { ServiceScheduleInfo } from './types';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 
@@ -322,7 +323,7 @@ const ScheduleCard = memo(function ScheduleCard({
 const SchedulesSection: React.FC<SchedulesSectionProps> = ({ isAdmin, highlightScheduleKey }) => {
   const { t } = useTranslation();
   const [schedules, setSchedules] = useState<ServiceScheduleInfo[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { isLoading, setLoading, markLoaded } = useManagerLoading(true);
   const [error, setError] = useState<string | null>(null);
   const [runningKey, setRunningKey] = useState<string | null>(null);
   const [resetting, setResetting] = useState(false);
@@ -356,8 +357,8 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({ isAdmin, highlightS
   // Initial load
   useEffect(() => {
     setLoading(true);
-    fetchSchedules().finally(() => setLoading(false));
-  }, [fetchSchedules]);
+    fetchSchedules().finally(() => markLoaded());
+  }, [fetchSchedules, setLoading, markLoaded]);
 
   // Subscribe to real-time schedule updates via SignalR
   useEffect(() => {
@@ -536,7 +537,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({ isAdmin, highlightS
     [addNotification, t]
   );
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="schedules-loading">
         <LoadingSpinner size="lg" />
