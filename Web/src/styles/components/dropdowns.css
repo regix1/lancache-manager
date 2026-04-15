@@ -34,10 +34,11 @@
   }
 
   /* Header dropdown triggers: stable min-width so changing labels (e.g. time
-     range "Live" → "Last 30 Days" → "Mar 12 - Mar 19") don't shift siblings.
-     Mobile uses iconOnly + a separate container, so it's unaffected. */
+     range "Live" → "Last 30 Days") don't shift siblings. Sized to fit common
+     labels without being oversized — custom date ranges may still expand
+     slightly. Mobile uses iconOnly + a separate container, so it's unaffected. */
   .header-controls .ed-trigger {
-    min-width: 9rem;
+    min-width: 5.5rem;
   }
 
   /* When open: highlight trigger border */
