@@ -55,16 +55,3 @@ export function getOrFetch<T>(
   });
   return promise;
 }
-
-/**
- * Fire-and-forget prefetch. Errors are swallowed because the user has not yet
- * committed to seeing this data.
- */
-export function prefetchRange<T>(
-  cacheKey: string,
-  fetcher: (signal: AbortSignal) => Promise<T>
-): void {
-  void getOrFetch(cacheKey, fetcher).catch(() => {
-    // prefetch errors are non-fatal
-  });
-}

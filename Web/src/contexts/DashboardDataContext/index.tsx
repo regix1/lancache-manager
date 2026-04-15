@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { getCachedValue, setCachedValue, IDB_KEYS } from '@utils/idbCache';
 import ApiService from '@services/api.service';
-import { prefetchRange } from '@services/apiCache';
 import { computeTimeRangeParams } from '@contexts/TimeFilterContext.utils';
 import type { TimeRange } from '@contexts/TimeFilterContext.types';
 import { isAbortError } from '@utils/error';
@@ -311,25 +310,19 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         setError(null);
         setLoading(false);
 
-        // Write to in-memory cache and IndexedDB (fire-and-forget)
+        // Persist only what benefits cold-start. Cached stats shown instantly on mount:
+        //   CACHE_INFO — small, shows cache size immediately
+        //   GAME_DETECTION — required for game icons to render without flash
+        // Everything else (clients, services, dashboard stats, downloads, sparklines,
+        // hourlyActivity, cacheGrowth, cacheSnapshot) is NOT persisted — the 30s
+        // apiCache handles warm reuse, and each structuredClone during setCachedValue
+        // was adding meaningful latency (LATEST_DOWNLOADS is up to 500 rows).
         if (batchResponse.cache) {
           setCachedValue(IDB_KEYS.CACHE_INFO, batchResponse.cache);
         }
         if (batchResponse.detection) {
           setCachedValue(IDB_KEYS.GAME_DETECTION, batchResponse.detection);
         }
-        if (batchResponse.clients) setCachedValue(IDB_KEYS.CLIENT_STATS, batchResponse.clients);
-        if (batchResponse.services) setCachedValue(IDB_KEYS.SERVICE_STATS, batchResponse.services);
-        if (batchResponse.dashboard)
-          setCachedValue(IDB_KEYS.DASHBOARD_STATS, batchResponse.dashboard);
-        if (batchResponse.downloads)
-          setCachedValue(IDB_KEYS.LATEST_DOWNLOADS, batchResponse.downloads);
-        // Transient widget data (sparklines, hourlyActivity, cacheGrowth) is NOT
-        // persisted to IDB — the 30s apiCache already handles warm-cache reuse,
-        // and these payloads would serialize on every fetch. Cold-start users
-        // see a brief placeholder rather than stale widget snapshots.
-        if (batchResponse.cacheSnapshot)
-          setCachedValue(IDB_KEYS.CACHE_SNAPSHOT, batchResponse.cacheSnapshot);
       } catch (err: unknown) {
         // Check if we're still the current request before setting error state
         if (currentRequestIdRef.current !== thisRequestId) {
@@ -688,8 +681,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         const { startTime, endTime } = computeTimeRangeParams(range, quantizedNow);
         if (startTime === undefined || endTime === undefined) continue;
 
-        const cacheKey = `batch|${startTime}|${endTime}|${currentEventId ?? ''}`;
-
         // eslint-disable-next-line no-console
         console.log(`[bg-prefetch] → warming ${range}`);
         await new Promise<void>((resolve) => {
@@ -698,9 +689,16 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
               resolve();
               return;
             }
-            prefetchRange(cacheKey, (signal) =>
-              ApiService.getDashboardBatch(signal, startTime, endTime, currentEventId)
-            );
+            // Fire-and-forget. getDashboardBatch routes through apiCache.getOrFetch
+            // for single-flight + TTL dedupe; no outer wrap needed.
+            void ApiService.getDashboardBatch(
+              new AbortController().signal,
+              startTime,
+              endTime,
+              currentEventId
+            ).catch(() => {
+              // prefetch errors non-fatal
+            });
             resolve();
           });
         });

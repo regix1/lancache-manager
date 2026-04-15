@@ -1,4 +1,3 @@
-/* eslint-disable no-console */
 // StatCard.tsx - Enhanced component with glassmorphism, sparklines, and animations
 import React, { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -67,13 +66,6 @@ const StatCard: React.FC<StatCardProps> = ({
 }) => {
   const { t } = useTranslation();
 
-  console.log('[SPARKDBG] StatCard/render', {
-    title,
-    loading,
-    dataLen: sparklineData?.length,
-    hasSparklineData: sparklineData !== undefined
-  });
-
   // Determine sparkline color
   const resolvedSparklineColor = sparklineColor || statCardColorMap[color];
 
@@ -122,7 +114,7 @@ const StatCard: React.FC<StatCardProps> = ({
               <AnimatedValue
                 value={value}
                 className="text-2xl font-bold transition-all duration-300"
-                animate={true}
+                animate={false}
               />
             ) : (
               <p className="text-2xl font-bold transition-all duration-300 text-[var(--theme-text-primary)]">
@@ -148,34 +140,24 @@ const StatCard: React.FC<StatCardProps> = ({
       {/* Sparkline or placeholder for consistent card height - mt-auto pushes to bottom */}
       <div className="mt-auto">
         {loading ? (
-          <>
-            {console.log('[SPARKDBG] StatCard/branch', { title, branch: 'skeleton' })}
-            <div className="stat-card-skeleton-sparkline h-8 mt-2" />
-          </>
-        ) : sparklineData && sparklineData.length >= 1 ? (
-          <>
-            {console.log('[SPARKDBG] StatCard/branch', {
-              title,
-              branch: 'sparkline',
-              dataLen: sparklineData.length
-            })}
-            <Sparkline
-              data={
-                sparklineData.length === 1 ? [sparklineData[0], sparklineData[0]] : sparklineData
-              }
-              color={resolvedSparklineColor}
-              height={32}
-              showArea={true}
-              animated={true}
-              ariaLabel={t('common.statCard.sparklineAria', { title, count: sparklineData.length })}
-            />
-          </>
+          <div className="stat-card-skeleton-sparkline h-8 mt-2" />
+        ) : Array.isArray(sparklineData) ? (
+          <Sparkline
+            data={
+              sparklineData.length === 0
+                ? [0, 0]
+                : sparklineData.length === 1
+                  ? [sparklineData[0], sparklineData[0]]
+                  : sparklineData
+            }
+            color={resolvedSparklineColor}
+            height={32}
+            showArea={true}
+            animated={true}
+            ariaLabel={t('common.statCard.sparklineAria', { title, count: sparklineData.length })}
+          />
         ) : (
           <>
-            {console.log('[SPARKDBG] StatCard/branch', {
-              title,
-              branch: 'placeholder'
-            })}
             {/* Empty spacer to maintain consistent card height when no sparkline */}
             <div className="sparkline-placeholder h-8 mt-2" />
           </>

@@ -22,7 +22,6 @@ import { getEventColorVar } from '@utils/eventColors';
 import { formatEventDateRange } from '@utils/formatters';
 import { sortEventsByStatus, getEventStatus } from '@utils/eventUtils';
 import ApiService from '@services/api.service';
-import { prefetchRange } from '@services/apiCache';
 
 interface TimeFilterProps {
   disabled?: boolean;
@@ -241,12 +240,18 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
       );
       if (startTime === undefined || endTime === undefined) return;
       const eventId = selectedEventIds[0];
-      const cacheKey = `batch|${startTime}|${endTime}|${eventId ?? ''}`;
       // eslint-disable-next-line no-console
       console.log(`[prefetch] mousedown/focus → range=${timeValue}`);
-      prefetchRange(cacheKey, (signal) =>
-        ApiService.getDashboardBatch(signal, startTime, endTime, eventId)
-      );
+      // Fire-and-forget. getDashboardBatch routes through apiCache.getOrFetch
+      // for single-flight + TTL dedupe; no outer wrap needed.
+      void ApiService.getDashboardBatch(
+        new AbortController().signal,
+        startTime,
+        endTime,
+        eventId
+      ).catch(() => {
+        // prefetch errors non-fatal
+      });
     },
     [customStartDate, customEndDate, selectedEventIds]
   );

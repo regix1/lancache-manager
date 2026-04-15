@@ -1,12 +1,8 @@
-/* eslint-disable no-console */
 import React, { useRef, useEffect, useMemo, memo, useState } from 'react';
 import { Chart, type ChartConfiguration, registerables } from 'chart.js';
 
 // Register Chart.js components
 Chart.register(...registerables);
-
-// [SPARKDBG] Module-level counter so each Chart.js instance has a unique ID across the app lifetime.
-let sparklineInstanceCounter = 0;
 
 interface SparklineProps {
   /** Array of data points to display */
@@ -42,13 +38,6 @@ const Sparkline: React.FC<SparklineProps> = memo(
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const chartRef = useRef<Chart | null>(null);
     const [themeVersion, setThemeVersion] = useState(0);
-
-    console.log('[SPARKDBG] Sparkline/render', {
-      dataLength: data.length,
-      color,
-      height,
-      hasChart: chartRef.current !== null
-    });
 
     // Listen for theme changes to re-resolve colors
     useEffect(() => {
@@ -117,14 +106,6 @@ const Sparkline: React.FC<SparklineProps> = memo(
     }, [resolvedColor]);
 
     useEffect(() => {
-      console.log('[SPARKDBG] Sparkline/useEffect-data', {
-        hasChart: chartRef.current !== null,
-        hasCanvas: canvasRef.current !== null,
-        dataLength: data.length,
-        parentWidth: canvasRef.current?.parentElement?.clientWidth,
-        parentHeight: canvasRef.current?.parentElement?.clientHeight
-      });
-
       if (!canvasRef.current || data.length === 0) return;
 
       const ctx = canvasRef.current.getContext('2d');
@@ -159,14 +140,6 @@ const Sparkline: React.FC<SparklineProps> = memo(
       // If chart exists, update it in-place instead of destroying
       if (chartRef.current) {
         const chart = chartRef.current;
-
-        console.log('[SPARKDBG] Sparkline/in-place-update', {
-          chartId: (chart as unknown as { __debugId?: number }).__debugId,
-          oldLen: chart.data.labels?.length,
-          newLen: labels.length,
-          oldDataFirst: (chart.data.datasets[0].data as number[])?.[0],
-          newDataFirst: data[0]
-        });
 
         // Kill any pending animation frames before mutating data
         chart.stop();
@@ -262,39 +235,16 @@ const Sparkline: React.FC<SparklineProps> = memo(
 
       rafId = requestAnimationFrame(() => {
         rafId = null;
-        console.log('[SPARKDBG] Sparkline/rAF-fire', {
-          parentWidth: canvasRef.current?.parentElement?.clientWidth,
-          parentHeight: canvasRef.current?.parentElement?.clientHeight,
-          canvasExists: canvasRef.current !== null
-        });
         if (!canvasRef.current) return;
         const liveCtx: CanvasRenderingContext2D | null = canvasRef.current.getContext('2d');
         if (!liveCtx) return;
         chartRef.current = new Chart(liveCtx, config);
-        const chartId = ++sparklineInstanceCounter;
-        Object.assign(chartRef.current, { __debugId: chartId });
-        console.log('[SPARKDBG] Sparkline/new Chart done', {
-          chartId,
-          canvasWidth: canvasRef.current.width,
-          canvasHeight: canvasRef.current.height,
-          dataLength: data.length
-        });
         queueMicrotask(() => {
           chartRef.current?.resize();
-          console.log('[SPARKDBG] Sparkline/microtask-resize', {
-            chartId,
-            canvasWidth: canvasRef.current?.width,
-            canvasHeight: canvasRef.current?.height
-          });
         });
       });
 
       return () => {
-        console.log('[SPARKDBG] Sparkline/effect-cleanup', {
-          rafPending: rafId !== null,
-          hadChart: chartRef.current !== null,
-          chartId: (chartRef.current as unknown as { __debugId?: number } | null)?.__debugId
-        });
         if (rafId !== null) {
           cancelAnimationFrame(rafId);
           rafId = null;
@@ -305,10 +255,6 @@ const Sparkline: React.FC<SparklineProps> = memo(
     // Separate cleanup effect that only runs on unmount
     useEffect(() => {
       return () => {
-        console.log('[SPARKDBG] Sparkline/UNMOUNT-DESTROY', {
-          hadChart: chartRef.current !== null,
-          chartId: (chartRef.current as unknown as { __debugId?: number } | null)?.__debugId
-        });
         if (chartRef.current) {
           chartRef.current.destroy();
           chartRef.current = null;
