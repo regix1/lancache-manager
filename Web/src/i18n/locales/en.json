@@ -2907,6 +2907,12 @@
           "description": "Monitors memory usage on a schedule and triggers garbage collection only when the process working set exceeds a configurable threshold. Also clears database connection pools. Enable it on the Performance Optimizations page in Settings to activate.",
           "gain": "Memory usage stays lower and the UI feels snappier on memory-constrained hosts",
           "loss": "Brief CPU spikes during each collection pass can cause small pauses in background work"
+        },
+        "dashboardCacheWarmer": {
+          "displayName": "Dashboard Cache Warmer",
+          "description": "Pre-populates the dashboard batch cache (active downloads, stats, metrics) on a schedule so the dashboard serves instantly from memory instead of triggering cold database queries on first load.",
+          "gain": "Dashboard opens immediately even after the server has been idle; users never see a cold-fetch spinner",
+          "loss": "A small amount of background CPU is used each cycle, and cached values may briefly lag real-time changes until the next warm"
         }
       }
     },
