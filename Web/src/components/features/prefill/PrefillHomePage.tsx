@@ -5,6 +5,7 @@ import { SteamIcon } from '@components/ui/SteamIcon';
 import { EpicIcon } from '@components/ui/EpicIcon';
 import { ArrowRight, Shield, AlertCircle } from 'lucide-react';
 import type { GameServiceId } from '@/types/gameService';
+import './PrefillHomePage.css';
 
 interface PrefillHomePageProps {
   onServiceStart: (serviceId: GameServiceId) => void;
