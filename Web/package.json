@@ -22,7 +22,6 @@
     "@tanstack/react-virtual": "^3.13.23",
     "chart.js": "^4.5.1",
     "i18next": "^26.0.3",
-    "idb-keyval": "^6.2.2",
     "lucide-react": "^0.542.0",
     "nuqs": "^2.8.9",
     "react": "^19.2.0",

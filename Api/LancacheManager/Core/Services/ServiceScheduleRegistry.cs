@@ -16,7 +16,8 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         "steamService",
         "cacheSnapshot",
         "operationHistoryCleanup",
-        "logRotation"
+        "logRotation",
+        "dashboardCacheWarmer"
     };
 
     private readonly Dictionary<string, ScheduledBackgroundService> _scheduledServices = new(StringComparer.OrdinalIgnoreCase);

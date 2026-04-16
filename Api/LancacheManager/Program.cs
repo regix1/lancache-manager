@@ -449,6 +449,16 @@ builder.Services.AddSingletonHostedService<RustSpeedTrackerService>();
 // also runs at startup is user-controlled via the Schedules UI (DefaultRunOnStartup = true).
 builder.Services.AddSingletonHostedService<GameDetectionService>();
 
+// Register dashboard batch service — shared compute behind /api/dashboard/batch. Lives as a
+// singleton so the controller is a thin pass-through AND the warmer below can pre-populate
+// the IMemoryCache on startup (first user request after restart hits a warm cache).
+builder.Services.AddSingleton<IDashboardBatchService, DashboardBatchService>();
+
+// Register dashboard cache warmer — calls GetBatchAsync(null,null,null) once at startup and
+// once per interval (RunOnStartup=true) so the first /api/dashboard/batch user request does
+// NOT pay the cold DB connection pool + 9 parallel queries penalty.
+builder.Services.AddSingletonHostedService<DashboardCacheWarmerService>();
+
 // Register service schedule registry — collects all ScheduledBackgroundService / ConfigurableScheduledService instances
 builder.Services.AddSingleton<IServiceScheduleRegistry, ServiceScheduleRegistry>();
 
@@ -625,7 +635,24 @@ app.UseGlobalExceptionHandler();
 
 // Serve static files (UseDefaultFiles rewrites / to /index.html for faster static serving)
 app.UseDefaultFiles();
-app.UseStaticFiles();
+app.UseStaticFiles(new StaticFileOptions
+{
+    OnPrepareResponse = ctx =>
+    {
+        var path = ctx.Context.Request.Path.Value ?? string.Empty;
+        var headers = ctx.Context.Response.Headers;
+        if (path.EndsWith("/index.html", StringComparison.OrdinalIgnoreCase) || path == "/" || path.EndsWith("/"))
+        {
+            headers["Cache-Control"] = "no-cache, no-store, must-revalidate";
+            headers["Pragma"] = "no-cache";
+            headers["Expires"] = "0";
+        }
+        else if (path.StartsWith("/assets/", StringComparison.OrdinalIgnoreCase))
+        {
+            headers["Cache-Control"] = "public, max-age=31536000, immutable";
+        }
+    }
+});
 
 app.UseRouting();
 

@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { getCachedValue, setCachedValue, IDB_KEYS } from '@utils/idbCache';
 import ApiService from '@services/api.service';
 import { isAbortError } from '@utils/error';
 import MockDataService from '../../test/mockData.service';
@@ -38,71 +37,31 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   const { hasSession, isLoading: authLoading } = useAuth();
   const hasAccess = hasSession;
 
-  // State. Only CACHE_INFO and GAME_DETECTION hydrate from IDB (cold-start win);
-  // all other fields start empty and populate on first batch fetch (fast enough now).
-  const [cacheInfo, setCacheInfo] = useState<CacheInfo | null>(
-    () => getCachedValue<CacheInfo>(IDB_KEYS.CACHE_INFO) ?? null
-  );
+  // State. All 9 dashboard fields start empty and populate from the first batch fetch.
+  const [cacheInfo, setCacheInfo] = useState<CacheInfo | null>(null);
   const [clientStats, setClientStats] = useState<ClientStat[]>([]);
   const [serviceStats, setServiceStats] = useState<ServiceStat[]>([]);
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
   const [latestDownloads, setLatestDownloads] = useState<Download[]>([]);
-  const [gameDetectionData, setGameDetectionData] = useState<CachedDetectionResponse | null>(
-    () => getCachedValue<CachedDetectionResponse>(IDB_KEYS.GAME_DETECTION) ?? null
-  );
+  const [gameDetectionData, setGameDetectionData] = useState<CachedDetectionResponse | null>(null);
   const [gameDetectionLookup, setGameDetectionLookup] = useState<Map<
     number,
     GameDetectionSummary
-  > | null>(() => {
-    const cached = getCachedValue<CachedDetectionResponse>(IDB_KEYS.GAME_DETECTION);
-    if (!cached?.games || cached.games.length === 0) return null;
-    const byAppId = new Map<number, GameDetectionSummary>();
-    for (const game of cached.games) {
-      if (game.game_app_id) {
-        byAppId.set(game.game_app_id, game);
-      }
-    }
-    return byAppId;
-  });
+  > | null>(null);
   const [gameDetectionByName, setGameDetectionByName] = useState<Map<
     string,
     GameDetectionSummary
-  > | null>(() => {
-    const cached = getCachedValue<CachedDetectionResponse>(IDB_KEYS.GAME_DETECTION);
-    if (!cached?.games || cached.games.length === 0) return null;
-    const byName = new Map<string, GameDetectionSummary>();
-    for (const game of cached.games) {
-      if (game.game_name) {
-        byName.set(game.game_name.toLowerCase(), game);
-      }
-    }
-    return byName;
-  });
+  > | null>(null);
   const [gameDetectionByService, setGameDetectionByService] = useState<Map<
     string,
     { service_name: string; cache_files_found: number; total_size_bytes: number }
-  > | null>(() => {
-    const cached = getCachedValue<CachedDetectionResponse>(IDB_KEYS.GAME_DETECTION);
-    if (!cached?.services) return null;
-    const bySvc = new Map<
-      string,
-      { service_name: string; cache_files_found: number; total_size_bytes: number }
-    >();
-    for (const svc of cached.services) {
-      if (svc.service_name) {
-        bySvc.set(svc.service_name.toLowerCase(), svc);
-      }
-    }
-    return bySvc;
-  });
-  // Transient widget data — no IDB hydration; starts empty, populates on first fetch.
+  > | null>(null);
   const [sparklines, setSparklines] = useState<SparklineDataResponse | null>(null);
   const [hourlyActivity, setHourlyActivity] = useState<HourlyActivityResponse | null>(null);
   const [cacheSnapshot, setCacheSnapshot] = useState<CacheSnapshotResponse | null>(null);
   const [cacheGrowth, setCacheGrowth] = useState<CacheGrowthResponse | null>(null);
 
-  // loading is false if we have cached CACHE_INFO (pre-loaded before render)
-  const [loading, setLoading] = useState(() => getCachedValue(IDB_KEYS.CACHE_INFO) === undefined);
+  const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [connectionStatus, setConnectionStatus] = useState('checking');
@@ -174,8 +133,15 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       }
       lastFetchTime.current = now;
 
-      // Abort any in-flight request BEFORE checking concurrent flag
-      if (abortControllerRef.current) {
+      // Abort any in-flight request BEFORE checking concurrent flag.
+      // EXCEPTION: when the in-flight request is the initial REST hydrate and the
+      // new caller is NOT a forced refresh (e.g., a SignalR-triggered refetch that
+      // lands within the first 250-1000ms of mount), do NOT abort the initial.
+      // Otherwise the initial batch is canceled, the UI waits for the 2nd request,
+      // and the first paint shows empty placeholders. Supersession via
+      // currentRequestIdRef still prevents out-of-order state writes.
+      const isAbortingInitialDueToSignalR = isInitialLoad.current && !forceRefresh;
+      if (!isAbortingInitialDueToSignalR && abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
 
@@ -193,11 +159,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
       const currentEventIds = [...selectedEventIdsRef.current];
       const { startTime, endTime } = getTimeRangeParamsRef.current();
       const eventIds = currentEventIds.length > 0 ? currentEventIds : undefined;
-      // NOTE: we no longer pass a `cacheBust` token on forceRefresh. The 30s
-      // TTL single-flight cache (apiCache.getOrFetch) already dedupes; passing
-      // cacheBust would bypass warm prefetched entries and double-fetch.
-      // The minute-bucket quantization in getTimeRangeParams ensures prefetch
-      // and click land on identical keys within the minute.
+      // Backend IMemoryCache dedupes identical in-flight requests (15s live / 60s historical TTL).
 
       abortControllerRef.current = new AbortController();
       const signal = abortControllerRef.current.signal;
@@ -294,20 +256,6 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
         setConnectionStatus('connected');
         setError(null);
         setLoading(false);
-
-        // Persist only what benefits cold-start. Cached stats shown instantly on mount:
-        //   CACHE_INFO — small, shows cache size immediately
-        //   GAME_DETECTION — required for game icons to render without flash
-        // Everything else (clients, services, dashboard stats, downloads, sparklines,
-        // hourlyActivity, cacheGrowth, cacheSnapshot) is NOT persisted — the 30s
-        // apiCache handles warm reuse, and each structuredClone during setCachedValue
-        // was adding meaningful latency (LATEST_DOWNLOADS is up to 500 rows).
-        if (batchResponse.cache) {
-          setCachedValue(IDB_KEYS.CACHE_INFO, batchResponse.cache);
-        }
-        if (batchResponse.detection) {
-          setCachedValue(IDB_KEYS.GAME_DETECTION, batchResponse.detection);
-        }
       } catch (err: unknown) {
         // Check if we're still the current request before setting error state
         if (currentRequestIdRef.current !== thisRequestId) {
@@ -469,8 +417,7 @@ export const DashboardDataProvider: React.FC<DashboardDataProviderProps> = ({
   // Initial load
   useEffect(() => {
     if (!mockMode && !authLoading && hasAccess) {
-      const hasCachedData = getCachedValue(IDB_KEYS.CACHE_INFO) !== undefined;
-      fetchAllData({ showLoading: !hasCachedData, isInitial: true, trigger: 'initial' });
+      fetchAllData({ showLoading: true, isInitial: true, trigger: 'initial' });
     } else if (!mockMode && !authLoading && !hasAccess) {
       // Auth completed but user has no access — stop loading to prevent infinite skeleton
       setLoading(false);

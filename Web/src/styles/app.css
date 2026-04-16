@@ -28,7 +28,14 @@
   text-align: center;
 }
 
+.config-error-title {
+  margin: 0;
+  color: var(--theme-text-primary);
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
 .config-error-message {
-  color: var(--theme-text-error);
+  color: var(--theme-error-text);
   font-size: 0.875rem;
 }
