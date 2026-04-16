@@ -1,6 +1,5 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useMemo } from 'react';
 import { Doughnut } from 'react-chartjs-2';
-import { mark as markTiming, isActive as isTimingActive } from '@utils/timingTracker';
 import {
   Chart as ChartJS,
   ArcElement,
@@ -27,17 +26,6 @@ function getCssVar(name: string, fallback: string): string {
 
 const DoughnutChart: React.FC<DoughnutChartProps> = React.memo(
   ({ labels, datasets, total, centerLabel, gameSliceExtras }) => {
-    const renderStartRef = useRef<number>(0);
-    renderStartRef.current = performance.now();
-    useEffect(() => {
-      if (isTimingActive()) {
-        const elapsed = performance.now() - renderStartRef.current;
-        if (elapsed > 5) {
-          markTiming(`doughnut-render +${elapsed.toFixed(1)}ms`);
-        }
-      }
-    });
-
     // Prepare chart data with stable reference
     const chartData: ChartData<'doughnut'> = useMemo(
       () => ({

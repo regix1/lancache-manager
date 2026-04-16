@@ -20,7 +20,6 @@ import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import { getEventColorVar } from '@utils/eventColors';
 import { formatEventDateRange } from '@utils/formatters';
 import { sortEventsByStatus, getEventStatus } from '@utils/eventUtils';
-import { start as startTiming } from '@utils/timingTracker';
 
 interface TimeFilterProps {
   disabled?: boolean;
@@ -223,7 +222,6 @@ const TimeFilter: React.FC<TimeFilterProps> = ({ disabled = false, iconOnly = fa
   const handleTimeRangeChange = useCallback(
     (value: string) => {
       const timeValue = value as TimeRange;
-      startTiming(`range=${timeValue}`);
       if (timeValue === 'custom') {
         // Sync local pending dates from context before opening picker
         setPendingStartDate(customStartDate);

@@ -41,6 +41,13 @@
       right: 0;
       overflow: hidden;
     }
+
+    /* When there's no banner image (just a service icon placeholder), ensure
+       the card is tall enough so the absolutely-positioned content isn't clipped.
+       131px matches the natural height of a 280px-wide Steam header (460×215). */
+    .download-card-fullheight .download-banner-placeholder {
+      min-height: 131px;
+    }
   }
 
   /* Banner placeholder with service icon */
