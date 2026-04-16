@@ -108,6 +108,8 @@ export const Pagination: React.FC<PaginationProps> = React.memo(
     // ---- Internal hold-to-repeat timer (used when holdToRepeat && no external callbacks) ----
     const holdTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const holdIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const currentPageRef = useRef(currentPage);
+    currentPageRef.current = currentPage;
 
     const stopInternalHoldTimer = useCallback((): void => {
       if (holdTimeoutRef.current !== null) {
@@ -135,11 +137,12 @@ export const Pagination: React.FC<PaginationProps> = React.memo(
         event.currentTarget.setPointerCapture?.(event.pointerId);
         stopInternalHoldTimer();
         const step = (): void => {
-          const next = isPrevious
-            ? Math.max(1, currentPage - 1)
-            : Math.min(totalPages, currentPage + 1);
-          if (next !== currentPage) {
+          const page = currentPageRef.current;
+          const next = isPrevious ? Math.max(1, page - 1) : Math.min(totalPages, page + 1);
+          if (next !== page) {
             onPageChange(next);
+          } else {
+            stopInternalHoldTimer();
           }
         };
         holdTimeoutRef.current = setTimeout(() => {
