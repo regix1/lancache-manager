@@ -713,7 +713,8 @@ app.Use(async (context, next) =>
     headers["X-Content-Type-Options"] = "nosniff";
     headers["X-Frame-Options"] = "DENY";
     headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
-    headers["Permissions-Policy"] = "interest-cohort=()";
+    // OWASP-recommended denial of sensor/device features the admin UI never uses.
+    headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=()";
     await next();
 });
 
