@@ -129,23 +129,41 @@ builder.Services.AddCors(options =>
 });
 
 // Configure forwarded headers for reverse proxy support (nginx, Cloudflare, Traefik, etc.)
-// This ensures we get the real client IP instead of the proxy IP.
-// By default, ASP.NET Core only trusts loopback proxies — which is what you want in most
-// deployments. Set Security:TrustAllProxies=true ONLY if you fully trust every network
-// path between clients and this process (e.g. an isolated LAN with a known proxy that
-// always rewrites X-Forwarded-For). Trusting all proxies on a publicly reachable host
-// lets any client spoof their source IP via forged X-Forwarded-For headers.
+// This ensures we get the real client IP and scheme (X-Forwarded-Proto) instead of the proxy's.
+// Three deployment modes:
+//   1. Direct HTTP (LAN, no proxy): defaults are fine — no X-Forwarded-* expected.
+//   2. nginx/Traefik in front (typical Docker setup): set Security:KnownProxyNetworks
+//      to the proxy's network (e.g. "172.16.0.0/12,10.0.0.0/8" for Docker bridges) so
+//      X-Forwarded-Proto is honored and Secure cookies activate on HTTPS.
+//   3. Fully trusted network (every upstream is trusted to set X-Forwarded-*):
+//      set Security:TrustAllProxies=true. NEVER use on internet-exposed hosts.
 var trustAllProxies = builder.Configuration.GetValue<bool>("Security:TrustAllProxies");
+var knownProxyNetworks = builder.Configuration["Security:KnownProxyNetworks"];
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
     options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
     if (trustAllProxies)
     {
-        // Explicit opt-in: clear known networks/proxies to accept forwarded headers from any source.
+        // Explicit opt-in: accept forwarded headers from any source.
         options.KnownIPNetworks.Clear();
         options.KnownProxies.Clear();
     }
-    // else: keep ASP.NET Core defaults (loopback only).
+    else if (!string.IsNullOrWhiteSpace(knownProxyNetworks))
+    {
+        // Trust the listed CIDR networks in addition to the loopback default.
+        foreach (var cidr in knownProxyNetworks.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (System.Net.IPNetwork.TryParse(cidr, out var network))
+            {
+                options.KnownIPNetworks.Add(network);
+            }
+            else
+            {
+                Console.Error.WriteLine($"WARNING: Security:KnownProxyNetworks entry '{cidr}' is not valid CIDR (e.g. 172.16.0.0/12). Skipping.");
+            }
+        }
+    }
+    // else: keep ASP.NET Core defaults (loopback only) — works for direct HTTP and proxies on 127.0.0.1.
 });
 
 // Configure API options
@@ -585,6 +603,18 @@ if (trustAllProxies)
     app.Logger.LogWarning(
         "ForwardedHeaders: Security:TrustAllProxies=true — KnownProxies/KnownIPNetworks cleared. " +
         "Any upstream can spoof X-Forwarded-For. Only enable this on trusted networks.");
+}
+else if (!string.IsNullOrWhiteSpace(knownProxyNetworks))
+{
+    app.Logger.LogInformation(
+        "ForwardedHeaders: trusting proxy networks {Networks} (in addition to loopback defaults).", knownProxyNetworks);
+}
+else
+{
+    app.Logger.LogInformation(
+        "ForwardedHeaders: trusting loopback proxies only. " +
+        "If running behind nginx/Traefik on a different IP (Docker bridge, LAN), set Security:KnownProxyNetworks " +
+        "(e.g. \"172.16.0.0/12,10.0.0.0/8\") so cookies are correctly marked Secure on HTTPS.");
 }
 
 // IMPORTANT: Apply database migrations FIRST before any service tries to access the database
