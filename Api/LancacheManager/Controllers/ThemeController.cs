@@ -197,6 +197,7 @@ public class ThemeController : ControllerBase
     }
 
     [HttpPost("upload")]
+    [RequestSizeLimit(1_048_576)]
     public async Task<IActionResult> UploadThemeAsync(IFormFile file)
     {
         if (file == null || file.Length == 0)

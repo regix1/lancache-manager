@@ -3,5 +3,9 @@
     <AnalysisLevel>latest-recommended</AnalysisLevel>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
     <Nullable>enable</Nullable>
+    <!-- Promote selected rules from warning to error so they fail the build:
+         - CA1870: cached SearchValues<T> for IndexOfAny / ContainsAny
+         - IDE1006: private field naming convention (_camelCase) -->
+    <WarningsAsErrors>$(WarningsAsErrors);CA1870;IDE1006</WarningsAsErrors>
   </PropertyGroup>
 </Project>

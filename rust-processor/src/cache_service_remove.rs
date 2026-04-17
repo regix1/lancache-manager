@@ -139,28 +139,35 @@ fn remove_cache_files_for_service(
         let cache_path_no_range = cache_utils::calculate_cache_path_no_range(cache_dir, &service_lower, url);
 
         if cache_path_no_range.exists() {
-            // Get size before deleting
-            if let Ok(metadata) = fs::metadata(&cache_path_no_range) {
-                bytes_freed += metadata.len();
-            }
-
-            match fs::remove_file(&cache_path_no_range) {
+            match cache_utils::safe_path_under_root(cache_dir, &cache_path_no_range) {
                 Ok(_) => {
-                    deleted_count += 1;
-                    if deleted_count % 100 == 0 {
-                        eprintln!("  Deleted {} cache files ({:.2} MB freed)...",
-                            deleted_count, bytes_freed as f64 / 1_048_576.0);
+                    // Get size before deleting
+                    if let Ok(metadata) = fs::metadata(&cache_path_no_range) {
+                        bytes_freed += metadata.len();
+                    }
+
+                    match fs::remove_file(&cache_path_no_range) {
+                        Ok(_) => {
+                            deleted_count += 1;
+                            if deleted_count % 100 == 0 {
+                                eprintln!("  Deleted {} cache files ({:.2} MB freed)...",
+                                    deleted_count, bytes_freed as f64 / 1_048_576.0);
+                            }
+                        }
+                        Err(e) => {
+                            if e.kind() == std::io::ErrorKind::PermissionDenied {
+                                permission_errors += 1;
+                                if permission_errors <= 5 {
+                                    eprintln!("  ERROR: Permission denied deleting {}: {}", cache_path_no_range.display(), e);
+                                }
+                            } else {
+                                eprintln!("  Warning: Failed to delete {}: {}", cache_path_no_range.display(), e);
+                            }
+                        }
                     }
                 }
                 Err(e) => {
-                    if e.kind() == std::io::ErrorKind::PermissionDenied {
-                        permission_errors += 1;
-                        if permission_errors <= 5 {
-                            eprintln!("  ERROR: Permission denied deleting {}: {}", cache_path_no_range.display(), e);
-                        }
-                    } else {
-                        eprintln!("  Warning: Failed to delete {}: {}", cache_path_no_range.display(), e);
-                    }
+                    eprintln!("  skipping unsafe path {}: {}", cache_path_no_range.display(), e);
                 }
             }
         } else {
@@ -174,27 +181,35 @@ fn remove_cache_files_for_service(
                     break; // No more chunks for this URL
                 }
 
-                if let Ok(metadata) = fs::metadata(&cache_path) {
-                    bytes_freed += metadata.len();
-                }
-
-                match fs::remove_file(&cache_path) {
+                match cache_utils::safe_path_under_root(cache_dir, &cache_path) {
                     Ok(_) => {
-                        deleted_count += 1;
-                        if deleted_count % 100 == 0 {
-                            eprintln!("  Deleted {} cache files ({:.2} MB freed)...",
-                                deleted_count, bytes_freed as f64 / 1_048_576.0);
+                        if let Ok(metadata) = fs::metadata(&cache_path) {
+                            bytes_freed += metadata.len();
+                        }
+
+                        match fs::remove_file(&cache_path) {
+                            Ok(_) => {
+                                deleted_count += 1;
+                                if deleted_count % 100 == 0 {
+                                    eprintln!("  Deleted {} cache files ({:.2} MB freed)...",
+                                        deleted_count, bytes_freed as f64 / 1_048_576.0);
+                                }
+                            }
+                            Err(e) => {
+                                if e.kind() == std::io::ErrorKind::PermissionDenied {
+                                    permission_errors += 1;
+                                    if permission_errors <= 5 {
+                                        eprintln!("  ERROR: Permission denied deleting {}: {}", cache_path.display(), e);
+                                    }
+                                } else {
+                                    eprintln!("  Warning: Failed to delete {}: {}", cache_path.display(), e);
+                                }
+                            }
                         }
                     }
                     Err(e) => {
-                        if e.kind() == std::io::ErrorKind::PermissionDenied {
-                            permission_errors += 1;
-                            if permission_errors <= 5 {
-                                eprintln!("  ERROR: Permission denied deleting {}: {}", cache_path.display(), e);
-                            }
-                        } else {
-                            eprintln!("  Warning: Failed to delete {}: {}", cache_path.display(), e);
-                        }
+                        eprintln!("  skipping unsafe path {}: {}", cache_path.display(), e);
+                        break;
                     }
                 }
             }
@@ -300,7 +315,10 @@ fn remove_log_entries_for_service(
             // If all lines were removed, delete the file
             if lines_processed > 0 && lines_removed == lines_processed {
                 eprintln!("  INFO: All {} lines from this file are for this service, deleting file entirely", lines_processed);
-                fs::remove_file(&log_file.path).ok();
+                match cache_utils::safe_path_under_root(log_dir, &log_file.path) {
+                    Ok(_) => { fs::remove_file(&log_file.path).ok(); }
+                    Err(e) => eprintln!("skipping unsafe path {}: {}", log_file.path.display(), e),
+                }
                 return Ok(lines_removed);
             }
 
@@ -311,7 +329,10 @@ fn remove_log_entries_for_service(
                 // Fallback: copy + delete
                 eprintln!("    persist() failed ({}), using copy fallback...", persist_err);
                 fs::copy(&persist_err.path, &log_file.path)?;
-                fs::remove_file(&persist_err.path).ok();
+                match cache_utils::safe_path_under_root(log_dir, &persist_err.path) {
+                    Ok(_) => { fs::remove_file(&persist_err.path).ok(); }
+                    Err(e) => eprintln!("skipping unsafe path {}: {}", persist_err.path.display(), e),
+                }
             }
 
             Ok(lines_removed)

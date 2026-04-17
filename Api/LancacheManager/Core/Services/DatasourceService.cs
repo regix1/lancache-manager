@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text.RegularExpressions;
 using LancacheManager.Configuration;
 using LancacheManager.Core.Interfaces;
 
@@ -10,6 +11,11 @@ namespace LancacheManager.Core.Services;
 /// </summary>
 public class DatasourceService
 {
+    private static readonly Regex _datasourceNameRegex = new("^[A-Za-z0-9._-]+$", RegexOptions.Compiled);
+
+    private static bool IsValidDatasourceName(string name) =>
+        !string.IsNullOrWhiteSpace(name) && _datasourceNameRegex.IsMatch(name);
+
     private readonly IConfiguration _configuration;
     private readonly IPathResolver _pathResolver;
     private readonly ILogger<DatasourceService> _logger;
@@ -45,6 +51,11 @@ public class DatasourceService
 
             foreach (var config in datasourceConfigs.Where(c => c.Enabled))
             {
+                if (!IsValidDatasourceName(config.Name))
+                    throw new ArgumentException(
+                        "Datasource name must contain only letters, digits, dots, hyphens, and underscores.",
+                        nameof(config.Name));
+
                 var resolved = ResolveDatasource(config);
                 if (resolved != null)
                 {
@@ -181,6 +192,14 @@ public class DatasourceService
             if (logsSubdir != null)
             {
                 var displayName = CultureInfo.CurrentCulture.TextInfo.ToTitleCase(subdirName.ToLower());
+
+                if (!IsValidDatasourceName(displayName))
+                {
+                    _logger.LogWarning(
+                        "Auto-discovery skipping subdirectory '{Name}': name contains disallowed characters (only letters, digits, dots, hyphens, and underscores are permitted)",
+                        displayName);
+                    continue;
+                }
 
                 discovered.Add(new DatasourceConfig
                 {

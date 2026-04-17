@@ -1,4 +1,30 @@
+use std::io;
 use std::path::{Path, PathBuf};
+
+/// Returns the canonical form of `candidate`, but only if it resides under `root` and is not a symlink.
+/// Errors out for symlinks (refuses to follow), paths outside the root, or non-existent paths.
+///
+/// This is the canonical guard used before any `fs::remove_file`, `fs::remove_dir`, or
+/// `fs::remove_dir_all` on URL-derived or admin-controlled paths.
+#[allow(dead_code)]
+pub fn safe_path_under_root(root: &Path, candidate: &Path) -> io::Result<PathBuf> {
+    let meta = candidate.symlink_metadata()?;
+    if meta.file_type().is_symlink() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("symlink not allowed: {}", candidate.display()),
+        ));
+    }
+    let canonical = candidate.canonicalize()?;
+    let canonical_root = root.canonicalize()?;
+    if !canonical.starts_with(&canonical_root) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("path escapes root: {}", candidate.display()),
+        ));
+    }
+    Ok(canonical)
+}
 
 // Filesystem type magic numbers from statfs (Unix only)
 #[cfg(unix)]

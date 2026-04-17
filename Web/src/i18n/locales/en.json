@@ -5289,8 +5289,7 @@
     "generic": {
       "unknown": "Operation in progress...",
       "failed": "Operation failed",
-      "complete": "Operation complete",
-      "cancelled": "Operation cancelled"
+      "complete": "Operation complete"
     },
     "cacheClear": {
       "initializing": "Initializing cache clear...",

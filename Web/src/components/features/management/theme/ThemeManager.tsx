@@ -14,7 +14,7 @@ import {
   Moon,
   Sun
 } from 'lucide-react';
-import { useTranslation } from 'react-i18next';
+import { useTranslation, Trans } from 'react-i18next';
 import themeService from '@services/theme.service';
 import preferencesService from '@services/preferences.service';
 import authService from '@services/auth.service';
@@ -935,12 +935,13 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
         confirmLabel={t('modals.theme.delete.confirmButton')}
         loading={isLoading}
       >
-        <p
-          className="text-themed-secondary"
-          dangerouslySetInnerHTML={{
-            __html: t('modals.theme.delete.message', { name: themePendingDeletion?.name })
-          }}
-        />
+        <p className="text-themed-secondary">
+          <Trans
+            i18nKey="modals.theme.delete.message"
+            values={{ name: themePendingDeletion?.name ?? '' }}
+            components={{ strong: <strong /> }}
+          />
+        </p>
         <Alert color="yellow">
           <p className="text-sm">{t('modals.theme.delete.warning')}</p>
         </Alert>
@@ -954,12 +955,13 @@ const ThemeManager: React.FC<ThemeManagerProps> = ({ isAdmin }) => {
         confirmLabel={t('modals.theme.delete.confirmButton')}
         loading={isLoading}
       >
-        <p
-          className="text-themed-secondary"
-          dangerouslySetInnerHTML={{
-            __html: t('modals.theme.delete.message', { name: 'all custom themes' })
-          }}
-        />
+        <p className="text-themed-secondary">
+          <Trans
+            i18nKey="modals.theme.delete.message"
+            values={{ name: 'all custom themes' }}
+            components={{ strong: <strong /> }}
+          />
+        </p>
         <Alert color="yellow">
           <p className="text-sm">{t('modals.theme.delete.warning')}</p>
         </Alert>

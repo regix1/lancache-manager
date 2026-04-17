@@ -17,6 +17,7 @@ using LancacheManager.Middleware;
 using LancacheManager.Security;
 using LancacheManager.Validators;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.AspNetCore.Routing.Constraints;
@@ -88,20 +89,31 @@ builder.Services.AddSignalR(options =>
 
 // Configure CORS
 // Security:AllowedOrigins can be set to restrict origins (comma-separated list)
-// Empty or "*" = allow all origins (for development or same-origin reverse proxy setups)
-// Example: "https://lancache.local,https://admin.lancache.local"
+// Empty = same-origin only (safe default for reverse-proxy deployments).
+// "*"   = any origin, WITHOUT credentials (browsers reject "*" + credentials anyway).
+// List  = restricted origins with credentials (e.g. "https://lancache.local,https://admin.lancache.local").
 var allowedOrigins = builder.Configuration["Security:AllowedOrigins"];
+var corsMode = "same-origin-only";
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
     {
-        if (string.IsNullOrWhiteSpace(allowedOrigins) || allowedOrigins == "*")
+        if (string.IsNullOrWhiteSpace(allowedOrigins))
         {
-            // Permissive mode - for development or when behind same-origin reverse proxy
-            policy.SetIsOriginAllowed(_ => true)
+            // Safe default: no cross-origin allowed. Same-origin requests (served by the
+            // integrated static-file host or a same-origin reverse proxy) bypass CORS entirely,
+            // so this does not break the SPA served from this app. The prior behavior of
+            // SetIsOriginAllowed(_ => true) + AllowCredentials() has been removed because it
+            // permits any origin to make authenticated cross-site requests.
+            corsMode = "same-origin-only";
+        }
+        else if (allowedOrigins == "*")
+        {
+            // Wildcard origins — NOT combined with AllowCredentials (browsers reject that pair).
+            policy.AllowAnyOrigin()
                 .AllowAnyMethod()
-                .AllowAnyHeader()
-                .AllowCredentials();
+                .AllowAnyHeader();
+            corsMode = "any-origin-no-credentials";
         }
         else
         {
@@ -111,19 +123,29 @@ builder.Services.AddCors(options =>
                 .AllowAnyMethod()
                 .AllowAnyHeader()
                 .AllowCredentials();
+            corsMode = $"restricted ({origins.Length} origin(s))";
         }
     });
 });
 
 // Configure forwarded headers for reverse proxy support (nginx, Cloudflare, Traefik, etc.)
-// This ensures we get the real client IP instead of the proxy IP
+// This ensures we get the real client IP instead of the proxy IP.
+// By default, ASP.NET Core only trusts loopback proxies — which is what you want in most
+// deployments. Set Security:TrustAllProxies=true ONLY if you fully trust every network
+// path between clients and this process (e.g. an isolated LAN with a known proxy that
+// always rewrites X-Forwarded-For). Trusting all proxies on a publicly reachable host
+// lets any client spoof their source IP via forged X-Forwarded-For headers.
+var trustAllProxies = builder.Configuration.GetValue<bool>("Security:TrustAllProxies");
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
     options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-    // Clear default known networks/proxies to accept forwarded headers from any source
-    // In production behind a trusted proxy, you may want to restrict this
-    options.KnownIPNetworks.Clear();
-    options.KnownProxies.Clear();
+    if (trustAllProxies)
+    {
+        // Explicit opt-in: clear known networks/proxies to accept forwarded headers from any source.
+        options.KnownIPNetworks.Clear();
+        options.KnownProxies.Clear();
+    }
+    // else: keep ASP.NET Core defaults (loopback only).
 });
 
 // Configure API options
@@ -334,6 +356,13 @@ builder.Services.AddAuthentication(SessionAuthenticationHandler.SchemeName)
 // Authorization policies
 builder.Services.AddAuthorization(options =>
 {
+    // Secure-by-default: every endpoint requires an authenticated principal unless it
+    // explicitly opts out with [AllowAnonymous] (e.g. /health, /api/auth/login, /api/setup/*).
+    // This closes the "forgot to add [Authorize]" gap on controllers added later.
+    options.FallbackPolicy = new AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .Build();
+
     options.AddPolicy("AdminOnly", policy =>
         policy.RequireClaim("SessionType", "admin"));
 
@@ -530,6 +559,34 @@ builder.Services.Configure<BrotliCompressionProviderOptions>(options =>
 
 var app = builder.Build();
 
+// Log the effective CORS posture once at startup so operators can tell at a glance whether
+// they are running the safe default or an opted-in permissive configuration.
+if (string.IsNullOrWhiteSpace(allowedOrigins))
+{
+    app.Logger.LogWarning(
+        "CORS: Security:AllowedOrigins is empty — defaulting to same-origin-only. " +
+        "Set Security:AllowedOrigins to a comma-separated origin list (e.g. \"https://lancache.local\") " +
+        "or \"*\" (no credentials) if cross-origin browser access is required.");
+}
+else if (allowedOrigins == "*")
+{
+    app.Logger.LogWarning(
+        "CORS: Security:AllowedOrigins is \"*\". Any origin may call the API, but AllowCredentials() " +
+        "is intentionally NOT set (browsers reject that combination). Set an explicit origin list for " +
+        "cookie-authenticated cross-origin requests.");
+}
+else
+{
+    app.Logger.LogInformation("CORS: restricted to configured Security:AllowedOrigins list ({Mode}).", corsMode);
+}
+
+if (trustAllProxies)
+{
+    app.Logger.LogWarning(
+        "ForwardedHeaders: Security:TrustAllProxies=true — KnownProxies/KnownIPNetworks cleared. " +
+        "Any upstream can spoof X-Forwarded-For. Only enable this on trusted networks.");
+}
+
 // IMPORTANT: Apply database migrations FIRST before any service tries to access the database
 using (var scope = app.Services.CreateScope())
 {
@@ -617,6 +674,18 @@ if (apiKeyService.WasNewKeyGenerated)
 // This ensures HttpContext.Connection.RemoteIpAddress returns the real client IP
 app.UseForwardedHeaders();
 
+// Security headers — applied to every HTTP response (API, SignalR negotiate, static files,
+// SPA fallback). Placed before UseStaticFiles so OnPrepareResponse overrides do not drop these.
+// CSP is intentionally NOT set here: the SPA bundle would need an inline-script audit first.
+app.Use(async (context, next) =>
+{
+    var headers = context.Response.Headers;
+    headers["X-Content-Type-Options"] = "nosniff";
+    headers["X-Frame-Options"] = "DENY";
+    headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
+    headers["Permissions-Policy"] = "interest-cohort=()";
+    await next();
+});
 
 app.UseCors("AllowAll");
 

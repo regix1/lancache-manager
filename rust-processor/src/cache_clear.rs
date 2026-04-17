@@ -120,8 +120,18 @@ fn delete_directory_contents(
         return Ok(());
     }
 
+    // Canonicalize the sweep root once. All deletions must live under it.
+    let root = match dir_path.canonicalize() {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("skipping unsafe root {}: {}", dir_path.display(), e);
+            return Ok(());
+        }
+    };
+
     // Fast recursive deletion - NO metadata reads for speed
     fn delete_recursive(
+        root: &Path,
         dir: &Path,
         files_counter: &AtomicU64,
     ) -> Result<()> {
@@ -130,21 +140,50 @@ fn delete_directory_contents(
                 let entry = entry_result?;
                 let path = entry.path();
 
+                // Refuse to follow symlinks or paths outside the canonical root.
+                let file_type = match entry.file_type() {
+                    Ok(ft) => ft,
+                    Err(e) => {
+                        eprintln!("skipping unsafe path {}: {}", path.display(), e);
+                        continue;
+                    }
+                };
+                if file_type.is_symlink() {
+                    eprintln!("skipping unsafe path {}: symlink not allowed", path.display());
+                    continue;
+                }
+
                 if path.is_dir() {
-                    delete_recursive(&path, files_counter)?;
-                    // Try to remove the empty directory
-                    let _ = fs::remove_dir(&path);
+                    match cache_utils::safe_path_under_root(root, &path) {
+                        Ok(_) => {
+                            delete_recursive(root, &path, files_counter)?;
+                            // Try to remove the empty directory
+                            let _ = fs::remove_dir(&path);
+                        }
+                        Err(e) => {
+                            eprintln!("skipping unsafe path {}: {}", path.display(), e);
+                            continue;
+                        }
+                    }
                 } else {
-                    // Just count and delete - NO metadata read for speed
-                    files_counter.fetch_add(1, Ordering::Relaxed);
-                    let _ = fs::remove_file(&path);
+                    match cache_utils::safe_path_under_root(root, &path) {
+                        Ok(_) => {
+                            // Just count and delete - NO metadata read for speed
+                            files_counter.fetch_add(1, Ordering::Relaxed);
+                            let _ = fs::remove_file(&path);
+                        }
+                        Err(e) => {
+                            eprintln!("skipping unsafe path {}: {}", path.display(), e);
+                            continue;
+                        }
+                    }
                 }
             }
         }
         Ok(())
     }
 
-    delete_recursive(dir_path, files_counter)?;
+    delete_recursive(&root, &root, files_counter)?;
 
     Ok(())
 }
@@ -158,21 +197,22 @@ fn delete_directory_full(
     }
 
     // Count files before deletion using find (efficient even on NFS)
-    // This gives us accurate file counts for the progress display
+    // This gives us accurate file counts for the progress display.
+    // IMPORTANT: Avoid `sh -c` here — pass arguments directly to `find` so a
+    // crafted `dir_path` cannot inject shell metacharacters.
     #[cfg(unix)]
     let file_count = {
         use std::process::Command;
-        Command::new("sh")
-            .arg("-c")
-            .arg(format!("find '{}' -type f | wc -l", dir_path.display()))
+        Command::new("find")
+            .arg(dir_path)
+            .arg("-type")
+            .arg("f")
             .output()
             .ok()
             .and_then(|output| {
                 if output.status.success() {
-                    String::from_utf8_lossy(&output.stdout)
-                        .trim()
-                        .parse::<u64>()
-                        .ok()
+                    // Each file path is on its own line — count newlines.
+                    Some(output.stdout.iter().filter(|&&b| b == b'\n').count() as u64)
                 } else {
                     None
                 }

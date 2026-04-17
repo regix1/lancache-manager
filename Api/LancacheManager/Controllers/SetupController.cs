@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Buffers;
 using System.Text.Json;
 using LancacheManager.Models;
 using LancacheManager.Core.Interfaces;
@@ -11,6 +12,8 @@ namespace LancacheManager.Controllers;
 [Route("api/[controller]")]
 public class SetupController : ControllerBase
 {
+    private static readonly SearchValues<char> _disallowedPasswordChars = SearchValues.Create("\\\r\n\0");
+
     private readonly ILogger<SetupController> _logger;
     private readonly IConfiguration _configuration;
     private readonly IPathResolver _pathResolver;
@@ -31,6 +34,13 @@ public class SetupController : ControllerBase
 
         if (request.Password.Length < 8)
             return BadRequest(new SetupErrorResponse { Error = "Password must be at least 8 characters" });
+
+        // Reject passwords containing characters that cannot be safely serialized into an
+        // ALTER USER ... PASSWORD '...' SQL literal (backslash is not standard-conforming in
+        // Postgres string literals without E'', and control characters terminate the literal
+        // on some drivers). Reject before any SQL is built.
+        if (request.Password.AsSpan().IndexOfAny(_disallowedPasswordChars) >= 0)
+            return BadRequest(new SetupErrorResponse { Error = "Password contains disallowed characters." });
 
         var blockedPasswords = new[] { "lancache", "password", "12345678", "admin123", "qwerty123", "lancache1", "lancache123" };
         if (blockedPasswords.Contains(request.Password.ToLowerInvariant()))
@@ -60,11 +70,14 @@ public class SetupController : ControllerBase
             {
                 // ALTER USER is a PostgreSQL utility statement, so bind parameters can't be
                 // used directly for PASSWORD. Build the statement server-side with format()
-                // so both the identifier and literal are escaped safely.
+                // so both the identifier and literal are escaped safely. We also escape
+                // single quotes defensively (''), even though the %L specifier handles it,
+                // so any fallback path producing a raw literal remains safe.
+                var safePassword = request.Password.Replace("'", "''");
                 buildSql.CommandText =
                     "SELECT format('ALTER USER %I WITH PASSWORD %L', @username, @password)";
                 buildSql.Parameters.AddWithValue("username", username);
-                buildSql.Parameters.AddWithValue("password", request.Password);
+                buildSql.Parameters.AddWithValue("password", safePassword);
                 alterUserSql = (string?)await buildSql.ExecuteScalarAsync()
                     ?? throw new InvalidOperationException("Failed to build ALTER USER statement.");
             }
@@ -100,6 +113,21 @@ public class SetupController : ControllerBase
             var tempPath = configPath + ".tmp";
             await System.IO.File.WriteAllTextAsync(tempPath, json);
             System.IO.File.Move(tempPath, configPath, true);
+
+            // Restrict to owner read/write only on POSIX. On Windows, ACLs are managed separately
+            // and File.SetUnixFileMode is not supported.
+            if (!OperatingSystem.IsWindows())
+            {
+                try
+                {
+                    System.IO.File.SetUnixFileMode(configPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                }
+                catch (Exception modeEx)
+                {
+                    // Non-fatal: the file is still written. Log and continue.
+                    _logger.LogWarning(modeEx, "Failed to set 0600 permissions on {ConfigPath}", configPath);
+                }
+            }
 
             _logger.LogInformation("PostgreSQL credentials saved to {ConfigPath} for user {Username}", configPath, username);
         }

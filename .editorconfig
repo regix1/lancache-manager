@@ -172,6 +172,9 @@ dotnet_diagnostic.IDE0040.severity = suggestion # Accessibility modifiers requir
 dotnet_diagnostic.IDE0130.severity = none       # Namespace doesn't match folder — intentional flat namespaces
 dotnet_diagnostic.IDE0161.severity = none       # File-scoped namespace — migrations are auto-generated
 
+# Performance — perf rules promoted to error via WarningsAsErrors in Directory.Build.props
+dotnet_diagnostic.CA1870.severity = warning     # Use cached SearchValues<T> for IndexOfAny / ContainsAny
+
 # Demote high-volume CA rules to suggestion
 dotnet_diagnostic.CA1001.severity = suggestion  # Types owning disposable fields
 dotnet_diagnostic.CA1051.severity = suggestion  # Don't expose public fields

@@ -3,6 +3,7 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Security;
 using LancacheManager.Infrastructure.Services;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using LancacheManager.Core.Services.SteamKit2;
 using Microsoft.AspNetCore.Authorization;
 
@@ -78,6 +79,7 @@ public class ApiKeysController : ControllerBase
     /// SECURITY: This logs out all Steam sessions and revokes all device registrations
     /// </summary>
     [HttpPost("regenerate")]
+    [EnableRateLimiting("auth")]
     public async Task<IActionResult> RegenerateApiKeyAsync()
     {
         // SECURITY: Clear ALL Steam-related data when API key is regenerated

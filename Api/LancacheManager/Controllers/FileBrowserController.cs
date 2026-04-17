@@ -29,9 +29,10 @@ public class FileBrowserController : ControllerBase
         var allowedPathsConfig = _configuration["Security:AllowedBrowsePaths"];
         if (string.IsNullOrWhiteSpace(allowedPathsConfig))
         {
-            // Default to /data and /mnt - common Docker mount points for databases
-            _allowedPaths = new List<string> { "/data", "/mnt" };
-            _logger.LogInformation("FileBrowser: Using default allowed paths /data and /mnt. Configure Security:AllowedBrowsePaths to customize.");
+            // No default paths — administrator must configure Security:AllowedBrowsePaths explicitly.
+            // Leaving _allowedPaths empty causes all browse requests to return 403.
+            _allowedPaths = new List<string>();
+            _logger.LogWarning("FileBrowser: Security:AllowedBrowsePaths is not configured. All file-browse requests will be rejected (403) until paths are configured.");
         }
         else
         {
@@ -49,7 +50,8 @@ public class FileBrowserController : ControllerBase
     {
         var fullPath = Path.GetFullPath(path);
         return _allowedPaths.Any(allowed =>
-            fullPath.StartsWith(allowed, StringComparison.OrdinalIgnoreCase));
+            fullPath.Equals(allowed, StringComparison.OrdinalIgnoreCase) ||
+            fullPath.StartsWith(allowed + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>

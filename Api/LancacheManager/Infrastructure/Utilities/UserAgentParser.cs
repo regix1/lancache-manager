@@ -30,20 +30,41 @@ public static class UserAgentParser
             os = "Windows";
         else if (userAgent.Contains("Mac OS X"))
         {
-            var match = Regex.Match(userAgent, @"Mac OS X (\d+[._]\d+)");
-            os = match.Success ? $"macOS {match.Groups[1].Value.Replace('_', '.')}" : "macOS";
+            try
+            {
+                var match = Regex.Match(userAgent, @"Mac OS X (\d+[._]\d+)", RegexOptions.None, TimeSpan.FromSeconds(1));
+                os = match.Success ? $"macOS {match.Groups[1].Value.Replace('_', '.')}" : "macOS";
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                os = "macOS";
+            }
         }
         else if (userAgent.Contains("Linux"))
             os = "Linux";
         else if (userAgent.Contains("Android"))
         {
-            var match = Regex.Match(userAgent, @"Android (\d+(\.\d+)?)");
-            os = match.Success ? $"Android {match.Groups[1].Value}" : "Android";
+            try
+            {
+                var match = Regex.Match(userAgent, @"Android (\d+(\.\d+)?)", RegexOptions.None, TimeSpan.FromSeconds(1));
+                os = match.Success ? $"Android {match.Groups[1].Value}" : "Android";
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                os = "Android";
+            }
         }
         else if (userAgent.Contains("iPhone") || userAgent.Contains("iPad"))
         {
-            var match = Regex.Match(userAgent, @"OS (\d+_\d+)");
-            os = match.Success ? $"iOS {match.Groups[1].Value.Replace('_', '.')}" : "iOS";
+            try
+            {
+                var match = Regex.Match(userAgent, @"OS (\d+_\d+)", RegexOptions.None, TimeSpan.FromSeconds(1));
+                os = match.Success ? $"iOS {match.Groups[1].Value.Replace('_', '.')}" : "iOS";
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                os = "iOS";
+            }
         }
 
         // Detect Browser (order matters - check specific browsers before generic ones)

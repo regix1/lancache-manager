@@ -15,6 +15,7 @@ public class SessionService
     private readonly ILogger<SessionService> _logger;
     private readonly StateService _stateService;
     private readonly ISignalRNotificationService _signalR;
+    private readonly IWebHostEnvironment _env;
 
     private const string CookieName = "LancacheManager.Session";
     private const int AdminSessionDurationHours = 720; // 30 days
@@ -24,13 +25,15 @@ public class SessionService
         ApiKeyService apiKeyService,
         ILogger<SessionService> logger,
         StateService stateService,
-        ISignalRNotificationService signalR)
+        ISignalRNotificationService signalR,
+        IWebHostEnvironment env)
     {
         _dbContextFactory = dbContextFactory;
         _apiKeyService = apiKeyService;
         _logger = logger;
         _stateService = stateService;
         _signalR = signalR;
+        _env = env;
     }
 
     public async Task<(string RawToken, UserSession Session)?> CreateAdminSessionAsync(string apiKey, HttpContext httpContext)
@@ -319,7 +322,7 @@ public class SessionService
         httpContext.Response.Cookies.Append(CookieName, rawToken, new CookieOptions
         {
             HttpOnly = true,
-            Secure = httpContext.Request.IsHttps,
+            Secure = !_env.IsDevelopment() || httpContext.Request.IsHttps,
             SameSite = SameSiteMode.Lax,
             Path = "/",
             Expires = new DateTimeOffset(expiresAtUtc)
@@ -331,7 +334,7 @@ public class SessionService
         httpContext.Response.Cookies.Delete(CookieName, new CookieOptions
         {
             HttpOnly = true,
-            Secure = httpContext.Request.IsHttps,
+            Secure = !_env.IsDevelopment() || httpContext.Request.IsHttps,
             SameSite = SameSiteMode.Lax,
             Path = "/"
         });

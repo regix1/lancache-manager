@@ -1177,17 +1177,20 @@ fn calculate_cache_size_network(
     };
     write_progress(progress_path, &progress)?;
 
-    // Count files using find -type f | wc -l (more reliable on NFS)
+    // Count files using find (more reliable on NFS). Invoke `find` directly —
+    // never via `sh -c` — so a crafted `cache_dir` cannot inject shell
+    // metacharacters. Each matching path is on its own line, so counting
+    // newlines in stdout is equivalent to piping through `wc -l`.
     eprintln!("Counting files using find command...");
-    let find_output = Command::new("sh")
-        .arg("-c")
-        .arg(format!("find '{}' -type f | wc -l", cache_dir.display()))
+    let find_output = Command::new("find")
+        .arg(cache_dir)
+        .arg("-type")
+        .arg("f")
         .output();
 
     let total_files = match find_output {
         Ok(output) if output.status.success() => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            stdout.trim().parse::<u64>().unwrap_or(0)
+            output.stdout.iter().filter(|&&b| b == b'\n').count() as u64
         }
         _ => {
             eprintln!("find command failed, estimating file count...");
@@ -1198,16 +1201,16 @@ fn calculate_cache_size_network(
 
     eprintln!("Total files: {}", total_files);
 
-    // Count directories
-    let dir_output = Command::new("sh")
-        .arg("-c")
-        .arg(format!("find '{}' -type d | wc -l", cache_dir.display()))
+    // Count directories (same safe-invocation pattern as above).
+    let dir_output = Command::new("find")
+        .arg(cache_dir)
+        .arg("-type")
+        .arg("d")
         .output();
 
     let total_dirs = match dir_output {
         Ok(output) if output.status.success() => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            stdout.trim().parse::<u64>().unwrap_or(hex_dir_count as u64)
+            output.stdout.iter().filter(|&&b| b == b'\n').count() as u64
         }
         _ => hex_dir_count as u64 * 257, // Estimate: 256 subdirs per hex dir + 1
     };

@@ -258,6 +258,12 @@ fn remove_cache_files_for_epic_game(
         let checked = paths_checked.fetch_add(1, Ordering::Relaxed) + 1;
 
         if path.exists() {
+            // Refuse to follow symlinks or delete anything outside the cache root.
+            if let Err(e) = cache_utils::safe_path_under_root(cache_dir, path) {
+                eprintln!("  skipping unsafe path {}: {}", path.display(), e);
+                return;
+            }
+
             if let Ok(metadata) = fs::metadata(path) {
                 bytes_freed.fetch_add(metadata.len(), Ordering::Relaxed);
             }
@@ -329,7 +335,9 @@ fn cleanup_empty_directories(cache_dir: &Path, dirs_to_check: HashSet<PathBuf>) 
     sorted_dirs.sort_by(|a, b| b.components().count().cmp(&a.components().count()));
 
     for dir in sorted_dirs {
-        if !dir.starts_with(cache_dir) {
+        // Canonical-under-root guard: refuses symlinks, paths outside root.
+        if let Err(e) = cache_utils::safe_path_under_root(cache_dir, &dir) {
+            eprintln!("  skipping unsafe dir {}: {}", dir.display(), e);
             continue;
         }
 
@@ -339,11 +347,18 @@ fn cleanup_empty_directories(cache_dir: &Path, dirs_to_check: HashSet<PathBuf>) 
                     removed_count += 1;
 
                     if let Some(parent) = dir.parent() {
-                        if parent.starts_with(cache_dir) && parent != cache_dir {
-                            if let Ok(parent_entries) = fs::read_dir(parent) {
-                                if parent_entries.count() == 0 {
-                                    fs::remove_dir(parent).ok();
-                                    removed_count += 1;
+                        if parent != cache_dir {
+                            match cache_utils::safe_path_under_root(cache_dir, parent) {
+                                Ok(_) => {
+                                    if let Ok(parent_entries) = fs::read_dir(parent) {
+                                        if parent_entries.count() == 0 {
+                                            fs::remove_dir(parent).ok();
+                                            removed_count += 1;
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!("  skipping unsafe parent {}: {}", parent.display(), e);
                                 }
                             }
                         }
@@ -441,7 +456,10 @@ fn remove_log_entries_for_epic_game(
             // If all lines removed, delete the entire file
             if lines_processed > 0 && lines_removed == lines_processed {
                 eprintln!("  INFO: All {} lines from this file are for this game, deleting file entirely", lines_processed);
-                std::fs::remove_file(&log_file.path).ok();
+                match cache_utils::safe_path_under_root(log_dir, &log_file.path) {
+                    Ok(_) => { std::fs::remove_file(&log_file.path).ok(); }
+                    Err(e) => eprintln!("skipping unsafe path {}: {}", log_file.path.display(), e),
+                }
                 return Ok(lines_removed);
             }
 
@@ -451,7 +469,10 @@ fn remove_log_entries_for_epic_game(
             if let Err(persist_err) = temp_path.persist(&log_file.path) {
                 eprintln!("    persist() failed ({}), using copy fallback...", persist_err);
                 std::fs::copy(&persist_err.path, &log_file.path)?;
-                std::fs::remove_file(&persist_err.path).ok();
+                match cache_utils::safe_path_under_root(log_dir, &persist_err.path) {
+                    Ok(_) => { std::fs::remove_file(&persist_err.path).ok(); }
+                    Err(e) => eprintln!("skipping unsafe path {}: {}", persist_err.path.display(), e),
+                }
             }
 
             Ok(lines_removed)
