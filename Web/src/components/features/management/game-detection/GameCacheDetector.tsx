@@ -56,12 +56,14 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
   // Track local starting state for immediate UI feedback before SignalR events arrive
   const [isStartingDetection, setIsStartingDetection] = useState(false);
-  // Track local loading state for loading cached data (quick synchronous operation)
-  // Starts true so there is a visible Loader2 spinner while the initial getCachedGameDetection() fetch completes
-  const [isLoadingData, setIsLoadingData] = useState(true);
+  // Track explicit "Load" button presses (handleLoadData). Init false so the initial
+  // mount fetch (loadCachedGames) does NOT trigger the "Scanning database and cache files…"
+  // banner — EvictedItemsList renders straight from props with no banner, and we mirror
+  // that here for a simultaneous-paint UX. The Load button still flips this true on click.
+  const [isLoadingData, setIsLoadingData] = useState(false);
   // Ref to prevent duplicate API calls (handles rapid button clicks before state updates)
   const detectionInFlightRef = useRef(false);
-  // Combined loading state: either notification says running OR we're in starting phase OR loading cached data
+  // Combined loading state: notification says running, starting phase, or explicit Load click.
   const loading = isDetectionFromNotification || isStartingDetection || isLoadingData;
   const [games, setGames] = useState<GameCacheInfo[]>([]);
   const [services, setServices] = useState<ServiceCacheInfo[]>([]);
@@ -200,9 +202,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         }
       } catch (err) {
         console.error('[GameCacheDetector] Failed to load cached games and services:', err);
-      } finally {
-        // Clear the initial loading state after the fetch completes (success or failure)
-        setIsLoadingData(false);
       }
     };
 

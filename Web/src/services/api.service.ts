@@ -48,6 +48,15 @@ interface ApiErrorData {
   suggestion?: string;
 }
 
+interface CachedGameDetectionResponse {
+  hasCachedResults: boolean;
+  games?: GameCacheInfo[];
+  services?: ServiceCacheInfo[];
+  totalGamesDetected?: number;
+  totalServicesDetected?: number;
+  lastDetectionTime?: string;
+}
+
 interface OperationResponse {
   message?: string;
   success?: boolean;
@@ -1326,29 +1335,33 @@ class ApiService {
     }
   }
 
+  // In-flight dedupe: when StorageSection and GameCacheDetector mount on the same tick,
+  // they each call getCachedGameDetection(). Without this, the backend gets two parallel
+  // requests for identical data. Share the in-flight promise so only one network round-trip
+  // happens; both callers resolve to the same payload. Cleared in finally so subsequent
+  // calls (after a fresh scan or user-triggered reload) hit the network again.
+  private static _cachedGameDetectionInFlight: Promise<CachedGameDetectionResponse> | null = null;
+
   // Get cached game detection results from database (if available)
-  static async getCachedGameDetection(): Promise<{
-    hasCachedResults: boolean;
-    games?: GameCacheInfo[];
-    services?: ServiceCacheInfo[];
-    totalGamesDetected?: number;
-    totalServicesDetected?: number;
-    lastDetectionTime?: string;
-  }> {
-    try {
-      const res = await fetch(`${API_BASE}/games/detect/cached`, this.getFetchOptions({}));
-      return await this.handleResponse<{
-        hasCachedResults: boolean;
-        games?: GameCacheInfo[];
-        services?: ServiceCacheInfo[];
-        totalGamesDetected?: number;
-        totalServicesDetected?: number;
-        lastDetectionTime?: string;
-      }>(res);
-    } catch (error) {
-      console.error('getCachedGameDetection error:', error);
-      throw error;
+  static getCachedGameDetection(): Promise<CachedGameDetectionResponse> {
+    if (ApiService._cachedGameDetectionInFlight) {
+      return ApiService._cachedGameDetectionInFlight;
     }
+
+    const promise = (async (): Promise<CachedGameDetectionResponse> => {
+      try {
+        const res = await fetch(`${API_BASE}/games/detect/cached`, ApiService.getFetchOptions({}));
+        return await ApiService.handleResponse<CachedGameDetectionResponse>(res);
+      } catch (error) {
+        console.error('getCachedGameDetection error:', error);
+        throw error;
+      } finally {
+        ApiService._cachedGameDetectionInFlight = null;
+      }
+    })();
+
+    ApiService._cachedGameDetectionInFlight = promise;
+    return promise;
   }
 
   // Remove all cache files for a specific game (fire-and-forget, requires auth)
