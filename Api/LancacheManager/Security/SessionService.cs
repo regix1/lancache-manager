@@ -322,7 +322,7 @@ public class SessionService
         httpContext.Response.Cookies.Append(CookieName, rawToken, new CookieOptions
         {
             HttpOnly = true,
-            Secure = !_env.IsDevelopment() || httpContext.Request.IsHttps,
+            Secure = httpContext.Request.IsHttps,
             SameSite = SameSiteMode.Lax,
             Path = "/",
             Expires = new DateTimeOffset(expiresAtUtc)
@@ -334,7 +334,7 @@ public class SessionService
         httpContext.Response.Cookies.Delete(CookieName, new CookieOptions
         {
             HttpOnly = true,
-            Secure = !_env.IsDevelopment() || httpContext.Request.IsHttps,
+            Secure = httpContext.Request.IsHttps,
             SameSite = SameSiteMode.Lax,
             Path = "/"
         });
