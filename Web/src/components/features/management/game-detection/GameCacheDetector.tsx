@@ -103,16 +103,22 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const formattedLastDetectionTime = useFormattedDateTime(lastDetectionTime);
 
   // Filter games and services by selected datasource.
-  // Evicted games/services are excluded from the main list — they are shown in the Evicted Items section.
+  // The main list shows every entity that still has cache files on disk. Fully-
+  // evicted entities (is_evicted=true OR zero cache files) are hidden here —
+  // the Evicted Items card owns those. Partially-evicted entities (some
+  // downloads evicted but cache files still present) MUST appear in BOTH
+  // lists: the main card shows what's still on disk; Evicted Items shows the
+  // evicted downloads so the user can clean them up without losing the cached
+  // portion.
   // Note: Items with empty/missing datasources (legacy data) are shown regardless of filter.
-  const activeGames = games.filter((g) => !g.is_evicted && (g.evicted_downloads_count ?? 0) === 0);
+  const activeGames = games.filter((g) => !g.is_evicted && (g.cache_files_found ?? 0) > 0);
   const filteredGames = selectedDatasource
     ? activeGames.filter(
         (g) => !g.datasources?.length || g.datasources.includes(selectedDatasource)
       )
     : activeGames;
   const activeServices = services.filter(
-    (s: ServiceCacheInfo) => !s.is_evicted && (s.evicted_downloads_count ?? 0) === 0
+    (s: ServiceCacheInfo) => !s.is_evicted && (s.cache_files_found ?? 0) > 0
   );
   const filteredServices = selectedDatasource
     ? activeServices.filter(
