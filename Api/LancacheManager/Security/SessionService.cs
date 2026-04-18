@@ -18,7 +18,10 @@ public class SessionService
     private readonly IWebHostEnvironment _env;
 
     private const string CookieName = "LancacheManager.Session";
-    private const int AdminSessionDurationHours = 720; // 30 days
+    // Admin sessions effectively never expire — a far-future ExpiresAtUtc keeps the
+    // session valid for the life of the installation and lets the UI render "Never"
+    // for any timestamp >= AdminNeverExpiresYear.
+    private static readonly DateTime _adminNeverExpiresUtc = new(2099, 12, 31, 0, 0, 0, DateTimeKind.Utc);
 
     public SessionService(
         IDbContextFactory<AppDbContext> dbContextFactory,
@@ -53,7 +56,7 @@ public class SessionService
             IpAddress = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
             UserAgent = httpContext.Request.Headers.UserAgent.ToString(),
             CreatedAtUtc = DateTime.UtcNow,
-            ExpiresAtUtc = DateTime.UtcNow.AddHours(AdminSessionDurationHours),
+            ExpiresAtUtc = _adminNeverExpiresUtc,
             LastSeenAtUtc = DateTime.UtcNow,
             IsRevoked = false
         };
@@ -117,6 +120,21 @@ public class SessionService
 
         if (session.ExpiresAtUtc <= now)
             return null;
+
+        // Backfill: pre-existing admin sessions created before the never-expires change
+        // still have a 30-day expiry. Bump them on the first validated request so the
+        // UI no longer shows a countdown for them.
+        if (session.SessionType == SessionType.Admin && session.ExpiresAtUtc < _adminNeverExpiresUtc)
+        {
+            await using var updateContext = _dbContextFactory.CreateDbContext();
+            var tracked = await updateContext.UserSessions.FindAsync(session.Id);
+            if (tracked != null && tracked.SessionType == SessionType.Admin && tracked.ExpiresAtUtc < _adminNeverExpiresUtc)
+            {
+                tracked.ExpiresAtUtc = _adminNeverExpiresUtc;
+                await updateContext.SaveChangesAsync();
+                session.ExpiresAtUtc = _adminNeverExpiresUtc;
+            }
+        }
 
         return session;
     }

@@ -366,6 +366,7 @@ builder.Services.AddScoped<AuthenticationHelper>();
 builder.Services.AddScoped<SessionService>();
 builder.Services.AddSingleton<LancacheManager.Core.Services.UserPreferencesService>();
 builder.Services.AddSingleton<LancacheManager.Core.Services.GeoIpService>();
+builder.Services.AddSingleton<LancacheManager.Core.Services.PublicIpLookupService>();
 
 // ASP.NET Core Authentication (session-based via cookie)
 builder.Services.AddAuthentication(SessionAuthenticationHandler.SchemeName)

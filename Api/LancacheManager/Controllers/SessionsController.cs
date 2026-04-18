@@ -250,6 +250,7 @@ public class SessionsController : ControllerBase
     public async Task<IActionResult> UpdateOwnClientInfoAsync(
         [FromBody] ClientInfoRequest request,
         [FromServices] GeoIpService geoIpService,
+        [FromServices] PublicIpLookupService publicIpLookupService,
         CancellationToken ct = default)
     {
         var session = HttpContext.GetUserSession();
@@ -263,6 +264,15 @@ public class SessionsController : ControllerBase
             && System.Net.IPAddress.TryParse(request.PublicIp.Trim(), out var parsed))
         {
             publicIp = parsed.ToString();
+        }
+
+        // Fallback: the browser's fetch to api.ipify.org is often blocked by pi-hole
+        // or LAN-level DNS filters (net::ERR_ADDRESS_INVALID). In a typical lancache
+        // deployment the server shares the LAN with the client, so the server's
+        // outbound public IP is the same as the client's — resolve it server-side.
+        if (publicIp == null)
+        {
+            publicIp = await publicIpLookupService.ResolveAsync(ct);
         }
 
         GeoIpLookup? geo = null;

@@ -921,7 +921,11 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                         {t('activeSessions.labels.expires', 'Expires')}
                       </div>
                       <div className="session-expansion-date-value">
-                        <FormattedTimestamp timestamp={session.expiresAt} />
+                        {isAdminSession(session) ? (
+                          t('activeSessions.labels.never', 'Never')
+                        ) : (
+                          <FormattedTimestamp timestamp={session.expiresAt} />
+                        )}
                       </div>
                     </div>
                     {session.revokedAt && (
