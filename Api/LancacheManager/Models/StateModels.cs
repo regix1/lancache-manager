@@ -159,6 +159,7 @@ public class DepotProcessingState
 /// </summary>
 public class CacheClearOperation
 {
+    [System.Text.Json.Serialization.JsonConverter(typeof(LancacheManager.Infrastructure.Json.TolerantGuidJsonConverter))]
     public Guid Id { get; set; }
     public OperationStatus Status { get; set; }
     public string Message { get; set; } = string.Empty;
@@ -176,6 +177,7 @@ public class CacheClearOperation
 /// </summary>
 public class OperationState
 {
+    [System.Text.Json.Serialization.JsonConverter(typeof(LancacheManager.Infrastructure.Json.TolerantGuidJsonConverter))]
     public Guid Id { get; set; }
     public OperationType Type { get; set; }
     public OperationStatus Status { get; set; }
