@@ -20,6 +20,20 @@ public class UserSession
     public string IpAddress { get; set; } = string.Empty;
     public string UserAgent { get; set; } = string.Empty;
 
+    // Client-reported + GeoIP-enriched metadata. All optional — populated by
+    // the /api/sessions/me/client-info endpoint when the browser POSTs the
+    // public IP it learned from ipify.org together with browser-reported
+    // locale/screen fields.
+    public string? PublicIpAddress { get; set; }
+    public string? CountryCode { get; set; }
+    public string? CountryName { get; set; }
+    public string? RegionName { get; set; }
+    public string? City { get; set; }
+    public string? Timezone { get; set; }
+    public string? IspName { get; set; }
+    public string? ScreenResolution { get; set; }
+    public string? BrowserLanguage { get; set; }
+
     // Timestamps - all in UTC
     public DateTime CreatedAtUtc { get; set; }
     public DateTime ExpiresAtUtc { get; set; }

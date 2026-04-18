@@ -264,6 +264,39 @@ public class SessionService
     }
 
     /// <summary>
+    /// Persist browser-reported client info (public IP, locale, screen) plus
+    /// GeoIP-resolved country/city/ISP for the given session. Silently no-ops
+    /// if the session no longer exists or is revoked.
+    /// </summary>
+    public async Task UpdateClientInfoAsync(
+        Guid sessionId,
+        string? publicIpAddress,
+        string? countryCode,
+        string? countryName,
+        string? regionName,
+        string? city,
+        string? timezone,
+        string? ispName,
+        string? screenResolution,
+        string? browserLanguage)
+    {
+        using var context = _dbContextFactory.CreateDbContext();
+        var persisted = await context.UserSessions.FindAsync(sessionId);
+        if (persisted == null || persisted.IsRevoked) return;
+
+        persisted.PublicIpAddress = publicIpAddress;
+        persisted.CountryCode = countryCode;
+        persisted.CountryName = countryName;
+        persisted.RegionName = regionName;
+        persisted.City = city;
+        persisted.Timezone = timezone;
+        persisted.IspName = ispName;
+        persisted.ScreenResolution = screenResolution;
+        persisted.BrowserLanguage = browserLanguage;
+        await context.SaveChangesAsync();
+    }
+
+    /// <summary>
     /// Rotates the session token, returning the new raw token.
     /// The previous token remains valid for 30 seconds (grace period for concurrent requests/tabs).
     /// Rate-limited: skips rotation if already rotated within the last 30 seconds, returning null.

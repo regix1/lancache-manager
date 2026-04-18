@@ -580,6 +580,16 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         .Where(d => d.IsEvicted)
                         .ExecuteDeleteAsync(stoppingToken);
 
+                    // Delete CachedServiceDetections rows for any service whose last Download
+                    // was just removed. Without this the row survives with stale CacheFilesFound
+                    // and the NEXT SaveServicesToDatabaseAsync() flip-to-evicted path will
+                    // resurrect the service in the Evicted Items list after every app restart.
+                    // Case-insensitive match (WSUS vs wsus) via ToLower() — matches the
+                    // convention used elsewhere in this file.
+                    await context.CachedServiceDetections
+                        .Where(s => !context.Downloads.Any(d => d.Service.ToLower() == s.ServiceName.ToLower()))
+                        .ExecuteDeleteAsync(stoppingToken);
+
                     await transaction.CommitAsync(stoppingToken);
                 }
                 catch
@@ -1164,18 +1174,28 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     .Where(g => g.IsEvicted && g.EpicAppId == key)
                     .ExecuteUpdateAsync(g => g.SetProperty(x => x.IsEvicted, false), stoppingToken),
 
+                // Services: DELETE the detection row rather than flipping IsEvicted = false.
+                // The row survives a clear-flag update with a stale CacheFilesFound (e.g. 1
+                // file / 0 B) — and the next scan's UpsertCachedServicesAsync will see an
+                // existing row absent from the incoming scan results and flip it right back
+                // to IsEvicted = true, resurrecting the evicted-service entry after every
+                // app restart. Deleting the row makes the removal durable; if wsus ever
+                // caches again, a fresh row is inserted by the detection upsert.
                 EvictionScope.Service => await context.CachedServiceDetections
-                    .Where(s => s.IsEvicted && s.ServiceName.ToLower() == key.ToLower())
-                    .ExecuteUpdateAsync(s => s.SetProperty(x => x.IsEvicted, false), stoppingToken),
+                    .Where(s => s.ServiceName.ToLower() == key.ToLower())
+                    .ExecuteDeleteAsync(stoppingToken),
 
                 _ => 0
             };
 
             if (targetedUnevicted > 0)
             {
+                var verb = scope == EvictionScope.Service
+                    ? "deleted"
+                    : "cleared IsEvicted on";
                 _logger.LogInformation(
-                    "[EvictionRemoval] Targeted un-evict for {Scope} '{Key}': cleared IsEvicted on {Count} detection row(s)",
-                    scope, key, targetedUnevicted);
+                    "[EvictionRemoval] Targeted un-evict for {Scope} '{Key}': {Verb} {Count} detection row(s)",
+                    scope, key, verb, targetedUnevicted);
             }
 
             // Step 3b: Bulk self-heal helper stays for the separate "files reappeared on disk"

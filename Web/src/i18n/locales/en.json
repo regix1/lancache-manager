@@ -958,7 +958,13 @@
       "revokedByShort": "Revoked By",
       "ipAddress": "IP Address",
       "operatingSystem": "Operating System",
-      "browser": "Browser"
+      "browser": "Browser",
+      "publicIp": "Public IP",
+      "location": "Location",
+      "isp": "ISP",
+      "timezoneHeading": "Timezone",
+      "language": "Language",
+      "screen": "Screen"
     },
     "unknownDeviceLower": "Unknown device",
     "thisDevice": "This device",

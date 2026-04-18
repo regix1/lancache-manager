@@ -51,6 +51,7 @@ import type { EpicGuestPrefillConfigChangedEvent } from '@contexts/SignalRContex
 import { useSessionPreferences } from '@contexts/useSessionPreferences';
 import { useDefaultGuestPreferences } from '@hooks/useDefaultGuestPreferences';
 import { useActivityTracker } from '@hooks/useActivityTracker';
+import { useClientInfoReporter } from '@hooks/useClientInfoReporter';
 import {
   type Session,
   type SessionFilter,
@@ -58,6 +59,8 @@ import {
   type ThemeOption,
   refreshRateOptions,
   cleanIpAddress,
+  countryCodeToFlag,
+  formatLocation,
   showToast,
   parseUserAgent
 } from './types';
@@ -183,6 +186,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   const [revokingSession, setRevokingSession] = useState<string | null>(null);
   const [expandedSessions, setExpandedSessions] = useState<Set<string>>(new Set());
   const { isActive: isLocallyActive } = useActivityTracker();
+  useClientInfoReporter(authService.isAuthenticated, authService.sessionId);
   // Periodic tick so getSessionStatus() recomputes as lastSeenAt ages.
   // Without this, the status "sticks" between render-triggering events and
   // flips abruptly when some unrelated re-render happens.
@@ -931,6 +935,95 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                       </div>
                     )}
                   </div>
+
+                  {(() => {
+                    const flag = countryCodeToFlag(session.countryCode);
+                    const location = formatLocation(
+                      session.city,
+                      session.regionName,
+                      session.countryName
+                    );
+                    const hasAny =
+                      session.publicIpAddress ||
+                      location ||
+                      session.ispName ||
+                      session.timezone ||
+                      session.browserLanguage ||
+                      session.screenResolution;
+                    if (!hasAny) return null;
+                    return (
+                      <div className="session-expansion-client-info">
+                        {session.publicIpAddress && (
+                          <div>
+                            <div className="session-expansion-date-label">
+                              {t('activeSessions.labels.publicIp', 'Public IP')}
+                            </div>
+                            <div className="session-expansion-client-info-value">
+                              {session.publicIpAddress}
+                            </div>
+                          </div>
+                        )}
+                        {location && (
+                          <div>
+                            <div className="session-expansion-date-label">
+                              {t('activeSessions.labels.location', 'Location')}
+                            </div>
+                            <div className="session-expansion-client-info-value">
+                              {flag && (
+                                <span
+                                  className="session-expansion-client-info-flag"
+                                  aria-hidden="true"
+                                >
+                                  {flag}
+                                </span>
+                              )}
+                              <span>{location}</span>
+                            </div>
+                          </div>
+                        )}
+                        {session.ispName && (
+                          <div>
+                            <div className="session-expansion-date-label">
+                              {t('activeSessions.labels.isp', 'ISP')}
+                            </div>
+                            <div className="session-expansion-client-info-value">
+                              {session.ispName}
+                            </div>
+                          </div>
+                        )}
+                        {session.timezone && (
+                          <div>
+                            <div className="session-expansion-date-label">
+                              {t('activeSessions.labels.timezoneHeading', 'Timezone')}
+                            </div>
+                            <div className="session-expansion-client-info-value">
+                              {session.timezone}
+                            </div>
+                          </div>
+                        )}
+                        {session.browserLanguage && (
+                          <div>
+                            <div className="session-expansion-date-label">
+                              {t('activeSessions.labels.language', 'Language')}
+                            </div>
+                            <div className="session-expansion-client-info-value">
+                              {session.browserLanguage}
+                            </div>
+                          </div>
+                        )}
+                        {session.screenResolution && (
+                          <div>
+                            <div className="session-expansion-date-label">
+                              {t('activeSessions.labels.screen', 'Screen')}
+                            </div>
+                            <div className="session-expansion-client-info-value">
+                              {session.screenResolution}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   {/* Session ID */}
                   <div className="session-expansion-session-id">

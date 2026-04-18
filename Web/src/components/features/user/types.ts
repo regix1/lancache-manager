@@ -20,6 +20,15 @@ export interface Session {
   steamPrefillExpiresAt?: string | null;
   epicPrefillEnabled: boolean;
   epicPrefillExpiresAt?: string | null;
+  publicIpAddress?: string | null;
+  countryCode?: string | null;
+  countryName?: string | null;
+  regionName?: string | null;
+  city?: string | null;
+  timezone?: string | null;
+  ispName?: string | null;
+  screenResolution?: string | null;
+  browserLanguage?: string | null;
 }
 
 export interface UserPreferences {
@@ -135,6 +144,38 @@ export const parseUserAgent = (ua: string | null): ParsedUserAgent => {
   const title = os !== 'Unknown' ? `${browser} on ${os}` : browser;
 
   return { browser, browserVersion, os, title };
+};
+
+// Convert an ISO 3166-1 alpha-2 country code (e.g. "US") to its flag emoji
+// by offsetting each ASCII letter into the regional-indicator symbol range.
+// Returns null for anything that isn't exactly two A–Z letters so the caller
+// can fall back to showing the raw code.
+export const countryCodeToFlag = (code: string | null | undefined): string | null => {
+  if (!code || code.length !== 2) return null;
+  const upper = code.toUpperCase();
+  if (!/^[A-Z]{2}$/.test(upper)) return null;
+  const base = 0x1f1e6 - 'A'.charCodeAt(0);
+  return String.fromCodePoint(upper.charCodeAt(0) + base, upper.charCodeAt(1) + base);
+};
+
+// Format "Country / Region / City" into a compact display string, skipping
+// blanks and avoiding duplicates (some providers echo the region as the city).
+export const formatLocation = (
+  city: string | null | undefined,
+  region: string | null | undefined,
+  country: string | null | undefined
+): string | null => {
+  const parts = [city, region, country]
+    .map((p) => (typeof p === 'string' ? p.trim() : ''))
+    .filter((p): p is string => p.length > 0);
+  const seen = new Set<string>();
+  const unique = parts.filter((p) => {
+    const key = p.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return unique.length > 0 ? unique.join(', ') : null;
 };
 
 // Helper to clean IP addresses

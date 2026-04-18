@@ -52,6 +52,17 @@ public class SessionDto
     public DateTime? SteamPrefillExpiresAt { get; set; }
     public bool EpicPrefillEnabled { get; set; }
     public DateTime? EpicPrefillExpiresAt { get; set; }
+
+    // Client-reported + GeoIP-enriched metadata. All optional.
+    public string? PublicIpAddress { get; set; }
+    public string? CountryCode { get; set; }
+    public string? CountryName { get; set; }
+    public string? RegionName { get; set; }
+    public string? City { get; set; }
+    public string? Timezone { get; set; }
+    public string? IspName { get; set; }
+    public string? ScreenResolution { get; set; }
+    public string? BrowserLanguage { get; set; }
 }
 
 public class ApiKeyStatusResponse

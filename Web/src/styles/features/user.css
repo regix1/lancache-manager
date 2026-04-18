@@ -358,6 +358,28 @@
   border-top: 1px solid var(--theme-border-secondary);
 }
 
+.session-expansion-client-info {
+  @apply grid grid-cols-2 gap-4;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--theme-border-secondary);
+}
+
+@media (min-width: 1024px) {
+  .session-expansion-client-info {
+    @apply grid-cols-4;
+  }
+}
+
+.session-expansion-client-info-value {
+  @apply text-sm flex items-center gap-1.5;
+  color: var(--theme-text-primary);
+  word-break: break-all;
+}
+
+.session-expansion-client-info-flag {
+  @apply text-base leading-none;
+}
+
 .session-expansion-badges {
   @apply flex flex-wrap items-center gap-2;
 }

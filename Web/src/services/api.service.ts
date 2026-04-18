@@ -2292,6 +2292,23 @@ class ApiService {
     await ApiService.handleResponse(response);
   }
 
+  static async updateOwnClientInfo(payload: {
+    publicIp: string | null;
+    timezone: string | null;
+    language: string | null;
+    screenResolution: string | null;
+  }): Promise<void> {
+    const response = await fetch(
+      `${API_BASE}/sessions/me/client-info`,
+      this.getFetchOptions({
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+    );
+    await ApiService.handleResponse(response);
+  }
+
   static async toggleGuestPrefillService(
     sessionId: string,
     service: string,

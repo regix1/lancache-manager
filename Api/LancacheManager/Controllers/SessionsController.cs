@@ -98,7 +98,16 @@ public class SessionsController : ControllerBase
                 ? DateTime.SpecifyKind(s.SteamPrefillExpiresAtUtc!.Value, DateTimeKind.Utc) : null,
             EpicPrefillEnabled = epicPrefillEnabled,
             EpicPrefillExpiresAt = !isAdmin && s.EpicPrefillExpiresAtUtc > now
-                ? DateTime.SpecifyKind(s.EpicPrefillExpiresAtUtc!.Value, DateTimeKind.Utc) : null
+                ? DateTime.SpecifyKind(s.EpicPrefillExpiresAtUtc!.Value, DateTimeKind.Utc) : null,
+            PublicIpAddress = s.PublicIpAddress,
+            CountryCode = s.CountryCode,
+            CountryName = s.CountryName,
+            RegionName = s.RegionName,
+            City = s.City,
+            Timezone = s.Timezone,
+            IspName = s.IspName,
+            ScreenResolution = s.ScreenResolution,
+            BrowserLanguage = s.BrowserLanguage
         };
     }
 
@@ -228,9 +237,88 @@ public class SessionsController : ControllerBase
 
         return Ok(new { success = true, clearedCount = count });
     }
+
+    /// <summary>
+    /// Accepts browser-reported client metadata for the caller's own session:
+    /// the public IP learned from ipify.org, plus navigator-derived locale/
+    /// screen fields. Performs a cached GeoIP lookup on the public IP and
+    /// writes the resolved country/city/ISP back onto the session.
+    ///
+    /// Any session type (admin or guest) may write its own client info.
+    /// </summary>
+    [HttpPost("me/client-info")]
+    public async Task<IActionResult> UpdateOwnClientInfoAsync(
+        [FromBody] ClientInfoRequest request,
+        [FromServices] GeoIpService geoIpService,
+        CancellationToken ct = default)
+    {
+        var session = HttpContext.GetUserSession();
+        if (session == null)
+        {
+            return Unauthorized();
+        }
+
+        string? publicIp = null;
+        if (!string.IsNullOrWhiteSpace(request.PublicIp)
+            && System.Net.IPAddress.TryParse(request.PublicIp.Trim(), out var parsed))
+        {
+            publicIp = parsed.ToString();
+        }
+
+        GeoIpLookup? geo = null;
+        if (publicIp != null)
+        {
+            geo = await geoIpService.LookupAsync(publicIp, ct);
+        }
+
+        // Browser-reported timezone wins over GeoIP timezone when both are
+        // present — the browser value is authoritative for the user's device.
+        var timezone = !string.IsNullOrWhiteSpace(request.Timezone)
+            ? request.Timezone.Trim()
+            : geo?.Timezone;
+
+        await _sessionService.UpdateClientInfoAsync(
+            sessionId: session.Id,
+            publicIpAddress: publicIp,
+            countryCode: geo?.CountryCode,
+            countryName: geo?.CountryName,
+            regionName: geo?.RegionName,
+            city: geo?.City,
+            timezone: Truncate(timezone, 64),
+            ispName: geo?.IspName,
+            screenResolution: Truncate(request.ScreenResolution, 32),
+            browserLanguage: Truncate(request.Language, 16));
+
+        return Ok(new
+        {
+            success = true,
+            publicIp,
+            countryCode = geo?.CountryCode,
+            country = geo?.CountryName,
+            region = geo?.RegionName,
+            city = geo?.City,
+            timezone,
+            isp = geo?.IspName
+        });
+    }
+
+    private static string? Truncate(string? value, int maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var trimmed = value.Trim();
+        return trimmed.Length <= maxLength ? trimmed : trimmed[..maxLength];
+    }
 }
 
 public class RefreshRateRequest
 {
     public string? RefreshRate { get; set; }
+}
+
+public class ClientInfoRequest
+{
+    public string? PublicIp { get; set; }
+    public string? Timezone { get; set; }
+    public string? Language { get; set; }
+    public string? ScreenResolution { get; set; }
 }
