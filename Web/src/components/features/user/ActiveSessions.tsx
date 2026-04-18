@@ -183,6 +183,10 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   const [revokingSession, setRevokingSession] = useState<string | null>(null);
   const [expandedSessions, setExpandedSessions] = useState<Set<string>>(new Set());
   const { isActive: isLocallyActive } = useActivityTracker();
+  // Periodic tick so getSessionStatus() recomputes as lastSeenAt ages.
+  // Without this, the status "sticks" between render-triggering events and
+  // flips abruptly when some unrelated re-render happens.
+  const [, setStatusTick] = useState<number>(0);
   const [deletingSession, setDeletingSession] = useState<string | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
   const [pendingRevokeSession, setPendingRevokeSession] = useState<Session | null>(null);
@@ -647,6 +651,16 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Periodic tick so getSessionStatus() re-evaluates against a fresh "now".
+  // Without this, the status dot only changes when an unrelated render fires,
+  // producing the "sometimes active / sometimes away when I click" flicker.
+  useEffect(() => {
+    const id = setInterval(() => {
+      setStatusTick((t) => (t + 1) % 1_000_000);
+    }, 15_000);
+    return () => clearInterval(id);
   }, []);
 
   // Load default guest max thread count for both Steam and Epic

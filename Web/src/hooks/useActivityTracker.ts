@@ -1,91 +1,102 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 
 /**
- * Comprehensive user activity tracker for session management
- * Based on best practices from:
- * - MDN Idle Detection API
- * - activity-detector npm package
- * - Page Visibility API
+ * User activity tracker for session presence.
  *
- * Monitors:
- * - Mouse events (desktop)
- * - Touch events (mobile)
- * - Keyboard events
- * - Scroll events
- * - Page visibility changes
- * - Focus/blur events
+ * Monitors mouse/touch/keyboard/scroll/focus plus the Page Visibility API.
+ * Fires a lightweight POST /api/auth/heartbeat every HEARTBEAT_INTERVAL_MS
+ * while the tab is active so the server's LastSeenAtUtc stays fresh and the
+ * presence dot (active / away / inactive) does not flicker when the user
+ * clicks without triggering other API traffic.
  *
- * Sends heartbeat to server every 30 seconds when active
+ * Based on patterns from the Page Visibility API docs and the activity-detector
+ * npm package: throttle high-frequency events, debounce visibility transitions,
+ * and treat visibilitychange as a *hint*, not an immediate state flip.
  */
 
 const ACTIVITY_EVENTS = [
-  // Mouse events (desktop)
   'mousedown',
   'mousemove',
   'click',
-
-  // Touch events (mobile)
   'touchstart',
   'touchmove',
   'touchend',
-
-  // Keyboard events
   'keydown',
   'keypress',
-
-  // Scroll events (both desktop and mobile)
   'scroll',
   'wheel',
-  'DOMMouseScroll', // Firefox
-
-  // Focus events
+  'DOMMouseScroll',
   'focus'
 ] as const;
 
-const IDLE_TIMEOUT = 60000; // 1 minute of inactivity = idle
+const IDLE_TIMEOUT_MS = 60_000;
+const IDLE_CHECK_INTERVAL_MS = 5_000;
+const ACTIVITY_THROTTLE_MS = 500;
+const VISIBILITY_IDLE_DEBOUNCE_MS = 3_000;
+const HEARTBEAT_INTERVAL_MS = 30_000;
+const HEARTBEAT_URL = '/api/auth/heartbeat';
 
 interface ActivityTrackerReturn {
   isActive: boolean;
   lastActivityTime: number;
 }
 
+const getApiBase = (): string => {
+  if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL as string;
+  }
+  return '';
+};
+
+const sendHeartbeat = (): void => {
+  try {
+    void fetch(`${getApiBase()}${HEARTBEAT_URL}`, {
+      method: 'POST',
+      credentials: 'include',
+      cache: 'no-store',
+      keepalive: true
+    }).catch(() => {
+      /* swallow — heartbeat is best-effort */
+    });
+  } catch {
+    /* best-effort */
+  }
+};
+
 export const useActivityTracker = (
   onActivity?: () => void,
   onIdle?: () => void
 ): ActivityTrackerReturn => {
-  const [isActive, setIsActive] = useState(true);
-  const [lastActivityTime, setLastActivityTime] = useState(Date.now());
+  const [isActive, setIsActive] = useState<boolean>(true);
+  const [lastActivityTime, setLastActivityTime] = useState<number>(() => Date.now());
+
   const lastActivityRef = useRef<number>(Date.now());
   const isActiveRef = useRef<boolean>(true);
-  const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const idleCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const onActivityRef = useRef(onActivity);
-  const onIdleRef = useRef(onIdle);
+  const lastEventDispatchRef = useRef<number>(0);
+  const visibilityDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const idleCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const onActivityRef = useRef<(() => void) | undefined>(onActivity);
+  const onIdleRef = useRef<(() => void) | undefined>(onIdle);
 
-  // Keep refs up to date
   useEffect(() => {
     onActivityRef.current = onActivity;
     onIdleRef.current = onIdle;
   }, [onActivity, onIdle]);
 
-  const handleActivity = useCallback(() => {
-    const now = Date.now();
+  const goActive = useCallback((): void => {
     const wasActive = isActiveRef.current;
-
-    lastActivityRef.current = now;
-    setLastActivityTime(now);
-
-    // If was idle, now becoming active
     if (!wasActive) {
       isActiveRef.current = true;
       setIsActive(true);
+      setLastActivityTime(lastActivityRef.current);
       onActivityRef.current?.();
+      sendHeartbeat();
     }
   }, []);
 
-  const handleIdle = useCallback(() => {
+  const goIdle = useCallback((): void => {
     const wasActive = isActiveRef.current;
-
     if (wasActive) {
       isActiveRef.current = false;
       setIsActive(false);
@@ -93,59 +104,84 @@ export const useActivityTracker = (
     }
   }, []);
 
+  const handleActivity = useCallback((): void => {
+    const now = Date.now();
+    lastActivityRef.current = now;
+
+    if (!isActiveRef.current) {
+      goActive();
+      return;
+    }
+
+    if (now - lastEventDispatchRef.current >= ACTIVITY_THROTTLE_MS) {
+      lastEventDispatchRef.current = now;
+      setLastActivityTime(now);
+    }
+  }, [goActive]);
+
   useEffect(() => {
-    const heartbeatInterval = heartbeatIntervalRef;
-    // Check for idle status periodically
-    const checkIdleStatus = () => {
+    const checkIdleStatus = (): void => {
+      if (!isActiveRef.current) return;
       const timeSinceActivity = Date.now() - lastActivityRef.current;
-
-      if (timeSinceActivity > IDLE_TIMEOUT) {
-        handleIdle();
+      if (timeSinceActivity > IDLE_TIMEOUT_MS) {
+        goIdle();
       }
     };
 
-    // Handle page visibility changes
-    const handleVisibilityChange = () => {
+    const clearVisibilityDebounce = (): void => {
+      if (visibilityDebounceRef.current !== null) {
+        clearTimeout(visibilityDebounceRef.current);
+        visibilityDebounceRef.current = null;
+      }
+    };
+
+    const handleVisibilityChange = (): void => {
+      clearVisibilityDebounce();
       if (document.hidden) {
-        // Page is hidden - mark as idle
-        handleIdle();
-      } else {
-        // Page is visible - mark as active
-        handleActivity();
+        visibilityDebounceRef.current = setTimeout(() => {
+          visibilityDebounceRef.current = null;
+          goIdle();
+        }, VISIBILITY_IDLE_DEBOUNCE_MS);
+        return;
+      }
+      lastActivityRef.current = Date.now();
+      goActive();
+    };
+
+    const fireHeartbeatIfActive = (): void => {
+      if (isActiveRef.current && !document.hidden) {
+        sendHeartbeat();
       }
     };
 
-    // Set up event listeners with passive flag for better performance
     ACTIVITY_EVENTS.forEach((event) => {
       window.addEventListener(event, handleActivity, { passive: true });
     });
-
-    // Page visibility API
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
-    // Check idle status every 5 seconds
-    idleCheckIntervalRef.current = setInterval(checkIdleStatus, 5000);
+    idleCheckIntervalRef.current = setInterval(checkIdleStatus, IDLE_CHECK_INTERVAL_MS);
+    heartbeatIntervalRef.current = setInterval(fireHeartbeatIfActive, HEARTBEAT_INTERVAL_MS);
 
-    // Initial activity
-    handleActivity();
+    lastActivityRef.current = Date.now();
+    lastEventDispatchRef.current = Date.now();
+    sendHeartbeat();
 
-    // Cleanup
     return () => {
       ACTIVITY_EVENTS.forEach((event) => {
         window.removeEventListener(event, handleActivity);
       });
-
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-
-      if (idleCheckIntervalRef.current) {
+      clearVisibilityDebounce();
+      if (idleCheckIntervalRef.current !== null) {
         clearInterval(idleCheckIntervalRef.current);
+        idleCheckIntervalRef.current = null;
       }
-
-      if (heartbeatInterval.current) {
-        clearInterval(heartbeatInterval.current);
+      if (heartbeatIntervalRef.current !== null) {
+        clearInterval(heartbeatIntervalRef.current);
+        heartbeatIntervalRef.current = null;
       }
     };
-  }, [handleActivity, handleIdle]);
+  }, [handleActivity, goActive, goIdle]);
 
   return {
     isActive,

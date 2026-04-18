@@ -213,6 +213,19 @@ public class AuthController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// Lightweight presence heartbeat. The authenticated request itself triggers
+    /// SessionAuthenticationHandler.UpdateLastSeenAsync (throttled to 60s server-side),
+    /// which broadcasts SessionLastSeenUpdated on SignalR. Called by useActivityTracker
+    /// while the tab is active so the user's presence dot stays "active" instead of
+    /// flipping to "away" when no other API calls happen to be in-flight.
+    /// </summary>
+    [HttpPost("heartbeat")]
+    public IActionResult Heartbeat()
+    {
+        return Ok();
+    }
+
     [AllowAnonymous]
     [HttpPost("logout")]
     public async Task<IActionResult> LogoutAsync()
