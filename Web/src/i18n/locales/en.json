@@ -5423,6 +5423,7 @@
         "entity": "Removing evicted records for {{scope}} '{{key}}'..."
       },
       "failedToStart": "Eviction removal failed to start.",
+      "preserving": "Preserving evicted entities in detection tables...",
       "removingLogs": "Removing associated log entries...",
       "removingDownloads": "Removing evicted download records...",
       "purgingLogs": "Purging {{count}} log entries...",
