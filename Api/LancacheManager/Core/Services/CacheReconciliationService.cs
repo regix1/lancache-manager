@@ -293,6 +293,31 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     {
                         _logger.LogError(ex, "Failed to propagate eviction to CachedGameDetection rows");
                     }
+
+                    // Fix for "newly evicted items don't show until restart": after the scan
+                    // flags Downloads as evicted, run recovery so any game/service WITHOUT a
+                    // matching CachedGameDetection / CachedServiceDetection row gets one
+                    // inserted with IsEvicted=true. LoadDetectionFromDatabaseAsync only
+                    // returns entities that have detection rows — missing rows = invisible
+                    // in the Evicted Items UI. Recovery on startup wasn't enough; the user
+                    // needs it on every eviction scan because cache files can be evicted
+                    // (via manual clear, nginx cache miss, etc.) at any time.
+                    try
+                    {
+                        var gamesRecovered = await _gameCacheDetectionService.RecoverEvictedGamesAsync();
+                        var servicesRecovered = await _gameCacheDetectionService.RecoverEvictedServicesAsync();
+                        if (gamesRecovered > 0 || servicesRecovered > 0)
+                        {
+                            _logger.LogInformation(
+                                "[EvictionScan] Post-scan recovery inserted {Games} game + {Services} service detection rows from Downloads history",
+                                gamesRecovered, servicesRecovered);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "[EvictionScan] Post-scan recovery failed — newly-evicted entities may remain hidden until next full scan");
+                    }
+
                     _gameCacheDetectionService.InvalidateDetectionCache();
                 }
 

@@ -1765,7 +1765,16 @@ public class GameCacheDetectionService : IDisposable
     /// and adds them to CachedGameDetections with 0 files so they appear as evicted.
     /// Also marks those downloads as IsEvicted = true for consistent display.
     /// </summary>
-    private async Task<int> RecoverEvictedGamesAsync()
+    /// <summary>
+    /// After a full scan or eviction scan, finds games that exist in Downloads but were not
+    /// detected on disk, and adds them to CachedGameDetections with 0 files so they appear
+    /// as evicted. Public so <see cref="CacheReconciliationService.ReconcileCacheFilesAsync"/>
+    /// can call it after every eviction scan — without this, a game whose downloads all
+    /// flip to IsEvicted=true but which was never in CachedGameDetections (e.g. because a
+    /// prior Cache Clear wiped the table, or the game was never fully scanned) will not
+    /// appear in the Evicted Items UI until the next app restart.
+    /// </summary>
+    public async Task<int> RecoverEvictedGamesAsync()
     {
         await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
 
@@ -1872,6 +1881,66 @@ public class GameCacheDetectionService : IDisposable
         }
 
         return totalRecovered;
+    }
+
+    /// <summary>
+    /// Service-scope analogue of <see cref="RecoverEvictedGamesAsync"/>. Finds non-game
+    /// services (wsus, xboxlive, blizzard-only traffic, etc.) that have evicted Downloads
+    /// but no matching CachedServiceDetection row, and inserts an IsEvicted=true detection
+    /// row so the Evicted Items UI can display them without waiting for a full cache scan.
+    /// A "service Downloads row" is one with both GameAppId and EpicAppId set to null.
+    /// </summary>
+    public async Task<int> RecoverEvictedServicesAsync()
+    {
+        await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
+
+        var detectedServiceNames = await dbContext.CachedServiceDetections
+            .Select(s => s.ServiceName.ToLower())
+            .ToListAsync();
+
+        var evictedServices = await dbContext.Downloads
+            .Where(d => d.IsEvicted
+                     && d.GameAppId == null
+                     && d.EpicAppId == null
+                     && d.Service != null
+                     && !detectedServiceNames.Contains(d.Service.ToLower()))
+            .GroupBy(d => d.Service!)
+            .Select(g => new
+            {
+                ServiceName = g.Key,
+                Datasource = g.Min(d => d.Datasource)
+            })
+            .ToListAsync();
+
+        if (evictedServices.Count == 0)
+        {
+            return 0;
+        }
+
+        var now = DateTime.UtcNow;
+        foreach (var svc in evictedServices)
+        {
+            dbContext.CachedServiceDetections.Add(new CachedServiceDetection
+            {
+                ServiceName = svc.ServiceName,
+                CacheFilesFound = 0,
+                TotalSizeBytes = 0,
+                SampleUrlsJson = "[]",
+                CacheFilePathsJson = "[]",
+                DatasourcesJson = $"[\"{svc.Datasource}\"]",
+                IsEvicted = true,
+                LastDetectedUtc = now,
+                CreatedAtUtc = now
+            });
+        }
+
+        await dbContext.SaveChangesAsync();
+
+        _logger.LogInformation(
+            "[ServiceDetection] Recovered {Count} evicted services from Downloads history",
+            evictedServices.Count);
+
+        return evictedServices.Count;
     }
 
     private async Task SaveServicesToDatabaseAsync(List<ServiceCacheInfo> services)
