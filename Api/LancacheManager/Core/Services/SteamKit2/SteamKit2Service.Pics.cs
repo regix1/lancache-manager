@@ -48,7 +48,7 @@ public partial class SteamKit2Service
         _notifications.NotifyAllFireAndForget(SignalREvents.DepotMappingStarted, new
         {
             operationId,
-            scanMode = incrementalOnly ? "incremental" : "full",
+            scanMode = incrementalOnly ? DepotScanMode.Incremental : DepotScanMode.Full,
             message = incrementalOnly ? "Starting incremental depot mapping scan..." : "Starting full depot mapping scan...",
             isLoggedOn = IsSteamAuthenticated,
             timestamp = DateTime.UtcNow
@@ -511,7 +511,7 @@ public partial class SteamKit2Service
             message = $"Depot mapping completed — {totalMappings} mappings, {downloadsUpdated} downloads updated",
             totalMappings,
             downloadsUpdated,
-            scanMode = incrementalOnly ? "incremental" : "full",
+            scanMode = incrementalOnly ? DepotScanMode.Incremental : DepotScanMode.Full,
             isLoggedOn = IsSteamAuthenticated,
             timestamp = DateTime.UtcNow
         });

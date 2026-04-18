@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Encodings.Web;
+using LancacheManager.Models;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
 
@@ -35,19 +36,22 @@ public class SessionAuthenticationHandler : AuthenticationHandler<Authentication
         _ = sessionService.UpdateLastSeenAsync(session);
 
         // 5. Build ClaimsPrincipal
+        // NOTE: Claim values are lowercase strings ("admin"/"guest") to match existing
+        // AuthorizationPolicy.RequireClaim("SessionType", "admin") in Program.cs and legacy cookies.
+        var sessionTypeClaim = session.SessionType.ToString().ToLowerInvariant();
         var claims = new List<Claim>
         {
             new(ClaimTypes.NameIdentifier, session.Id.ToString()),
-            new(ClaimTypes.Role, session.SessionType),
-            new("SessionType", session.SessionType),
+            new(ClaimTypes.Role, sessionTypeClaim),
+            new("SessionType", sessionTypeClaim),
         };
 
         // Add prefill access claims: admins always have access, guests need valid expiry
-        if (session.SessionType == "admin"
+        if (session.SessionType == SessionType.Admin
             || (session.SteamPrefillExpiresAtUtc != null && session.SteamPrefillExpiresAtUtc > DateTime.UtcNow))
             claims.Add(new Claim("SteamPrefillActive", "true"));
 
-        if (session.SessionType == "admin"
+        if (session.SessionType == SessionType.Admin
             || (session.EpicPrefillExpiresAtUtc != null && session.EpicPrefillExpiresAtUtc > DateTime.UtcNow))
             claims.Add(new Claim("EpicPrefillActive", "true"));
 

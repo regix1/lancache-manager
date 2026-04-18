@@ -414,7 +414,7 @@ public class StateService : IStateService
         }
     }
 
-    public void RemoveCacheClearOperation(string id)
+    public void RemoveCacheClearOperation(Guid id)
     {
         lock (_cacheClearLock)
         {
@@ -473,7 +473,7 @@ public class StateService : IStateService
 
         var cutoff = DateTime.UtcNow.AddHours(-24);
         var oldOps = _cachedCacheClearOperations
-            .Where(o => (o.Status == "completed" || o.Status == "failed") && o.EndTime.HasValue && o.EndTime.Value < cutoff)
+            .Where(o => (o.Status == OperationStatus.Completed || o.Status == OperationStatus.Failed) && o.EndTime.HasValue && o.EndTime.Value < cutoff)
             .ToList();
 
         if (oldOps.Count > 0)
@@ -1043,14 +1043,16 @@ public class StateService : IStateService
     }
 
     // Steam Authentication Methods - now delegate to SteamAuthStorageService
-    public string? GetSteamAuthMode()
+    public SteamAuthMode? GetSteamAuthMode()
     {
-        return _steamAuthStorage.GetSteamAuthData().Mode;
+        var raw = _steamAuthStorage.GetSteamAuthData().Mode;
+        return SteamAuthModeExtensions.TryParseWire(raw);
     }
 
-    public void SetSteamAuthMode(string mode)
+    public void SetSteamAuthMode(SteamAuthMode mode)
     {
-        _steamAuthStorage.UpdateSteamAuthData(data => data.Mode = mode);
+        var wire = mode.ToWireString();
+        _steamAuthStorage.UpdateSteamAuthData(data => data.Mode = wire);
     }
 
     public string? GetSteamUsername()

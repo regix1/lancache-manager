@@ -43,7 +43,7 @@ public class OperationsController : ControllerBase
     /// <param name="id">Operation ID</param>
     /// <returns>Operation information or 404 if not found</returns>
     [HttpGet("{id}")]
-    public ActionResult<OperationInfo> GetOperation(string id)
+    public ActionResult<OperationInfo> GetOperation(Guid id)
     {
         var (operation, notFound) = GetOperationOrNotFound(id);
         if (notFound != null) return notFound;
@@ -58,7 +58,7 @@ public class OperationsController : ControllerBase
     /// <param name="id">Operation ID</param>
     /// <returns>200 OK if cancelled or already cancelling, 404 if operation not found</returns>
     [HttpPost("{id}/cancel")]
-    public IActionResult CancelOperation(string id)
+    public IActionResult CancelOperation(Guid id)
     {
         var (operation, notFound) = GetOperationOrNotFound(id);
         if (notFound != null) return notFound;
@@ -84,7 +84,7 @@ public class OperationsController : ControllerBase
     /// <param name="id">Operation ID</param>
     /// <returns>200 OK if process killed, 404 if operation not found, 400 if no process to kill</returns>
     [HttpPost("{id}/kill")]
-    public IActionResult ForceKillOperation(string id)
+    public IActionResult ForceKillOperation(Guid id)
     {
         var (_, notFound) = GetOperationOrNotFound(id);
         if (notFound != null) return notFound;
@@ -102,7 +102,7 @@ public class OperationsController : ControllerBase
         return BadRequest(new { error = "No process to kill or operation cannot be force killed", operationId = id });
     }
 
-    private (OperationInfo? operation, ActionResult? notFound) GetOperationOrNotFound(string id)
+    private (OperationInfo? operation, ActionResult? notFound) GetOperationOrNotFound(Guid id)
     {
         var operation = _operationTracker.GetOperation(id);
         if (operation == null)

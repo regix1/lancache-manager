@@ -23,8 +23,8 @@ public class CacheClearingService : ScheduledBackgroundService
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly SemaphoreSlim _startLock = new(1, 1);
     private string _cachePath = null!;
-    private string _deleteMode;
-    private string? _currentTrackerOperationId;
+    private CacheDeleteMode _deleteMode;
+    private Guid? _currentTrackerOperationId;
 
     protected override string ServiceName => "CacheClearingService";
     protected override TimeSpan Interval => TimeSpan.FromMinutes(5);
@@ -54,7 +54,7 @@ public class CacheClearingService : ScheduledBackgroundService
         _operationTracker = operationTracker;
         _dbContextFactory = dbContextFactory;
 
-        _deleteMode = "preserve";
+        _deleteMode = CacheDeleteMode.Preserve;
 
         LoadStateOverrides(stateService);
     }
@@ -99,7 +99,7 @@ public class CacheClearingService : ScheduledBackgroundService
         }
     }
 
-    public async Task<string?> StartCacheClearAsync(string? datasourceName = null)
+    public async Task<Guid?> StartCacheClearAsync(string? datasourceName = null)
     {
         await _startLock.WaitAsync();
         try
@@ -130,7 +130,7 @@ public class CacheClearingService : ScheduledBackgroundService
                 cts,
                 metadata
             );
-            var operationId = _currentTrackerOperationId;
+            var operationId = _currentTrackerOperationId.Value;
 
             // Update the initial message
             var initialMessage = datasourceName != null
@@ -154,7 +154,7 @@ public class CacheClearingService : ScheduledBackgroundService
         }
     }
 
-    private async Task ExecuteCacheClearAsync(string trackerKey, string operationId, string? datasourceName)
+    private async Task ExecuteCacheClearAsync(string trackerKey, Guid operationId, string? datasourceName)
     {
         try
         {
@@ -383,7 +383,7 @@ public class CacheClearingService : ScheduledBackgroundService
                 }
 
                 // Build arguments - Rust auto-detects optimal thread count
-                var arguments = $"\"{cachePath}\" \"{progressFile}\" {_deleteMode}";
+                var arguments = $"\"{cachePath}\" \"{progressFile}\" {_deleteMode.ToWireString()}";
 
                 var startInfo = _rustProcessHelper.CreateProcessStartInfo(
                     rustBinaryPath,
@@ -684,7 +684,7 @@ public class CacheClearingService : ScheduledBackgroundService
         return value.All(c => (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'));
     }
 
-    private async Task NotifyProgressAsync(string operationId)
+    private async Task NotifyProgressAsync(Guid operationId)
     {
         try
         {
@@ -725,9 +725,9 @@ public class CacheClearingService : ScheduledBackgroundService
             {
                 // If operation was running when service stopped, mark it as failed
                 // (We can't resume Rust processes after restart)
-                if (op.Status == "preparing" || op.Status == "running")
+                if (op.Status == OperationStatus.Pending || op.Status == OperationStatus.Running)
                 {
-                    op.Status = "failed";
+                    op.Status = OperationStatus.Failed;
                     op.Error = "Operation interrupted by service restart";
                     op.EndTime = DateTime.UtcNow;
                     op.Message = op.Error;
@@ -754,7 +754,7 @@ public class CacheClearingService : ScheduledBackgroundService
         }
     }
 
-    private void SaveOperationToState(string trackerKey, string operationId)
+    private void SaveOperationToState(string trackerKey, Guid operationId)
     {
         try
         {
@@ -822,7 +822,7 @@ public class CacheClearingService : ScheduledBackgroundService
         }
     }
 
-    public CacheClearProgress? GetOperationStatus(string operationId)
+    public CacheClearProgress? GetOperationStatus(Guid operationId)
     {
         // Search through active operations for the one with matching ID
         var operation = _operationTracker.GetOperation(operationId);
@@ -896,7 +896,7 @@ public class CacheClearingService : ScheduledBackgroundService
     /// <summary>
     /// Gets cache clear status for a specific operation (wrapper for GetOperationStatus)
     /// </summary>
-    public CacheClearProgress? GetCacheClearStatus(string operationId)
+    public CacheClearProgress? GetCacheClearStatus(Guid operationId)
     {
         return GetOperationStatus(operationId);
     }
@@ -904,7 +904,7 @@ public class CacheClearingService : ScheduledBackgroundService
     /// <summary>
     /// Cancels a cache clear operation (wrapper for CancelOperation)
     /// </summary>
-    public bool CancelCacheClear(string operationId)
+    public bool CancelCacheClear(Guid operationId)
     {
         return CancelOperation(operationId);
     }
@@ -949,7 +949,7 @@ public class CacheClearingService : ScheduledBackgroundService
         return activeOps.Concat(stateOps).ToList();
     }
 
-    public bool CancelOperation(string operationId)
+    public bool CancelOperation(Guid operationId)
     {
         _logger.LogInformation($"Cancelling cache clear operation {operationId}");
         return _operationTracker.CancelOperation(operationId);
@@ -959,7 +959,7 @@ public class CacheClearingService : ScheduledBackgroundService
     /// Force kills the Rust process for a cache clear operation.
     /// Used as fallback when graceful cancellation fails.
     /// </summary>
-    public async Task<bool> ForceKillOperationAsync(string operationId)
+    public async Task<bool> ForceKillOperationAsync(Guid operationId)
     {
         _logger.LogWarning($"Force killing cache clear operation {operationId}");
 
@@ -996,31 +996,20 @@ public class CacheClearingService : ScheduledBackgroundService
     }
 
 
-    public void SetDeleteMode(string deleteMode)
+    public void SetDeleteMode(CacheDeleteMode deleteMode)
     {
-        if (deleteMode != "preserve" && deleteMode != "full" && deleteMode != "rsync")
-        {
-            throw new ArgumentException("Delete mode must be 'preserve', 'full', or 'rsync'", nameof(deleteMode));
-        }
-
         _deleteMode = deleteMode;
-        _logger.LogInformation($"Cache clear delete mode updated to {deleteMode}");
+        _logger.LogInformation($"Cache clear delete mode updated to {deleteMode.ToWireString()}");
     }
 
-    public string GetDeleteMode()
+    public CacheDeleteMode GetDeleteMode()
     {
         return _deleteMode;
     }
 
     private string GetDeleteModeDisplayName()
     {
-        return _deleteMode switch
-        {
-            "preserve" => "Preserve",
-            "full" => "Remove All",
-            "rsync" => "Rsync",
-            _ => _deleteMode
-        };
+        return _deleteMode.ToDisplayName();
     }
 
     public bool IsRsyncAvailable()
@@ -1052,8 +1041,8 @@ public class CacheClearingService : ScheduledBackgroundService
 
 public class CacheClearProgress
 {
-    public string OperationId { get; set; } = string.Empty;
-    public string Status { get; set; } = string.Empty;
+    public Guid OperationId { get; set; }
+    public OperationStatus Status { get; set; }
     public string StatusMessage { get; set; } = string.Empty;
     public DateTime StartTime { get; set; }
     public DateTime? EndTime { get; set; }

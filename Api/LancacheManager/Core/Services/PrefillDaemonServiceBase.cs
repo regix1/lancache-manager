@@ -1000,7 +1000,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
             // Mark session as no longer prefilling and notify frontend
             session.IsPrefilling = false;
-            await NotifyPrefillStateChangeAsync(session, "cancelled");
+            await NotifyPrefillStateChangeAsync(session, PrefillProgressState.Cancelled.ToWireString());
 
             _logger.LogInformation("Prefill cancelled for session {SessionId}", sessionId);
         }
@@ -1104,7 +1104,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         session.CurrentTotalBytes = 0;
         session.CompletedBytesTransferred = 0;
         session.TotalBytesTransferred = 0;
-        await NotifyPrefillStateChangeAsync(session, "started");
+        await NotifyPrefillStateChangeAsync(session, PrefillProgressState.Started.ToWireString());
         var startDto = DaemonSessionDto.FromSession(session);
         await NotifyAllDownloadsAndServiceHubAsync(EventSessionUpdated, startDto);
 
@@ -1141,7 +1141,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
             // Only notify failure if the command itself failed.
             if (!result.Success)
             {
-                await NotifyPrefillStateChangeAsync(session, "failed");
+                await NotifyPrefillStateChangeAsync(session, PrefillProgressState.Failed.ToWireString());
             }
 
             // Don't complete apps here - the daemon returns immediately with "Prefill started".

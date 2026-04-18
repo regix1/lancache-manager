@@ -41,14 +41,14 @@ public class DatabaseController : ControllerBase
             return Conflict(new ErrorResponse { Error = "Database reset is already running" });
         }
 
-        var operationId = _rustDatabaseResetService.CurrentOperationId ?? Guid.NewGuid().ToString();
+        var operationId = _rustDatabaseResetService.CurrentOperationId ?? Guid.NewGuid();
         _logger.LogInformation("Started full database reset operation: {OperationId}, Started: {Started}", operationId, true);
 
         return Accepted(new DatabaseResetStartResponse
         {
             Message = "Database reset started",
             OperationId = operationId,
-            Status = "running"
+            Status = OperationStatus.Running
         });
     }
 
@@ -74,7 +74,7 @@ public class DatabaseController : ControllerBase
             Message = "Database reset started for selected tables",
             OperationId = operationId,
             Tables = request.Tables,
-            Status = "running"
+            Status = OperationStatus.Running
         });
     }
 

@@ -28,7 +28,7 @@ public static class SignalRNotificationExtensions
     public static Task SendOperationCompleteAsync(
         this ISignalRNotificationService notifications,
         string eventName,
-        string? operationId,
+        Guid? operationId,
         bool success,
         string message,
         bool cancelled,

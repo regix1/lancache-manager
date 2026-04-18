@@ -22,12 +22,12 @@ public class RustDatabaseResetService
     private readonly IUnifiedOperationTracker _operationTracker;
     private Process? _rustProcess;
     private CancellationTokenSource? _cancellationTokenSource;
-    private string? _currentTrackerOperationId;
+    private Guid? _currentTrackerOperationId;
     private Task? _progressMonitorTask;
     private readonly SemaphoreSlim _startLock = new(1, 1);
 
     public bool IsProcessing { get; private set; }
-    public string? CurrentOperationId => _currentTrackerOperationId;
+    public Guid? CurrentOperationId => _currentTrackerOperationId;
 
     public RustDatabaseResetService(
         ILogger<RustDatabaseResetService> logger,
@@ -261,9 +261,9 @@ public class RustDatabaseResetService
                         });
                     }
 
-                    if (!string.IsNullOrEmpty(_currentTrackerOperationId))
+                    if (_currentTrackerOperationId.HasValue)
                     {
-                        _operationTracker.CompleteOperation(_currentTrackerOperationId, success: true);
+                        _operationTracker.CompleteOperation(_currentTrackerOperationId.Value, success: true);
                     }
                 }
 
@@ -298,9 +298,9 @@ public class RustDatabaseResetService
                         timestamp = DateTime.UtcNow
                     });
 
-                    if (!string.IsNullOrEmpty(_currentTrackerOperationId))
+                    if (_currentTrackerOperationId.HasValue)
                     {
-                        _operationTracker.CompleteOperation(_currentTrackerOperationId, success: false, error: $"Database reset failed with exit code {exitCode}");
+                        _operationTracker.CompleteOperation(_currentTrackerOperationId.Value, success: false, error: $"Database reset failed with exit code {exitCode}");
                     }
 
                     return false;
@@ -320,9 +320,9 @@ public class RustDatabaseResetService
                 timestamp = DateTime.UtcNow
             });
 
-            if (!string.IsNullOrEmpty(_currentTrackerOperationId))
+            if (_currentTrackerOperationId.HasValue)
             {
-                _operationTracker.CompleteOperation(_currentTrackerOperationId, success: false, error: "Cancelled by user");
+                _operationTracker.CompleteOperation(_currentTrackerOperationId.Value, success: false, error: "Cancelled by user");
             }
 
             return false;
@@ -341,9 +341,9 @@ public class RustDatabaseResetService
                 timestamp = DateTime.UtcNow
             });
 
-            if (!string.IsNullOrEmpty(_currentTrackerOperationId))
+            if (_currentTrackerOperationId.HasValue)
             {
-                _operationTracker.CompleteOperation(_currentTrackerOperationId, success: false, error: ex.Message);
+                _operationTracker.CompleteOperation(_currentTrackerOperationId.Value, success: false, error: ex.Message);
             }
 
             return false;

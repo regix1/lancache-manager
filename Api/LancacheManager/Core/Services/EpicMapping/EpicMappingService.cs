@@ -20,7 +20,7 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IStateService _stateService;
     private EpicPrefillDaemonService? _epicDaemonService;
-    private string? _currentOperationId;
+    private Guid? _currentOperationId;
 
     // Auth state
     private bool _isAuthenticated;
@@ -309,7 +309,7 @@ public class EpicScheduleStatus
     public DateTime? LastRefreshTime { get; set; }
     public double NextRefreshIn { get; set; }
     public bool IsAuthenticated { get; set; }
-    public string? OperationId { get; set; }
+    public Guid? OperationId { get; set; }
     public string Status { get; set; } = "Idle";
     public double ProgressPercent { get; set; }
     public string? StatusMessage { get; set; }

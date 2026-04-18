@@ -7,26 +7,26 @@ public interface IUnifiedOperationTracker
     /// <summary>
     /// Registers a new operation and returns its unique ID.
     /// </summary>
-    string RegisterOperation(OperationType type, string name, CancellationTokenSource cts, object? metadata = null);
+    Guid RegisterOperation(OperationType type, string name, CancellationTokenSource cts, object? metadata = null);
 
     /// <summary>
     /// Cancels an operation by requesting cancellation on its CancellationTokenSource.
     /// Returns true if cancellation was requested or is already in progress (idempotent).
     /// Returns false if the operation was not found.
     /// </summary>
-    bool CancelOperation(string operationId);
+    bool CancelOperation(Guid operationId);
 
     /// <summary>
     /// Force kills the associated process for an operation (if any).
     /// Returns true if the process was killed, false if no operation or process found.
     /// </summary>
-    bool ForceKillOperation(string operationId);
+    bool ForceKillOperation(Guid operationId);
 
     /// <summary>
     /// Gets information about a specific operation.
     /// Returns null if the operation is not found.
     /// </summary>
-    OperationInfo? GetOperation(string operationId);
+    OperationInfo? GetOperation(Guid operationId);
 
     /// <summary>
     /// Gets all active operations, optionally filtered by type.
@@ -36,12 +36,12 @@ public interface IUnifiedOperationTracker
     /// <summary>
     /// Marks an operation as complete and cleans up resources.
     /// </summary>
-    void CompleteOperation(string operationId, bool success, string? error = null);
+    void CompleteOperation(Guid operationId, bool success, string? error = null);
 
     /// <summary>
     /// Updates the progress of an operation.
     /// </summary>
-    void UpdateProgress(string operationId, double percent, string message);
+    void UpdateProgress(Guid operationId, double percent, string message);
 
     /// <summary>
     /// Look up an operation by its entity key (e.g., appId for games, serviceName for services).
@@ -53,5 +53,5 @@ public interface IUnifiedOperationTracker
     /// Update the metadata object on an existing operation.
     /// Used by removal operations to push FilesDeleted/BytesFreed into the tracker.
     /// </summary>
-    void UpdateMetadata(string operationId, Action<object> updater);
+    void UpdateMetadata(Guid operationId, Action<object> updater);
 }

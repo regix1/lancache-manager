@@ -59,8 +59,8 @@ public class SessionsController : ControllerBase
         {
             sessions = activeDtos,
             count = activeDtos.Count,
-            adminCount = activeDtos.Count(s => s.SessionType == "admin"),
-            guestCount = activeDtos.Count(s => s.SessionType == "guest"),
+            adminCount = activeDtos.Count(s => s.SessionType == SessionType.Admin),
+            guestCount = activeDtos.Count(s => s.SessionType == SessionType.Guest),
             pagination = new
             {
                 page,
@@ -74,7 +74,7 @@ public class SessionsController : ControllerBase
 
     private static SessionDto MapSessionToDto(UserSession s, Guid? currentSessionId, DateTime now)
     {
-        var isAdmin = s.SessionType == "admin";
+        var isAdmin = s.SessionType == SessionType.Admin;
         var steamPrefillEnabled = isAdmin || (s.SteamPrefillExpiresAtUtc != null && s.SteamPrefillExpiresAtUtc > now);
         var epicPrefillEnabled = isAdmin || (s.EpicPrefillExpiresAtUtc != null && s.EpicPrefillExpiresAtUtc > now);
 
@@ -117,7 +117,7 @@ public class SessionsController : ControllerBase
         await _signalR.NotifyAllAsync(SignalREvents.UserSessionRevoked, new
         {
             sessionId = id.ToString(),
-            sessionType = currentSession != null && currentSession.Id == id ? currentSession.SessionType : "unknown"
+            sessionType = currentSession != null && currentSession.Id == id ? currentSession.SessionType.ToString().ToLowerInvariant() : "unknown"
         });
 
         return Ok(new { success = true, message = "Session revoked" });
@@ -139,7 +139,7 @@ public class SessionsController : ControllerBase
         await _signalR.NotifyAllAsync(SignalREvents.UserSessionDeleted, new
         {
             sessionId = id.ToString(),
-            sessionType = currentSession != null && currentSession.Id == id ? currentSession.SessionType : "unknown"
+            sessionType = currentSession != null && currentSession.Id == id ? currentSession.SessionType.ToString().ToLowerInvariant() : "unknown"
         });
 
         return Ok(new { success = true, message = "Session permanently deleted" });
@@ -149,7 +149,7 @@ public class SessionsController : ControllerBase
     public async Task<IActionResult> UpdateRefreshRateAsync(Guid id, [FromBody] RefreshRateRequest request)
     {
         var callerSession = HttpContext.GetUserSession();
-        var isAdmin = callerSession?.SessionType == "admin";
+        var isAdmin = callerSession?.SessionType == SessionType.Admin;
 
         // Only the owning session or an admin may update refresh rate
         if (!isAdmin && callerSession?.Id != id)
@@ -187,7 +187,7 @@ public class SessionsController : ControllerBase
         // Get all guest session IDs and delete their preferences
         var guestSessions = await _sessionService.GetActiveSessionsAsync();
         var guestSessionIds = guestSessions
-            .Where(s => s.SessionType == "guest")
+            .Where(s => s.SessionType == SessionType.Guest)
             .Select(s => s.Id)
             .ToList();
 

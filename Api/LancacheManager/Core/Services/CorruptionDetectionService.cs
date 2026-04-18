@@ -58,7 +58,7 @@ public class CorruptionDetectionService
     /// Start a background corruption detection scan.
     /// Returns immediately with an operation ID.
     /// </summary>
-    public async Task<string> StartDetectionAsync(int threshold = 3, bool compareToCacheLogs = true, string detectionMode = "miss_count", CancellationToken cancellationToken = default)
+    public async Task<Guid> StartDetectionAsync(int threshold = 3, bool compareToCacheLogs = true, string detectionMode = "miss_count", CancellationToken cancellationToken = default)
     {
         await _startLock.WaitAsync(cancellationToken);
         try
@@ -121,7 +121,7 @@ public class CorruptionDetectionService
     /// <summary>
     /// Run the actual corruption detection scan.
     /// </summary>
-    private async Task RunDetectionAsync(string operationId, int threshold, bool compareToCacheLogs, CancellationToken cancellationToken, bool detectRedownloads = false)
+    private async Task RunDetectionAsync(Guid operationId, int threshold, bool compareToCacheLogs, CancellationToken cancellationToken, bool detectRedownloads = false)
     {
         var operation = _operationTracker.GetOperation(operationId);
         if (operation == null)
@@ -266,7 +266,7 @@ public class CorruptionDetectionService
     /// </summary>
     private async Task<Dictionary<string, long>> GetCorruptionSummaryForDatasourceAsync(
         string logDir, string cacheDir, string timezone, string rustBinaryPath,
-        string operationId, string datasourceName, int threshold, bool compareToCacheLogs, CancellationToken cancellationToken, bool detectRedownloads = false)
+        Guid operationId, string datasourceName, int threshold, bool compareToCacheLogs, CancellationToken cancellationToken, bool detectRedownloads = false)
     {
         // Create progress file for this datasource
         var operationsDir = _pathResolver.GetOperationsDirectory();
@@ -416,7 +416,7 @@ public class CorruptionDetectionService
     /// Run re-download detection via the Rust binary - finds URLs with multiple HIT responses
     /// from the same client by scanning access logs directly.
     /// </summary>
-    private async Task RunRedownloadDetectionAsync(string operationId, int threshold, CancellationToken cancellationToken)
+    private async Task RunRedownloadDetectionAsync(Guid operationId, int threshold, CancellationToken cancellationToken)
     {
         // Reuse the same flow as RunDetectionAsync but with detectRedownloads=true
         await RunDetectionAsync(operationId, threshold, compareToCacheLogs: true, cancellationToken, detectRedownloads: true);
@@ -471,7 +471,7 @@ public class CorruptionDetectionService
     /// <summary>
     /// Get the status of the active detection operation.
     /// </summary>
-    public OperationInfo? GetOperationStatus(string operationId)
+    public OperationInfo? GetOperationStatus(Guid operationId)
     {
         return _operationTracker.GetOperation(operationId);
     }

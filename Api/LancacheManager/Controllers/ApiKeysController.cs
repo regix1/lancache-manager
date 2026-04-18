@@ -83,7 +83,7 @@ public class ApiKeysController : ControllerBase
     public async Task<IActionResult> RegenerateApiKeyAsync()
     {
         // SECURITY: Clear ALL Steam-related data when API key is regenerated
-        var steamWasAuthenticated = _stateService.GetSteamAuthMode() == "authenticated";
+        var steamWasAuthenticated = _stateService.GetSteamAuthMode() == SteamAuthMode.Authenticated;
         var hadSteamWebApiKey = !string.IsNullOrWhiteSpace(_steamAuthStorage.GetSteamAuthData().SteamApiKey);
 
         // Clear Steam auth data (with error handling to ensure API key regen completes)

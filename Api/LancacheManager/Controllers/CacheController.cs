@@ -152,7 +152,7 @@ public class CacheController : ControllerBase
         {
             Message = "Cache clearing started in background for all datasources",
             OperationId = operationId,
-            Status = "running"
+            Status = OperationStatus.Running
         });
     }
 
@@ -203,7 +203,7 @@ public class CacheController : ControllerBase
         {
             Message = $"Cache clearing started for datasource: {name}",
             OperationId = operationId,
-            Status = "running"
+            Status = OperationStatus.Running
         });
     }
 
@@ -215,7 +215,10 @@ public class CacheController : ControllerBase
     public IActionResult GetActiveOperations()
     {
         var operations = _cacheClearingService.GetActiveOperations();
-        var isProcessing = operations.Any(op => op.Status != "completed" && op.Status != "failed" && op.Status != "cancelled");
+        var isProcessing = operations.Any(op =>
+            op.Status != OperationStatus.Completed
+            && op.Status != OperationStatus.Failed
+            && op.Status != OperationStatus.Cancelled);
         return Ok(new ActiveOperationsResponse { IsProcessing = isProcessing, Operations = operations });
     }
 
@@ -224,7 +227,7 @@ public class CacheController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpGet("operations/{id}/status")]
-    public IActionResult GetCacheClearStatus(string id)
+    public IActionResult GetCacheClearStatus(Guid id)
     {
         var status = _cacheClearingService.GetCacheClearStatus(id);
 
@@ -242,7 +245,7 @@ public class CacheController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpDelete("operations/{id}")]
-    public IActionResult CancelCacheClear(string id)
+    public IActionResult CancelCacheClear(Guid id)
     {
         var result = _cacheClearingService.CancelCacheClear(id);
 
@@ -260,7 +263,7 @@ public class CacheController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpPost("operations/{id}/kill")]
-    public async Task<IActionResult> ForceKillCacheClearAsync(string id)
+    public async Task<IActionResult> ForceKillCacheClearAsync(Guid id)
     {
         var result = await _cacheClearingService.ForceKillOperationAsync(id);
 
@@ -593,7 +596,7 @@ public class CacheController : ControllerBase
             Message = $"Started corruption removal for service: {service}",
             Service = service,
             OperationId = operationId,
-            Status = "running"
+            Status = OperationStatus.Running
         });
     }
 
@@ -1046,7 +1049,7 @@ public class CacheController : ControllerBase
             Message = $"Started removal of {name} service from cache",
             OperationId = operationId,
             ServiceName = name,
-            Status = "running"
+            Status = OperationStatus.Running
         });
     }
 

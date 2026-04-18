@@ -1,4 +1,5 @@
 using LancacheManager.Core.Services.SteamPrefill;
+using LancacheManager.Models;
 
 namespace LancacheManager.Core.Services;
 
@@ -181,9 +182,12 @@ public abstract partial class PrefillDaemonServiceBase
     private async Task NotifyPrefillStateChangeAsync(DaemonSession session, string state)
     {
         int? durationSeconds = null;
+        var parsed = PrefillProgressStateExtensions.ParseOrUnknown(state);
 
         // For completion states, calculate duration and store the result for background detection
-        if (state == "completed" || state == "failed" || state == "cancelled")
+        if (parsed == PrefillProgressState.Completed
+            || parsed == PrefillProgressState.Failed
+            || parsed == PrefillProgressState.Cancelled)
         {
             if (session.PrefillStartedAt.HasValue)
             {
@@ -198,7 +202,7 @@ public abstract partial class PrefillDaemonServiceBase
             _logger.LogInformation("Prefill {State} for session {SessionId}, duration: {Duration}s",
                 state, session.Id, durationSeconds ?? 0);
         }
-        else if (state == "started")
+        else if (parsed == PrefillProgressState.Started)
         {
             // Track when prefill started for duration calculation
             session.PrefillStartedAt = DateTime.UtcNow;
@@ -293,7 +297,8 @@ public abstract partial class PrefillDaemonServiceBase
         // IMPORTANT: Use progress.CurrentAppId here, NOT session.CurrentAppId
         // For cached games, daemon sends app_completed without a prior "downloading" event,
         // so session.CurrentAppId may still point to the previous app
-        if (progress.State == "app_completed" && !string.IsNullOrEmpty(progress.CurrentAppId))
+        if (PrefillProgressStateExtensions.ParseOrUnknown(progress.State) == PrefillProgressState.AppCompleted
+            && !string.IsNullOrEmpty(progress.CurrentAppId))
         {
             try
             {
@@ -362,7 +367,7 @@ public abstract partial class PrefillDaemonServiceBase
                 // For downloaded games, use "app_completed"
                 var frontendProgress = new PrefillProgress
                 {
-                    State = isCached ? "already_cached" : "app_completed",
+                    State = (isCached ? PrefillProgressState.AlreadyCached : PrefillProgressState.AppCompleted).ToWireString(),
                     CurrentAppId = progress.CurrentAppId,
                     CurrentAppName = progress.CurrentAppName,
                     TotalBytes = totalBytes,
@@ -394,7 +399,11 @@ public abstract partial class PrefillDaemonServiceBase
         }
 
         // Handle overall prefill completion/failure/cancelled states
-        if (progress.State == "completed" || progress.State == "failed" || progress.State == "error" || progress.State == "cancelled")
+        var progressState = PrefillProgressStateExtensions.ParseOrUnknown(progress.State);
+        if (progressState == PrefillProgressState.Completed
+            || progressState == PrefillProgressState.Failed
+            || progressState == PrefillProgressState.Error
+            || progressState == PrefillProgressState.Cancelled)
         {
             if (!string.IsNullOrEmpty(session.CurrentAppId))
             {
@@ -402,11 +411,11 @@ public abstract partial class PrefillDaemonServiceBase
                 {
                     // Determine status: Cached if no bytes on success, Failed if error, Completed otherwise
                     string status;
-                    if (progress.State == "completed" && session.CurrentBytesDownloaded == 0)
+                    if (progressState == PrefillProgressState.Completed && session.CurrentBytesDownloaded == 0)
                     {
                         status = "Cached";
                     }
-                    else if (progress.State == "failed" || progress.State == "error")
+                    else if (progressState == PrefillProgressState.Failed || progressState == PrefillProgressState.Error)
                     {
                         status = "Failed";
                     }
@@ -436,7 +445,8 @@ public abstract partial class PrefillDaemonServiceBase
             }
 
             // Notify frontend of prefill state change (completed/failed)
-            var notifyState = progress.State == "error" ? "failed" : progress.State;
+            // Normalise daemon "error" → "failed" via the shared extension helper.
+            var notifyState = progressState.NormaliseErrorToFailed().ToWireString();
             await NotifyPrefillStateChangeAsync(session, notifyState);
             return; // Don't process further for terminal states
         }

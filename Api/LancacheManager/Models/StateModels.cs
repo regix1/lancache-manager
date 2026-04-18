@@ -159,8 +159,8 @@ public class DepotProcessingState
 /// </summary>
 public class CacheClearOperation
 {
-    public string Id { get; set; } = string.Empty;
-    public string Status { get; set; } = string.Empty;
+    public Guid Id { get; set; }
+    public OperationStatus Status { get; set; }
     public string Message { get; set; } = string.Empty;
     public int Progress { get; set; } = 0;
     public DateTime StartTime { get; set; }

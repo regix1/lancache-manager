@@ -36,7 +36,7 @@ public class MessageResponse
 public class NotFoundResponse
 {
     public string Error { get; set; } = string.Empty;
-    public string? OperationId { get; set; }
+    public Guid? OperationId { get; set; }
 }
 
 /// <summary>
@@ -98,7 +98,7 @@ public static class ApiResponse
     };
 
     /// <summary>Creates a not found response with operation ID.</summary>
-    public static NotFoundResponse NotFound(string entityType, string operationId) => new()
+    public static NotFoundResponse NotFound(string entityType, Guid operationId) => new()
     {
         Error = $"{entityType} not found",
         OperationId = operationId

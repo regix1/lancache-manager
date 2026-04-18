@@ -27,7 +27,7 @@ public class RustLogProcessorService
     private readonly IUnifiedOperationTracker _operationTracker;
     private Process? _rustProcess;
     private CancellationTokenSource? _cancellationTokenSource;
-    private string? _currentOperationId;
+    private Guid? _currentOperationId;
     private string? _currentDatasourceName;
     private string? _currentProgressPath;
     private string? _currentLogDirectory;
@@ -482,9 +482,9 @@ public class RustLogProcessorService
                     exitCode, finalProgress?.PercentComplete ?? 0);
 
                 // Complete the operation with cancellation status
-                if (_currentOperationId != null)
+                if (_currentOperationId.HasValue)
                 {
-                    _operationTracker.CompleteOperation(_currentOperationId, false, "Operation was cancelled");
+                    _operationTracker.CompleteOperation(_currentOperationId.Value, false, "Operation was cancelled");
                 }
 
                 // Send cancellation notification so frontend doesn't get stuck in "Cancelling..." state
@@ -515,9 +515,9 @@ public class RustLogProcessorService
                             new { EntriesProcessed = 0, LinesProcessed = finalProgress.LinesParsed });
                     }
 
-                    if (_currentOperationId != null)
+                    if (_currentOperationId.HasValue)
                     {
-                        _operationTracker.CompleteOperation(_currentOperationId, false, finalProgress.StageKey);
+                        _operationTracker.CompleteOperation(_currentOperationId.Value, false, finalProgress.StageKey);
                     }
 
                     return false;
@@ -666,9 +666,9 @@ public class RustLogProcessorService
                 }
 
                 // Complete the operation successfully
-                if (_currentOperationId != null)
+                if (_currentOperationId.HasValue)
                 {
-                    _operationTracker.CompleteOperation(_currentOperationId, true);
+                    _operationTracker.CompleteOperation(_currentOperationId.Value, true);
                 }
 
                 return true;
@@ -688,9 +688,9 @@ public class RustLogProcessorService
                 }
 
                 // Complete the operation with error
-                if (_currentOperationId != null)
+                if (_currentOperationId.HasValue)
                 {
-                    _operationTracker.CompleteOperation(_currentOperationId, false, $"Rust processor failed with exit code {exitCode}");
+                    _operationTracker.CompleteOperation(_currentOperationId.Value, false, $"Rust processor failed with exit code {exitCode}");
                 }
 
                 return false;
@@ -710,9 +710,9 @@ public class RustLogProcessorService
             }
 
             // Complete the operation with error
-            if (_currentOperationId != null)
+            if (_currentOperationId.HasValue)
             {
-                _operationTracker.CompleteOperation(_currentOperationId, false, ex.Message);
+                _operationTracker.CompleteOperation(_currentOperationId.Value, false, ex.Message);
             }
 
             return false;
@@ -766,9 +766,9 @@ public class RustLogProcessorService
             var mbProcessed = mbTotal * (progress.PercentComplete / 100.0);
 
             // Update the unified operation tracker with progress
-            if (_currentOperationId != null)
+            if (_currentOperationId.HasValue)
             {
-                _operationTracker.UpdateProgress(_currentOperationId, progress.PercentComplete, progress.StageKey ?? "");
+                _operationTracker.UpdateProgress(_currentOperationId.Value, progress.PercentComplete, progress.StageKey ?? "");
             }
 
             // Send progress update via SignalR with standardized format

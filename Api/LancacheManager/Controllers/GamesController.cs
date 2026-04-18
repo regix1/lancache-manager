@@ -248,7 +248,7 @@ public class GamesController : ControllerBase
             OperationId = operationId,
             AppId = appId.ToString(),
             GameName = displayName,
-            Status = "running"
+            Status = OperationStatus.Running
         });
     }
 
@@ -332,8 +332,8 @@ public class GamesController : ControllerBase
             return Accepted(new GameDetectionStartResponse
             {
                 Message = forceRefresh ? "Full scan started" : "Incremental scan started",
-                OperationId = operationId,
-                Status = "running"
+                OperationId = operationId.Value,
+                Status = OperationStatus.Running
             });
         }
         catch (InvalidOperationException ex)
@@ -364,7 +364,7 @@ public class GamesController : ControllerBase
     /// GET /api/games/detect/{id}/status - Get status of specific detection operation
     /// </summary>
     [HttpGet("detect/{id}/status")]
-    public IActionResult GetDetectionStatus(string id)
+    public IActionResult GetDetectionStatus(Guid id)
     {
         var status = _gameCacheDetectionService.GetOperationStatus(id);
 

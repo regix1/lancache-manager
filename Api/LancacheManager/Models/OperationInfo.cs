@@ -4,10 +4,10 @@ namespace LancacheManager.Models;
 
 public class OperationInfo
 {
-    public required string Id { get; set; }
+    public required Guid Id { get; set; }
     public required OperationType Type { get; set; }
     public required string Name { get; set; }
-    public string Status { get; set; } = OperationStatus.Pending;
+    public OperationStatus Status { get; set; } = OperationStatus.Pending;
     public string Message { get; set; } = "";
     public double PercentComplete { get; set; }
     public DateTime StartedAt { get; set; } = DateTime.UtcNow;

@@ -39,7 +39,7 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     private readonly CancellationTokenSource _cancellationTokenSource = new();
     private Task? _currentBuildTask;
     private CancellationTokenSource? _currentRebuildCts;
-    private string? _currentPicsOperationId;
+    private Guid? _currentPicsOperationId;
     private int _rebuildActive;
     private bool _disposed;
     private bool _initialized;
@@ -99,7 +99,7 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
         get
         {
             var authMode = _stateService.GetSteamAuthMode();
-            var isAuthenticated = authMode == "authenticated" && !string.IsNullOrEmpty(_stateService.GetSteamRefreshToken());
+            var isAuthenticated = authMode == SteamAuthMode.Authenticated && !string.IsNullOrEmpty(_stateService.GetSteamRefreshToken());
             return isAuthenticated;
         }
     }
@@ -345,7 +345,7 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     {
         _stateService.SetSteamRefreshToken(null);
         _stateService.SetSteamUsername(null);
-        _stateService.SetSteamAuthMode("anonymous");
+        _stateService.SetSteamAuthMode(SteamAuthMode.Anonymous);
     }
 
     /// <summary>
@@ -670,7 +670,7 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
 
         // Check if we're using authenticated mode (refresh token saved) or anonymous mode
         var authMode = _stateService.GetSteamAuthMode();
-        var isAuthenticated = authMode == "authenticated" && !string.IsNullOrEmpty(_stateService.GetSteamRefreshToken());
+        var isAuthenticated = authMode == SteamAuthMode.Authenticated && !string.IsNullOrEmpty(_stateService.GetSteamRefreshToken());
 
         // Check if Web API is available (V2 or V1 with key) for Full/Incremental scans
         var isWebApiAvailable = _steamWebApiService.IsWebApiAvailableCached();

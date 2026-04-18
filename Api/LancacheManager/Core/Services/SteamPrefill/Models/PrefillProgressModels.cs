@@ -9,7 +9,7 @@ namespace LancacheManager.Core.Services.SteamPrefill;
 /// </summary>
 public class PrefillProgress
 {
-    public string State { get; set; } = "idle";
+    public string State { get; set; } = PrefillProgressState.Idle.ToWireString();
     public string? Message { get; set; }
     public string? CurrentAppId { get; set; }
     public string? CurrentAppName { get; set; }
@@ -41,7 +41,7 @@ public class PrefillProgress
     {
         return new PrefillProgress
         {
-            State = dto.State ?? "idle",
+            State = dto.State ?? PrefillProgressState.Idle.ToWireString(),
             Message = dto.Message,
             CurrentAppId = dto.CurrentAppId,
             CurrentAppName = dto.CurrentAppName,

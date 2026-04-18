@@ -1,4 +1,5 @@
 using LancacheManager.Core.Services;
+using LancacheManager.Models;
 using LancacheManager.Security;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
@@ -43,10 +44,10 @@ public class DownloadHub : Hub
         }
 
         var session = await _sessionService.ValidateSessionAsync(rawToken);
-        if (session == null || session.SessionType != "admin")
+        if (session == null || session.SessionType != SessionType.Admin)
         {
             _logger.LogWarning("SignalR JoinAuthenticatedGroupAsync rejected - not admin: ConnectionId={ConnectionId}, SessionType={SessionType}",
-                Context.ConnectionId, session?.SessionType ?? "none");
+                Context.ConnectionId, session?.SessionType.ToString() ?? "none");
             return;
         }
 
@@ -72,7 +73,7 @@ public class DownloadHub : Hub
                 // Add to appropriate groups
                 await Groups.AddToGroupAsync(Context.ConnectionId, AuthenticatedUsersGroup);
 
-                if (session.SessionType == "admin")
+                if (session.SessionType == SessionType.Admin)
                 {
                     await Groups.AddToGroupAsync(Context.ConnectionId, AdminGroup);
                 }

@@ -72,12 +72,12 @@ public class AuthController : ControllerBase
 
         if (session != null)
         {
-            if (session.SessionType == "admin")
+            if (session.SessionType == SessionType.Admin)
             {
                 steamPrefillEnabled = true;
                 epicPrefillEnabled = true;
             }
-            else if (session.SessionType == "guest")
+            else if (session.SessionType == SessionType.Guest)
             {
                 steamPrefillEnabled = session.SteamPrefillExpiresAtUtc != null && session.SteamPrefillExpiresAtUtc > DateTime.UtcNow;
                 steamPrefillExpiresAt = steamPrefillEnabled
@@ -135,7 +135,7 @@ public class AuthController : ControllerBase
         if (!string.IsNullOrEmpty(existingToken))
         {
             var existingSession = await _sessionService.ValidateSessionAsync(existingToken);
-            if (existingSession is { SessionType: "guest" })
+            if (existingSession is { SessionType: SessionType.Guest })
             {
                 await _sessionService.RevokeSessionAsync(existingSession.Id);
                 _logger.LogInformation("Revoked guest session {SessionId} during upgrade to admin", existingSession.Id);

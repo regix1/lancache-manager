@@ -65,7 +65,7 @@ public class UserPreferencesController : ControllerBase
         var sessionId = session.Id;
 
         // Strip admin-only fields for non-admin sessions
-        if (session.SessionType != "admin")
+        if (session.SessionType != SessionType.Admin)
             UserPreferencesService.StripAdminOnlyFields(preferences);
 
         var success = await _preferencesService.SavePreferencesAsync(sessionId, preferences);
@@ -90,7 +90,7 @@ public class UserPreferencesController : ControllerBase
         var sessionId = session.Id;
 
         // Guests cannot write admin-only preference keys
-        if (session.SessionType != "admin" && UserPreferencesService.IsAdminOnlyKey(key))
+        if (session.SessionType != SessionType.Admin && UserPreferencesService.IsAdminOnlyKey(key))
             return Forbid();
 
         var preferences = await _preferencesService.UpdatePreferenceAndGetAsync(sessionId, key, value);

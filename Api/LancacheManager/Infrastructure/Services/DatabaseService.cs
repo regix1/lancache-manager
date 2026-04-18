@@ -22,7 +22,7 @@ public class DatabaseService : IDatabaseService
     private readonly StateService _stateRepository;
     private readonly DatasourceService _datasourceService;
     private readonly IUnifiedOperationTracker _operationTracker;
-    private static readonly ConcurrentDictionary<string, bool> _activeResetOperations = new();
+    private static readonly ConcurrentDictionary<Guid, bool> _activeResetOperations = new();
     private static ResetProgressInfo _currentResetProgress = new();
 
     public class ResetProgressInfo
@@ -75,7 +75,7 @@ public class DatabaseService : IDatabaseService
     /// <summary>
     /// Starts a background task to reset selected tables and returns immediately
     /// </summary>
-    public string StartResetSelectedTablesAsync(List<string> tableNames)
+    public Guid StartResetSelectedTablesAsync(List<string> tableNames)
     {
         // Create cancellation support
         var cts = new CancellationTokenSource();
@@ -120,7 +120,7 @@ public class DatabaseService : IDatabaseService
     /// <summary>
     /// Internal method that performs the actual reset operation
     /// </summary>
-    private async Task ResetSelectedTablesInternalAsync(string operationId, List<string> tableNames, CancellationToken cancellationToken)
+    private async Task ResetSelectedTablesInternalAsync(Guid operationId, List<string> tableNames, CancellationToken cancellationToken)
     {
         // Use a new DbContext from factory for background operation (don't use injected context)
         await using var context = await _dbContextFactory.CreateDbContextAsync(cancellationToken);

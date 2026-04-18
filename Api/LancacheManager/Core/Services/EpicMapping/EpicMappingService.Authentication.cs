@@ -132,9 +132,9 @@ public partial class EpicMappingService
                 source = "mapping-login"
             });
 
-            if (_currentOperationId != null)
+            if (_currentOperationId.HasValue)
             {
-                _operationTracker.CompleteOperation(_currentOperationId, true);
+                _operationTracker.CompleteOperation(_currentOperationId.Value, true);
                 _currentOperationId = null;
             }
             _currentStatus = "Idle";
@@ -157,9 +157,9 @@ public partial class EpicMappingService
                 cancelled = true
             });
 
-            if (_currentOperationId != null)
+            if (_currentOperationId.HasValue)
             {
-                _operationTracker.CompleteOperation(_currentOperationId, false, "Cancelled");
+                _operationTracker.CompleteOperation(_currentOperationId.Value, false, "Cancelled");
                 _currentOperationId = null;
             }
             _currentStatus = "Idle";

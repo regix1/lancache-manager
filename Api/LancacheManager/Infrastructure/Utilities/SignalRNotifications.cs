@@ -21,7 +21,7 @@ public static class SignalRNotifications
     /// Notification when game removal starts.
     /// </summary>
     public record GameRemovalStarted(
-        string OperationId,
+        Guid OperationId,
         long GameAppId,
         string GameName,
         string StageKey,
@@ -33,7 +33,7 @@ public static class SignalRNotifications
     /// Notification for game removal progress updates.
     /// </summary>
     public record GameRemovalProgress(
-        string OperationId,
+        Guid OperationId,
         long GameAppId,
         string GameName,
         string Status,
@@ -49,7 +49,7 @@ public static class SignalRNotifications
     /// </summary>
     public record GameRemovalComplete(
         bool Success,
-        string OperationId,
+        Guid OperationId,
         long GameAppId,
         string StageKey,
         string? GameName = null,
@@ -64,7 +64,7 @@ public static class SignalRNotifications
     /// </summary>
     public record ServiceRemovalStarted(
         string ServiceName,
-        string OperationId,
+        Guid OperationId,
         string StageKey,
         DateTime Timestamp,
         Dictionary<string, object?>? Context = null
@@ -75,7 +75,7 @@ public static class SignalRNotifications
     /// </summary>
     public record ServiceRemovalProgress(
         string ServiceName,
-        string OperationId,
+        Guid OperationId,
         string Status,
         string StageKey,
         double PercentComplete = 0,
@@ -90,7 +90,7 @@ public static class SignalRNotifications
     public record ServiceRemovalComplete(
         bool Success,
         string ServiceName,
-        string OperationId,
+        Guid OperationId,
         string StageKey,
         int FilesDeleted = 0,
         long BytesFreed = 0,
@@ -103,7 +103,7 @@ public static class SignalRNotifications
     /// </summary>
     public record CorruptionRemovalStarted(
         string Service,
-        string OperationId,
+        Guid OperationId,
         string StageKey,
         DateTime Timestamp,
         Dictionary<string, object?>? Context = null
@@ -114,7 +114,7 @@ public static class SignalRNotifications
     /// </summary>
     public record CorruptionRemovalProgress(
         string Service,
-        string OperationId,
+        Guid OperationId,
         string Status,
         string StageKey,
         DateTime Timestamp,
@@ -131,7 +131,7 @@ public static class SignalRNotifications
         bool Success,
         string Service,
         string StageKey,
-        string? OperationId = null,
+        Guid? OperationId = null,
         string? Error = null,
         DateTime? Timestamp = null,
         Dictionary<string, object?>? Context = null
@@ -164,7 +164,7 @@ public static class SignalRNotifications
     /// Notification for game detection progress.
     /// </summary>
     public record GameDetectionProgress(
-        string OperationId,
+        Guid OperationId,
         string Status,
         string StageKey,
         int GamesDetected = 0,
@@ -178,7 +178,7 @@ public static class SignalRNotifications
     /// </summary>
     public record GameDetectionComplete(
         bool Success,
-        string OperationId,
+        Guid OperationId,
         string StageKey,
         int GamesDetected = 0,
         int ServicesDetected = 0,
@@ -189,7 +189,7 @@ public static class SignalRNotifications
     /// Notification for corruption detection progress.
     /// </summary>
     public record CorruptionDetectionProgress(
-        string OperationId,
+        Guid OperationId,
         string Status,
         string StageKey,
         Dictionary<string, object?>? Context = null
@@ -215,7 +215,7 @@ public static class SignalRNotifications
     /// Notification for cache clear progress.
     /// </summary>
     public record CacheClearProgress(
-        string OperationId,
+        Guid OperationId,
         string Status,
         string StageKey,
         int FilesDeleted = 0,
@@ -229,7 +229,7 @@ public static class SignalRNotifications
     /// </summary>
     public record CacheClearComplete(
         bool Success,
-        string OperationId,
+        Guid OperationId,
         string StageKey,
         int FilesDeleted = 0,
         long BytesFreed = 0,

@@ -1,4 +1,5 @@
 using LancacheManager.Hubs;
+using LancacheManager.Models;
 using SteamKit2;
 
 namespace LancacheManager.Core.Services.SteamKit2;
@@ -64,7 +65,7 @@ public partial class SteamKit2Service
         var refreshToken = _stateService.GetSteamRefreshToken();
         var authMode = _stateService.GetSteamAuthMode();
 
-        if (!string.IsNullOrEmpty(refreshToken) && authMode == "authenticated")
+        if (!string.IsNullOrEmpty(refreshToken) && authMode == SteamAuthMode.Authenticated)
         {
             var username = _stateService.GetSteamUsername();
             _logger.LogInformation("Logging in with saved refresh token for user: {Username}", username);

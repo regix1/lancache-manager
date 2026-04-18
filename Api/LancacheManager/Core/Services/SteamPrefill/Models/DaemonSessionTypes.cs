@@ -1,5 +1,8 @@
+using System.Text.Json.Serialization;
+
 namespace LancacheManager.Core.Services.SteamPrefill;
 
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum DaemonSessionStatus
 {
     Active,
@@ -7,6 +10,7 @@ public enum DaemonSessionStatus
     Error
 }
 
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum DaemonAuthState
 {
     NotAuthenticated,

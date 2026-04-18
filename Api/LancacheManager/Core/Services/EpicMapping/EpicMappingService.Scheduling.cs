@@ -150,9 +150,9 @@ public partial class EpicMappingService
             finally
             {
                 // Complete the operation in the tracker (mirrors Steam's finally block)
-                if (_currentOperationId != null)
+                if (_currentOperationId.HasValue)
                 {
-                    _operationTracker.CompleteOperation(_currentOperationId, success, errorMessage);
+                    _operationTracker.CompleteOperation(_currentOperationId.Value, success, errorMessage);
                 }
 
                 _currentProgressPercent = 0;

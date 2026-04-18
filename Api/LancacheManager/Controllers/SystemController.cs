@@ -71,7 +71,7 @@ public class SystemController : ControllerBase
             LogsPath = defaultDatasource?.LogPath ?? _pathResolver.GetLogsDirectory(),
             DataPath = _pathResolver.GetDataDirectory(),
             CacheDeleteMode = _cacheClearingService.GetDeleteMode(),
-            SteamAuthMode = _stateService.GetSteamAuthMode() ?? string.Empty,
+            SteamAuthMode = _stateService.GetSteamAuthMode()?.ToWireString() ?? string.Empty,
             // Check TZ environment variable first (Docker standard), then TimeZone config, default to UTC
             TimeZone = _configuration.GetValue<string>("TZ")
                       ?? _configuration.GetValue<string>("TimeZone")
@@ -106,7 +106,7 @@ public class SystemController : ControllerBase
         {
             SetupCompleted = _stateService.GetSetupCompleted(),
             HasDataLoaded = _stateService.HasDataLoaded(),
-            SteamAuthMode = _stateService.GetSteamAuthMode() ?? string.Empty,
+            SteamAuthMode = _stateService.GetSteamAuthMode()?.ToWireString() ?? string.Empty,
             CacheDeleteMode = _cacheClearingService.GetDeleteMode()
         });
     }
@@ -423,7 +423,7 @@ public class SystemController : ControllerBase
     public IActionResult SetCacheDeleteMode([FromBody] SetCacheDeleteModeRequest request)
     {
         _cacheClearingService.SetDeleteMode(request.DeleteMode);
-        _logger.LogInformation("Cache delete mode updated to: {Mode}", request.DeleteMode);
+        _logger.LogInformation("Cache delete mode updated to: {Mode}", request.DeleteMode.ToWireString());
 
         return Ok(new CacheDeleteModeResponse
         {
@@ -465,24 +465,21 @@ public class SystemController : ControllerBase
     [HttpPatch("depots/scan-mode")]
     public IActionResult SetDepotScanMode([FromBody] SetScanModeRequest request)
     {
-        if (string.IsNullOrWhiteSpace(request.Mode))
-        {
-            return BadRequest(new ErrorResponse { Error = "Scan mode is required" });
-        }
-
-        var validModes = new[] { "full", "incremental" };
-        if (!validModes.Contains(request.Mode.ToLowerInvariant()))
+        // DepotScanMode.Github is not accepted here — it requires different downstream wiring
+        // (see DepotsController.SetCrawlMode). This endpoint only supports the boolean-backed
+        // incremental/full toggle.
+        if (request.Mode != DepotScanMode.Incremental && request.Mode != DepotScanMode.Full)
         {
             return BadRequest(new ErrorResponse { Error = "Invalid scan mode. Must be 'full' or 'incremental'" });
         }
 
-        _steamKit2Service.CrawlIncrementalMode = request.Mode.ToLowerInvariant() == "incremental";
-        _logger.LogInformation("PICS scan mode set to: {Mode}", request.Mode);
+        _steamKit2Service.CrawlIncrementalMode = request.Mode == DepotScanMode.Incremental;
+        _logger.LogInformation("PICS scan mode set to: {Mode}", request.Mode.ToWireString());
 
         return Ok(new ScanModeResponse
         {
             Message = "Scan mode updated",
-            Mode = request.Mode.ToLowerInvariant()
+            Mode = request.Mode
         });
     }
 
@@ -782,7 +779,7 @@ public class SystemController : ControllerBase
     {
         var session = GetSession();
         if (session == null) return null;
-        if (session.SessionType == "admin") return null;
+        if (session.SessionType == SessionType.Admin) return null;
 
         // Guest: check per-user override first, then system default
         var prefs = _userPreferencesService.GetPreferences(session.Id);
@@ -793,7 +790,7 @@ public class SystemController : ControllerBase
     {
         var session = GetSession();
         if (session == null) return null;
-        if (session.SessionType == "admin") return null;
+        if (session.SessionType == SessionType.Admin) return null;
 
         // Guest: check per-user override first, then system default
         var prefs = _userPreferencesService.GetPreferences(session.Id);

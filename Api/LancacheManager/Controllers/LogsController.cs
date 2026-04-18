@@ -327,7 +327,7 @@ public class LogsController : ControllerBase
             return Accepted(new OperationResponse
             {
                 Message = "Log processing started for all datasources",
-                Status = "running"
+                Status = OperationStatus.Running
             });
         }
         catch (InvalidOperationException ex)
@@ -370,7 +370,7 @@ public class LogsController : ControllerBase
                 return Accepted(new OperationResponse
                 {
                     Message = $"Log processing started for '{datasourceName}'",
-                    Status = "running"
+                    Status = OperationStatus.Running
                 });
             }
             else
@@ -539,7 +539,7 @@ public class LogsController : ControllerBase
         {
             Message = $"Started log removal for service: {service}",
             Service = service,
-            Status = "started"
+            Status = OperationStatus.Running
         });
     }
 
@@ -578,7 +578,7 @@ public class LogsController : ControllerBase
         {
             Message = $"Started log removal for service: {service} from datasource: {datasourceName}",
             Service = service,
-            Status = "started"
+            Status = OperationStatus.Running
         });
     }
 

@@ -27,13 +27,13 @@ public class RustLogRemovalService
     private Process? _rustProcess;
     private CancellationTokenSource? _cancellationTokenSource;
     private readonly SemaphoreSlim _startLock = new(1, 1);
-    private string? _currentTrackerOperationId;
+    private Guid? _currentTrackerOperationId;
 
     private readonly DatasourceService _datasourceService;
 
     public bool IsProcessing { get; private set; }
     public string? CurrentService { get; private set; }
-    public string? CurrentOperationId { get; private set; }
+    public Guid? CurrentOperationId { get; private set; }
     public string? CurrentDatasource { get; private set; }
 
     /// <summary>
@@ -180,9 +180,9 @@ public class RustLogRemovalService
                     success: false, message: "No datasources configured for log removal", cancelled: false,
                     new { Service = service });
 
-                if (!string.IsNullOrEmpty(_currentTrackerOperationId))
+                if (_currentTrackerOperationId.HasValue)
                 {
-                    _operationTracker.CompleteOperation(_currentTrackerOperationId, success: false, error: "No datasources configured");
+                    _operationTracker.CompleteOperation(_currentTrackerOperationId.Value, success: false, error: "No datasources configured");
                 }
 
                 return false;
@@ -395,9 +395,9 @@ public class RustLogRemovalService
                     service, datasourcesProcessed, totalLinesRemoved, totalLinesProcessed, dbCleanupResult.TotalDeleted);
 
                 // Mark operation as complete in unified tracker
-                if (!string.IsNullOrEmpty(_currentTrackerOperationId))
+                if (_currentTrackerOperationId.HasValue)
                 {
-                    _operationTracker.CompleteOperation(_currentTrackerOperationId, success: true);
+                    _operationTracker.CompleteOperation(_currentTrackerOperationId.Value, success: true);
                 }
 
                 return true;
@@ -413,9 +413,9 @@ public class RustLogRemovalService
                     success: false, message: skipMessage, cancelled: false,
                     new { Service = service });
 
-                if (!string.IsNullOrEmpty(_currentTrackerOperationId))
+                if (_currentTrackerOperationId.HasValue)
                 {
-                    _operationTracker.CompleteOperation(_currentTrackerOperationId, success: false, error: skipMessage);
+                    _operationTracker.CompleteOperation(_currentTrackerOperationId.Value, success: false, error: skipMessage);
                 }
 
                 return false;
@@ -432,9 +432,9 @@ public class RustLogRemovalService
 
                 _logger.LogError("Log removal failed for {Service}: some datasources had errors", service);
 
-                if (!string.IsNullOrEmpty(_currentTrackerOperationId))
+                if (_currentTrackerOperationId.HasValue)
                 {
-                    _operationTracker.CompleteOperation(_currentTrackerOperationId, success: false, error: failMessage);
+                    _operationTracker.CompleteOperation(_currentTrackerOperationId.Value, success: false, error: failMessage);
                 }
 
                 return false;
@@ -451,9 +451,9 @@ public class RustLogRemovalService
                 new { Service = service });
 
             // Mark operation as cancelled in unified tracker
-            if (!string.IsNullOrEmpty(_currentTrackerOperationId))
+            if (_currentTrackerOperationId.HasValue)
             {
-                _operationTracker.CompleteOperation(_currentTrackerOperationId, success: false, error: "Cancelled by user");
+                _operationTracker.CompleteOperation(_currentTrackerOperationId.Value, success: false, error: "Cancelled by user");
             }
 
             return false;
@@ -473,9 +473,9 @@ public class RustLogRemovalService
             catch (Exception notifyEx) { _logger.LogWarning(notifyEx, "Failed to send operation complete notification"); }
 
             // Mark operation as failed in unified tracker
-            if (!string.IsNullOrEmpty(_currentTrackerOperationId))
+            if (_currentTrackerOperationId.HasValue)
             {
-                _operationTracker.CompleteOperation(_currentTrackerOperationId, success: false, error: ex.Message);
+                _operationTracker.CompleteOperation(_currentTrackerOperationId.Value, success: false, error: ex.Message);
             }
 
             return false;
@@ -630,9 +630,9 @@ public class RustLogRemovalService
                         service, datasourceName, finalProgress?.LinesRemoved ?? 0);
 
                     // Mark operation as complete in unified tracker
-                    if (!string.IsNullOrEmpty(_currentTrackerOperationId))
+                    if (_currentTrackerOperationId.HasValue)
                     {
-                        _operationTracker.CompleteOperation(_currentTrackerOperationId, success: true);
+                        _operationTracker.CompleteOperation(_currentTrackerOperationId.Value, success: true);
                     }
                     return true;
                 }
@@ -647,9 +647,9 @@ public class RustLogRemovalService
                         service, datasourceName, exitCode);
 
                     // Mark operation as failed in unified tracker
-                    if (!string.IsNullOrEmpty(_currentTrackerOperationId))
+                    if (_currentTrackerOperationId.HasValue)
                     {
-                        _operationTracker.CompleteOperation(_currentTrackerOperationId, success: false, error: $"Exit code {exitCode}");
+                        _operationTracker.CompleteOperation(_currentTrackerOperationId.Value, success: false, error: $"Exit code {exitCode}");
                     }
                     return false;
                 }
@@ -665,9 +665,9 @@ public class RustLogRemovalService
                 new { Service = service, Datasource = datasourceName });
 
             // Mark operation as cancelled in unified tracker
-            if (!string.IsNullOrEmpty(_currentTrackerOperationId))
+            if (_currentTrackerOperationId.HasValue)
             {
-                _operationTracker.CompleteOperation(_currentTrackerOperationId, success: false, error: "Cancelled by user");
+                _operationTracker.CompleteOperation(_currentTrackerOperationId.Value, success: false, error: "Cancelled by user");
             }
 
             return false;
@@ -686,9 +686,9 @@ public class RustLogRemovalService
             catch (Exception notifyEx) { _logger.LogWarning(notifyEx, "Failed to send operation complete notification"); }
 
             // Mark operation as failed in unified tracker
-            if (!string.IsNullOrEmpty(_currentTrackerOperationId))
+            if (_currentTrackerOperationId.HasValue)
             {
-                _operationTracker.CompleteOperation(_currentTrackerOperationId, success: false, error: ex.Message);
+                _operationTracker.CompleteOperation(_currentTrackerOperationId.Value, success: false, error: ex.Message);
             }
 
             return false;
@@ -746,10 +746,10 @@ public class RustLogRemovalService
     /// </remarks>
     public bool CancelOperation()
     {
-        if (!string.IsNullOrEmpty(_currentTrackerOperationId))
+        if (_currentTrackerOperationId.HasValue)
         {
             _logger.LogInformation("Cancelling service removal via UnifiedOperationTracker: {OperationId}", _currentTrackerOperationId);
-            return _operationTracker.CancelOperation(_currentTrackerOperationId);
+            return _operationTracker.CancelOperation(_currentTrackerOperationId.Value);
         }
 
         // Fallback: Cancel directly if tracker ID not available

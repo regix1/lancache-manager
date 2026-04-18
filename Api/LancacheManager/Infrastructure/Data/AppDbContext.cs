@@ -145,6 +145,11 @@ public class AppDbContext : DbContext
             .HasIndex(c => c.LastDetectedUtc)
             .HasDatabaseName("IX_CachedServiceDetection_LastDetectedUtc");
 
+        // UserSession - persist SessionType enum as LOWERCASE string (existing rows use "admin"/"guest").
+        modelBuilder.Entity<UserSession>()
+            .Property(s => s.SessionType)
+            .HasConversion(new Converters.LowercaseStringEnumConverter<SessionType>());
+
         // UserSession indexes
         modelBuilder.Entity<UserSession>()
             .HasIndex(s => s.SessionTokenHash)
@@ -346,6 +351,15 @@ public class AppDbContext : DbContext
             .HasIndex(g => new { g.AppId, g.Service })
             .HasDatabaseName("IX_GameImages_AppId_Service")
             .IsUnique();
+
+        // Enum → string conversions (no schema change — column type stays varchar)
+        modelBuilder.Entity<PrefillSession>()
+            .Property(s => s.Status)
+            .HasConversion<string>();
+
+        modelBuilder.Entity<PrefillHistoryEntry>()
+            .Property(e => e.Status)
+            .HasConversion<string>();
     }
 
     /// <summary>

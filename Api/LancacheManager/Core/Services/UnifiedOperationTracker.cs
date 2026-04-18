@@ -10,8 +10,8 @@ namespace LancacheManager.Core.Services;
 /// </summary>
 public class UnifiedOperationTracker : IUnifiedOperationTracker
 {
-    private readonly ConcurrentDictionary<string, OperationInfo> _operations = new();
-    private readonly ConcurrentDictionary<(OperationType Type, string EntityKey), string> _entityKeyIndex = new();
+    private readonly ConcurrentDictionary<Guid, OperationInfo> _operations = new();
+    private readonly ConcurrentDictionary<(OperationType Type, string EntityKey), Guid> _entityKeyIndex = new();
     private readonly ILogger<UnifiedOperationTracker> _logger;
 
     public UnifiedOperationTracker(ILogger<UnifiedOperationTracker> logger)
@@ -19,9 +19,9 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         _logger = logger;
     }
 
-    public string RegisterOperation(OperationType type, string name, CancellationTokenSource cts, object? metadata = null)
+    public Guid RegisterOperation(OperationType type, string name, CancellationTokenSource cts, object? metadata = null)
     {
-        var operationId = Guid.NewGuid().ToString();
+        var operationId = Guid.NewGuid();
         var operation = new OperationInfo
         {
             Id = operationId,
@@ -49,7 +49,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         throw new InvalidOperationException($"Failed to register operation {operationId}");
     }
 
-    public bool CancelOperation(string operationId)
+    public bool CancelOperation(Guid operationId)
     {
         if (_operations.TryGetValue(operationId, out var operation))
         {
@@ -82,7 +82,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         return false;
     }
 
-    public bool ForceKillOperation(string operationId)
+    public bool ForceKillOperation(Guid operationId)
     {
         if (_operations.TryGetValue(operationId, out var operation))
         {
@@ -136,7 +136,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         return false;
     }
 
-    public OperationInfo? GetOperation(string operationId)
+    public OperationInfo? GetOperation(Guid operationId)
     {
         return _operations.TryGetValue(operationId, out var operation) ? operation : null;
     }
@@ -154,7 +154,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         return operations.ToList();
     }
 
-    public void CompleteOperation(string operationId, bool success, string? error = null)
+    public void CompleteOperation(Guid operationId, bool success, string? error = null)
     {
         if (_operations.TryGetValue(operationId, out var operation))
         {
@@ -192,7 +192,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         }
     }
 
-    public void UpdateProgress(string operationId, double percent, string message)
+    public void UpdateProgress(Guid operationId, double percent, string message)
     {
         if (_operations.TryGetValue(operationId, out var operation))
         {
@@ -214,7 +214,7 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         return null;
     }
 
-    public void UpdateMetadata(string operationId, Action<object> updater)
+    public void UpdateMetadata(Guid operationId, Action<object> updater)
     {
         if (_operations.TryGetValue(operationId, out var operation) && operation.Metadata != null)
         {

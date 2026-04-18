@@ -7,9 +7,9 @@ namespace LancacheManager.Models;
 public class GameDetectionMetrics
 {
     /// <summary>
-    /// Type of scan performed - "full" or "incremental".
+    /// Type of scan performed - <see cref="DetectionScanType.Full"/> or <see cref="DetectionScanType.Incremental"/>.
     /// </summary>
-    public string ScanType { get; set; } = "incremental";
+    public DetectionScanType ScanType { get; set; } = DetectionScanType.Incremental;
 
     /// <summary>
     /// List of detected game caches.

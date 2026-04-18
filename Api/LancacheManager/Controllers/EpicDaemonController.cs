@@ -26,7 +26,7 @@ public class EpicDaemonController : DaemonControllerBase<EpicPrefillDaemonServic
 
     protected override int? ResolveEffectiveThreadLimit(UserSession session)
     {
-        if (session.SessionType == "admin") return null;
+        if (session.SessionType == SessionType.Admin) return null;
         var prefs = _userPreferencesService.GetPreferences(session.Id);
         return prefs?.EpicMaxThreadCount ?? _stateService.GetEpicDefaultGuestMaxThreadCount();
     }

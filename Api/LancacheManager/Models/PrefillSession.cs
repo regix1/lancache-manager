@@ -49,11 +49,10 @@ public class PrefillSession
     public string Platform { get; set; } = "Steam";
 
     /// <summary>
-    /// Session status: Active, Terminated, Expired, Orphaned
+    /// Session status: Active, Terminated, Orphaned, Cleaned, Cancelled
     /// </summary>
     [Required]
-    [MaxLength(20)]
-    public string Status { get; set; } = "Active";
+    public PrefillSessionStatus Status { get; set; } = PrefillSessionStatus.Active;
 
     /// <summary>
     /// Whether the user is currently authenticated with Steam

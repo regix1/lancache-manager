@@ -3,13 +3,13 @@ namespace LancacheManager.Models;
 /// <summary>
 /// SignalR event payload emitted when an eviction scan operation starts.
 /// </summary>
-public record EvictionScanStarted(string StageKey, string OperationId, Dictionary<string, object?>? Context = null);
+public record EvictionScanStarted(string StageKey, Guid OperationId, Dictionary<string, object?>? Context = null);
 
 /// <summary>
 /// SignalR event payload emitted after each batch during an eviction scan.
 /// </summary>
 public record EvictionScanProgress(
-    string OperationId,
+    Guid OperationId,
     string Status,
     string StageKey,
     double PercentComplete,
@@ -24,7 +24,7 @@ public record EvictionScanProgress(
 /// </summary>
 public record EvictionScanComplete(
     bool Success,
-    string OperationId,
+    Guid OperationId,
     string StageKey,
     int Processed,
     int Evicted,
@@ -35,13 +35,13 @@ public record EvictionScanComplete(
 /// <summary>
 /// SignalR event payload emitted when an eviction removal operation starts.
 /// </summary>
-public record EvictionRemovalStarted(string StageKey, string OperationId, Dictionary<string, object?>? Context = null, string? GameName = null, string? GameAppId = null);
+public record EvictionRemovalStarted(string StageKey, Guid OperationId, Dictionary<string, object?>? Context = null, string? GameName = null, string? GameAppId = null);
 
 /// <summary>
 /// SignalR event payload emitted during an eviction removal operation.
 /// </summary>
 public record EvictionRemovalProgress(
-    string OperationId,
+    Guid OperationId,
     string Status,
     string StageKey,
     double PercentComplete,
@@ -54,7 +54,7 @@ public record EvictionRemovalProgress(
 /// </summary>
 public record EvictionRemovalComplete(
     bool Success,
-    string OperationId,
+    Guid OperationId,
     string StageKey,
     int DownloadsRemoved,
     int LogEntriesRemoved,

@@ -45,13 +45,14 @@ public class SteamAuthController : ControllerBase
         var isConnected = _steamKit2Service.IsReady;
         var username = _stateService.GetSteamUsername();
 
+        var authModeWire = authMode?.ToWireString() ?? string.Empty;
         return Ok(new SteamAuthStatusResponse
         {
-            Mode = authMode ?? string.Empty,
+            Mode = authModeWire,
             Username = username ?? string.Empty,
             IsAuthenticated = !string.IsNullOrEmpty(username),
             // Legacy fields for backward compatibility
-            AuthMode = authMode ?? string.Empty,
+            AuthMode = authModeWire,
             IsConnected = isConnected,
             HasStoredCredentials = !string.IsNullOrEmpty(username)
         });
@@ -84,7 +85,7 @@ public class SteamAuthController : ControllerBase
 
             if (result.Success)
             {
-                _stateService.SetSteamAuthMode("authenticated");
+                _stateService.SetSteamAuthMode(SteamAuthMode.Authenticated);
                 _stateService.SetSteamUsername(request.Username);
 
                 _logger.LogInformation("Steam authentication successful for user: {Username}", request.Username);
@@ -131,7 +132,7 @@ public class SteamAuthController : ControllerBase
         // No credentials provided - just return current status
         var authMode = _stateService.GetSteamAuthMode();
 
-        if (authMode == "anonymous")
+        if (authMode == SteamAuthMode.Anonymous)
         {
             return Ok(new SteamLoginResponse
             {
@@ -140,7 +141,7 @@ public class SteamAuthController : ControllerBase
                 Status = "connected"
             });
         }
-        else if (authMode == "authenticated")
+        else if (authMode == SteamAuthMode.Authenticated)
         {
             var username = _stateService.GetSteamUsername();
             return Ok(new SteamLoginResponse
@@ -153,7 +154,7 @@ public class SteamAuthController : ControllerBase
         }
         else
         {
-            return BadRequest(new ErrorResponse { Error = $"Unknown Steam auth mode: {authMode}" });
+            return BadRequest(new ErrorResponse { Error = $"Unknown Steam auth mode: {authMode?.ToWireString() ?? "(none)"}" });
         }
     }
 
@@ -170,20 +171,22 @@ public class SteamAuthController : ControllerBase
             return BadRequest(new ErrorResponse { Error = "Mode is required" });
         }
 
-        var mode = request.Mode.ToLowerInvariant();
-        if (mode != "anonymous" && mode != "authenticated")
+        var parsedMode = SteamAuthModeExtensions.TryParseWire(request.Mode);
+        if (parsedMode is null)
         {
             return BadRequest(new ErrorResponse { Error = "Mode must be 'anonymous' or 'authenticated'" });
         }
 
+        var mode = parsedMode.Value;
         _stateService.SetSteamAuthMode(mode);
-        _logger.LogInformation("Steam auth mode set to: {Mode}", mode);
+        var wire = mode.ToWireString();
+        _logger.LogInformation("Steam auth mode set to: {Mode}", wire);
 
         return Ok(new SteamModeResponse
         {
             Success = true,
-            Message = $"Steam authentication mode set to {mode}",
-            Mode = mode
+            Message = $"Steam authentication mode set to {wire}",
+            Mode = wire
         });
     }
 

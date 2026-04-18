@@ -27,7 +27,7 @@ public class GameCacheDetectionService : IDisposable
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly SemaphoreSlim _startLock = new(1, 1);
     private CancellationTokenSource? _cancellationTokenSource;
-    private string? _currentTrackerOperationId;
+    private Guid? _currentTrackerOperationId;
 
     // In-memory cache for detection response — avoids 10+ DB queries on every dashboard load.
     // Invalidated when detection scans, eviction scans, or game removals change the data.
@@ -47,13 +47,13 @@ public class GameCacheDetectionService : IDisposable
     /// </summary>
     public class DetectionOperationResponse
     {
-        public string OperationId { get; set; } = string.Empty;
+        public Guid OperationId { get; set; }
         public DateTime StartTime { get; set; }
-        public string Status { get; set; } = "running";
+        public OperationStatus Status { get; set; } = OperationStatus.Running;
         public string? Message { get; set; }
         public string? StatusMessage => Message; // Alias for frontend compatibility
         public double PercentComplete { get; set; }
-        public string ScanType { get; set; } = "incremental";
+        public DetectionScanType ScanType { get; set; } = DetectionScanType.Incremental;
         public List<GameCacheInfo>? Games { get; set; }
         public List<ServiceCacheInfo>? Services { get; set; }
         public int TotalGamesDetected { get; set; }
@@ -90,7 +90,7 @@ public class GameCacheDetectionService : IDisposable
         RestoreInterruptedOperations();
     }
 
-    public async Task<string?> StartDetectionAsync(bool incremental = true)
+    public async Task<Guid?> StartDetectionAsync(bool incremental = true)
     {
         await _startLock.WaitAsync();
         try
@@ -117,7 +117,7 @@ public class GameCacheDetectionService : IDisposable
             // Note: Don't cancel/dispose old one here - it may have been disposed by CompleteOperation
             _cancellationTokenSource = new CancellationTokenSource();
 
-            var scanType = incremental ? "incremental" : "full";
+            var scanType = incremental ? DetectionScanType.Incremental : DetectionScanType.Full;
             var stageKeyStarting = incremental
                 ? "signalr.gameDetect.starting.incremental"
                 : "signalr.gameDetect.starting.full";
@@ -130,7 +130,7 @@ public class GameCacheDetectionService : IDisposable
                 _cancellationTokenSource,
                 metadata
             );
-            var operationId = _currentTrackerOperationId;
+            var operationId = _currentTrackerOperationId.Value;
 
             // Set initial progress message
             _operationTracker.UpdateProgress(operationId, 0, stageKeyStarting);
@@ -213,7 +213,7 @@ public class GameCacheDetectionService : IDisposable
     /// Smart pre-check: If 3+ unknown games detected in cache, check if depot mappings are now available
     /// If mappings exist, invalidate cache to trigger fresh scan with new mappings
     /// </summary>
-    private async Task<bool> ApplyMappingsPreCheckAsync(string operationId)
+    private async Task<bool> ApplyMappingsPreCheckAsync(Guid operationId)
     {
         try
         {
@@ -247,7 +247,7 @@ public class GameCacheDetectionService : IDisposable
         }
     }
 
-    private async Task RunDetectionAsync(string operationId, bool incremental, CancellationToken cancellationToken = default)
+    private async Task RunDetectionAsync(Guid operationId, bool incremental, CancellationToken cancellationToken = default)
     {
         var trackerOp = _operationTracker.GetOperation(operationId);
         if (trackerOp == null)
@@ -755,7 +755,7 @@ public class GameCacheDetectionService : IDisposable
     /// Consolidates the common teardown logic shared across success, cancel, and error paths.
     /// </summary>
     private async Task FinalizeDetectionAsync(
-        string operationId, bool success, string status, string stageKey, bool cancelled,
+        Guid operationId, bool success, OperationStatus status, string stageKey, bool cancelled,
         Dictionary<string, object?>? context = null, int? gamesDetected = null, int? servicesDetected = null)
     {
         // Invalidate in-memory detection cache so next dashboard load picks up new data
@@ -780,7 +780,7 @@ public class GameCacheDetectionService : IDisposable
         {
             Key = $"gameDetection_{operationId}",
             Type = "gameDetection",
-            Status = status,
+            Status = status.ToWireString(),
             Message = stageKey,
             Data = stateData
         });
@@ -800,7 +800,7 @@ public class GameCacheDetectionService : IDisposable
         });
     }
 
-    public DetectionOperationResponse? GetOperationStatus(string operationId)
+    public DetectionOperationResponse? GetOperationStatus(Guid operationId)
     {
         var opInfo = _operationTracker.GetOperation(operationId);
         if (opInfo == null)
@@ -833,10 +833,10 @@ public class GameCacheDetectionService : IDisposable
     /// </remarks>
     public void CancelDetection()
     {
-        if (!string.IsNullOrEmpty(_currentTrackerOperationId))
+        if (_currentTrackerOperationId.HasValue)
         {
             _logger.LogInformation("[GameDetection] Cancelling detection via UnifiedOperationTracker: {OperationId}", _currentTrackerOperationId);
-            _operationTracker.CancelOperation(_currentTrackerOperationId);
+            _operationTracker.CancelOperation(_currentTrackerOperationId.Value);
         }
         else
         {
@@ -1238,7 +1238,7 @@ public class GameCacheDetectionService : IDisposable
 
         return new DetectionOperationResponse
         {
-            OperationId = "cached",
+            OperationId = Guid.Empty,
             StartTime = lastDetectedTime,
             Status = OperationStatus.Completed,
             Message = loadedStageKey,
@@ -1576,7 +1576,7 @@ public class GameCacheDetectionService : IDisposable
                     {
                         // Register with UnifiedOperationTracker for recovery
                         _cancellationTokenSource = new CancellationTokenSource();
-                        var metadata = new GameDetectionMetrics { ScanType = "incremental" };
+                        var metadata = new GameDetectionMetrics { ScanType = DetectionScanType.Incremental };
                         var trackerOpId = _operationTracker.RegisterOperation(
                             OperationType.GameDetection,
                             "Game Detection",
@@ -1615,7 +1615,7 @@ public class GameCacheDetectionService : IDisposable
             Status = opInfo.Status,
             Message = opInfo.Message,
             PercentComplete = opInfo.PercentComplete,
-            ScanType = metrics?.ScanType ?? "incremental",
+            ScanType = metrics?.ScanType ?? DetectionScanType.Incremental,
             Games = metrics?.Games,
             Services = metrics?.Services,
             TotalGamesDetected = metrics?.TotalGamesDetected ?? 0,

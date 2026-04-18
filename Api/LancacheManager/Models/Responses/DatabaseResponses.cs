@@ -6,8 +6,8 @@ namespace LancacheManager.Models;
 public class DatabaseResetStartResponse
 {
     public string Message { get; set; } = string.Empty;
-    public string OperationId { get; set; } = string.Empty;
-    public string Status { get; set; } = "running";
+    public Guid OperationId { get; set; }
+    public OperationStatus Status { get; set; } = OperationStatus.Running;
 }
 
 /// <summary>
@@ -16,13 +16,17 @@ public class DatabaseResetStartResponse
 public class SelectedTablesResetResponse
 {
     public string Message { get; set; } = string.Empty;
-    public string OperationId { get; set; } = string.Empty;
+    public Guid OperationId { get; set; }
     public List<string> Tables { get; set; } = new();
-    public string Status { get; set; } = "running";
+    public OperationStatus Status { get; set; } = OperationStatus.Running;
 }
 
 /// <summary>
-/// Response for database reset status
+/// Response for database reset status.
+/// <see cref="Status"/> stays <c>string</c> because this DTO is populated from
+/// <c>DatabaseService.ResetProgressInfo</c>, which uses an open-ended set of
+/// legacy values (e.g. <c>"idle"</c>, <c>"starting"</c>) that do not map 1:1
+/// onto <see cref="OperationStatus"/>.
 /// </summary>
 public class DatabaseResetStatusResponse
 {
@@ -38,10 +42,10 @@ public class DatabaseResetStatusResponse
 public class DataImportStatusResponse
 {
     public bool IsProcessing { get; set; }
-    public string? Status { get; set; }
+    public OperationStatus? Status { get; set; }
     public string? Message { get; set; }
     public double? PercentComplete { get; set; }
-    public string? OperationId { get; set; }
+    public Guid? OperationId { get; set; }
 }
 
 /// <summary>

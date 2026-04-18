@@ -52,11 +52,10 @@ public class PrefillHistoryEntry
     public long TotalBytes { get; set; }
 
     /// <summary>
-    /// Result status: InProgress, Completed, Failed, Cancelled
+    /// Result status: InProgress, Completed, Cached, Failed, Cancelled
     /// </summary>
     [Required]
-    [MaxLength(20)]
-    public string Status { get; set; } = "InProgress";
+    public PrefillHistoryEntryStatus Status { get; set; } = PrefillHistoryEntryStatus.InProgress;
 
     /// <summary>
     /// Error message if the prefill failed

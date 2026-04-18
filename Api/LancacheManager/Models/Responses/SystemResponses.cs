@@ -26,7 +26,7 @@ public class SystemConfigResponse
     public string LogsPath { get; set; } = string.Empty;
 
     public string DataPath { get; set; } = string.Empty;
-    public string CacheDeleteMode { get; set; } = string.Empty;
+    public CacheDeleteMode CacheDeleteMode { get; set; } = CacheDeleteMode.Preserve;
     public string SteamAuthMode { get; set; } = string.Empty;
     public string TimeZone { get; set; } = "UTC";
     public bool CacheWritable { get; set; }
@@ -83,7 +83,7 @@ public class SystemStateResponse
     public bool SetupCompleted { get; set; }
     public bool HasDataLoaded { get; set; }
     public string SteamAuthMode { get; set; } = string.Empty;
-    public string CacheDeleteMode { get; set; } = string.Empty;
+    public CacheDeleteMode CacheDeleteMode { get; set; } = CacheDeleteMode.Preserve;
 }
 
 /// <summary>
@@ -154,7 +154,7 @@ public class SetupUpdateResponse
 public class ScanModeResponse
 {
     public string Message { get; set; } = string.Empty;
-    public string Mode { get; set; } = string.Empty;
+    public DepotScanMode Mode { get; set; } = DepotScanMode.Incremental;
 }
 
 /// <summary>

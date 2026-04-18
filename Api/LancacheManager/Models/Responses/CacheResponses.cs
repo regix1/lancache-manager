@@ -17,10 +17,10 @@ public class CacheInfoResponse
 public class CacheOperationResponse
 {
     public string Message { get; set; } = string.Empty;
-    public string? OperationId { get; set; }
+    public Guid? OperationId { get; set; }
     public string? ServiceName { get; set; }
     public string? Service { get; set; }
-    public string Status { get; set; } = "running";
+    public OperationStatus Status { get; set; } = OperationStatus.Running;
 }
 
 /// <summary>
@@ -46,9 +46,9 @@ public class ActiveOperationsResponse : ActiveOperationsResponse<object>
 public class RemovalStatusResponse
 {
     public bool IsProcessing { get; set; }
-    public string? Status { get; set; }
+    public OperationStatus? Status { get; set; }
     public string? Message { get; set; }
-    public string? OperationId { get; set; }
+    public Guid? OperationId { get; set; }
     public int FilesDeleted { get; set; }
     public long BytesFreed { get; set; }
     public DateTime? StartedAt { get; set; }
@@ -93,8 +93,8 @@ public class EstimatedDeletionTimes
 public class CacheClearStartResponse
 {
     public string Message { get; set; } = string.Empty;
-    public string OperationId { get; set; } = string.Empty;
-    public string Status { get; set; } = "running";
+    public Guid OperationId { get; set; }
+    public OperationStatus Status { get; set; } = OperationStatus.Running;
 }
 
 /// <summary>
@@ -103,7 +103,7 @@ public class CacheClearStartResponse
 public class CacheDeleteModeResponse
 {
     public string Message { get; set; } = string.Empty;
-    public string DeleteMode { get; set; } = string.Empty;
+    public CacheDeleteMode DeleteMode { get; set; } = CacheDeleteMode.Preserve;
 }
 
 /// <summary>
@@ -113,7 +113,7 @@ public class ServiceRemovalStartResponse
 {
     public string Message { get; set; } = string.Empty;
     public string ServiceName { get; set; } = string.Empty;
-    public string Status { get; set; } = "running";
+    public OperationStatus Status { get; set; } = OperationStatus.Running;
 }
 
 /// <summary>
@@ -123,8 +123,8 @@ public class CorruptionRemovalStartResponse
 {
     public string Message { get; set; } = string.Empty;
     public string Service { get; set; } = string.Empty;
-    public string OperationId { get; set; } = string.Empty;
-    public string Status { get; set; } = "running";
+    public Guid OperationId { get; set; }
+    public OperationStatus Status { get; set; } = OperationStatus.Running;
 }
 
 /// <summary>
@@ -137,8 +137,8 @@ public class ActiveCorruptionRemovalsResponse : ActiveOperationsResponse<Corrupt
 public class CorruptionRemovalInfo
 {
     public string Service { get; set; } = string.Empty;
-    public string OperationId { get; set; } = string.Empty;
-    public string Status { get; set; } = string.Empty;
+    public Guid OperationId { get; set; }
+    public OperationStatus Status { get; set; }
     public string? Message { get; set; }
     public DateTime? StartedAt { get; set; }
 }
@@ -153,7 +153,7 @@ public class ActiveServiceRemovalsResponse : ActiveOperationsResponse<ServiceRem
 public class ServiceRemovalInfo
 {
     public string ServiceName { get; set; } = string.Empty;
-    public string Status { get; set; } = string.Empty;
+    public OperationStatus Status { get; set; }
     public string? Message { get; set; }
     public int FilesDeleted { get; set; }
     public long BytesFreed { get; set; }
@@ -171,7 +171,7 @@ public class GameRemovalInfo
 {
     public long GameAppId { get; set; }
     public string GameName { get; set; } = string.Empty;
-    public string Status { get; set; } = string.Empty;
+    public OperationStatus Status { get; set; }
     public string? Message { get; set; }
     public int FilesDeleted { get; set; }
     public long BytesFreed { get; set; }

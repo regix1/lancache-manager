@@ -6,10 +6,10 @@ namespace LancacheManager.Models;
 public class GameRemovalStartResponse
 {
     public string Message { get; set; } = string.Empty;
-    public string OperationId { get; set; } = string.Empty;
+    public Guid OperationId { get; set; }
     public string AppId { get; set; } = string.Empty;
     public string GameName { get; set; } = string.Empty;
-    public string Status { get; set; } = "running";
+    public OperationStatus Status { get; set; } = OperationStatus.Running;
 }
 
 /// <summary>
@@ -18,8 +18,8 @@ public class GameRemovalStartResponse
 public class GameDetectionStartResponse
 {
     public string Message { get; set; } = string.Empty;
-    public string OperationId { get; set; } = string.Empty;
-    public string Status { get; set; } = "running";
+    public Guid OperationId { get; set; }
+    public OperationStatus Status { get; set; } = OperationStatus.Running;
 }
 
 /// <summary>

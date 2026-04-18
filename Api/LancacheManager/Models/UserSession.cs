@@ -13,9 +13,9 @@ public class UserSession
     public string SessionTokenHash { get; set; } = string.Empty;
 
     /// <summary>
-    /// "admin" or "guest"
+    /// Admin or Guest session type.
     /// </summary>
-    public string SessionType { get; set; } = string.Empty;
+    public SessionType SessionType { get; set; }
 
     public string IpAddress { get; set; } = string.Empty;
     public string UserAgent { get; set; } = string.Empty;

@@ -3,7 +3,7 @@ namespace LancacheManager.Models;
 public class AuthStatusResponse
 {
     public bool IsAuthenticated { get; set; }
-    public string? SessionType { get; set; }
+    public SessionType? SessionType { get; set; }
     public Guid? SessionId { get; set; }
     public DateTime? ExpiresAt { get; set; }
     public bool HasData { get; set; }
@@ -28,7 +28,7 @@ public class LoginRequest
 public class LoginResponse
 {
     public bool Success { get; set; }
-    public string SessionType { get; set; } = string.Empty;
+    public SessionType SessionType { get; set; }
     public DateTime ExpiresAt { get; set; }
     public string? Token { get; set; }
 }
@@ -36,7 +36,7 @@ public class LoginResponse
 public class SessionDto
 {
     public Guid Id { get; set; }
-    public string SessionType { get; set; } = string.Empty;
+    public SessionType SessionType { get; set; }
     public string? IpAddress { get; set; }
     public string? UserAgent { get; set; }
     public DateTime CreatedAt { get; set; }

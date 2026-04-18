@@ -97,7 +97,7 @@ public class DataMigrationController : ControllerBase
         {
             OperationId = operationId,
             Message = "Starting DeveLanCacheUI_Backend import...",
-            ImportType = "develancache"
+            ImportType = ImportType.Develancache
         });
 
         try
@@ -290,7 +290,7 @@ public class DataMigrationController : ControllerBase
         {
             OperationId = operationId,
             Message = "Starting LancacheManager import...",
-            ImportType = "lancache-manager"
+            ImportType = ImportType.LancacheManager
         });
 
         try
@@ -579,7 +579,7 @@ public class DataMigrationController : ControllerBase
     /// Query params: connectionString (supports raw path or "Data Source=..." format), importType (develancache or lancache-manager)
     /// </summary>
     [HttpGet("validate-connection")]
-    public async Task<IActionResult> ValidateConnectionAsync([FromQuery] string connectionString, [FromQuery] string importType = "develancache")
+    public async Task<IActionResult> ValidateConnectionAsync([FromQuery] string connectionString, [FromQuery] ImportType importType = ImportType.Develancache)
     {
         if (string.IsNullOrWhiteSpace(connectionString))
         {
@@ -588,7 +588,7 @@ public class DataMigrationController : ControllerBase
 
         try
         {
-            if (string.Equals(importType, "develancache", StringComparison.OrdinalIgnoreCase))
+            if (importType == ImportType.Develancache)
             {
                 var sourcePath = ExtractDatabasePath(connectionString);
                 if (string.IsNullOrWhiteSpace(sourcePath) || !System.IO.File.Exists(sourcePath))
@@ -628,7 +628,7 @@ public class DataMigrationController : ControllerBase
             await connection.OpenAsync();
 
             // Determine which table to check based on import type
-            var tableName = importType == "lancache-manager" ? "Downloads" : "DownloadEvents";
+            var tableName = importType == ImportType.LancacheManager ? "Downloads" : "DownloadEvents";
 
             // Check for the appropriate table
             var cmd = connection.CreateCommand();

@@ -6,14 +6,14 @@ namespace LancacheManager.Models;
 public class OperationResponse
 {
     public string Message { get; set; } = string.Empty;
-    public string OperationId { get; set; } = string.Empty;
-    public string Status { get; set; } = "running";
+    public Guid OperationId { get; set; }
+    public OperationStatus Status { get; set; } = OperationStatus.Running;
 
-    public static OperationResponse Started(string operationId, string message) => new()
+    public static OperationResponse Started(Guid operationId, string message) => new()
     {
         OperationId = operationId,
         Message = message,
-        Status = "running"
+        Status = OperationStatus.Running
     };
 }
 
@@ -23,7 +23,7 @@ public class OperationResponse
 public class OperationStatusResponse
 {
     public bool IsProcessing { get; set; }
-    public string? Status { get; set; }
+    public OperationStatus? Status { get; set; }
     public string? Message { get; set; }
     public int? PercentComplete { get; set; }
     public string? Error { get; set; }

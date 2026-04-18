@@ -41,7 +41,7 @@ public partial class SteamKit2Service
             _notifications.NotifyAllFireAndForget(SignalREvents.DepotMappingStarted, new
             {
                 operationId,
-                scanMode = "github",
+                scanMode = DepotScanMode.Github,
                 stageKey = "signalr.depotMapping.github.downloading",
                 context = new Dictionary<string, object?>(),
                 isLoggedOn = IsSteamAuthenticated,
@@ -160,7 +160,7 @@ public partial class SteamKit2Service
             {
                 operationId,
                 success = true,
-                scanMode = "github",
+                scanMode = DepotScanMode.Github,
                 stageKey = "signalr.depotMapping.github.complete",
                 context = new Dictionary<string, object?> { ["totalMappings"] = totalMappings },
                 totalMappings,
@@ -202,7 +202,7 @@ public partial class SteamKit2Service
                 operationId,
                 success = false,
                 cancelled = true,
-                scanMode = "github",
+                scanMode = DepotScanMode.Github,
                 stageKey = "signalr.depotMapping.cancelled",
                 context = new Dictionary<string, object?>(),
                 isLoggedOn = IsSteamAuthenticated,
@@ -227,13 +227,13 @@ public partial class SteamKit2Service
         }
     }
 
-    private async Task SendGitHubErrorNotificationAsync(string errorMessage, string? operationId = null)
+    private async Task SendGitHubErrorNotificationAsync(string errorMessage, Guid? operationId = null)
     {
         await _notifications.NotifyAllAsync(SignalREvents.DepotMappingComplete, new
         {
             operationId,
             success = false,
-            scanMode = "github",
+            scanMode = DepotScanMode.Github,
             stageKey = "signalr.depotMapping.github.failed",
             context = new Dictionary<string, object?> { ["errorDetail"] = errorMessage },
             error = errorMessage,
@@ -242,14 +242,14 @@ public partial class SteamKit2Service
         });
     }
 
-    private async Task SendGitHubProgressAsync(string message, int percentComplete, string? operationId = null)
+    private async Task SendGitHubProgressAsync(string message, int percentComplete, Guid? operationId = null)
     {
         await _notifications.NotifyAllAsync(SignalREvents.DepotMappingProgress, new
         {
             operationId,
             status = message,
             percentComplete,
-            scanMode = "github",
+            scanMode = DepotScanMode.Github,
             message,
             isLoggedOn = IsSteamAuthenticated,
             timestamp = DateTime.UtcNow

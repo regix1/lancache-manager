@@ -57,7 +57,7 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
         }
 
         var session = await _sessionService.ValidateSessionAsync(rawToken);
-        var isAdmin = session?.SessionType == "admin";
+        var isAdmin = session?.SessionType == SessionType.Admin;
         var hasPrefillAccess = session != null && GetPrefillExpiry(session) != null && GetPrefillExpiry(session) > DateTime.UtcNow;
         if (session == null || (!isAdmin && !hasPrefillAccess))
         {
@@ -308,7 +308,7 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
 
         return new LastPrefillResultDto
         {
-            Status = session.LastPrefillStatus ?? "unknown",
+            Status = session.LastPrefillStatus ?? PrefillProgressState.Unknown.ToWireString(),
             CompletedAt = session.LastPrefillCompletedAt.Value,
             DurationSeconds = session.LastPrefillDurationSeconds ?? 0
         };

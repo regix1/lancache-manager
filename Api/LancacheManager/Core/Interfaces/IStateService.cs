@@ -21,7 +21,7 @@ public interface IStateService
 
     // Cache Clear Operations Methods (stored in data/operations/cache_operations.json)
     List<CacheClearOperation> GetCacheClearOperations();
-    void RemoveCacheClearOperation(string id);
+    void RemoveCacheClearOperation(Guid id);
     void UpdateCacheClearOperations(Action<List<CacheClearOperation>> updater);
 
     // Operation States Methods (stored in data/operations/operation_history.json)
@@ -71,8 +71,8 @@ public interface IStateService
     DepotProcessingState GetDepotProcessingState();
 
     // Steam Authentication Methods
-    string? GetSteamAuthMode();
-    void SetSteamAuthMode(string mode);
+    SteamAuthMode? GetSteamAuthMode();
+    void SetSteamAuthMode(SteamAuthMode mode);
     string? GetSteamUsername();
     void SetSteamUsername(string? username);
     string? GetSteamRefreshToken();

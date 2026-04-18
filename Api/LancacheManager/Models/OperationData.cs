@@ -68,7 +68,7 @@ public class SteamPicsProgress
     public bool IsWebApiAvailable { get; set; }
 
     [JsonPropertyName("operationId")]
-    public string? OperationId { get; set; }
+    public Guid? OperationId { get; set; }
 }
 
 /// <summary>

@@ -166,7 +166,7 @@ public class PrefillSessionService
             ContainerId = containerId,
             ContainerName = containerName,
             Platform = platform,
-            Status = "Active",
+            Status = PrefillSessionStatus.Active,
             CreatedAtUtc = DateTime.UtcNow,
             ExpiresAtUtc = expiresAt
         };
@@ -247,9 +247,9 @@ public class PrefillSessionService
         var session = await context.PrefillSessions
             .FirstOrDefaultAsync(s => s.SessionId == sessionId);
 
-        if (session != null && session.Status == "Active")
+        if (session != null && session.Status == PrefillSessionStatus.Active)
         {
-            session.Status = "Terminated";
+            session.Status = PrefillSessionStatus.Terminated;
             session.EndedAtUtc = DateTime.UtcNow;
             session.TerminationReason = reason;
             session.TerminatedBy = terminatedBy;
@@ -268,7 +268,7 @@ public class PrefillSessionService
 
         return await context.PrefillSessions
             .AsNoTracking()
-            .Where(s => s.Status == "Active")
+            .Where(s => s.Status == PrefillSessionStatus.Active)
             .OrderByDescending(s => s.CreatedAtUtc)
             .ToListAsync();
     }
@@ -286,9 +286,10 @@ public class PrefillSessionService
 
         var query = context.PrefillSessions.AsNoTracking().AsQueryable();
 
-        if (!string.IsNullOrEmpty(statusFilter))
+        if (!string.IsNullOrEmpty(statusFilter)
+            && Enum.TryParse<PrefillSessionStatus>(statusFilter, ignoreCase: true, out var parsedStatus))
         {
-            query = query.Where(s => s.Status == statusFilter);
+            query = query.Where(s => s.Status == parsedStatus);
         }
 
         if (!string.IsNullOrEmpty(platformFilter))
@@ -328,12 +329,12 @@ public class PrefillSessionService
         await using var context = await _contextFactory.CreateDbContextAsync();
 
         var activeSessions = await context.PrefillSessions
-            .Where(s => s.Status == "Active")
+            .Where(s => s.Status == PrefillSessionStatus.Active)
             .ToListAsync();
 
         foreach (var session in activeSessions)
         {
-            session.Status = "Orphaned";
+            session.Status = PrefillSessionStatus.Orphaned;
             session.EndedAtUtc = DateTime.UtcNow;
             session.TerminationReason = "App restarted - session orphaned";
         }
@@ -356,7 +357,7 @@ public class PrefillSessionService
 
         return await context.PrefillSessions
             .AsNoTracking()
-            .Where(s => s.Status == "Orphaned" && s.ContainerId != null)
+            .Where(s => s.Status == PrefillSessionStatus.Orphaned && s.ContainerId != null)
             .Select(s => s.ContainerId!)
             .ToListAsync();
     }
@@ -369,11 +370,11 @@ public class PrefillSessionService
         await using var context = await _contextFactory.CreateDbContextAsync();
 
         var session = await context.PrefillSessions
-            .FirstOrDefaultAsync(s => s.ContainerId == containerId && s.Status == "Orphaned");
+            .FirstOrDefaultAsync(s => s.ContainerId == containerId && s.Status == PrefillSessionStatus.Orphaned);
 
         if (session != null)
         {
-            session.Status = "Cleaned";
+            session.Status = PrefillSessionStatus.Cleaned;
             session.TerminationReason = "Orphaned container terminated on startup";
             await context.SaveChangesAsync();
         }
@@ -398,7 +399,7 @@ public class PrefillSessionService
         var recentCutoff = DateTime.UtcNow.AddSeconds(-5);
         var recentlyFinished = await context.PrefillHistoryEntries
             .Where(e => e.SessionId == sessionId && e.AppId == appId)
-            .Where(e => (e.Status == "Completed" || e.Status == "Cached") && e.CompletedAtUtc != null && e.CompletedAtUtc > recentCutoff)
+            .Where(e => (e.Status == PrefillHistoryEntryStatus.Completed || e.Status == PrefillHistoryEntryStatus.Cached) && e.CompletedAtUtc != null && e.CompletedAtUtc > recentCutoff)
             .AnyAsync();
 
         if (recentlyFinished)
@@ -410,14 +411,14 @@ public class PrefillSessionService
         // Clean up any stale "InProgress" entries for this app in this session
         // This prevents duplicate entries when prefill is restarted or interrupted
         var staleEntries = await context.PrefillHistoryEntries
-            .Where(e => e.SessionId == sessionId && e.AppId == appId && e.Status == "InProgress")
+            .Where(e => e.SessionId == sessionId && e.AppId == appId && e.Status == PrefillHistoryEntryStatus.InProgress)
             .ToListAsync();
 
         if (staleEntries.Count > 0)
         {
             foreach (var stale in staleEntries)
             {
-                stale.Status = "Cancelled";
+                stale.Status = PrefillHistoryEntryStatus.Cancelled;
                 stale.CompletedAtUtc = DateTime.UtcNow;
                 stale.ErrorMessage = "Superseded by new prefill operation";
             }
@@ -431,7 +432,7 @@ public class PrefillSessionService
             AppId = appId,
             AppName = appName,
             StartedAtUtc = DateTime.UtcNow,
-            Status = "InProgress"
+            Status = PrefillHistoryEntryStatus.InProgress
         };
 
         context.PrefillHistoryEntries.Add(entry);
@@ -457,7 +458,7 @@ public class PrefillSessionService
         await using var context = await _contextFactory.CreateDbContextAsync();
 
         var entry = await context.PrefillHistoryEntries
-            .Where(e => e.SessionId == sessionId && e.AppId == appId && e.Status == "InProgress")
+            .Where(e => e.SessionId == sessionId && e.AppId == appId && e.Status == PrefillHistoryEntryStatus.InProgress)
             .OrderByDescending(e => e.StartedAtUtc)
             .FirstOrDefaultAsync();
 
@@ -469,7 +470,9 @@ public class PrefillSessionService
         }
 
         entry.CompletedAtUtc = DateTime.UtcNow;
-        entry.Status = status;
+        entry.Status = Enum.TryParse<PrefillHistoryEntryStatus>(status, ignoreCase: true, out var parsedStatus)
+            ? parsedStatus
+            : PrefillHistoryEntryStatus.Completed;
         entry.BytesDownloaded = bytesDownloaded;
         entry.TotalBytes = totalBytes;
         entry.ErrorMessage = errorMessage;
@@ -505,7 +508,7 @@ public class PrefillSessionService
 
         return await context.PrefillHistoryEntries
             .AsNoTracking()
-            .Where(e => e.SessionId == sessionId && e.Status == "InProgress")
+            .Where(e => e.SessionId == sessionId && e.Status == PrefillHistoryEntryStatus.InProgress)
             .OrderByDescending(e => e.StartedAtUtc)
             .FirstOrDefaultAsync();
     }
@@ -519,13 +522,13 @@ public class PrefillSessionService
         await using var context = await _contextFactory.CreateDbContextAsync();
 
         var entries = await context.PrefillHistoryEntries
-            .Where(e => e.SessionId == sessionId && e.Status == "InProgress")
+            .Where(e => e.SessionId == sessionId && e.Status == PrefillHistoryEntryStatus.InProgress)
             .ToListAsync();
 
         foreach (var entry in entries)
         {
             entry.CompletedAtUtc = DateTime.UtcNow;
-            entry.Status = "Cancelled";
+            entry.Status = PrefillHistoryEntryStatus.Cancelled;
         }
 
         if (entries.Count > 0)

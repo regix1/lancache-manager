@@ -49,7 +49,7 @@ public class SessionService
         {
             Id = Guid.NewGuid(),
             SessionTokenHash = tokenHash,
-            SessionType = "admin",
+            SessionType = SessionType.Admin,
             IpAddress = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
             UserAgent = httpContext.Request.Headers.UserAgent.ToString(),
             CreatedAtUtc = DateTime.UtcNow,
@@ -80,7 +80,7 @@ public class SessionService
         {
             Id = Guid.NewGuid(),
             SessionTokenHash = tokenHash,
-            SessionType = "guest",
+            SessionType = SessionType.Guest,
             IpAddress = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
             UserAgent = httpContext.Request.Headers.UserAgent.ToString(),
             CreatedAtUtc = DateTime.UtcNow,
@@ -155,7 +155,7 @@ public class SessionService
         var now = DateTime.UtcNow;
         using var context = _dbContextFactory.CreateDbContext();
         var count = await context.UserSessions
-            .Where(s => s.SessionType == "guest" && !s.IsRevoked)
+            .Where(s => s.SessionType == SessionType.Guest && !s.IsRevoked)
             .ExecuteUpdateAsync(s => s
                 .SetProperty(x => x.IsRevoked, true)
                 .SetProperty(x => x.RevokedAtUtc, now));

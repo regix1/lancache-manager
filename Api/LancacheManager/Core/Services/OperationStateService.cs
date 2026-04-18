@@ -419,11 +419,11 @@ public class OperationStateService : ScheduledBackgroundService
 
                             // Mark as complete
                             dataDict["isProcessing"] = false;
-                            dataDict["status"] = OperationStatus.Completed;
+                            dataDict["status"] = OperationStatus.Completed.ToWireString();
                             dataDict["percentComplete"] = 100.0;
                             dataDict["completedAt"] = DateTime.UtcNow;
                             activeLogOperation.Data = JsonSerializer.SerializeToElement(dataDict);
-                            activeLogOperation.Status = OperationStatus.Completed;
+                            activeLogOperation.Status = OperationStatus.Completed.ToWireString();
                             activeLogOperation.UpdatedAt = DateTime.UtcNow;
 
                             // Update the state in memory and persist it
