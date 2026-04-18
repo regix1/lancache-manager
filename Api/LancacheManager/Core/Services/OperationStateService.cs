@@ -166,8 +166,13 @@ public class OperationStateService : ScheduledBackgroundService
     {
         try
         {
+            if (!Guid.TryParse(key, out var parsedKey))
+            {
+                return null;
+            }
+
             var persisted = _stateService.GetOperationStates()
-                .FirstOrDefault(o => o.Id == key);
+                .FirstOrDefault(o => o.Id == parsedKey);
 
             if (persisted == null)
             {
@@ -194,9 +199,9 @@ public class OperationStateService : ScheduledBackgroundService
     {
         return new OperationState
         {
-            Key = persisted.Id,
-            Type = string.IsNullOrWhiteSpace(persisted.Type) ? "unknown" : persisted.Type,
-            Status = persisted.Status,
+            Key = persisted.Id.ToString(),
+            Type = persisted.Type.ToWireString(),
+            Status = persisted.Status.ToWireString(),
             Message = persisted.Message,
             Data = ConvertDataToJsonElement(persisted.Data),
             CreatedAt = persisted.CreatedAt,
@@ -265,7 +270,7 @@ public class OperationStateService : ScheduledBackgroundService
                 {
                     var operationState = MapPersistedState(op);
                     operationState.ExpiresAt = operationState.UpdatedAt.AddHours(24);
-                    _states[op.Id] = operationState;
+                    _states[op.Id.ToString()] = operationState;
                 }
             }
 
@@ -280,23 +285,45 @@ public class OperationStateService : ScheduledBackgroundService
         }
     }
 
+    private static ModelOperationState? TryMapToModelOperationState(OperationState state)
+    {
+        if (!Guid.TryParse(state.Key, out var parsedKey))
+        {
+            return null;
+        }
+
+        var parsedType = OperationTypeExtensions.TryParseWire(state.Type);
+        if (!parsedType.HasValue)
+        {
+            return null;
+        }
+
+        return new ModelOperationState
+        {
+            Id = parsedKey,
+            Type = parsedType.Value,
+            Status = Enum.TryParse<OperationStatus>(state.Status, ignoreCase: true, out var parsedStatus)
+                ? parsedStatus
+                : OperationStatus.Running,
+            Data = state.Data,
+            CreatedAt = state.CreatedAt,
+            UpdatedAt = state.UpdatedAt
+        };
+    }
+
     private void SaveStateToStateService(OperationState state)
     {
         try
         {
-            var stateOp = new ModelOperationState
+            var stateOp = TryMapToModelOperationState(state);
+            if (stateOp == null)
             {
-                Id = state.Key,
-                Type = state.Type,
-                Status = state.Status ?? "",
-                Data = state.Data,
-                CreatedAt = state.CreatedAt,
-                UpdatedAt = state.UpdatedAt
-            };
+                return;
+            }
 
             _stateService.UpdateOperationStates(states =>
             {
-                var existing = states.FirstOrDefault(o => o.Id == state.Key);
+                var existing = states.FirstOrDefault(o => o.Id == stateOp.Id);
                 if (existing != null)
                 {
                     states.Remove(existing);
@@ -314,15 +341,11 @@ public class OperationStateService : ScheduledBackgroundService
     {
         try
         {
-            var operations = _states.Values.Select(state => new ModelOperationState
-            {
-                Id = state.Key,
-                Type = state.Type,
-                Status = state.Status ?? "",
-                Data = state.Data,
-                CreatedAt = state.CreatedAt,
-                UpdatedAt = state.UpdatedAt
-            }).ToList();
+            var operations = _states.Values
+                .Select(TryMapToModelOperationState)
+                .Where(op => op != null)
+                .Cast<ModelOperationState>()
+                .ToList();
 
             _stateService.UpdateOperationStates(states =>
             {
@@ -372,7 +395,7 @@ public class OperationStateService : ScheduledBackgroundService
         {
             // Look for activeLogProcessing operation
             if (_states.TryGetValue("activeLogProcessing", out var activeLogOperation) &&
-                activeLogOperation.Type == "logProcessing" &&
+                activeLogOperation.Type == OperationType.LogProcessing.ToWireString() &&
                 activeLogOperation.Data != null)
             {
                 _logger.LogInformation("Found activeLogProcessing operation");

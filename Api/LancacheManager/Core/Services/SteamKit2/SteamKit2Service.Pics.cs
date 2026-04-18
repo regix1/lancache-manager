@@ -183,14 +183,14 @@ public partial class SteamKit2Service
         catch (OperationCanceledException)
         {
             // Cancellation is expected - don't log as error
-            _currentStatus = "cancelled";
+            _currentStatus = DepotScanPhase.Cancelled;
             _logger.LogDebug("Depot mapping scan was cancelled");
             // Notification is sent by RunAsync when it catches this exception
             throw;
         }
         catch (Exception ex)
         {
-            _currentStatus = "Error occurred";
+            _currentStatus = DepotScanPhase.Error;
             _lastErrorMessage = ex.Message;
             _logger.LogError(ex, "Error building depot index");
 
@@ -214,7 +214,7 @@ public partial class SteamKit2Service
     /// </summary>
     private async Task<(List<uint> appIds, bool isIncremental)> PrepareForScanAsync(CancellationToken ct, bool incrementalOnly)
     {
-        _currentStatus = "Connecting and enumerating apps";
+        _currentStatus = DepotScanPhase.Connecting;
         _lastErrorMessage = null; // Clear previous errors when starting new scan
         _logger.LogInformation("Starting to build depot index via Steam PICS (incremental={Incremental}, Current mappings in memory: {Count})...",
             incrementalOnly, _depotToAppMappings.Count);
@@ -312,7 +312,7 @@ public partial class SteamKit2Service
         _processedApps = 0;
         _totalBatches = allBatches.Count;
         _processedBatches = 0;
-        _currentStatus = "Processing app data";
+        _currentStatus = DepotScanPhase.Processing;
 
         // Reset session start count to track new mappings found
         _sessionStartDepotCount = _depotToAppMappings.Count;
@@ -431,7 +431,7 @@ public partial class SteamKit2Service
     /// </summary>
     private async Task FinalizeAndNotifyAsync(bool success, bool incrementalOnly, CancellationToken ct)
     {
-        _currentStatus = "Saving PICS data to JSON";
+        _currentStatus = DepotScanPhase.Saving;
         _logger.LogInformation("Depot index built. Total depot mappings: {Count}", _depotToAppMappings.Count);
 
         // Send progress update for post-processing phase
@@ -443,7 +443,7 @@ public partial class SteamKit2Service
         // Resolve orphan depots BEFORE DB import: depots observed in Downloads but not found during PICS enumeration
         // This handles delisted/removed games whose depots are still served by the lancache
         // Must run while Steam connection is still active (before disconnect in RunAsync.finally)
-        _currentStatus = "Resolving orphan depots";
+        _currentStatus = DepotScanPhase.ResolvingOrphans;
         await SendPostProcessingProgressAsync("Resolving orphan depots...", 100, _depotToAppMappings.Count);
         List<uint> orphanDepotIds = [];
         try
@@ -462,7 +462,7 @@ public partial class SteamKit2Service
             _logger.LogWarning(ex, "Orphan depot resolution failed (non-fatal)");
         }
 
-        _currentStatus = "Importing to database";
+        _currentStatus = DepotScanPhase.Importing;
         await SendPostProcessingProgressAsync("Importing to database...", 100, _depotToAppMappings.Count);
 
         // Single DB import — includes both main scan results and any orphan-resolved mappings
@@ -488,13 +488,13 @@ public partial class SteamKit2Service
         }
 
         // Auto-apply depot mappings to downloads after PICS data is ready
-        _currentStatus = "Applying depot mappings";
+        _currentStatus = DepotScanPhase.ApplyingMappings;
         await SendPostProcessingProgressAsync("Applying mappings to downloads...", 100, _depotToAppMappings.Count);
         _logger.LogInformation("Automatically applying depot mappings after PICS completion");
 
         var (downloadsUpdated, downloadsNotFound) = await UpdateDownloadsWithDepotMappingsAsync();
 
-        _currentStatus = "completed";
+        _currentStatus = DepotScanPhase.Completed;
         _lastCrawlTime = DateTime.UtcNow;
         SaveLastCrawlTime();
 

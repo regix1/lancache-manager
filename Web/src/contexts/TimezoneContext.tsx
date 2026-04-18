@@ -11,9 +11,7 @@ import {
   subscribe as subscribeToPending,
   getPendingValue
 } from '@utils/pendingPreferences';
-import { TimezoneContext } from './TimezoneContext.types';
-
-type TimeSettingValue = 'server-24h' | 'server-12h' | 'local-24h' | 'local-12h';
+import { TimezoneContext, type TimeSettingValue } from './TimezoneContext.types';
 
 export const TimezoneProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { currentPreferences } = useSessionPreferences();

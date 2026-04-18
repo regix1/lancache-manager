@@ -11,7 +11,14 @@ public class SteamPicsProgress
     public bool IsProcessing { get; set; }
 
     [JsonPropertyName("status")]
-    public string Status { get; set; } = string.Empty;
+    public DepotScanPhase Status { get; set; } = DepotScanPhase.Idle;
+
+    /// <summary>
+    /// Human-readable display string for the current status (verbose form).
+    /// Kept as a computed property so older frontends that read verbose text still work.
+    /// </summary>
+    [JsonPropertyName("statusDisplay")]
+    public string StatusDisplay => Status.ToDisplayString();
 
     [JsonPropertyName("totalApps")]
     public int TotalApps { get; set; }

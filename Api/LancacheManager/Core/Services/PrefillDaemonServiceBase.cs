@@ -204,7 +204,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         _pathResolver = pathResolver;
         _sessionService = sessionService;
         _cacheService = cacheService;
-        _isRunningInContainer = Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") == "true";
+        _isRunningInContainer = bool.TryParse(Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER"), out var inContainer) && inContainer;
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -1535,20 +1535,10 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
     private bool ShouldUseTcpMode()
     {
-        var configured = _configuration["Prefill:UseTcp"];
-        if (!string.IsNullOrWhiteSpace(configured))
+        var useTcp = _configuration.GetValue<bool?>("Prefill:UseTcp");
+        if (useTcp.HasValue)
         {
-            if (string.Equals(configured, "auto", StringComparison.OrdinalIgnoreCase))
-            {
-                return OperatingSystemDetector.IsWindows;
-            }
-
-            if (bool.TryParse(configured, out var parsed))
-            {
-                return parsed;
-            }
-
-            _logger.LogWarning("Invalid Prefill:UseTcp value '{Value}', falling back to auto.", configured);
+            return useTcp.Value;
         }
 
         return OperatingSystemDetector.IsWindows;

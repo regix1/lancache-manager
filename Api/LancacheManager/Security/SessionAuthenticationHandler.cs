@@ -61,4 +61,17 @@ public class SessionAuthenticationHandler : AuthenticationHandler<Authentication
 
         return AuthenticateResult.Success(ticket);
     }
+
+    /// <summary>
+    /// Override the default challenge behaviour to log at Debug instead of the framework
+    /// default (Information). This suppresses the "AuthenticationScheme: Session was
+    /// challenged" message that floods production logs on every unauthenticated request
+    /// (polling endpoints, guests viewing the login screen, etc.).
+    /// </summary>
+    protected override Task HandleChallengeAsync(AuthenticationProperties properties)
+    {
+        Logger.LogDebug("AuthenticationScheme: {Scheme} was challenged.", Scheme.Name);
+        Context.Response.StatusCode = 401;
+        return Task.CompletedTask;
+    }
 }

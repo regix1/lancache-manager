@@ -1,6 +1,6 @@
 import { createContext } from 'react';
 
-type SteamAuthMode = 'anonymous' | 'authenticated';
+export type SteamAuthMode = 'anonymous' | 'authenticated';
 
 interface SteamAuthContextType {
   steamAuthMode: SteamAuthMode;

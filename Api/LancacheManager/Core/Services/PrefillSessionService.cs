@@ -165,7 +165,9 @@ public class PrefillSessionService
             CreatedBySessionId = createdBySessionId,
             ContainerId = containerId,
             ContainerName = containerName,
-            Platform = platform,
+            Platform = Enum.TryParse<PrefillPlatform>(platform, ignoreCase: true, out var parsedPlatform)
+                ? parsedPlatform
+                : PrefillPlatform.Steam,
             Status = PrefillSessionStatus.Active,
             CreatedAtUtc = DateTime.UtcNow,
             ExpiresAtUtc = expiresAt
@@ -292,9 +294,10 @@ public class PrefillSessionService
             query = query.Where(s => s.Status == parsedStatus);
         }
 
-        if (!string.IsNullOrEmpty(platformFilter))
+        if (!string.IsNullOrEmpty(platformFilter)
+            && Enum.TryParse<PrefillPlatform>(platformFilter, ignoreCase: true, out var parsedPlatformFilter))
         {
-            query = query.Where(s => s.Platform == platformFilter);
+            query = query.Where(s => s.Platform == parsedPlatformFilter);
         }
 
         var totalCount = await query.CountAsync();

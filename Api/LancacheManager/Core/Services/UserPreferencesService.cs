@@ -110,7 +110,7 @@ public class UserPreferencesService
                 existingPreferences.Use24HourFormat = preferencesDto.Use24HourFormat;
                 existingPreferences.ShowDatasourceLabels = preferencesDto.ShowDatasourceLabels;
                 existingPreferences.ShowYearInDates = preferencesDto.ShowYearInDates;
-                existingPreferences.RefreshRate = preferencesDto.RefreshRate;
+                existingPreferences.RefreshRate = RefreshRateExtensions.TryParseWire(preferencesDto.RefreshRate);
                 existingPreferences.RefreshRateLocked = preferencesDto.RefreshRateLocked;
                 existingPreferences.AllowedTimeFormats = SerializeAllowedTimeFormats(preferencesDto.AllowedTimeFormats);
                 existingPreferences.SteamMaxThreadCount = preferencesDto.SteamMaxThreadCount;
@@ -133,7 +133,7 @@ public class UserPreferencesService
                     Use24HourFormat = preferencesDto.Use24HourFormat,
                     ShowDatasourceLabels = preferencesDto.ShowDatasourceLabels,
                     ShowYearInDates = preferencesDto.ShowYearInDates,
-                    RefreshRate = preferencesDto.RefreshRate,
+                    RefreshRate = RefreshRateExtensions.TryParseWire(preferencesDto.RefreshRate),
                     RefreshRateLocked = preferencesDto.RefreshRateLocked,
                     AllowedTimeFormats = SerializeAllowedTimeFormats(preferencesDto.AllowedTimeFormats),
                     SteamMaxThreadCount = preferencesDto.SteamMaxThreadCount,
@@ -158,7 +158,7 @@ public class UserPreferencesService
     /// Update a specific preference field and return the updated full preferences
     /// This prevents race conditions by reading from the same transaction
     /// </summary>
-    public async Task<UserPreferencesDto?> UpdatePreferenceAndGetAsync<T>(Guid sessionId, string preferenceKey, T value)
+    public async Task<UserPreferencesDto?> UpdatePreferenceAndGetAsync(Guid sessionId, PreferenceKey preferenceKey, JsonElement value)
     {
         try
         {
@@ -187,51 +187,51 @@ public class UserPreferencesService
             }
 
             // Update the specific preference
-            switch (preferenceKey.ToLowerInvariant())
+            switch (preferenceKey)
             {
-                case "selectedtheme":
+                case PreferenceKey.SelectedTheme:
                     preferences.SelectedTheme = GetValueAsString(value);
                     break;
-                case "sharpcorners":
+                case PreferenceKey.SharpCorners:
                     preferences.SharpCorners = GetValueAsBoolean(value);
                     break;
-                case "disablefocusoutlines":
+                case PreferenceKey.DisableFocusOutlines:
                     preferences.DisableFocusOutlines = GetValueAsBoolean(value);
                     break;
-                case "disabletooltips":
+                case PreferenceKey.DisableTooltips:
                     preferences.DisableTooltips = GetValueAsBoolean(value);
                     break;
-                case "picsalwaysvisible":
+                case PreferenceKey.PicsAlwaysVisible:
                     preferences.PicsAlwaysVisible = GetValueAsBoolean(value);
                     break;
-                case "disablestickynotifications":
+                case PreferenceKey.DisableStickyNotifications:
                     preferences.DisableStickyNotifications = GetValueAsBoolean(value);
                     break;
-                case "uselocaltimezone":
+                case PreferenceKey.UseLocalTimezone:
                     preferences.UseLocalTimezone = GetValueAsBoolean(value);
                     break;
-                case "use24hourformat":
+                case PreferenceKey.Use24HourFormat:
                     preferences.Use24HourFormat = GetValueAsBoolean(value);
                     break;
-                case "showdatasourcelabels":
+                case PreferenceKey.ShowDatasourceLabels:
                     preferences.ShowDatasourceLabels = GetValueAsBoolean(value);
                     break;
-                case "showyearindates":
+                case PreferenceKey.ShowYearInDates:
                     preferences.ShowYearInDates = GetValueAsBoolean(value);
                     break;
-                case "refreshrate":
-                    preferences.RefreshRate = GetValueAsString(value);
+                case PreferenceKey.RefreshRate:
+                    preferences.RefreshRate = RefreshRateExtensions.TryParseWire(GetValueAsString(value));
                     break;
-                case "refreshratelocked":
+                case PreferenceKey.RefreshRateLocked:
                     preferences.RefreshRateLocked = GetNullableBoolean(value);
                     break;
-                case "allowedtimeformats":
+                case PreferenceKey.AllowedTimeFormats:
                     preferences.AllowedTimeFormats = SerializeAllowedTimeFormats(GetValueAsStringArray(value));
                     break;
-                case "steammaxthreadcount":
+                case PreferenceKey.SteamMaxThreadCount:
                     preferences.SteamMaxThreadCount = GetNullableInt(value);
                     break;
-                case "epicmaxthreadcount":
+                case PreferenceKey.EpicMaxThreadCount:
                     preferences.EpicMaxThreadCount = GetNullableInt(value);
                     break;
                 default:
@@ -391,12 +391,12 @@ public class UserPreferencesService
     /// Returns true if the given preference key is admin-only.
     /// Guests are not permitted to read or write these keys.
     /// </summary>
-    public static bool IsAdminOnlyKey(string key) => key.ToLowerInvariant() switch
+    public static bool IsAdminOnlyKey(PreferenceKey key) => key switch
     {
-        "refreshratelocked" => true,
-        "allowedtimeformats" => true,
-        "steammaxthreadcount" => true,
-        "epicmaxthreadcount" => true,
+        PreferenceKey.RefreshRateLocked => true,
+        PreferenceKey.AllowedTimeFormats => true,
+        PreferenceKey.SteamMaxThreadCount => true,
+        PreferenceKey.EpicMaxThreadCount => true,
         _ => false
     };
 
@@ -426,7 +426,7 @@ public class UserPreferencesService
         Use24HourFormat = prefs.Use24HourFormat,
         ShowDatasourceLabels = prefs.ShowDatasourceLabels,
         ShowYearInDates = prefs.ShowYearInDates,
-        RefreshRate = prefs.RefreshRate,
+        RefreshRate = prefs.RefreshRate?.ToWireString(),
         RefreshRateLocked = prefs.RefreshRateLocked,
         AllowedTimeFormats = ParseAllowedTimeFormats(prefs.AllowedTimeFormats),
         SteamMaxThreadCount = prefs.SteamMaxThreadCount,

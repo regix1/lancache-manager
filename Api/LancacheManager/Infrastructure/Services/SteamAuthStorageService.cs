@@ -282,7 +282,7 @@ public class SteamAuthStorageService : ISteamAuthStorageService
                 }
 
                 // Check if there's actually data to migrate (only refresh token matters)
-                if (string.IsNullOrEmpty(oldAuthState.RefreshToken) && oldAuthState.Mode == "anonymous")
+                if (string.IsNullOrEmpty(oldAuthState.RefreshToken) && oldAuthState.Mode == SteamAuthMode.Anonymous)
                 {
                     return;
                 }
@@ -291,7 +291,7 @@ public class SteamAuthStorageService : ISteamAuthStorageService
 
                 var newData = new SteamAuthData
                 {
-                    Mode = oldAuthState.Mode,
+                    Mode = oldAuthState.Mode.ToWireString(),
                     Username = oldAuthState.Username,
                     RefreshToken = oldAuthState.RefreshToken,
                     // GuardData is NOT migrated - modern auth uses refresh tokens only

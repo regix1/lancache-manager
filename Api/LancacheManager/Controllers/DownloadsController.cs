@@ -4,6 +4,7 @@ using LancacheManager.Infrastructure.Services;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Middleware;
+using LancacheManager.Core.Constants;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -19,7 +20,6 @@ namespace LancacheManager.Controllers;
 [Authorize]
 public class DownloadsController : ControllerBase
 {
-    private const string PrefillToken = "prefill";
 
     private readonly AppDbContext _context;
     private readonly StatsDataService _statsService;
@@ -111,13 +111,13 @@ public class DownloadsController : ControllerBase
 
             // Filter out prefill sessions (safety net - StatsDataService already filters, but direct queries may not)
             downloads = downloads
-                .Where(d => !string.Equals(d.ClientIp, PrefillToken, StringComparison.OrdinalIgnoreCase))
-                .Where(d => !string.Equals(d.Datasource, PrefillToken, StringComparison.OrdinalIgnoreCase))
+                .Where(d => !string.Equals(d.ClientIp, DownloadKindConstants.PrefillToken, StringComparison.OrdinalIgnoreCase))
+                .Where(d => !string.Equals(d.Datasource, DownloadKindConstants.PrefillToken, StringComparison.OrdinalIgnoreCase))
                 .ToList();
 
             // ShowClean: include evicted downloads but mask the flag (no badge/dimming on frontend)
             // Note: Hide/Remove modes are already filtered at the DB level via ApplyEvictedFilter
-            if (evictedMode == EvictedDataModes.ShowClean)
+            if (evictedMode == EvictedDataMode.ShowClean.ToWireString())
             {
                 foreach (var d in downloads) d.IsEvicted = false;
             }
@@ -143,7 +143,7 @@ public class DownloadsController : ControllerBase
     {
         var download = await _context.Downloads
             .AsNoTracking()
-            .FirstOrDefaultAsync(d => d.Id == id && d.ClientIp != PrefillToken && d.ClientIp != "Prefill")
+            .FirstOrDefaultAsync(d => d.Id == id && d.ClientIp != DownloadKindConstants.PrefillToken && d.ClientIp != "Prefill")
             ?? throw new NotFoundException("Download");
 
         var excludedClientIps = _stateRepository.GetExcludedClientIps();
@@ -152,20 +152,20 @@ public class DownloadsController : ControllerBase
             throw new NotFoundException("Download");
         }
 
-        if (string.Equals(download.ClientIp, PrefillToken, StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(download.Datasource, PrefillToken, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(download.ClientIp, DownloadKindConstants.PrefillToken, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(download.Datasource, DownloadKindConstants.PrefillToken, StringComparison.OrdinalIgnoreCase))
         {
             throw new NotFoundException("Download");
         }
 
         // Hide evicted downloads in hide/remove mode
         var evictedMode = _stateRepository.GetEvictedDataMode();
-        if ((evictedMode == EvictedDataModes.Hide || evictedMode == EvictedDataModes.Remove) && download.IsEvicted)
+        if ((evictedMode == EvictedDataMode.Hide.ToWireString() || evictedMode == EvictedDataMode.Remove.ToWireString()) && download.IsEvicted)
         {
             throw new NotFoundException("Download");
         }
         // ShowClean: mask the evicted flag so frontend shows no badge/dimming
-        if (evictedMode == EvictedDataModes.ShowClean)
+        if (evictedMode == EvictedDataMode.ShowClean.ToWireString())
         {
             download.IsEvicted = false;
         }
@@ -263,8 +263,8 @@ public class DownloadsController : ControllerBase
         var baseQuery = _context.Downloads
             .AsNoTracking()
             .Where(d => excludedClientIps.Count == 0 || !excludedClientIps.Contains(d.ClientIp))
-            .Where(d => d.ClientIp != PrefillToken && d.ClientIp != "Prefill")
-            .Where(d => d.Datasource != PrefillToken && d.Datasource != "Prefill")
+            .Where(d => d.ClientIp != DownloadKindConstants.PrefillToken && d.ClientIp != "Prefill")
+            .Where(d => d.Datasource != DownloadKindConstants.PrefillToken && d.Datasource != "Prefill")
             .Where(d => d.StartTimeUtc >= startDate && d.StartTimeUtc <= endDate);
 
         baseQuery = baseQuery.ApplyEvictedFilter(evictedMode);

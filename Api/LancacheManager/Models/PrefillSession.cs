@@ -43,10 +43,10 @@ public class PrefillSession
     public string? SteamUsername { get; set; }
 
     /// <summary>
-    /// Platform identifier (e.g., "Steam", "Epic"). Defaults to "Steam" for backward compatibility.
+    /// Platform identifier (Steam or Epic). Defaults to Steam for backward compatibility.
     /// </summary>
-    [MaxLength(20)]
-    public string Platform { get; set; } = "Steam";
+    [Required]
+    public PrefillPlatform Platform { get; set; } = PrefillPlatform.Steam;
 
     /// <summary>
     /// Session status: Active, Terminated, Orphaned, Cleaned, Cancelled

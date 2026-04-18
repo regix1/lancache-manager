@@ -222,7 +222,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         _operationTracker.UpdateProgress(operationId, progress.PercentComplete, progress.Message);
                         await _notifications.NotifyAllAsync(SignalREvents.EvictionScanProgress, new EvictionScanProgress(
                             OperationId: operationId,
-                            Status: progress.Status,
+                            Status: progress.Status.ToWireString(),
                             StageKey: "signalr.evictionScan.progress",
                             PercentComplete: progress.PercentComplete,
                             Processed: progress.Processed,
@@ -298,7 +298,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
                 // Handle evicted data "remove" mode — only run if there are evicted records
                 var evictedDataMode = _stateService.GetEvictedDataMode();
-                if (evictedDataMode == EvictedDataModes.Remove
+                if (evictedDataMode == EvictedDataMode.Remove.ToWireString()
                     && await context.Downloads.AnyAsync(d => d.IsEvicted, stoppingToken))
                 {
                     await RemoveEvictedRecordsAsync(context, stoppingToken);
@@ -746,7 +746,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         try
                         {
                             var progressEvent = JsonSerializer.Deserialize<PurgeLogProgressEvent>(line, progressOptions);
-                            if (progressEvent?.Event == "progress" && progressEvent.PercentComplete.HasValue)
+                            if (progressEvent?.Event == RustProgressEventKind.Progress && progressEvent.PercentComplete.HasValue)
                             {
                                 // Map Rust binary's 0-100% into the per-datasource sub-range of the overall purge step.
                                 // The purge step covers 0-30% of the overall operation. Within that, each datasource
@@ -1449,7 +1449,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         try
                         {
                             var progressEvent = JsonSerializer.Deserialize<PurgeLogProgressEvent>(line, progressOptions);
-                            if (progressEvent?.Event == "progress" && progressEvent.PercentComplete.HasValue)
+                            if (progressEvent?.Event == RustProgressEventKind.Progress && progressEvent.PercentComplete.HasValue)
                             {
                                 // Map Rust binary's 0-100% into the per-datasource sub-range of the entity purge step.
                                 // The caller sets 10% before calling us and 25% after, so purge maps into 10-25%.
@@ -1544,7 +1544,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     private sealed class PurgeLogProgressEvent
     {
         [System.Text.Json.Serialization.JsonPropertyName("event")]
-        public string? Event { get; set; }
+        public RustProgressEventKind Event { get; set; } = RustProgressEventKind.Unknown;
 
         [System.Text.Json.Serialization.JsonPropertyName("percentComplete")]
         public double? PercentComplete { get; set; }
@@ -1553,7 +1553,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         public string? StageKey { get; set; }
 
         [System.Text.Json.Serialization.JsonPropertyName("status")]
-        public string? Status { get; set; }
+        public OperationStatus? Status { get; set; }
     }
 
     /// <summary>
@@ -1580,7 +1580,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 /// </summary>
 internal class EvictionScanProgressData
 {
-    public string Status { get; set; } = string.Empty;
+    public OperationStatus Status { get; set; } = OperationStatus.Pending;
     public string Message { get; set; } = string.Empty;
     public double PercentComplete { get; set; }
     public int Processed { get; set; }

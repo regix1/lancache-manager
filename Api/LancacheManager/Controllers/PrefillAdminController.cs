@@ -116,7 +116,7 @@ public class PrefillAdminController : ControllerBase
                 ContainerId = s.ContainerId,
                 ContainerName = s.ContainerName,
                 SteamUsername = liveSession?.SteamUsername ?? s.SteamUsername,
-                Platform = liveSession?.Platform ?? s.Platform,
+                Platform = liveSession?.Platform ?? s.Platform.ToString(),
                 Username = liveSession != null ? (liveSession.Username ?? liveSession.SteamUsername) : s.SteamUsername,
                 Status = liveSession?.Status.ToString() ?? s.Status.ToString(),
                 IsAuthenticated = liveSession?.AuthState == DaemonAuthState.Authenticated || s.IsAuthenticated,

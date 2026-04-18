@@ -30,7 +30,12 @@ public class CorruptionDetectionService
     private readonly ConcurrentDictionary<string, DateTime> _recentlyRemovedServices = new();
     private static readonly TimeSpan _removalGracePeriod = TimeSpan.FromMinutes(5);
 
-    private const string OperationStateKey = "corruptionDetection";
+    /// <summary>
+    /// Key prefix used when persisting corruption-detection operation state. Derived from
+    /// <see cref="OperationType.CorruptionDetection"/> so the wire value stays in sync with
+    /// the enum (N6: no raw literal).
+    /// </summary>
+    private static readonly string _operationStateKey = OperationType.CorruptionDetection.ToWireString();
 
     public CorruptionDetectionService(
         ILogger<CorruptionDetectionService> logger,
@@ -58,8 +63,18 @@ public class CorruptionDetectionService
     /// Start a background corruption detection scan.
     /// Returns immediately with an operation ID.
     /// </summary>
+    /// <param name="detectionMode">Wire value of the detection mode ("miss_count" or "redownload").
+    /// Parsed into <see cref="CorruptionDetectionMode"/>; unrecognized values fall back to
+    /// <see cref="CorruptionDetectionMode.MissCount"/>.</param>
     public async Task<Guid> StartDetectionAsync(int threshold = 3, bool compareToCacheLogs = true, string detectionMode = "miss_count", CancellationToken cancellationToken = default)
     {
+        // Parse wire value into the typed enum; unknown/null falls back to miss_count (legacy default).
+        var mode = CorruptionDetectionModeExtensions.Parse(detectionMode);
+        if (mode == CorruptionDetectionMode.Unknown)
+        {
+            mode = CorruptionDetectionMode.MissCount;
+        }
+
         await _startLock.WaitAsync(cancellationToken);
         try
         {
@@ -84,11 +99,11 @@ public class CorruptionDetectionService
                 metadata);
 
             // Save operation state for recovery
-            _operationStateService.SaveState($"{OperationStateKey}_{operationId}", new OperationState
+            _operationStateService.SaveState($"{_operationStateKey}_{operationId}", new OperationState
             {
-                Key = $"{OperationStateKey}_{operationId}",
-                Type = "corruptionDetection",
-                Status = "running",
+                Key = $"{_operationStateKey}_{operationId}",
+                Type = OperationType.CorruptionDetection.ToWireString(),
+                Status = OperationStatus.Running.ToWireString(),
                 Message = "Starting corruption detection..."
             });
 
@@ -101,7 +116,7 @@ public class CorruptionDetectionService
 
             // Run detection in background with the cancellation token
             var token = cts.Token;
-            if (detectionMode == "redownload")
+            if (mode == CorruptionDetectionMode.Redownload)
             {
                 _ = Task.Run(async () => await RunRedownloadDetectionAsync(operationId, threshold, token), token);
             }
@@ -197,7 +212,7 @@ public class CorruptionDetectionService
             await SaveCorruptionToDatabaseAsync(aggregatedCounts);
 
             // Clear operation state
-            _operationStateService.RemoveState($"{OperationStateKey}_{operationId}");
+            _operationStateService.RemoveState($"{_operationStateKey}_{operationId}");
 
             // Complete unified operation tracker
             _operationTracker.CompleteOperation(operationId, success: true);
@@ -223,7 +238,7 @@ public class CorruptionDetectionService
             _logger.LogInformation("[CorruptionDetection] Operation {OperationId} was cancelled", operationId);
 
             // Clear operation state
-            _operationStateService.RemoveState($"{OperationStateKey}_{operationId}");
+            _operationStateService.RemoveState($"{_operationStateKey}_{operationId}");
 
             // Complete unified operation tracker
             _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
@@ -243,7 +258,7 @@ public class CorruptionDetectionService
             _logger.LogError(ex, "[CorruptionDetection] Detection failed for operation {OperationId}", operationId);
 
             // Clear operation state
-            _operationStateService.RemoveState($"{OperationStateKey}_{operationId}");
+            _operationStateService.RemoveState($"{_operationStateKey}_{operationId}");
 
             // Complete unified operation tracker
             _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);

@@ -97,12 +97,12 @@ public partial class EpicMappingService
 
             try
             {
-                _currentStatus = "Refreshing catalog";
+                _currentStatus = EpicMappingStatus.RefreshingCatalog;
 
                 await RefreshCatalogAsync(_currentRefreshCts.Token);
 
                 _lastRefreshTime = DateTime.UtcNow;
-                _currentStatus = "Idle";
+                _currentStatus = EpicMappingStatus.Idle;
                 success = true;
 
                 // Persist last refresh time so it survives restarts (mirrors Steam's SaveLastCrawlTime)
@@ -127,7 +127,7 @@ public partial class EpicMappingService
                 });
 
                 _currentProgressPercent = 0;
-                _currentStatus = "Idle";
+                _currentStatus = EpicMappingStatus.Idle;
             }
             catch (Exception ex)
             {
@@ -145,7 +145,7 @@ public partial class EpicMappingService
                 });
 
                 _currentProgressPercent = 0;
-                _currentStatus = "Idle";
+                _currentStatus = EpicMappingStatus.Idle;
             }
             finally
             {

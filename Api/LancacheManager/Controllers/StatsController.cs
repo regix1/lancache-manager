@@ -364,7 +364,7 @@ public class StatsController : ControllerBase
     [Authorize(Policy = "AdminOnly")]
     public async Task<IActionResult> UpdateEvictionSettingsAsync([FromBody] UpdateEvictionSettingsRequest request)
     {
-        var validModes = new[] { EvictedDataModes.Show, EvictedDataModes.ShowClean, EvictedDataModes.Hide, EvictedDataModes.Remove };
+        var validModes = new[] { EvictedDataMode.Show.ToWireString(), EvictedDataMode.ShowClean.ToWireString(), EvictedDataMode.Hide.ToWireString(), EvictedDataMode.Remove.ToWireString() };
         if (string.IsNullOrEmpty(request.EvictedDataMode) || !validModes.Contains(request.EvictedDataMode))
         {
             return BadRequest(new
@@ -385,7 +385,7 @@ public class StatsController : ControllerBase
             reason = "eviction-updated"
         });
 
-        if (request.EvictedDataMode == EvictedDataModes.Remove)
+        if (request.EvictedDataMode == EvictedDataMode.Remove.ToWireString())
         {
             // Check for an already-running removal operation
             var activeOps = _operationTracker.GetActiveOperations(OperationType.EvictionRemoval);

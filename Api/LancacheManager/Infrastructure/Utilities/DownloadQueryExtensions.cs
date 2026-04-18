@@ -1,14 +1,13 @@
+using LancacheManager.Core.Constants;
 using LancacheManager.Models;
 
 namespace LancacheManager.Infrastructure.Utilities;
 
 public static class DownloadQueryExtensions
 {
-    private const string PrefillToken = "prefill";
-
     public static IQueryable<Download> ApplyEvictedFilter(this IQueryable<Download> query, string evictedMode)
     {
-        if (evictedMode == EvictedDataModes.Hide || evictedMode == EvictedDataModes.Remove)
+        if (evictedMode == EvictedDataMode.Hide.ToWireString() || evictedMode == EvictedDataMode.Remove.ToWireString())
         {
             return query.Where(d => !d.IsEvicted);
         }
@@ -30,8 +29,8 @@ public static class DownloadQueryExtensions
     public static IQueryable<Download> ApplyPrefillFilter(this IQueryable<Download> query)
     {
         return query
-            .Where(d => d.ClientIp == null || d.ClientIp.ToLower() != PrefillToken)
-            .Where(d => d.Datasource == null || d.Datasource.ToLower() != PrefillToken);
+            .Where(d => d.ClientIp == null || d.ClientIp.ToLower() != DownloadKindConstants.PrefillToken)
+            .Where(d => d.Datasource == null || d.Datasource.ToLower() != DownloadKindConstants.PrefillToken);
     }
 
     public static IQueryable<Download> ApplyEventFilter(this IQueryable<Download> query, List<long> eventIds, HashSet<long>? eventDownloadIds)

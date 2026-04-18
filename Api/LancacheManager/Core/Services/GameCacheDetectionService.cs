@@ -136,11 +136,11 @@ public class GameCacheDetectionService : IDisposable
             _operationTracker.UpdateProgress(operationId, 0, stageKeyStarting);
 
             // Save to OperationStateService for persistence
-            _operationStateService.SaveState($"gameDetection_{operationId}", new OperationState
+            _operationStateService.SaveState($"{OperationType.GameDetection.ToWireString()}_{operationId}", new OperationState
             {
-                Key = $"gameDetection_{operationId}",
-                Type = "gameDetection",
-                Status = "running",
+                Key = $"{OperationType.GameDetection.ToWireString()}_{operationId}",
+                Type = OperationType.GameDetection.ToWireString(),
+                Status = OperationStatus.Running.ToWireString(),
                 Message = stageKeyStarting,
                 Data = JsonSerializer.SerializeToElement(new { operationId })
             });
@@ -776,10 +776,10 @@ public class GameCacheDetectionService : IDisposable
                 : JsonSerializer.SerializeToElement(new { operationId, error = stageKey });
 
         // Update persisted state
-        _operationStateService.SaveState($"gameDetection_{operationId}", new OperationState
+        _operationStateService.SaveState($"{OperationType.GameDetection.ToWireString()}_{operationId}", new OperationState
         {
-            Key = $"gameDetection_{operationId}",
-            Type = "gameDetection",
+            Key = $"{OperationType.GameDetection.ToWireString()}_{operationId}",
+            Type = OperationType.GameDetection.ToWireString(),
             Status = status.ToWireString(),
             Message = stageKey,
             Data = stateData
@@ -1563,8 +1563,8 @@ public class GameCacheDetectionService : IDisposable
             // Only restore operations that are recent (within last 5 minutes) to avoid re-running old completed operations
             var recentCutoff = DateTime.UtcNow.AddMinutes(-5);
             var gameDetectionStates = allStates.Where(s =>
-                s.Type == "gameDetection" &&
-                s.Status == "running" &&
+                s.Type == OperationType.GameDetection.ToWireString() &&
+                s.Status == OperationStatus.Running.ToWireString() &&
                 s.CreatedAt > recentCutoff);
 
             foreach (var state in gameDetectionStates)

@@ -32,8 +32,9 @@ public class UserPreferences
     public string? AllowedTimeFormats { get; set; }
 
     // Refresh rate for guest users (null = use default guest refresh rate)
-    // Valid values: LIVE, ULTRA, REALTIME, STANDARD, RELAXED, SLOW
-    public string? RefreshRate { get; set; }
+    // Persisted as UPPER-CASE string ("LIVE", "ULTRA", "REALTIME", "STANDARD", "RELAXED", "SLOW")
+    // via an EF ValueConverter configured in AppDbContext.
+    public RefreshRate? RefreshRate { get; set; }
 
     // Per-session refresh rate lock (null = use global default, true = locked, false = unlocked)
     public bool? RefreshRateLocked { get; set; }

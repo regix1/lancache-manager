@@ -174,6 +174,14 @@ public class AppDbContext : DbContext
             .HasDatabaseName("IX_UserPreferences_SessionId")
             .IsUnique();
 
+        // Persist RefreshRate? as UPPER-CASE string ("LIVE"/"ULTRA"/"REALTIME"/
+        // "STANDARD"/"RELAXED"/"SLOW") so existing DB rows round-trip unchanged.
+        modelBuilder.Entity<UserPreferences>()
+            .Property(p => p.RefreshRate)
+            .HasConversion(
+                v => v.HasValue ? v.Value.ToWireString() : null,
+                s => RefreshRateExtensions.TryParseWire(s));
+
         // Configure one-to-one relationship between UserSession and UserPreferences
         modelBuilder.Entity<UserSession>()
             .HasOne(s => s.Preferences)
@@ -286,7 +294,9 @@ public class AppDbContext : DbContext
             .HasDatabaseName("IX_PrefillSessions_Status");
 
         modelBuilder.Entity<PrefillSession>()
-            .Property(p => p.Platform).HasDefaultValue("Steam");
+            .Property(p => p.Platform)
+            .HasConversion<string>()
+            .HasDefaultValue(PrefillPlatform.Steam);
 
         modelBuilder.Entity<PrefillSession>()
             .HasIndex(p => p.Platform)

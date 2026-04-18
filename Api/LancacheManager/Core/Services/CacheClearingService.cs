@@ -625,7 +625,7 @@ public class CacheClearingService : ScheduledBackgroundService
     {
         public bool IsProcessing { get; set; }
         public double PercentComplete { get; set; }
-        public string Status { get; set; } = "";
+        public OperationStatus Status { get; set; } = OperationStatus.Pending;
 
         [System.Text.Json.Serialization.JsonPropertyName("stageKey")]
         public string? StageKey { get; set; }

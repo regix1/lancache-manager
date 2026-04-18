@@ -84,7 +84,7 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     private int _processedApps;
     private int _totalBatches;
     private int _processedBatches;
-    private string _currentStatus = "Idle";
+    private DepotScanPhase _currentStatus = DepotScanPhase.Idle;
     private string? _lastErrorMessage = null;
     private int _sessionStartDepotCount = 0;  // Track depot count at start of session
 
@@ -709,4 +709,5 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
     {
         return _steamWebApiService.IsWebApiAvailableCached();
     }
+
 }

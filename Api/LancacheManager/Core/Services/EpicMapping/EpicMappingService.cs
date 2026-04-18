@@ -2,6 +2,7 @@ using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Services;
 using LancacheManager.Infrastructure.Services.Base;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Core.Services.EpicMapping;
@@ -39,7 +40,7 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
     private bool _disposed;
 
     // Progress tracking
-    private string _currentStatus = "Idle";
+    private EpicMappingStatus _currentStatus = EpicMappingStatus.Idle;
     private int _isProcessingInt;
     private double _currentProgressPercent;
     private int _lastNewGames;
@@ -198,14 +199,14 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
         };
     }
 
-    private static string FormatStatusMessage(string status)
+    private static string FormatStatusMessage(EpicMappingStatus status)
     {
         return status switch
         {
-            "Refreshing catalog" => "Refreshing Epic game catalog...",
-            "Authenticating" => "Authenticating with Epic Games...",
-            "Idle" => "Idle",
-            _ => status
+            EpicMappingStatus.RefreshingCatalog => "Refreshing Epic game catalog...",
+            EpicMappingStatus.Authenticating => "Authenticating with Epic Games...",
+            EpicMappingStatus.Idle => "Idle",
+            _ => status.ToDisplayString()
         };
     }
 
@@ -310,7 +311,7 @@ public class EpicScheduleStatus
     public double NextRefreshIn { get; set; }
     public bool IsAuthenticated { get; set; }
     public Guid? OperationId { get; set; }
-    public string Status { get; set; } = "Idle";
+    public EpicMappingStatus Status { get; set; } = EpicMappingStatus.Idle;
     public double ProgressPercent { get; set; }
     public string? StatusMessage { get; set; }
 }

@@ -53,6 +53,7 @@ import { useDefaultGuestPreferences } from '@hooks/useDefaultGuestPreferences';
 import { useActivityTracker } from '@hooks/useActivityTracker';
 import {
   type Session,
+  type SessionFilter,
   type UserPreferences,
   type ThemeOption,
   refreshRateOptions,
@@ -79,8 +80,8 @@ interface ActiveSessionsProps {
   setLoading: React.Dispatch<React.SetStateAction<boolean>>;
   onSessionsChange: () => void;
   refreshKey?: number;
-  activeFilter?: 'all' | 'admin' | 'guest';
-  onFilterChange?: (filter: 'all' | 'admin' | 'guest') => void;
+  activeFilter?: SessionFilter;
+  onFilterChange?: (filter: SessionFilter) => void;
 }
 
 // ============================================================
@@ -159,9 +160,9 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
   // ============================================================
 
   // Filter state - support both controlled and uncontrolled
-  const [localFilter, setLocalFilter] = useState<'all' | 'admin' | 'guest'>('all');
+  const [localFilter, setLocalFilter] = useState<SessionFilter>('all');
   const activeFilterValue = controlledFilter ?? localFilter;
-  const setActiveFilter = (filter: 'all' | 'admin' | 'guest') => {
+  const setActiveFilter = (filter: SessionFilter) => {
     if (onFilterChange) {
       onFilterChange(filter);
     } else {
@@ -623,13 +624,13 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     return 'inactive';
   };
 
-  const getCountForFilter = (filter: 'all' | 'admin' | 'guest'): number => {
+  const getCountForFilter = (filter: SessionFilter): number => {
     if (filter === 'all') return activeSessions.length;
     if (filter === 'admin') return activeSessions.filter((s: Session) => isAdminSession(s)).length;
     return activeSessions.filter((s: Session) => isGuestSession(s)).length;
   };
 
-  const getFilterLabel = (filter: 'all' | 'admin' | 'guest'): string => {
+  const getFilterLabel = (filter: SessionFilter): string => {
     if (filter === 'all') return t('activeSessions.filters.all', 'All');
     if (filter === 'admin') return t('activeSessions.filters.admin', 'Admin');
     return t('activeSessions.filters.guest', 'Guest');
@@ -1467,7 +1468,7 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
             <div className="flex items-center justify-between flex-wrap gap-2">
               {/* Filter Chips */}
               <div className="flex flex-wrap items-center gap-2">
-                {(['all', 'admin', 'guest'] as const).map((filter: 'all' | 'admin' | 'guest') => (
+                {(['all', 'admin', 'guest'] as const).map((filter: SessionFilter) => (
                   <button
                     key={filter}
                     className={`filter-chip ${activeFilterValue === filter ? 'filter-chip--active' : ''}`}

@@ -1,4 +1,5 @@
 using LancacheManager.Configuration;
+using LancacheManager.Core.Constants;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Data;
 using LancacheManager.Infrastructure.Utilities;
@@ -373,7 +374,6 @@ public class DashboardBatchService : IDashboardBatchService
         List<string> excludedClientIps, string evictedMode)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
-        const string PrefillToken = "prefill";
         List<Download> downloads;
 
         if (!startTime.HasValue && !endTime.HasValue && eventIdList.Count == 0)
@@ -421,11 +421,11 @@ public class DashboardBatchService : IDashboardBatchService
         }
 
         downloads = downloads
-            .Where(d => !string.Equals(d.ClientIp, PrefillToken, StringComparison.OrdinalIgnoreCase))
-            .Where(d => !string.Equals(d.Datasource, PrefillToken, StringComparison.OrdinalIgnoreCase))
+            .Where(d => !string.Equals(d.ClientIp, DownloadKindConstants.PrefillToken, StringComparison.OrdinalIgnoreCase))
+            .Where(d => !string.Equals(d.Datasource, DownloadKindConstants.PrefillToken, StringComparison.OrdinalIgnoreCase))
             .ToList();
 
-        if (evictedMode == EvictedDataModes.ShowClean)
+        if (evictedMode == EvictedDataMode.ShowClean.ToWireString())
         {
             foreach (var d in downloads) d.IsEvicted = false;
         }

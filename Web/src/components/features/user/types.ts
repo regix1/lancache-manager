@@ -1,3 +1,7 @@
+import type { SessionType } from '@services/auth.service';
+
+export type SessionFilter = 'all' | SessionType;
+
 export interface Session {
   id: string;
   sessionType?: 'admin' | 'guest';

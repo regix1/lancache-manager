@@ -166,18 +166,12 @@ public class SteamAuthController : ControllerBase
     [HttpPut("mode")]
     public IActionResult SetSteamAuthMode([FromBody] SetSteamModeRequest request)
     {
-        if (string.IsNullOrWhiteSpace(request?.Mode))
+        if (request?.Mode is null)
         {
             return BadRequest(new ErrorResponse { Error = "Mode is required" });
         }
 
-        var parsedMode = SteamAuthModeExtensions.TryParseWire(request.Mode);
-        if (parsedMode is null)
-        {
-            return BadRequest(new ErrorResponse { Error = "Mode must be 'anonymous' or 'authenticated'" });
-        }
-
-        var mode = parsedMode.Value;
+        var mode = request.Mode.Value;
         _stateService.SetSteamAuthMode(mode);
         var wire = mode.ToWireString();
         _logger.LogInformation("Steam auth mode set to: {Mode}", wire);

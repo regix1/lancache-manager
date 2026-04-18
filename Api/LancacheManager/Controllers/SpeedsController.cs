@@ -52,11 +52,11 @@ public class SpeedsController : ControllerBase
             .ToList();
 
         // Apply eviction filter (hide/remove modes exclude evicted entries from speed data)
-        if (evictedMode == EvictedDataModes.Hide || evictedMode == EvictedDataModes.Remove)
+        if (evictedMode == EvictedDataMode.Hide.ToWireString() || evictedMode == EvictedDataMode.Remove.ToWireString())
         {
             filteredGames = filteredGames.Where(g => !g.IsEvicted).ToList();
         }
-        else if (evictedMode == EvictedDataModes.ShowClean)
+        else if (evictedMode == EvictedDataMode.ShowClean.ToWireString())
         {
             foreach (var g in filteredGames) g.IsEvicted = false;
         }

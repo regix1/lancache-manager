@@ -1,3 +1,4 @@
+using System.Text.Json;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
@@ -162,7 +163,8 @@ public class SessionsController : ControllerBase
         using var scope = _scopeFactory.CreateScope();
         var prefsService = scope.ServiceProvider.GetRequiredService<UserPreferencesService>();
 
-        var result = await prefsService.UpdatePreferenceAndGetAsync(id, "refreshRate", request.RefreshRate ?? "");
+        var refreshRateJson = JsonSerializer.SerializeToElement(request.RefreshRate ?? "");
+        var result = await prefsService.UpdatePreferenceAndGetAsync(id, PreferenceKey.RefreshRate, refreshRateJson);
         if (result == null)
         {
             return NotFound(new { error = "Session not found or update failed" });

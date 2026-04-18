@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace LancacheManager.Models;
 
 /// <summary>
@@ -9,6 +11,7 @@ public class GameDetectionMetrics
     /// <summary>
     /// Type of scan performed - <see cref="DetectionScanType.Full"/> or <see cref="DetectionScanType.Incremental"/>.
     /// </summary>
+    [JsonConverter(typeof(JsonStringEnumConverter<DetectionScanType>))]
     public DetectionScanType ScanType { get; set; } = DetectionScanType.Incremental;
 
     /// <summary>

@@ -13,8 +13,6 @@ namespace LancacheManager.Infrastructure.Services;
 /// </summary>
 public class StatsDataService : IStatsDataService
 {
-    private const string PrefillToken = "prefill";
-
     private readonly AppDbContext _context;
     private readonly ILogger<StatsDataService> _logger;
 

@@ -328,12 +328,12 @@ public sealed class SocketDaemonClient : IDaemonClient
             // Check if it's an event (has "type" at root level for socket events)
             if (root.TryGetProperty("type", out var typeElement))
             {
-                var type = typeElement.GetString();
+                var messageType = JsonSerializer.Deserialize<DaemonMessageType>(typeElement.GetRawText(), _jsonOptions);
 
                 // Socket events from daemon: credential-challenge, progress, auth-state, status-update
-                if (type == "credential-challenge" || type == "progress" || type == "auth-state" || type == "status-update")
+                if (messageType != DaemonMessageType.Unknown)
                 {
-                    _ = ProcessEventAsync(type, root);
+                    _ = ProcessEventAsync(messageType, root);
                     return;
                 }
             }
@@ -354,13 +354,13 @@ public sealed class SocketDaemonClient : IDaemonClient
         }
     }
 
-    private async Task ProcessEventAsync(string? type, JsonElement root)
+    private async Task ProcessEventAsync(DaemonMessageType messageType, JsonElement root)
     {
         try
         {
-            switch (type)
+            switch (messageType)
             {
-                case "credential-challenge":
+                case DaemonMessageType.CredentialChallenge:
                     if (root.TryGetProperty("data", out var challengeData))
                     {
                         var challenge = JsonSerializer.Deserialize<CredentialChallenge>(challengeData.GetRawText(), _jsonOptions);
@@ -372,7 +372,7 @@ public sealed class SocketDaemonClient : IDaemonClient
                     }
                     break;
 
-                case "progress":
+                case DaemonMessageType.Progress:
                     if (root.TryGetProperty("data", out var progressData))
                     {
                         var progress = JsonSerializer.Deserialize<SocketPrefillProgress>(progressData.GetRawText(), _jsonOptions);
@@ -383,7 +383,7 @@ public sealed class SocketDaemonClient : IDaemonClient
                     }
                     break;
 
-                case "auth-state":
+                case DaemonMessageType.AuthState:
                     if (root.TryGetProperty("data", out var authData))
                     {
                         var state = authData.TryGetProperty("state", out var stateElem) ? stateElem.GetString() : null;
@@ -404,18 +404,22 @@ public sealed class SocketDaemonClient : IDaemonClient
                     }
                     break;
 
-                case "status-update":
+                case DaemonMessageType.StatusUpdate:
                     var status = JsonSerializer.Deserialize<DaemonStatus>(root.GetRawText(), _jsonOptions);
                     if (status != null && OnStatusUpdate != null)
                     {
                         await OnStatusUpdate.Invoke(status);
                     }
                     break;
+
+                default:
+                    _logger?.LogDebug("Received unhandled daemon message type: {MessageType}", messageType);
+                    break;
             }
         }
         catch (Exception ex)
         {
-            _logger?.LogWarning(ex, "Failed to process event of type {Type}", type);
+            _logger?.LogWarning(ex, "Failed to process event of type {MessageType}", messageType);
             if (OnError != null)
             {
                 await OnError.Invoke(ex.Message);

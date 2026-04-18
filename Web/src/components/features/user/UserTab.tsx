@@ -8,7 +8,7 @@ import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import ActiveSessions from './ActiveSessions';
 import GuestConfiguration from './GuestConfiguration';
-import { type Session, type ThemeOption, showToast } from './types';
+import { type Session, type SessionFilter, type ThemeOption, showToast } from './types';
 
 const UserTab: React.FC = () => {
   const { t } = useTranslation();
@@ -28,7 +28,7 @@ const UserTab: React.FC = () => {
   const [updatingGuestRefreshRateLock, setUpdatingGuestRefreshRateLock] = useState(false);
 
   const [activeTab, setActiveTab] = useState<'sessions' | 'defaults'>('sessions');
-  const [activeFilter, setActiveFilter] = useState<'all' | 'admin' | 'guest'>('all');
+  const [activeFilter, setActiveFilter] = useState<SessionFilter>('all');
 
   const loadGuestDuration = async () => {
     try {

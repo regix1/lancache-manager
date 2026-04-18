@@ -5,6 +5,7 @@ import ApiService from '@services/api.service';
 import {
   useNotifications,
   type UnifiedNotification,
+  type NotificationStatus,
   NOTIFICATION_ANIMATION_DURATION_MS
 } from '@contexts/notifications';
 import { useSteamWebApiStatus } from '@contexts/useSteamWebApiStatus';
@@ -524,7 +525,14 @@ const UniversalNotificationBar: React.FC = () => {
           {/* Unified Notifications - completed/failed first, then running */}
           {[...notifications]
             .sort((a, b) => {
-              const statusOrder = { completed: 0, failed: 1, running: 2, pending: 3 };
+              const statusOrder: Partial<Record<NotificationStatus, number>> = {
+                completed: 0,
+                failed: 1,
+                cancelled: 1,
+                running: 2,
+                cancelling: 2,
+                pending: 3
+              };
               return (statusOrder[a.status] ?? 4) - (statusOrder[b.status] ?? 4);
             })
             .map((notification) => (

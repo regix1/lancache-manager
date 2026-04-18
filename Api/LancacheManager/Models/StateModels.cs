@@ -26,8 +26,8 @@ public class AppState
     public bool GuestModeLocked { get; set; } = false; // When true, guest mode login is disabled
     public string? SelectedTheme { get; set; } = "dark-default"; // Default theme for authenticated users
     public string? DefaultGuestTheme { get; set; } = "dark-default"; // Default theme for guest users
-    public string RefreshRate { get; set; } = "STANDARD"; // Default to 10 seconds (LIVE, ULTRA, REALTIME, STANDARD, RELAXED, SLOW)
-    public string DefaultGuestRefreshRate { get; set; } = "STANDARD"; // Default refresh rate for guest users
+    public RefreshRate RefreshRate { get; set; } = RefreshRate.Standard; // Default to 10 seconds (LIVE, ULTRA, REALTIME, STANDARD, RELAXED, SLOW)
+    public RefreshRate DefaultGuestRefreshRate { get; set; } = RefreshRate.Standard; // Default refresh rate for guest users
     public bool GuestRefreshRateLocked { get; set; } = true; // When true, guests cannot change their refresh rate
 
     // Default guest preferences (applied to new guest sessions)
@@ -74,15 +74,15 @@ public class AppState
     // Client IP exclusion rules (mode controls stats-only vs hide)
     public List<ClientExclusionRule> ExcludedClientRules { get; set; } = new();
 
-    // Evicted data display mode (show/hide/remove)
-    public string EvictedDataMode { get; set; } = EvictedDataModes.Show;
+    // Evicted data display mode
+    public EvictedDataMode EvictedDataMode { get; set; } = EvictedDataMode.Show;
 
     // Whether the eviction scan shows the universal notification bar (false = silent/no notification)
     public bool EvictionScanNotifications { get; set; } = false;
 
     // Setup wizard state (persisted for resumption across page refreshes)
-    public string? CurrentSetupStep { get; set; }
-    public string? DataSourceChoice { get; set; }
+    public SetupStep? CurrentSetupStep { get; set; }
+    public DataSourceChoice? DataSourceChoice { get; set; }
     public string? CompletedPlatforms { get; set; } // JSON string: {"steam":"github"|"steam"|null,"epic":true|false}
 
     // LEGACY: SteamAuth has been migrated to separate file (data/security/steam_auth/credentials.json)
@@ -103,7 +103,7 @@ public class AppState
 /// </summary>
 public class SteamAuthState
 {
-    public string Mode { get; set; } = "anonymous"; // "anonymous" or "authenticated"
+    public SteamAuthMode Mode { get; set; } = SteamAuthMode.Anonymous;
     public string? Username { get; set; }
     public string? RefreshToken { get; set; } // Decrypted in memory, encrypted in storage
     // NOTE: GuardData removed - modern Steam auth uses refresh tokens only
@@ -136,12 +136,12 @@ public class LogProcessingState
 }
 
 /// <summary>
-/// Depot processing state for tracking Steam depot crawling progress
+/// Depot processing state for tracking Steam depot crawling progress.
 /// </summary>
 public class DepotProcessingState
 {
     public bool IsActive { get; set; } = false;
-    public string Status { get; set; } = "Idle";
+    public DepotScanPhase Status { get; set; } = DepotScanPhase.Idle;
     public int TotalApps { get; set; } = 0;
     public int ProcessedApps { get; set; } = 0;
     public int TotalBatches { get; set; } = 0;
@@ -169,13 +169,16 @@ public class CacheClearOperation
 }
 
 /// <summary>
-/// General operation state tracking
+/// General operation state tracking — persisted row in <c>data/operations/operation_history.json</c>.
+/// Reads tolerate legacy snake_case ("log_processing") and camelCase ("logProcessing") values on
+/// the <see cref="Type"/> field via <see cref="OperationTypeJsonConverter"/>; writes emit the
+/// canonical camelCase wire string.
 /// </summary>
 public class OperationState
 {
-    public string Id { get; set; } = string.Empty;
-    public string Type { get; set; } = string.Empty;
-    public string Status { get; set; } = string.Empty;
+    public Guid Id { get; set; }
+    public OperationType Type { get; set; }
+    public OperationStatus Status { get; set; }
     public string Message { get; set; } = string.Empty;
     public object? Data { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

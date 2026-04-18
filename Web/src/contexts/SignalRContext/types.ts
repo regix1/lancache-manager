@@ -1,4 +1,6 @@
 import type { ReactNode } from 'react';
+import type { OperationStatus, NotificationVariant } from '../../types/operations';
+import type { SessionType } from '../../services/auth.service';
 
 // Event handler type for SignalR events
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -207,7 +209,7 @@ export const SIGNALR_REFRESH_EVENTS = [
 export interface ProcessingProgressEvent {
   operationId: string;
   percentComplete: number;
-  status: string;
+  status: OperationStatus;
   stageKey?: string;
   context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
@@ -253,7 +255,7 @@ export interface LogRemovalStartedEvent {
 export interface LogRemovalProgressEvent {
   operationId: string;
   percentComplete: number;
-  status: string;
+  status: OperationStatus;
   service: string;
   stageKey?: string;
   context?: Record<string, string | number | boolean>;
@@ -268,7 +270,7 @@ export interface LogRemovalProgressEvent {
 export interface LogRemovalCompleteEvent {
   operationId: string;
   success: boolean;
-  status: string;
+  status: OperationStatus;
   stageKey?: string;
   context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
@@ -295,7 +297,7 @@ export interface GameRemovalStartedEvent {
 export interface GameRemovalProgressEvent {
   operationId: string;
   percentComplete: number;
-  status: string;
+  status: OperationStatus;
   gameAppId: number;
   gameName: string;
   stageKey?: string;
@@ -334,7 +336,7 @@ export interface ServiceRemovalStartedEvent {
 export interface ServiceRemovalProgressEvent {
   operationId: string;
   percentComplete: number;
-  status: string;
+  status: OperationStatus;
   serviceName: string;
   stageKey: string;
   context?: Record<string, string | number | boolean>;
@@ -371,7 +373,7 @@ export interface CorruptionRemovalStartedEvent {
 export interface CorruptionRemovalProgressEvent {
   operationId: string;
   percentComplete: number;
-  status: string;
+  status: OperationStatus;
   service: string;
   stageKey?: string;
   context?: Record<string, string | number | boolean>;
@@ -406,7 +408,7 @@ export interface CorruptionDetectionStartedEvent {
 export interface CorruptionDetectionProgressEvent {
   operationId: string;
   percentComplete: number;
-  status: string;
+  status: OperationStatus;
   stageKey?: string;
   context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
@@ -427,7 +429,7 @@ export interface CorruptionDetectionCompleteEvent {
   message: string;
   cancelled?: boolean;
   error?: string;
-  status?: string;
+  status?: OperationStatus;
   totalServicesWithCorruption?: number;
   totalCorruptedChunks?: number;
 }
@@ -445,7 +447,7 @@ export interface GameDetectionStartedEvent {
 export interface GameDetectionProgressEvent {
   operationId: string;
   percentComplete: number;
-  status: string;
+  status: OperationStatus;
   stageKey?: string;
   context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
@@ -465,7 +467,7 @@ export interface GameDetectionCompleteEvent {
   message: string;
   cancelled?: boolean;
   error?: string;
-  status?: string;
+  status?: OperationStatus;
   totalGamesDetected?: number;
   totalServicesDetected?: number;
   timestamp?: string;
@@ -482,7 +484,7 @@ export interface DatabaseResetStartedEvent {
 export interface DatabaseResetProgressEvent {
   operationId: string;
   percentComplete: number;
-  status: string;
+  status: OperationStatus;
   stageKey?: string;
   context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
@@ -493,7 +495,7 @@ export interface DatabaseResetProgressEvent {
 export interface CacheClearProgressEvent {
   operationId: string;
   percentComplete: number;
-  status: string;
+  status: OperationStatus;
   stageKey?: string;
   context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
@@ -516,7 +518,7 @@ export interface CacheClearCompleteEvent {
   message: string;
   cancelled?: boolean;
   error?: string;
-  status?: string;
+  status?: OperationStatus;
   filesDeleted?: number;
   directoriesProcessed?: number;
   bytesDeleted?: number;
@@ -540,7 +542,7 @@ export interface DepotMappingStartedEvent {
   /** @deprecated use stageKey instead */
   message?: string;
   isLoggedOn?: boolean;
-  status?: string;
+  status?: OperationStatus;
   scanMode?: 'incremental' | 'full' | 'github';
   totalApps?: number;
   processedApps?: number;
@@ -552,7 +554,7 @@ export interface DepotMappingStartedEvent {
 export interface DepotMappingProgressEvent {
   operationId: string;
   percentComplete: number;
-  status: string;
+  status: OperationStatus;
   progressPercent?: number;
   stageKey?: string;
   context?: Record<string, string | number | boolean>;
@@ -612,7 +614,7 @@ export interface SteamAutoLogoutEvent {
 }
 
 export interface ShowToastEvent {
-  type: 'success' | 'error' | 'info' | 'warning';
+  type: NotificationVariant;
   message: string;
   duration?: number;
 }
@@ -680,7 +682,7 @@ export interface DaemonSessionTerminatedEvent {
 
 export interface UserSessionRevokedEvent {
   sessionId: string;
-  sessionType: 'admin' | 'guest';
+  sessionType: SessionType;
 }
 
 export interface PrefillHistoryUpdatedEvent {
@@ -727,7 +729,7 @@ export interface DataImportStartedEvent {
 export interface DataImportProgressEvent {
   operationId: string;
   percentComplete: number;
-  status: string;
+  status: OperationStatus;
   stageKey?: string;
   context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
@@ -783,7 +785,7 @@ export interface EpicGuestPrefillConfigChangedEvent {
 
 export interface EpicMappingProgressEvent {
   operationId: string;
-  status: string;
+  status: OperationStatus;
   percentComplete: number;
   gamesDiscovered: number;
   stageKey?: string;
@@ -810,7 +812,7 @@ export interface EvictionScanStartedEvent {
 
 export interface EvictionScanProgressEvent {
   operationId: string;
-  status: string;
+  status: OperationStatus;
   stageKey?: string;
   context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
@@ -847,7 +849,7 @@ export interface EvictionRemovalStartedEvent {
 
 export interface EvictionRemovalProgressEvent {
   operationId: string;
-  status?: string;
+  status?: OperationStatus;
   stageKey?: string;
   context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */

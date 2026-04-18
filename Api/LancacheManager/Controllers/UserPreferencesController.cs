@@ -1,3 +1,4 @@
+using System.Text.Json;
 using LancacheManager.Models;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Interfaces;
@@ -79,7 +80,7 @@ public class UserPreferencesController : ControllerBase
     }
 
     [HttpPatch("{key}")]
-    public async Task<IActionResult> UpdatePreferenceAsync(string key, [FromBody] object value)
+    public async Task<IActionResult> UpdatePreferenceAsync(string key, [FromBody] JsonElement value)
     {
         var session = GetSession();
         if (session == null)
@@ -89,11 +90,15 @@ public class UserPreferencesController : ControllerBase
 
         var sessionId = session.Id;
 
+        var preferenceKey = PreferenceKeyJsonConverter.ParseFromString(key);
+        if (preferenceKey == PreferenceKey.Unknown)
+            return BadRequest(new MessageResponse { Success = false, Message = "Invalid preference key" });
+
         // Guests cannot write admin-only preference keys
-        if (session.SessionType != SessionType.Admin && UserPreferencesService.IsAdminOnlyKey(key))
+        if (session.SessionType != SessionType.Admin && UserPreferencesService.IsAdminOnlyKey(preferenceKey))
             return Forbid();
 
-        var preferences = await _preferencesService.UpdatePreferenceAndGetAsync(sessionId, key, value);
+        var preferences = await _preferencesService.UpdatePreferenceAndGetAsync(sessionId, preferenceKey, value);
 
         if (preferences != null)
         {

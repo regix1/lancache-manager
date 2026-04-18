@@ -1,4 +1,5 @@
 using LancacheManager.Models;
+using LancacheManager.Models.ApiRequests;
 using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Services;
@@ -7,7 +8,6 @@ using LancacheManager.Middleware;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using LancacheManager.Core.Services.SteamKit2;
-using System.Text.Json;
 
 
 namespace LancacheManager.Controllers;
@@ -71,7 +71,7 @@ public class SystemController : ControllerBase
             LogsPath = defaultDatasource?.LogPath ?? _pathResolver.GetLogsDirectory(),
             DataPath = _pathResolver.GetDataDirectory(),
             CacheDeleteMode = _cacheClearingService.GetDeleteMode(),
-            SteamAuthMode = _stateService.GetSteamAuthMode()?.ToWireString() ?? string.Empty,
+            SteamAuthMode = _stateService.GetSteamAuthMode() ?? SteamAuthMode.Anonymous,
             // Check TZ environment variable first (Docker standard), then TimeZone config, default to UTC
             TimeZone = _configuration.GetValue<string>("TZ")
                       ?? _configuration.GetValue<string>("TimeZone")
@@ -106,7 +106,7 @@ public class SystemController : ControllerBase
         {
             SetupCompleted = _stateService.GetSetupCompleted(),
             HasDataLoaded = _stateService.HasDataLoaded(),
-            SteamAuthMode = _stateService.GetSteamAuthMode()?.ToWireString() ?? string.Empty,
+            SteamAuthMode = _stateService.GetSteamAuthMode() ?? SteamAuthMode.Anonymous,
             CacheDeleteMode = _cacheClearingService.GetDeleteMode()
         });
     }
@@ -178,8 +178,8 @@ public class SystemController : ControllerBase
             HasProcessedLogs = hasProcessedLogs,
             SetupCompleted = isCompleted, // For backward compatibility
             NeedsPostgresCredentials = needsPostgresCredentials,
-            CurrentSetupStep = state.CurrentSetupStep,
-            DataSourceChoice = state.DataSourceChoice,
+            CurrentSetupStep = state.CurrentSetupStep?.ToWireString(),
+            DataSourceChoice = state.DataSourceChoice?.ToWireString(),
             CompletedPlatforms = state.CompletedPlatforms
         });
     }
@@ -205,85 +205,46 @@ public class SystemController : ControllerBase
     /// </summary>
     [Authorize]
     [HttpPatch("setup")]
-    public IActionResult UpdateSetupStatus([FromBody] JsonElement request)
+    public IActionResult UpdateSetupStatus([FromBody] UpdateSetupStatusRequest request)
     {
-        if (request.ValueKind != JsonValueKind.Object)
+        if (request == null)
         {
             return BadRequest(new ErrorResponse { Error = "Invalid setup update request body" });
         }
 
-        var validSteps = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            "database-setup",
-            "permissions-check",
-            "import-historical-data",
-            "platform-setup",
-            "steam-api-key",
-            "steam-auth",
-            "depot-init",
-            "pics-progress",
-            "epic-auth",
-            "log-processing",
-            "depot-mapping"
-        };
-        var validChoices = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            "github",
-            "steam",
-            "epic",
-            "skip"
-        };
+        var hasCompleted = request.Completed.HasValue;
+        var hasCurrentSetupStep = request.CurrentSetupStep.HasValue;
+        var hasDataSourceChoice = request.DataSourceChoice.HasValue;
+        var hasCompletedPlatforms = request.CompletedPlatforms != null;
 
-        var hasUpdate = false;
-
-        if (!TryReadOptionalBoolean(request, "completed", out var hasCompleted, out var completed, out var completedError))
-        {
-            return BadRequest(new ErrorResponse { Error = completedError! });
-        }
-
-        if (!TryReadOptionalString(request, "currentSetupStep", out var hasCurrentSetupStep, out var currentSetupStep, out var currentStepError))
-        {
-            return BadRequest(new ErrorResponse { Error = currentStepError! });
-        }
-
-        if (!TryReadOptionalString(request, "dataSourceChoice", out var hasDataSourceChoice, out var dataSourceChoice, out var dataSourceError))
-        {
-            return BadRequest(new ErrorResponse { Error = dataSourceError! });
-        }
-
-        if (!TryReadOptionalString(request, "completedPlatforms", out var hasCompletedPlatforms, out var completedPlatforms, out var completedPlatformsError))
-        {
-            return BadRequest(new ErrorResponse { Error = completedPlatformsError! });
-        }
-
-        if (currentSetupStep != null && !validSteps.Contains(currentSetupStep))
+        // Reject any SetupStep value that deserialized to Unknown — the converter maps
+        // unrecognised wire strings to SetupStep.Unknown rather than throwing, so we have
+        // to guard here to match the pre-existing "invalid step" error shape.
+        if (hasCurrentSetupStep && request.CurrentSetupStep == SetupStep.Unknown)
         {
             return BadRequest(new ErrorResponse { Error = "Invalid currentSetupStep value" });
         }
 
-        if (dataSourceChoice != null && !validChoices.Contains(dataSourceChoice))
-        {
-            return BadRequest(new ErrorResponse { Error = "Invalid dataSourceChoice value" });
-        }
+        var hasUpdate = false;
 
         _stateService.UpdateState(state =>
         {
             // Persist wizard state fields if provided
             if (hasCurrentSetupStep)
             {
-                state.CurrentSetupStep = currentSetupStep;
+                state.CurrentSetupStep = request.CurrentSetupStep;
                 hasUpdate = true;
             }
 
             if (hasDataSourceChoice)
             {
-                state.DataSourceChoice = dataSourceChoice;
+                state.DataSourceChoice = request.DataSourceChoice;
                 hasUpdate = true;
             }
 
             if (hasCompletedPlatforms)
             {
-                state.CompletedPlatforms = completedPlatforms;
+                state.CompletedPlatforms = request.CompletedPlatforms;
                 hasUpdate = true;
             }
 
@@ -301,7 +262,7 @@ public class SystemController : ControllerBase
         // fires and unblocks all gated startup services immediately (no restart needed).
         if (hasCompleted)
         {
-            _stateService.SetSetupCompleted(completed!.Value);
+            _stateService.SetSetupCompleted(request.Completed!.Value);
         }
 
         if (!_stateService.IsPersistenceAvailable)
@@ -314,8 +275,8 @@ public class SystemController : ControllerBase
 
         if (hasCompleted)
         {
-            _logger.LogInformation("Setup status updated: {Completed}", completed!.Value);
-            return Ok(new SetupUpdateResponse { Message = "Setup status updated", SetupCompleted = completed.Value });
+            _logger.LogInformation("Setup status updated: {Completed}", request.Completed!.Value);
+            return Ok(new SetupUpdateResponse { Message = "Setup status updated", SetupCompleted = request.Completed.Value });
         }
 
         if (hasUpdate)
@@ -328,67 +289,6 @@ public class SystemController : ControllerBase
         }
 
         return BadRequest(new ErrorResponse { Error = "No update provided" });
-    }
-
-    private static bool TryReadOptionalBoolean(
-        JsonElement request,
-        string propertyName,
-        out bool hasProperty,
-        out bool? parsedValue,
-        out string? error)
-    {
-        hasProperty = false;
-        parsedValue = null;
-        error = null;
-
-        if (!request.TryGetProperty(propertyName, out var property))
-        {
-            return true;
-        }
-
-        hasProperty = true;
-
-        if (property.ValueKind == JsonValueKind.True || property.ValueKind == JsonValueKind.False)
-        {
-            parsedValue = property.GetBoolean();
-            return true;
-        }
-
-        error = "Expected a boolean value";
-        return false;
-    }
-
-    private static bool TryReadOptionalString(
-        JsonElement request,
-        string propertyName,
-        out bool hasProperty,
-        out string? parsedValue,
-        out string? error)
-    {
-        hasProperty = false;
-        parsedValue = null;
-        error = null;
-
-        if (!request.TryGetProperty(propertyName, out var property))
-        {
-            return true;
-        }
-
-        hasProperty = true;
-
-        if (property.ValueKind == JsonValueKind.Null)
-        {
-            return true;
-        }
-
-        if (property.ValueKind != JsonValueKind.String)
-        {
-            error = "Expected a string or null value";
-            return false;
-        }
-
-        parsedValue = property.GetString();
-        return true;
     }
 
     /// <summary>
@@ -526,9 +426,12 @@ public class SystemController : ControllerBase
     }
 
     /// <summary>
-    /// GET /api/system/default-guest-refresh-rate - Get the default refresh rate for guest users
+    /// GET /api/system/default-guest-refresh-rate - Get the default refresh rate for guest users.
+    /// Anonymous access is intentional: the login screen displays the configured guest refresh rate
+    /// before the user authenticates. Leaving this endpoint [Authorize] produced repeated 401
+    /// challenges + log spam for every unauthenticated pageload.
     /// </summary>
-    [Authorize]
+    [AllowAnonymous]
     [HttpGet("default-guest-refresh-rate")]
     public IActionResult GetDefaultGuestRefreshRate()
     {

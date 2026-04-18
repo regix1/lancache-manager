@@ -40,7 +40,7 @@ public partial class EpicMappingService
                 "Epic Auth Login",
                 authCts
             );
-            _currentStatus = "Authenticating";
+            _currentStatus = EpicMappingStatus.Authenticating;
 
             // Exchange authorization code for tokens
             var tokens = await _epicApiClient.ExchangeAuthCodeAsync(authorizationCode, authCts.Token);
@@ -137,7 +137,7 @@ public partial class EpicMappingService
                 _operationTracker.CompleteOperation(_currentOperationId.Value, true);
                 _currentOperationId = null;
             }
-            _currentStatus = "Idle";
+            _currentStatus = EpicMappingStatus.Idle;
 
             _logger.LogInformation("Epic mapping login complete: {DisplayName}, {Games} games",
                 tokens.DisplayName, _gamesDiscovered);
@@ -162,7 +162,7 @@ public partial class EpicMappingService
                 _operationTracker.CompleteOperation(_currentOperationId.Value, false, "Cancelled");
                 _currentOperationId = null;
             }
-            _currentStatus = "Idle";
+            _currentStatus = EpicMappingStatus.Idle;
         }
         finally
         {

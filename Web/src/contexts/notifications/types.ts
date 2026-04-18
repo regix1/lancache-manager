@@ -3,6 +3,8 @@
  * These types are used throughout the notification context, handlers, and UI components.
  */
 
+import type { OperationStatus, NotificationVariant } from '../../types/operations';
+
 /**
  * All possible notification types in the system.
  * Each type corresponds to a specific operation or event.
@@ -25,12 +27,12 @@ export type NotificationType =
   | 'generic';
 
 /**
- * Possible states for a notification.
- * - running: Operation is in progress
- * - completed: Operation finished successfully
- * - failed: Operation encountered an error
+ * Possible states for a notification. Aligned with the canonical backend
+ * `OperationStatus` so SignalR status fields can flow through unchanged.
+ * Consumers that only care about the narrower "running | completed | failed"
+ * triple continue to work because those three values are still members.
  */
-export type NotificationStatus = 'running' | 'completed' | 'failed';
+export type NotificationStatus = OperationStatus;
 
 /**
  * Unified notification data structure.
@@ -109,7 +111,7 @@ export interface UnifiedNotification {
     updatedEpicGames?: number;
 
     // For generic notifications
-    notificationType?: 'success' | 'error' | 'info' | 'warning';
+    notificationType?: NotificationVariant;
 
     // Cancellation flag
     cancelled?: boolean;

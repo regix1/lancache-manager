@@ -8,8 +8,7 @@ import { useTimezone } from '@contexts/useTimezone';
 import { useAuth } from '@contexts/useAuth';
 import { useDefaultGuestPreferences } from '@hooks/useDefaultGuestPreferences';
 import { getEffectiveTimezone, getTimeInTimezone } from '@utils/timezone';
-
-type TimeSettingValue = 'server-24h' | 'server-12h' | 'local-24h' | 'local-12h';
+import type { TimeSettingValue } from '@contexts/TimezoneContext.types';
 
 interface TimezoneSelectorProps {
   iconOnly?: boolean;

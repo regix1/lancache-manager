@@ -1,6 +1,6 @@
 import { createContext } from 'react';
 
-type TimeSettingValue = 'server-24h' | 'server-12h' | 'local-24h' | 'local-12h';
+export type TimeSettingValue = 'server-24h' | 'server-12h' | 'local-24h' | 'local-12h';
 
 interface TimezoneContextType {
   useLocalTimezone: boolean;

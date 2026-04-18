@@ -3,9 +3,7 @@ import ApiService from '@services/api.service';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useAuth } from '@contexts/useAuth';
 import type { SteamAutoLogoutEvent, SteamSessionErrorEvent } from '@contexts/SignalRContext/types';
-import { SteamAuthContext } from './SteamAuthContext.types';
-
-type SteamAuthMode = 'anonymous' | 'authenticated';
+import { SteamAuthContext, type SteamAuthMode } from './SteamAuthContext.types';
 
 interface SteamAuthenticationState {
   mode: SteamAuthMode;

@@ -121,8 +121,11 @@ public class StateService : IStateService
         // Client IP exclusion rules (mode controls stats-only vs hide)
         public List<ClientExclusionRule> ExcludedClientRules { get; set; } = new();
 
-        // Evicted data display mode (show/hide/remove)
-        public string EvictedDataMode { get; set; } = EvictedDataModes.Show;
+        // Evicted data display mode (show/hide/showClean/remove).
+        // Stored as the wire string ("show"/"hide"/"showClean"/"remove") for backward
+        // compatibility with older state.json files; parsed into
+        // <see cref="LancacheManager.Models.EvictedDataMode"/> when loaded.
+        public string EvictedDataMode { get; set; } = LancacheManager.Models.EvictedDataMode.Show.ToWireString();
 
         // Whether the eviction scan shows the universal notification bar
         public bool EvictionScanNotifications { get; set; } = false;
@@ -179,7 +182,7 @@ public class StateService : IStateService
                         // Setting to null will exclude it from JSON serialization
                         var hadSteamAuth = _cachedState.SteamAuth != null &&
                                           (_cachedState.SteamAuth.RefreshToken != null ||
-                                           _cachedState.SteamAuth.Mode != "anonymous" ||
+                                           _cachedState.SteamAuth.Mode != SteamAuthMode.Anonymous ||
                                            !string.IsNullOrEmpty(_cachedState.SteamAuth.Username));
 
                         if (hadSteamAuth)
@@ -525,10 +528,15 @@ public class StateService : IStateService
 
     public void RemoveOperationState(string id)
     {
+        if (!Guid.TryParse(id, out var parsedId))
+        {
+            return;
+        }
+
         lock (_operationLock)
         {
             var states = GetOperationStates();
-            var removed = states.RemoveAll(o => o.Id == id);
+            var removed = states.RemoveAll(o => o.Id == parsedId);
             if (removed > 0)
             {
                 SaveOperationStates();
@@ -582,7 +590,7 @@ public class StateService : IStateService
 
         var cutoff = DateTime.UtcNow.AddHours(-48);
         var oldStates = _cachedOperationStates
-            .Where(s => s.Status == "complete" && s.UpdatedAt < cutoff)
+            .Where(s => s.Status == OperationStatus.Completed && s.UpdatedAt < cutoff)
             .ToList();
 
         if (oldStates.Count > 0)
@@ -630,22 +638,24 @@ public class StateService : IStateService
     // Setup Wizard State Methods
     public string? GetCurrentSetupStep()
     {
-        return GetState().CurrentSetupStep;
+        return GetState().CurrentSetupStep?.ToWireString();
     }
 
     public void SetCurrentSetupStep(string? step)
     {
-        UpdateState(state => state.CurrentSetupStep = step);
+        var parsed = SetupStepExtensions.TryParseWire(step);
+        UpdateState(state => state.CurrentSetupStep = parsed);
     }
 
     public string? GetDataSourceChoice()
     {
-        return GetState().DataSourceChoice;
+        return GetState().DataSourceChoice?.ToWireString();
     }
 
     public void SetDataSourceChoice(string? choice)
     {
-        UpdateState(state => state.DataSourceChoice = choice);
+        var parsed = DataSourceChoiceExtensions.TryParseWire(choice);
+        UpdateState(state => state.DataSourceChoice = parsed);
     }
 
     public string? GetCompletedPlatforms()
@@ -879,8 +889,8 @@ public class StateService : IStateService
             GuestSessionDurationHours = persisted.GuestSessionDurationHours,
             SelectedTheme = persisted.SelectedTheme ?? "dark-default",
             DefaultGuestTheme = persisted.DefaultGuestTheme ?? "dark-default",
-            RefreshRate = persisted.RefreshRate ?? "STANDARD",
-            DefaultGuestRefreshRate = persisted.DefaultGuestRefreshRate ?? "STANDARD",
+            RefreshRate = RefreshRateExtensions.TryParseWire(persisted.RefreshRate) ?? RefreshRate.Standard,
+            DefaultGuestRefreshRate = RefreshRateExtensions.TryParseWire(persisted.DefaultGuestRefreshRate) ?? RefreshRate.Standard,
             GuestRefreshRateLocked = persisted.GuestRefreshRateLocked,
             // Default guest preferences
             DefaultGuestUseLocalTimezone = persisted.DefaultGuestUseLocalTimezone,
@@ -913,12 +923,12 @@ public class StateService : IStateService
             ExcludedClientIps = persisted.ExcludedClientIps ?? new List<string>(),
             ExcludedClientRules = ResolveExcludedClientRules(persisted),
             // Evicted data display mode
-            EvictedDataMode = persisted.EvictedDataMode ?? EvictedDataModes.Show,
+            EvictedDataMode = EvictedDataModeExtensions.TryParseWire(persisted.EvictedDataMode) ?? EvictedDataMode.Show,
             // Eviction scan on startup
             EvictionScanNotifications = persisted.EvictionScanNotifications,
             // Setup wizard state
-            CurrentSetupStep = persisted.CurrentSetupStep,
-            DataSourceChoice = persisted.DataSourceChoice,
+            CurrentSetupStep = SetupStepExtensions.TryParseWire(persisted.CurrentSetupStep),
+            DataSourceChoice = DataSourceChoiceExtensions.TryParseWire(persisted.DataSourceChoice),
             CompletedPlatforms = persisted.CompletedPlatforms,
             // Per-service interval overrides
             ServiceIntervals = persisted.ServiceIntervals ?? new Dictionary<string, double>(),
@@ -959,8 +969,8 @@ public class StateService : IStateService
             GuestSessionDurationHours = state.GuestSessionDurationHours,
             SelectedTheme = state.SelectedTheme,
             DefaultGuestTheme = state.DefaultGuestTheme,
-            RefreshRate = state.RefreshRate ?? "STANDARD",
-            DefaultGuestRefreshRate = state.DefaultGuestRefreshRate ?? "STANDARD",
+            RefreshRate = state.RefreshRate.ToWireString(),
+            DefaultGuestRefreshRate = state.DefaultGuestRefreshRate.ToWireString(),
             GuestRefreshRateLocked = state.GuestRefreshRateLocked,
             // Default guest preferences
             DefaultGuestUseLocalTimezone = state.DefaultGuestUseLocalTimezone,
@@ -993,12 +1003,12 @@ public class StateService : IStateService
             ExcludedClientIps = BuildExcludedIpList(state.ExcludedClientRules, state.ExcludedClientIps),
             ExcludedClientRules = state.ExcludedClientRules ?? new List<ClientExclusionRule>(),
             // Evicted data display mode
-            EvictedDataMode = state.EvictedDataMode ?? EvictedDataModes.Show,
+            EvictedDataMode = state.EvictedDataMode.ToWireString(),
             // Eviction scan on startup
             EvictionScanNotifications = state.EvictionScanNotifications,
             // Setup wizard state
-            CurrentSetupStep = state.CurrentSetupStep,
-            DataSourceChoice = state.DataSourceChoice,
+            CurrentSetupStep = state.CurrentSetupStep?.ToWireString(),
+            DataSourceChoice = state.DataSourceChoice?.ToWireString(),
             CompletedPlatforms = state.CompletedPlatforms,
             // Per-service interval overrides
             ServiceIntervals = state.ServiceIntervals ?? new Dictionary<string, double>(),
@@ -1025,7 +1035,7 @@ public class StateService : IStateService
     private void CleanupStaleOperations(AppState state)
     {
         var staleOperations = state.OperationStates
-            .Where(o => o.Type == "log_processing" && o.Status == "processing")
+            .Where(o => o.Type == OperationType.LogProcessing && o.Status == OperationStatus.Running)
             .ToList();
 
         if (staleOperations.Any())
@@ -1137,35 +1147,27 @@ public class StateService : IStateService
     // Refresh Rate Methods
     public string GetRefreshRate()
     {
-        return GetState().RefreshRate ?? "STANDARD";
+        return GetState().RefreshRate.ToWireString();
     }
 
     public void SetRefreshRate(string rate)
     {
-        // Validate the rate is a valid option
-        var validRates = new[] { "LIVE", "ULTRA", "REALTIME", "STANDARD", "RELAXED", "SLOW" };
-        if (!validRates.Contains(rate.ToUpperInvariant()))
-        {
-            rate = "STANDARD";
-        }
-        UpdateState(state => state.RefreshRate = rate.ToUpperInvariant());
+        // Validate the rate is a valid option; fall back to STANDARD when unrecognised.
+        var parsed = RefreshRateExtensions.TryParseWire(rate) ?? RefreshRate.Standard;
+        UpdateState(state => state.RefreshRate = parsed);
     }
 
     // Default Guest Refresh Rate Methods
     public string GetDefaultGuestRefreshRate()
     {
-        return GetState().DefaultGuestRefreshRate ?? "STANDARD";
+        return GetState().DefaultGuestRefreshRate.ToWireString();
     }
 
     public void SetDefaultGuestRefreshRate(string rate)
     {
-        // Validate the rate is a valid option
-        var validRates = new[] { "LIVE", "ULTRA", "REALTIME", "STANDARD", "RELAXED", "SLOW" };
-        if (!validRates.Contains(rate.ToUpperInvariant()))
-        {
-            rate = "STANDARD";
-        }
-        UpdateState(state => state.DefaultGuestRefreshRate = rate.ToUpperInvariant());
+        // Validate the rate is a valid option; fall back to STANDARD when unrecognised.
+        var parsed = RefreshRateExtensions.TryParseWire(rate) ?? RefreshRate.Standard;
+        UpdateState(state => state.DefaultGuestRefreshRate = parsed);
     }
 
     // Guest Refresh Rate Lock Methods
@@ -1254,12 +1256,13 @@ public class StateService : IStateService
 
     public string GetEvictedDataMode()
     {
-        return GetState().EvictedDataMode;
+        return GetState().EvictedDataMode.ToWireString();
     }
 
     public void SetEvictedDataMode(string mode)
     {
-        UpdateState(state => state.EvictedDataMode = mode);
+        var parsed = EvictedDataModeExtensions.TryParseWire(mode) ?? EvictedDataMode.Show;
+        UpdateState(state => state.EvictedDataMode = parsed);
     }
 
     public bool GetEvictionScanNotifications()

@@ -203,7 +203,7 @@ public class TestApiKeyRequest
 
 public class SetSteamModeRequest
 {
-    public string? Mode { get; set; }
+    public SteamAuthMode? Mode { get; set; }
 }
 
 public class SteamLoginRequest
