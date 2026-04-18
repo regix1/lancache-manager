@@ -16,6 +16,7 @@ import { ImageCacheContext, ImageInvalidateContext } from '@components/common/Im
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
 import { useNotifications, NOTIFICATION_IDS } from '@contexts/notifications';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import CacheRemovalModal from '@components/modals/cache/CacheRemovalModal';
 import EvictedItemsList from '../game-detection/EvictedItemsList';
 import DatasourcesManager from '../datasources/DatasourcesInfo';
@@ -114,6 +115,31 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     if (isAnyEvictedRemovalRunning) return;
     void fetchEvictedItems();
   }, [fetchEvictedItems, gameCacheRefreshKey, isAnyEvictedRemovalRunning]);
+
+  // StorageSection owns independent evictedGames/evictedServices state from
+  // GameCacheDetector, so the GameCacheDetector SignalR listener does not
+  // refresh this list. Without a listener here, an eviction scan that flips
+  // Downloads.IsEvicted would update the DB (and evicted_downloads_count on
+  // the detection response), but the Evicted Items card would keep showing
+  // whatever it loaded at mount — hence "14 newly evicted" in the logs with
+  // no visible UI change. Refetch on scan / detection completion.
+  const { on, off } = useSignalR();
+  useEffect(() => {
+    const handleScanDone = () => {
+      if (isAnyEvictedRemovalRunning) return;
+      // Small delay so the backend finishes its post-scan recovery + cache
+      // invalidation before we refetch.
+      setTimeout(() => {
+        void fetchEvictedItems();
+      }, 500);
+    };
+    on('EvictionScanComplete', handleScanDone);
+    on('GameDetectionComplete', handleScanDone);
+    return () => {
+      off('EvictionScanComplete', handleScanDone);
+      off('GameDetectionComplete', handleScanDone);
+    };
+  }, [on, off, fetchEvictedItems, isAnyEvictedRemovalRunning]);
 
   // Track partial eviction target so we know which item to filter on eviction_removal completion
   const partialRemovalTargetRef = useRef<{ gameAppId?: number; serviceName?: string } | null>(null);
