@@ -151,7 +151,7 @@ public class PrefillSessionService
     /// </summary>
     public async Task<PrefillSession> CreateSessionAsync(
         string sessionId,
-        string createdBySessionId,
+        Guid createdBySessionId,
         string? containerId,
         string? containerName,
         DateTime expiresAt,
@@ -563,7 +563,7 @@ public class PrefillSessionService
         return await BanUserAsync(
             session.SteamUsername,
             reason,
-            session.CreatedBySessionId,
+            session.CreatedBySessionId == Guid.Empty ? null : session.CreatedBySessionId.ToString(),
             bannedBy,
             expiresAt);
     }

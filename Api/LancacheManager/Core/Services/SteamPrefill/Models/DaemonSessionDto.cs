@@ -6,7 +6,7 @@ namespace LancacheManager.Core.Services.SteamPrefill;
 public class DaemonSessionDto
 {
     public string Id { get; set; } = string.Empty;
-    public string UserId { get; set; } = string.Empty;
+    public Guid UserId { get; set; }
     public string ContainerName { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
     public string? ErrorMessage { get; set; }

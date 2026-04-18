@@ -41,9 +41,6 @@ public class PrefillAdminController : ControllerBase
         _notifications = notifications;
     }
 
-    private UserSession? GetSession() => HttpContext.GetUserSession();
-    private string GetSessionId() => HttpContext.GetRequiredUserSession().Id.ToString();
-
     /// <summary>
     /// Builds a BannedSteamUserDto from a BannedSteamUser entity (always sets IsActive = true for new bans).
     /// </summary>
@@ -52,13 +49,20 @@ public class PrefillAdminController : ControllerBase
         Id = ban.Id,
         Username = ban.Username,
         BanReason = ban.BanReason,
-        BannedBySessionId = ban.BannedBySessionId,
+        BannedBySessionId = ParseGuidOrNull(ban.BannedBySessionId),
         BannedAtUtc = ban.BannedAtUtc,
         BannedBy = ban.BannedBy,
         ExpiresAtUtc = ban.ExpiresAtUtc,
         IsLifted = ban.IsLifted,
         IsActive = true
     };
+
+    /// <summary>
+    /// Parses a session id string to Guid, returning null for null/empty/invalid values.
+    /// Used at the entity/DTO boundary for fields that legacy-store UserSession.Id as string.
+    /// </summary>
+    private static Guid? ParseGuidOrNull(string? value)
+        => Guid.TryParse(value, out var guid) ? guid : null;
 
     /// <summary>
     /// Notifies the banned user's session via SignalR so their UI updates immediately.
@@ -97,14 +101,17 @@ public class PrefillAdminController : ControllerBase
         var epicSessions = _epicDaemonService.GetAllSessions();
         var liveSessions = steamSessions.Concat(epicSessions).ToList();
 
-        // Enrich DB sessions with live data
+        // Enrich DB sessions with live data.
+        // DaemonSession.Id is a 16-char daemon-local id (string); PrefillSession.SessionId is a Guid.
+        // Compare via their canonical string forms so matching remains consistent.
         var enrichedSessions = sessions.Select(s =>
         {
-            var liveSession = liveSessions.FirstOrDefault(ls => ls.Id == s.SessionId);
+            var sessionIdString = s.SessionId.ToString();
+            var liveSession = liveSessions.FirstOrDefault(ls => ls.Id == sessionIdString);
             return new PrefillSessionDto
             {
                 Id = s.Id,
-                SessionId = s.SessionId,
+                SessionId = sessionIdString,
                 CreatedBySessionId = s.CreatedBySessionId,
                 ContainerId = s.ContainerId,
                 ContainerName = s.ContainerName,
@@ -158,7 +165,7 @@ public class PrefillAdminController : ControllerBase
         return Ok(history.Select(h => new PrefillHistoryEntryDto
         {
             Id = h.Id,
-            SessionId = h.SessionId,
+            SessionId = h.SessionId.ToString(),
             AppId = h.AppId,
             AppName = h.AppName,
             StartedAtUtc = h.StartedAtUtc,
@@ -179,7 +186,8 @@ public class PrefillAdminController : ControllerBase
         string sessionId,
         [FromBody] TerminateSessionRequest? request = null)
     {
-        var adminSessionId = GetSessionId();
+        var adminSessionId = HttpContext.GetRequiredSessionId();
+        var adminSessionIdString = adminSessionId.ToString();
         var reason = request?.Reason ?? "Terminated by admin";
         var force = request?.Force ?? false;
 
@@ -187,8 +195,8 @@ public class PrefillAdminController : ControllerBase
             adminSessionId, sessionId, reason);
 
         // Try Steam first, then Epic if not found in Steam sessions
-        await _steamDaemonService.TerminateSessionAsync(sessionId, reason, force, adminSessionId);
-        await _epicDaemonService.TerminateSessionAsync(sessionId, reason, force, adminSessionId);
+        await _steamDaemonService.TerminateSessionAsync(sessionId, reason, force, adminSessionIdString);
+        await _epicDaemonService.TerminateSessionAsync(sessionId, reason, force, adminSessionIdString);
 
         return Ok(ApiResponse.Message("Session terminated"));
     }
@@ -200,7 +208,8 @@ public class PrefillAdminController : ControllerBase
     [HttpPost("sessions/terminate-all")]
     public async Task<ActionResult> TerminateAllSessionsAsync([FromBody] TerminateSessionRequest? request = null)
     {
-        var adminSessionId = GetSessionId();
+        var adminSessionId = HttpContext.GetRequiredSessionId();
+        var adminSessionIdString = adminSessionId.ToString();
         var reason = request?.Reason ?? "All sessions terminated by admin";
         var force = request?.Force ?? true;
 
@@ -214,12 +223,12 @@ public class PrefillAdminController : ControllerBase
 
         foreach (var session in steamSessions)
         {
-            await _steamDaemonService.TerminateSessionAsync(session.Id, reason, force, adminSessionId);
+            await _steamDaemonService.TerminateSessionAsync(session.Id, reason, force, adminSessionIdString);
         }
 
         foreach (var session in epicSessions)
         {
-            await _epicDaemonService.TerminateSessionAsync(session.Id, reason, force, adminSessionId);
+            await _epicDaemonService.TerminateSessionAsync(session.Id, reason, force, adminSessionIdString);
         }
 
         return Ok(new { message = $"Terminated {count} sessions" });
@@ -245,7 +254,7 @@ public class PrefillAdminController : ControllerBase
             Id = b.Id,
             Username = b.Username,
             BanReason = b.BanReason,
-            BannedBySessionId = b.BannedBySessionId,
+            BannedBySessionId = ParseGuidOrNull(b.BannedBySessionId),
             BannedAtUtc = b.BannedAtUtc,
             BannedBy = b.BannedBy,
             ExpiresAtUtc = b.ExpiresAtUtc,
@@ -266,12 +275,13 @@ public class PrefillAdminController : ControllerBase
         string sessionId,
         [FromBody] BanRequest request)
     {
-        var adminSessionId = GetSessionId();
+        var adminSessionId = HttpContext.GetRequiredSessionId();
+        var adminSessionIdString = adminSessionId.ToString();
 
         var ban = await _sessionService.BanUserBySessionAsync(
             sessionId,
             request.Reason,
-            adminSessionId,
+            adminSessionIdString,
             request.ExpiresAt);
 
         if (ban == null)
@@ -280,8 +290,8 @@ public class PrefillAdminController : ControllerBase
         }
 
         // Also terminate the session (try both Steam and Epic since we don't know the platform)
-        await _steamDaemonService.TerminateSessionAsync(sessionId, "Banned by admin", true, adminSessionId);
-        await _epicDaemonService.TerminateSessionAsync(sessionId, "Banned by admin", true, adminSessionId);
+        await _steamDaemonService.TerminateSessionAsync(sessionId, "Banned by admin", true, adminSessionIdString);
+        await _epicDaemonService.TerminateSessionAsync(sessionId, "Banned by admin", true, adminSessionIdString);
 
         await NotifyBannedAsync(ban);
 
@@ -303,13 +313,14 @@ public class PrefillAdminController : ControllerBase
             return BadRequest(ApiResponse.Required("Username"));
         }
 
-        var adminSessionId = GetSessionId();
+        var adminSessionId = HttpContext.GetRequiredSessionId();
+        var adminSessionIdString = adminSessionId.ToString();
 
         var ban = await _sessionService.BanUserAsync(
             request.Username,
             request.Reason,
-            request.SessionId,
-            adminSessionId,
+            request.SessionId?.ToString(),
+            adminSessionIdString,
             request.ExpiresAt);
 
         await NotifyBannedAsync(ban);
@@ -327,9 +338,10 @@ public class PrefillAdminController : ControllerBase
     [HttpPost("bans/{banId}/lift")]
     public async Task<ActionResult> LiftBanAsync(long banId)
     {
-        var adminSessionId = GetSessionId();
+        var adminSessionId = HttpContext.GetRequiredSessionId();
+        var adminSessionIdString = adminSessionId.ToString();
 
-        var ban = await _sessionService.LiftBanAsync(banId, adminSessionId);
+        var ban = await _sessionService.LiftBanAsync(banId, adminSessionIdString);
 
         if (ban == null)
         {
@@ -419,7 +431,7 @@ public class PrefillAdminController : ControllerBase
     public async Task<ActionResult> ClearAppCacheAsync(long appId)
     {
         await _cacheService.ClearAppCacheAsync(appId);
-        _logger.LogInformation("Cache cleared for app {AppId} by session {SessionId}", appId, GetSessionId());
+        _logger.LogInformation("Cache cleared for app {AppId} by session {SessionId}", appId, HttpContext.GetRequiredSessionId());
         return Ok(ApiResponse.Message($"Cache cleared for app {appId}"));
     }
 
@@ -431,7 +443,7 @@ public class PrefillAdminController : ControllerBase
     public async Task<ActionResult> ClearAllCacheAsync()
     {
         await _cacheService.ClearAllCacheAsync();
-        _logger.LogInformation("Entire prefill cache cleared by session {SessionId}", GetSessionId());
+        _logger.LogInformation("Entire prefill cache cleared by session {SessionId}", HttpContext.GetRequiredSessionId());
         return Ok(ApiResponse.Message("Prefill cache cleared"));
     }
 

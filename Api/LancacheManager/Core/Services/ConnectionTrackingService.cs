@@ -5,11 +5,13 @@ namespace LancacheManager.Core.Services;
 /// <summary>
 /// Singleton service to track SignalR connections by session ID.
 /// Enables targeted messaging to specific connected clients.
+/// The session id here refers to <c>UserSession.Id</c> (a <see cref="Guid"/>),
+/// not the 16-char daemon-local id used by the prefill daemon sessions.
 /// </summary>
 public class ConnectionTrackingService
 {
-    private readonly ConcurrentDictionary<string, string> _sessionToConnection = new();
-    private readonly ConcurrentDictionary<string, string> _connectionToSession = new();
+    private readonly ConcurrentDictionary<Guid, string> _sessionToConnection = new();
+    private readonly ConcurrentDictionary<string, Guid> _connectionToSession = new();
     private readonly ILogger<ConnectionTrackingService> _logger;
 
     public ConnectionTrackingService(ILogger<ConnectionTrackingService> logger)
@@ -21,9 +23,9 @@ public class ConnectionTrackingService
     /// Register a SignalR connection for a session.
     /// If the session already has a connection, the old one is replaced.
     /// </summary>
-    public void RegisterConnection(string sessionId, string connectionId)
+    public void RegisterConnection(Guid sessionId, string connectionId)
     {
-        if (string.IsNullOrEmpty(sessionId) || string.IsNullOrEmpty(connectionId))
+        if (sessionId == Guid.Empty || string.IsNullOrEmpty(connectionId))
             return;
 
         // If session already has a connection, unregister the old one
@@ -68,9 +70,9 @@ public class ConnectionTrackingService
     /// <summary>
     /// Get the SignalR connection ID for a session, if connected.
     /// </summary>
-    public string? GetConnectionId(string sessionId)
+    public string? GetConnectionId(Guid sessionId)
     {
-        if (string.IsNullOrEmpty(sessionId))
+        if (sessionId == Guid.Empty)
             return null;
 
         _sessionToConnection.TryGetValue(sessionId, out var connectionId);

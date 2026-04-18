@@ -258,6 +258,16 @@ public class AppDbContext : DbContext
             .HasIndex(p => p.CreatedBySessionId)
             .HasDatabaseName("IX_PrefillSessions_CreatedBySessionId");
 
+        // CreatedBySessionId is a UserSession.Id (Guid) stored in the existing varchar(100) column.
+        // Use HasConversion to bridge C# Guid <-> stored string. Empty / unparsable rows read as Guid.Empty (no throw).
+        modelBuilder.Entity<PrefillSession>()
+            .Property(p => p.CreatedBySessionId)
+            .HasMaxLength(100)
+            .HasColumnType("character varying(100)")
+            .HasConversion(
+                g => g == Guid.Empty ? string.Empty : g.ToString(),
+                s => string.IsNullOrEmpty(s) ? Guid.Empty : GuidOrEmpty(s));
+
         modelBuilder.Entity<PrefillSession>()
             .HasIndex(p => p.ContainerId)
             .HasDatabaseName("IX_PrefillSessions_ContainerId");
@@ -337,4 +347,12 @@ public class AppDbContext : DbContext
             .HasDatabaseName("IX_GameImages_AppId_Service")
             .IsUnique();
     }
+
+    /// <summary>
+    /// Parses a string to a Guid, returning Guid.Empty for any non-canonical / legacy rows.
+    /// Used by EF value converter for PrefillSession.CreatedBySessionId so old varchar rows
+    /// containing empty strings or invalid values do not throw on load.
+    /// </summary>
+    private static Guid GuidOrEmpty(string s)
+        => Guid.TryParse(s, out var parsed) ? parsed : Guid.Empty;
 }

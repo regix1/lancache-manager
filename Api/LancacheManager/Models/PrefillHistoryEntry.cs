@@ -13,7 +13,7 @@ public class PrefillHistoryEntry
     public long Id { get; set; }
 
     /// <summary>
-    /// The session ID this entry belongs to
+    /// The session ID this entry belongs to (FK to PrefillSession.SessionId; varchar(50) column).
     /// </summary>
     [Required]
     [MaxLength(50)]

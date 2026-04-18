@@ -304,7 +304,7 @@ public class BanByUsernameRequest
 {
     public string Username { get; set; } = string.Empty;
     public string? Reason { get; set; }
-    public string? SessionId { get; set; }
+    public Guid? SessionId { get; set; }
     public DateTime? ExpiresAt { get; set; }
 }
 

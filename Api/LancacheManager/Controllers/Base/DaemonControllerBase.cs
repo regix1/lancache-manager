@@ -65,7 +65,7 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
     [HttpGet("sessions/mine")]
     public ActionResult<IEnumerable<DaemonSessionDto>> GetMySessions()
     {
-        var sessionId = GetSessionId();
+        var sessionId = HttpContext.GetRequiredSessionId();
 
         var sessions = _daemonService.GetUserSessions(sessionId)
             .Select(DaemonSessionDto.FromSession);
@@ -95,7 +95,7 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
     [HttpPost("sessions")]
     public async Task<ActionResult<DaemonSessionDto>> CreateSessionAsync()
     {
-        var sessionId = GetSessionId();
+        var sessionId = HttpContext.GetRequiredSessionId();
 
         _logger.LogInformation("Creating {Platform} daemon session for session {SessionId}", _platformName, sessionId);
         var session = await _daemonService.CreateSessionAsync(sessionId);
@@ -285,7 +285,7 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
         }
 
         // Enforce thread limit for guest users
-        var userSession = GetUserSession();
+        var userSession = HttpContext.GetUserSession();
         if (userSession != null && request?.MaxConcurrency != null)
         {
             var effectiveLimit = ResolveEffectiveThreadLimit(userSession);
@@ -349,7 +349,7 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
     /// </summary>
     protected ActionResult? ValidateSessionOwnership(string sessionId)
     {
-        var currentSessionId = GetSessionId();
+        var currentSessionId = HttpContext.GetRequiredSessionId();
 
         var session = _daemonService.GetSession(sessionId);
         if (session == null)
@@ -365,6 +365,4 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
         return null;
     }
 
-    protected UserSession? GetUserSession() => HttpContext.GetUserSession();
-    protected string GetSessionId() => HttpContext.GetRequiredUserSession().Id.ToString();
 }

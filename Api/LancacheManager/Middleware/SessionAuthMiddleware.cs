@@ -25,4 +25,11 @@ public static class SessionMiddlewareExtensions
            ?? throw new UnauthorizedAccessException(
                   "Request reached controller without an authenticated session. " +
                   "Ensure [Authorize] is configured and SessionAuthenticationHandler is running.");
+
+    /// <summary>
+    /// Gets the authenticated session ID as a <see cref="Guid"/>, or throws <see cref="UnauthorizedAccessException"/>
+    /// if no session is present. Convenience wrapper over <see cref="GetRequiredUserSession"/>.
+    /// </summary>
+    public static Guid GetRequiredSessionId(this HttpContext context)
+        => context.GetRequiredUserSession().Id;
 }

@@ -28,7 +28,7 @@ public class PrefillSessionDto
 {
     public long Id { get; set; }
     public string SessionId { get; set; } = string.Empty;
-    public string CreatedBySessionId { get; set; } = string.Empty;
+    public Guid CreatedBySessionId { get; set; }
     public string? ContainerId { get; set; }
     public string? ContainerName { get; set; }
     public string? SteamUsername { get; set; }
@@ -53,7 +53,7 @@ public class BannedSteamUserDto
     public long Id { get; set; }
     public string Username { get; set; } = string.Empty;
     public string? BanReason { get; set; }
-    public string? BannedBySessionId { get; set; }
+    public Guid? BannedBySessionId { get; set; }
     public DateTime BannedAtUtc { get; set; }
     public string? BannedBy { get; set; }
     public DateTime? ExpiresAtUtc { get; set; }

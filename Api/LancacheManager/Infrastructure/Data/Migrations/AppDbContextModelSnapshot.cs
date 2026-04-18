@@ -837,7 +837,7 @@ namespace LancacheManager.Infrastructure.Data.Migrations
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<string>("CreatedBySessionId")
+                    b.Property<Guid>("CreatedBySessionId")
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");

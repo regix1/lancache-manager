@@ -67,7 +67,7 @@ public class DownloadHub : Hub
             if (session != null)
             {
                 // Register connection with session ID
-                _connectionTrackingService.RegisterConnection(session.Id.ToString(), Context.ConnectionId);
+                _connectionTrackingService.RegisterConnection(session.Id, Context.ConnectionId);
 
                 // Add to appropriate groups
                 await Groups.AddToGroupAsync(Context.ConnectionId, AuthenticatedUsersGroup);

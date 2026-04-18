@@ -374,7 +374,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     /// Spawns a Docker container with dedicated command/response directories.
     /// </summary>
     public async Task<DaemonSession> CreateSessionAsync(
-        string userId,
+        Guid userId,
         string? ipAddress = null,
         string? userAgent = null,
         CancellationToken cancellationToken = default)
@@ -1365,7 +1365,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     /// <summary>
     /// Gets sessions for a specific user
     /// </summary>
-    public IEnumerable<DaemonSession> GetUserSessions(string userId)
+    public IEnumerable<DaemonSession> GetUserSessions(Guid userId)
     {
         return _sessions.Values.Where(s => s.UserId == userId).ToList();
     }

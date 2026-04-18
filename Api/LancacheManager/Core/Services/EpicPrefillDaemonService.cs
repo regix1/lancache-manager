@@ -133,7 +133,7 @@ public class EpicPrefillDaemonService : PrefillDaemonServiceBase
                     continue;
                 }
 
-                var sessionHash = CryptoUtils.ComputeAnonymousHash(session.UserId);
+                var sessionHash = CryptoUtils.ComputeAnonymousHash(session.UserId.ToString());
                 var result = await _mappingService.MergeOwnedGamesAsync(games, sessionHash, "prefill-login");
 
                 _logger.LogInformation(

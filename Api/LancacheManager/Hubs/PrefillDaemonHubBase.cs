@@ -67,7 +67,7 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
             return;
         }
 
-        Context.Items["SessionId"] = session.Id.ToString();
+        Context.Items["SessionId"] = session.Id;
 
         _logger.LogDebug("{Hub} hub connected: {ConnectionId}, SessionId: {SessionId}",
             HubDisplayName, Context.ConnectionId, session.Id);
@@ -98,7 +98,7 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
     public async Task<DaemonSessionDto> CreateSessionAsync()
     {
         var authSessionId = GetSessionId();
-        if (string.IsNullOrEmpty(authSessionId))
+        if (!authSessionId.HasValue)
         {
             throw new HubException("Session required");
         }
@@ -111,7 +111,7 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
 
             _logger.LogInformation("Creating {Hub} session for auth session {SessionId}",
                 HubDisplayName, authSessionId);
-            var session = await _daemonService.CreateSessionAsync(authSessionId, ipAddress, userAgent);
+            var session = await _daemonService.CreateSessionAsync(authSessionId.Value, ipAddress, userAgent);
 
             _daemonService.AddSubscriber(session.Id, Context.ConnectionId);
 
@@ -144,7 +144,7 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
             throw new HubException("Session not found");
         }
 
-        if (session.UserId != authSessionId)
+        if (!authSessionId.HasValue || session.UserId != authSessionId.Value)
         {
             throw new HubException("Access denied");
         }
@@ -320,18 +320,22 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
     public IEnumerable<DaemonSessionDto> GetMySessions()
     {
         var authSessionId = GetSessionId();
-        if (string.IsNullOrEmpty(authSessionId))
+        if (!authSessionId.HasValue)
         {
             return Enumerable.Empty<DaemonSessionDto>();
         }
 
-        return _daemonService.GetUserSessions(authSessionId)
+        return _daemonService.GetUserSessions(authSessionId.Value)
             .Select(DaemonSessionDto.FromSession);
     }
 
-    protected string? GetSessionId()
+    /// <summary>
+    /// Returns the authenticated UserSession.Id stored in Context.Items during OnConnectedAsync.
+    /// This is the Guid user-auth session id (not the 16-char daemon-local session id).
+    /// </summary>
+    protected Guid? GetSessionId()
     {
-        return Context.Items.TryGetValue("SessionId", out var id) ? id as string : null;
+        return Context.Items.TryGetValue("SessionId", out var id) && id is Guid g ? g : null;
     }
 
     protected void ValidateSessionAccess(string sessionId, out DaemonSession session)
@@ -344,7 +348,7 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
             throw new HubException("Session not found");
         }
 
-        if (s.UserId != authSessionId)
+        if (!authSessionId.HasValue || s.UserId != authSessionId.Value)
         {
             throw new HubException("Access denied");
         }

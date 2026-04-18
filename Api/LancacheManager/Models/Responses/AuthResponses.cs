@@ -4,7 +4,7 @@ public class AuthStatusResponse
 {
     public bool IsAuthenticated { get; set; }
     public string? SessionType { get; set; }
-    public string? SessionId { get; set; }
+    public Guid? SessionId { get; set; }
     public DateTime? ExpiresAt { get; set; }
     public bool HasData { get; set; }
     public bool HasBeenInitialized { get; set; }
@@ -35,7 +35,7 @@ public class LoginResponse
 
 public class SessionDto
 {
-    public string Id { get; set; } = string.Empty;
+    public Guid Id { get; set; }
     public string SessionType { get; set; } = string.Empty;
     public string? IpAddress { get; set; }
     public string? UserAgent { get; set; }

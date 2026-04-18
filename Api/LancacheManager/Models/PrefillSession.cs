@@ -12,18 +12,17 @@ public class PrefillSession
     public long Id { get; set; }
 
     /// <summary>
-    /// The daemon session ID (GUID format)
+    /// The daemon session ID (16-char hex daemon-local id; varchar(50) column).
     /// </summary>
     [Required]
     [MaxLength(50)]
     public string SessionId { get; set; } = string.Empty;
 
     /// <summary>
-    /// SessionId of the auth session that created this prefill session
+    /// SessionId of the auth session that created this prefill session (UserSession.Id, native uuid column).
     /// </summary>
     [Required]
-    [MaxLength(100)]
-    public string CreatedBySessionId { get; set; } = string.Empty;
+    public Guid CreatedBySessionId { get; set; }
 
     /// <summary>
     /// Docker container ID (if still running)

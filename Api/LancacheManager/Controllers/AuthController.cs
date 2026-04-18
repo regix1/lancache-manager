@@ -104,7 +104,7 @@ public class AuthController : ControllerBase
         {
             IsAuthenticated = session != null,
             SessionType = session?.SessionType,
-            SessionId = session?.Id.ToString(),
+            SessionId = session?.Id,
             ExpiresAt = session != null ? DateTime.SpecifyKind(session.ExpiresAtUtc, DateTimeKind.Utc) : (DateTime?)null,
             HasData = hasData,
             HasBeenInitialized = hasBeenInitialized,

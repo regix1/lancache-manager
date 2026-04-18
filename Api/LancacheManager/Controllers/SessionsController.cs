@@ -80,7 +80,7 @@ public class SessionsController : ControllerBase
 
         return new SessionDto
         {
-            Id = s.Id.ToString(),
+            Id = s.Id,
             SessionType = s.SessionType,
             IpAddress = s.IpAddress,
             UserAgent = s.UserAgent,
