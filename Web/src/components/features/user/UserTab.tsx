@@ -34,7 +34,7 @@ const UserTab: React.FC = () => {
     try {
       const data = await ApiService.getGuestConfig<{ durationHours: number; isLocked: boolean }>();
       setGuestDurationHours(data.durationHours || 6);
-      setGuestModeLocked(data.isLocked || false);
+      setGuestModeLocked(data.isLocked);
     } catch (err) {
       showToast('error', getErrorMessage(err) || t('user.errors.loadGuestDuration'));
       setGuestDurationHours(6);
@@ -110,7 +110,7 @@ const UserTab: React.FC = () => {
         locked: boolean;
       }>();
       setDefaultGuestRefreshRate(data.refreshRate || 'STANDARD');
-      setGuestRefreshRateLocked(data.locked ?? true);
+      setGuestRefreshRateLocked(data.locked);
     } catch (err) {
       showToast('error', getErrorMessage(err) || t('user.errors.loadGuestRefreshRate'));
     }

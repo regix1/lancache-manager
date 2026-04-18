@@ -255,7 +255,7 @@ const SessionCard: React.FC<{
 
   const { paginatedItems: paginatedEntries, totalPages } = usePaginatedList<PrefillHistoryEntryDto>(
     {
-      items: historyData ?? [],
+      items: historyData,
       pageSize: historyPageSize,
       page: historyPage,
       onPageChange: onHistoryPageChange

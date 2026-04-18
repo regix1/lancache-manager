@@ -259,12 +259,12 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
           pagination: { totalPages: number; totalCount: number; page: number };
           historySessions: Session[];
         }>(page, pageSize);
-        const loadedSessions = data.sessions || [];
+        const loadedSessions = data.sessions;
         setSessions(loadedSessions);
         setTotalPages(data.pagination?.totalPages || 1);
         setTotalCount(data.pagination?.totalCount || loadedSessions.length);
         setCurrentPage(data.pagination?.page || 1);
-        setHistorySessions(data.historySessions || []);
+        setHistorySessions(data.historySessions);
       } catch (err: unknown) {
         showToast('error', getErrorMessage(err) || t('activeSessions.errors.loadSessions'));
       } finally {
@@ -350,26 +350,26 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
     setPendingEpicPrefillChange(null);
     setLoadingPreferences(true);
     try {
-      const prefs = await ApiService.getSessionPreferences<Record<string, unknown>>(session.id);
+      const prefs = await ApiService.getSessionPreferences<UserPreferences>(session.id);
       const selectedTheme =
         typeof prefs.selectedTheme === 'string' && prefs.selectedTheme.trim() !== ''
           ? prefs.selectedTheme
           : null;
       setEditingPreferences({
         selectedTheme: selectedTheme,
-        sharpCorners: (prefs.sharpCorners as boolean) ?? false,
-        disableFocusOutlines: (prefs.disableFocusOutlines as boolean) ?? true,
-        disableTooltips: (prefs.disableTooltips as boolean) ?? false,
-        picsAlwaysVisible: (prefs.picsAlwaysVisible as boolean) ?? false,
-        disableStickyNotifications: (prefs.disableStickyNotifications as boolean) ?? false,
-        showDatasourceLabels: (prefs.showDatasourceLabels as boolean) ?? true,
-        useLocalTimezone: (prefs.useLocalTimezone as boolean) ?? false,
-        use24HourFormat: (prefs.use24HourFormat as boolean) ?? true,
-        showYearInDates: (prefs.showYearInDates as boolean) ?? false,
-        refreshRate: (prefs.refreshRate as string | null) ?? null,
-        refreshRateLocked: (prefs.refreshRateLocked as boolean | null) ?? null,
-        allowedTimeFormats: prefs.allowedTimeFormats as string[] | undefined,
-        maxThreadCount: (prefs.maxThreadCount as number | null) ?? null
+        sharpCorners: prefs.sharpCorners,
+        disableFocusOutlines: prefs.disableFocusOutlines,
+        disableTooltips: prefs.disableTooltips,
+        picsAlwaysVisible: prefs.picsAlwaysVisible,
+        disableStickyNotifications: prefs.disableStickyNotifications,
+        showDatasourceLabels: prefs.showDatasourceLabels,
+        useLocalTimezone: prefs.useLocalTimezone,
+        use24HourFormat: prefs.use24HourFormat,
+        showYearInDates: prefs.showYearInDates,
+        refreshRate: prefs.refreshRate ?? null,
+        refreshRateLocked: prefs.refreshRateLocked ?? null,
+        allowedTimeFormats: prefs.allowedTimeFormats,
+        maxThreadCount: prefs.maxThreadCount ?? null
       });
     } catch (err: unknown) {
       showToast('error', getErrorMessage(err) || t('activeSessions.errors.loadPreferences'));

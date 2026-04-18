@@ -94,8 +94,8 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
           largestGame
         };
       }
-      const totalBytes = serviceStats.reduce((sum, s) => sum + (s.totalBytes || 0), 0);
-      const totalHits = serviceStats.reduce((sum, s) => sum + (s.totalCacheHitBytes || 0), 0);
+      const totalBytes = serviceStats.reduce((sum, s) => sum + s.totalBytes, 0);
+      const totalHits = serviceStats.reduce((sum, s) => sum + s.totalCacheHitBytes, 0);
       const hitRatio = totalBytes > 0 ? (totalHits / totalBytes) * 100 : 0;
       return {
         totalBytes,

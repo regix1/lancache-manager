@@ -3,7 +3,7 @@ namespace LancacheManager.Models;
 /// <summary>
 /// SignalR event payload emitted when an eviction scan operation starts.
 /// </summary>
-public record EvictionScanStarted(string? StageKey, string OperationId, Dictionary<string, object?>? Context = null);
+public record EvictionScanStarted(string StageKey, string OperationId, Dictionary<string, object?>? Context = null);
 
 /// <summary>
 /// SignalR event payload emitted after each batch during an eviction scan.
@@ -11,7 +11,7 @@ public record EvictionScanStarted(string? StageKey, string OperationId, Dictiona
 public record EvictionScanProgress(
     string OperationId,
     string Status,
-    string? StageKey,
+    string StageKey,
     double PercentComplete,
     int Processed,
     int TotalEstimate,
@@ -25,7 +25,7 @@ public record EvictionScanProgress(
 public record EvictionScanComplete(
     bool Success,
     string OperationId,
-    string? StageKey,
+    string StageKey,
     int Processed,
     int Evicted,
     int UnEvicted,
@@ -35,7 +35,7 @@ public record EvictionScanComplete(
 /// <summary>
 /// SignalR event payload emitted when an eviction removal operation starts.
 /// </summary>
-public record EvictionRemovalStarted(string? StageKey, string OperationId, Dictionary<string, object?>? Context = null, string? GameName = null, string? GameAppId = null);
+public record EvictionRemovalStarted(string StageKey, string OperationId, Dictionary<string, object?>? Context = null, string? GameName = null, string? GameAppId = null);
 
 /// <summary>
 /// SignalR event payload emitted during an eviction removal operation.
@@ -43,7 +43,7 @@ public record EvictionRemovalStarted(string? StageKey, string OperationId, Dicti
 public record EvictionRemovalProgress(
     string OperationId,
     string Status,
-    string? StageKey,
+    string StageKey,
     double PercentComplete,
     int DownloadsRemoved,
     int LogEntriesRemoved,
@@ -55,7 +55,7 @@ public record EvictionRemovalProgress(
 public record EvictionRemovalComplete(
     bool Success,
     string OperationId,
-    string? StageKey,
+    string StageKey,
     int DownloadsRemoved,
     int LogEntriesRemoved,
     string? Error = null,

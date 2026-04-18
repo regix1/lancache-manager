@@ -162,7 +162,9 @@ class MockDataService {
           totalBytes: 0,
           cacheHitPercent: 0,
           isActive: false,
-          gameName: undefined
+          gameName: undefined,
+          averageBytesPerSecond: 0,
+          isEvicted: false
         };
       } else {
         // Regular download
@@ -210,6 +212,7 @@ class MockDataService {
           isActive: i < 3 && hoursAgo < 0.5, // First 3 recent downloads are active
           gameName,
           gameAppId,
+          averageBytesPerSecond: durationMs > 0 ? totalBytes / (durationMs / 1000) : 0,
           isEvicted
         };
       }
@@ -355,7 +358,9 @@ class MockDataService {
         cacheMissBytes: 0,
         totalBytes: 0,
         cacheHitPercent: 0,
-        isActive: false
+        isActive: false,
+        averageBytesPerSecond: 0,
+        isEvicted: false
       };
     }
 
@@ -380,7 +385,9 @@ class MockDataService {
       cacheHitPercent: (cacheHitBytes / totalBytes) * 100,
       isActive: true,
       gameName: game.name,
-      gameAppId: parseInt(game.appId, 10)
+      gameAppId: parseInt(game.appId, 10),
+      averageBytesPerSecond: 0,
+      isEvicted: false
     };
   }
 

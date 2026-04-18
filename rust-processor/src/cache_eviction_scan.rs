@@ -178,7 +178,10 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>) ->
     )
     .fetch_one(&pool)
     .await
-    .unwrap_or(0);
+    .unwrap_or_else(|e| {
+        eprintln!("[EvictionScan] Warning: failed to estimate total downloads: {}", e);
+        0
+    });
 
     let total_estimate = total_estimate as usize;
 

@@ -435,7 +435,7 @@ async fn main() -> Result<()> {
                 reporter.emit_progress(5.0, "signalr.corruptionRemove.scanningRedownload", json!({}));
 
                 let detector = CorruptionDetector::new(&cache_dir, miss_threshold);
-                let timezone_tz: chrono_tz::Tz = "UTC".parse().unwrap_or(chrono_tz::UTC);
+                let timezone_tz: chrono_tz::Tz = chrono_tz::UTC;
                 let redownload_map = detector.detect_redownloaded_chunks_with_progress(
                     &log_dir, "access.log", timezone_tz, Some(&progress_path)
                 )?;

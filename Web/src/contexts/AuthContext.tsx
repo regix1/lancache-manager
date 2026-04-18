@@ -48,7 +48,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setSessionExpiresAt(data.expiresAt);
       setSteamPrefillEnabled(data.steamPrefillEnabled ?? data.prefillEnabled);
       setSteamPrefillExpiresAt(data.steamPrefillExpiresAt ?? data.prefillExpiresAt);
-      setEpicPrefillEnabled(data.epicPrefillEnabled ?? false);
+      setEpicPrefillEnabled(data.epicPrefillEnabled);
       setEpicPrefillExpiresAt(data.epicPrefillExpiresAt ?? null);
 
       if (data.isAuthenticated && data.sessionType === 'admin') {

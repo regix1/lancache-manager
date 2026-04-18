@@ -85,7 +85,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
     setLoadingExcluded(true);
     try {
       const response = await ApiService.getStatsExclusions();
-      const ips = response.ips || [];
+      const ips = response.ips;
       setExcludedIps(ips);
       setSavedExcludedIps(ips);
     } catch (err) {
@@ -177,7 +177,7 @@ const ClientsSection: React.FC<ClientsSectionProps> = ({ isAdmin, onError, onSuc
     setSavingExcluded(true);
     try {
       const response = await ApiService.updateStatsExclusions(excludedIps);
-      const ips = response.ips || [];
+      const ips = response.ips;
       setExcludedIps(ips);
       setSavedExcludedIps(ips);
       onSuccess(t('management.sections.clients.excludedIpsUpdated'));

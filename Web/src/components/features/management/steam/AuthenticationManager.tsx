@@ -80,8 +80,8 @@ const AuthenticationManager: React.FC<AuthenticationManagerProps> = ({ onError, 
     setAuthChecking(true);
     try {
       const result = await authService.checkAuth();
-      setHasData(result.hasData || false);
-      setHasBeenInitialized(result.hasBeenInitialized || false);
+      setHasData(result.hasData);
+      setHasBeenInitialized(result.hasBeenInitialized);
 
       // Refresh the global auth context
       await refreshAuth();

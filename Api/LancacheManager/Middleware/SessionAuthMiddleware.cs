@@ -13,4 +13,16 @@ public static class SessionMiddlewareExtensions
             ? session as UserSession
             : null;
     }
+
+    /// <summary>
+    /// Gets the authenticated user session or throws <see cref="UnauthorizedAccessException"/> if none is present.
+    /// Intended for use inside controllers guarded by <c>[Authorize]</c> where a null session post-middleware
+    /// indicates a server misconfiguration (policy bypass, handler not registered, etc.) rather than a
+    /// legitimate user state.
+    /// </summary>
+    public static UserSession GetRequiredUserSession(this HttpContext context)
+        => context.GetUserSession()
+           ?? throw new UnauthorizedAccessException(
+                  "Request reached controller without an authenticated session. " +
+                  "Ensure [Authorize] is configured and SessionAuthenticationHandler is running.");
 }

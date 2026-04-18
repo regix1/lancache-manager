@@ -106,7 +106,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     },
     progress: {
       getMessage: (event: ProcessingProgressEvent) => formatLogProcessingMessage(event),
-      getProgress: (event: ProcessingProgressEvent) => Math.min(99.9, event.percentComplete || 0),
+      getProgress: (event: ProcessingProgressEvent) => Math.min(99.9, event.percentComplete),
       getStatus: (event: ProcessingProgressEvent) =>
         event.status?.toLowerCase() === 'completed' ? 'completed' : undefined,
       getCompletedMessage: (event: ProcessingProgressEvent) =>
@@ -144,7 +144,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     },
     progress: {
       getMessage: (event: LogRemovalProgressEvent) => formatLogRemovalProgressMessage(event),
-      getProgress: (event: LogRemovalProgressEvent) => event.percentComplete || 0,
+      getProgress: (event: LogRemovalProgressEvent) => event.percentComplete,
       getStatus: (event: LogRemovalProgressEvent) =>
         event.status === 'completed'
           ? 'completed'
@@ -189,7 +189,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     },
     progress: {
       getMessage: (event: GameRemovalProgressEvent) => formatGameRemovalProgressMessage(event),
-      getProgress: (event: GameRemovalProgressEvent) => event.percentComplete || 0,
+      getProgress: (event: GameRemovalProgressEvent) => event.percentComplete,
       getStatus: (event: GameRemovalProgressEvent) => standardGetStatus(event),
       getCompletedMessage: (event: GameRemovalProgressEvent) =>
         i18n.t(event.stageKey ?? 'signalr.gameRemove.complete', event.context ?? {}),
@@ -232,15 +232,15 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     progress: {
       getMessage: (event: ServiceRemovalProgressEvent) =>
         formatServiceRemovalProgressMessage(event),
-      getProgress: (event: ServiceRemovalProgressEvent) => event.percentComplete || 0,
+      getProgress: (event: ServiceRemovalProgressEvent) => event.percentComplete,
       getStatus: (event: ServiceRemovalProgressEvent) => standardGetStatus(event),
       getCompletedMessage: (event: ServiceRemovalProgressEvent) =>
-        i18n.t(event.stageKey ?? 'signalr.serviceRemove.success', {
+        i18n.t(event.stageKey, {
           name: event.serviceName,
           ...event.context
         }),
       getErrorMessage: (event: ServiceRemovalProgressEvent) =>
-        i18n.t(event.stageKey ?? 'signalr.serviceRemove.failed.generic', {
+        i18n.t(event.stageKey, {
           name: event.serviceName,
           ...event.context
         }),
@@ -278,7 +278,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     progress: {
       getMessage: (event: CorruptionRemovalProgressEvent) =>
         i18n.t(event.stageKey ?? 'signalr.corruptionRemove.scanningFiles', event.context ?? {}),
-      getProgress: (event: CorruptionRemovalProgressEvent) => event.percentComplete || 0,
+      getProgress: (event: CorruptionRemovalProgressEvent) => event.percentComplete,
       getStatus: (event: CorruptionRemovalProgressEvent) => standardGetStatus(event),
       getCompletedMessage: (event: CorruptionRemovalProgressEvent) =>
         i18n.t(event.stageKey ?? 'signalr.corruptionRemove.success', event.context ?? {}),
@@ -321,7 +321,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     },
     progress: {
       getMessage: (event: GameDetectionProgressEvent) => formatGameDetectionProgressMessage(event),
-      getProgress: (event: GameDetectionProgressEvent) => event.percentComplete || 0,
+      getProgress: (event: GameDetectionProgressEvent) => event.percentComplete,
       getStatus: (event: GameDetectionProgressEvent) => standardGetStatus(event),
       getCompletedMessage: (event: GameDetectionProgressEvent) =>
         i18n.t(event.stageKey ?? 'signalr.gameDetect.complete.default', event.context ?? {}),
@@ -365,7 +365,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     progress: {
       getMessage: (event: CorruptionDetectionProgressEvent) =>
         formatCorruptionDetectionProgressMessage(event),
-      getProgress: (event: CorruptionDetectionProgressEvent) => event.percentComplete || 0,
+      getProgress: (event: CorruptionDetectionProgressEvent) => event.percentComplete,
       getStatus: (event: CorruptionDetectionProgressEvent) => standardGetStatus(event),
       getCompletedMessage: (event: CorruptionDetectionProgressEvent) =>
         i18n.t(event.stageKey ?? 'signalr.corruptionDetect.complete', event.context ?? {}),
@@ -403,7 +403,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     },
     progress: {
       getMessage: (event: CacheClearProgressEvent) => formatCacheClearProgressMessage(event),
-      getProgress: (event: CacheClearProgressEvent) => event.percentComplete || 0,
+      getProgress: (event: CacheClearProgressEvent) => event.percentComplete,
       getStatus: (event: CacheClearProgressEvent) => standardGetStatus(event),
       getCompletedMessage: (event: CacheClearProgressEvent) =>
         event.stageKey
@@ -451,7 +451,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     },
     progress: {
       getMessage: (event: DataImportProgressEvent) => formatDataImportProgressMessage(event),
-      getProgress: (event: DataImportProgressEvent) => event.percentComplete || 0,
+      getProgress: (event: DataImportProgressEvent) => event.percentComplete,
       getStatus: (event: DataImportProgressEvent) => standardGetStatus(event),
       getCompletedMessage: (event: DataImportProgressEvent) =>
         i18n.t(event.stageKey ?? 'signalr.generic.complete', event.context ?? {}),
@@ -493,7 +493,7 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     progress: {
       getMessage: (event: EvictionScanProgressEvent) =>
         i18n.t(event.stageKey ?? 'signalr.evictionScan.progress', event.context ?? {}),
-      getProgress: (event: EvictionScanProgressEvent) => event.percentComplete || 0,
+      getProgress: (event: EvictionScanProgressEvent) => event.percentComplete,
       getStatus: (event: EvictionScanProgressEvent) => standardGetStatus(event),
       getCompletedMessage: (event: EvictionScanProgressEvent) =>
         i18n.t(event.stageKey ?? 'signalr.evictionScan.complete', event.context ?? {}),

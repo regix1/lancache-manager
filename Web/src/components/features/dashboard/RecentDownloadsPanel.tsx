@@ -19,7 +19,7 @@ import { storage } from '@utils/storage';
 import type { Download, DownloadGroup, EventSummary, GameSpeedInfo } from '@/types';
 
 interface RecentDownloadsPanelProps {
-  downloads?: Download[];
+  downloads: Download[];
   loading?: boolean;
   timeRange?: string;
   glassmorphism?: boolean;
@@ -118,7 +118,7 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({ item, events = 
           item.gameName &&
           item.gameName !== item.service &&
           !item.gameName.match(/^Steam App \d+$/),
-        isEvicted: item.isEvicted ?? false,
+        isEvicted: item.isEvicted,
         isPartiallyEvicted: false,
         gameAppId: item.gameAppId ?? null
       };
@@ -199,7 +199,7 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
   const [selectedClient, setSelectedClient] = useState<string>('all');
   const [viewMode, setViewMode] = useState<'recent' | 'active'>('recent');
 
-  const latestDownloads = useMemo(() => downloads ?? [], [downloads]);
+  const latestDownloads = useMemo(() => downloads, [downloads]);
   const { fetchAssociations, getAssociations, refreshVersion } = useDownloadAssociations();
   const { getGroupForIp } = useClientGroups();
   const { speedSnapshot, gameSpeeds, refreshSpeed } = useSpeed();
@@ -276,10 +276,10 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
         }
 
         groups[groupKey].downloads.push(download);
-        groups[groupKey].totalBytes += download.totalBytes || 0;
-        groups[groupKey].totalDownloaded += download.totalBytes || 0;
-        groups[groupKey].cacheHitBytes += download.cacheHitBytes || 0;
-        groups[groupKey].cacheMissBytes += download.cacheMissBytes || 0;
+        groups[groupKey].totalBytes += download.totalBytes;
+        groups[groupKey].totalDownloaded += download.totalBytes;
+        groups[groupKey].cacheHitBytes += download.cacheHitBytes;
+        groups[groupKey].cacheMissBytes += download.cacheMissBytes;
         groups[groupKey].clientsSet.add(download.clientIp);
         groups[groupKey].count++;
 
@@ -435,8 +435,8 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
 
   const stats = useMemo(() => {
     const totalDownloads = filteredDownloads.length;
-    const totalBytes = filteredDownloads.reduce((sum, d) => sum + (d.totalBytes || 0), 0);
-    const totalCacheHits = filteredDownloads.reduce((sum, d) => sum + (d.cacheHitBytes || 0), 0);
+    const totalBytes = filteredDownloads.reduce((sum, d) => sum + d.totalBytes, 0);
+    const totalCacheHits = filteredDownloads.reduce((sum, d) => sum + d.cacheHitBytes, 0);
     const overallHitRate = totalBytes > 0 ? (totalCacheHits / totalBytes) * 100 : 0;
 
     return { totalDownloads, totalBytes, overallHitRate };

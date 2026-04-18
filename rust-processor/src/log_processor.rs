@@ -258,7 +258,10 @@ impl Processor {
             )
             .fetch_one(&self.pool)
             .await
-            .unwrap_or(false);
+            .unwrap_or_else(|e| {
+                eprintln!("[log_processor] Warning: failed to check if database is empty: {}", e);
+                false
+            });
             if is_empty {
                 println!("Fresh database detected — skipping duplicate checks for maximum speed");
                 self.skip_dedup = true;

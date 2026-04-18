@@ -366,7 +366,7 @@ const DownloadsTab: React.FC = () => {
   }, []);
 
   // Compute whether to show datasource labels (show if any datasources are configured)
-  const hasMultipleDatasources = (config.dataSources?.length ?? 0) >= 1;
+  const hasMultipleDatasources = config.dataSources.length >= 1;
 
   // State management
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
@@ -753,13 +753,11 @@ const DownloadsTab: React.FC = () => {
     let filtered = [...latestDownloads];
 
     if (!settings.showZeroBytes) {
-      filtered = filtered.filter((d) => (d.totalBytes || 0) > 0);
+      filtered = filtered.filter((d) => d.totalBytes > 0);
     }
 
     if (!settings.showSmallFiles) {
-      filtered = filtered.filter(
-        (d) => (d.totalBytes || 0) === 0 || (d.totalBytes || 0) >= 1048576
-      );
+      filtered = filtered.filter((d) => d.totalBytes === 0 || d.totalBytes >= 1048576);
     }
 
     if (settings.hideLocalhost) {
@@ -891,10 +889,10 @@ const DownloadsTab: React.FC = () => {
       }
 
       groups[groupKey].downloads.push(download);
-      groups[groupKey].totalBytes += download.totalBytes || 0;
-      groups[groupKey].totalDownloaded += download.totalBytes || 0;
-      groups[groupKey].cacheHitBytes += download.cacheHitBytes || 0;
-      groups[groupKey].cacheMissBytes += download.cacheMissBytes || 0;
+      groups[groupKey].totalBytes += download.totalBytes;
+      groups[groupKey].totalDownloaded += download.totalBytes;
+      groups[groupKey].cacheHitBytes += download.cacheHitBytes;
+      groups[groupKey].cacheMissBytes += download.cacheMissBytes;
       groups[groupKey].clientsSet.add(download.clientIp);
       groups[groupKey].count++;
 
@@ -992,13 +990,13 @@ const DownloadsTab: React.FC = () => {
           return aTime - bTime;
         }
         case 'largest': {
-          const aBytes = 'downloads' in a ? a.totalBytes : a.totalBytes || 0;
-          const bBytes = 'downloads' in b ? b.totalBytes : b.totalBytes || 0;
+          const aBytes = a.totalBytes;
+          const bBytes = b.totalBytes;
           return bBytes - aBytes;
         }
         case 'smallest': {
-          const aBytesSmall = 'downloads' in a ? a.totalBytes : a.totalBytes || 0;
-          const bBytesSmall = 'downloads' in b ? b.totalBytes : b.totalBytes || 0;
+          const aBytesSmall = a.totalBytes;
+          const bBytesSmall = b.totalBytes;
           return aBytesSmall - bBytesSmall;
         }
         case 'service': {
@@ -1016,42 +1014,14 @@ const DownloadsTab: React.FC = () => {
         }
         case 'efficiency': {
           // Sort by cache hit percentage (highest first)
-          const aEfficiency =
-            'downloads' in a
-              ? a.totalBytes > 0
-                ? (a.cacheHitBytes / a.totalBytes) * 100
-                : 0
-              : (a.totalBytes || 0) > 0
-                ? ((a.cacheHitBytes || 0) / (a.totalBytes || 1)) * 100
-                : 0;
-          const bEfficiency =
-            'downloads' in b
-              ? b.totalBytes > 0
-                ? (b.cacheHitBytes / b.totalBytes) * 100
-                : 0
-              : (b.totalBytes || 0) > 0
-                ? ((b.cacheHitBytes || 0) / (b.totalBytes || 1)) * 100
-                : 0;
+          const aEfficiency = a.totalBytes > 0 ? (a.cacheHitBytes / a.totalBytes) * 100 : 0;
+          const bEfficiency = b.totalBytes > 0 ? (b.cacheHitBytes / b.totalBytes) * 100 : 0;
           return bEfficiency - aEfficiency;
         }
         case 'efficiency-low': {
           // Sort by cache hit percentage (lowest first)
-          const aEffLow =
-            'downloads' in a
-              ? a.totalBytes > 0
-                ? (a.cacheHitBytes / a.totalBytes) * 100
-                : 0
-              : (a.totalBytes || 0) > 0
-                ? ((a.cacheHitBytes || 0) / (a.totalBytes || 1)) * 100
-                : 0;
-          const bEffLow =
-            'downloads' in b
-              ? b.totalBytes > 0
-                ? (b.cacheHitBytes / b.totalBytes) * 100
-                : 0
-              : (b.totalBytes || 0) > 0
-                ? ((b.cacheHitBytes || 0) / (b.totalBytes || 1)) * 100
-                : 0;
+          const aEffLow = a.totalBytes > 0 ? (a.cacheHitBytes / a.totalBytes) * 100 : 0;
+          const bEffLow = b.totalBytes > 0 ? (b.cacheHitBytes / b.totalBytes) * 100 : 0;
           return aEffLow - bEffLow;
         }
         case 'sessions': {

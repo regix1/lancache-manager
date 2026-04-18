@@ -65,7 +65,7 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
     [HttpGet("sessions/mine")]
     public ActionResult<IEnumerable<DaemonSessionDto>> GetMySessions()
     {
-        var sessionId = GetUserSession()?.Id.ToString() ?? string.Empty;
+        var sessionId = GetSessionId();
 
         var sessions = _daemonService.GetUserSessions(sessionId)
             .Select(DaemonSessionDto.FromSession);
@@ -349,7 +349,7 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
     /// </summary>
     protected ActionResult? ValidateSessionOwnership(string sessionId)
     {
-        var currentSessionId = GetUserSession()?.Id.ToString() ?? string.Empty;
+        var currentSessionId = GetSessionId();
 
         var session = _daemonService.GetSession(sessionId);
         if (session == null)
@@ -366,5 +366,5 @@ public abstract class DaemonControllerBase<TService> : ControllerBase
     }
 
     protected UserSession? GetUserSession() => HttpContext.GetUserSession();
-    protected string GetSessionId() => GetUserSession()?.Id.ToString() ?? "unknown";
+    protected string GetSessionId() => HttpContext.GetRequiredUserSession().Id.ToString();
 }

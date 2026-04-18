@@ -26,6 +26,22 @@ interface DefaultGuestPreferences {
   allowedTimeFormats: string[];
 }
 
+interface DefaultGuestPreferencesResponse {
+  useLocalTimezone: boolean;
+  use24HourFormat: boolean;
+  sharpCorners: boolean;
+  disableTooltips: boolean;
+  showDatasourceLabels: boolean;
+  showYearInDates: boolean;
+  allowedTimeFormats?: string[];
+}
+
+interface GuestPrefillConfigResponse {
+  enabledByDefault: boolean;
+  durationHours: number;
+  maxThreadCount?: number | null;
+}
+
 interface GuestConfigurationProps {
   guestDurationHours: number;
   onDurationChange: (duration: number) => void;
@@ -173,14 +189,14 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
         ApiService.getFetchOptions()
       );
       if (response.ok) {
-        const data = await response.json();
+        const data = (await response.json()) as DefaultGuestPreferencesResponse;
         setDefaultGuestPreferences({
-          useLocalTimezone: data.useLocalTimezone ?? false,
-          use24HourFormat: data.use24HourFormat ?? true,
-          sharpCorners: data.sharpCorners ?? false,
-          disableTooltips: data.disableTooltips ?? false,
-          showDatasourceLabels: data.showDatasourceLabels ?? true,
-          showYearInDates: data.showYearInDates ?? false,
+          useLocalTimezone: data.useLocalTimezone,
+          use24HourFormat: data.use24HourFormat,
+          sharpCorners: data.sharpCorners,
+          disableTooltips: data.disableTooltips,
+          showDatasourceLabels: data.showDatasourceLabels,
+          showYearInDates: data.showYearInDates,
           allowedTimeFormats: data.allowedTimeFormats ?? [
             'server-24h',
             'server-12h',
@@ -325,10 +341,10 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
         ApiService.getFetchOptions()
       );
       if (configResponse.ok) {
-        const data = await configResponse.json();
+        const data = (await configResponse.json()) as GuestPrefillConfigResponse;
         setPrefillConfig({
-          enabledByDefault: data.enabledByDefault ?? false,
-          durationHours: data.durationHours ?? 2,
+          enabledByDefault: data.enabledByDefault,
+          durationHours: data.durationHours,
           maxThreadCount: data.maxThreadCount ?? null
         });
       }
@@ -392,10 +408,10 @@ const GuestConfiguration: React.FC<GuestConfigurationProps> = ({
         ApiService.getFetchOptions()
       );
       if (configResponse.ok) {
-        const data = await configResponse.json();
+        const data = (await configResponse.json()) as GuestPrefillConfigResponse;
         setEpicPrefillConfig({
-          enabledByDefault: data.enabledByDefault ?? false,
-          durationHours: data.durationHours ?? 2,
+          enabledByDefault: data.enabledByDefault,
+          durationHours: data.durationHours,
           maxThreadCount: data.maxThreadCount ?? null
         });
       }

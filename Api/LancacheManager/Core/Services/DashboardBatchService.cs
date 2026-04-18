@@ -270,8 +270,8 @@ public class DashboardBatchService : IDashboardBatchService
             .GroupBy(d => 1)
             .Select(g => new
             {
-                HitBytes = g.Sum(d => (long?)d.CacheHitBytes) ?? 0,
-                MissBytes = g.Sum(d => (long?)d.CacheMissBytes) ?? 0,
+                HitBytes = g.Sum(d => d.CacheHitBytes),
+                MissBytes = g.Sum(d => d.CacheMissBytes),
                 Count = g.Count()
             })
             .FirstOrDefaultAsync();
@@ -306,8 +306,8 @@ public class DashboardBatchService : IDashboardBatchService
             .GroupBy(d => 1)
             .Select(g => new
             {
-                HitBytes = g.Sum(d => (long?)d.CacheHitBytes) ?? 0,
-                MissBytes = g.Sum(d => (long?)d.CacheMissBytes) ?? 0
+                HitBytes = g.Sum(d => d.CacheHitBytes),
+                MissBytes = g.Sum(d => d.CacheMissBytes)
             })
             .FirstOrDefaultAsync();
 

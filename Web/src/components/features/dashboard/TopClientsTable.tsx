@@ -120,16 +120,16 @@ const TopClientsTable: React.FC<TopClientsTableProps> = memo(
 
       switch (sortBy) {
         case 'total':
-          sorted.sort((a, b) => (b.totalBytes || 0) - (a.totalBytes || 0));
+          sorted.sort((a, b) => b.totalBytes - a.totalBytes);
           break;
         case 'hits':
-          sorted.sort((a, b) => (b.totalCacheHitBytes || 0) - (a.totalCacheHitBytes || 0));
+          sorted.sort((a, b) => b.totalCacheHitBytes - a.totalCacheHitBytes);
           break;
         case 'misses':
-          sorted.sort((a, b) => (b.totalCacheMissBytes || 0) - (a.totalCacheMissBytes || 0));
+          sorted.sort((a, b) => b.totalCacheMissBytes - a.totalCacheMissBytes);
           break;
         case 'hitRate':
-          sorted.sort((a, b) => (b.cacheHitPercent || 0) - (a.cacheHitPercent || 0));
+          sorted.sort((a, b) => b.cacheHitPercent - a.cacheHitPercent);
           break;
       }
 

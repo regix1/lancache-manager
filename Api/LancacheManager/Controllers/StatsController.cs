@@ -644,15 +644,15 @@ public class StatsController : ControllerBase
         // Filter out hidden IPs, but exclude stats-excluded IPs from calculations
         var allTimeQuery = BuildBaseDownloadsQuery(hiddenClientIps, evictedMode);
         var totalHitBytes = await AggregateExcludingAsync(allTimeQuery, statsExcludedOnlyIps,
-            q => q.SumAsync(d => (long?)d.CacheHitBytes).ContinueWith(t => t.Result ?? 0L));
+            q => q.SumAsync(d => d.CacheHitBytes));
         var totalMissBytes = await AggregateExcludingAsync(allTimeQuery, statsExcludedOnlyIps,
-            q => q.SumAsync(d => (long?)d.CacheMissBytes).ContinueWith(t => t.Result ?? 0L));
+            q => q.SumAsync(d => d.CacheMissBytes));
 
         // Calculate PERIOD-specific metrics (exclude stats-excluded IPs from calculations)
         var periodHitBytes = await AggregateExcludingAsync(downloadsQuery, statsExcludedOnlyIps,
-            q => q.SumAsync(d => (long?)d.CacheHitBytes).ContinueWith(t => t.Result ?? 0L));
+            q => q.SumAsync(d => d.CacheHitBytes));
         var periodMissBytes = await AggregateExcludingAsync(downloadsQuery, statsExcludedOnlyIps,
-            q => q.SumAsync(d => (long?)d.CacheMissBytes).ContinueWith(t => t.Result ?? 0L));
+            q => q.SumAsync(d => d.CacheMissBytes));
         var periodDownloadCount = await AggregateExcludingAsync(downloadsQuery, statsExcludedOnlyIps,
             q => q.CountAsync());
 
@@ -661,16 +661,16 @@ public class StatsController : ControllerBase
         var topServiceQuery = BuildBaseDownloadsQuery(hiddenClientIps, evictedMode);
         var topServiceGroups = await topServiceQuery
             .GroupBy(d => d.Service)
-            .Select(g => new { Service = g.Key, TotalBytes = g.Sum(d => (long?)(d.CacheHitBytes + d.CacheMissBytes)) ?? 0L })
+            .Select(g => new { Service = g.Key, TotalBytes = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes) })
             .ToListAsync();
-        
+
         // Subtract excluded IPs from each service's total
         if (statsExcludedOnlyIps.Count > 0)
         {
             var excludedServiceGroups = await topServiceQuery
                 .Where(d => statsExcludedOnlyIps.Contains(d.ClientIp))
                 .GroupBy(d => d.Service)
-                .Select(g => new { Service = g.Key, TotalBytes = g.Sum(d => (long?)(d.CacheHitBytes + d.CacheMissBytes)) ?? 0L })
+                .Select(g => new { Service = g.Key, TotalBytes = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes) })
                 .ToListAsync();
             
             var excludedByService = excludedServiceGroups.ToDictionary(g => g.Service, g => g.TotalBytes);
@@ -942,7 +942,7 @@ public class StatsController : ControllerBase
             // For now, we'll calculate from downloads data (exclude stats-excluded IPs from calculations)
             var allTimeQuery = BuildBaseDownloadsQuery(hiddenClientIps, evictedMode);
             var totalCacheMiss = await AggregateExcludingAsync(allTimeQuery, statsExcludedOnlyIps,
-                q => q.SumAsync(d => (long?)d.CacheMissBytes).ContinueWith(t => t.Result ?? 0L));
+                q => q.SumAsync(d => d.CacheMissBytes));
 
             currentCacheSize = totalCacheMiss; // Approximation: total cache misses = data added to cache
 
@@ -1069,7 +1069,7 @@ public class StatsController : ControllerBase
                 // Exclude stats-excluded IPs from calculations
                 var allTimeQueryForCumulative = BuildBaseDownloadsQuery(hiddenClientIps, evictedMode);
                 var cumulativeDownloads = await AggregateExcludingAsync(allTimeQueryForCumulative, statsExcludedOnlyIps,
-                    q => q.SumAsync(d => (long?)d.CacheMissBytes).ContinueWith(t => t.Result ?? 0L));
+                    q => q.SumAsync(d => d.CacheMissBytes));
 
                 // If actual cache is smaller than cumulative downloads, data was deleted
                 if (actualCacheSize.Value < cumulativeDownloads)

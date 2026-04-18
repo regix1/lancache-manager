@@ -201,15 +201,15 @@ const ClientsTab: React.FC = () => {
           return multiplier * aName.localeCompare(bName);
         }
         case 'downloads':
-          return multiplier * ((a.totalDownloads || 0) - (b.totalDownloads || 0));
+          return multiplier * (a.totalDownloads - b.totalDownloads);
         case 'totalData':
-          return multiplier * ((a.totalBytes || 0) - (b.totalBytes || 0));
+          return multiplier * (a.totalBytes - b.totalBytes);
         case 'hits':
-          return multiplier * ((a.totalCacheHitBytes || 0) - (b.totalCacheHitBytes || 0));
+          return multiplier * (a.totalCacheHitBytes - b.totalCacheHitBytes);
         case 'misses':
-          return multiplier * ((a.totalCacheMissBytes || 0) - (b.totalCacheMissBytes || 0));
+          return multiplier * (a.totalCacheMissBytes - b.totalCacheMissBytes);
         case 'hitRate':
-          return multiplier * ((a.cacheHitPercent || 0) - (b.cacheHitPercent || 0));
+          return multiplier * (a.cacheHitPercent - b.cacheHitPercent);
         case 'lastActivity':
           return (
             multiplier *

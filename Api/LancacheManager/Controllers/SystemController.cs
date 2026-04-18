@@ -238,22 +238,22 @@ public class SystemController : ControllerBase
 
         if (!TryReadOptionalBoolean(request, "completed", out var hasCompleted, out var completed, out var completedError))
         {
-            return BadRequest(new ErrorResponse { Error = completedError ?? "Invalid completed value" });
+            return BadRequest(new ErrorResponse { Error = completedError! });
         }
 
         if (!TryReadOptionalString(request, "currentSetupStep", out var hasCurrentSetupStep, out var currentSetupStep, out var currentStepError))
         {
-            return BadRequest(new ErrorResponse { Error = currentStepError ?? "Invalid currentSetupStep value" });
+            return BadRequest(new ErrorResponse { Error = currentStepError! });
         }
 
         if (!TryReadOptionalString(request, "dataSourceChoice", out var hasDataSourceChoice, out var dataSourceChoice, out var dataSourceError))
         {
-            return BadRequest(new ErrorResponse { Error = dataSourceError ?? "Invalid dataSourceChoice value" });
+            return BadRequest(new ErrorResponse { Error = dataSourceError! });
         }
 
         if (!TryReadOptionalString(request, "completedPlatforms", out var hasCompletedPlatforms, out var completedPlatforms, out var completedPlatformsError))
         {
-            return BadRequest(new ErrorResponse { Error = completedPlatformsError ?? "Invalid completedPlatforms value" });
+            return BadRequest(new ErrorResponse { Error = completedPlatformsError! });
         }
 
         if (currentSetupStep != null && !validSteps.Contains(currentSetupStep))

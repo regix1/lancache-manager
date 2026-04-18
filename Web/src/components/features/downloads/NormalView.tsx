@@ -243,7 +243,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
       const associations = getAssociations(d.id);
       associations.events.forEach((event) => {
         if (!eventsMap.has(event.id)) {
-          eventsMap.set(event.id, { ...event, autoTagged: event.autoTagged ?? false });
+          eventsMap.set(event.id, { ...event, autoTagged: event.autoTagged });
         }
       });
     });
@@ -657,7 +657,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
                         {t('downloads.tab.normal.stats.cacheMiss')}
                       </span>
                       <span className="text-sm font-medium text-[var(--theme-text-muted)]">
-                        {formatBytes(group.cacheMissBytes || 0)}
+                        {formatBytes(group.cacheMissBytes)}
                       </span>
                     </div>
                     <div className="flex items-center justify-between">
@@ -760,11 +760,11 @@ const GroupCard: React.FC<GroupCardProps> = ({
                     <div className="space-y-4">
                       {Object.entries(ipGroups).map(([clientIp, clientDownloads]) => {
                         const clientTotal = clientDownloads.reduce(
-                          (sum, d) => sum + (d.totalBytes || 0),
+                          (sum, d) => sum + d.totalBytes,
                           0
                         );
                         const clientCacheHit = clientDownloads.reduce(
-                          (sum, d) => sum + (d.cacheHitBytes || 0),
+                          (sum, d) => sum + d.cacheHitBytes,
                           0
                         );
                         const expanded = isIpExpanded(clientIp, clientDownloads.length);
@@ -817,10 +817,10 @@ const GroupCard: React.FC<GroupCardProps> = ({
                                 itemsPerPage={filters.itemsPerSession}
                                 className="divide-y divide-[var(--theme-border-secondary)]"
                                 renderItem={(download) => {
-                                  const totalBytes = download.totalBytes || 0;
+                                  const totalBytes = download.totalBytes;
                                   const cachePercent =
                                     totalBytes > 0
-                                      ? ((download.cacheHitBytes || 0) / totalBytes) * 100
+                                      ? (download.cacheHitBytes / totalBytes) * 100
                                       : 0;
                                   const associations = getAssociations(download.id);
 
@@ -1004,7 +1004,7 @@ const GridCard: React.FC<GridCardProps> = ({
       const associations = getAssociations(d.id);
       associations.events.forEach((event) => {
         if (!eventsMap.has(event.id)) {
-          eventsMap.set(event.id, { ...event, autoTagged: event.autoTagged ?? false });
+          eventsMap.set(event.id, { ...event, autoTagged: event.autoTagged });
         }
       });
     });
@@ -1228,7 +1228,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
       const associations = getAssociations(d.id);
       associations.events.forEach((event) => {
         if (!eventsMap.has(event.id)) {
-          eventsMap.set(event.id, { ...event, autoTagged: event.autoTagged ?? false });
+          eventsMap.set(event.id, { ...event, autoTagged: event.autoTagged });
         }
       });
     });
@@ -1402,7 +1402,7 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
                   {t('downloads.tab.normal.stats.cacheMiss')}
                 </span>
                 <span className="text-sm font-medium text-[var(--theme-text-muted)]">
-                  {formatBytes(group.cacheMissBytes || 0)}
+                  {formatBytes(group.cacheMissBytes)}
                 </span>
               </div>
               <div className="flex items-center justify-between">
@@ -1488,11 +1488,8 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
 
           <div className="space-y-4">
             {Object.entries(ipGroups).map(([clientIp, clientDownloads]) => {
-              const clientTotal = clientDownloads.reduce((sum, d) => sum + (d.totalBytes || 0), 0);
-              const clientCacheHit = clientDownloads.reduce(
-                (sum, d) => sum + (d.cacheHitBytes || 0),
-                0
-              );
+              const clientTotal = clientDownloads.reduce((sum, d) => sum + d.totalBytes, 0);
+              const clientCacheHit = clientDownloads.reduce((sum, d) => sum + d.cacheHitBytes, 0);
               const expanded = isIpExpanded(clientIp, clientDownloads.length);
 
               return (
@@ -1540,9 +1537,9 @@ const GridCardDrawerContent: React.FC<GridCardDrawerContentProps> = ({
                       itemsPerPage={filters.itemsPerSession}
                       className="divide-y divide-[var(--theme-border-secondary)]"
                       renderItem={(download) => {
-                        const totalBytes = download.totalBytes || 0;
+                        const totalBytes = download.totalBytes;
                         const cachePercent =
-                          totalBytes > 0 ? ((download.cacheHitBytes || 0) / totalBytes) * 100 : 0;
+                          totalBytes > 0 ? (download.cacheHitBytes / totalBytes) * 100 : 0;
                         const associations = getAssociations(download.id);
 
                         return (
@@ -1846,7 +1843,7 @@ const NormalView: React.FC<NormalViewProps> = ({
   );
 
   const renderDownloadCard = (download: Download) => {
-    const totalBytes = download.totalBytes || 0;
+    const totalBytes = download.totalBytes;
 
     const fakeGroup = {
       id: `individual-${download.id}`,
@@ -1856,8 +1853,8 @@ const NormalView: React.FC<NormalViewProps> = ({
       downloads: [download],
       totalBytes: totalBytes,
       totalDownloaded: totalBytes,
-      cacheHitBytes: download.cacheHitBytes || 0,
-      cacheMissBytes: download.cacheMissBytes || 0,
+      cacheHitBytes: download.cacheHitBytes,
+      cacheMissBytes: download.cacheMissBytes,
       clientsSet: new Set([download.clientIp]),
       firstSeen: download.startTimeUtc,
       lastSeen: download.startTimeUtc,
@@ -1870,7 +1867,7 @@ const NormalView: React.FC<NormalViewProps> = ({
   const toGroup = (item: Download | DownloadGroup): DownloadGroup => {
     if ('downloads' in item) return item as DownloadGroup;
     const download = item as Download;
-    const totalBytes = download.totalBytes || 0;
+    const totalBytes = download.totalBytes;
     return {
       id: `individual-${download.id}`,
       name: download.gameName || download.service,
@@ -1879,8 +1876,8 @@ const NormalView: React.FC<NormalViewProps> = ({
       downloads: [download],
       totalBytes: totalBytes,
       totalDownloaded: totalBytes,
-      cacheHitBytes: download.cacheHitBytes || 0,
-      cacheMissBytes: download.cacheMissBytes || 0,
+      cacheHitBytes: download.cacheHitBytes,
+      cacheMissBytes: download.cacheMissBytes,
       clientsSet: new Set([download.clientIp]),
       firstSeen: download.startTimeUtc,
       lastSeen: download.startTimeUtc,

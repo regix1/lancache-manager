@@ -56,9 +56,9 @@ export interface Download {
   /** Duration in seconds calculated from LogEntries (more accurate than EndTime - StartTime). */
   durationSeconds?: number;
   /** Average download speed in bytes per second, calculated from total bytes and duration. */
-  averageBytesPerSecond?: number;
+  averageBytesPerSecond: number;
   /** Whether this download's cache files have been evicted from the lancache. */
-  isEvicted?: boolean;
+  isEvicted: boolean;
 }
 
 export interface DownloadGroup {

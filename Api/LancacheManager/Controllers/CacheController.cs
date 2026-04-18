@@ -472,7 +472,7 @@ public class CacheController : ControllerBase
                                                 service,
                                                 operationId,
                                                 progress.Status,
-                                                progress.StageKey,
+                                                progress.StageKey ?? string.Empty,
                                                 DateTime.UtcNow,
                                                 progress.FilesProcessed,
                                                 progress.TotalFiles,
@@ -542,8 +542,9 @@ public class CacheController : ControllerBase
 
                         _operationTracker.CompleteOperation(operationId, success: true);
                         await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
-                            new CorruptionRemovalComplete(true, service, operationId,
+                            new CorruptionRemovalComplete(true, service,
                                 StageKey: "signalr.corruptionRemove.success",
+                                OperationId: operationId,
                                 Context: new Dictionary<string, object?> { ["service"] = service }));
                     }
                     else
@@ -551,7 +552,10 @@ public class CacheController : ControllerBase
                         _logger.LogError("Corruption removal failed for service {Service}: {Error}", service, lastError);
                         _operationTracker.CompleteOperation(operationId, success: false, error: lastError);
                         await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
-                            new CorruptionRemovalComplete(false, service, operationId, Error: lastError));
+                            new CorruptionRemovalComplete(false, service,
+                                StageKey: "signalr.corruptionRemove.failed.generic",
+                                OperationId: operationId,
+                                Error: lastError));
                     }
                 }
                 finally
@@ -566,8 +570,9 @@ public class CacheController : ControllerBase
                 _logger.LogInformation("Corruption removal cancelled for service: {Service}", service);
                 _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
                 await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
-                    new CorruptionRemovalComplete(false, service, operationId,
-                        StageKey: "signalr.corruptionRemove.cancelled"));
+                    new CorruptionRemovalComplete(false, service,
+                        StageKey: "signalr.corruptionRemove.cancelled",
+                        OperationId: operationId));
 
                 // Resume LiveLogMonitorService on cancellation
                 await LiveLogMonitorService.ResumeAsync();
@@ -577,8 +582,9 @@ public class CacheController : ControllerBase
                 _logger.LogError(ex, "Error during corruption removal for service: {Service}", service);
                 _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
                 await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
-                    new CorruptionRemovalComplete(false, service, operationId,
-                        StageKey: "signalr.corruptionRemove.failed.generic"));
+                    new CorruptionRemovalComplete(false, service,
+                        StageKey: "signalr.corruptionRemove.failed.generic",
+                        OperationId: operationId));
             }
         });
 
@@ -731,7 +737,7 @@ public class CacheController : ControllerBase
                                                         service,
                                                         operationId,
                                                         progress.Status,
-                                                        progress.StageKey,
+                                                        progress.StageKey ?? string.Empty,
                                                         DateTime.UtcNow,
                                                         progress.FilesProcessed,
                                                         progress.TotalFiles,
@@ -796,8 +802,9 @@ public class CacheController : ControllerBase
 
                                 _operationTracker.CompleteOperation(operationId, success: true);
                                 await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
-                                    new CorruptionRemovalComplete(true, service, operationId,
+                                    new CorruptionRemovalComplete(true, service,
                                         StageKey: "signalr.corruptionRemove.success",
+                                        OperationId: operationId,
                                         Context: new Dictionary<string, object?> { ["service"] = service }));
                             }
                             else
@@ -805,7 +812,10 @@ public class CacheController : ControllerBase
                                 _logger.LogError("Corruption removal failed for service {Service}: {Error}", service, lastError);
                                 _operationTracker.CompleteOperation(operationId, success: false, error: lastError);
                                 await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
-                                    new CorruptionRemovalComplete(false, service, operationId, Error: lastError));
+                                    new CorruptionRemovalComplete(false, service,
+                                        StageKey: "signalr.corruptionRemove.failed.generic",
+                                        OperationId: operationId,
+                                        Error: lastError));
                             }
                         }
                         catch (OperationCanceledException)
@@ -813,8 +823,9 @@ public class CacheController : ControllerBase
                             _logger.LogInformation("Corruption removal cancelled for service: {Service}", service);
                             _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
                             await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
-                                new CorruptionRemovalComplete(false, service, operationId,
-                                    StageKey: "signalr.corruptionRemove.cancelled"));
+                                new CorruptionRemovalComplete(false, service,
+                                    StageKey: "signalr.corruptionRemove.cancelled",
+                                    OperationId: operationId));
                             // Stop processing further services on cancellation
                             break;
                         }
@@ -823,8 +834,9 @@ public class CacheController : ControllerBase
                             _logger.LogError(ex, "Error during corruption removal for service: {Service}", service);
                             _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
                             await _notifications.NotifyAllAsync(SignalREvents.CorruptionRemovalComplete,
-                                new CorruptionRemovalComplete(false, service, operationId,
-                                    StageKey: "signalr.corruptionRemove.failed.generic"));
+                                new CorruptionRemovalComplete(false, service,
+                                    StageKey: "signalr.corruptionRemove.failed.generic",
+                                    OperationId: operationId));
                         }
                     }
                 }

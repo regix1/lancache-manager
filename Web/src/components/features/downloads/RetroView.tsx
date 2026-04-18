@@ -379,7 +379,7 @@ const groupByDepot = (
     group.clientsSet.add(download.clientIp);
     if (download.depotId) group.depotsSet.add(download.depotId);
 
-    const speed = download.averageBytesPerSecond || 0;
+    const speed = download.averageBytesPerSecond;
     const bytes = download.totalBytes || 0;
     if (speed > 0 && bytes > 0) {
       group._weightedSpeedSum += speed * bytes;

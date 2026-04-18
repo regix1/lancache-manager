@@ -572,10 +572,10 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
             .GroupBy(_ => 1)
             .Select(g => new
             {
-                TotalBytes = g.Sum(d => (long?)d.CacheHitBytes + d.CacheMissBytes) ?? 0,
-                HitBytes = g.Sum(d => (long?)d.CacheHitBytes) ?? 0,
-                MissBytes = g.Sum(d => (long?)d.CacheMissBytes) ?? 0,
-                MaxSize = g.Max(d => (long?)d.CacheHitBytes + d.CacheMissBytes) ?? 0
+                TotalBytes = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes),
+                HitBytes = g.Sum(d => d.CacheHitBytes),
+                MissBytes = g.Sum(d => d.CacheMissBytes),
+                MaxSize = g.Max(d => d.CacheHitBytes + d.CacheMissBytes)
             })
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -608,7 +608,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
             {
                 Count = g.Count(),
                 UniqueClients = g.Select(d => d.ClientIp).Distinct().Count(),
-                BytesInProgress = g.Sum(d => (long?)d.CacheHitBytes + d.CacheMissBytes) ?? 0
+                BytesInProgress = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes)
             })
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -633,9 +633,9 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
             .Select(g => new
             {
                 Service = g.Key,
-                TotalBytes = g.Sum(d => (long?)d.CacheHitBytes + d.CacheMissBytes) ?? 0,
-                HitBytes = g.Sum(d => (long?)d.CacheHitBytes) ?? 0,
-                MissBytes = g.Sum(d => (long?)d.CacheMissBytes) ?? 0,
+                TotalBytes = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes),
+                HitBytes = g.Sum(d => d.CacheHitBytes),
+                MissBytes = g.Sum(d => d.CacheMissBytes),
                 Downloads = g.LongCount(),
                 ActiveCount = g.Count(d => d.IsActive || d.EndTimeUtc >= fiveMinutesAgo)
             })
@@ -675,9 +675,9 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
             .Select(g => new
             {
                 ClientIp = g.Key,
-                TotalBytes = g.Sum(d => (long?)d.CacheHitBytes + d.CacheMissBytes) ?? 0,
-                HitBytes = g.Sum(d => (long?)d.CacheHitBytes) ?? 0,
-                MissBytes = g.Sum(d => (long?)d.CacheMissBytes) ?? 0,
+                TotalBytes = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes),
+                HitBytes = g.Sum(d => d.CacheHitBytes),
+                MissBytes = g.Sum(d => d.CacheMissBytes),
                 Downloads = g.LongCount()
             })
             .OrderByDescending(c => c.TotalBytes)
@@ -716,7 +716,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
             {
                 Hour = g.Key,
                 Downloads = g.LongCount(),
-                BytesServed = g.Sum(d => (long?)d.CacheHitBytes + d.CacheMissBytes) ?? 0
+                BytesServed = g.Sum(d => d.CacheHitBytes + d.CacheMissBytes)
             })
             .ToListAsync(cancellationToken);
 
@@ -753,7 +753,7 @@ public class LancacheMetricsService : ScopedScheduledBackgroundService
             .Select(g => new
             {
                 Date = g.Key,
-                GrowthBytes = g.Sum(d => (long?)d.CacheMissBytes) ?? 0
+                GrowthBytes = g.Sum(d => d.CacheMissBytes)
             })
             .ToListAsync(cancellationToken);
 

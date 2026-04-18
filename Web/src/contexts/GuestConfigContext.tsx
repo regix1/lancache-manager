@@ -2,6 +2,11 @@ import React, { useEffect, useState, type ReactNode } from 'react';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { GuestConfigContext } from './GuestConfigContext.types';
 
+interface GuestConfigResponse {
+  isLocked: boolean;
+  durationHours?: number;
+}
+
 export const GuestConfigProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const signalR = useSignalR();
   const [guestDurationHours, setGuestDurationHours] = useState<number>(6);
@@ -15,8 +20,8 @@ export const GuestConfigProvider: React.FC<{ children: ReactNode }> = ({ childre
         // Use the public auth status endpoint which doesn't require auth
         const response = await fetch('/api/auth/guest/status');
         if (response.ok) {
-          const data = await response.json();
-          setGuestModeLocked(data.isLocked || false);
+          const data = (await response.json()) as GuestConfigResponse;
+          setGuestModeLocked(data.isLocked);
           if (data.durationHours) {
             setGuestDurationHours(data.durationHours);
           }

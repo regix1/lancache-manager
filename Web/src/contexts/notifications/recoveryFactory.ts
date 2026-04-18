@@ -16,24 +16,178 @@ import i18n from '@/i18n';
 export type FetchWithAuth = (url: string) => Promise<Response>;
 
 // ============================================================================
+// Per-endpoint Recovery Response DTOs
+// ============================================================================
+// Each interface mirrors the C# controller response shape. Nullability follows
+// the backend C# DTOs (verified in phase2-2B-recovery.md). These types replace
+// the previous `Record<string, unknown>` untyped access pattern.
+
+type StageContext = Record<string, string | number | boolean>;
+
+/** GET /api/logs/process/status — RustLogProcessorService.GetStatus() */
+interface LogProcessingStatusResponse {
+  isProcessing: boolean;
+  silentMode: boolean;
+  percentComplete: number;
+  mbProcessed: number;
+  mbTotal: number;
+  entriesProcessed: number;
+  totalLines: number;
+  stageKey?: string;
+  context?: StageContext;
+}
+
+/** GET /api/cache/operations — ActiveOperationsResponse */
+interface CacheOperationProgressItem {
+  operationId?: string;
+  id?: string;
+  statusMessage?: string;
+  stageKey?: string;
+  context?: StageContext;
+  percentComplete: number;
+  filesDeleted: number;
+  directoriesProcessed: number;
+  bytesDeleted: number;
+}
+
+interface CacheOperationsResponse {
+  isProcessing: boolean;
+  operations?: CacheOperationProgressItem[];
+}
+
+/** GET /api/database/reset-status — DatabaseResetStatusResponse */
+interface DatabaseResetStatusResponse {
+  isProcessing: boolean;
+  status?: string | null;
+  message?: string | null;
+  /** C# `int?` — genuinely nullable */
+  percentComplete?: number | null;
+  stageKey?: string;
+  context?: StageContext;
+}
+
+/** GET /api/depots/rebuild/progress — SteamPicsProgress */
+interface DepotRebuildProgressResponse {
+  isProcessing: boolean;
+  statusMessage: string;
+  progressPercent: number;
+  processedBatches?: number;
+  totalBatches?: number;
+  depotMappingsFound?: number;
+  totalMappings: number;
+  processedMappings: number;
+  isLoggedOn: boolean;
+  operationId?: string;
+}
+
+/** GET /api/logs/remove/status — RustServiceRemovalService.GetLogRemovalStatus() */
+interface LogRemovalStatusResponse {
+  isProcessing: boolean;
+  service: string;
+  percentComplete: number;
+  linesProcessed: number;
+  linesRemoved: number;
+  stageKey?: string;
+  context?: StageContext;
+}
+
+/** GET /api/games/detect/active — ActiveDetectionResponse */
+interface GameDetectionOperationInfo {
+  operationId?: string;
+  statusMessage: string;
+  percentComplete: number;
+  scanType?: 'full' | 'incremental';
+}
+
+interface GameDetectionStatusResponse {
+  isProcessing: boolean;
+  operation: GameDetectionOperationInfo | null;
+}
+
+/**
+ * GET /api/cache/corruption/detect/status — CacheController.GetCorruptionDetectionStatus()
+ * Returns anonymous `{ isRunning: false }` when idle, or the full object below when active.
+ * NOTE: backend does NOT emit `percentComplete` — the field is absent from the anonymous
+ * response object. The recovery handler uses `?? 0` as a gap-filler. To fix properly,
+ * add `percentComplete = activeOp.PercentComplete` to the anonymous object in CacheController.cs.
+ */
+interface CorruptionDetectionStatusResponse {
+  isRunning: boolean;
+  operationId?: string;
+  status?: string;
+  message?: string;
+  startTime?: string;
+  stageKey?: string;
+  context?: StageContext;
+  /** Not emitted by backend — always undefined on the wire. `?? 0` fallback applies. */
+  percentComplete?: number;
+}
+
+/** GET /api/migration/import/status — DataImportStatusResponse */
+interface DataImportStatusResponse {
+  isProcessing: boolean;
+  status?: string | null;
+  message?: string | null;
+  /** C# `double?` — genuinely nullable */
+  percentComplete?: number | null;
+  operationId?: string | null;
+  stageKey?: string;
+  context?: StageContext;
+}
+
+/**
+ * GET /api/epic/game-mappings/schedule — EpicGameMappingController.GetScheduleStatus()
+ * Returns EpicScheduleStatus from EpicMappingService. All fields verified against
+ * Api/LancacheManager/Core/Services/EpicMapping/EpicMappingService.cs (class EpicScheduleStatus).
+ */
+interface EpicGameMappingScheduleResponse {
+  /** Always present */
+  isProcessing: boolean;
+  /** C# `string?` — only set when IsProcessing is true; null/absent when idle */
+  statusMessage?: string | null;
+  /** C# `double` (non-null) — always emitted; 0 when not processing */
+  progressPercent: number;
+  /** C# `string?` — nullable */
+  operationId?: string | null;
+  /** Additional fields from EpicScheduleStatus (not used by recovery handler) */
+  refreshIntervalHours?: number;
+  nextRefreshIn?: number;
+  lastRefreshTime?: string | null;
+  isAuthenticated?: boolean;
+  status?: string;
+}
+
+/** GET /api/stats/eviction/scan/status — anonymous object from StatsController */
+interface EvictionScanStatusResponse {
+  isProcessing: boolean;
+  silentMode: boolean;
+  status: string;
+  percentComplete: number;
+  message: string;
+  operationId: string | null;
+  stageKey?: string;
+  context?: StageContext;
+}
+
+// ============================================================================
 // Simple Recovery Config (for fixed-ID operations)
 // ============================================================================
 
-interface SimpleRecoveryConfig {
+interface SimpleRecoveryConfig<TData> {
   apiEndpoint: string;
   storageKey: string;
   type: NotificationType;
   notificationId: string;
-  isProcessing: (data: Record<string, unknown>) => boolean;
-  shouldSkip?: (data: Record<string, unknown>) => boolean;
+  isProcessing: (data: TData) => boolean;
+  shouldSkip?: (data: TData) => boolean;
   createNotification: (
-    data: Record<string, unknown>
+    data: TData
   ) => Omit<UnifiedNotification, 'id' | 'type' | 'status' | 'startedAt'>;
   staleMessage: string;
 }
 
-function createSimpleRecoveryFunction(
-  config: SimpleRecoveryConfig,
+function createSimpleRecoveryFunction<TData>(
+  config: SimpleRecoveryConfig<TData>,
   fetchWithAuth: FetchWithAuth,
   setNotifications: SetNotifications,
   scheduleAutoDismiss: ScheduleAutoDismiss
@@ -43,7 +197,7 @@ function createSimpleRecoveryFunction(
       const response = await fetchWithAuth(config.apiEndpoint);
       if (!response.ok) return;
 
-      const data = await response.json();
+      const data = (await response.json()) as TData;
       const notificationId = config.notificationId;
 
       // Check if we should skip (e.g., silent mode)
@@ -118,235 +272,215 @@ const RECOVERY_CONFIGS = {
     storageKey: NOTIFICATION_STORAGE_KEYS.LOG_PROCESSING,
     type: 'log_processing' as NotificationType,
     notificationId: NOTIFICATION_IDS.LOG_PROCESSING,
-    isProcessing: (data: Record<string, unknown>) => Boolean(data.isProcessing) && !data.silentMode,
-    shouldSkip: (data: Record<string, unknown>) =>
-      Boolean(data.isProcessing) && Boolean(data.silentMode),
-    createNotification: (data: Record<string, unknown>) => ({
-      message: formatLogProcessingRecoveryMessage(
-        data.mbProcessed as number,
-        data.mbTotal as number
-      ),
+    isProcessing: (data: LogProcessingStatusResponse) => data.isProcessing && !data.silentMode,
+    shouldSkip: (data: LogProcessingStatusResponse) => data.isProcessing && data.silentMode,
+    createNotification: (data: LogProcessingStatusResponse) => ({
+      message: formatLogProcessingRecoveryMessage(data.mbProcessed, data.mbTotal),
       detailMessage: formatLogProcessingRecoveryDetailMessage(
-        data.entriesProcessed as number,
-        data.totalLines as number
+        data.entriesProcessed,
+        data.totalLines
       ),
-      progress: Math.min(99.9, (data.percentComplete as number) || 0),
+      progress: Math.min(99.9, data.percentComplete),
       details: {
-        mbProcessed: data.mbProcessed as number,
-        mbTotal: data.mbTotal as number,
-        entriesProcessed: data.entriesProcessed as number,
-        totalLines: data.totalLines as number
+        mbProcessed: data.mbProcessed,
+        mbTotal: data.mbTotal,
+        entriesProcessed: data.entriesProcessed,
+        totalLines: data.totalLines
       }
     }),
     staleMessage: 'Log processing completed'
-  } satisfies SimpleRecoveryConfig,
+  } satisfies SimpleRecoveryConfig<LogProcessingStatusResponse>,
 
   cacheClearing: {
     apiEndpoint: '/api/cache/operations',
     storageKey: NOTIFICATION_STORAGE_KEYS.CACHE_CLEARING,
     type: 'cache_clearing' as NotificationType,
     notificationId: NOTIFICATION_IDS.CACHE_CLEARING,
-    isProcessing: (data: Record<string, unknown>) => {
-      const ops = data.operations as Record<string, unknown>[] | undefined;
-      return Boolean(data.isProcessing) && Boolean(ops?.length);
-    },
-    createNotification: (data: Record<string, unknown>) => {
-      const ops = data.operations as Record<string, unknown>[];
-      const activeOp = ops?.[0] || {};
+    isProcessing: (data: CacheOperationsResponse) =>
+      data.isProcessing && Boolean(data.operations?.length),
+    createNotification: (data: CacheOperationsResponse) => {
+      const activeOp = data.operations?.[0];
       return {
         message:
-          (activeOp.statusMessage as string) ??
-          (activeOp.stageKey
-            ? i18n.t(
-                activeOp.stageKey as string,
-                (activeOp.context as Record<string, string | number | boolean>) ?? {}
-              )
-            : undefined) ??
+          activeOp?.statusMessage ??
+          (activeOp?.stageKey ? i18n.t(activeOp.stageKey, activeOp.context ?? {}) : undefined) ??
           i18n.t('signalr.cacheClear.starting'),
-        progress: (activeOp.percentComplete as number) || 0,
+        progress: activeOp?.percentComplete ?? 0,
         details: {
-          operationId: (activeOp.operationId as string) || (activeOp.id as string),
-          filesDeleted: (activeOp.filesDeleted as number) || 0,
-          directoriesProcessed: (activeOp.directoriesProcessed as number) || 0,
-          bytesDeleted: (activeOp.bytesDeleted as number) || 0
+          operationId: activeOp?.operationId ?? activeOp?.id,
+          filesDeleted: activeOp?.filesDeleted ?? 0,
+          directoriesProcessed: activeOp?.directoriesProcessed ?? 0,
+          bytesDeleted: activeOp?.bytesDeleted ?? 0
         }
       };
     },
     staleMessage: 'Cache clearing completed'
-  } satisfies SimpleRecoveryConfig,
+  } satisfies SimpleRecoveryConfig<CacheOperationsResponse>,
 
   databaseReset: {
     apiEndpoint: '/api/database/reset-status',
     storageKey: NOTIFICATION_STORAGE_KEYS.DATABASE_RESET,
     type: 'database_reset' as NotificationType,
     notificationId: NOTIFICATION_IDS.DATABASE_RESET,
-    isProcessing: (data: Record<string, unknown>) => Boolean(data.isProcessing),
-    createNotification: (data: Record<string, unknown>) => ({
+    isProcessing: (data: DatabaseResetStatusResponse) => data.isProcessing,
+    createNotification: (data: DatabaseResetStatusResponse) => ({
       message: data.stageKey
-        ? i18n.t(
-            data.stageKey as string,
-            (data.context as Record<string, string | number | boolean>) ?? {}
-          )
+        ? i18n.t(data.stageKey, data.context ?? {})
         : i18n.t('signalr.dbReset.starting'),
-      progress: (data.percentComplete as number) || 0
+      // `??` (not `||`): backend field is `int?` — nullable. `??` preserves 0.
+      progress: data.percentComplete ?? 0
     }),
     staleMessage: 'Database reset completed'
-  } satisfies SimpleRecoveryConfig,
+  } satisfies SimpleRecoveryConfig<DatabaseResetStatusResponse>,
 
   depotMapping: {
     apiEndpoint: '/api/depots/rebuild/progress',
     storageKey: NOTIFICATION_STORAGE_KEYS.DEPOT_MAPPING,
     type: 'depot_mapping' as NotificationType,
     notificationId: NOTIFICATION_IDS.DEPOT_MAPPING,
-    isProcessing: (data: Record<string, unknown>) => Boolean(data.isProcessing),
-    createNotification: (data: Record<string, unknown>) => {
+    isProcessing: (data: DepotRebuildProgressResponse) => data.isProcessing,
+    createNotification: (data: DepotRebuildProgressResponse) => {
       const detailMessage = formatDepotMappingRecoveryDetailMessage({
-        processedBatches: data.processedBatches as number | undefined,
-        totalBatches: data.totalBatches as number | undefined,
-        depotMappingsFound: data.depotMappingsFound as number | undefined
+        processedBatches: data.processedBatches,
+        totalBatches: data.totalBatches,
+        depotMappingsFound: data.depotMappingsFound
       });
 
       return {
-        message: (data.statusMessage as string) || 'Downloading depot data...',
+        message: data.statusMessage,
         detailMessage,
-        progress: (data.progressPercent as number) || 0,
+        progress: data.progressPercent,
         details: {
-          operationId: data.operationId as string | undefined,
-          totalMappings: data.totalMappings as number,
-          processedMappings: data.processedMappings as number,
-          isLoggedOn: data.isLoggedOn as boolean,
-          percentComplete: data.progressPercent as number
+          operationId: data.operationId,
+          totalMappings: data.totalMappings,
+          processedMappings: data.processedMappings,
+          isLoggedOn: data.isLoggedOn,
+          percentComplete: data.progressPercent
         }
       };
     },
     staleMessage: 'Depot mapping completed'
-  } satisfies SimpleRecoveryConfig,
+  } satisfies SimpleRecoveryConfig<DepotRebuildProgressResponse>,
 
   logRemoval: {
     apiEndpoint: '/api/logs/remove/status',
     storageKey: NOTIFICATION_STORAGE_KEYS.LOG_REMOVAL,
     type: 'log_removal' as NotificationType,
     notificationId: NOTIFICATION_IDS.LOG_REMOVAL,
-    isProcessing: (data: Record<string, unknown>) =>
-      Boolean(data.isProcessing) && Boolean(data.service),
-    createNotification: (data: Record<string, unknown>) => ({
+    isProcessing: (data: LogRemovalStatusResponse) => data.isProcessing && Boolean(data.service),
+    createNotification: (data: LogRemovalStatusResponse) => ({
       message: data.stageKey
-        ? i18n.t(
-            data.stageKey as string,
-            (data.context as Record<string, string | number | boolean>) ?? {}
-          )
-        : i18n.t('signalr.logRemoval.starting.default', { service: data.service as string }),
-      progress: (data.percentComplete as number) || 0,
+        ? i18n.t(data.stageKey, data.context ?? {})
+        : i18n.t('signalr.logRemoval.starting.default', { service: data.service }),
+      progress: data.percentComplete,
       details: {
-        service: data.service as string,
-        linesProcessed: data.linesProcessed as number,
-        linesRemoved: data.linesRemoved as number
+        service: data.service,
+        linesProcessed: data.linesProcessed,
+        linesRemoved: data.linesRemoved
       }
     }),
     staleMessage: 'Log entry removal completed'
-  } satisfies SimpleRecoveryConfig,
+  } satisfies SimpleRecoveryConfig<LogRemovalStatusResponse>,
 
   gameDetection: {
     apiEndpoint: '/api/games/detect/active',
     storageKey: NOTIFICATION_STORAGE_KEYS.GAME_DETECTION,
     type: 'game_detection' as NotificationType,
     notificationId: NOTIFICATION_IDS.GAME_DETECTION,
-    isProcessing: (data: Record<string, unknown>) =>
-      Boolean(data.isProcessing) && Boolean(data.operation),
-    createNotification: (data: Record<string, unknown>) => {
-      const op = data.operation as Record<string, unknown>;
+    isProcessing: (data: GameDetectionStatusResponse) =>
+      data.isProcessing && data.operation !== null,
+    createNotification: (data: GameDetectionStatusResponse) => {
+      // `isProcessing` guard above ensures `data.operation !== null` here.
+      const op = data.operation!;
       return {
-        message: (op?.statusMessage as string) || 'Detecting games and services in cache...',
-        progress: (op?.percentComplete as number) || 0,
+        message: op.statusMessage,
+        progress: op.percentComplete,
         details: {
-          operationId: op?.operationId as string,
-          scanType: op?.scanType as 'full' | 'incremental'
+          operationId: op.operationId,
+          scanType: op.scanType
         }
       };
     },
     staleMessage: 'Game detection completed'
-  } satisfies SimpleRecoveryConfig,
+  } satisfies SimpleRecoveryConfig<GameDetectionStatusResponse>,
 
   corruptionDetection: {
     apiEndpoint: '/api/cache/corruption/detect/status',
     storageKey: NOTIFICATION_STORAGE_KEYS.CORRUPTION_DETECTION,
     type: 'corruption_detection' as NotificationType,
     notificationId: NOTIFICATION_IDS.CORRUPTION_DETECTION,
-    isProcessing: (data: Record<string, unknown>) => Boolean(data.isRunning),
-    createNotification: (data: Record<string, unknown>) => ({
+    isProcessing: (data: CorruptionDetectionStatusResponse) => data.isRunning,
+    createNotification: (data: CorruptionDetectionStatusResponse) => ({
       message: data.stageKey
-        ? i18n.t(
-            data.stageKey as string,
-            (data.context as Record<string, string | number | boolean>) ?? {}
-          )
+        ? i18n.t(data.stageKey, data.context ?? {})
         : i18n.t('signalr.corruptionDetect.scanningLogs'),
-      progress: (data.percentComplete as number) || 0,
+      // `percentComplete` is not emitted by backend — always undefined on the wire.
+      // `?? 0` is a legitimate gap-filler until CacheController.GetCorruptionDetectionStatus
+      // is updated to include `percentComplete = activeOp.PercentComplete`.
+      progress: data.percentComplete ?? 0,
       details: {
-        operationId: data.operationId as string
+        operationId: data.operationId
       }
     }),
     staleMessage: 'Corruption detection completed'
-  } satisfies SimpleRecoveryConfig,
+  } satisfies SimpleRecoveryConfig<CorruptionDetectionStatusResponse>,
 
   dataImport: {
     apiEndpoint: '/api/migration/import/status',
     storageKey: NOTIFICATION_STORAGE_KEYS.DATA_IMPORT,
     type: 'data_import' as NotificationType,
     notificationId: NOTIFICATION_IDS.DATA_IMPORT,
-    isProcessing: (data: Record<string, unknown>) => Boolean(data.isProcessing),
-    createNotification: (data: Record<string, unknown>) => ({
+    isProcessing: (data: DataImportStatusResponse) => data.isProcessing,
+    createNotification: (data: DataImportStatusResponse) => ({
       message: data.stageKey
-        ? i18n.t(
-            data.stageKey as string,
-            (data.context as Record<string, string | number | boolean>) ?? {}
-          )
+        ? i18n.t(data.stageKey, data.context ?? {})
         : i18n.t('signalr.generic.unknown'),
-      progress: (data.percentComplete as number) || 0,
+      // `??` (not `||`): backend field is `double?` — nullable. `??` preserves 0.
+      progress: data.percentComplete ?? 0,
       details: {
-        operationId: data.operationId as string
+        operationId: data.operationId ?? undefined
       }
     }),
     staleMessage: 'Data import completed'
-  } satisfies SimpleRecoveryConfig,
+  } satisfies SimpleRecoveryConfig<DataImportStatusResponse>,
 
   epicGameMapping: {
     apiEndpoint: '/api/epic/game-mappings/schedule',
     storageKey: NOTIFICATION_STORAGE_KEYS.EPIC_GAME_MAPPING,
     type: 'epic_game_mapping' as NotificationType,
     notificationId: NOTIFICATION_IDS.EPIC_GAME_MAPPING,
-    isProcessing: (data: Record<string, unknown>) => Boolean(data.isProcessing),
-    createNotification: (data: Record<string, unknown>) => ({
-      message: (data.statusMessage as string) || 'Refreshing Epic game catalog...',
-      progress: (data.progressPercent as number) || 0,
+    isProcessing: (data: EpicGameMappingScheduleResponse) => data.isProcessing,
+    createNotification: (data: EpicGameMappingScheduleResponse) => ({
+      // `statusMessage` is C# `string?` — only populated when processing.
+      // Fall back to i18n key when null/undefined (e.g. during idle recovery poll).
+      message: data.statusMessage ?? i18n.t('signalr.epicMapping.starting'),
+      // `progressPercent` is C# `double` (non-null) — no fallback needed.
+      progress: data.progressPercent,
       details: {
-        operationId: data.operationId as string
+        operationId: data.operationId ?? undefined
       }
     }),
     staleMessage: 'Epic game mapping completed'
-  } satisfies SimpleRecoveryConfig,
+  } satisfies SimpleRecoveryConfig<EpicGameMappingScheduleResponse>,
 
   evictionScan: {
     apiEndpoint: '/api/stats/eviction/scan/status',
     storageKey: NOTIFICATION_STORAGE_KEYS.EVICTION_SCAN,
     type: 'eviction_scan' as NotificationType,
     notificationId: NOTIFICATION_IDS.EVICTION_SCAN,
-    isProcessing: (data: Record<string, unknown>) => Boolean(data.isProcessing) && !data.silentMode,
-    shouldSkip: (data: Record<string, unknown>) =>
-      Boolean(data.isProcessing) && Boolean(data.silentMode),
-    createNotification: (data: Record<string, unknown>) => ({
+    isProcessing: (data: EvictionScanStatusResponse) => data.isProcessing && !data.silentMode,
+    shouldSkip: (data: EvictionScanStatusResponse) => data.isProcessing && data.silentMode,
+    createNotification: (data: EvictionScanStatusResponse) => ({
       message: data.stageKey
-        ? i18n.t(
-            data.stageKey as string,
-            (data.context as Record<string, string | number | boolean>) ?? {}
-          )
+        ? i18n.t(data.stageKey, data.context ?? {})
         : i18n.t('signalr.evictionScan.scanning'),
-      progress: (data.percentComplete as number) || 0,
+      progress: data.percentComplete,
       details: {
-        operationId: data.operationId as string
+        operationId: data.operationId ?? undefined
       }
     }),
     staleMessage: 'Eviction scan completed'
-  } satisfies SimpleRecoveryConfig
+  } satisfies SimpleRecoveryConfig<EvictionScanStatusResponse>
 };
 
 // ============================================================================

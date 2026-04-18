@@ -42,7 +42,7 @@ public class PrefillAdminController : ControllerBase
     }
 
     private UserSession? GetSession() => HttpContext.GetUserSession();
-    private string GetSessionId() => GetSession()?.Id.ToString() ?? "unknown";
+    private string GetSessionId() => HttpContext.GetRequiredUserSession().Id.ToString();
 
     /// <summary>
     /// Builds a BannedSteamUserDto from a BannedSteamUser entity (always sets IsActive = true for new bans).

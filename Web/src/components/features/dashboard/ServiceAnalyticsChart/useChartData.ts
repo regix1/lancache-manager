@@ -146,7 +146,7 @@ export function useChartData(
     switch (activeTab) {
       case 'service': {
         const sorted = serviceStats
-          .map((s) => ({ name: s.service, value: s.totalBytes || 0 }))
+          .map((s) => ({ name: s.service, value: s.totalBytes }))
           .filter((s) => s.value > 0)
           .sort((a, b) => b.value - a.value);
 
@@ -180,8 +180,8 @@ export function useChartData(
       }
 
       case 'hit-ratio': {
-        const totalHits = serviceStats.reduce((sum, s) => sum + (s.totalCacheHitBytes || 0), 0);
-        const totalMisses = serviceStats.reduce((sum, s) => sum + (s.totalCacheMissBytes || 0), 0);
+        const totalHits = serviceStats.reduce((sum, s) => sum + s.totalCacheHitBytes, 0);
+        const totalMisses = serviceStats.reduce((sum, s) => sum + s.totalCacheMissBytes, 0);
         const total = totalHits + totalMisses;
 
         if (total === 0) {
@@ -213,7 +213,7 @@ export function useChartData(
 
       case 'bandwidth': {
         const sorted = serviceStats
-          .map((s) => ({ name: s.service, value: s.totalCacheHitBytes || 0 }))
+          .map((s) => ({ name: s.service, value: s.totalCacheHitBytes }))
           .filter((s) => s.value > 0)
           .sort((a, b) => b.value - a.value);
 

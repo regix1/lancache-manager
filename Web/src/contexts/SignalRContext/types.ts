@@ -324,7 +324,7 @@ export interface GameRemovalCompleteEvent {
 
 export interface ServiceRemovalStartedEvent {
   operationId: string;
-  stageKey?: string;
+  stageKey: string;
   context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
   message: string;
@@ -336,7 +336,7 @@ export interface ServiceRemovalProgressEvent {
   percentComplete: number;
   status: string;
   serviceName: string;
-  stageKey?: string;
+  stageKey: string;
   context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
   message?: string;
@@ -347,7 +347,7 @@ export interface ServiceRemovalProgressEvent {
 export interface ServiceRemovalCompleteEvent {
   operationId: string;
   success: boolean;
-  stageKey?: string;
+  stageKey: string;
   context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
   message: string;

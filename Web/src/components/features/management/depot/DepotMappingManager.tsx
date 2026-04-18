@@ -81,7 +81,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     if (!picsProgress) return null;
 
     return {
-      isProcessing: picsProgress.isProcessing || false,
+      isProcessing: picsProgress.isProcessing,
       crawlIntervalHours: picsProgress.crawlIntervalHours || 0,
       crawlIncrementalMode:
         picsProgress.crawlIncrementalMode !== undefined ? picsProgress.crawlIncrementalMode : true,

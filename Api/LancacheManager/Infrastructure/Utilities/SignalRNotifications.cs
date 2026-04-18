@@ -12,7 +12,7 @@ public static class SignalRNotifications
     public interface ICompletionNotification
     {
         bool Success { get; }
-        string? StageKey { get; }
+        string StageKey { get; }
     }
 
     #region Removal Notifications
@@ -24,7 +24,7 @@ public static class SignalRNotifications
         string OperationId,
         long GameAppId,
         string GameName,
-        string? StageKey,
+        string StageKey,
         DateTime Timestamp,
         Dictionary<string, object?>? Context = null
     );
@@ -37,7 +37,7 @@ public static class SignalRNotifications
         long GameAppId,
         string GameName,
         string Status,
-        string? StageKey,
+        string StageKey,
         double PercentComplete = 0,
         int? FilesDeleted = null,
         long? BytesFreed = null,
@@ -51,8 +51,8 @@ public static class SignalRNotifications
         bool Success,
         string OperationId,
         long GameAppId,
+        string StageKey,
         string? GameName = null,
-        string? StageKey = null,
         int FilesDeleted = 0,
         long BytesFreed = 0,
         ulong LogEntriesRemoved = 0,
@@ -65,7 +65,7 @@ public static class SignalRNotifications
     public record ServiceRemovalStarted(
         string ServiceName,
         string OperationId,
-        string? StageKey,
+        string StageKey,
         DateTime Timestamp,
         Dictionary<string, object?>? Context = null
     );
@@ -77,7 +77,7 @@ public static class SignalRNotifications
         string ServiceName,
         string OperationId,
         string Status,
-        string? StageKey,
+        string StageKey,
         double PercentComplete = 0,
         int? FilesDeleted = null,
         long? BytesFreed = null,
@@ -91,7 +91,7 @@ public static class SignalRNotifications
         bool Success,
         string ServiceName,
         string OperationId,
-        string? StageKey = null,
+        string StageKey,
         int FilesDeleted = 0,
         long BytesFreed = 0,
         ulong LogEntriesRemoved = 0,
@@ -104,7 +104,7 @@ public static class SignalRNotifications
     public record CorruptionRemovalStarted(
         string Service,
         string OperationId,
-        string? StageKey,
+        string StageKey,
         DateTime Timestamp,
         Dictionary<string, object?>? Context = null
     );
@@ -116,7 +116,7 @@ public static class SignalRNotifications
         string Service,
         string OperationId,
         string Status,
-        string? StageKey,
+        string StageKey,
         DateTime Timestamp,
         int FilesProcessed = 0,
         int TotalFiles = 0,
@@ -130,8 +130,8 @@ public static class SignalRNotifications
     public record CorruptionRemovalComplete(
         bool Success,
         string Service,
+        string StageKey,
         string? OperationId = null,
-        string? StageKey = null,
         string? Error = null,
         DateTime? Timestamp = null,
         Dictionary<string, object?>? Context = null
@@ -147,7 +147,7 @@ public static class SignalRNotifications
     public record LogRemovalComplete(
         bool Success,
         string Service,
-        string? StageKey,
+        string StageKey,
         int FilesProcessed = 0,
         long LinesProcessed = 0,
         long LinesRemoved = 0,
@@ -166,7 +166,7 @@ public static class SignalRNotifications
     public record GameDetectionProgress(
         string OperationId,
         string Status,
-        string? StageKey,
+        string StageKey,
         int GamesDetected = 0,
         int ServicesDetected = 0,
         double ProgressPercent = 0,
@@ -179,7 +179,7 @@ public static class SignalRNotifications
     public record GameDetectionComplete(
         bool Success,
         string OperationId,
-        string? StageKey = null,
+        string StageKey,
         int GamesDetected = 0,
         int ServicesDetected = 0,
         Dictionary<string, object?>? Context = null
@@ -191,7 +191,7 @@ public static class SignalRNotifications
     public record CorruptionDetectionProgress(
         string OperationId,
         string Status,
-        string? StageKey,
+        string StageKey,
         Dictionary<string, object?>? Context = null
     );
 
@@ -200,7 +200,7 @@ public static class SignalRNotifications
     /// </summary>
     public record CorruptionDetectionComplete(
         bool Success,
-        string? StageKey = null,
+        string StageKey,
         Dictionary<string, int>? CorruptionCounts = null,
         int TotalServicesWithCorruption = 0,
         int TotalCorruptedChunks = 0,
@@ -217,7 +217,7 @@ public static class SignalRNotifications
     public record CacheClearProgress(
         string OperationId,
         string Status,
-        string? StageKey,
+        string StageKey,
         int FilesDeleted = 0,
         long BytesFreed = 0,
         double ProgressPercent = 0,
@@ -230,7 +230,7 @@ public static class SignalRNotifications
     public record CacheClearComplete(
         bool Success,
         string OperationId,
-        string? StageKey = null,
+        string StageKey,
         int FilesDeleted = 0,
         long BytesFreed = 0,
         string? Error = null,

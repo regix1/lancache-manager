@@ -33,7 +33,7 @@ import { useDraggableCards } from '@hooks/useDraggableCards';
 import { formatBytes, formatPercent } from '@utils/formatters';
 import { isNonEvictedGame } from '@utils/gameDetection';
 import { STORAGE_KEYS } from '@utils/constants';
-import { type StatCardData } from '../../../types';
+import { type StatCardData, type ServiceStat } from '../../../types';
 import { storage } from '@utils/storage';
 import ApiService from '@services/api.service';
 import StatCard from '@components/common/StatCard';
@@ -358,7 +358,7 @@ const Dashboard: React.FC = () => {
   const stats = useMemo(() => {
     // Use speed data from SpeedContext for real-time accurate active data (from Rust speed tracker)
     const totalDownloads = filteredServiceStats.reduce(
-      (sum: number, service: { totalDownloads?: number }) => sum + (service.totalDownloads || 0),
+      (sum: number, service: ServiceStat) => sum + service.totalDownloads,
       0
     );
 
@@ -925,13 +925,13 @@ const Dashboard: React.FC = () => {
       {/* Charts Row - Pass the actual data arrays */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <ServiceAnalyticsChart
-          serviceStats={filteredServiceStats || []}
+          serviceStats={filteredServiceStats}
           timeRange={timeRange}
           glassmorphism={true}
           loading={loading}
         />
         <RecentDownloadsPanel
-          downloads={filteredLatestDownloads || []}
+          downloads={filteredLatestDownloads}
           loading={loading}
           timeRange={timeRange}
           glassmorphism={true}
@@ -951,7 +951,7 @@ const Dashboard: React.FC = () => {
       {/* Top Clients */}
       <div>
         <TopClientsTable
-          clientStats={filteredClientStats || []}
+          clientStats={filteredClientStats}
           timeRange={timeRange}
           customStartDate={customStartDate}
           customEndDate={customEndDate}

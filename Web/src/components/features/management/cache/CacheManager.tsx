@@ -253,10 +253,10 @@ const CacheManager: React.FC<CacheManagerProps> = ({
       : [
           {
             name: 'default',
-            cachePath: config.cachePath || '/cache',
-            logsPath: config.logsPath || '/logs',
-            cacheWritable: config.cacheWritable ?? false,
-            logsWritable: config.logsWritable ?? false,
+            cachePath: config.cachePath,
+            logsPath: config.logsPath,
+            cacheWritable: config.cacheWritable,
+            logsWritable: config.logsWritable,
             enabled: true
           }
         ];

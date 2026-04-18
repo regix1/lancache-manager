@@ -172,9 +172,9 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
       const existing = preferencesRef.current[sessionId];
 
       // For the current session, correct stale values from SignalR race conditions
-      const incomingUseLocal = newPrefs.useLocalTimezone ?? false;
-      const incomingUse24Hour = newPrefs.use24HourFormat ?? true;
-      const incomingShowYear = newPrefs.showYearInDates ?? false;
+      const incomingUseLocal = newPrefs.useLocalTimezone;
+      const incomingUse24Hour = newPrefs.use24HourFormat;
+      const incomingShowYear = newPrefs.showYearInDates;
 
       const { useLocal: useLocalTimezone, use24Hour: use24HourFormat } = isCurrentSession
         ? getCorrectedTimezone(incomingUseLocal, incomingUse24Hour)
@@ -186,12 +186,12 @@ export const SessionPreferencesProvider: React.FC<{ children: React.ReactNode }>
 
       const normalizedPrefs: UserPreferences = {
         selectedTheme: newPrefs.selectedTheme || null,
-        sharpCorners: newPrefs.sharpCorners ?? false,
-        disableFocusOutlines: newPrefs.disableFocusOutlines ?? true,
-        disableTooltips: newPrefs.disableTooltips ?? false,
-        picsAlwaysVisible: newPrefs.picsAlwaysVisible ?? false,
-        disableStickyNotifications: newPrefs.disableStickyNotifications ?? false,
-        showDatasourceLabels: newPrefs.showDatasourceLabels ?? true,
+        sharpCorners: newPrefs.sharpCorners,
+        disableFocusOutlines: newPrefs.disableFocusOutlines,
+        disableTooltips: newPrefs.disableTooltips,
+        picsAlwaysVisible: newPrefs.picsAlwaysVisible,
+        disableStickyNotifications: newPrefs.disableStickyNotifications,
+        showDatasourceLabels: newPrefs.showDatasourceLabels,
         useLocalTimezone,
         use24HourFormat,
         showYearInDates,

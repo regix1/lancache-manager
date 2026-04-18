@@ -387,7 +387,7 @@ const GroupRow: React.FC<GroupRowProps> = ({
                     {t('downloads.tab.compact.labels.miss')}
                   </span>
                   <span className="font-medium text-[var(--theme-text-secondary)]">
-                    {formatBytes(group.cacheMissBytes || 0)}
+                    {formatBytes(group.cacheMissBytes)}
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5">
@@ -466,11 +466,8 @@ const GroupRow: React.FC<GroupRowProps> = ({
                     {/* Collapsible IP groups */}
                     <div className="rounded-md border border-[var(--theme-border-secondary)] overflow-hidden divide-y divide-[var(--theme-border-secondary)]">
                       {Object.entries(ipGroups).map(([ip, ipDownloads]) => {
-                        const ipTotal = ipDownloads.reduce((s, d) => s + (d.totalBytes || 0), 0);
-                        const ipCacheHit = ipDownloads.reduce(
-                          (s, d) => s + (d.cacheHitBytes || 0),
-                          0
-                        );
+                        const ipTotal = ipDownloads.reduce((s, d) => s + d.totalBytes, 0);
+                        const ipCacheHit = ipDownloads.reduce((s, d) => s + d.cacheHitBytes, 0);
                         const expanded = isIpExpanded(ip, ipDownloads.length);
 
                         return (
@@ -514,10 +511,10 @@ const GroupRow: React.FC<GroupRowProps> = ({
                                 itemsPerPage={filters.itemsPerSession}
                                 className="divide-y divide-[var(--theme-border-secondary)]"
                                 renderItem={(download) => {
-                                  const totalBytes = download.totalBytes || 0;
+                                  const totalBytes = download.totalBytes;
                                   const cachePercent =
                                     totalBytes > 0
-                                      ? ((download.cacheHitBytes || 0) / totalBytes) * 100
+                                      ? (download.cacheHitBytes / totalBytes) * 100
                                       : 0;
                                   const associations = getAssociations(download.id);
 
@@ -666,7 +663,7 @@ const CompactView = React.memo(function CompactView({
   );
 
   const renderDownloadRow = (download: Download) => {
-    const totalBytes = download.totalBytes || 0;
+    const totalBytes = download.totalBytes;
 
     const fakeGroup = {
       id: `individual-${download.id}`,
@@ -676,8 +673,8 @@ const CompactView = React.memo(function CompactView({
       downloads: [download],
       totalBytes: totalBytes,
       totalDownloaded: totalBytes,
-      cacheHitBytes: download.cacheHitBytes || 0,
-      cacheMissBytes: download.cacheMissBytes || 0,
+      cacheHitBytes: download.cacheHitBytes,
+      cacheMissBytes: download.cacheMissBytes,
       clientsSet: new Set([download.clientIp]),
       firstSeen: download.startTimeUtc,
       lastSeen: download.startTimeUtc,
