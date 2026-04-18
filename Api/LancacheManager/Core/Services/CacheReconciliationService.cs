@@ -306,12 +306,9 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     {
                         var gamesRecovered = await _gameCacheDetectionService.RecoverEvictedGamesAsync();
                         var servicesRecovered = await _gameCacheDetectionService.RecoverEvictedServicesAsync();
-                        if (gamesRecovered > 0 || servicesRecovered > 0)
-                        {
-                            _logger.LogInformation(
-                                "[EvictionScan] Post-scan recovery inserted {Games} game + {Services} service detection rows from Downloads history",
-                                gamesRecovered, servicesRecovered);
-                        }
+                        _logger.LogInformation(
+                            "[EvictionScan] Post-scan recovery: inserted {Games} game + {Services} service detection rows from Downloads history (zero counts mean every evicted entity already had a row — their evicted_downloads_count will update in-place)",
+                            gamesRecovered, servicesRecovered);
                     }
                     catch (Exception ex)
                     {
