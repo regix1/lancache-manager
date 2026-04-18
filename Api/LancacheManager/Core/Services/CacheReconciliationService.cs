@@ -449,28 +449,16 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             // is preserved either way.
             await PurgeEvictedLogEntriesAsync(context, opId, stoppingToken);
 
-            // Step 0: Upsert CachedGameDetection rows for every evicted game BEFORE deleting Downloads.
-            // This ensures evicted games remain visible after Downloads rows are deleted.
-            // Progress range: 30-60% (log purge was 0-30%)
-            _operationTracker.UpdateProgress(opId, 30, "signalr.evictionRemove.preserving");
-            await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
-                new EvictionRemovalProgress(opId, "preserving_evicted_games", "signalr.evictionRemove.preserving", 30, 0, 0));
-
-            // Load all evicted Downloads grouped by (GameAppId, EpicAppId) — one representative row per game
-            var evictedDownloads = await context.Downloads
-                .Where(d => d.IsEvicted && (d.GameAppId != null || d.EpicAppId != null))
-                .ToListAsync(stoppingToken);
-
-            var evictedGroups = evictedDownloads
-                .GroupBy(d => new { d.GameAppId, d.EpicAppId })
-                .Select(g => g.First())
-                .ToList();
-
-            int upsertedCount = 0;
+            // Removal-driven cleanup: the bulk "Remove" mode makes evicted items fully
+            // disappear. Previously Step 0 upserted CachedGameDetection rows with
+            // IsEvicted = true to keep evicted games visible after Downloads were deleted —
+            // that created the ghost-row class of bugs where a subsequent scan could flip
+            // the preserved row and resurrect the entity. Now the rule is simple: if the
+            // entity has no remaining Downloads, its detection row is deleted too.
             int logEntriesDeleted = 0;
             int downloadsDeleted = 0;
-            int totalGroups = evictedGroups.Count;
-            int processedGroups = 0;
+            int gameDetectionsDeleted = 0;
+            int serviceDetectionsDeleted = 0;
 
             // EF Core's NpgsqlRetryingExecutionStrategy forbids user-initiated transactions unless
             // they are wrapped in a strategy-controlled retry block. Without this wrapper any call
@@ -480,113 +468,54 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             await strategy.ExecuteAsync(async () =>
             {
                 // Reset counters on retry so they reflect only the successful attempt.
-                upsertedCount = 0;
                 logEntriesDeleted = 0;
                 downloadsDeleted = 0;
-                processedGroups = 0;
+                gameDetectionsDeleted = 0;
+                serviceDetectionsDeleted = 0;
 
                 await using var transaction = await context.Database.BeginTransactionAsync(stoppingToken);
                 try
                 {
-                    // Upsert one CachedGameDetection row per evicted game
-                    // Throttle progress reports to ~20 updates (every 5%) to avoid flooding SignalR
-                    int reportEvery = Math.Max(1, totalGroups / 20);
-                    foreach (var representative in evictedGroups)
-                    {
-                        // Find existing row by GameAppId (Steam) or EpicAppId (Epic)
-                        CachedGameDetection? existing = null;
-                        if (representative.EpicAppId != null)
-                        {
-                            existing = await context.CachedGameDetections
-                                .FirstOrDefaultAsync(c => c.EpicAppId == representative.EpicAppId, stoppingToken);
-                        }
-                        else if (representative.GameAppId != null)
-                        {
-                            existing = await context.CachedGameDetections
-                                .FirstOrDefaultAsync(c => c.GameAppId == representative.GameAppId.Value, stoppingToken);
-                        }
-
-                        if (existing != null)
-                        {
-                            // Update existing row — mark as evicted with zero files
-                            existing.IsEvicted = true;
-                            existing.CacheFilesFound = 0;
-                            existing.TotalSizeBytes = 0;
-                            if (!string.IsNullOrEmpty(representative.GameName))
-                                existing.GameName = representative.GameName;
-                            if (representative.Service != null)
-                                existing.Service = representative.Service;
-                            existing.LastDetectedUtc = DateTime.UtcNow;
-                        }
-                        else
-                        {
-                            // Insert new row so the evicted game survives after Downloads are deleted
-                            var newDetection = new CachedGameDetection
-                            {
-                                GameAppId = representative.GameAppId ?? 0,
-                                GameName = representative.GameName ?? string.Empty,
-                                EpicAppId = representative.EpicAppId,
-                                Service = representative.Service,
-                                CacheFilesFound = 0,
-                                TotalSizeBytes = 0,
-                                IsEvicted = true,
-                                DatasourcesJson = $"[\"{representative.Datasource}\"]",
-                                LastDetectedUtc = DateTime.UtcNow,
-                                CreatedAtUtc = DateTime.UtcNow,
-                            };
-                            context.CachedGameDetections.Add(newDetection);
-                        }
-
-                        upsertedCount++;
-                        processedGroups++;
-
-                        // Report every ~5% of groups, and always on the final item
-                        if (totalGroups > 0 && (processedGroups % reportEvery == 0 || processedGroups == totalGroups))
-                        {
-                            // Map upsert progress into 30-60% range
-                            var progressPercent = (int)(30.0 + 30.0 * processedGroups / totalGroups);
-                            _operationTracker.UpdateProgress(opId, progressPercent, "signalr.evictionRemove.updatingEvictionStatus");
-                            await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
-                                new EvictionRemovalProgress(opId, "updating_eviction_status", "signalr.evictionRemove.updatingEvictionStatus", progressPercent, 0, 0));
-                        }
-                    }
-
-                    await context.SaveChangesAsync(stoppingToken);
-
-                    if (upsertedCount > 0)
-                    {
-                        _logger.LogInformation(
-                            "[EvictionScan] Upserted {Count} CachedGameDetection rows for evicted games before removal",
-                            upsertedCount);
-                    }
-
                     // Step 1: Delete LogEntries for evicted downloads first (foreign key constraint)
-                    // Progress: 65% (log purge 0-30%, upserts 30-60%, DB deletes 65-90%)
-                    _operationTracker.UpdateProgress(opId, 65, "signalr.evictionRemove.removingLogs");
+                    _operationTracker.UpdateProgress(opId, 40, "signalr.evictionRemove.removingLogs");
                     await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
-                        new EvictionRemovalProgress(opId, "removing_log_entries", "signalr.evictionRemove.removingLogs", 65, 0, 0));
+                        new EvictionRemovalProgress(opId, "removing_log_entries", "signalr.evictionRemove.removingLogs", 40, 0, 0));
 
                     logEntriesDeleted = await context.LogEntries
                         .Where(le => le.DownloadId != null && le.Download != null && le.Download.IsEvicted)
                         .ExecuteDeleteAsync(stoppingToken);
 
                     // Step 2: Delete evicted Downloads
-                    // Progress: 80%
-                    _operationTracker.UpdateProgress(opId, 80, "signalr.evictionRemove.removingDownloads");
+                    _operationTracker.UpdateProgress(opId, 60, "signalr.evictionRemove.removingDownloads");
                     await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
-                        new EvictionRemovalProgress(opId, "removing_downloads", "signalr.evictionRemove.removingDownloads", 80, 0, logEntriesDeleted));
+                        new EvictionRemovalProgress(opId, "removing_downloads", "signalr.evictionRemove.removingDownloads", 60, 0, logEntriesDeleted));
 
                     downloadsDeleted = await context.Downloads
                         .Where(d => d.IsEvicted)
                         .ExecuteDeleteAsync(stoppingToken);
 
-                    // Delete CachedServiceDetections rows for any service whose last Download
-                    // was just removed. Without this the row survives with stale CacheFilesFound
-                    // and the NEXT SaveServicesToDatabaseAsync() flip-to-evicted path will
-                    // resurrect the service in the Evicted Items list after every app restart.
-                    // Case-insensitive match (WSUS vs wsus) via ToLower() — matches the
-                    // convention used elsewhere in this file.
-                    await context.CachedServiceDetections
+                    // Step 3: Delete orphan CachedGameDetections rows — a game whose last
+                    // Download was just removed has no activity record and must disappear
+                    // from the UI. Next scan will re-insert a fresh row only if the game
+                    // caches again.
+                    _operationTracker.UpdateProgress(opId, 75, "signalr.evictionRemove.updatingStatus");
+                    await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
+                        new EvictionRemovalProgress(opId, "updating_status", "signalr.evictionRemove.updatingStatus", 75, downloadsDeleted, logEntriesDeleted));
+
+                    gameDetectionsDeleted = await context.CachedGameDetections
+                        .Where(g => (g.EpicAppId == null
+                                        && g.GameAppId != 0
+                                        && !context.Downloads.Any(d => d.GameAppId == g.GameAppId))
+                                 || (g.EpicAppId != null
+                                        && !context.Downloads.Any(d => d.EpicAppId == g.EpicAppId)))
+                        .ExecuteDeleteAsync(stoppingToken);
+
+                    // Step 4: Delete orphan CachedServiceDetections rows for services whose
+                    // last Download was just removed. Without this the row survives with stale
+                    // CacheFilesFound and the next SaveServicesToDatabaseAsync() flip-to-evicted
+                    // path resurrects the service in the Evicted Items list after every restart.
+                    // Case-insensitive match (WSUS vs wsus) via ToLower().
+                    serviceDetectionsDeleted = await context.CachedServiceDetections
                         .Where(s => !context.Downloads.Any(d => d.Service.ToLower() == s.ServiceName.ToLower()))
                         .ExecuteDeleteAsync(stoppingToken);
 
@@ -599,11 +528,11 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 }
             });
 
-            if (downloadsDeleted > 0 || logEntriesDeleted > 0)
+            if (downloadsDeleted > 0 || logEntriesDeleted > 0 || gameDetectionsDeleted > 0 || serviceDetectionsDeleted > 0)
             {
                 _logger.LogInformation(
-                    "[EvictionScan] Remove mode: deleted {Downloads} evicted downloads and {LogEntries} associated log entries",
-                    downloadsDeleted, logEntriesDeleted);
+                    "[EvictionScan] Remove mode: deleted {Downloads} evicted downloads, {LogEntries} log entries, {GameDetections} orphan game detection rows, {ServiceDetections} orphan service detection rows",
+                    downloadsDeleted, logEntriesDeleted, gameDetectionsDeleted, serviceDetectionsDeleted);
             }
 
             // Invalidate the detection cache so the frontend refetch gets fresh data
@@ -1019,10 +948,11 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// Removes evicted Downloads and their LogEntries for a single entity (Steam game, Epic game,
     /// or non-game service). Unlike <see cref="RemoveEvictedRecordsAsync"/>, this method:
     /// - Scopes ALL database operations to the specified entity.
-    /// - Does NOT upsert a CachedGameDetection row — the aggregate detection row is left untouched
-    ///   so that Dashboard "Games on Disk" stats remain correct for partially-evicted entities.
+    /// - DELETES the CachedGameDetection / CachedServiceDetection row for the entity outright
+    ///   so the removal is durable — the next scan cannot resurrect it. A fresh row is
+    ///   re-inserted only if the entity ever caches again.
     /// - Calls <see cref="UnevictCachedGameDetectionsAsync"/> / <see cref="UnevictCachedServiceDetectionsAsync"/>
-    ///   at the end for defensive self-healing.
+    ///   at the end for defensive self-healing of unrelated rows.
     /// </summary>
     public async Task RemoveEvictedRecordsForEntityAsync(
         AppDbContext context,
@@ -1162,40 +1092,75 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             // docstring: "Games with no matching downloads are NOT considered evicted"). Any remaining
             // non-evicted downloads keep their row with IsEvicted=false. The next detection scan will
             // refresh CacheFilesFound / TotalSizeBytes if they drifted.
-            int targetedUnevicted = scope switch
+            // Removal-driven cleanup. Two cases:
+            //   • Full removal — no Downloads remain for this entity after the delete above.
+            //     DELETE the detection row so the next scan's flip-to-evicted logic cannot
+            //     resurrect it. This is the WSUS case that used to come back after restart.
+            //   • Partial eviction — some Downloads for this entity still exist and are NOT
+            //     evicted (the entity has real cache files). Leave the detection row in
+            //     place and just clear IsEvicted = false so the UI shows the entity as
+            //     cached again. Deleting here would wipe a legitimately-cached entity.
+            bool anyRemaining = scope switch
             {
-                EvictionScope.Steam => await context.CachedGameDetections
-                    .Where(g => g.IsEvicted
-                             && g.GameAppId == long.Parse(key)
-                             && g.EpicAppId == null)
-                    .ExecuteUpdateAsync(g => g.SetProperty(x => x.IsEvicted, false), stoppingToken),
-
-                EvictionScope.Epic => await context.CachedGameDetections
-                    .Where(g => g.IsEvicted && g.EpicAppId == key)
-                    .ExecuteUpdateAsync(g => g.SetProperty(x => x.IsEvicted, false), stoppingToken),
-
-                // Services: DELETE the detection row rather than flipping IsEvicted = false.
-                // The row survives a clear-flag update with a stale CacheFilesFound (e.g. 1
-                // file / 0 B) — and the next scan's UpsertCachedServicesAsync will see an
-                // existing row absent from the incoming scan results and flip it right back
-                // to IsEvicted = true, resurrecting the evicted-service entry after every
-                // app restart. Deleting the row makes the removal durable; if wsus ever
-                // caches again, a fresh row is inserted by the detection upsert.
-                EvictionScope.Service => await context.CachedServiceDetections
-                    .Where(s => s.ServiceName.ToLower() == key.ToLower())
-                    .ExecuteDeleteAsync(stoppingToken),
-
-                _ => 0
+                EvictionScope.Steam => await context.Downloads
+                    .AnyAsync(d => d.GameAppId == long.Parse(key) && d.EpicAppId == null, stoppingToken),
+                EvictionScope.Epic => await context.Downloads
+                    .AnyAsync(d => d.EpicAppId == key, stoppingToken),
+                EvictionScope.Service => await context.Downloads
+                    .AnyAsync(d => d.GameAppId == null
+                                && d.EpicAppId == null
+                                && d.Service.ToLower() == key.ToLower(), stoppingToken),
+                _ => false
             };
 
-            if (targetedUnevicted > 0)
+            int detectionRowsChanged;
+            if (!anyRemaining)
             {
-                var verb = scope == EvictionScope.Service
-                    ? "deleted"
-                    : "cleared IsEvicted on";
+                detectionRowsChanged = scope switch
+                {
+                    EvictionScope.Steam => await context.CachedGameDetections
+                        .Where(g => g.GameAppId == long.Parse(key) && g.EpicAppId == null)
+                        .ExecuteDeleteAsync(stoppingToken),
+
+                    EvictionScope.Epic => await context.CachedGameDetections
+                        .Where(g => g.EpicAppId == key)
+                        .ExecuteDeleteAsync(stoppingToken),
+
+                    EvictionScope.Service => await context.CachedServiceDetections
+                        .Where(s => s.ServiceName.ToLower() == key.ToLower())
+                        .ExecuteDeleteAsync(stoppingToken),
+
+                    _ => 0
+                };
+            }
+            else
+            {
+                detectionRowsChanged = scope switch
+                {
+                    EvictionScope.Steam => await context.CachedGameDetections
+                        .Where(g => g.IsEvicted
+                                 && g.GameAppId == long.Parse(key)
+                                 && g.EpicAppId == null)
+                        .ExecuteUpdateAsync(g => g.SetProperty(x => x.IsEvicted, false), stoppingToken),
+
+                    EvictionScope.Epic => await context.CachedGameDetections
+                        .Where(g => g.IsEvicted && g.EpicAppId == key)
+                        .ExecuteUpdateAsync(g => g.SetProperty(x => x.IsEvicted, false), stoppingToken),
+
+                    EvictionScope.Service => await context.CachedServiceDetections
+                        .Where(s => s.IsEvicted && s.ServiceName.ToLower() == key.ToLower())
+                        .ExecuteUpdateAsync(s => s.SetProperty(x => x.IsEvicted, false), stoppingToken),
+
+                    _ => 0
+                };
+            }
+
+            if (detectionRowsChanged > 0)
+            {
+                var verb = anyRemaining ? "cleared IsEvicted on" : "deleted";
                 _logger.LogInformation(
-                    "[EvictionRemoval] Targeted un-evict for {Scope} '{Key}': {Verb} {Count} detection row(s)",
-                    scope, key, verb, targetedUnevicted);
+                    "[EvictionRemoval] Targeted removal for {Scope} '{Key}': {Verb} {Count} detection row(s)",
+                    scope, key, verb, detectionRowsChanged);
             }
 
             // Step 3b: Bulk self-heal helper stays for the separate "files reappeared on disk"

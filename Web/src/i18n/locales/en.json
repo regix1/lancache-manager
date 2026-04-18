@@ -5423,11 +5423,9 @@
         "entity": "Removing evicted records for {{scope}} '{{key}}'..."
       },
       "failedToStart": "Eviction removal failed to start.",
-      "preserving": "Preserving evicted game records...",
       "removingLogs": "Removing associated log entries...",
       "removingDownloads": "Removing evicted download records...",
       "purgingLogs": "Purging {{count}} log entries...",
-      "updatingEvictionStatus": "Updating eviction status...",
       "updatingStatus": "Updating game status...",
       "finalizingRemoval": "Finalizing removal...",
       "complete": "Eviction removal complete.",
