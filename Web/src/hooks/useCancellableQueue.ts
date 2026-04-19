@@ -142,16 +142,25 @@ export function useCancellableQueue<TItem>(
   }, []);
 
   // Cascade effect: watch the bulk notification for `details.cancelling` (set
-  // by UniversalNotificationBar.handleCancel's bulk_removal branch) or
-  // outright removal. When cancellation is requested, fire a server-side
-  // cancel on the in-flight item so it aborts immediately rather than
-  // running to natural completion.
+  // by UniversalNotificationBar.handleCancel's bulk_removal branch).
+  // When cancellation is requested, fire a server-side cancel on the in-flight
+  // item so it aborts immediately rather than running to natural completion.
+  //
+  // Only the `cancelling === true` flag is treated as a cancel signal. We do
+  // NOT trip cancel when the notification is missing from the list — that
+  // misread caused "Bulk removal cancelled after 0 items" on the very first
+  // iteration whenever React rendered an unrelated notifications update before
+  // the freshly-added bulk notification was batched into the array (the
+  // `bulkNotifIdRef` is set synchronously but the array update is queued).
+  // Unmount-driven cancellation is handled by the unmountControllerRef → AbortController
+  // path in run(), not by this effect.
   useEffect(() => {
     const activeId = bulkNotifIdRef.current;
     if (!activeId) return;
     const notif = notifications.find((n) => n.id === activeId);
-    const cancelled = !notif || notif.details?.cancelling === true;
-    if (!cancelled || cancelRequestedRef.current) return;
+    if (!notif) return;
+    if (notif.details?.cancelling !== true) return;
+    if (cancelRequestedRef.current) return;
     cancelRequestedRef.current = true;
 
     // Trip the per-item AbortController so processItem sees signal.aborted.
