@@ -284,7 +284,7 @@ export function useCancellableQueue<TItem>(
 
       onSettled?.();
     },
-    [onCancel, onSettled]
+    [onCancel, onSettled, scheduleAutoDismiss]
   );
 
   return { run, cancel, state };
