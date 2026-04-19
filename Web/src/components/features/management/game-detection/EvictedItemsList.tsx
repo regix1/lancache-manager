@@ -5,12 +5,10 @@ import { LoadingState, EmptyState } from '@components/ui/ManagerCard';
 import GamesList from './GamesList';
 import ServicesList from './ServicesList';
 import type { GameCacheInfo, ServiceCacheInfo } from '../../../../types';
-import type { UnifiedNotification } from '@contexts/notifications';
 
 interface EvictedItemsListProps {
   games: GameCacheInfo[];
   services: ServiceCacheInfo[];
-  notifications: UnifiedNotification[];
   isAnyRemovalRunning: boolean;
   isAdmin: boolean;
   cacheReadOnly: boolean;
@@ -24,7 +22,6 @@ interface EvictedItemsListProps {
 const EvictedItemsList: React.FC<EvictedItemsListProps> = ({
   games,
   services,
-  notifications,
   isAnyRemovalRunning,
   isAdmin,
   cacheReadOnly,
@@ -60,7 +57,6 @@ const EvictedItemsList: React.FC<EvictedItemsListProps> = ({
         <ServicesList
           services={evictedServices}
           totalServices={evictedServices.length}
-          notifications={notifications}
           isAnyRemovalRunning={isAnyRemovalRunning}
           isAdmin={isAdmin}
           cacheReadOnly={cacheReadOnly}
@@ -74,7 +70,6 @@ const EvictedItemsList: React.FC<EvictedItemsListProps> = ({
         <GamesList
           games={evictedGames}
           totalGames={evictedGames.length}
-          notifications={notifications}
           isAnyRemovalRunning={isAnyRemovalRunning}
           isAdmin={isAdmin}
           cacheReadOnly={cacheReadOnly}

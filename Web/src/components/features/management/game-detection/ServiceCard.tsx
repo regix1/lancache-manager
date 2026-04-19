@@ -6,12 +6,12 @@ import type { ServiceCacheInfo, CacheEntityVariant } from '../../../../types';
 import ExpandableItemCard, { type ExpandableItemStat } from './ExpandableItemCard';
 import ExpandableList from './ExpandableList';
 import Badge from '@components/ui/Badge';
+import { useIsEntityBusy } from '@hooks/useIsEntityBusy';
 
 interface ServiceCardProps {
   service: ServiceCacheInfo;
   isExpanded: boolean;
   isExpanding: boolean;
-  isRemoving: boolean;
   isAnyRemovalRunning: boolean;
   isAdmin: boolean;
   cacheReadOnly: boolean;
@@ -29,7 +29,6 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
   service,
   isExpanded,
   isExpanding,
-  isRemoving,
   isAnyRemovalRunning,
   isAdmin,
   cacheReadOnly,
@@ -42,6 +41,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
   const { t } = useTranslation();
   const isEvictedVariant = variant === 'evicted';
   const isEvicted = service.is_evicted === true;
+  const isRemoving = useIsEntityBusy({ kind: 'service', service: service.service_name });
 
   const stats: ExpandableItemStat[] = [
     {

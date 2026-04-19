@@ -7,12 +7,10 @@ import { usePaginatedList } from '@hooks/usePaginatedList';
 import GameCard from './GameCard';
 import { getGameUniqueId } from './gameUtils';
 import type { GameCacheInfo, CacheEntityVariant } from '../../../../types';
-import type { UnifiedNotification } from '@contexts/notifications';
 
 interface GamesListProps {
   games: GameCacheInfo[];
   totalGames: number;
-  notifications: UnifiedNotification[];
   isAnyRemovalRunning: boolean;
   isAdmin: boolean;
   cacheReadOnly: boolean;
@@ -28,7 +26,6 @@ const PAGINATION_TOP_THRESHOLD = 100;
 const GamesList: React.FC<GamesListProps> = ({
   games,
   totalGames,
-  notifications,
   isAnyRemovalRunning,
   isAdmin,
   cacheReadOnly,
@@ -154,14 +151,6 @@ const GamesList: React.FC<GamesListProps> = ({
                   game={game}
                   isExpanded={expandedGameId === uniqueId}
                   isExpanding={expandingGameId === uniqueId}
-                  isRemoving={notifications.some(
-                    (n) =>
-                      (n.type === 'game_removal' || n.type === 'eviction_removal') &&
-                      n.status === 'running' &&
-                      (game.service === 'epicgames'
-                        ? n.details?.gameName === game.game_name
-                        : n.details?.gameAppId === game.game_app_id)
-                  )}
                   isAnyRemovalRunning={isAnyRemovalRunning}
                   isAdmin={isAdmin}
                   cacheReadOnly={cacheReadOnly}

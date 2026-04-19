@@ -16,6 +16,7 @@ import { createRecoveryRunner, type FetchWithAuth } from './recoveryFactory';
 import { NOTIFICATION_REGISTRY } from './notificationRegistry';
 import { useNotificationHandlers } from './useNotificationHandlers';
 import { createSpecialCaseHandlers } from './specialCaseHandlers';
+import { SPECIAL_NOTIFICATION_CONTRACTS } from './specialNotificationContracts';
 
 import { NotificationsContext } from './NotificationsContext.types';
 
@@ -246,6 +247,11 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
   // - Database Reset: only started + progress, no complete event
   // - Epic Game Mapping: progress only + custom EpicGameMappingsUpdated one-shot handler
   // - Steam Session Error: custom one-shot error display
+  //
+  // Wiring is driven by SPECIAL_NOTIFICATION_CONTRACTS — see
+  // ./specialNotificationContracts.ts. Each contract entry maps a logical
+  // lifecycle to a set of SignalR event subscriptions. The iterator below
+  // collapses what used to be 16 imperative on/off calls into a single loop.
   React.useEffect(() => {
     const handlers = createSpecialCaseHandlers(
       setNotifications,
@@ -253,24 +259,14 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
       cancelAutoDismissTimer
     );
 
-    signalR.on('DepotMappingStarted', handlers.handleDepotMappingStarted);
-    signalR.on('DepotMappingProgress', handlers.handleDepotMappingProgress);
-    signalR.on('DepotMappingComplete', handlers.handleDepotMappingComplete);
-    signalR.on('DatabaseResetStarted', handlers.handleDatabaseResetStarted);
-    signalR.on('DatabaseResetProgress', handlers.handleDatabaseResetProgress);
-    signalR.on('EpicMappingProgress', handlers.handleEpicMappingProgress);
-    signalR.on('EpicGameMappingsUpdated', handlers.handleEpicGameMappingsUpdated);
-    signalR.on('SteamSessionError', handlers.handleSteamSessionError);
+    const subscriptions = SPECIAL_NOTIFICATION_CONTRACTS.flatMap((contract) =>
+      contract.subscribe(handlers)
+    );
+
+    subscriptions.forEach(({ event, handler }) => signalR.on(event, handler));
 
     return () => {
-      signalR.off('DepotMappingStarted', handlers.handleDepotMappingStarted);
-      signalR.off('DepotMappingProgress', handlers.handleDepotMappingProgress);
-      signalR.off('DepotMappingComplete', handlers.handleDepotMappingComplete);
-      signalR.off('DatabaseResetStarted', handlers.handleDatabaseResetStarted);
-      signalR.off('DatabaseResetProgress', handlers.handleDatabaseResetProgress);
-      signalR.off('EpicMappingProgress', handlers.handleEpicMappingProgress);
-      signalR.off('EpicGameMappingsUpdated', handlers.handleEpicGameMappingsUpdated);
-      signalR.off('SteamSessionError', handlers.handleSteamSessionError);
+      subscriptions.forEach(({ event, handler }) => signalR.off(event, handler));
     };
   }, [signalR, scheduleAutoDismiss, cancelAutoDismissTimer]);
 

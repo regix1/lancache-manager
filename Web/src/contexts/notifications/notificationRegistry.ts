@@ -529,6 +529,25 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         event.gameName
           ? i18n.t('management.gameDetection.removingGame', { name: event.gameName })
           : i18n.t(event.stageKey ?? 'signalr.evictionRemove.starting.bulk', event.context ?? {}),
+      // Scope → identifier-field mapping for eviction_removal (T8.3 load-bearing comment):
+      //
+      // eviction_removal has a 4-way identifier union depending on scope:
+      //   steam   → details.gameAppId: number (Number(event.gameAppId)), details.steamAppId: string (raw)
+      //             IMPORTANT: SignalR event's gameAppId arrives as STRING — must Number() before storing
+      //             as details.gameAppId (typed as number). Also set steamAppId for parity with game_removal.
+      //   epic    → details.epicAppId: string (= event.gameAppId raw), details.gameName: string (display label)
+      //             NOTE: for epic scope, event.gameAppId is the epicAppId — NOT a numeric Steam appId.
+      //   service → details.service: string (= context.key)
+      //   bulk    → no entity identifier (scope/key are undefined); only operationId is set.
+      //
+      // Naming boundaries:
+      //   SignalR (camelCase, global JsonNamingPolicy.CamelCase in Program.cs):
+      //     event.operationId, event.gameAppId, event.gameName, event.context.scope, event.context.key
+      //   REST /api/cache/removals/active (camelCase via same global policy on EvictionRemovalInfo):
+      //     op.operationId, op.scope, op.key, op.gameName
+      //   Both ingress points must map to the SAME details shape so recovery hydration
+      //   (recoveryFactory.ts recoverEvictionRemovals) and SignalR live-start produce
+      //   identical notification details. Any change here must be mirrored there.
       getDetails: (event: EvictionRemovalStartedEvent) => {
         const scope = (event.context?.scope as string | undefined)?.toLowerCase();
         const key = event.context?.key as string | undefined;

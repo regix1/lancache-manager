@@ -9,12 +9,12 @@ import ExpandableList from './ExpandableList';
 import { getGameUniqueId } from './gameUtils';
 import EvictedBadge from '@components/common/EvictedBadge';
 import Badge from '@components/ui/Badge';
+import { useIsEntityBusy } from '@hooks/useIsEntityBusy';
 
 interface GameCardProps {
   game: GameCacheInfo;
   isExpanded: boolean;
   isExpanding: boolean;
-  isRemoving: boolean;
   isAnyRemovalRunning: boolean;
   isAdmin: boolean;
   cacheReadOnly: boolean;
@@ -32,7 +32,6 @@ const GameCard: React.FC<GameCardProps> = ({
   game,
   isExpanded,
   isExpanding,
-  isRemoving,
   isAnyRemovalRunning,
   isAdmin,
   cacheReadOnly,
@@ -45,6 +44,11 @@ const GameCard: React.FC<GameCardProps> = ({
   const { t } = useTranslation();
   const isEpic = game.service === 'epicgames';
   const gameUniqueId = getGameUniqueId(game);
+  const isRemoving = useIsEntityBusy(
+    isEpic
+      ? { kind: 'epicGame', gameName: game.game_name }
+      : { kind: 'steamGame', gameAppId: game.game_app_id }
+  );
   const isEvictedVariant = variant === 'evicted';
 
   const stats: ExpandableItemStat[] = [

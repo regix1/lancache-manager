@@ -6,12 +6,10 @@ import { Pagination } from '@components/ui/Pagination';
 import { usePaginatedList } from '@hooks/usePaginatedList';
 import ServiceCard from './ServiceCard';
 import type { ServiceCacheInfo, CacheEntityVariant } from '../../../../types';
-import type { UnifiedNotification } from '@contexts/notifications';
 
 interface ServicesListProps {
   services: ServiceCacheInfo[];
   totalServices: number;
-  notifications: UnifiedNotification[];
   isAnyRemovalRunning: boolean;
   isAdmin: boolean;
   cacheReadOnly: boolean;
@@ -27,7 +25,6 @@ const PAGINATION_TOP_THRESHOLD = 100;
 const ServicesList: React.FC<ServicesListProps> = ({
   services,
   totalServices,
-  notifications,
   isAnyRemovalRunning,
   isAdmin,
   cacheReadOnly,
@@ -141,12 +138,6 @@ const ServicesList: React.FC<ServicesListProps> = ({
                 service={service}
                 isExpanded={expandedServiceName === service.service_name}
                 isExpanding={expandingServiceName === service.service_name}
-                isRemoving={notifications.some(
-                  (n) =>
-                    (n.type === 'service_removal' || n.type === 'eviction_removal') &&
-                    n.details?.service === service.service_name &&
-                    n.status === 'running'
-                )}
                 isAnyRemovalRunning={isAnyRemovalRunning}
                 isAdmin={isAdmin}
                 cacheReadOnly={cacheReadOnly}

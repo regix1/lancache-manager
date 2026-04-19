@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useOptimisticPending } from '@/hooks/useOptimisticPending';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle } from 'lucide-react';
 import ApiService from '@services/api.service';
@@ -53,9 +54,20 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
   >({});
   const [loadingDetails, setLoadingDetails] = useState<string | null>(null);
   const { isLoading, hasInitiallyLoaded, setLoading, markLoaded } = useManagerLoading();
-  const [startingCorruptionRemoval, setStartingCorruptionRemoval] = useState<string | null>(null);
+  const {
+    isPending: isCorruptionRemovalPending,
+    anyPending: anyCorruptionRemovalPending,
+    markStarting: markCorruptionRemovalStarting,
+    clearPending: clearCorruptionRemovalPending,
+    clearOnNotification: clearCorruptionRemovalOnNotification
+  } = useOptimisticPending<string>();
   const [pendingRemoveAll, setPendingRemoveAll] = useState(false);
-  const [startingRemoveAll, setStartingRemoveAll] = useState(false);
+  const {
+    anyPending: startingRemoveAll,
+    markStarting: markRemoveAllStarting,
+    clearPending: clearRemoveAllPending,
+    clearOnNotification: clearRemoveAllOnNotification
+  } = useOptimisticPending<'removeAll'>();
 
   // Use shared directory permissions hook
   const { logsReadOnly, cacheReadOnly, logsExist, cacheExist, checkingPermissions } =
@@ -297,6 +309,32 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     });
   }, [notifications, expandedCorruptionService]);
 
+  // Clear optimistic pending state when matching running SignalR notifications arrive
+  useEffect(() => {
+    if (anyCorruptionRemovalPending) {
+      const runningRemoval = notifications.find(
+        (n) => n.type === 'corruption_removal' && n.status === 'running'
+      );
+      if (runningRemoval) {
+        const service = (runningRemoval.details?.service as string | undefined) ?? '';
+        clearCorruptionRemovalOnNotification(
+          service,
+          notifications,
+          (n, k) =>
+            n.type === 'corruption_removal' && n.status === 'running' && n.details?.service === k
+        );
+      }
+    }
+    if (startingRemoveAll) {
+      clearRemoveAllOnNotification(
+        'removeAll',
+        notifications,
+        (n) => n.type === 'corruption_removal' && n.status === 'running'
+      );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notifications]);
+
   // Initial load - load cached data without auto-scanning (matches GameCacheDetector pattern)
   // Note: Directory permissions are now handled by useDirectoryPermissions hook
   useEffect(() => {
@@ -319,7 +357,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
 
     const service = pendingCorruptionRemoval;
     setPendingCorruptionRemoval(null);
-    setStartingCorruptionRemoval(service);
+    markCorruptionRemovalStarting(service);
 
     try {
       await ApiService.removeCorruptedChunks(
@@ -328,14 +366,14 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
         compareToCacheLogs,
         detectionMode
       );
+      // SignalR will handle progress; clearOnNotification (in notifications useEffect) will clear pending
     } catch (err: unknown) {
       console.error('Removal failed:', err);
       onError?.(
         (err instanceof Error ? err.message : String(err)) ||
           t('management.corruption.errors.removeCorrupted', { service })
       );
-    } finally {
-      setStartingCorruptionRemoval(null);
+      clearCorruptionRemovalPending(service);
     }
   };
 
@@ -351,18 +389,18 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     if (authMode !== 'authenticated') return;
 
     setPendingRemoveAll(false);
-    setStartingRemoveAll(true);
+    markRemoveAllStarting('removeAll');
 
     try {
       await ApiService.removeAllCorruptedChunks(missThreshold, compareToCacheLogs, detectionMode);
+      // SignalR will handle progress; clearOnNotification (in notifications useEffect) will clear pending
     } catch (err: unknown) {
       console.error('Remove all corrupted failed:', err);
       onError?.(
         (err instanceof Error ? err.message : String(err)) ||
           t('management.corruption.errors.removeAllCorrupted')
       );
-    } finally {
-      setStartingRemoveAll(false);
+      clearRemoveAllPending('removeAll');
     }
   };
 
@@ -435,7 +473,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
           disabled={
             mockMode ||
             isAnyRemovalRunning ||
-            !!startingCorruptionRemoval ||
+            anyCorruptionRemovalPending ||
             startingRemoveAll ||
             authMode !== 'authenticated' ||
             logsReadOnly ||
@@ -669,7 +707,7 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                                 disabled={
                                   mockMode ||
                                   isAnyRemovalRunning ||
-                                  !!startingCorruptionRemoval ||
+                                  anyCorruptionRemovalPending ||
                                   authMode !== 'authenticated' ||
                                   logsReadOnly ||
                                   cacheReadOnly ||
@@ -681,11 +719,11 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
                                 size="sm"
                                 loading={
                                   removingCorruption === service ||
-                                  startingCorruptionRemoval === service
+                                  isCorruptionRemovalPending(service)
                                 }
                               >
                                 {removingCorruption !== service &&
-                                startingCorruptionRemoval !== service
+                                !isCorruptionRemovalPending(service)
                                   ? t('management.corruption.removeAll')
                                   : t('management.corruption.removing')}
                               </Button>

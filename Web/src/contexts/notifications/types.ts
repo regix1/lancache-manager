@@ -114,6 +114,12 @@ export interface UnifiedNotification {
     // For generic notifications
     notificationType?: NotificationVariant;
 
+    // For data_import
+    recordsImported?: number;
+    recordsSkipped?: number;
+    recordsErrors?: number;
+    totalRecords?: number;
+
     // Cancellation flag
     cancelled?: boolean;
   };

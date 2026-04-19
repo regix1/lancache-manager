@@ -1119,10 +1119,11 @@ public class CacheController : ControllerBase
         var gameOps = _operationTracker.GetActiveOperations(OperationType.GameRemoval);
         var serviceOps = _operationTracker.GetActiveOperations(OperationType.ServiceRemoval);
         var corruptionOps = _operationTracker.GetActiveOperations(OperationType.CorruptionRemoval);
+        var evictionOps = _operationTracker.GetActiveOperations(OperationType.EvictionRemoval);
 
         return Ok(new AllActiveRemovalsResponse
         {
-            IsProcessing = gameOps.Any() || serviceOps.Any() || corruptionOps.Any(),
+            IsProcessing = gameOps.Any() || serviceOps.Any() || corruptionOps.Any() || evictionOps.Any(),
             GameRemovals = gameOps.Select(op =>
             {
                 var metrics = op.Metadata as RemovalMetrics;
@@ -1156,6 +1157,20 @@ public class CacheController : ControllerBase
                 return new CorruptionRemovalInfo
                 {
                     Service = metrics?.EntityName ?? op.Name,
+                    OperationId = op.Id,
+                    Status = op.Status,
+                    Message = op.Message,
+                    StartedAt = op.StartedAt
+                };
+            }),
+            EvictionRemovals = evictionOps.Select(op =>
+            {
+                var meta = op.Metadata as EvictionRemovalMetadata;
+                return new EvictionRemovalInfo
+                {
+                    Scope = meta?.Scope,
+                    Key = meta?.Key,
+                    GameName = meta?.GameName,
                     OperationId = op.Id,
                     Status = op.Status,
                     Message = op.Message,
@@ -1248,10 +1263,6 @@ public class CacheController : ControllerBase
         };
 
         var cts = new CancellationTokenSource();
-        var operationId = _operationTracker.RegisterOperation(
-            OperationType.EvictionRemoval,
-            $"Eviction Removal ({evictionScope}: {key})",
-            cts);
 
         // For Epic or Steam scope, look up the game name so the frontend can display it in the notification bar.
         string? resolvedGameName = null;
@@ -1282,6 +1293,18 @@ public class CacheController : ControllerBase
                 resolvedGameAppId = detection.GameAppId.ToString();
             }
         }
+
+        var evictionMetadata = new EvictionRemovalMetadata
+        {
+            Scope = scopeLower,
+            Key = key,
+            GameName = resolvedGameName
+        };
+        var operationId = _operationTracker.RegisterOperation(
+            OperationType.EvictionRemoval,
+            $"Eviction Removal ({evictionScope}: {key})",
+            cts,
+            evictionMetadata);
 
         await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalStarted,
             new EvictionRemovalStarted("signalr.evictionRemove.starting.entity", operationId,

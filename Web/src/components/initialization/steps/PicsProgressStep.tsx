@@ -20,7 +20,13 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({
   const { t } = useTranslation();
   const { progress } = usePicsProgress();
   const [isComplete, setIsComplete] = useState(false);
-  const [isCancelling, setIsCancelling] = useState(false);
+  // cancelInFlight tracks the local HTTP round-trip for cancelSteamKitRebuild().
+  // This is intentionally separate from progress?.cancelling (the server-ack state
+  // propagated via usePicsProgress SignalR). The local flag covers the click→HTTP-response
+  // window before the server has acknowledged the cancel; progress?.cancelling covers
+  // the server-ack→completion window. UniversalNotificationBar is NOT mounted during
+  // onboarding, so this component owns its own cancel-button spinner lifecycle.
+  const [cancelInFlight, setCancelInFlight] = useState(false);
   const completeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -33,14 +39,14 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({
 
   const handleCancel = async () => {
     try {
-      setIsCancelling(true);
+      setCancelInFlight(true);
       await ApiService.cancelSteamKitRebuild();
       onCancel?.();
     } catch (error: unknown) {
       console.error('Failed to cancel PICS rebuild:', error);
       onCancel?.();
     } finally {
-      setIsCancelling(false);
+      setCancelInFlight(false);
     }
   };
 
@@ -179,11 +185,11 @@ export const PicsProgressStep: React.FC<PicsProgressStepProps> = ({
             variant="outline"
             color="red"
             onClick={handleCancel}
-            disabled={isCancelling}
+            disabled={cancelInFlight}
             fullWidth
           >
-            {isCancelling && <LoadingSpinner inline size="sm" className="mr-2" />}
-            {isCancelling
+            {cancelInFlight && <LoadingSpinner inline size="sm" className="mr-2" />}
+            {cancelInFlight
               ? t('initialization.picsProgress.cancelling')
               : t('initialization.picsProgress.cancelUseGithub')}
           </Button>

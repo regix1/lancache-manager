@@ -2168,13 +2168,6 @@ class ApiService {
     await ApiService.handleResponse(response);
   }
 
-  static async cancelEpicRefresh(): Promise<void> {
-    await fetch(`${API_BASE}/epic/game-mappings/schedule/cancel`, {
-      method: 'POST',
-      credentials: 'include'
-    });
-  }
-
   static async completeEpicMappingAuth(
     authorizationCode: string,
     signal?: AbortSignal

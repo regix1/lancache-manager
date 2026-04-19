@@ -179,7 +179,28 @@ public class GameRemovalInfo
 }
 
 /// <summary>
-/// Response for all active removals (games, services, corruption)
+/// Response item for a single active eviction removal operation.
+/// Scope/key/gameName are derived from EvictionRemovalMetadata stored at registration time.
+/// </summary>
+public class EvictionRemovalInfo
+{
+    /// <summary>"steam" | "epic" | "service" | null (bulk)</summary>
+    public string? Scope { get; set; }
+
+    /// <summary>Entity key within scope: steamAppId string, epicAppId, service name, or null for bulk.</summary>
+    public string? Key { get; set; }
+
+    /// <summary>Resolved display name for steam/epic scopes. Null for service/bulk.</summary>
+    public string? GameName { get; set; }
+
+    public Guid OperationId { get; set; }
+    public OperationStatus Status { get; set; }
+    public string? Message { get; set; }
+    public DateTime? StartedAt { get; set; }
+}
+
+/// <summary>
+/// Response for all active removals (games, services, corruption, eviction)
 /// </summary>
 public class AllActiveRemovalsResponse
 {
@@ -187,6 +208,7 @@ public class AllActiveRemovalsResponse
     public IEnumerable<GameRemovalInfo>? GameRemovals { get; set; }
     public IEnumerable<ServiceRemovalInfo>? ServiceRemovals { get; set; }
     public IEnumerable<CorruptionRemovalInfo>? CorruptionRemovals { get; set; }
+    public IEnumerable<EvictionRemovalInfo>? EvictionRemovals { get; set; }
 }
 
 /// <summary>

@@ -505,11 +505,25 @@ interface CacheRemovalOperation {
   bytesFreed?: number;
 }
 
+// REST shape returned by /api/cache/removals/active for eviction_removal entries.
+// Uses snake_case because the field names come from [JsonPropertyName] attributes on the C# DTO.
+// Note: scope/key/gameName are camelCase here because AllActiveRemovalsResponse uses the global
+// JsonNamingPolicy.CamelCase (no [JsonPropertyName] overrides on EvictionRemovalInfo).
+interface EvictionRemovalOperation {
+  operationId?: string;
+  scope?: string; // "steam" | "epic" | "service" | null (bulk)
+  key?: string; // steamAppId as string, epicAppId, service name, or null for bulk
+  gameName?: string; // resolved display name for steam/epic scopes
+  message?: string;
+  startedAt?: string;
+}
+
 interface CacheRemovalsData {
   isProcessing: boolean;
   gameRemovals?: CacheRemovalOperation[];
   serviceRemovals?: CacheRemovalOperation[];
   corruptionRemovals?: CacheRemovalOperation[];
+  evictionRemovals?: EvictionRemovalOperation[];
 }
 
 function createCacheRemovalsRecoveryFunction(
@@ -590,10 +604,109 @@ function createCacheRemovalsRecoveryFunction(
         setNotifications,
         scheduleAutoDismiss
       );
+
+      // Recover eviction removals.
+      // Scope-to-identifier mapping (mirrors notificationRegistry.ts getDetails for EvictionRemovalStarted):
+      //   steam   → gameAppId: Number(key), steamAppId: key, gameName (optional)
+      //   epic    → epicAppId: key, gameName (optional)
+      //   service → service: key
+      //   null    → bulk removal, no identifier fields needed beyond operationId
+      // REST payload uses camelCase (global JsonNamingPolicy.CamelCase on AllActiveRemovalsResponse).
+      // SignalR events use camelCase too — but the field semantics differ slightly (see registry comment).
+      recoverEvictionRemovals(data.evictionRemovals, setNotifications, scheduleAutoDismiss);
     } catch {
       // Silently fail
     }
   };
+}
+
+// Eviction removal recovery is scope-aware and cannot use the generic recoverOperations
+// helper because: (1) there is only ever one eviction-removal notification slot (fixed id),
+// (2) the details shape differs per scope (steam/epic/service/bulk), and (3) each entry
+// already provides operationId which is required for handleCancel to work.
+function recoverEvictionRemovals(
+  operations: EvictionRemovalOperation[] | undefined,
+  setNotifications: SetNotifications,
+  scheduleAutoDismiss: ScheduleAutoDismiss
+): void {
+  if (operations && operations.length > 0) {
+    for (const op of operations) {
+      const scope = op.scope?.toLowerCase();
+      const key = op.key;
+
+      // Build scope-specific identifier fields to match the notification's details shape
+      // produced by notificationRegistry.ts EvictionRemovalStarted.getDetails.
+      const scopeDetails: UnifiedNotification['details'] = {
+        operationId: op.operationId,
+        cancelling: false,
+        ...(op.gameName !== undefined && { gameName: op.gameName }),
+        ...(scope === 'steam' &&
+          key !== undefined && {
+            gameAppId: Number(key),
+            steamAppId: key
+          }),
+        ...(scope === 'epic' &&
+          key !== undefined && {
+            epicAppId: key
+          }),
+        ...(scope === 'service' &&
+          key !== undefined && {
+            service: key
+          })
+      };
+
+      const message =
+        op.gameName !== undefined
+          ? i18n.t('management.gameDetection.removingGame', { name: op.gameName })
+          : scope === 'service' && key !== undefined
+            ? i18n.t('signalr.evictionRemove.starting.bulk', {})
+            : i18n.t('signalr.evictionRemove.starting.bulk', {});
+
+      const notificationId = NOTIFICATION_IDS.EVICTION_REMOVAL;
+
+      setNotifications((prev: UnifiedNotification[]) => {
+        const filtered = prev.filter((n) => n.id !== notificationId);
+        return [
+          ...filtered,
+          {
+            id: notificationId,
+            type: 'eviction_removal' as const,
+            status: 'running' as NotificationStatus,
+            message,
+            startedAt: op.startedAt ? new Date(op.startedAt) : new Date(),
+            details: scopeDetails
+          }
+        ];
+      });
+    }
+  } else {
+    // Clear stale state — always clean up any running eviction_removal notification with no
+    // matching active op on the server. The operation completed before the page loaded.
+    const saved = localStorage.getItem(NOTIFICATION_STORAGE_KEYS.EVICTION_REMOVAL);
+    if (saved) {
+      localStorage.removeItem(NOTIFICATION_STORAGE_KEYS.EVICTION_REMOVAL);
+    }
+
+    setNotifications((prev: UnifiedNotification[]) => {
+      const existing = prev.find((n) => n.type === 'eviction_removal' && n.status === 'running');
+      if (!existing) return prev;
+
+      const updated = prev.map((n) => {
+        if (n.type === 'eviction_removal' && n.status === 'running') {
+          return {
+            ...n,
+            status: 'completed' as NotificationStatus,
+            message: i18n.t('signalr.evictionRemove.complete', {}),
+            progress: 100
+          };
+        }
+        return n;
+      });
+
+      scheduleAutoDismiss(existing.id);
+      return updated;
+    });
+  }
 }
 
 function recoverOperations(

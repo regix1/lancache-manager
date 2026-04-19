@@ -452,7 +452,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             operationId = _operationTracker.RegisterOperation(
                 OperationType.EvictionRemoval,
                 "Eviction Removal",
-                cts);
+                cts,
+                new EvictionRemovalMetadata()); // bulk removal — no specific scope/key
 
             await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalStarted,
                 new EvictionRemovalStarted("signalr.evictionRemove.starting.bulk", operationId.Value));

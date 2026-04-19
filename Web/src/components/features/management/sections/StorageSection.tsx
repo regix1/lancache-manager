@@ -16,7 +16,9 @@ import { ImageCacheContext, ImageInvalidateContext } from '@components/common/Im
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
 import { useNotifications, NOTIFICATION_IDS } from '@contexts/notifications';
+import { waitForSignalRCompletion } from '@contexts/notifications/waitForSignalRCompletion';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { useCancellableQueue } from '@/hooks/useCancellableQueue';
 import CacheRemovalModal from '@components/modals/cache/CacheRemovalModal';
 import EvictedItemsList from '../game-detection/EvictedItemsList';
 import DatasourcesManager from '../datasources/DatasourcesInfo';
@@ -228,70 +230,18 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     }
   };
 
-  // Resolve when the per-item eviction-removal operation identified by
-  // `operationId` emits its EvictionRemovalComplete SignalR event. Safety
-  // timeout at 2 minutes so a dropped event can't hang the queue forever.
-  const waitForEvictionRemovalComplete = useCallback(
-    (operationId: string): Promise<void> => {
-      return new Promise((resolve) => {
-        let settled = false;
-        const handler = (data: { operationId?: string } | undefined) => {
-          if (data?.operationId === operationId && !settled) {
-            settled = true;
-            off('EvictionRemovalComplete', handler);
-            resolve();
-          }
-        };
-        on('EvictionRemovalComplete', handler);
-        setTimeout(() => {
-          if (!settled) {
-            settled = true;
-            off('EvictionRemovalComplete', handler);
-            resolve();
-          }
-        }, 120_000);
-      });
-    },
-    [on, off]
-  );
-
-  // Ref mirror of notifications so the Remove-All loop can check notification
-  // presence without capturing stale closures. When the user clicks cancel on
-  // the bulk_removal notification (no operationId → handleCancel just removes
-  // it), the loop detects the notification's disappearance and exits.
-  const notificationsRef = useRef(notifications);
-  useEffect(() => {
-    notificationsRef.current = notifications;
-  }, [notifications]);
-
-  // Cascade bulk cancel → current-item cancel. Flow:
-  //   • `handleCancel` in UniversalNotificationBar flips
-  //     `details.cancelling = true` on bulk_removal (instead of removing)
-  //     so this component can transition to a visible "Cancelled" end-state.
-  //   • This effect watches for that flag (or a total removal) and:
-  //       1. sets `cancelRequestedRef.current = true` so the handler loop
-  //          exits at the next iteration boundary, and
-  //       2. fires `ApiService.cancelOperation` on the current in-flight
-  //          per-item op so it aborts immediately rather than running for
-  //          another 30s–2min to natural completion.
-  const bulkNotifIdRef = useRef<string | null>(null);
-  const currentItemOperationIdRef = useRef<string | null>(null);
-  const cancelRequestedRef = useRef<boolean>(false);
-  useEffect(() => {
-    const activeId = bulkNotifIdRef.current;
-    if (!activeId) return;
-    const notif = notifications.find((n) => n.id === activeId);
-    const cancelled = !notif || notif.details?.cancelling === true;
-    if (!cancelled || cancelRequestedRef.current) return;
-    cancelRequestedRef.current = true;
-    const currentOp = currentItemOperationIdRef.current;
-    if (currentOp) {
-      currentItemOperationIdRef.current = null;
-      ApiService.cancelOperation(currentOp).catch(() => {
-        /* best-effort — current item may already be past the point of cancel */
-      });
+  // Sequential per-item eviction-removal queue. The hook owns the cascade
+  // cancel wiring (bulkNotifId / currentOpId refs + cascade useEffect) and
+  // the AbortController plumbing; see `useCancellableQueue` for details.
+  // This component only supplies the per-item API call + finalize transition.
+  type EvictionQueueEntry =
+    | { kind: 'service'; service: ServiceCacheInfo }
+    | { kind: 'game'; game: GameCacheInfo };
+  const { run: runEvictedRemoval } = useCancellableQueue<EvictionQueueEntry>({
+    onSettled: () => {
+      void fetchEvictedItems();
     }
-  }, [notifications]);
+  });
 
   const handleRemoveAllEvicted = useCallback(async () => {
     setShowRemoveAllConfirm(false);
@@ -303,126 +253,99 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     if (total === 0) return;
 
     setRemoveAllRunning(true);
-    cancelRequestedRef.current = false;
-    const notifId = addNotification({
-      type: 'bulk_removal',
-      status: 'running',
-      message: t('management.sections.data.evictionRemoveAllStarting', {
-        total,
-        defaultValue: 'Removing 0 of {{total}} evicted items...'
-      }),
-      progress: 0,
-      details: {} // No operationId → handleCancel special-cases bulk_removal (sets cancelling=true)
-    });
-    bulkNotifIdRef.current = notifId;
 
-    // Use the cascade effect's ref as the source of truth — never read
-    // notificationsRef directly because it's stale within the same
-    // synchronous tick that called addNotification().
-    const wasCancelled = () => cancelRequestedRef.current;
-
-    let completed = 0;
-    let cancelled = false;
-
-    for (const service of services) {
-      if (wasCancelled()) {
-        cancelled = true;
-        break;
-      }
-      completed += 1;
-      setRemoveAllProgress({ current: completed, total, label: service.service_name });
-      updateNotification(notifId, {
-        message: t('management.sections.data.evictionRemoveAllProgress', {
-          current: completed,
-          total,
-          label: service.service_name
+    await runEvictedRemoval({
+      items: [
+        ...services.map((service) => ({ kind: 'service' as const, service })),
+        ...games.map((game) => ({ kind: 'game' as const, game }))
+      ],
+      openNotification: () =>
+        addNotification({
+          type: 'bulk_removal',
+          status: 'running',
+          message: t('management.sections.data.evictionRemoveAllStarting', {
+            total,
+            defaultValue: 'Removing 0 of {{total}} evicted items...'
+          }),
+          progress: 0,
+          // No operationId → handleCancel special-cases bulk_removal (sets cancelling=true)
+          details: {}
         }),
-        progress: Math.floor(((completed - 1) / total) * 100)
-      });
-      try {
-        const { operationId } = await ApiService.removeEvictedForService(service.service_name);
-        currentItemOperationIdRef.current = operationId;
-        await waitForEvictionRemovalComplete(operationId);
-      } catch (err) {
-        console.error('[RemoveAll] Service removal failed:', service.service_name, err);
-      } finally {
-        currentItemOperationIdRef.current = null;
-      }
-    }
-
-    if (!cancelled) {
-      for (const game of games) {
-        if (wasCancelled()) {
-          cancelled = true;
-          break;
-        }
-        completed += 1;
-        const label = game.game_name ?? game.service ?? String(game.game_app_id);
-        setRemoveAllProgress({ current: completed, total, label });
+      onItemStart: (entry, index, _total, notifId) => {
+        const label =
+          entry.kind === 'service'
+            ? entry.service.service_name
+            : (entry.game.game_name ?? entry.game.service ?? String(entry.game.game_app_id));
+        setRemoveAllProgress({ current: index, total, label });
         updateNotification(notifId, {
           message: t('management.sections.data.evictionRemoveAllProgress', {
-            current: completed,
+            current: index,
             total,
             label
           }),
-          progress: Math.floor(((completed - 1) / total) * 100)
+          progress: Math.floor(((index - 1) / total) * 100)
         });
-        try {
+      },
+      processItem: async (entry, ctx) => {
+        if (entry.kind === 'service') {
+          const { operationId } = await ApiService.removeEvictedForService(
+            entry.service.service_name
+          );
+          ctx.setOperationId(operationId);
+          await waitForSignalRCompletion<never, { operationId?: string }>({
+            signalR: { on, off },
+            completeEvent: 'EvictionRemovalComplete',
+            match: (payload) => payload?.operationId === operationId,
+            signal: ctx.signal
+          });
+        } else {
+          const game = entry.game;
           const isEpic = game.service === 'epicgames' && !!game.epic_app_id;
           const { operationId } = isEpic
             ? await ApiService.removeEvictedForEpicGame(game.epic_app_id!)
             : await ApiService.removeEvictedForGame(game.game_app_id);
-          currentItemOperationIdRef.current = operationId;
-          await waitForEvictionRemovalComplete(operationId);
-        } catch (err) {
-          console.error('[RemoveAll] Game removal failed:', game.game_app_id, err);
-        } finally {
-          currentItemOperationIdRef.current = null;
+          ctx.setOperationId(operationId);
+          await waitForSignalRCompletion<never, { operationId?: string }>({
+            signalR: { on, off },
+            completeEvent: 'EvictionRemovalComplete',
+            match: (payload) => payload?.operationId === operationId,
+            signal: ctx.signal
+          });
+        }
+      },
+      finalize: ({ id, succeeded, cancelled }) => {
+        setRemoveAllRunning(false);
+        setRemoveAllProgress(null);
+        if (cancelled) {
+          updateNotification(id, {
+            status: 'completed',
+            message: t('management.sections.data.evictionRemoveAllCancelled', {
+              count: succeeded,
+              defaultValue: 'Bulk removal cancelled after {{count}} items'
+            }),
+            details: { cancelled: true, cancelling: false }
+          });
+        } else {
+          updateNotification(id, {
+            status: 'completed',
+            progress: 100,
+            message: t('management.sections.data.evictionRemoveAllComplete', {
+              count: succeeded,
+              defaultValue: 'Removed {{count}} evicted items'
+            })
+          });
         }
       }
-    }
-
-    setRemoveAllRunning(false);
-    setRemoveAllProgress(null);
-    bulkNotifIdRef.current = null;
-    currentItemOperationIdRef.current = null;
-    cancelRequestedRef.current = false;
-
-    // Finalize: if the notification still exists, transition it to a terminal
-    // state. For the cancel case we set details.cancelled so UniversalNotification
-    // Bar renders the red XCircle icon and auto-dismisses via the existing
-    // CANCELLED_NOTIFICATION_DELAY_MS path.
-    if (notificationsRef.current.find((n) => n.id === notifId)) {
-      if (cancelled) {
-        updateNotification(notifId, {
-          status: 'completed',
-          message: t('management.sections.data.evictionRemoveAllCancelled', {
-            count: completed,
-            defaultValue: 'Bulk removal cancelled after {{count}} items'
-          }),
-          details: { cancelled: true, cancelling: false }
-        });
-      } else {
-        updateNotification(notifId, {
-          status: 'completed',
-          progress: 100,
-          message: t('management.sections.data.evictionRemoveAllComplete', {
-            count: completed,
-            defaultValue: 'Removed {{count}} evicted items'
-          })
-        });
-      }
-    }
-
-    void fetchEvictedItems();
+    });
   }, [
     evictedGames,
     evictedServices,
     isAdmin,
-    waitForEvictionRemovalComplete,
-    fetchEvictedItems,
+    runEvictedRemoval,
     addNotification,
     updateNotification,
+    on,
+    off,
     t
   ]);
 
@@ -968,7 +891,6 @@ const StorageSection: React.FC<StorageSectionProps> = ({
                   <EvictedItemsList
                     games={evictedGames}
                     services={evictedServices}
-                    notifications={notifications}
                     isAdmin={isAdmin}
                     cacheReadOnly={cacheReadOnly}
                     dockerSocketAvailable={isDockerAvailable}

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useOptimisticPending } from '@/hooks/useOptimisticPending';
 import { useTranslation } from 'react-i18next';
 import { FileText, AlertTriangle, Trash2 } from 'lucide-react';
 import ApiService from '@services/api.service';
@@ -102,7 +103,13 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
   const [deletingLogFile, setDeletingLogFile] = useState<string | null>(null);
   const [showMoreServices, setShowMoreServices] = useState<Record<string, boolean>>({});
   const { isLoading, hasInitiallyLoaded, setLoading, markLoaded } = useManagerLoading(true);
-  const [startingServiceRemoval, setStartingServiceRemoval] = useState<string | null>(null);
+  const {
+    isPending: isServiceRemovalPending,
+    anyPending: anyServiceRemovalPending,
+    markStarting: markServiceRemovalStarting,
+    clearPending: clearServiceRemovalPending,
+    clearOnNotification: clearServiceRemovalOnNotification
+  } = useOptimisticPending<string>();
   const [sectionExpanded, setSectionExpanded] = useState(() => {
     const saved = localStorage.getItem('management-log-removal-expanded');
     return saved !== null ? saved === 'true' : false;
@@ -148,6 +155,17 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
         }, 500);
       }
     }
+
+    // Clear optimistic pending as soon as the matching running notification appears
+    if (anyServiceRemovalPending && activeLogRemoval) {
+      datasourceCounts.forEach((ds) => {
+        const key = `${ds.datasource}:${activeLogRemoval}`;
+        clearServiceRemovalOnNotification(key, notifications, (n, k) => {
+          const [, svc] = k.split(':');
+          return n.type === 'log_removal' && n.status === 'running' && n.details?.service === svc;
+        });
+      });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notifications, hasInitiallyLoaded]);
 
@@ -169,15 +187,17 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
       return;
     }
 
+    const key = `${datasourceName}:${serviceName}`;
     setPendingServiceRemoval(null);
-    setStartingServiceRemoval(`${datasourceName}:${serviceName}`);
+    markServiceRemovalStarting(key);
 
     try {
       const result = await ApiService.removeServiceFromDatasourceLogs(datasourceName, serviceName);
       if (result && result.status === 'started') {
-        // SignalR will handle progress
+        // SignalR will handle progress; clearOnNotification (in notifications useEffect) will clear pending
       } else {
         onError?.(t('management.logRemoval.errors.unexpectedResponse', { service: serviceName }));
+        clearServiceRemovalPending(key);
       }
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
@@ -185,8 +205,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
         ? t('management.logRemoval.errors.readOnly')
         : errMsg || t('management.logRemoval.errors.actionFailed');
       onError?.(errorMessage);
-    } finally {
-      setStartingServiceRemoval(null);
+      clearServiceRemovalPending(key);
     }
   };
 
@@ -390,7 +409,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                                   disabled={
                                     mockMode ||
                                     isAnyRemovalRunning ||
-                                    !!startingServiceRemoval ||
+                                    anyServiceRemovalPending ||
                                     !!deletingLogFile ||
                                     authMode !== 'authenticated' ||
                                     !ds.logsWritable ||
@@ -413,13 +432,12 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                                       service={service}
                                       count={ds.serviceCounts[service] || 0}
                                       isRemoving={
-                                        activeLogRemoval === service ||
-                                        startingServiceRemoval === key
+                                        activeLogRemoval === service || isServiceRemovalPending(key)
                                       }
                                       isDisabled={
                                         mockMode ||
                                         isAnyRemovalRunning ||
-                                        !!startingServiceRemoval ||
+                                        anyServiceRemovalPending ||
                                         authMode !== 'authenticated' ||
                                         !ds.logsWritable ||
                                         !isDockerAvailable ||
@@ -491,7 +509,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
       <Modal
         opened={pendingServiceRemoval !== null}
         onClose={() => {
-          if (!startingServiceRemoval) {
+          if (!anyServiceRemovalPending) {
             setPendingServiceRemoval(null);
           }
         }}
@@ -531,7 +549,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
             <Button
               variant="default"
               onClick={() => setPendingServiceRemoval(null)}
-              disabled={!!startingServiceRemoval}
+              disabled={anyServiceRemovalPending}
             >
               {t('common.cancel')}
             </Button>
@@ -545,7 +563,7 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
                   pendingServiceRemoval.service
                 )
               }
-              loading={!!startingServiceRemoval}
+              loading={anyServiceRemovalPending}
             >
               {t('management.logRemoval.buttons.removeLogs')}
             </Button>
