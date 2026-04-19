@@ -651,6 +651,14 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalComplete,
                 new EvictionRemovalComplete(true, opId, "signalr.evictionRemove.complete", downloadsDeleted, logEntriesDeleted));
         }
+        catch (OperationCanceledException)
+        {
+            // User-initiated cancel is an expected outcome, not an error.
+            _logger.LogInformation("[EvictionScan] Bulk eviction removal cancelled by user (operation {OpId})", opId);
+            _operationTracker.CompleteOperation(opId, success: false, error: "Cancelled by user");
+            await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalComplete,
+                new EvictionRemovalComplete(false, opId, "signalr.evictionRemove.cancelled", 0, 0, "Cancelled by user"));
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[EvictionScan] Error removing evicted records from database");
@@ -1294,6 +1302,15 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             _operationTracker.CompleteOperation(opId, success: true);
             await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalComplete,
                 new EvictionRemovalComplete(true, opId, "signalr.evictionRemove.complete", downloadsDeleted, logEntriesDeleted));
+        }
+        catch (OperationCanceledException)
+        {
+            // User-initiated cancel is an expected outcome, not an error.
+            _logger.LogInformation("[EvictionScan] Eviction removal for {Scope} '{Key}' cancelled by user (operation {OpId})",
+                scope, key, opId);
+            _operationTracker.CompleteOperation(opId, success: false, error: "Cancelled by user");
+            await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalComplete,
+                new EvictionRemovalComplete(false, opId, "signalr.evictionRemove.cancelled", 0, 0, "Cancelled by user"));
         }
         catch (Exception ex)
         {

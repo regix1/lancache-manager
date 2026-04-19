@@ -54,11 +54,14 @@ public sealed class PublicIpLookupService
             return cached;
         }
 
+        var attempted = new List<string>(_providers.Length);
         foreach (var (url, isJson) in _providers)
         {
+            attempted.Add(url);
             var ip = await TryProviderAsync(url, isJson, ct);
             if (!string.IsNullOrEmpty(ip))
             {
+                _logger.LogDebug("Public-IP resolved via {Provider}: {Ip}", url, ip);
                 // Global IMemoryCache has SizeLimit configured (Program.cs), so
                 // every Set must declare Size — otherwise Microsoft.Extensions.Caching
                 // throws "Cache entry must specify a value for Size when SizeLimit is set".
@@ -71,7 +74,12 @@ public sealed class PublicIpLookupService
             }
         }
 
-        _logger.LogDebug("All public-IP providers failed or were unreachable");
+        // Promoted from Debug to Warning so deployers can see that the session's public-IP
+        // enrichment is silently degrading. Typical cause: pi-hole / LAN DNS filters
+        // blocking the lookup domains at the SERVER (not just the browser).
+        _logger.LogWarning(
+            "All {Count} public-IP providers failed. Session country/city/ISP fields will be empty for this request. Tried: {Providers}",
+            attempted.Count, string.Join(", ", attempted));
         return null;
     }
 
@@ -87,6 +95,7 @@ public sealed class PublicIpLookupService
 
             if (!response.IsSuccessStatusCode)
             {
+                _logger.LogDebug("Public-IP provider {Url} returned HTTP {Status}", url, (int)response.StatusCode);
                 return null;
             }
 
