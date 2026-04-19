@@ -5447,6 +5447,7 @@
       "updatingStatus": "Updating game status...",
       "finalizingRemoval": "Finalizing removal...",
       "complete": "Eviction removal complete.",
+      "cancelled": "Eviction removal cancelled.",
       "failed": "Eviction removal failed."
     },
     "evictionScan": {

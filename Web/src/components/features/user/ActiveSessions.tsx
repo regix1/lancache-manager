@@ -799,13 +799,21 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
             </div>
           </td>
 
-          {/* Network */}
+          {/* Network — LAN IP (primary) + public IP (secondary, when resolved) */}
           <td>
             {session.ipAddress && (
               <ClientIpDisplay
                 clientIp={cleanIpAddress(session.ipAddress)}
                 className="text-sm text-themed-secondary"
               />
+            )}
+            {session.publicIpAddress && (
+              <div
+                className="text-xs text-themed-muted truncate"
+                title={t('activeSessions.labels.publicIp', 'Public IP')}
+              >
+                {session.publicIpAddress}
+              </div>
             )}
           </td>
 
@@ -1459,6 +1467,14 @@ const ActiveSessions: React.FC<ActiveSessionsProps> = ({
                         clientIp={cleanIpAddress(session.ipAddress)}
                         className="truncate"
                       />
+                      {session.publicIpAddress && (
+                        <span
+                          className="text-themed-muted ml-1 truncate"
+                          title={t('activeSessions.labels.publicIp', 'Public IP')}
+                        >
+                          · {session.publicIpAddress}
+                        </span>
+                      )}
                     </span>
                   )}
                   <span className="flex items-center gap-1">
