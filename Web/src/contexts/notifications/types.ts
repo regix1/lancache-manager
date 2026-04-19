@@ -24,6 +24,7 @@ export type NotificationType =
   | 'epic_game_mapping'
   | 'eviction_scan'
   | 'eviction_removal'
+  | 'bulk_removal'
   | 'generic';
 
 /**

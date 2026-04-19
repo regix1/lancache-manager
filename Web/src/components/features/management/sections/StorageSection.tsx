@@ -255,6 +255,39 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     [on, off]
   );
 
+  // Ref mirror of notifications so the Remove-All loop can check notification
+  // presence without capturing stale closures. When the user clicks cancel on
+  // the bulk_removal notification (no operationId → handleCancel just removes
+  // it), the loop detects the notification's disappearance and exits.
+  const notificationsRef = useRef(notifications);
+  useEffect(() => {
+    notificationsRef.current = notifications;
+  }, [notifications]);
+
+  // Cascade bulk cancel → current-item cancel. The bulk notification carries
+  // no operationId (so handleCancel just removes it), but the user reasonably
+  // expects cancelling the bulk to also abort the in-flight per-item op —
+  // otherwise they wait 30s-2min for the current item to finish naturally
+  // before the loop exits. We track the active bulk notification ID + the
+  // current per-item operationId; when the notification vanishes we fire a
+  // server-side cancel on the current op.
+  const bulkNotifIdRef = useRef<string | null>(null);
+  const currentItemOperationIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const activeId = bulkNotifIdRef.current;
+    if (!activeId) return;
+    const stillPresent = notifications.some((n) => n.id === activeId);
+    if (stillPresent) return;
+    bulkNotifIdRef.current = null;
+    const currentOp = currentItemOperationIdRef.current;
+    if (currentOp) {
+      currentItemOperationIdRef.current = null;
+      ApiService.cancelOperation(currentOp).catch(() => {
+        /* best-effort — current item may already be past the point of cancel */
+      });
+    }
+  }, [notifications]);
+
   const handleRemoveAllEvicted = useCallback(async () => {
     setShowRemoveAllConfirm(false);
     if (!isAdmin) return;
@@ -265,38 +298,109 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     if (total === 0) return;
 
     setRemoveAllRunning(true);
+    const notifId = addNotification({
+      type: 'bulk_removal',
+      status: 'running',
+      message: t('management.sections.data.evictionRemoveAllStarting', {
+        total,
+        defaultValue: 'Removing 0 of {{total}} evicted items...'
+      }),
+      progress: 0,
+      details: {} // No operationId → cancel button just removes this notification
+    });
+    bulkNotifIdRef.current = notifId;
+
+    const wasCancelled = () => !notificationsRef.current.find((n) => n.id === notifId);
+
     let completed = 0;
+    let cancelled = false;
 
     for (const service of services) {
+      if (wasCancelled()) {
+        cancelled = true;
+        break;
+      }
       completed += 1;
       setRemoveAllProgress({ current: completed, total, label: service.service_name });
+      updateNotification(notifId, {
+        message: t('management.sections.data.evictionRemoveAllProgress', {
+          current: completed,
+          total,
+          label: service.service_name
+        }),
+        progress: Math.floor(((completed - 1) / total) * 100)
+      });
       try {
         const { operationId } = await ApiService.removeEvictedForService(service.service_name);
+        currentItemOperationIdRef.current = operationId;
         await waitForEvictionRemovalComplete(operationId);
       } catch (err) {
         console.error('[RemoveAll] Service removal failed:', service.service_name, err);
+      } finally {
+        currentItemOperationIdRef.current = null;
       }
     }
 
-    for (const game of games) {
-      completed += 1;
-      const label = game.game_name ?? game.service ?? String(game.game_app_id);
-      setRemoveAllProgress({ current: completed, total, label });
-      try {
-        const isEpic = game.service === 'epicgames' && !!game.epic_app_id;
-        const { operationId } = isEpic
-          ? await ApiService.removeEvictedForEpicGame(game.epic_app_id!)
-          : await ApiService.removeEvictedForGame(game.game_app_id);
-        await waitForEvictionRemovalComplete(operationId);
-      } catch (err) {
-        console.error('[RemoveAll] Game removal failed:', game.game_app_id, err);
+    if (!cancelled) {
+      for (const game of games) {
+        if (wasCancelled()) {
+          cancelled = true;
+          break;
+        }
+        completed += 1;
+        const label = game.game_name ?? game.service ?? String(game.game_app_id);
+        setRemoveAllProgress({ current: completed, total, label });
+        updateNotification(notifId, {
+          message: t('management.sections.data.evictionRemoveAllProgress', {
+            current: completed,
+            total,
+            label
+          }),
+          progress: Math.floor(((completed - 1) / total) * 100)
+        });
+        try {
+          const isEpic = game.service === 'epicgames' && !!game.epic_app_id;
+          const { operationId } = isEpic
+            ? await ApiService.removeEvictedForEpicGame(game.epic_app_id!)
+            : await ApiService.removeEvictedForGame(game.game_app_id);
+          currentItemOperationIdRef.current = operationId;
+          await waitForEvictionRemovalComplete(operationId);
+        } catch (err) {
+          console.error('[RemoveAll] Game removal failed:', game.game_app_id, err);
+        } finally {
+          currentItemOperationIdRef.current = null;
+        }
       }
     }
 
     setRemoveAllRunning(false);
     setRemoveAllProgress(null);
+    bulkNotifIdRef.current = null;
+    currentItemOperationIdRef.current = null;
+
+    // Only finalize the notification if it still exists (user didn't cancel it).
+    if (notificationsRef.current.find((n) => n.id === notifId)) {
+      updateNotification(notifId, {
+        status: 'completed',
+        progress: 100,
+        message: t('management.sections.data.evictionRemoveAllComplete', {
+          count: completed,
+          defaultValue: 'Removed {{count}} evicted items'
+        })
+      });
+    }
+
     void fetchEvictedItems();
-  }, [evictedGames, evictedServices, isAdmin, waitForEvictionRemovalComplete, fetchEvictedItems]);
+  }, [
+    evictedGames,
+    evictedServices,
+    isAdmin,
+    waitForEvictionRemovalComplete,
+    fetchEvictedItems,
+    addNotification,
+    updateNotification,
+    t
+  ]);
 
   const confirmPartialEvictedRemoval = async () => {
     if (!partialEvictedTarget) return;
