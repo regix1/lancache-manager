@@ -375,12 +375,24 @@ fn remove_cache_files_for_game(
             }
         }
 
-        // Report granular progress during the removal phase (10% - 70%)
+        // Report granular progress during the removal phase (10% - 70%).
+        // Write on EITHER an integer-percent advance OR every 8th file probed,
+        // so small games still emit motion during the short window where the
+        // C# poller (500ms) and frontend SignalR can observe updates.
         if total_paths > 0 {
             let current_pct = (checked * 100) / total_paths;
             let prev_pct = last_reported_percent.load(Ordering::Relaxed);
-            if current_pct > prev_pct {
-                if last_reported_percent.compare_exchange(prev_pct, current_pct, Ordering::SeqCst, Ordering::Relaxed).is_ok() {
+            let advanced_percent = current_pct > prev_pct;
+            let every_n_files = checked & 0x7 == 0; // every 8 files
+            if advanced_percent || every_n_files {
+                let should_write = if advanced_percent {
+                    last_reported_percent
+                        .compare_exchange(prev_pct, current_pct, Ordering::SeqCst, Ordering::Relaxed)
+                        .is_ok()
+                } else {
+                    true
+                };
+                if should_write {
                     let overall_percent = 10.0 + (checked as f64 / total_paths as f64) * 60.0;
                     let del_count = deleted_files.load(Ordering::Relaxed);
                     let _ = bytes_freed.load(Ordering::Relaxed);

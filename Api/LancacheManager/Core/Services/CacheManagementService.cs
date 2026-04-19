@@ -977,7 +977,8 @@ public class CacheManagementService
                     {
                         while (!process.HasExited && !pollCts.Token.IsCancellationRequested)
                         {
-                            await Task.Delay(500, pollCts.Token).ConfigureAwait(false);
+                            // 250ms poll (was 500ms): fast single-entity removals produced 0%→100% jumps with no visible motion in between.
+                            await Task.Delay(250, pollCts.Token).ConfigureAwait(false);
 
                             try
                             {
@@ -1190,7 +1191,8 @@ public class CacheManagementService
                     {
                         while (!process.HasExited && !pollCts.Token.IsCancellationRequested)
                         {
-                            await Task.Delay(500, pollCts.Token).ConfigureAwait(false);
+                            // 250ms poll (was 500ms): fast single-entity removals produced 0%→100% jumps with no visible motion in between.
+                            await Task.Delay(250, pollCts.Token).ConfigureAwait(false);
 
                             try
                             {
@@ -1385,7 +1387,8 @@ public class CacheManagementService
                     {
                         while (!process.HasExited && !pollCts.Token.IsCancellationRequested)
                         {
-                            await Task.Delay(500, pollCts.Token).ConfigureAwait(false);
+                            // 250ms poll (was 500ms): fast single-entity removals produced 0%→100% jumps with no visible motion in between.
+                            await Task.Delay(250, pollCts.Token).ConfigureAwait(false);
 
                             try
                             {

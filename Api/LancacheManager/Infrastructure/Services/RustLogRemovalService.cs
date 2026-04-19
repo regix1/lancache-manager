@@ -310,7 +310,7 @@ public class RustLogRemovalService
                     // Start progress monitoring task using the datasource-specific progress file
                     using var dsMonitorCts = CancellationTokenSource.CreateLinkedTokenSource(_cancellationTokenSource.Token);
                     var progressTask = Task.Run(
-                        async () => await MonitorProgressAsync(dsProgressPath, service, dsMonitorCts.Token));
+                        async () => await MonitorProgressAsync(dsProgressPath, service, datasource.Name, dsMonitorCts.Token));
 
                     // Wait for process to complete with graceful cancellation handling
                     await _processManager.WaitForProcessAsync(_rustProcess, _cancellationTokenSource.Token);
@@ -600,7 +600,7 @@ public class RustLogRemovalService
                     Datasource = datasourceName
                 });
 
-                var progressTask = Task.Run(async () => await MonitorProgressAsync(progressPath, service, _cancellationTokenSource.Token));
+                var progressTask = Task.Run(async () => await MonitorProgressAsync(progressPath, service, datasourceName, _cancellationTokenSource.Token));
 
                 await _processManager.WaitForProcessAsync(_rustProcess, _cancellationTokenSource.Token);
 
@@ -704,22 +704,37 @@ public class RustLogRemovalService
         }
     }
 
-    private Task MonitorProgressAsync(string progressPath, string service, CancellationToken cancellationToken)
+    private Task MonitorProgressAsync(string progressPath, string service, string datasourceName, CancellationToken cancellationToken)
     {
         var monitor = new RustProgressMonitor<ProgressData>(_rustProcessHelper, _logger);
         return monitor.MonitorAsync(progressPath, async (ProgressData progress) =>
         {
+            // The Rust log_manager binary doesn't receive the datasource name (only the
+            // log directory + service), so its progress JSON context omits `datasourceName`.
+            // i18n templates like "signalr.logRemoval.processingDatasource" render `{{datasourceName}}`
+            // as an empty string when the context is missing the key, producing
+            // "Removing localhost entries from datasource ''..." in the UI.
+            // Enrich the context here so every forwarded progress event carries it.
+            var enrichedContext = progress.Context != null
+                ? new Dictionary<string, object?>(progress.Context)
+                : new Dictionary<string, object?>();
+            if (!enrichedContext.ContainsKey("datasourceName"))
+            {
+                enrichedContext["datasourceName"] = datasourceName;
+            }
+
             await _notifications.NotifyAllAsync(SignalREvents.LogRemovalProgress, new
             {
                 OperationId = _currentTrackerOperationId,
                 progress.PercentComplete,
                 Status = OperationStatus.Running,
                 StageKey = progress.StageKey,
-                Context = progress.Context,
+                Context = enrichedContext,
                 progress.FilesProcessed,
                 progress.LinesProcessed,
                 progress.LinesRemoved,
-                Service = service
+                Service = service,
+                Datasource = datasourceName
             });
         }, cancellationToken);
     }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CheckCircle, AlertCircle, X, User, UserX, Trash2, XCircle, Info, Key } from 'lucide-react';
 import ApiService from '@services/api.service';
@@ -58,9 +58,19 @@ const handleCancel = async (
   }
 
   const operationId = notification.details?.operationId;
+
+  // Race case: user clicked X before the Started SignalR event arrived with the opId.
+  // Flip cancelling=true for visual feedback and return. The component's watchdog
+  // effect will fire cancelOperation() as soon as opId appears on this notification.
+  // Do NOT silently remove the notification — that leaves the server op running
+  // while the UI disappears (the "lying X" bug).
   if (!operationId) {
-    console.error('[UniversalNotificationBar] No operationId for cancel');
-    removeNotification(notification.id);
+    console.warn(
+      '[UniversalNotificationBar] Cancel requested before operationId arrived; will retry when Started event lands.'
+    );
+    updateNotification(notification.id, {
+      details: { ...notification.details, cancelling: true }
+    });
     return;
   }
 
@@ -441,6 +451,41 @@ const UniversalNotificationBar: React.FC = () => {
   const [isAnimatingOut, setIsAnimatingOut] = useState(false);
   const [shouldRender, setShouldRender] = useState(false);
   const [dismissingIds, setDismissingIds] = useState<Set<string>>(new Set());
+
+  // Tracks notifications where a deferred cancel has already been fired, so the
+  // watchdog effect below never fires the same cancel twice when notifications
+  // re-render. Pruned as notifications disappear.
+  const deferredCancelFiredRef = useRef<Set<string>>(new Set());
+
+  // Deferred-cancel watchdog: if a notification has cancelling=true but had no
+  // operationId at click-time (race with the Started SignalR event), fire
+  // cancelOperation() as soon as the opId materialises. This makes the X
+  // button work even when clicked in the ~second between POST-Accepted and
+  // the Started event arriving over SignalR.
+  useEffect(() => {
+    notifications.forEach((n) => {
+      const opId = n.details?.operationId;
+      if (
+        n.status === 'running' &&
+        n.type !== 'bulk_removal' &&
+        n.details?.cancelling &&
+        opId &&
+        !deferredCancelFiredRef.current.has(n.id)
+      ) {
+        deferredCancelFiredRef.current.add(n.id);
+        ApiService.cancelOperation(opId).catch((err) => {
+          console.error('[UniversalNotificationBar] Deferred cancel failed:', err);
+        });
+      }
+    });
+
+    // Prune entries whose notifications are no longer in the list so the set
+    // doesn't leak across long sessions.
+    const currentIds = new Set(notifications.map((n) => n.id));
+    deferredCancelFiredRef.current.forEach((id) => {
+      if (!currentIds.has(id)) deferredCancelFiredRef.current.delete(id);
+    });
+  }, [notifications]);
 
   // Listen for sticky notifications setting changes
   useEffect(() => {
