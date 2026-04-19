@@ -193,7 +193,9 @@ const LogRemovalManager: React.FC<LogRemovalManagerProps> = ({ authMode, mockMod
 
     try {
       const result = await ApiService.removeServiceFromDatasourceLogs(datasourceName, serviceName);
-      if (result && result.status === 'started') {
+      // Backend returns `OperationStatus.Running` (serialized as `"running"`) on 202 Accepted.
+      // The prior `'started'` check was stale — OperationStatus never had a `Started` variant.
+      if (result && result.status === 'running') {
         // SignalR will handle progress; clearOnNotification (in notifications useEffect) will clear pending
       } else {
         onError?.(t('management.logRemoval.errors.unexpectedResponse', { service: serviceName }));
