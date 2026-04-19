@@ -326,7 +326,9 @@ public class DatabaseService : IDatabaseService
                                     percentComplete = progressPercent,
                                     status = "deleting",
                                     stageKey = "signalr.dbReset.clearingLogEntries",
-                                    context = new Dictionary<string, object?> { ["deleted"] = logEntriesDeleted, ["total"] = logEntriesTotal, ["percent"] = percentDone },
+                                    // Round to 1 decimal so the i18n template `{{percent}}%` renders "10.4"
+                                    // instead of the raw double's full precision ("10.355371590128088").
+                                    context = new Dictionary<string, object?> { ["deleted"] = logEntriesDeleted, ["total"] = logEntriesTotal, ["percent"] = Math.Round(percentDone, 1) },
                                     timestamp = DateTime.UtcNow
                                 });
 
