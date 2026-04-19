@@ -487,7 +487,12 @@ public abstract partial class PrefillDaemonServiceBase
     private async Task BroadcastPrefillHistoryUpdatedAsync(string sessionId, string appId, string status)
     {
         var historyEvent = new { sessionId, appId, status };
-        await NotifyAllDownloadsAndServiceHubAsync(EventPrefillHistoryUpdated, historyEvent);
+        // Narrowed from NotifyAllDownloadsAndServiceHubAsync → NotifyAllAsync (downloads hub only).
+        // Only the admin Prefill Sessions page (which subscribes via the default downloads hub)
+        // consumes this event. The session-owner clients connected to the service-specific daemon
+        // hub (/hubs/steam-daemon, /hubs/epic-prefill-daemon) have no handler registered for it
+        // and were logging `No client method with the name 'prefillhistoryupdated' found` on every fire.
+        await _notifications.NotifyAllAsync(EventPrefillHistoryUpdated, historyEvent);
     }
 
     private async Task NotifySessionEndedAsync(DaemonSession session, string reason)
