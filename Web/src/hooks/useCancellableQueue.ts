@@ -118,7 +118,7 @@ interface UseCancellableQueueResult<TItem> {
 export function useCancellableQueue<TItem>(
   options?: UseCancellableQueueOptions<TItem>
 ): UseCancellableQueueResult<TItem> {
-  const { notifications, updateNotification } = useNotifications();
+  const { notifications, updateNotification, scheduleAutoDismiss } = useNotifications();
   const onCancel = options?.onCancel;
   const onSettled = options?.onSettled;
 
@@ -265,6 +265,13 @@ export function useCancellableQueue<TItem>(
       // Finalize hook — callers transition the notification to its terminal
       // state here (see CancellableQueueFinalizeArgs docs).
       finalize({ id: notifId, succeeded, failed, cancelled, total });
+
+      // Registry-driven notifications get auto-dismiss scheduled by their
+      // handler factory when they transition to a terminal state. The
+      // bulk_removal notification this hook manages is NOT registry-driven,
+      // so we must schedule auto-dismiss ourselves — otherwise the "Bulk
+      // removal cancelled/completed" toast lingers indefinitely.
+      scheduleAutoDismiss(notifId);
 
       bulkNotifIdRef.current = null;
       abortControllerRef.current = null;

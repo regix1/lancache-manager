@@ -93,7 +93,11 @@ public sealed class GeoIpService
             {
                 _logger.LogDebug("GeoIP lookup for {Ip} reported failure: {Message}", parsed, payload?.Message);
                 // Cache negative result briefly to avoid hammering on obviously bad IPs.
-                _cache.Set(cacheKey, (GeoIpLookup?)null, TimeSpan.FromMinutes(15));
+                // SizeLimit is set on IMemoryCache (Program.cs); every Set must declare Size.
+                var negativeOptions = new MemoryCacheEntryOptions()
+                    .SetAbsoluteExpiration(TimeSpan.FromMinutes(15))
+                    .SetSize(64);
+                _cache.Set(cacheKey, (GeoIpLookup?)null, negativeOptions);
                 return null;
             }
 
@@ -105,7 +109,11 @@ public sealed class GeoIpService
                 Timezone: payload.Timezone,
                 IspName: payload.Isp);
 
-            _cache.Set(cacheKey, result, _cacheTtl);
+            // GeoIpLookup record is 6 strings (~200 bytes typical). SizeLimit is on IMemoryCache; Size required.
+            var entryOptions = new MemoryCacheEntryOptions()
+                .SetAbsoluteExpiration(_cacheTtl)
+                .SetSize(256);
+            _cache.Set(cacheKey, result, entryOptions);
             return result;
         }
         catch (OperationCanceledException)

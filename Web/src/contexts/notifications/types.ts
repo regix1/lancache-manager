@@ -165,6 +165,14 @@ export interface NotificationsContextType {
    * Returns the type of removal currently running, or null if none.
    */
   activeRemovalType: NotificationType | null;
+  /**
+   * Schedules a notification to auto-dismiss after the configured delay.
+   * Respects the user's "Keep Notifications Visible" preference (no-op when enabled).
+   * Used by caller-managed notifications (e.g. useCancellableQueue's bulk_removal)
+   * that don't go through a registry handler and therefore don't get auto-dismiss
+   * scheduled for them automatically.
+   */
+  scheduleAutoDismiss: (notificationId: string, delayMs?: number) => void;
 }
 
 // ============================================================================

@@ -436,7 +436,8 @@ export const NotificationsProvider: React.FC<NotificationsProviderProps> = ({ ch
     removeNotification,
     clearCompletedNotifications,
     isAnyRemovalRunning,
-    activeRemovalType
+    activeRemovalType,
+    scheduleAutoDismiss
   };
 
   return <NotificationsContext.Provider value={value}>{children}</NotificationsContext.Provider>;

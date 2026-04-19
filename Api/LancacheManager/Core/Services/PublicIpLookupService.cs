@@ -59,7 +59,14 @@ public sealed class PublicIpLookupService
             var ip = await TryProviderAsync(url, isJson, ct);
             if (!string.IsNullOrEmpty(ip))
             {
-                _cache.Set(CacheKey, ip, _cacheTtl);
+                // Global IMemoryCache has SizeLimit configured (Program.cs), so
+                // every Set must declare Size — otherwise Microsoft.Extensions.Caching
+                // throws "Cache entry must specify a value for Size when SizeLimit is set".
+                // An IP string is tiny; 64 bytes covers IPv4 + IPv6 with headroom.
+                var entryOptions = new MemoryCacheEntryOptions()
+                    .SetAbsoluteExpiration(_cacheTtl)
+                    .SetSize(64);
+                _cache.Set(CacheKey, ip, entryOptions);
                 return ip;
             }
         }
