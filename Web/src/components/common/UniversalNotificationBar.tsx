@@ -45,6 +45,18 @@ const handleCancel = async (
   updateNotification: (id: string, updates: Partial<UnifiedNotification>) => void,
   removeNotification: (id: string) => void
 ) => {
+  // Client-driven bulk notifications (bulk_removal) are not tied to a single
+  // server operation — the initiating component orchestrates a loop of per-
+  // item operations. Signal the loop by flipping cancelling=true and let it
+  // transition the notification to the proper cancelled end-state (status
+  // completed + details.cancelled = true) with a meaningful message.
+  if (notification.type === 'bulk_removal') {
+    updateNotification(notification.id, {
+      details: { ...notification.details, cancelling: true }
+    });
+    return;
+  }
+
   const operationId = notification.details?.operationId;
   if (!operationId) {
     console.error('[UniversalNotificationBar] No operationId for cancel');

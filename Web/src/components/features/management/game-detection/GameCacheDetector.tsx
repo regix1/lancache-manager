@@ -776,20 +776,22 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     notificationsRef.current = notifications;
   }, [notifications]);
 
-  // Cascade bulk cancel → current-item cancel. `removeGameFromCache` /
-  // `removeServiceFromCache` don't return operationId, so we capture it from
-  // the matching GameRemovalStarted / ServiceRemovalStarted SignalR event.
-  // When the bulk notification is removed (user clicked ✕), we fire a server-
-  // side cancel on the captured operationId so the current item aborts
-  // immediately instead of running to completion.
+  // Cascade bulk cancel → current-item cancel. The direct remove APIs don't
+  // return operationId (202 Accepted with { message, gameAppId }), so the
+  // wait helpers below capture it from the matching *Started SignalR event.
+  // When handleCancel flips details.cancelling on the bulk notification (or
+  // removes it outright), this effect sets cancelRequestedRef to signal the
+  // handler loop and fires a server-side cancel on the in-flight item.
   const bulkNotifIdRef = useRef<string | null>(null);
   const currentItemOperationIdRef = useRef<string | null>(null);
+  const cancelRequestedRef = useRef<boolean>(false);
   useEffect(() => {
     const activeId = bulkNotifIdRef.current;
     if (!activeId) return;
-    const stillPresent = notifications.some((n) => n.id === activeId);
-    if (stillPresent) return;
-    bulkNotifIdRef.current = null;
+    const notif = notifications.find((n) => n.id === activeId);
+    const cancelled = !notif || notif.details?.cancelling === true;
+    if (!cancelled || cancelRequestedRef.current) return;
+    cancelRequestedRef.current = true;
     const currentOp = currentItemOperationIdRef.current;
     if (currentOp) {
       currentItemOperationIdRef.current = null;
@@ -809,6 +811,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     if (total === 0) return;
 
     setRemoveAllRunning(true);
+    cancelRequestedRef.current = false;
     const notifId = addNotification({
       type: 'bulk_removal',
       status: 'running',
@@ -817,11 +820,13 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         defaultValue: 'Removing 0 of {{total}} cached items...'
       }),
       progress: 0,
-      details: {} // No operationId → cancel button just removes this notification
+      details: {} // No operationId → handleCancel special-cases bulk_removal
     });
     bulkNotifIdRef.current = notifId;
 
-    const wasCancelled = () => !notificationsRef.current.find((n) => n.id === notifId);
+    // Use the cascade effect's ref as the source of truth — notificationsRef
+    // is stale within the same synchronous tick that called addNotification().
+    const wasCancelled = () => cancelRequestedRef.current;
 
     let completed = 0;
     let cancelled = false;
@@ -884,16 +889,28 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     setRemoveAllProgress(null);
     bulkNotifIdRef.current = null;
     currentItemOperationIdRef.current = null;
+    cancelRequestedRef.current = false;
 
     if (notificationsRef.current.find((n) => n.id === notifId)) {
-      updateNotification(notifId, {
-        status: 'completed',
-        progress: 100,
-        message: t('management.sections.data.gameCacheRemoveAllComplete', {
-          count: completed,
-          defaultValue: 'Removed {{count}} cached items'
-        })
-      });
+      if (cancelled) {
+        updateNotification(notifId, {
+          status: 'completed',
+          message: t('management.sections.data.gameCacheRemoveAllCancelled', {
+            count: completed,
+            defaultValue: 'Bulk removal cancelled after {{count}} items'
+          }),
+          details: { cancelled: true, cancelling: false }
+        });
+      } else {
+        updateNotification(notifId, {
+          status: 'completed',
+          progress: 100,
+          message: t('management.sections.data.gameCacheRemoveAllComplete', {
+            count: completed,
+            defaultValue: 'Removed {{count}} cached items'
+          })
+        });
+      }
     }
 
     onDataRefresh?.();

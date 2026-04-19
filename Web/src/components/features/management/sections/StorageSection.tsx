@@ -264,21 +264,26 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     notificationsRef.current = notifications;
   }, [notifications]);
 
-  // Cascade bulk cancel → current-item cancel. The bulk notification carries
-  // no operationId (so handleCancel just removes it), but the user reasonably
-  // expects cancelling the bulk to also abort the in-flight per-item op —
-  // otherwise they wait 30s-2min for the current item to finish naturally
-  // before the loop exits. We track the active bulk notification ID + the
-  // current per-item operationId; when the notification vanishes we fire a
-  // server-side cancel on the current op.
+  // Cascade bulk cancel → current-item cancel. Flow:
+  //   • `handleCancel` in UniversalNotificationBar flips
+  //     `details.cancelling = true` on bulk_removal (instead of removing)
+  //     so this component can transition to a visible "Cancelled" end-state.
+  //   • This effect watches for that flag (or a total removal) and:
+  //       1. sets `cancelRequestedRef.current = true` so the handler loop
+  //          exits at the next iteration boundary, and
+  //       2. fires `ApiService.cancelOperation` on the current in-flight
+  //          per-item op so it aborts immediately rather than running for
+  //          another 30s–2min to natural completion.
   const bulkNotifIdRef = useRef<string | null>(null);
   const currentItemOperationIdRef = useRef<string | null>(null);
+  const cancelRequestedRef = useRef<boolean>(false);
   useEffect(() => {
     const activeId = bulkNotifIdRef.current;
     if (!activeId) return;
-    const stillPresent = notifications.some((n) => n.id === activeId);
-    if (stillPresent) return;
-    bulkNotifIdRef.current = null;
+    const notif = notifications.find((n) => n.id === activeId);
+    const cancelled = !notif || notif.details?.cancelling === true;
+    if (!cancelled || cancelRequestedRef.current) return;
+    cancelRequestedRef.current = true;
     const currentOp = currentItemOperationIdRef.current;
     if (currentOp) {
       currentItemOperationIdRef.current = null;
@@ -298,6 +303,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     if (total === 0) return;
 
     setRemoveAllRunning(true);
+    cancelRequestedRef.current = false;
     const notifId = addNotification({
       type: 'bulk_removal',
       status: 'running',
@@ -306,11 +312,14 @@ const StorageSection: React.FC<StorageSectionProps> = ({
         defaultValue: 'Removing 0 of {{total}} evicted items...'
       }),
       progress: 0,
-      details: {} // No operationId → cancel button just removes this notification
+      details: {} // No operationId → handleCancel special-cases bulk_removal (sets cancelling=true)
     });
     bulkNotifIdRef.current = notifId;
 
-    const wasCancelled = () => !notificationsRef.current.find((n) => n.id === notifId);
+    // Use the cascade effect's ref as the source of truth — never read
+    // notificationsRef directly because it's stale within the same
+    // synchronous tick that called addNotification().
+    const wasCancelled = () => cancelRequestedRef.current;
 
     let completed = 0;
     let cancelled = false;
@@ -377,17 +386,32 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     setRemoveAllProgress(null);
     bulkNotifIdRef.current = null;
     currentItemOperationIdRef.current = null;
+    cancelRequestedRef.current = false;
 
-    // Only finalize the notification if it still exists (user didn't cancel it).
+    // Finalize: if the notification still exists, transition it to a terminal
+    // state. For the cancel case we set details.cancelled so UniversalNotification
+    // Bar renders the red XCircle icon and auto-dismisses via the existing
+    // CANCELLED_NOTIFICATION_DELAY_MS path.
     if (notificationsRef.current.find((n) => n.id === notifId)) {
-      updateNotification(notifId, {
-        status: 'completed',
-        progress: 100,
-        message: t('management.sections.data.evictionRemoveAllComplete', {
-          count: completed,
-          defaultValue: 'Removed {{count}} evicted items'
-        })
-      });
+      if (cancelled) {
+        updateNotification(notifId, {
+          status: 'completed',
+          message: t('management.sections.data.evictionRemoveAllCancelled', {
+            count: completed,
+            defaultValue: 'Bulk removal cancelled after {{count}} items'
+          }),
+          details: { cancelled: true, cancelling: false }
+        });
+      } else {
+        updateNotification(notifId, {
+          status: 'completed',
+          progress: 100,
+          message: t('management.sections.data.evictionRemoveAllComplete', {
+            count: completed,
+            defaultValue: 'Removed {{count}} evicted items'
+          })
+        });
+      }
     }
 
     void fetchEvictedItems();
