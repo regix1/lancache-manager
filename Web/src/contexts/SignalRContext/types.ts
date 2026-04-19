@@ -297,7 +297,6 @@ export interface GameRemovalStartedEvent {
 export interface GameRemovalProgressEvent {
   operationId: string;
   percentComplete: number;
-  status: OperationStatus;
   gameAppId: number;
   gameName: string;
   stageKey?: string;
@@ -336,7 +335,6 @@ export interface ServiceRemovalStartedEvent {
 export interface ServiceRemovalProgressEvent {
   operationId: string;
   percentComplete: number;
-  status: OperationStatus;
   serviceName: string;
   stageKey: string;
   context?: Record<string, string | number | boolean>;

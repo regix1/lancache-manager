@@ -36,7 +36,6 @@ public static class SignalRNotifications
         Guid OperationId,
         long GameAppId,
         string GameName,
-        string Status,
         string StageKey,
         double PercentComplete = 0,
         int? FilesDeleted = null,
@@ -76,7 +75,6 @@ public static class SignalRNotifications
     public record ServiceRemovalProgress(
         string ServiceName,
         Guid OperationId,
-        string Status,
         string StageKey,
         double PercentComplete = 0,
         int? FilesDeleted = null,

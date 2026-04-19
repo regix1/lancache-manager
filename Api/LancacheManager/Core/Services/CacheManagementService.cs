@@ -790,6 +790,17 @@ public class CacheManagementService
         [System.Text.Json.Serialization.JsonPropertyName("message")]
         public string Message { get; set; } = string.Empty;
 
+        // Rust writes `stageKey` (i18n translation key) and `context` (a JSON object of
+        // substitution vars) on every progress tick. Frontend registry uses these to
+        // render per-phase labels. Before these properties existed the values were
+        // silently dropped during deserialization and the frontend fell through to a
+        // single generic default message for the whole removal.
+        [System.Text.Json.Serialization.JsonPropertyName("stageKey")]
+        public string StageKey { get; set; } = string.Empty;
+
+        [System.Text.Json.Serialization.JsonPropertyName("context")]
+        public Dictionary<string, object?>? Context { get; set; }
+
         [System.Text.Json.Serialization.JsonPropertyName("percentComplete")]
         public double PercentComplete { get; set; }
 
@@ -808,6 +819,13 @@ public class CacheManagementService
 
         [System.Text.Json.Serialization.JsonPropertyName("message")]
         public string Message { get; set; } = string.Empty;
+
+        // See GameRemovalProgressData — same stageKey/context passthrough for service removals.
+        [System.Text.Json.Serialization.JsonPropertyName("stageKey")]
+        public string StageKey { get; set; } = string.Empty;
+
+        [System.Text.Json.Serialization.JsonPropertyName("context")]
+        public Dictionary<string, object?>? Context { get; set; }
 
         [System.Text.Json.Serialization.JsonPropertyName("percentComplete")]
         public double PercentComplete { get; set; }
@@ -865,7 +883,7 @@ public class CacheManagementService
     /// <summary>
     /// Remove all cache files for a specific game across all datasources
     /// </summary>
-    public async Task<GameCacheRemovalReport> RemoveGameFromCacheAsync(long gameAppId, CancellationToken cancellationToken = default, Func<double, string, int, long, Task>? onProgress = null)
+    public async Task<GameCacheRemovalReport> RemoveGameFromCacheAsync(long gameAppId, CancellationToken cancellationToken = default, Func<double, string, Dictionary<string, object?>?, int, long, Task>? onProgress = null)
     {
         await _cacheLock.WaitAsync();
         try
@@ -986,7 +1004,7 @@ public class CacheManagementService
                                 if (progressData != null && onProgress != null)
                                 {
                                     double scaledProgress = (datasourceIndex * 100.0 / totalDatasources) + (progressData.PercentComplete / totalDatasources);
-                                    await onProgress(scaledProgress, progressData.Message, progressData.FilesProcessed, 0);
+                                    await onProgress(scaledProgress, progressData.StageKey, progressData.Context, progressData.FilesProcessed, 0);
                                 }
                             }
                             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -1040,7 +1058,10 @@ public class CacheManagementService
                     if (onProgress != null)
                     {
                         double scaledProgress = ((datasourceIndex + 1) * 100.0 / totalDatasources);
-                        await onProgress(scaledProgress, "Complete", dsReport.CacheFilesDeleted, (long)dsReport.TotalBytesFreed);
+                        // Synthetic per-datasource completion tick; Rust has already written its own
+                        // "completed" progress entry. Pass an empty stageKey so the frontend falls
+                        // through to the registry's default completed message.
+                        await onProgress(scaledProgress, string.Empty, null, dsReport.CacheFilesDeleted, (long)dsReport.TotalBytesFreed);
                     }
 
                     // Aggregate results from this datasource
@@ -1105,7 +1126,7 @@ public class CacheManagementService
     /// 2. Removes matching lines from access log text files
     /// 3. Deletes LogEntry and Download records from the database
     /// </summary>
-    public async Task<GameCacheRemovalReport> RemoveEpicGameFromCacheAsync(string gameName, CancellationToken cancellationToken = default, Func<double, string, int, long, Task>? onProgress = null)
+    public async Task<GameCacheRemovalReport> RemoveEpicGameFromCacheAsync(string gameName, CancellationToken cancellationToken = default, Func<double, string, Dictionary<string, object?>?, int, long, Task>? onProgress = null)
     {
         // Sanitize user-provided game name to prevent process argument injection
         gameName = RustProcessHelper.SanitizeProcessArgument(gameName);
@@ -1200,7 +1221,7 @@ public class CacheManagementService
                                 if (progressData != null && onProgress != null)
                                 {
                                     double scaledProgress = (datasourceIndex * 100.0 / totalDatasources) + (progressData.PercentComplete / totalDatasources);
-                                    await onProgress(scaledProgress, progressData.Message, progressData.FilesProcessed, 0);
+                                    await onProgress(scaledProgress, progressData.StageKey, progressData.Context, progressData.FilesProcessed, 0);
                                 }
                             }
                             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -1249,7 +1270,8 @@ public class CacheManagementService
                     if (onProgress != null)
                     {
                         double scaledProgress = ((datasourceIndex + 1) * 100.0 / totalDatasources);
-                        await onProgress(scaledProgress, "Complete", dsReport.CacheFilesDeleted, (long)dsReport.TotalBytesFreed);
+                        // Synthetic per-datasource completion tick; empty stageKey → registry default.
+                        await onProgress(scaledProgress, string.Empty, null, dsReport.CacheFilesDeleted, (long)dsReport.TotalBytesFreed);
                     }
 
                     // Aggregate results
@@ -1293,7 +1315,7 @@ public class CacheManagementService
     /// <summary>
     /// Remove all cache files for a specific service across all datasources
     /// </summary>
-    public async Task<ServiceCacheRemovalReport> RemoveServiceFromCacheAsync(string serviceName, CancellationToken cancellationToken = default, Func<double, string, int, long, Task>? onProgress = null)
+    public async Task<ServiceCacheRemovalReport> RemoveServiceFromCacheAsync(string serviceName, CancellationToken cancellationToken = default, Func<double, string, Dictionary<string, object?>?, int, long, Task>? onProgress = null)
     {
         // Sanitize user-provided service name to prevent process argument injection
         serviceName = RustProcessHelper.SanitizeProcessArgument(serviceName);
@@ -1395,7 +1417,7 @@ public class CacheManagementService
                                 var progressData = await _rustProcessHelper.ReadProgressFileAsync<ServiceRemovalProgressData>(progressPath);
                                 if (progressData != null && onProgress != null)
                                 {
-                                    await onProgress(progressData.PercentComplete, progressData.Message, progressData.FilesProcessed, 0);
+                                    await onProgress(progressData.PercentComplete, progressData.StageKey, progressData.Context, progressData.FilesProcessed, 0);
                                 }
                             }
                             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -1452,7 +1474,8 @@ public class CacheManagementService
                     // Send final progress update from the report
                     if (onProgress != null)
                     {
-                        await onProgress(100, "Complete", dsReport.CacheFilesDeleted, (long)dsReport.TotalBytesFreed);
+                        // Synthetic completion tick after Rust exits; empty stageKey → registry default.
+                        await onProgress(100, string.Empty, null, dsReport.CacheFilesDeleted, (long)dsReport.TotalBytesFreed);
                     }
 
                     // Aggregate results from this datasource

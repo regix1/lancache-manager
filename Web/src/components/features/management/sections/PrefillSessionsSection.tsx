@@ -34,6 +34,7 @@ import ApiService, {
   type BannedSteamUserDto,
   type PrefillHistoryEntryDto
 } from '@services/api.service';
+import type { PrefillSessionStatus } from '@/types/operations';
 import { getErrorMessage } from '@utils/error';
 import { formatBytes } from '@utils/formatters';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
@@ -655,7 +656,7 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
   const [page, setPage] = useState(1);
   const [pageSize] = useState(20);
   const [totalCount, setTotalCount] = useState(0);
-  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<PrefillSessionStatus | ''>('');
   const [platformFilter, setPlatformFilter] = useState<string>('all');
 
   // Bans state
@@ -1077,7 +1078,9 @@ const PrefillSessionsSection: React.FC<PrefillSessionsSectionProps> = ({
               }
               value={statusFilter}
               onChange={(value: string) => {
-                setStatusFilter(value);
+                // Dropdown values are fixed to '' | 'Active' | 'Terminated' | 'Orphaned' | 'Cleaned'
+                // (see options above) — narrow to PrefillSessionStatus for the typed state setter.
+                setStatusFilter(value as PrefillSessionStatus | '');
                 setPage(1);
               }}
               placeholder={t('management.prefillSessions.statusFilters.all')}

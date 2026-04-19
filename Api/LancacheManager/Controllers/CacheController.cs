@@ -311,7 +311,7 @@ public class CacheController : ControllerBase
     public async Task<IActionResult> StartCorruptionDetectionAsync([FromQuery] int threshold = 3, [FromQuery] bool compareToCacheLogs = true, [FromQuery] string detectionMode = "miss_count")
     {
         var operationId = await _corruptionDetectionService.StartDetectionAsync(threshold, compareToCacheLogs, detectionMode);
-        return Accepted(new { operationId, message = "Corruption detection started", status = "running" });
+        return Accepted(new { operationId, message = "Corruption detection started", status = OperationStatus.Running });
     }
 
     /// <summary>
@@ -969,20 +969,21 @@ public class CacheController : ControllerBase
 
                 // Send starting notification
                 await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalProgress,
-                    new ServiceRemovalProgress(name, operationId, "starting",
+                    new ServiceRemovalProgress(name, operationId,
                         "signalr.serviceRemove.starting.byName", 0,
                         Context: new Dictionary<string, object?> { ["name"] = name }));
                 _operationTracker.UpdateProgress(operationId, 0, "signalr.serviceRemove.starting.byName");
 
                 cancellationToken.ThrowIfCancellationRequested();
 
-                // Call with progress callback that sends live SignalR updates
+                // Call with progress callback that sends live SignalR updates.
+                // stageKey + context flow through from Rust progress JSON → frontend i18n.
                 var report = await _cacheService.RemoveServiceFromCacheAsync(name, cancellationToken,
-                    async (double percentComplete, string message, int filesDeleted, long bytesFreed) =>
+                    async (double percentComplete, string stageKey, Dictionary<string, object?>? context, int filesDeleted, long bytesFreed) =>
                     {
                         await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalProgress,
-                            new ServiceRemovalProgress(name, operationId, "removing_cache", message, percentComplete,
-                                filesDeleted > 0 ? filesDeleted : null, bytesFreed > 0 ? bytesFreed : null));
+                            new ServiceRemovalProgress(name, operationId, stageKey, percentComplete,
+                                filesDeleted > 0 ? filesDeleted : null, bytesFreed > 0 ? bytesFreed : null, context));
                         _operationTracker.UpdateProgress(operationId, percentComplete, "signalr.serviceRemove.starting.byName");
                         _operationTracker.UpdateMetadata(operationId, (object meta) =>
                         {
@@ -996,7 +997,7 @@ public class CacheController : ControllerBase
 
                 // Send finalizing progress update
                 await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalProgress,
-                    new ServiceRemovalProgress(name, operationId, "complete", "signalr.serviceRemove.finalizing", 100.0, report.CacheFilesDeleted, (long)report.TotalBytesFreed));
+                    new ServiceRemovalProgress(name, operationId, "signalr.serviceRemove.finalizing", 100.0, report.CacheFilesDeleted, (long)report.TotalBytesFreed));
                 _operationTracker.UpdateProgress(operationId, 100.0, "signalr.serviceRemove.finalizing");
                 _operationTracker.UpdateMetadata(operationId, (object meta) =>
                 {
@@ -1031,7 +1032,7 @@ public class CacheController : ControllerBase
                 _logger.LogError(ex, "Error during service removal for: {Service}", name);
 
                 await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalProgress,
-                    new ServiceRemovalProgress(name, operationId, "error",
+                    new ServiceRemovalProgress(name, operationId,
                         "signalr.serviceRemove.error.default", 0,
                         Context: new Dictionary<string, object?> { ["name"] = name, ["errorDetail"] = ex.Message }));
 

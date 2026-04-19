@@ -30,7 +30,12 @@ public class DatabaseService : IDatabaseService
         public bool IsProcessing { get; set; }
         public double PercentComplete { get; set; }
         public string Message { get; set; } = "";
-        public string Status { get; set; } = "idle";
+        /// <summary>
+        /// Lifecycle status of the current reset. `null` replaces the previous `"idle"`
+        /// sentinel — no in-flight reset. Otherwise uses the canonical <see cref="OperationStatus"/>
+        /// values (lowercased on the wire via <see cref="OperationStatusJsonConverter"/>).
+        /// </summary>
+        public OperationStatus? Status { get; set; }
     }
 
     public static ResetProgressInfo CurrentResetProgress => _currentResetProgress;
@@ -96,7 +101,8 @@ public class DatabaseService : IDatabaseService
                 IsProcessing = true,
                 PercentComplete = 0,
                 Message = $"Starting reset of {tableNames.Count} table(s)...",
-                Status = "starting"
+                // Pre-run: the op is registered and about to execute. Pending covers this better than Running.
+                Status = OperationStatus.Pending
             };
 
             // Send started event via SignalR
@@ -153,7 +159,7 @@ public class DatabaseService : IDatabaseService
                     operationId,
                     isProcessing = false,
                     percentComplete = 0.0,
-                    status = "failed",
+                    status = OperationStatus.Failed,
                     stageKey = "signalr.dbReset.noTablesSelected",
                     context = new Dictionary<string, object?>(),
                     timestamp = DateTime.UtcNow
@@ -309,7 +315,8 @@ public class DatabaseService : IDatabaseService
                                     IsProcessing = true,
                                     PercentComplete = progressPercent,
                                     Message = progressMessage,
-                                    Status = "deleting"
+                                    // Phase-specific detail lives in Message; Status carries the canonical lifecycle value.
+                                    Status = OperationStatus.Running
                                 };
 
                                 await _notifications.NotifyAllAsync(SignalREvents.DatabaseResetProgress, new
@@ -817,7 +824,7 @@ public class DatabaseService : IDatabaseService
                     operationId,
                     isProcessing = false,
                     percentComplete = 100.0,
-                    status = "completed",
+                    status = OperationStatus.Completed,
                     message = $"Successfully cleared {tablesToClear.Count} table(s): {string.Join(", ", tablesToClear)}",
                     timestamp = DateTime.UtcNow
                 });
@@ -860,7 +867,7 @@ public class DatabaseService : IDatabaseService
                 operationId,
                 isProcessing = false,
                 percentComplete = 0.0,
-                status = "cancelled",
+                status = OperationStatus.Cancelled,
                 message = "Database reset was cancelled by user",
                 timestamp = DateTime.UtcNow
             });
@@ -876,7 +883,7 @@ public class DatabaseService : IDatabaseService
                 operationId,
                 isProcessing = false,
                 percentComplete = 0.0,
-                status = "failed",
+                status = OperationStatus.Failed,
                 message = $"Database reset failed: {ex.Message}",
                 timestamp = DateTime.UtcNow
             });
@@ -895,7 +902,7 @@ public class DatabaseService : IDatabaseService
                 IsProcessing = false,
                 PercentComplete = wasCancelled ? 0 : 100,
                 Message = wasCancelled ? "Database reset was cancelled" : "Database reset completed",
-                Status = wasCancelled ? "cancelled" : "completed"
+                Status = wasCancelled ? OperationStatus.Cancelled : OperationStatus.Completed
             };
 
             _logger.LogInformation("Reset operation {OperationId} {Outcome}", operationId, wasCancelled ? "cancelled" : "completed");

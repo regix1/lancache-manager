@@ -23,15 +23,14 @@ public class SelectedTablesResetResponse
 
 /// <summary>
 /// Response for database reset status.
-/// <see cref="Status"/> stays <c>string</c> because this DTO is populated from
-/// <c>DatabaseService.ResetProgressInfo</c>, which uses an open-ended set of
-/// legacy values (e.g. <c>"idle"</c>, <c>"starting"</c>) that do not map 1:1
-/// onto <see cref="OperationStatus"/>.
+/// <see cref="Status"/> is the canonical <see cref="OperationStatus"/> — <c>null</c>
+/// means no reset is in flight (the previous <c>"idle"</c> sentinel). Granular per-phase
+/// detail is carried by <see cref="Message"/> rather than bespoke status strings.
 /// </summary>
 public class DatabaseResetStatusResponse
 {
     public bool IsProcessing { get; set; }
-    public string? Status { get; set; }
+    public OperationStatus? Status { get; set; }
     public string? Message { get; set; }
     public int? PercentComplete { get; set; }
 }

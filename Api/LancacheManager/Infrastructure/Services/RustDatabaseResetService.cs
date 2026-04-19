@@ -292,7 +292,7 @@ public class RustDatabaseResetService
                         OperationId = _currentTrackerOperationId,
                         isProcessing = false,
                         percentComplete = 0.0,
-                        status = "failed",
+                        status = OperationStatus.Failed,
                         StageKey = "signalr.dbReset.failedExitCode",
                         Context = new Dictionary<string, object?> { ["exitCode"] = exitCode },
                         timestamp = DateTime.UtcNow
@@ -335,7 +335,7 @@ public class RustDatabaseResetService
                 OperationId = _currentTrackerOperationId,
                 isProcessing = false,
                 percentComplete = 0.0,
-                status = "failed",
+                status = OperationStatus.Failed,
                 StageKey = "signalr.dbReset.failed",
                 Context = new Dictionary<string, object?> { ["errorDetail"] = ex.Message },
                 timestamp = DateTime.UtcNow

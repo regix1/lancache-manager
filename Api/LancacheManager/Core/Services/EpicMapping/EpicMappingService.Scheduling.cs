@@ -119,7 +119,7 @@ public partial class EpicMappingService
                 await _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress, new
                 {
                     operationId = _currentOperationId,
-                    status = "completed",
+                    status = OperationStatus.Completed,
                     percentComplete = 100.0,
                     gamesDiscovered = _gamesDiscovered,
                     stageKey = "signalr.epicMapping.cancelled",
@@ -137,7 +137,7 @@ public partial class EpicMappingService
                 await _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress, new
                 {
                     operationId = _currentOperationId,
-                    status = "failed",
+                    status = OperationStatus.Failed,
                     percentComplete = 0.0,
                     gamesDiscovered = _gamesDiscovered,
                     stageKey = "signalr.epicMapping.failed",
@@ -364,7 +364,7 @@ public partial class EpicMappingService
         await _notifications.NotifyAllAsync(SignalREvents.EpicMappingProgress, new
         {
             operationId = _currentOperationId,
-            status = "completed",
+            status = OperationStatus.Completed,
             percentComplete = 100.0,
             gamesDiscovered = _gamesDiscovered,
             message = $"Epic catalog refresh completed — {_gamesDiscovered} games"

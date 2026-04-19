@@ -190,7 +190,10 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     progress: {
       getMessage: (event: GameRemovalProgressEvent) => formatGameRemovalProgressMessage(event),
       getProgress: (event: GameRemovalProgressEvent) => event.percentComplete,
-      getStatus: (event: GameRemovalProgressEvent) => standardGetStatus(event),
+      // GameRemovalProgress has no `status` field (dropped with the phase-label cleanup —
+      // it never carried OperationStatus values anyway). Lifecycle transitions arrive via
+      // the separate GameRemovalComplete event, so progress stays in `running` until then.
+      getStatus: () => undefined,
       getCompletedMessage: (event: GameRemovalProgressEvent) =>
         i18n.t(event.stageKey ?? 'signalr.gameRemove.complete', event.context ?? {}),
       getErrorMessage: (event: GameRemovalProgressEvent) =>
@@ -233,7 +236,8 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       getMessage: (event: ServiceRemovalProgressEvent) =>
         formatServiceRemovalProgressMessage(event),
       getProgress: (event: ServiceRemovalProgressEvent) => event.percentComplete,
-      getStatus: (event: ServiceRemovalProgressEvent) => standardGetStatus(event),
+      // See GameRemovalProgress — no `status` on this event either.
+      getStatus: () => undefined,
       getCompletedMessage: (event: ServiceRemovalProgressEvent) =>
         i18n.t(event.stageKey, {
           name: event.serviceName,

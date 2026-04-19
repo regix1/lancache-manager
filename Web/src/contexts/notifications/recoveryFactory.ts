@@ -5,6 +5,7 @@ import type {
   SetNotifications,
   ScheduleAutoDismiss
 } from './types';
+import type { OperationStatus } from '@/types/operations';
 import { NOTIFICATION_STORAGE_KEYS, NOTIFICATION_IDS } from './constants';
 import {
   formatLogProcessingRecoveryMessage,
@@ -58,7 +59,8 @@ interface CacheOperationsResponse {
 /** GET /api/database/reset-status — DatabaseResetStatusResponse */
 interface DatabaseResetStatusResponse {
   isProcessing: boolean;
-  status?: string | null;
+  /** Canonical OperationStatus or null (null replaces the legacy `"idle"` sentinel). */
+  status?: OperationStatus | null;
   message?: string | null;
   /** C# `int?` — genuinely nullable */
   percentComplete?: number | null;

@@ -473,7 +473,7 @@ public class RustLogProcessorService
             // Check if this was a cancellation by looking at exit code and progress
             // Exit code 1 typically indicates cancellation or error
             var finalProgress = await ReadProgressFileAsync(progressPath);
-            var wasCancelled = finalProgress?.Status == "cancelled" ||
+            var wasCancelled = finalProgress?.Status == OperationStatus.Cancelled.ToWireString() ||
                               (exitCode != 0 && finalProgress?.PercentComplete < 100);
 
             if (wasCancelled)
@@ -503,7 +503,7 @@ public class RustLogProcessorService
             {
                 // Check if Rust reported a failure status despite exit code 0
                 // This catches edge cases where errors were logged but the process still exited cleanly
-                if (finalProgress?.Status == "failed")
+                if (finalProgress?.Status == OperationStatus.Failed.ToWireString())
                 {
                     _logger.LogError("Rust processor exited with code 0 but reported failure: {StageKey}", finalProgress.StageKey);
 

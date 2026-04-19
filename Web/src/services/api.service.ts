@@ -1,6 +1,12 @@
 import { API_BASE } from '../utils/constants';
 import { isAbortError } from '../utils/error';
 import type {
+  OperationStatus,
+  PrefillSessionStatus,
+  DaemonSessionStatus,
+  DaemonAuthState
+} from '../types/operations';
+import type {
   CacheInfo,
   CacheSizeInfo,
   Download,
@@ -60,7 +66,13 @@ interface CachedGameDetectionResponse {
 interface OperationResponse {
   message?: string;
   success?: boolean;
-  status?: string;
+  /**
+   * Canonical operation lifecycle status from the backend `OperationStatus` enum
+   * (serialized lowercase via `OperationStatusJsonConverter`). Typing this as the
+   * union instead of `string` gives TypeScript the power to reject typos like
+   * `'started'` — which were historically possible and caused at least one "Unexpected response" bug.
+   */
+  status?: OperationStatus;
   // Log processing specific
   logSizeMB?: number;
   remainingMB?: number;
@@ -1811,7 +1823,7 @@ class ApiService {
   static async getPrefillSessions(
     page = 1,
     pageSize = 20,
-    status?: string,
+    status?: PrefillSessionStatus,
     platform?: string,
     signal?: AbortSignal
   ): Promise<PrefillSessionsResponse> {
@@ -2667,7 +2679,7 @@ export interface PrefillSessionDto {
   containerId?: string;
   containerName?: string;
   steamUsername?: string;
-  status: string;
+  status: PrefillSessionStatus;
   isAuthenticated: boolean;
   isPrefilling: boolean;
   createdAtUtc: string;
@@ -2705,8 +2717,8 @@ export interface DaemonSessionDto {
   id: string;
   userId: string;
   containerName: string;
-  status: string;
-  authState: string;
+  status: DaemonSessionStatus;
+  authState: DaemonAuthState;
   isPrefilling: boolean;
   createdAt: string;
   endedAt?: string;

@@ -90,7 +90,7 @@ public class GamesController : ControllerBase
             displayName: gameName,
             operationLabel: $"Game Removal: {gameName}",
             appId: appId,
-            removeFunc: (CancellationToken ct, Func<double, string, int, long, Task> onProgress) =>
+            removeFunc: (CancellationToken ct, Func<double, string, Dictionary<string, object?>?, int, long, Task> onProgress) =>
                 _cacheManagementService.RemoveGameFromCacheAsync(appId, ct, onProgress),
             onSuccess: async (long _) => await _gameCacheDetectionService.RemoveGameFromCacheAsync(appId),
             responseMessage: $"Started removal of game {appId} from cache");
@@ -119,7 +119,7 @@ public class GamesController : ControllerBase
             displayName: gameName,
             operationLabel: $"Epic Game Removal: {gameName}",
             appId: 0,
-            removeFunc: (CancellationToken ct, Func<double, string, int, long, Task> onProgress) =>
+            removeFunc: (CancellationToken ct, Func<double, string, Dictionary<string, object?>?, int, long, Task> onProgress) =>
                 _cacheManagementService.RemoveEpicGameFromCacheAsync(gameName, ct, onProgress),
             onSuccess: null,
             responseMessage: $"Started removal of Epic game {gameName} from cache");
@@ -141,7 +141,7 @@ public class GamesController : ControllerBase
         string displayName,
         string operationLabel,
         long appId,
-        Func<CancellationToken, Func<double, string, int, long, Task>, Task<CacheManagementService.GameCacheRemovalReport>> removeFunc,
+        Func<CancellationToken, Func<double, string, Dictionary<string, object?>?, int, long, Task>, Task<CacheManagementService.GameCacheRemovalReport>> removeFunc,
         Func<long, Task>? onSuccess,
         string responseMessage)
     {
@@ -170,18 +170,21 @@ public class GamesController : ControllerBase
 
                 // Send starting notification
                 await _notifications.NotifyAllAsync(SignalREvents.GameRemovalProgress,
-                    new GameRemovalProgress(operationId, appId, displayName, "starting", $"Starting removal of {displayName}..."));
+                    new GameRemovalProgress(operationId, appId, displayName, $"Starting removal of {displayName}..."));
                 _operationTracker.UpdateProgress(operationId, 0, $"Starting removal of {displayName}...");
 
                 cancellationToken.ThrowIfCancellationRequested();
 
-                // Call with progress callback that sends live SignalR updates
+                // Call with progress callback that sends live SignalR updates.
+                // `stageKey` is the i18n key (e.g. "signalr.gameRemove.cache.file.progress")
+                // and `context` is its substitution dict — both flow through from the Rust
+                // progress JSON into the SignalR event so the frontend can render per-phase labels.
                 var report = await removeFunc(cancellationToken,
-                    async (double percentComplete, string message, int filesDeleted, long bytesFreed) =>
+                    async (double percentComplete, string stageKey, Dictionary<string, object?>? context, int filesDeleted, long bytesFreed) =>
                     {
                         await _notifications.NotifyAllAsync(SignalREvents.GameRemovalProgress,
-                            new GameRemovalProgress(operationId, appId, displayName, "removing_cache", message, percentComplete, filesDeleted, bytesFreed));
-                        _operationTracker.UpdateProgress(operationId, percentComplete, message);
+                            new GameRemovalProgress(operationId, appId, displayName, stageKey, percentComplete, filesDeleted, bytesFreed, context));
+                        _operationTracker.UpdateProgress(operationId, percentComplete, stageKey);
                         _operationTracker.UpdateMetadata(operationId, (object m) =>
                         {
                             var metrics = (RemovalMetrics)m;
@@ -194,7 +197,7 @@ public class GamesController : ControllerBase
 
                 // Send finalizing progress update
                 await _notifications.NotifyAllAsync(SignalREvents.GameRemovalProgress,
-                    new GameRemovalProgress(operationId, appId, displayName, "complete", "Finalizing removal...", 100.0, report.CacheFilesDeleted, (long)report.TotalBytesFreed));
+                    new GameRemovalProgress(operationId, appId, displayName, "Finalizing removal...", 100.0, report.CacheFilesDeleted, (long)report.TotalBytesFreed));
                 _operationTracker.UpdateProgress(operationId, 100.0, "Finalizing removal...");
                 _operationTracker.UpdateMetadata(operationId, (object m) =>
                 {
@@ -233,7 +236,7 @@ public class GamesController : ControllerBase
                 _logger.LogError(ex, "Error during game removal for {EntityKey}", entityKey);
 
                 await _notifications.NotifyAllAsync(SignalREvents.GameRemovalProgress,
-                    new GameRemovalProgress(operationId, appId, displayName, "error", $"Error removing {displayName}: {ex.Message}", 0.0));
+                    new GameRemovalProgress(operationId, appId, displayName, $"Error removing {displayName}: {ex.Message}", 0.0));
 
                 _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
 

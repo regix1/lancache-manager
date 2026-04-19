@@ -1,6 +1,7 @@
 import type { HubConnection } from '@microsoft/signalr';
 import { formatBytes } from '@utils/formatters';
-import { formatDurationFromSeconds, type SteamAuthState, type PrefillSessionDto } from '../types';
+import { formatDurationFromSeconds, type PrefillSessionDto } from '../types';
+import type { DaemonAuthState } from '@/types/operations';
 import type { LogEntryType } from '../ActivityLog.utils';
 import i18n from '../../../../i18n';
 import { COMPLETION_NOTIFICATION_WINDOW_MS, getEventName } from './prefillConstants';
@@ -8,7 +9,7 @@ import type { PrefillProgress, BackgroundCompletion, CachedAnimationItem } from 
 
 interface UsePrefillEventHandlersOptions {
   addLog: (type: LogEntryType, message: string, details?: string) => void;
-  onAuthStateChanged: (state: SteamAuthState) => void;
+  onAuthStateChanged: (state: DaemonAuthState) => void;
   setSession: React.Dispatch<React.SetStateAction<PrefillSessionDto | null>>;
   setTimeRemaining: React.Dispatch<React.SetStateAction<number>>;
   setIsLoggedIn: React.Dispatch<React.SetStateAction<boolean>>;
@@ -102,7 +103,7 @@ export function registerPrefillEventHandlers(
   // Handle auth state changes from backend
   connection.on(
     getEventName('AuthStateChanged', serviceId),
-    ({ authState }: { sessionId: string; authState: SteamAuthState }) => {
+    ({ authState }: { sessionId: string; authState: DaemonAuthState }) => {
       onAuthStateChanged(authState);
     }
   );

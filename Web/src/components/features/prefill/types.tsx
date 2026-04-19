@@ -14,27 +14,24 @@ import i18n from '../../../i18n';
 import type { DropdownOption } from '@components/ui/EnhancedDropdown';
 import type { MultiSelectOption } from '@components/ui/MultiSelectDropdown';
 import type { NetworkDiagnostics } from '@services/api.service';
-
-// Auth states from backend - matches DaemonAuthState enum
-export type SteamAuthState =
-  | 'NotAuthenticated'
-  | 'CredentialsRequired'
-  | 'TwoFactorRequired'
-  | 'EmailCodeRequired'
-  | 'AuthorizationUrlRequired'
-  | 'Authenticated';
+import type { DaemonSessionStatus, DaemonAuthState } from '@/types/operations';
 
 export interface PrefillSessionDto {
   id: string;
   userId: string;
   containerId: string;
   containerName: string;
-  status: string;
+  /**
+   * Lifecycle status of the underlying daemon container (NOT the persisted PrefillSession
+   * from the admin API — that one uses `PrefillSessionStatus` with different values).
+   * Wire values: `'Active' | 'Terminated' | 'Error'` per backend `DaemonSessionStatus`.
+   */
+  status: DaemonSessionStatus;
   createdAt: string;
   expiresAt: string;
   endedAt: string | null;
   timeRemainingSeconds: number;
-  authState: SteamAuthState;
+  authState: DaemonAuthState;
   networkDiagnostics?: NetworkDiagnostics;
 }
 

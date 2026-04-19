@@ -1,12 +1,8 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
 import { type HubConnection, HubConnectionBuilder, LogLevel } from '@microsoft/signalr';
 import { SIGNALR_BASE } from '@utils/constants';
-import {
-  formatDurationFromSeconds,
-  formatTimeRemaining,
-  type SteamAuthState,
-  type PrefillSessionDto
-} from '../types';
+import { formatDurationFromSeconds, formatTimeRemaining, type PrefillSessionDto } from '../types';
+import type { DaemonAuthState } from '@/types/operations';
 import type { LogEntryType } from '../ActivityLog.utils';
 import i18n from '../../../../i18n';
 import { usePrefillAnimation } from './usePrefillAnimation';
@@ -20,7 +16,7 @@ interface UsePrefillSignalROptions {
   setBackgroundCompletion: (completion: BackgroundCompletion) => void;
   clearBackgroundCompletion: () => void;
   isCompletionDismissed: (completedAt: string) => boolean;
-  onAuthStateChanged: (state: SteamAuthState) => void;
+  onAuthStateChanged: (state: DaemonAuthState) => void;
   clearAllPrefillStorage: () => void;
   /** Hub path override (default: "/steam-daemon") */
   hubPath?: string;

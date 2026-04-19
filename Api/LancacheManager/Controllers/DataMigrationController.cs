@@ -327,7 +327,7 @@ public class DataMigrationController : ControllerBase
             {
                 OperationId = operationId,
                 PercentComplete = 0.0,
-                Status = "running",
+                Status = OperationStatus.Running,
                 Message = $"Found {totalRecords:N0} records to import",
                 RecordsProcessed = 0UL,
                 TotalRecords = totalRecords
@@ -459,7 +459,7 @@ public class DataMigrationController : ControllerBase
                 {
                     OperationId = operationId,
                     PercentComplete = percentComplete,
-                    Status = "running",
+                    Status = OperationStatus.Running,
                     Message = progressMessage,
                     RecordsProcessed = recordsProcessed,
                     TotalRecords = totalRecords,

@@ -29,12 +29,8 @@ import { PrefillCommandButtons } from './PrefillCommandButtons';
 import { PrefillConfirmModal } from './PrefillConfirmModal';
 import { CompletionBanner } from './CompletionBanner';
 import { usePrefillSignalR } from './hooks/usePrefillSignalR';
-import {
-  type SteamAuthState,
-  type PrefillPanelProps,
-  type CommandType,
-  formatTimeRemaining
-} from './types';
+import { type PrefillPanelProps, type CommandType, formatTimeRemaining } from './types';
+import type { DaemonAuthState } from '@/types/operations';
 
 export function PrefillPanel({ onSessionEnd }: PrefillPanelProps) {
   const { selectedService, setSelectedService } = useGameService();
@@ -238,7 +234,12 @@ function ServicePrefillPanel({
 
   // Handle auth state changes from backend SignalR events
   const handleAuthStateChanged = useCallback(
-    (newState: SteamAuthState) => {
+    (newState: DaemonAuthState) => {
+      // Backend emits all nine DaemonAuthState values. The three directly-assigned values
+      // (Authenticated/LoggingIn/NotAuthenticated) come from PrefillDaemonServiceBase.cs;
+      // the sub-states (UsernameRequired/PasswordRequired/TwoFactorRequired/SteamGuardRequired/
+      // DeviceConfirmationRequired/AuthorizationUrlRequired) are mapped from the external
+      // daemon's socket protocol in PrefillDaemonServiceBase.Notifications.cs:20-25.
       switch (newState) {
         case 'Authenticated':
           signalR.setIsLoggedIn(true);
@@ -246,7 +247,10 @@ function ServicePrefillPanel({
           authActions.resetAuthForm();
           addLog('success', t('prefill.log.loginSuccess'));
           break;
-        case 'CredentialsRequired':
+        case 'UsernameRequired':
+        case 'PasswordRequired':
+          // Daemon needs the user to enter credentials — show the auth modal.
+          // Both map to the same UI because the modal collects username + password together.
           authActions.resetAuthForm();
           setShowAuthModal(true);
           addLog('auth', t('prefill.log.credentialsRequired'));
@@ -256,17 +260,28 @@ function ServicePrefillPanel({
           setShowAuthModal(true);
           addLog('auth', t('prefill.log.twoFactorRequired'));
           break;
-        case 'EmailCodeRequired':
+        case 'SteamGuardRequired':
+          // Steam Guard email code — daemon sent an email, user enters the code.
           triggerEmailPrompt();
           setShowAuthModal(true);
-          addLog('auth', t('prefill.log.emailCodeRequired'));
+          addLog('auth', t('prefill.log.steamGuardRequired'));
+          break;
+        case 'DeviceConfirmationRequired':
+          // User must approve the login attempt on their Steam Mobile App.
+          authActions.setWaitingForMobileConfirmation(true);
+          setShowAuthModal(true);
+          addLog('auth', t('prefill.log.deviceConfirmationRequired'));
           break;
         case 'AuthorizationUrlRequired':
           setShowAuthModal(true);
-          addLog('auth', 'Epic Games authorization required');
+          addLog('auth', t('prefill.log.authorizationUrlRequired'));
           break;
         case 'NotAuthenticated':
           signalR.setIsLoggedIn(false);
+          break;
+        case 'LoggingIn':
+          // Transient state — daemon is performing the login handshake.
+          // No UI action needed; the *Required states will follow if anything more is needed.
           break;
       }
     },
@@ -327,7 +342,11 @@ function ServicePrefillPanel({
         signalR.setError(t('prefill.errors.sessionExpired'));
         signalR.setTimeRemaining(0);
         signalR.setIsLoggedIn(false);
-        signalR.setSession((prev) => (prev ? { ...prev, status: 'Expired' } : prev));
+        // Expiry is already signalled downstream by `timeRemaining <= 0`
+        // (every consumer guards with `status === 'Active' && timeRemaining > 0`).
+        // Previously we also mutated session.status to a synthetic 'Expired' — nothing
+        // read that value, so it was dead state. Dropped to keep the DTO status aligned
+        // with the backend's `DaemonSessionStatus` union.
       }
     }, 1000);
 
