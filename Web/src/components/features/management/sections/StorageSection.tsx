@@ -228,6 +228,76 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     }
   };
 
+  // Resolve when the per-item eviction-removal operation identified by
+  // `operationId` emits its EvictionRemovalComplete SignalR event. Safety
+  // timeout at 2 minutes so a dropped event can't hang the queue forever.
+  const waitForEvictionRemovalComplete = useCallback(
+    (operationId: string): Promise<void> => {
+      return new Promise((resolve) => {
+        let settled = false;
+        const handler = (data: { operationId?: string } | undefined) => {
+          if (data?.operationId === operationId && !settled) {
+            settled = true;
+            off('EvictionRemovalComplete', handler);
+            resolve();
+          }
+        };
+        on('EvictionRemovalComplete', handler);
+        setTimeout(() => {
+          if (!settled) {
+            settled = true;
+            off('EvictionRemovalComplete', handler);
+            resolve();
+          }
+        }, 120_000);
+      });
+    },
+    [on, off]
+  );
+
+  const handleRemoveAllEvicted = useCallback(async () => {
+    setShowRemoveAllConfirm(false);
+    if (!isAdmin) return;
+
+    const services = [...evictedServices];
+    const games = [...evictedGames];
+    const total = services.length + games.length;
+    if (total === 0) return;
+
+    setRemoveAllRunning(true);
+    let completed = 0;
+
+    for (const service of services) {
+      completed += 1;
+      setRemoveAllProgress({ current: completed, total, label: service.service_name });
+      try {
+        const { operationId } = await ApiService.removeEvictedForService(service.service_name);
+        await waitForEvictionRemovalComplete(operationId);
+      } catch (err) {
+        console.error('[RemoveAll] Service removal failed:', service.service_name, err);
+      }
+    }
+
+    for (const game of games) {
+      completed += 1;
+      const label = game.game_name ?? game.service ?? String(game.game_app_id);
+      setRemoveAllProgress({ current: completed, total, label });
+      try {
+        const isEpic = game.service === 'epicgames' && !!game.epic_app_id;
+        const { operationId } = isEpic
+          ? await ApiService.removeEvictedForEpicGame(game.epic_app_id!)
+          : await ApiService.removeEvictedForGame(game.game_app_id);
+        await waitForEvictionRemovalComplete(operationId);
+      } catch (err) {
+        console.error('[RemoveAll] Game removal failed:', game.game_app_id, err);
+      }
+    }
+
+    setRemoveAllRunning(false);
+    setRemoveAllProgress(null);
+    void fetchEvictedItems();
+  }, [evictedGames, evictedServices, isAdmin, waitForEvictionRemovalComplete, fetchEvictedItems]);
+
   const confirmPartialEvictedRemoval = async () => {
     if (!partialEvictedTarget) return;
 
@@ -373,6 +443,18 @@ const StorageSection: React.FC<StorageSectionProps> = ({
   useEffect(() => {
     localStorage.setItem('management-evicted-items-expanded', String(evictedItemsExpanded));
   }, [evictedItemsExpanded]);
+
+  // "Remove All" state — sequential per-item eviction removal. One at a time
+  // mirrors the per-item Remove flow (each item gets its own SignalR operation,
+  // its own log-purge, its own progress bar) so the user sees exactly what's
+  // happening and a single failure doesn't abort the rest.
+  const [showRemoveAllConfirm, setShowRemoveAllConfirm] = useState(false);
+  const [removeAllRunning, setRemoveAllRunning] = useState(false);
+  const [removeAllProgress, setRemoveAllProgress] = useState<{
+    current: number;
+    total: number;
+    label: string;
+  } | null>(null);
 
   const evictionAllExpanded = evictionSettingsExpanded && evictedItemsExpanded;
 
@@ -732,6 +814,29 @@ const StorageSection: React.FC<StorageSectionProps> = ({
                   isExpanded={evictedItemsExpanded}
                   onToggle={() => setEvictedItemsExpanded((prev) => !prev)}
                 >
+                  {isAdmin && evictedGames.length + evictedServices.length > 0 && (
+                    <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+                      <Button
+                        variant="filled"
+                        color="red"
+                        onClick={() => setShowRemoveAllConfirm(true)}
+                        disabled={removeAllRunning || isAnyEvictedRemovalRunning}
+                        loading={removeAllRunning}
+                      >
+                        {t('management.sections.data.evictionRemoveAll', 'Remove All')}
+                      </Button>
+                      {removeAllRunning && removeAllProgress && (
+                        <span className="text-sm text-themed-secondary">
+                          {t('management.sections.data.evictionRemoveAllProgress', {
+                            current: removeAllProgress.current,
+                            total: removeAllProgress.total,
+                            label: removeAllProgress.label,
+                            defaultValue: 'Removing {{current}} of {{total}} — {{label}}'
+                          })}
+                        </span>
+                      )}
+                    </div>
+                  )}
                   <EvictedItemsList
                     games={evictedGames}
                     services={evictedServices}
@@ -740,7 +845,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
                     cacheReadOnly={cacheReadOnly}
                     dockerSocketAvailable={isDockerAvailable}
                     checkingPermissions={checkingPermissions}
-                    isAnyRemovalRunning={isAnyEvictedRemovalRunning}
+                    isAnyRemovalRunning={isAnyEvictedRemovalRunning || removeAllRunning}
                     onRemoveGame={handleEvictedGameRemoveClick}
                     onRemoveService={handleEvictedServiceRemoveClick}
                   />
@@ -784,6 +889,49 @@ const StorageSection: React.FC<StorageSectionProps> = ({
               loading={evictionSaving}
             >
               {t('management.sections.data.evictionRemoveConfirmButton')}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Remove All Evicted Confirmation Modal */}
+      <Modal
+        opened={showRemoveAllConfirm}
+        onClose={() => setShowRemoveAllConfirm(false)}
+        title={
+          <div className="flex items-center space-x-3">
+            <AlertTriangle className="w-6 h-6 text-themed-warning" />
+            <span>
+              {t(
+                'management.sections.data.evictionRemoveAllConfirmTitle',
+                'Remove all evicted items?'
+              )}
+            </span>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-themed-secondary">
+            {t('management.sections.data.evictionRemoveAllConfirmMessage', {
+              count: evictedGames.length + evictedServices.length,
+              defaultValue:
+                'This will remove all {{count}} evicted items one at a time. Each item runs through its own removal flow (log rewrite + database cleanup) and the operation cannot be undone.'
+            })}
+          </p>
+          <Alert color="yellow">
+            <p className="text-sm">
+              {t('management.sections.data.evictionRemoveAllConfirmWarning', {
+                defaultValue:
+                  'Only the evicted depots are removed — partially-cached games keep their on-disk files.'
+              })}
+            </p>
+          </Alert>
+          <div className="flex justify-end space-x-3 pt-2">
+            <Button variant="default" onClick={() => setShowRemoveAllConfirm(false)}>
+              {t('management.sections.data.evictionRemoveConfirmCancel')}
+            </Button>
+            <Button variant="filled" color="red" onClick={handleRemoveAllEvicted}>
+              {t('management.sections.data.evictionRemoveAll', 'Remove All')}
             </Button>
           </div>
         </div>

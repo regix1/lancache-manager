@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { HardDrive, Database, Server } from 'lucide-react';
+import { HardDrive, Database, Server, AlertTriangle } from 'lucide-react';
 import ApiService from '@services/api.service';
 import { Card } from '@components/ui/Card';
 import { Button } from '@components/ui/Button';
 import { Alert } from '@components/ui/Alert';
+import { Modal } from '@components/ui/Modal';
 import { Tooltip } from '@components/ui/Tooltip';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
@@ -94,6 +95,18 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   });
   const [servicesExpanded, setServicesExpanded] = useState(true);
   const [gamesExpanded, setGamesExpanded] = useState(true);
+
+  // "Remove All" state — sequential full-removal of every cached game and
+  // service. Mirrors the per-item Remove button flow so each entity gets its
+  // own log rewrite + cache-file delete + DB cleanup; a single failure does
+  // not abort the remaining queue.
+  const [showRemoveAllConfirm, setShowRemoveAllConfirm] = useState(false);
+  const [removeAllRunning, setRemoveAllRunning] = useState(false);
+  const [removeAllProgress, setRemoveAllProgress] = useState<{
+    current: number;
+    total: number;
+    label: string;
+  } | null>(null);
 
   useEffect(() => {
     localStorage.setItem('management-game-cache-expanded', String(sectionExpanded));
@@ -685,16 +698,135 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const hasResults = filteredGames.length > 0 || filteredServices.length > 0;
   const allExpanded = servicesExpanded && gamesExpanded;
 
+  // Resolve on GameRemovalComplete with matching gameAppId OR ServiceRemovalComplete
+  // with matching serviceName — the per-item removal endpoints return 202 Accepted
+  // (no operationId), so we match on the entity identifier from the SignalR payload.
+  // 2-minute safety timeout so a dropped event can't hang the queue.
+  const waitForGameRemoval = useCallback(
+    (gameAppId: number): Promise<void> =>
+      new Promise((resolve) => {
+        let settled = false;
+        const handler = (data: { gameAppId?: number } | undefined) => {
+          if (data?.gameAppId === gameAppId && !settled) {
+            settled = true;
+            off('GameRemovalComplete', handler);
+            resolve();
+          }
+        };
+        on('GameRemovalComplete', handler);
+        setTimeout(() => {
+          if (!settled) {
+            settled = true;
+            off('GameRemovalComplete', handler);
+            resolve();
+          }
+        }, 120_000);
+      }),
+    [on, off]
+  );
+
+  const waitForServiceRemoval = useCallback(
+    (serviceName: string): Promise<void> =>
+      new Promise((resolve) => {
+        let settled = false;
+        const handler = (data: { serviceName?: string } | undefined) => {
+          if (data?.serviceName === serviceName && !settled) {
+            settled = true;
+            off('ServiceRemovalComplete', handler);
+            resolve();
+          }
+        };
+        on('ServiceRemovalComplete', handler);
+        setTimeout(() => {
+          if (!settled) {
+            settled = true;
+            off('ServiceRemovalComplete', handler);
+            resolve();
+          }
+        }, 120_000);
+      }),
+    [on, off]
+  );
+
+  const handleRemoveAllCached = useCallback(async () => {
+    setShowRemoveAllConfirm(false);
+    if (!isAdmin) return;
+
+    const services = [...filteredServices];
+    const games = [...filteredGames];
+    const total = services.length + games.length;
+    if (total === 0) return;
+
+    setRemoveAllRunning(true);
+    let completed = 0;
+
+    for (const service of services) {
+      completed += 1;
+      setRemoveAllProgress({ current: completed, total, label: service.service_name });
+      try {
+        await ApiService.removeServiceFromCache(service.service_name);
+        await waitForServiceRemoval(service.service_name);
+      } catch (err) {
+        console.error('[RemoveAll] Service removal failed:', service.service_name, err);
+      }
+    }
+
+    for (const game of games) {
+      completed += 1;
+      const label = game.game_name ?? String(game.game_app_id);
+      setRemoveAllProgress({ current: completed, total, label });
+      try {
+        const isEpic = game.service === 'epicgames' && !!game.game_name;
+        if (isEpic) {
+          await ApiService.removeEpicGameFromCache(game.game_name);
+        } else {
+          await ApiService.removeGameFromCache(game.game_app_id);
+        }
+        await waitForGameRemoval(game.game_app_id);
+      } catch (err) {
+        console.error('[RemoveAll] Game removal failed:', game.game_app_id, err);
+      }
+    }
+
+    setRemoveAllRunning(false);
+    setRemoveAllProgress(null);
+    onDataRefresh?.();
+  }, [
+    filteredGames,
+    filteredServices,
+    isAdmin,
+    waitForGameRemoval,
+    waitForServiceRemoval,
+    onDataRefresh
+  ]);
+
   // Help content
   // Header actions - scan buttons + expand/collapse all
   const headerActions = (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2 flex-wrap">
       {hasResults && (
         <Button variant="default" size="sm" onClick={handleExpandCollapseAll}>
           {allExpanded
             ? t('management.gameDetection.collapseAll')
             : t('management.gameDetection.expandAll')}
         </Button>
+      )}
+
+      {hasResults && isAdmin && (
+        <Tooltip content={t('management.sections.data.gameCacheRemoveAll', 'Remove All')}>
+          <Button
+            onClick={() => setShowRemoveAllConfirm(true)}
+            disabled={
+              loading || mockMode || checkingPermissions || removeAllRunning || isAnyRemovalRunning
+            }
+            loading={removeAllRunning}
+            variant="filled"
+            color="red"
+            size="sm"
+          >
+            {t('management.sections.data.gameCacheRemoveAll', 'Remove All')}
+          </Button>
+        </Tooltip>
       )}
 
       <Tooltip content={t('management.gameDetection.loadPreviousResults')}>
@@ -964,6 +1096,64 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         onClose={() => setServiceToRemove(null)}
         onConfirm={confirmServiceRemoval}
       />
+
+      {/* Remove All Cached Games/Services Confirmation Modal */}
+      <Modal
+        opened={showRemoveAllConfirm}
+        onClose={() => setShowRemoveAllConfirm(false)}
+        title={
+          <div className="flex items-center space-x-3">
+            <AlertTriangle className="w-6 h-6 text-themed-warning" />
+            <span>
+              {t(
+                'management.sections.data.gameCacheRemoveAllConfirmTitle',
+                'Remove all cached games & services?'
+              )}
+            </span>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-themed-secondary">
+            {t('management.sections.data.gameCacheRemoveAllConfirmMessage', {
+              count: filteredGames.length + filteredServices.length,
+              defaultValue:
+                'This will permanently delete cache files, log entries, and database records for all {{count}} currently-cached games and services. Items are removed one at a time. The operation cannot be undone.'
+            })}
+          </p>
+          <Alert color="yellow">
+            <p className="text-sm">
+              {t('management.sections.data.gameCacheRemoveAllConfirmWarning', {
+                defaultValue:
+                  'This is irreversible. Any client that re-downloads these games will have to pull the full payload from upstream, not the cache.'
+              })}
+            </p>
+          </Alert>
+          <div className="flex justify-end space-x-3 pt-2">
+            <Button variant="default" onClick={() => setShowRemoveAllConfirm(false)}>
+              {t('management.sections.data.evictionRemoveConfirmCancel')}
+            </Button>
+            <Button variant="filled" color="red" onClick={handleRemoveAllCached}>
+              {t('management.sections.data.gameCacheRemoveAll', 'Remove All')}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Remove-all progress indicator — rendered at the bottom so it is visible
+          no matter which accordion the user is viewing. */}
+      {removeAllRunning && removeAllProgress && (
+        <div className="fixed bottom-4 right-4 z-50 max-w-sm bg-themed-secondary border border-themed-secondary rounded-lg p-3 shadow-lg">
+          <p className="text-sm text-themed-primary">
+            {t('management.sections.data.gameCacheRemoveAllProgress', {
+              current: removeAllProgress.current,
+              total: removeAllProgress.total,
+              label: removeAllProgress.label,
+              defaultValue: 'Removing {{current}} of {{total}} — {{label}}'
+            })}
+          </p>
+        </div>
+      )}
     </>
   );
 };
