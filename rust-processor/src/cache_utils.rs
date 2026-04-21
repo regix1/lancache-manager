@@ -1,6 +1,12 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
+#[allow(dead_code)]
+pub const DEFAULT_SLICE_SIZE: u64 = 1_048_576;
+
+#[allow(dead_code)]
+pub const DEFAULT_MAX_CHUNKS: usize = 100;
+
 /// Returns the canonical form of `candidate`, but only if it resides under `root` and is not a symlink.
 /// Errors out for symlinks (refuses to follow), paths outside the root, or non-existent paths.
 ///
@@ -248,4 +254,104 @@ pub fn calculate_cache_path_no_range(
     let middle_2 = &hash[len - 4..len - 2];
 
     cache_dir.join(last_2).join(middle_2).join(&hash)
+}
+
+#[allow(dead_code)]
+pub fn normalize_service_name(service: &str) -> String {
+    service.to_lowercase()
+}
+
+#[allow(dead_code)]
+pub fn sorted_sample_urls<I, S>(urls: I, limit: usize) -> Vec<String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let mut sample_urls: Vec<String> = urls
+        .into_iter()
+        .map(|url| url.as_ref().to_string())
+        .collect();
+    sample_urls.sort();
+    sample_urls.dedup();
+    sample_urls.truncate(limit);
+    sample_urls
+}
+
+#[allow(dead_code)]
+pub fn cache_hash_candidates_for_probe(service: &str, url: &str, max_chunks: usize) -> Vec<String> {
+    let service = normalize_service_name(service);
+    let mut hashes = Vec::with_capacity(max_chunks + 1);
+    hashes.push(calculate_md5(&format!("{}{}", service, url)));
+
+    for (start, end) in chunk_ranges_for_probe(max_chunks) {
+        hashes.push(calculate_md5(&format!("{}{}bytes={}-{}", service, url, start, end)));
+    }
+
+    hashes
+}
+
+#[allow(dead_code)]
+pub fn cache_path_candidates_for_probe(
+    cache_dir: &Path,
+    service: &str,
+    url: &str,
+    max_chunks: usize,
+) -> Vec<PathBuf> {
+    let service = normalize_service_name(service);
+    let mut paths = Vec::with_capacity(max_chunks + 1);
+    paths.push(calculate_cache_path_no_range(cache_dir, &service, url));
+
+    for (start, end) in chunk_ranges_for_probe(max_chunks) {
+        paths.push(calculate_cache_path(cache_dir, &service, url, start, end));
+    }
+
+    paths
+}
+
+#[allow(dead_code)]
+pub fn cache_path_candidates_for_bytes(
+    cache_dir: &Path,
+    service: &str,
+    url: &str,
+    total_bytes: i64,
+) -> Vec<PathBuf> {
+    let service = normalize_service_name(service);
+    let chunk_ranges = chunk_ranges_for_total_bytes(total_bytes);
+    let mut paths = Vec::with_capacity(chunk_ranges.len() + 1);
+    paths.push(calculate_cache_path_no_range(cache_dir, &service, url));
+
+    for (start, end) in chunk_ranges {
+        paths.push(calculate_cache_path(cache_dir, &service, url, start, end));
+    }
+
+    paths
+}
+
+fn chunk_ranges_for_probe(max_chunks: usize) -> Vec<(u64, u64)> {
+    (0..max_chunks)
+        .map(|chunk| {
+            let start = chunk as u64 * DEFAULT_SLICE_SIZE;
+            (start, chunk_end(start))
+        })
+        .collect()
+}
+
+fn chunk_ranges_for_total_bytes(total_bytes: i64) -> Vec<(u64, u64)> {
+    if total_bytes <= 0 {
+        return vec![(0, chunk_end(0))];
+    }
+
+    let mut ranges = Vec::new();
+    let mut start = 0u64;
+    let total_bytes = total_bytes as u64;
+    while start < total_bytes {
+        ranges.push((start, chunk_end(start)));
+        start += DEFAULT_SLICE_SIZE;
+    }
+
+    ranges
+}
+
+fn chunk_end(start: u64) -> u64 {
+    start + DEFAULT_SLICE_SIZE - 1
 }

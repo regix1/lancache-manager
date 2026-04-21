@@ -18,9 +18,173 @@ use tempfile::NamedTempFile;
 use flate2::write::GzEncoder;
 use flate2::Compression;
 
+use crate::cache_utils;
 use crate::parser::LogParser;
 use crate::log_reader::LogFileReader;
+use crate::models::LogEntry;
 use crate::{log_discovery, service_utils};
+
+fn rewrite_matching_log_entries<F>(
+    log_dir: &Path,
+    description: &str,
+    should_remove_entry: F,
+    on_file_processed: Option<&(dyn Fn(usize, usize) + Send + Sync)>,
+) -> Result<(u64, usize)>
+where
+    F: Fn(&LogEntry) -> bool + Send + Sync,
+{
+    use rayon::prelude::*;
+    use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+
+    eprintln!("Filtering log files to remove {} entries...", description);
+
+    let parser = LogParser::new(chrono_tz::UTC);
+    let log_files = log_discovery::discover_log_files(log_dir, "access.log")?;
+    let total_files = log_files.len();
+
+    let total_lines_removed = AtomicU64::new(0);
+    let permission_errors = AtomicUsize::new(0);
+    let files_done = AtomicUsize::new(0);
+
+    log_files.par_iter().enumerate().for_each(|(file_index, log_file)| {
+        eprintln!(
+            "  Processing file {}/{}: {}",
+            file_index + 1,
+            log_files.len(),
+            log_file.path.display()
+        );
+
+        let file_result = (|| -> Result<u64> {
+            let file_dir = log_file.path.parent().context("Failed to get file directory")?;
+            let temp_file = NamedTempFile::new_in(file_dir)?;
+
+            let mut lines_removed: u64 = 0;
+            let mut lines_processed: u64 = 0;
+
+            {
+                let mut log_reader = LogFileReader::open(&log_file.path)?;
+
+                let mut writer: Box<dyn std::io::Write> = if log_file.is_compressed {
+                    let path_str = log_file.path.to_string_lossy();
+                    if path_str.ends_with(".gz") {
+                        Box::new(BufWriter::with_capacity(
+                            1024 * 1024,
+                            GzEncoder::new(temp_file.as_file().try_clone()?, Compression::default()),
+                        ))
+                    } else if path_str.ends_with(".zst") {
+                        Box::new(BufWriter::with_capacity(
+                            1024 * 1024,
+                            zstd::Encoder::new(temp_file.as_file().try_clone()?, 3)?,
+                        ))
+                    } else {
+                        Box::new(BufWriter::with_capacity(
+                            1024 * 1024,
+                            temp_file.as_file().try_clone()?,
+                        ))
+                    }
+                } else {
+                    Box::new(BufWriter::with_capacity(
+                        1024 * 1024,
+                        temp_file.as_file().try_clone()?,
+                    ))
+                };
+
+                let mut line = String::new();
+
+                loop {
+                    line.clear();
+                    let bytes_read = log_reader.read_line(&mut line)?;
+                    if bytes_read == 0 {
+                        break;
+                    }
+
+                    lines_processed += 1;
+                    let mut should_remove = false;
+
+                    if let Some(entry) = parser.parse_line(line.trim()) {
+                        if !service_utils::should_skip_url(&entry.url)
+                            && should_remove_entry(&entry)
+                        {
+                            should_remove = true;
+                        }
+                    }
+
+                    if !should_remove {
+                        write!(writer, "{}", line)?;
+                    } else {
+                        lines_removed += 1;
+                    }
+                }
+
+                writer.flush()?;
+                drop(writer);
+            }
+
+            if lines_processed > 0 && lines_removed == lines_processed {
+                eprintln!(
+                    "  INFO: All {} lines from this file matched, deleting file entirely",
+                    lines_processed
+                );
+                match cache_utils::safe_path_under_root(log_dir, &log_file.path) {
+                    Ok(_) => {
+                        std::fs::remove_file(&log_file.path).ok();
+                    }
+                    Err(e) => {
+                        eprintln!("skipping unsafe path {}: {}", log_file.path.display(), e);
+                    }
+                }
+                return Ok(lines_removed);
+            }
+
+            let temp_path = temp_file.into_temp_path();
+
+            if let Err(persist_err) = temp_path.persist(&log_file.path) {
+                eprintln!("    persist() failed ({}), using copy fallback...", persist_err);
+                std::fs::copy(&persist_err.path, &log_file.path)?;
+                match cache_utils::safe_path_under_root(log_dir, &persist_err.path) {
+                    Ok(_) => {
+                        std::fs::remove_file(&persist_err.path).ok();
+                    }
+                    Err(e) => {
+                        eprintln!("skipping unsafe path {}: {}", persist_err.path.display(), e);
+                    }
+                }
+            }
+
+            Ok(lines_removed)
+        })();
+
+        match file_result {
+            Ok(lines_removed) => {
+                eprintln!("    Removed {} log lines from this file", lines_removed);
+                total_lines_removed.fetch_add(lines_removed, Ordering::Relaxed);
+            }
+            Err(e) => {
+                let error_str = e.to_string();
+                if error_str.contains("Permission denied") || error_str.contains("os error 13") {
+                    permission_errors.fetch_add(1, Ordering::Relaxed);
+                    eprintln!("  ERROR: Permission denied for file {}: {}", log_file.path.display(), e);
+                } else {
+                    eprintln!("  WARNING: Skipping file {}: {}", log_file.path.display(), e);
+                }
+            }
+        }
+
+        if let Some(cb) = on_file_processed {
+            let done = files_done.fetch_add(1, Ordering::Relaxed) + 1;
+            cb(done, total_files);
+        }
+    });
+
+    let final_removed = total_lines_removed.load(Ordering::Relaxed);
+    let final_permission_errors = permission_errors.load(Ordering::Relaxed);
+    eprintln!(
+        "Total log entries removed: {}, permission errors: {}",
+        final_removed,
+        final_permission_errors
+    );
+    Ok((final_removed, final_permission_errors))
+}
 
 /// Rewrite every nginx access.log file under `log_dir` to drop entries whose
 /// URL is in `urls_to_remove` OR whose parsed depot_id is in `valid_depot_ids`.
@@ -34,150 +198,55 @@ use crate::{log_discovery, service_utils};
 /// Safe to run against a live cache host: each target file is rewritten via a
 /// temp file in the same directory and then atomically persisted (or copy +
 /// delete fallback) so partially-written files are never observed.
+#[allow(dead_code)]
 pub(crate) fn remove_log_entries_for_game(
     log_dir: &Path,
     urls_to_remove: &HashSet<String>,
     valid_depot_ids: &HashSet<u32>,
     on_file_processed: Option<&(dyn Fn(usize, usize) + Send + Sync)>,
 ) -> Result<(u64, usize)> {
-    use rayon::prelude::*;
-    use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-
-    eprintln!("Filtering log files to remove game entries...");
-
-    let parser = LogParser::new(chrono_tz::UTC);
-    let log_files = log_discovery::discover_log_files(log_dir, "access.log")?;
-    let total_files = log_files.len();
-
-    let total_lines_removed = AtomicU64::new(0);
-    let permission_errors = AtomicUsize::new(0);
-    let files_done = AtomicUsize::new(0);
-
-    // Process log files in parallel for faster removal
-    log_files.par_iter().enumerate().for_each(|(file_index, log_file)| {
-        eprintln!("  Processing file {}/{}: {}", file_index + 1, log_files.len(), log_file.path.display());
-
-        let file_result = (|| -> Result<u64> {
-            let file_dir = log_file.path.parent().context("Failed to get file directory")?;
-            let temp_file = NamedTempFile::new_in(file_dir)?;
-
-            let mut lines_removed: u64 = 0;
-            let mut lines_processed: u64 = 0;
-
-            {
-                let mut log_reader = LogFileReader::open(&log_file.path)?;
-
-                // Create writer that matches the compression of the original file
-                let mut writer: Box<dyn std::io::Write> = if log_file.is_compressed {
-                    // Check extension to determine compression type
-                    let path_str = log_file.path.to_string_lossy();
-                    if path_str.ends_with(".gz") {
-                        // Gzip compression
-                        Box::new(BufWriter::with_capacity(
-                            1024 * 1024,
-                            GzEncoder::new(temp_file.as_file().try_clone()?, Compression::default())
-                        ))
-                    } else if path_str.ends_with(".zst") {
-                        // Zstd compression
-                        Box::new(BufWriter::with_capacity(
-                            1024 * 1024,
-                            zstd::Encoder::new(temp_file.as_file().try_clone()?, 3)?
-                        ))
-                    } else {
-                        // Unknown compression, treat as plain
-                        Box::new(BufWriter::with_capacity(1024 * 1024, temp_file.as_file().try_clone()?))
-                    }
-                } else {
-                    // Plain text
-                    Box::new(BufWriter::with_capacity(1024 * 1024, temp_file.as_file().try_clone()?))
-                };
-
-                let mut line = String::new();
-
-                loop {
-                    line.clear();
-                    let bytes_read = log_reader.read_line(&mut line)?;
-                    if bytes_read == 0 {
-                        break; // EOF
-                    }
-
-                    lines_processed += 1;
-                    let mut should_remove = false;
-
-                    // Parse the line and check if it belongs to this game
-                    if let Some(entry) = parser.parse_line(line.trim()) {
-                        // Skip health checks
-                        if !service_utils::should_skip_url(&entry.url) {
-                            // Check if this URL is for the game being removed
-                            // Match by URL OR by depot_id
-                            if urls_to_remove.contains(&entry.url) {
-                                should_remove = true;
-                            } else if let Some(depot_id) = entry.depot_id {
-                                if valid_depot_ids.contains(&depot_id) {
-                                    should_remove = true;
-                                }
-                            }
-                        }
-                    }
-
-                    if !should_remove {
-                        write!(writer, "{}", line)?;
-                    } else {
-                        lines_removed += 1;
-                    }
-                }
-
-                writer.flush()?;
-                // Ensure compression is finalized
-                drop(writer);
+    rewrite_matching_log_entries(
+        log_dir,
+        "game",
+        |entry| {
+            if urls_to_remove.contains(&entry.url) {
+                return true;
             }
 
-            // If all lines would be removed, delete the entire file
-            if lines_processed > 0 && lines_removed == lines_processed {
-                eprintln!("  INFO: All {} lines from this file are for this game, deleting file entirely", lines_processed);
-                std::fs::remove_file(&log_file.path).ok();
-                return Ok(lines_removed);
-            }
+            entry.depot_id
+                .map(|depot_id| valid_depot_ids.contains(&depot_id))
+                .unwrap_or(false)
+        },
+        on_file_processed,
+    )
+}
 
-            // Atomically replace original with filtered version
-            let temp_path = temp_file.into_temp_path();
+#[allow(dead_code)]
+pub(crate) fn remove_log_entries_for_urls(
+    log_dir: &Path,
+    urls_to_remove: &HashSet<String>,
+) -> Result<(u64, usize)> {
+    rewrite_matching_log_entries(
+        log_dir,
+        "URL-matched",
+        |entry| urls_to_remove.contains(&entry.url),
+        None,
+    )
+}
 
-            if let Err(persist_err) = temp_path.persist(&log_file.path) {
-                // Fallback: copy + delete
-                eprintln!("    persist() failed ({}), using copy fallback...", persist_err);
-                std::fs::copy(&persist_err.path, &log_file.path)?;
-                std::fs::remove_file(&persist_err.path).ok();
-            }
+#[allow(dead_code)]
+pub(crate) fn remove_log_entries_for_service(
+    log_dir: &Path,
+    service: &str,
+    urls_to_remove: &HashSet<String>,
+) -> Result<(u64, usize)> {
+    let normalized_service = service_utils::normalize_service_name(service);
+    let description = format!("service '{}'", service);
 
-            Ok(lines_removed)
-        })();
-
-        match file_result {
-            Ok(lines_removed) => {
-                eprintln!("    Removed {} log lines from this file", lines_removed);
-                total_lines_removed.fetch_add(lines_removed, Ordering::Relaxed);
-            }
-            Err(e) => {
-                // Check if this is a permission error
-                let error_str = e.to_string();
-                if error_str.contains("Permission denied") || error_str.contains("os error 13") {
-                    permission_errors.fetch_add(1, Ordering::Relaxed);
-                    eprintln!("  ERROR: Permission denied for file {}: {}", log_file.path.display(), e);
-                } else {
-                    eprintln!("  WARNING: Skipping file {}: {}", log_file.path.display(), e);
-                }
-            }
-        }
-
-        // Report per-file progress to the caller (if callback provided)
-        if let Some(cb) = on_file_processed {
-            let done = files_done.fetch_add(1, Ordering::Relaxed) + 1;
-            cb(done, total_files);
-        }
-    });
-
-    let final_removed = total_lines_removed.load(Ordering::Relaxed);
-    let final_permission_errors = permission_errors.load(Ordering::Relaxed);
-    eprintln!("Total log entries removed: {}, permission errors: {}", final_removed, final_permission_errors);
-    Ok((final_removed, final_permission_errors))
+    rewrite_matching_log_entries(
+        log_dir,
+        &description,
+        |entry| entry.service == normalized_service && urls_to_remove.contains(&entry.url),
+        None,
+    )
 }

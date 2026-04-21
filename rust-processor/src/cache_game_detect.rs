@@ -2,22 +2,35 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use jwalk::WalkDir;
 use rayon::prelude::*;
-use sha2::{Sha256, Digest};
-use sqlx::PgPool;
-use sqlx::Row;
 use serde::Serialize;
 use serde_json::json;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
 
 mod cache_utils;
+mod cache_detect_matching;
+mod cache_detect_queries;
 mod db;
 mod progress_events;
 mod progress_utils;
 
+use cache_detect_matching::{
+    detect_epic_game_cache_info,
+    detect_epic_game_cache_info_incremental,
+    detect_service_cache_info,
+    detect_service_cache_info_incremental,
+    detect_steam_game_cache_info,
+    detect_steam_game_cache_info_incremental,
+    group_epic_records,
+    group_game_records,
+};
+use cache_detect_queries::{
+    query_epic_game_downloads,
+    query_game_downloads,
+    query_service_downloads,
+};
 use progress_events::ProgressReporter;
 
 /// Game cache detection utility - detects which games have files in the cache
@@ -118,15 +131,6 @@ struct DetectionReport {
     services: Vec<ServiceCacheInfo>,
 }
 
-#[derive(Debug)]
-struct DownloadRecord {
-    service: String,
-    game_app_id: u32,
-    game_name: String,
-    url: String,
-    depot_id: Option<u32>,
-}
-
 #[derive(Debug, Clone)]
 struct CacheFileInfo {
     path: PathBuf,
@@ -140,614 +144,45 @@ fn scan_cache_directory(cache_dir: &Path) -> Result<HashMap<String, CacheFileInf
     eprintln!("\n=== Phase 1: Scanning Cache Directory ===");
     eprintln!("Building in-memory index of cache files...");
 
-    let cache_files = Arc::new(Mutex::new(HashMap::new()));
-    let counter = Arc::new(AtomicUsize::new(0));
+    let counter = AtomicUsize::new(0);
 
     // Use jwalk for parallel directory walking (4x faster than walkdir)
-    WalkDir::new(cache_dir)
+    let cache_files: HashMap<String, CacheFileInfo> = WalkDir::new(cache_dir)
         .parallelism(jwalk::Parallelism::RayonNewPool(num_cpus::get()))
         .into_iter()
         .filter_map(|entry| entry.ok())
         .filter(|entry| entry.file_type().is_file())
         .par_bridge()
-        .for_each(|entry| {
+        .filter_map(|entry| {
             let path = entry.path();
 
             // Extract hash from path (last component of path)
-            if let Some(hash) = path.file_name().and_then(|n| n.to_str()) {
-                if let Ok(metadata) = entry.metadata() {
-                    let size = metadata.len();
+            let hash = path.file_name().and_then(|n| n.to_str())?;
+            let metadata = entry.metadata().ok()?;
+            let size = metadata.len();
 
-                    let info = CacheFileInfo {
-                        path: path.to_path_buf(),
-                        size,
-                    };
-
-                    let mut files = cache_files.lock().unwrap();
-                    files.insert(hash.to_string(), info);
-                    drop(files);
-
-                    // Progress counter
-                    let count = counter.fetch_add(1, Ordering::Relaxed) + 1;
-                    if count % 10000 == 0 {
-                        eprint!("\r  Scanned {} files...", count);
-                    }
-                }
+            // Progress counter
+            let count = counter.fetch_add(1, Ordering::Relaxed) + 1;
+            if count % 10000 == 0 {
+                eprint!("\r  Scanned {} files...", count);
             }
-        });
 
-    let cache_files = Arc::try_unwrap(cache_files).unwrap().into_inner().unwrap();
+            Some((
+                hash.to_string(),
+                CacheFileInfo {
+                    path: path.to_path_buf(),
+                    size,
+                },
+            ))
+        })
+        .collect();
+
     let total = cache_files.len();
     let total_size_gb = cache_files.values().map(|f| f.size).sum::<u64>() as f64 / 1_073_741_824.0;
 
     eprintln!("\r  Found {} cache files ({:.2} GB total)", total, total_size_gb);
 
     Ok(cache_files)
-}
-
-async fn query_game_downloads(pool: &PgPool, max_urls_per_game: Option<usize>, excluded_game_ids: &[u32]) -> Result<Vec<DownloadRecord>> {
-    eprintln!("Querying LogEntries for game URLs...");
-
-    // Build exclusion clause if we have games to exclude
-    let exclusion_clause = if !excluded_game_ids.is_empty() {
-        let ids_str = excluded_game_ids.iter()
-            .map(|id| id.to_string())
-            .collect::<Vec<_>>()
-            .join(",");
-        format!("AND sdm.\"AppId\" NOT IN ({})", ids_str)
-    } else {
-        String::new()
-    };
-
-    if !excluded_game_ids.is_empty() {
-        eprintln!("Excluding {} already-detected games (incremental scan)", excluded_game_ids.len());
-    }
-
-    // Query LogEntries joined with SteamDepotMappings to get URLs for mapped games
-    let query = if let Some(limit) = max_urls_per_game {
-        eprintln!("Using sampling strategy: max {} URLs per game", limit);
-        format!(
-            "SELECT le.\"Service\", sdm.\"AppId\", COALESCE(sdm.\"AppName\", sdm.\"DepotName\", 'App ' || sdm.\"AppId\"), le.\"Url\", le.\"DepotId\"
-             FROM \"LogEntries\" le
-             INNER JOIN \"SteamDepotMappings\" sdm ON le.\"DepotId\" = sdm.\"DepotId\"
-             WHERE sdm.\"AppId\" IS NOT NULL AND le.\"Url\" IS NOT NULL AND sdm.\"IsOwner\" = true {}
-             GROUP BY sdm.\"AppId\", le.\"Url\", le.\"Service\", sdm.\"AppName\", sdm.\"DepotName\", le.\"DepotId\"
-             ORDER BY sdm.\"AppId\", MAX(le.\"BytesServed\") DESC",
-            exclusion_clause
-        )
-    } else {
-        format!(
-            "SELECT DISTINCT le.\"Service\", sdm.\"AppId\", COALESCE(sdm.\"AppName\", sdm.\"DepotName\", 'App ' || sdm.\"AppId\"), le.\"Url\", le.\"DepotId\"
-             FROM \"LogEntries\" le
-             INNER JOIN \"SteamDepotMappings\" sdm ON le.\"DepotId\" = sdm.\"DepotId\"
-             WHERE sdm.\"AppId\" IS NOT NULL AND le.\"Url\" IS NOT NULL AND sdm.\"IsOwner\" = true {}
-             ORDER BY sdm.\"AppId\"",
-            exclusion_clause
-        )
-    };
-
-    let rows = sqlx::query(&query).fetch_all(pool).await?;
-
-    let mut records: Vec<DownloadRecord> = Vec::new();
-    let mut current_game_id: Option<u32> = None;
-    let mut current_game_count = 0;
-
-    for row in rows {
-        let service: String = row.get(0);
-        let game_app_id: i64 = row.get(1);
-        let game_name: String = row.get(2);
-        let url: String = row.get(3);
-        let depot_id: Option<i64> = row.get(4);
-
-        let record = DownloadRecord {
-            service,
-            game_app_id: game_app_id as u32,
-            game_name,
-            url,
-            depot_id: depot_id.map(|d| d as u32),
-        };
-
-        // Apply per-game limit if specified
-        if let Some(limit) = max_urls_per_game {
-            if Some(record.game_app_id) != current_game_id {
-                current_game_id = Some(record.game_app_id);
-                current_game_count = 0;
-            }
-
-            if current_game_count >= limit {
-                continue;
-            }
-            current_game_count += 1;
-        }
-
-        records.push(record);
-    }
-
-    eprintln!("Found {} URLs across all mapped games", records.len());
-
-    // Also query unknown games (depots without mappings)
-    eprintln!("Querying unknown games...");
-
-    // Build exclusion clause for unknown depots (using depot_id as game_app_id for unknown games)
-    let unknown_exclusion_clause = if !excluded_game_ids.is_empty() {
-        let ids_str = excluded_game_ids.iter()
-            .map(|id| id.to_string())
-            .collect::<Vec<_>>()
-            .join(",");
-        format!("AND le.\"DepotId\" NOT IN ({})", ids_str)
-    } else {
-        String::new()
-    };
-
-    let unknown_query = if let Some(limit) = max_urls_per_game {
-        format!(
-            "SELECT le.\"Service\", le.\"DepotId\", le.\"Url\"
-             FROM \"LogEntries\" le
-             WHERE le.\"DepotId\" IS NOT NULL
-             AND le.\"Url\" IS NOT NULL
-             AND le.\"DepotId\" NOT IN (SELECT \"DepotId\" FROM \"SteamDepotMappings\")
-             {}
-             GROUP BY le.\"DepotId\", le.\"Url\", le.\"Service\"
-             LIMIT {}",
-            unknown_exclusion_clause,
-            limit * 10 // Allow more URLs for unknown games combined
-        )
-    } else {
-        format!(
-            "SELECT DISTINCT le.\"Service\", le.\"DepotId\", le.\"Url\"
-             FROM \"LogEntries\" le
-             WHERE le.\"DepotId\" IS NOT NULL
-             AND le.\"Url\" IS NOT NULL
-             AND le.\"DepotId\" NOT IN (SELECT \"DepotId\" FROM \"SteamDepotMappings\")
-             {}
-             ORDER BY le.\"DepotId\"",
-            unknown_exclusion_clause
-        )
-    };
-
-    let unknown_rows = sqlx::query(&unknown_query).fetch_all(pool).await?;
-
-    let mut unknown_current_depot: Option<u32> = None;
-    let mut unknown_depot_count = 0;
-
-    for row in unknown_rows {
-        let service: String = row.get(0);
-        let depot_id: i64 = row.get(1);
-        let url: String = row.get(2);
-        let depot_id_u32 = depot_id as u32;
-
-        // Apply per-depot limit for unknown games
-        if let Some(limit) = max_urls_per_game {
-            if Some(depot_id_u32) != unknown_current_depot {
-                unknown_current_depot = Some(depot_id_u32);
-                unknown_depot_count = 0;
-            }
-
-            if unknown_depot_count >= limit {
-                continue;
-            }
-            unknown_depot_count += 1;
-        }
-
-        records.push(DownloadRecord {
-            service,
-            game_app_id: depot_id_u32,
-            game_name: format!("Unknown Game (Depot {})", depot_id_u32),
-            url,
-            depot_id: Some(depot_id_u32),
-        });
-    }
-
-    eprintln!("Found {} total URLs to check", records.len());
-
-    Ok(records)
-}
-
-async fn query_service_downloads(pool: &PgPool) -> Result<HashMap<String, Vec<(String, String)>>> {
-    eprintln!("Querying LogEntries for non-game services...");
-
-    // Services to detect (these typically don't have game AppIds)
-    // We exclude 'unknown' and 'localhost' from service aggregation
-    let query = "
-        SELECT DISTINCT le.\"Service\", le.\"Url\"
-        FROM \"LogEntries\" le
-        WHERE le.\"Service\" IS NOT NULL
-        AND le.\"Url\" IS NOT NULL
-        AND LOWER(le.\"Service\") NOT IN ('unknown', 'localhost')
-        AND le.\"Service\" != ''
-        ORDER BY le.\"Service\"
-    ";
-
-    let rows = sqlx::query(query).fetch_all(pool).await?;
-
-    let mut services: HashMap<String, Vec<(String, String)>> = HashMap::new();
-
-    for row in rows {
-        let service: String = row.get(0);
-        let url: String = row.get(1);
-        let service_lower = service.to_lowercase();
-        services
-            .entry(service_lower)
-            .or_insert_with(Vec::new)
-            .push((service, url));
-    }
-
-    let service_count = services.len();
-    let total_urls: usize = services.values().map(|v| v.len()).sum();
-    eprintln!("Found {} unique services with {} URLs", service_count, total_urls);
-
-    Ok(services)
-}
-
-fn detect_cache_files_for_service(
-    service_name: &str,
-    service_urls: &[(String, String)],
-    cache_files_index: &HashMap<String, CacheFileInfo>,
-) -> Result<ServiceCacheInfo> {
-    // Match URLs against in-memory cache index
-    let found_files: HashSet<PathBuf> = service_urls
-        .par_iter()
-        .filter_map(|(service, url)| {
-            // Calculate hash for this service+url combination
-            let cache_key = format!("{}{}", service, url);
-            let hash = cache_utils::calculate_md5(&cache_key);
-
-            // Instant HashMap lookup
-            if let Some(file_info) = cache_files_index.get(&hash) {
-                Some(file_info.path.clone())
-            } else {
-                // Also check chunked format for backwards compatibility
-                (0..100)
-                    .find_map(|chunk| {
-                        let start = chunk * 1_048_576;
-                        let end = start + 1_048_575;
-                        let chunked_key = format!("{}{}bytes={}-{}", service, url, start, end);
-                        let chunked_hash = cache_utils::calculate_md5(&chunked_key);
-                        cache_files_index.get(&chunked_hash).map(|f| f.path.clone())
-                    })
-            }
-        })
-        .collect();
-
-    // Calculate total size from found files
-    let total_size: u64 = found_files
-        .iter()
-        .filter_map(|path| {
-            path.file_name()
-                .and_then(|n| n.to_str())
-                .and_then(|hash| cache_files_index.get(hash))
-                .map(|info| info.size)
-        })
-        .sum();
-
-    let unique_urls: HashSet<String> = service_urls.iter().map(|(_, url)| url.clone()).collect();
-    let sample_urls: Vec<String> = unique_urls.iter().take(5).cloned().collect();
-
-    // Convert cache file paths to strings for output
-    let cache_file_paths: Vec<String> = found_files
-        .iter()
-        .map(|p| p.display().to_string())
-        .collect();
-
-    Ok(ServiceCacheInfo {
-        service_name: service_name.to_string(),
-        cache_files_found: found_files.len(),
-        total_size_bytes: total_size,
-        sample_urls,
-        cache_file_paths,
-    })
-}
-
-/// Detect cache files for a game using direct file existence checks (for incremental mode)
-fn detect_cache_files_for_game_incremental(
-    records: &[DownloadRecord],
-    cache_dir: &Path,
-) -> Result<GameCacheInfo> {
-    if records.is_empty() {
-        anyhow::bail!("No records provided");
-    }
-
-    let game_app_id = records[0].game_app_id;
-    let game_name = records[0].game_name.clone();
-
-    let mut unique_urls: HashSet<String> = HashSet::new();
-    let mut depot_ids: HashSet<u32> = HashSet::new();
-    let mut service_urls: Vec<(String, String)> = Vec::new();
-
-    for record in records {
-        unique_urls.insert(record.url.clone());
-        let service_lower = record.service.to_lowercase();
-        service_urls.push((service_lower, record.url.clone()));
-        if let Some(depot_id) = record.depot_id {
-            depot_ids.insert(depot_id);
-        }
-    }
-
-    // Use direct file existence checks instead of hash map lookups
-    let found_files: HashSet<PathBuf> = service_urls
-        .par_iter()
-        .filter_map(|(service, url)| {
-            let file_path = cache_utils::calculate_cache_path_no_range(&cache_dir, &service, &url);
-
-            if file_path.exists() {
-                Some(file_path)
-            } else {
-                // Check chunked format
-                (0..100).find_map(|chunk| {
-                    let start = chunk * 1_048_576;
-                    let end = start + 1_048_575;
-                    let chunked_path = cache_utils::calculate_cache_path(&cache_dir, &service, &url, start, end);
-                    if chunked_path.exists() {
-                        Some(chunked_path)
-                    } else {
-                        None
-                    }
-                })
-            }
-        })
-        .collect();
-
-    let total_size: u64 = found_files
-        .iter()
-        .filter_map(|path| fs::metadata(path).ok().map(|m| m.len()))
-        .sum();
-
-    let sample_urls: Vec<String> = unique_urls.iter().take(5).cloned().collect();
-    let cache_file_paths: Vec<String> = found_files.iter().map(|p| p.display().to_string()).collect();
-
-    Ok(GameCacheInfo {
-        game_app_id,
-        game_name,
-        cache_files_found: found_files.len(),
-        total_size_bytes: total_size,
-        depot_ids: depot_ids.into_iter().collect(),
-        sample_urls,
-        cache_file_paths,
-        service: None,
-        epic_app_id: None,
-    })
-}
-
-fn detect_cache_files_for_game(
-    records: &[DownloadRecord],
-    cache_files_index: &HashMap<String, CacheFileInfo>,
-) -> Result<GameCacheInfo> {
-    if records.is_empty() {
-        anyhow::bail!("No records provided");
-    }
-
-    let game_app_id = records[0].game_app_id;
-    let game_name = records[0].game_name.clone();
-
-    // Collect unique URLs and depot IDs
-    let mut unique_urls: HashSet<String> = HashSet::new();
-    let mut depot_ids: HashSet<u32> = HashSet::new();
-    let mut service_urls: Vec<(String, String)> = Vec::new();
-
-    for record in records {
-        unique_urls.insert(record.url.clone());
-        // Lowercase service name to match cache file format
-        let service_lower = record.service.to_lowercase();
-        service_urls.push((service_lower, record.url.clone()));
-
-        if let Some(depot_id) = record.depot_id {
-            depot_ids.insert(depot_id);
-        }
-    }
-
-    // Match URLs against in-memory cache index (instant lookups instead of filesystem checks!)
-    let found_files: HashSet<PathBuf> = service_urls
-        .par_iter()
-        .filter_map(|(service, url)| {
-            // Calculate hash for this service+url combination
-            let cache_key = format!("{}{}", service, url);
-            let hash = cache_utils::calculate_md5(&cache_key);
-
-            // Instant HashMap lookup instead of file.exists()!
-            if let Some(file_info) = cache_files_index.get(&hash) {
-                Some(file_info.path.clone())
-            } else {
-                // Also check chunked format (bytes range) for backwards compatibility
-                (0..100)
-                    .find_map(|chunk| {
-                        let start = chunk * 1_048_576;
-                        let end = start + 1_048_575;
-                        let chunked_key = format!("{}{}bytes={}-{}", service, url, start, end);
-                        let chunked_hash = cache_utils::calculate_md5(&chunked_key);
-                        cache_files_index.get(&chunked_hash).map(|f| f.path.clone())
-                    })
-            }
-        })
-        .collect();
-
-    // Calculate total size from found files
-    let total_size: u64 = found_files
-        .iter()
-        .filter_map(|path| {
-            path.file_name()
-                .and_then(|n| n.to_str())
-                .and_then(|hash| cache_files_index.get(hash))
-                .map(|info| info.size)
-        })
-        .sum();
-
-    let sample_urls: Vec<String> = unique_urls.iter().take(5).cloned().collect();
-
-    // Convert cache file paths to strings for output
-    let cache_file_paths: Vec<String> = found_files
-        .iter()
-        .map(|p| p.display().to_string())
-        .collect();
-
-    Ok(GameCacheInfo {
-        game_app_id,
-        game_name,
-        cache_files_found: found_files.len(),
-        total_size_bytes: total_size,
-        depot_ids: depot_ids.into_iter().collect(),
-        sample_urls,
-        cache_file_paths,
-        service: None,
-        epic_app_id: None,
-    })
-}
-
-/// Generate a u32 game app ID from an Epic string app ID.
-/// Uses SHA256 hash with high bit set to avoid Steam AppId collisions.
-/// Must match the C# GenerateEpicGameAppId implementation exactly.
-fn generate_epic_game_app_id(epic_app_id: &str) -> u32 {
-    let mut hasher = Sha256::new();
-    hasher.update(epic_app_id.as_bytes());
-    let hash = hasher.finalize();
-    let raw_hash = u32::from_le_bytes([hash[0], hash[1], hash[2], hash[3]]);
-    raw_hash | 0x80000000
-}
-
-#[derive(Debug)]
-struct EpicDownloadRecord {
-    epic_app_id: String,
-    game_name: String,
-    service: String,
-    url: String,
-}
-
-/// Query LogEntries joined with Downloads for non-evicted Epic games.
-async fn query_epic_game_downloads(pool: &PgPool) -> Result<Vec<EpicDownloadRecord>> {
-    eprintln!("Querying LogEntries for Epic game URLs...");
-
-    let rows = sqlx::query(
-        "SELECT DISTINCT le.\"Service\", le.\"Url\", d.\"EpicAppId\", d.\"GameName\"
-         FROM \"LogEntries\" le
-         INNER JOIN \"Downloads\" d ON le.\"DownloadId\" = d.\"Id\"
-         WHERE d.\"EpicAppId\" IS NOT NULL
-           AND d.\"GameName\" IS NOT NULL
-           AND d.\"IsEvicted\" = false
-           AND le.\"Url\" IS NOT NULL
-         ORDER BY d.\"EpicAppId\""
-    )
-    .fetch_all(pool)
-    .await?;
-
-    let records: Vec<EpicDownloadRecord> = rows
-        .iter()
-        .map(|row| EpicDownloadRecord {
-            service: row.get::<String, _>("Service"),
-            url: row.get::<String, _>("Url"),
-            epic_app_id: row.get::<String, _>("EpicAppId"),
-            game_name: row.get::<String, _>("GameName"),
-        })
-        .collect();
-
-    eprintln!("Found {} Epic game URLs", records.len());
-    Ok(records)
-}
-
-/// Detect cache files for an Epic game using the in-memory cache index.
-fn detect_cache_files_for_epic_game(
-    epic_app_id: &str,
-    game_name: &str,
-    service_urls: &[(String, String)],
-    cache_files_index: &HashMap<String, CacheFileInfo>,
-) -> Result<GameCacheInfo> {
-    let generated_app_id = generate_epic_game_app_id(epic_app_id);
-
-    let found_files: HashSet<PathBuf> = service_urls
-        .par_iter()
-        .filter_map(|(service, url)| {
-            let cache_key = format!("{}{}", service, url);
-            let hash = cache_utils::calculate_md5(&cache_key);
-
-            if let Some(file_info) = cache_files_index.get(&hash) {
-                Some(file_info.path.clone())
-            } else {
-                (0..100).find_map(|chunk| {
-                    let start = chunk * 1_048_576;
-                    let end = start + 1_048_575;
-                    let chunked_key = format!("{}{}bytes={}-{}", service, url, start, end);
-                    let chunked_hash = cache_utils::calculate_md5(&chunked_key);
-                    cache_files_index.get(&chunked_hash).map(|f| f.path.clone())
-                })
-            }
-        })
-        .collect();
-
-    let total_size: u64 = found_files
-        .iter()
-        .filter_map(|path| {
-            path.file_name()
-                .and_then(|n| n.to_str())
-                .and_then(|hash| cache_files_index.get(hash))
-                .map(|info| info.size)
-        })
-        .sum();
-
-    let unique_urls: HashSet<&str> = service_urls.iter().map(|(_, url)| url.as_str()).collect();
-    let sample_urls: Vec<String> = unique_urls.iter().take(5).map(|s| s.to_string()).collect();
-    let cache_file_paths: Vec<String> = found_files.iter().map(|p| p.display().to_string()).collect();
-
-    Ok(GameCacheInfo {
-        game_app_id: generated_app_id,
-        game_name: game_name.to_string(),
-        cache_files_found: found_files.len(),
-        total_size_bytes: total_size,
-        depot_ids: Vec::new(),
-        sample_urls,
-        cache_file_paths,
-        service: Some("epicgames".to_string()),
-        epic_app_id: Some(epic_app_id.to_string()),
-    })
-}
-
-/// Detect cache files for an Epic game using direct file existence checks (incremental mode).
-fn detect_cache_files_for_epic_game_incremental(
-    epic_app_id: &str,
-    game_name: &str,
-    service_urls: &[(String, String)],
-    cache_dir: &Path,
-) -> Result<GameCacheInfo> {
-    let generated_app_id = generate_epic_game_app_id(epic_app_id);
-
-    let found_files: HashSet<PathBuf> = service_urls
-        .par_iter()
-        .filter_map(|(service, url)| {
-            let file_path = cache_utils::calculate_cache_path_no_range(cache_dir, service, url);
-            if file_path.exists() {
-                Some(file_path)
-            } else {
-                (0..100).find_map(|chunk| {
-                    let start = chunk * 1_048_576;
-                    let end = start + 1_048_575;
-                    let chunked_path = cache_utils::calculate_cache_path(cache_dir, service, url, start, end);
-                    if chunked_path.exists() {
-                        Some(chunked_path)
-                    } else {
-                        None
-                    }
-                })
-            }
-        })
-        .collect();
-
-    let total_size: u64 = found_files
-        .iter()
-        .filter_map(|path| fs::metadata(path).ok().map(|m| m.len()))
-        .sum();
-
-    let unique_urls: HashSet<&str> = service_urls.iter().map(|(_, url)| url.as_str()).collect();
-    let sample_urls: Vec<String> = unique_urls.iter().take(5).map(|s| s.to_string()).collect();
-    let cache_file_paths: Vec<String> = found_files.iter().map(|p| p.display().to_string()).collect();
-
-    Ok(GameCacheInfo {
-        game_app_id: generated_app_id,
-        game_name: game_name.to_string(),
-        cache_files_found: found_files.len(),
-        total_size_bytes: total_size,
-        depot_ids: Vec::new(),
-        sample_urls,
-        cache_file_paths,
-        service: Some("epicgames".to_string()),
-        epic_app_id: Some(epic_app_id.to_string()),
-    })
 }
 
 #[tokio::main]
@@ -794,7 +229,7 @@ async fn main() -> Result<()> {
         anyhow::bail!("Cache directory not found: {}", cache_dir.display());
     }
 
-    let pool = db::create_pool().await;
+    let pool = db::create_pool().await?;
 
     // Variables that may or may not be used depending on mode
     let cache_files_index: Option<HashMap<String, CacheFileInfo>>;
@@ -827,13 +262,7 @@ async fn main() -> Result<()> {
     reporter.emit_progress(30.0, "signalr.gameDetect.db.complete", json!({}));
 
     // Group records by game_app_id
-    let mut games_map: HashMap<u32, Vec<DownloadRecord>> = HashMap::new();
-    for record in all_records {
-        games_map
-            .entry(record.game_app_id)
-            .or_insert_with(Vec::new)
-            .push(record);
-    }
+    let games_map = group_game_records(all_records);
 
     let total_games = games_map.len();
     eprintln!("Found {} unique games in database", total_games);
@@ -885,9 +314,12 @@ async fn main() -> Result<()> {
         }
 
         let result = if incremental_mode {
-            detect_cache_files_for_game_incremental(&records, &cache_dir)
+            detect_steam_game_cache_info_incremental(&records, &cache_dir)
         } else {
-            detect_cache_files_for_game(&records, cache_files_index.as_ref().unwrap())
+            let cache_index = cache_files_index
+                .as_ref()
+                .context("Cache file index missing during full game scan")?;
+            detect_steam_game_cache_info(&records, cache_index)
         };
 
         match result {
@@ -927,14 +359,7 @@ async fn main() -> Result<()> {
     let epic_records = query_epic_game_downloads(&pool).await?;
 
     if !epic_records.is_empty() {
-        // Group by EpicAppId
-        let mut epic_map: HashMap<String, (String, Vec<(String, String)>)> = HashMap::new();
-        for record in &epic_records {
-            let entry = epic_map
-                .entry(record.epic_app_id.clone())
-                .or_insert_with(|| (record.game_name.clone(), Vec::new()));
-            entry.1.push((record.service.to_lowercase(), record.url.clone()));
-        }
+        let epic_map = group_epic_records(&epic_records);
 
         let total_epic = epic_map.len();
         eprintln!("Found {} unique Epic games to check", total_epic);
@@ -946,9 +371,12 @@ async fn main() -> Result<()> {
                     epic_processed, total_epic, epic_id, game_name, service_urls.len());
 
             let result = if incremental_mode {
-                detect_cache_files_for_epic_game_incremental(epic_id, game_name, service_urls, &cache_dir)
+                detect_epic_game_cache_info_incremental(epic_id, game_name, service_urls, &cache_dir)
             } else {
-                detect_cache_files_for_epic_game(epic_id, game_name, service_urls, cache_files_index.as_ref().unwrap())
+                let cache_index = cache_files_index
+                    .as_ref()
+                    .context("Cache file index missing during full Epic scan")?;
+                detect_epic_game_cache_info(epic_id, game_name, service_urls, cache_index)
             };
 
             match result {
@@ -989,65 +417,76 @@ async fn main() -> Result<()> {
     let mut service_files_found = 0;
     let mut service_bytes_found: u64 = 0;
 
-    if !incremental_mode {
-        eprintln!("\n=== Phase 4: Detecting Non-Game Services ===");
-        write_progress(progress_path.as_deref(), "services", "signalr.gameDetect.services.detecting", json!({}), 80.0, 0, 0)?;
-        reporter.emit_progress(80.0, "signalr.gameDetect.services.detecting", json!({}));
+    eprintln!(
+        "\n=== Phase 4: Detecting Non-Game Services{} ===",
+        if incremental_mode {
+            " (Incremental Mode)"
+        } else {
+            ""
+        }
+    );
+    write_progress(progress_path.as_deref(), "services", "signalr.gameDetect.services.detecting", json!({}), 80.0, 0, 0)?;
+    reporter.emit_progress(80.0, "signalr.gameDetect.services.detecting", json!({}));
 
-        let services_map = query_service_downloads(&pool).await?;
-        let total_services = services_map.len();
-        let mut services_processed = 0;
+    let services_map = query_service_downloads(&pool).await?;
+    let total_services = services_map.len();
+    let mut services_processed = 0;
 
-        for (service_name, service_urls) in services_map {
-            services_processed += 1;
-            eprint!("  Matching service '{}' - {} URLs... ", service_name, service_urls.len());
+    for (service_name, service_urls) in services_map {
+        services_processed += 1;
+        eprint!("  Matching service '{}' - {} URLs... ", service_name, service_urls.len());
 
-            // Update progress for services (80-90%)
-            let service_percent = 80.0 + (services_processed as f64 / total_services.max(1) as f64) * 10.0;
-            write_progress(
-                progress_path.as_deref(),
-                "services",
-                "signalr.gameDetect.services.progress",
-                json!({ "processed": services_processed, "total": total_services }),
-                service_percent,
-                services_processed,
-                total_services,
-            )?;
-            reporter.emit_progress(service_percent, "signalr.gameDetect.services.progress", json!({ "processed": services_processed, "total": total_services }));
+        // Update progress for services (80-90%)
+        let service_percent = 80.0 + (services_processed as f64 / total_services.max(1) as f64) * 10.0;
+        write_progress(
+            progress_path.as_deref(),
+            "services",
+            "signalr.gameDetect.services.progress",
+            json!({ "processed": services_processed, "total": total_services }),
+            service_percent,
+            services_processed,
+            total_services,
+        )?;
+        reporter.emit_progress(service_percent, "signalr.gameDetect.services.progress", json!({ "processed": services_processed, "total": total_services }));
 
-            match detect_cache_files_for_service(&service_name, &service_urls, cache_files_index.as_ref().unwrap()) {
-                Ok(info) => {
-                    if info.cache_files_found > 0 {
-                        let size_gb = info.total_size_bytes as f64 / 1_073_741_824.0;
-                        let size_mb = info.total_size_bytes as f64 / 1_048_576.0;
+        let result = if incremental_mode {
+            detect_service_cache_info_incremental(&service_name, &service_urls, &cache_dir)
+        } else {
+            let cache_index = cache_files_index
+                .as_ref()
+                .context("Cache file index missing during service scan")?;
 
-                        if size_gb >= 1.0 {
-                            eprintln!("FOUND {} files ({:.2} GB)", info.cache_files_found, size_gb);
-                        } else {
-                            eprintln!("FOUND {} files ({:.2} MB)", info.cache_files_found, size_mb);
-                        }
+            detect_service_cache_info(&service_name, &service_urls, cache_index)
+        };
 
-                        service_files_found += info.cache_files_found;
-                        service_bytes_found += info.total_size_bytes;
-                        detected_services.push(info);
+        match result {
+            Ok(info) => {
+                if info.cache_files_found > 0 {
+                    let size_gb = info.total_size_bytes as f64 / 1_073_741_824.0;
+                    let size_mb = info.total_size_bytes as f64 / 1_048_576.0;
+
+                    if size_gb >= 1.0 {
+                        eprintln!("FOUND {} files ({:.2} GB)", info.cache_files_found, size_gb);
                     } else {
-                        eprintln!("no cache files found");
+                        eprintln!("FOUND {} files ({:.2} MB)", info.cache_files_found, size_mb);
                     }
-                }
-                Err(e) => {
-                    eprintln!("ERROR: {}", e);
+
+                    service_files_found += info.cache_files_found;
+                    service_bytes_found += info.total_size_bytes;
+                    detected_services.push(info);
+                } else {
+                    eprintln!("no cache files found");
                 }
             }
+            Err(e) => {
+                eprintln!("ERROR: {}", e);
+            }
         }
-
-        eprintln!("\n=== Service Scan Complete ===");
-        eprintln!("Total service cache files found: {}", service_files_found);
-        eprintln!("Total service cache size: {:.2} GB", service_bytes_found as f64 / 1_073_741_824.0);
-    } else {
-        eprintln!("\n=== Skipping Service Detection (Incremental Mode) ===");
-        write_progress(progress_path.as_deref(), "services", "signalr.gameDetect.services.skippedIncremental", json!({}), 90.0, 0, 0)?;
-        reporter.emit_progress(90.0, "signalr.gameDetect.services.skippedIncremental", json!({}));
     }
+
+    eprintln!("\n=== Service Scan Complete ===");
+    eprintln!("Total service cache files found: {}", service_files_found);
+    eprintln!("Total service cache size: {:.2} GB", service_bytes_found as f64 / 1_073_741_824.0);
 
     let report = DetectionReport {
         total_games_detected: detected_games.len(),

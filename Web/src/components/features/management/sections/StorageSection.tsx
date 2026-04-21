@@ -11,11 +11,12 @@ import { LoadingState } from '@components/ui/ManagerCard';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { type AuthMode } from '@services/auth.service';
 import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
+import { useTimeoutCallback } from '@/hooks/useTimeoutCallback';
 import { useDockerSocket } from '@contexts/useDockerSocket';
 import { ImageCacheContext, ImageInvalidateContext } from '@components/common/ImageCacheContext';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
-import { useNotifications, NOTIFICATION_IDS } from '@contexts/notifications';
+import { useNotifications } from '@contexts/notifications';
 import { waitForSignalRCompletion } from '@contexts/notifications/waitForSignalRCompletion';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useCancellableQueue } from '@/hooks/useCancellableQueue';
@@ -26,6 +27,24 @@ import LogRemovalManager from '../log-processing/LogRemovalManager';
 import CacheManager from '../cache/CacheManager';
 import CorruptionManager from '../cache/CorruptionManager';
 import GameCacheDetector from '../game-detection/GameCacheDetector';
+import {
+  MANAGEMENT_STORAGE_KEYS,
+  EVICTION_SETTINGS_CHANGED_EVENT,
+  type EvictionSettingsChangedDetail
+} from './managementStorageKeys';
+import { getEvictedGames, getEvictedServices } from '../game-detection/cacheEntityFilters';
+import {
+  CACHED_DETECTION_RELOAD_DELAY_MS,
+  loadCachedDetectionSnapshot,
+  type CacheRemovalTarget
+} from '../game-detection/cacheDetectionData';
+import {
+  finalizeBulkRemovalNotification,
+  runTrackedGameRemoval,
+  runTrackedServiceRemoval,
+  useCompletedRemovalPruning,
+  useScheduledRemovalRefresh
+} from '../game-detection/cacheRemovalHelpers';
 import type { GameCacheInfo, ServiceCacheInfo } from '../../../../types';
 interface StorageSectionProps {
   isAdmin: boolean;
@@ -93,18 +112,16 @@ const StorageSection: React.FC<StorageSectionProps> = ({
       n.status === 'running'
   );
 
+  // Managed setTimeout for post-SignalR eviction refetch; cancels on unmount.
+  const scheduleEvictedItemsRefresh = useTimeoutCallback(CACHED_DETECTION_RELOAD_DELAY_MS);
+  const scheduleRemovalRefresh = useScheduledRemovalRefresh();
+
   // Fetch full detection data (fat shape) for evicted items rendering
   const fetchEvictedItems = useCallback(async () => {
     try {
-      const result = await ApiService.getCachedGameDetection();
-      const games =
-        result?.games?.filter(
-          (g) => (g.evicted_downloads_count ?? 0) > 0 || g.is_evicted === true
-        ) ?? [];
-      const services =
-        result?.services?.filter(
-          (s) => (s.evicted_downloads_count ?? 0) > 0 || s.is_evicted === true
-        ) ?? [];
+      const snapshot = await loadCachedDetectionSnapshot();
+      const games = getEvictedGames(snapshot.games);
+      const services = getEvictedServices(snapshot.services);
       setEvictedGames(games);
       setEvictedServices(services);
     } catch (err) {
@@ -130,10 +147,8 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     const handleScanDone = () => {
       if (isAnyEvictedRemovalRunning) return;
       // Small delay so the backend finishes its post-scan recovery + cache
-      // invalidation before we refetch.
-      setTimeout(() => {
-        void fetchEvictedItems();
-      }, 500);
+      // invalidation before we refetch. The hook owns cleanup on unmount.
+      scheduleEvictedItemsRefresh(() => void fetchEvictedItems());
     };
     on('EvictionScanComplete', handleScanDone);
     on('GameDetectionComplete', handleScanDone);
@@ -141,51 +156,19 @@ const StorageSection: React.FC<StorageSectionProps> = ({
       off('EvictionScanComplete', handleScanDone);
       off('GameDetectionComplete', handleScanDone);
     };
-  }, [on, off, fetchEvictedItems, isAnyEvictedRemovalRunning]);
+  }, [on, off, fetchEvictedItems, isAnyEvictedRemovalRunning, scheduleEvictedItemsRefresh]);
 
   // Track partial eviction target so we know which item to filter on eviction_removal completion
-  const partialRemovalTargetRef = useRef<{ gameAppId?: number; serviceName?: string } | null>(null);
+  const partialRemovalTargetRef = useRef<CacheRemovalTarget | null>(null);
 
   // Remove evicted items from local state when notification confirms removal is done
   // (identical pattern to GameCacheDetector lines 216-241)
-  useEffect(() => {
-    // Full eviction: game_removal/service_removal completed via GameRemoval*/ServiceRemoval* SignalR
-    notifications
-      .filter((n) => n.type === 'game_removal' && n.status === 'completed')
-      .forEach((notif) => {
-        const gameAppId = notif.details?.gameAppId;
-        const gameName = notif.details?.gameName;
-        if (gameAppId) {
-          setEvictedGames((prev) => prev.filter((g) => g.game_app_id !== gameAppId));
-        } else if (gameName) {
-          setEvictedGames((prev) => prev.filter((g) => g.game_name !== gameName));
-        }
-      });
-
-    notifications
-      .filter((n) => n.type === 'service_removal' && n.status === 'completed')
-      .forEach((notif) => {
-        const serviceName = notif.details?.service;
-        if (serviceName) {
-          setEvictedServices((prev) => prev.filter((s) => s.service_name !== serviceName));
-        }
-      });
-
-    // Partial eviction: eviction_removal completed via EvictionRemoval* SignalR (registry-managed)
-    const evictionComplete = notifications.some(
-      (n) => n.type === 'eviction_removal' && n.status === 'completed'
-    );
-    if (evictionComplete && partialRemovalTargetRef.current) {
-      const { gameAppId, serviceName } = partialRemovalTargetRef.current;
-      if (gameAppId) {
-        setEvictedGames((prev) => prev.filter((g) => g.game_app_id !== gameAppId));
-      }
-      if (serviceName) {
-        setEvictedServices((prev) => prev.filter((s) => s.service_name !== serviceName));
-      }
-      partialRemovalTargetRef.current = null;
-    }
-  }, [notifications]);
+  useCompletedRemovalPruning({
+    notifications,
+    setGames: setEvictedGames,
+    setServices: setEvictedServices,
+    partialRemovalTargetRef
+  });
 
   // Evicted removal state (migrated from GameCacheDetector)
   const [evictedGameToRemove, setEvictedGameToRemove] = useState<GameCacheInfo | null>(null);
@@ -288,53 +271,57 @@ const StorageSection: React.FC<StorageSectionProps> = ({
       },
       processItem: async (entry, ctx) => {
         if (entry.kind === 'service') {
-          const { operationId } = await ApiService.removeEvictedForService(
-            entry.service.service_name
-          );
-          ctx.setOperationId(operationId);
-          await waitForSignalRCompletion<never, { operationId?: string }>({
+          let operationId: string | null = null;
+          const waitPromise = waitForSignalRCompletion<never, { operationId?: string }>({
             signalR: { on, off },
             completeEvent: 'EvictionRemovalComplete',
             match: (payload) => payload?.operationId === operationId,
             signal: ctx.signal
           });
+          ({ operationId } = await ApiService.removeEvictedForService(entry.service.service_name));
+          ctx.setOperationId(operationId);
+          await waitPromise;
         } else {
           const game = entry.game;
           const isEpic = game.service === 'epicgames' && !!game.epic_app_id;
-          const { operationId } = isEpic
-            ? await ApiService.removeEvictedForEpicGame(game.epic_app_id!)
-            : await ApiService.removeEvictedForGame(game.game_app_id);
-          ctx.setOperationId(operationId);
-          await waitForSignalRCompletion<never, { operationId?: string }>({
+          let operationId: string | null = null;
+          const waitPromise = waitForSignalRCompletion<never, { operationId?: string }>({
             signalR: { on, off },
             completeEvent: 'EvictionRemovalComplete',
             match: (payload) => payload?.operationId === operationId,
             signal: ctx.signal
           });
+          ({ operationId } = isEpic
+            ? await ApiService.removeEvictedForEpicGame(game.epic_app_id!)
+            : await ApiService.removeEvictedForGame(game.game_app_id));
+          ctx.setOperationId(operationId);
+          await waitPromise;
         }
       },
-      finalize: ({ id, succeeded, cancelled }) => {
+      finalize: ({ id, succeeded, failed, cancelled, total }) => {
         setRemoveAllRunning(false);
         setRemoveAllProgress(null);
-        if (cancelled) {
-          updateNotification(id, {
-            status: 'completed',
-            message: t('management.sections.data.evictionRemoveAllCancelled', {
-              count: succeeded,
-              defaultValue: 'Bulk removal cancelled after {{count}} items'
-            }),
-            details: { cancelled: true, cancelling: false }
-          });
-        } else {
-          updateNotification(id, {
-            status: 'completed',
-            progress: 100,
-            message: t('management.sections.data.evictionRemoveAllComplete', {
-              count: succeeded,
-              defaultValue: 'Removed {{count}} evicted items'
-            })
-          });
-        }
+        finalizeBulkRemovalNotification({
+          id,
+          succeeded,
+          failed,
+          total,
+          cancelled,
+          t,
+          updateNotification,
+          text: {
+            completeKey: 'management.sections.data.evictionRemoveAllComplete',
+            completeDefaultValue: 'Removed {{count}} evicted items',
+            partialFailureKey: 'management.sections.data.evictionRemoveAllCompleteWithFailures',
+            partialFailureDefaultValue: 'Removed {{count}} evicted items, but {{failed}} failed',
+            cancelledKey: 'management.sections.data.evictionRemoveAllCancelled',
+            cancelledDefaultValue: 'Bulk removal cancelled after {{count}} items',
+            cancelledWithFailuresKey:
+              'management.sections.data.evictionRemoveAllCancelledWithFailures',
+            cancelledWithFailuresDefaultValue:
+              'Bulk removal cancelled after {{count}} items, with {{failed}} failures'
+          }
+        });
       }
     });
   }, [
@@ -360,9 +347,7 @@ const StorageSection: React.FC<StorageSectionProps> = ({
       setPartialEvictedTarget(null);
       try {
         await ApiService.removeEvictedForService(service.service_name);
-        setTimeout(() => {
-          onDataRefresh?.();
-        }, 30000);
+        scheduleRemovalRefresh(onDataRefresh);
       } catch (err: unknown) {
         const errorMsg =
           (err instanceof Error ? err.message : String(err)) ||
@@ -372,17 +357,25 @@ const StorageSection: React.FC<StorageSectionProps> = ({
     } else {
       const game = partialEvictedTarget as GameCacheInfo;
       const isEpic = game.service === 'epicgames';
-      partialRemovalTargetRef.current = { gameAppId: game.game_app_id };
+      partialRemovalTargetRef.current = isEpic
+        ? {
+            epicAppId: game.epic_app_id ?? undefined,
+            gameName: game.game_name
+          }
+        : { gameAppId: game.game_app_id };
       setPartialEvictedTarget(null);
       try {
-        if (isEpic && game.epic_app_id) {
+        if (isEpic) {
+          if (!game.epic_app_id) {
+            partialRemovalTargetRef.current = null;
+            onError(t('management.gameDetection.failedToRemoveGame'));
+            return;
+          }
           await ApiService.removeEvictedForEpicGame(game.epic_app_id);
         } else {
           await ApiService.removeEvictedForGame(game.game_app_id);
         }
-        setTimeout(() => {
-          onDataRefresh?.();
-        }, 30000);
+        scheduleRemovalRefresh(onDataRefresh);
       } catch (err: unknown) {
         const errorMsg =
           (err instanceof Error ? err.message : String(err)) ||
@@ -395,72 +388,31 @@ const StorageSection: React.FC<StorageSectionProps> = ({
   const confirmEvictedGameRemoval = async () => {
     if (!evictedGameToRemove) return;
 
-    const gameAppId = evictedGameToRemove.game_app_id;
-    const gameName = evictedGameToRemove.game_name;
-    const isEpic = evictedGameToRemove.service === 'epicgames';
-
-    addNotification({
-      type: 'game_removal',
-      status: 'running',
-      message: t('management.gameDetection.removingGame', { name: gameName }),
-      details: { gameAppId, gameName }
-    });
-
+    const game = evictedGameToRemove;
     setEvictedGameToRemove(null);
-
-    try {
-      if (isEpic) {
-        await ApiService.removeEpicGameFromCache(gameName);
-      } else {
-        await ApiService.removeGameFromCache(gameAppId);
-      }
-      // Item disappears when notification becomes 'completed' via useEffect
-      setTimeout(() => {
-        onDataRefresh?.();
-      }, 30000);
-    } catch (err: unknown) {
-      const errorMsg =
-        (err instanceof Error ? err.message : String(err)) ||
-        t('management.gameDetection.failedToRemoveGame');
-      updateNotification(NOTIFICATION_IDS.GAME_REMOVAL, {
-        status: 'failed',
-        error: errorMsg
-      });
-      console.error('Evicted game removal error:', errorMsg);
-    }
+    await runTrackedGameRemoval({
+      game,
+      t,
+      addNotification,
+      updateNotification,
+      scheduleRemovalRefresh,
+      onDataRefresh
+    });
   };
 
   const confirmEvictedServiceRemoval = async () => {
     if (!evictedServiceToRemove) return;
 
-    const serviceName = evictedServiceToRemove.service_name;
-
-    addNotification({
-      type: 'service_removal',
-      status: 'running',
-      message: t('management.gameDetection.removingService', { name: serviceName }),
-      details: { service: serviceName }
-    });
-
+    const service = evictedServiceToRemove;
     setEvictedServiceToRemove(null);
-
-    try {
-      await ApiService.removeServiceFromCache(serviceName);
-      // Item disappears when notification becomes 'completed' via useEffect
-      setTimeout(() => {
-        onDataRefresh?.();
-      }, 30000);
-    } catch (err: unknown) {
-      const errorMsg =
-        (err instanceof Error ? err.message : String(err)) ||
-        t('management.gameDetection.failedToRemoveService');
-      const notifId = `service_removal-${serviceName}`;
-      updateNotification(notifId, {
-        status: 'failed',
-        error: errorMsg
-      });
-      console.error('Evicted service removal error:', errorMsg);
-    }
+    await runTrackedServiceRemoval({
+      service,
+      t,
+      addNotification,
+      updateNotification,
+      scheduleRemovalRefresh,
+      onDataRefresh
+    });
   };
 
   const evictionScanNotification = notifications.find(
@@ -469,30 +421,39 @@ const StorageSection: React.FC<StorageSectionProps> = ({
   const isEvictionScanRunning = !!evictionScanNotification || isStartingEvictionScan;
 
   const [evictedDataExpanded, setEvictedDataExpanded] = useState(() => {
-    const saved = localStorage.getItem('management-evicted-data-expanded-v2');
+    const saved = localStorage.getItem(MANAGEMENT_STORAGE_KEYS.EVICTED_DATA_EXPANDED);
     return saved !== null ? saved === 'true' : false;
   });
 
   useEffect(() => {
-    localStorage.setItem('management-evicted-data-expanded-v2', String(evictedDataExpanded));
+    localStorage.setItem(
+      MANAGEMENT_STORAGE_KEYS.EVICTED_DATA_EXPANDED,
+      String(evictedDataExpanded)
+    );
   }, [evictedDataExpanded]);
 
   const [evictionSettingsExpanded, setEvictionSettingsExpanded] = useState(() => {
-    const saved = localStorage.getItem('management-eviction-settings-expanded');
+    const saved = localStorage.getItem(MANAGEMENT_STORAGE_KEYS.EVICTION_SETTINGS_EXPANDED);
     return saved !== null ? saved === 'true' : true;
   });
 
   useEffect(() => {
-    localStorage.setItem('management-eviction-settings-expanded', String(evictionSettingsExpanded));
+    localStorage.setItem(
+      MANAGEMENT_STORAGE_KEYS.EVICTION_SETTINGS_EXPANDED,
+      String(evictionSettingsExpanded)
+    );
   }, [evictionSettingsExpanded]);
 
   const [evictedItemsExpanded, setEvictedItemsExpanded] = useState(() => {
-    const saved = localStorage.getItem('management-evicted-items-expanded');
+    const saved = localStorage.getItem(MANAGEMENT_STORAGE_KEYS.EVICTED_ITEMS_EXPANDED);
     return saved !== null ? saved === 'true' : true;
   });
 
   useEffect(() => {
-    localStorage.setItem('management-evicted-items-expanded', String(evictedItemsExpanded));
+    localStorage.setItem(
+      MANAGEMENT_STORAGE_KEYS.EVICTED_ITEMS_EXPANDED,
+      String(evictedItemsExpanded)
+    );
   }, [evictedItemsExpanded]);
 
   // "Remove All" state — sequential per-item eviction removal. One at a time
@@ -551,6 +512,13 @@ const StorageSection: React.FC<StorageSectionProps> = ({
       setSavedEvictionMode(response.evictedDataMode);
       setEvictionScanNotifications(response.evictionScanNotifications);
       setSavedEvictionScanNotifications(response.evictionScanNotifications);
+      const detail: EvictionSettingsChangedDetail = {
+        evictedDataMode: response.evictedDataMode,
+        evictionScanNotifications: response.evictionScanNotifications
+      };
+      window.dispatchEvent(
+        new CustomEvent<EvictionSettingsChangedDetail>(EVICTION_SETTINGS_CHANGED_EVENT, { detail })
+      );
       onSuccess(t('management.sections.data.evictionSaveSuccess'));
       onDataRefresh();
     } catch (err: unknown) {

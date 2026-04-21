@@ -16,7 +16,7 @@ public partial class EpicMappingService
     /// </summary>
     protected override async Task ExecuteScheduledWorkAsync(CancellationToken stoppingToken)
     {
-        if (_cancellationTokenSource.Token.IsCancellationRequested || !_isRunning)
+        if (_cancellationTokenSource.Token.IsCancellationRequested || Volatile.Read(ref _isRunning) == 0)
             return;
 
         // Skip if not authenticated (need valid tokens to refresh)

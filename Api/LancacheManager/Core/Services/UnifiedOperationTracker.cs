@@ -36,9 +36,10 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
 
         if (_operations.TryAdd(operationId, operation))
         {
-            if (metadata is RemovalMetrics removalMetrics && !string.IsNullOrEmpty(removalMetrics.EntityKey))
+            var indexKey = BuildIndexKey(type, metadata);
+            if (indexKey != null)
             {
-                _entityKeyIndex[(type, removalMetrics.EntityKey)] = operationId;
+                _entityKeyIndex[(type, indexKey)] = operationId;
             }
 
             _logger.LogInformation("Registered {Type} operation: {Name} (ID: {Id})", type, name, operationId);
@@ -47,6 +48,36 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
 
         _logger.LogError("Failed to register operation: {Name} (ID: {Id})", name, operationId);
         throw new InvalidOperationException($"Failed to register operation {operationId}");
+    }
+
+    public bool TryRestoreOperation(Guid operationId, OperationType type, string name, CancellationTokenSource cts, object? metadata = null)
+    {
+        var operation = new OperationInfo
+        {
+            Id = operationId,
+            Type = type,
+            Name = name,
+            Status = OperationStatus.Running,
+            Message = $"Starting {name}...",
+            StartedAt = DateTime.UtcNow,
+            CancellationTokenSource = cts,
+            Metadata = metadata
+        };
+
+        if (_operations.TryAdd(operationId, operation))
+        {
+            var indexKey = BuildIndexKey(type, metadata);
+            if (indexKey != null)
+            {
+                _entityKeyIndex[(type, indexKey)] = operationId;
+            }
+
+            _logger.LogInformation("Restored {Type} operation: {Name} (ID: {Id})", type, name, operationId);
+            return true;
+        }
+
+        _logger.LogWarning("Failed to restore operation: {Name} (ID: {Id}) — ID already registered", name, operationId);
+        return false;
     }
 
     public bool CancelOperation(Guid operationId)
@@ -207,7 +238,33 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
 
     public OperationInfo? GetOperationByEntityKey(OperationType type, string entityKey)
     {
-        if (_entityKeyIndex.TryGetValue((type, entityKey), out var operationId))
+        // Phase 3: the secondary index is now prefixed with kind ("steam:480", "service:steam", ...).
+        // Preserve the raw-key signature used by existing callers by probing the common prefixes
+        // in priority order. This mirrors the canonicalization rules in ConflictScope.
+        // Priority matches historical usage: steam appIds > epic app ids > service names.
+        string[] candidateKeys = type switch
+        {
+            OperationType.GameRemoval => new[] { $"steam:{entityKey}", $"epic:{entityKey}" },
+            OperationType.ServiceRemoval => new[] { $"service:{entityKey}" },
+            OperationType.CorruptionRemoval => new[] { $"service:{entityKey}" },
+            OperationType.EvictionRemoval => new[] { $"steam:{entityKey}", $"epic:{entityKey}", $"service:{entityKey}" },
+            _ => new[] { $"steam:{entityKey}", $"epic:{entityKey}", $"service:{entityKey}" }
+        };
+
+        foreach (var candidate in candidateKeys)
+        {
+            if (_entityKeyIndex.TryGetValue((type, candidate), out var operationId))
+            {
+                return GetOperation(operationId);
+            }
+        }
+
+        return null;
+    }
+
+    public OperationInfo? GetOperationByScope(OperationType type, ConflictScope scope)
+    {
+        if (_entityKeyIndex.TryGetValue((type, scope.ToTrackerKey()), out var operationId))
         {
             return GetOperation(operationId);
         }
@@ -219,6 +276,39 @@ public class UnifiedOperationTracker : IUnifiedOperationTracker
         if (_operations.TryGetValue(operationId, out var operation) && operation.Metadata != null)
         {
             updater(operation.Metadata);
+        }
+    }
+
+    /// <summary>
+    /// Build the kind-prefixed secondary index key for an operation's metadata.
+    /// Returns <c>null</c> if the op has no indexable entity (bulk, global, unknown metadata).
+    /// Handles both <see cref="RemovalMetrics"/> and <see cref="EvictionRemovalMetadata"/> —
+    /// this is the Phase 3 change that lets per-entity <c>EvictionRemoval</c> populate the index.
+    /// </summary>
+    private static string? BuildIndexKey(OperationType type, object? metadata)
+    {
+        switch (metadata)
+        {
+            case RemovalMetrics m when !string.IsNullOrEmpty(m.EntityKey):
+            {
+                var kind = string.IsNullOrEmpty(m.EntityKind)
+                    ? type switch
+                    {
+                        OperationType.ServiceRemoval => "service",
+                        OperationType.CorruptionRemoval => "service",
+                        OperationType.GameRemoval => "steam",
+                        _ => "bulk"
+                    }
+                    : m.EntityKind!;
+                return $"{kind}:{m.EntityKey}";
+            }
+
+            case EvictionRemovalMetadata e
+                when !string.IsNullOrEmpty(e.Scope) && !string.IsNullOrEmpty(e.Key):
+                return $"{e.Scope}:{e.Key}";
+
+            default:
+                return null;
         }
     }
 }

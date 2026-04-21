@@ -24,6 +24,7 @@ public class GamesController : ControllerBase
     private readonly ILogger<GamesController> _logger;
     private readonly IPathResolver _pathResolver;
     private readonly IUnifiedOperationTracker _operationTracker;
+    private readonly IOperationConflictChecker _conflictChecker;
 
     public GamesController(
         GameCacheDetectionService gameCacheDetectionService,
@@ -31,7 +32,8 @@ public class GamesController : ControllerBase
         ISignalRNotificationService notifications,
         ILogger<GamesController> logger,
         IPathResolver pathResolver,
-        IUnifiedOperationTracker operationTracker)
+        IUnifiedOperationTracker operationTracker,
+        IOperationConflictChecker conflictChecker)
     {
         _gameCacheDetectionService = gameCacheDetectionService;
         _cacheManagementService = cacheManagementService;
@@ -39,6 +41,7 @@ public class GamesController : ControllerBase
         _logger = logger;
         _pathResolver = pathResolver;
         _operationTracker = operationTracker;
+        _conflictChecker = conflictChecker;
     }
 
     /// <summary>
@@ -64,12 +67,60 @@ public class GamesController : ControllerBase
         return BadRequest(new ErrorResponse { Error = errorMessage });
     }
 
+    private static Dictionary<string, object?> BuildGameRemovalContext(
+        string displayName,
+        long? gameAppId = null,
+        string? epicAppId = null,
+        int? filesDeleted = null,
+        long? bytesFreed = null,
+        ulong? logEntriesRemoved = null,
+        string? errorDetail = null)
+    {
+        var context = new Dictionary<string, object?>
+        {
+            ["gameName"] = displayName
+        };
+
+        if (gameAppId.HasValue)
+        {
+            context["gameAppId"] = gameAppId.Value;
+        }
+
+        if (!string.IsNullOrWhiteSpace(epicAppId))
+        {
+            context["epicAppId"] = epicAppId;
+        }
+
+        if (filesDeleted.HasValue)
+        {
+            context["files"] = filesDeleted.Value;
+        }
+
+        if (bytesFreed.HasValue)
+        {
+            context["bytesFreed"] = bytesFreed.Value;
+            context["gb"] = Math.Round(bytesFreed.Value / (1024d * 1024d * 1024d), 2);
+        }
+
+        if (logEntriesRemoved.HasValue)
+        {
+            context["logEntries"] = logEntriesRemoved.Value;
+        }
+
+        if (!string.IsNullOrWhiteSpace(errorDetail))
+        {
+            context["errorDetail"] = errorDetail;
+        }
+
+        return context;
+    }
+
     /// <summary>
     /// DELETE /api/games/{appId} - Remove game from cache
     /// RESTful: DELETE is proper method for removing resources
     /// </summary>
     [HttpDelete("{appId}")]
-    public async Task<IActionResult> RemoveGameFromCacheAsync(long appId)
+    public async Task<IActionResult> RemoveGameFromCacheAsync(long appId, CancellationToken cancellationToken)
     {
         // CRITICAL: Check write permissions BEFORE starting the operation
         var permissionError = EnsureDirectoriesWritable("remove game from cache");
@@ -77,6 +128,16 @@ public class GamesController : ControllerBase
         {
             _logger.LogWarning("[RemoveGameFromCache] Permission check failed for AppId {AppId}", appId);
             return permissionError;
+        }
+
+        // Central concurrency check — replaces ad-hoc conflict logic.
+        var conflict = await _conflictChecker.CheckAsync(
+            OperationType.GameRemoval,
+            ConflictScope.SteamGame(appId),
+            cancellationToken);
+        if (conflict != null)
+        {
+            return Conflict(conflict);
         }
 
         _logger.LogInformation("Starting background game removal for AppId: {AppId}", appId);
@@ -90,6 +151,8 @@ public class GamesController : ControllerBase
             displayName: gameName,
             operationLabel: $"Game Removal: {gameName}",
             appId: appId,
+            entityKind: "steam",
+            epicAppId: null,
             removeFunc: (CancellationToken ct, Func<double, string, Dictionary<string, object?>?, int, long, Task> onProgress) =>
                 _cacheManagementService.RemoveGameFromCacheAsync(appId, ct, onProgress),
             onSuccess: async (long _) => await _gameCacheDetectionService.RemoveGameFromCacheAsync(appId),
@@ -102,7 +165,7 @@ public class GamesController : ControllerBase
     /// and database records - same three-step process as Steam game removal.
     /// </summary>
     [HttpDelete("epic/{gameName}")]
-    public async Task<IActionResult> RemoveEpicGameFromCacheAsync(string gameName)
+    public async Task<IActionResult> RemoveEpicGameFromCacheAsync(string gameName, CancellationToken cancellationToken)
     {
         // Check write permissions before starting
         var permissionError = EnsureDirectoriesWritable("remove Epic game from cache");
@@ -114,11 +177,29 @@ public class GamesController : ControllerBase
 
         _logger.LogInformation("Starting background Epic game removal for: {GameName}", gameName);
 
+        var cachedResults = await _gameCacheDetectionService.GetCachedDetectionAsync();
+        var epicGame = cachedResults?.Games?.FirstOrDefault(g =>
+            string.Equals(g.GameName, gameName, StringComparison.Ordinal) &&
+            string.Equals(g.Service, "epicgames", StringComparison.OrdinalIgnoreCase));
+        var epicAppId = epicGame?.EpicAppId;
+
+        // Central concurrency check.
+        var conflict = await _conflictChecker.CheckAsync(
+            OperationType.GameRemoval,
+            ConflictScope.EpicGame(epicAppId, gameName),
+            cancellationToken);
+        if (conflict != null)
+        {
+            return Conflict(conflict);
+        }
+
         return await StartRemovalOperationAsync(
-            entityKey: $"epic-{gameName}",
+            entityKey: epicAppId ?? gameName,
             displayName: gameName,
             operationLabel: $"Epic Game Removal: {gameName}",
-            appId: 0,
+            appId: null,
+            entityKind: "epic",
+            epicAppId: epicAppId,
             removeFunc: (CancellationToken ct, Func<double, string, Dictionary<string, object?>?, int, long, Task> onProgress) =>
                 _cacheManagementService.RemoveEpicGameFromCacheAsync(gameName, ct, onProgress),
             onSuccess: null,
@@ -140,116 +221,172 @@ public class GamesController : ControllerBase
         string entityKey,
         string displayName,
         string operationLabel,
-        long appId,
+        long? appId,
+        string entityKind,
+        string? epicAppId,
         Func<CancellationToken, Func<double, string, Dictionary<string, object?>?, int, long, Task>, Task<CacheManagementService.GameCacheRemovalReport>> removeFunc,
         Func<long, Task>? onSuccess,
         string responseMessage)
     {
-        var cancellationTokenSource = new CancellationTokenSource();
+        var isEpic = entityKind == "epic";
+        var startingStageKey = isEpic ? "signalr.epicRemove.starting" : "signalr.gameRemove.starting";
+        var completeStageKey = isEpic ? "signalr.epicRemove.complete" : "signalr.gameRemove.complete";
+        var cancelledStageKey = isEpic ? "signalr.epicRemove.cancelled" : "signalr.gameRemove.cancelled";
+        var errorStageKey = isEpic ? "signalr.epicRemove.error.fatal" : "signalr.gameRemove.error.fatal";
 
-        // Register with unified operation tracker for centralized cancellation and tracking
-        var removalMetrics = new RemovalMetrics { EntityKey = entityKey, EntityName = displayName };
-        var operationId = _operationTracker.RegisterOperation(
-            OperationType.GameRemoval,
-            operationLabel,
-            cancellationTokenSource,
-            removalMetrics
-        );
-
-        // Send GameRemovalStarted event
-        await _notifications.NotifyAllAsync(SignalREvents.GameRemovalStarted,
-            new GameRemovalStarted(operationId, appId, displayName, $"Starting removal of {displayName}...", DateTime.UtcNow));
-
-        // Fire-and-forget background removal with SignalR notification
-        var cancellationToken = cancellationTokenSource.Token;
-        _ = Task.Run(async () =>
+        // Register with unified operation tracker for centralized cancellation and tracking.
+        // EntityKind + EpicAppId let the REST recovery endpoints (/api/cache/removals/active,
+        // /api/games/removals/active) project scope-aware identity onto GameRemovalInfo.
+        var removalMetrics = new RemovalMetrics
         {
-            try
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                // Send starting notification
-                await _notifications.NotifyAllAsync(SignalREvents.GameRemovalProgress,
-                    new GameRemovalProgress(operationId, appId, displayName, $"Starting removal of {displayName}..."));
-                _operationTracker.UpdateProgress(operationId, 0, $"Starting removal of {displayName}...");
-
-                cancellationToken.ThrowIfCancellationRequested();
-
-                // Call with progress callback that sends live SignalR updates.
-                // `stageKey` is the i18n key (e.g. "signalr.gameRemove.cache.file.progress")
-                // and `context` is its substitution dict — both flow through from the Rust
-                // progress JSON into the SignalR event so the frontend can render per-phase labels.
-                var report = await removeFunc(cancellationToken,
-                    async (double percentComplete, string stageKey, Dictionary<string, object?>? context, int filesDeleted, long bytesFreed) =>
-                    {
-                        await _notifications.NotifyAllAsync(SignalREvents.GameRemovalProgress,
-                            new GameRemovalProgress(operationId, appId, displayName, stageKey, percentComplete, filesDeleted, bytesFreed, context));
-                        _operationTracker.UpdateProgress(operationId, percentComplete, stageKey);
-                        _operationTracker.UpdateMetadata(operationId, (object m) =>
-                        {
-                            var metrics = (RemovalMetrics)m;
-                            metrics.FilesDeleted = filesDeleted;
-                            metrics.BytesFreed = bytesFreed;
-                        });
-                    });
-
-                cancellationToken.ThrowIfCancellationRequested();
-
-                // Send finalizing progress update
-                await _notifications.NotifyAllAsync(SignalREvents.GameRemovalProgress,
-                    new GameRemovalProgress(operationId, appId, displayName, "Finalizing removal...", 100.0, report.CacheFilesDeleted, (long)report.TotalBytesFreed));
-                _operationTracker.UpdateProgress(operationId, 100.0, "Finalizing removal...");
-                _operationTracker.UpdateMetadata(operationId, (object m) =>
+            EntityKey = entityKey,
+            EntityName = displayName,
+            EntityKind = entityKind,
+            EpicAppId = epicAppId
+        };
+        var operationId = await TrackedRemovalOperationRunner.StartAsync(
+            _operationTracker,
+            _notifications,
+            new TrackedRemovalOperationRunner.RemovalOperationConfig<CacheManagementService.GameCacheRemovalReport>(
+                OperationType: OperationType.GameRemoval,
+                OperationLabel: operationLabel,
+                Metadata: removalMetrics,
+                StartedEventName: SignalREvents.GameRemovalStarted,
+                BuildStartedPayload: id => new GameRemovalStarted(
+                    OperationId: id,
+                    GameAppId: isEpic ? null : appId,
+                    EpicAppId: isEpic ? epicAppId : null,
+                    GameName: displayName,
+                    StageKey: startingStageKey,
+                    Timestamp: DateTime.UtcNow,
+                    Context: BuildGameRemovalContext(displayName, appId, epicAppId)),
+                ProgressEventName: SignalREvents.GameRemovalProgress,
+                InitialStageKey: startingStageKey,
+                BuildInitialProgressPayload: id => new GameRemovalProgress(
+                    OperationId: id,
+                    GameAppId: isEpic ? null : appId,
+                    EpicAppId: isEpic ? epicAppId : null,
+                    GameName: displayName,
+                    StageKey: startingStageKey,
+                    Context: BuildGameRemovalContext(displayName, appId, epicAppId)),
+                BuildProgressPayload: (id, update) => new GameRemovalProgress(
+                    OperationId: id,
+                    GameAppId: isEpic ? null : appId,
+                    EpicAppId: isEpic ? epicAppId : null,
+                    GameName: displayName,
+                    StageKey: update.StageKey,
+                    PercentComplete: update.PercentComplete,
+                    FilesDeleted: update.FilesDeleted,
+                    BytesFreed: update.BytesFreed,
+                    Context: update.Context),
+                CompleteEventName: SignalREvents.GameRemovalComplete,
+                FinalizingStageKey: "signalr.gameRemove.finalizing",
+                BuildFinalizingProgressPayload: (id, report) => new GameRemovalProgress(
+                    OperationId: id,
+                    GameAppId: isEpic ? null : appId,
+                    EpicAppId: isEpic ? epicAppId : null,
+                    GameName: displayName,
+                    StageKey: "signalr.gameRemove.finalizing",
+                    PercentComplete: 100.0,
+                    FilesDeleted: report.CacheFilesDeleted,
+                    BytesFreed: (long)report.TotalBytesFreed,
+                    Context: BuildGameRemovalContext(
+                        displayName,
+                        appId,
+                        epicAppId,
+                        filesDeleted: report.CacheFilesDeleted,
+                        bytesFreed: (long)report.TotalBytesFreed,
+                        logEntriesRemoved: report.LogEntriesRemoved)),
+                BuildSuccessPayload: (id, report) => new GameRemovalComplete(
+                    Success: true,
+                    OperationId: id,
+                    GameAppId: isEpic ? null : appId,
+                    EpicAppId: isEpic ? epicAppId : null,
+                    StageKey: completeStageKey,
+                    GameName: displayName,
+                    FilesDeleted: report.CacheFilesDeleted,
+                    BytesFreed: (long)report.TotalBytesFreed,
+                    LogEntriesRemoved: report.LogEntriesRemoved,
+                    Context: BuildGameRemovalContext(
+                        displayName,
+                        appId,
+                        epicAppId,
+                        filesDeleted: report.CacheFilesDeleted,
+                        bytesFreed: (long)report.TotalBytesFreed,
+                        logEntriesRemoved: report.LogEntriesRemoved)),
+                BuildCancelledPayload: id => new GameRemovalComplete(
+                    Success: false,
+                    OperationId: id,
+                    GameAppId: isEpic ? null : appId,
+                    EpicAppId: isEpic ? epicAppId : null,
+                    StageKey: cancelledStageKey,
+                    GameName: displayName,
+                    Context: BuildGameRemovalContext(displayName, appId, epicAppId)),
+                BuildErrorProgressPayload: (id, ex) => new GameRemovalProgress(
+                    OperationId: id,
+                    GameAppId: isEpic ? null : appId,
+                    EpicAppId: isEpic ? epicAppId : null,
+                    GameName: displayName,
+                    StageKey: errorStageKey,
+                    PercentComplete: 0.0,
+                    Context: BuildGameRemovalContext(displayName, appId, epicAppId, errorDetail: ex.Message)),
+                BuildErrorCompletePayload: (id, ex) => new GameRemovalComplete(
+                    Success: false,
+                    OperationId: id,
+                    GameAppId: isEpic ? null : appId,
+                    EpicAppId: isEpic ? epicAppId : null,
+                    StageKey: errorStageKey,
+                    GameName: displayName,
+                    Context: BuildGameRemovalContext(displayName, appId, epicAppId, errorDetail: ex.Message)),
+                ExecuteAsync: (ct, onProgress) => removeFunc(
+                    ct,
+                    (percentComplete, stageKey, context, filesDeleted, bytesFreed) =>
+                        onProgress(new TrackedRemovalOperationRunner.RemovalProgressUpdate(
+                            percentComplete,
+                            stageKey,
+                            context,
+                            filesDeleted,
+                            bytesFreed))),
+                ApplyProgressMetrics: (metrics, update) =>
                 {
-                    var metrics = (RemovalMetrics)m;
+                    metrics.FilesDeleted = update.FilesDeleted;
+                    metrics.BytesFreed = update.BytesFreed;
+                },
+                ApplyFinalMetrics: (metrics, report) =>
+                {
                     metrics.FilesDeleted = report.CacheFilesDeleted;
                     metrics.BytesFreed = (long)report.TotalBytesFreed;
-                });
-
-                // Run platform-specific success callback (e.g., Steam removes from detection cache)
-                if (onSuccess != null)
+                },
+                OnSuccessAsync: async _ =>
                 {
-                    await onSuccess(appId);
-                }
-
-                _logger.LogInformation("Game removal completed for {EntityKey} ({DisplayName}) - Deleted {Files} files, freed {Bytes} bytes",
-                    entityKey, displayName, report.CacheFilesDeleted, report.TotalBytesFreed);
-
-                // Mark operation as complete in unified tracker
-                _operationTracker.CompleteOperation(operationId, success: true);
-
-                // Send SignalR notification on success
-                await _notifications.NotifyAllAsync(SignalREvents.GameRemovalComplete,
-                    new GameRemovalComplete(true, operationId, appId, displayName, $"Successfully removed {displayName} from cache", report.CacheFilesDeleted, (long)report.TotalBytesFreed, report.LogEntriesRemoved));
-            }
-            catch (OperationCanceledException)
-            {
-                _logger.LogInformation("Game removal cancelled for {EntityKey}", entityKey);
-
-                _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
-
-                await _notifications.NotifyAllAsync(SignalREvents.GameRemovalComplete,
-                    new GameRemovalComplete(false, operationId, appId, displayName, $"Removal of {displayName} was cancelled"));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error during game removal for {EntityKey}", entityKey);
-
-                await _notifications.NotifyAllAsync(SignalREvents.GameRemovalProgress,
-                    new GameRemovalProgress(operationId, appId, displayName, $"Error removing {displayName}: {ex.Message}", 0.0));
-
-                _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
-
-                await _notifications.NotifyAllAsync(SignalREvents.GameRemovalComplete,
-                    new GameRemovalComplete(false, operationId, appId, StageKey: "signalr.gameRemove.error.fatal"));
-            }
-        }, cancellationToken);
+                    if (onSuccess != null && appId.HasValue)
+                    {
+                        await onSuccess(appId.Value);
+                    }
+                },
+                LogSuccess: (_, report) =>
+                {
+                    _logger.LogInformation(
+                        "Game removal completed for {EntityKey} ({DisplayName}) - Deleted {Files} files, freed {Bytes} bytes",
+                        entityKey,
+                        displayName,
+                        report.CacheFilesDeleted,
+                        report.TotalBytesFreed);
+                },
+                LogCancelled: _ =>
+                {
+                    _logger.LogInformation("Game removal cancelled for {EntityKey}", entityKey);
+                },
+                LogFailure: (_, ex) =>
+                {
+                    _logger.LogError(ex, "Error during game removal for {EntityKey}", entityKey);
+                }));
 
         return Accepted(new GameRemovalStartResponse
         {
             Message = responseMessage,
             OperationId = operationId,
-            AppId = appId.ToString(),
+            AppId = appId?.ToString() ?? string.Empty,
             GameName = displayName,
             Status = OperationStatus.Running
         });
@@ -296,18 +433,54 @@ public class GamesController : ControllerBase
             Operations = operations.Select(op =>
             {
                 var metrics = op.Metadata as RemovalMetrics;
-                return new GameRemovalInfo
-                {
-                    GameAppId = long.TryParse(metrics?.EntityKey, out var parsedAppId) ? parsedAppId : 0,
-                    GameName = metrics?.EntityName ?? op.Name,
-                    Status = op.Status,
-                    Message = op.Message,
-                    FilesDeleted = metrics?.FilesDeleted ?? 0,
-                    BytesFreed = metrics?.BytesFreed ?? 0,
-                    StartedAt = op.StartedAt
-                };
+                return ProjectGameRemovalInfo(op, metrics);
             })
         });
+    }
+
+    /// <summary>
+    /// Scope-aware projection from an OperationInfo + its RemovalMetrics into a GameRemovalInfo DTO.
+    /// Steam entries emit `GameAppId`; Epic entries emit `EpicAppId`. Legacy rows without
+    /// `EntityKind` fall back to numeric parse so existing Steam-only data keeps round-tripping.
+    /// </summary>
+    private static GameRemovalInfo ProjectGameRemovalInfo(OperationInfo op, RemovalMetrics? metrics)
+    {
+        long? gameAppId = null;
+        string? epicAppId = null;
+
+        switch (metrics?.EntityKind)
+        {
+            case "steam":
+                if (long.TryParse(metrics.EntityKey, out var parsedSteamId))
+                {
+                    gameAppId = parsedSteamId;
+                }
+                break;
+            case "epic":
+                epicAppId = metrics.EpicAppId ?? metrics.EntityKey;
+                break;
+            default:
+                // Legacy rows persisted before EntityKind existed — preserve numeric compat.
+                if (long.TryParse(metrics?.EntityKey, out var legacySteamId))
+                {
+                    gameAppId = legacySteamId;
+                }
+                break;
+        }
+
+        return new GameRemovalInfo
+        {
+            GameAppId = gameAppId,
+            EpicAppId = epicAppId,
+            EntityKind = metrics?.EntityKind ?? (epicAppId != null ? "epic" : gameAppId.HasValue ? "steam" : null),
+            GameName = metrics?.EntityName ?? op.Name,
+            OperationId = op.Id,
+            Status = op.Status,
+            Message = op.Message,
+            FilesDeleted = metrics?.FilesDeleted ?? 0,
+            BytesFreed = metrics?.BytesFreed ?? 0,
+            StartedAt = op.StartedAt
+        };
     }
 
     /// <summary>
@@ -315,8 +488,18 @@ public class GamesController : ControllerBase
     /// Note: POST is acceptable as this starts an asynchronous operation
     /// </summary>
     [HttpPost("detect")]
-    public async Task<IActionResult> DetectGamesAsync([FromQuery] bool forceRefresh = false)
+    public async Task<IActionResult> DetectGamesAsync([FromQuery] bool forceRefresh = false, CancellationToken cancellationToken = default)
     {
+        // Central concurrency check — canonical 409 shape for GameDetection duplicates.
+        var conflict = await _conflictChecker.CheckAsync(
+            OperationType.GameDetection,
+            ConflictScope.Bulk(),
+            cancellationToken);
+        if (conflict != null)
+        {
+            return Conflict(conflict);
+        }
+
         try
         {
             // forceRefresh=true means full scan (incremental=false)
@@ -326,8 +509,24 @@ public class GamesController : ControllerBase
 
             if (operationId == null)
             {
-                // Already running - return 409 Conflict
-                return Conflict(new ConflictResponse { Error = "Game detection is already running" });
+                // Race: detection started between our checker call and StartDetectionAsync.
+                // Re-run the checker so we return the canonical 409 with the blocking op.
+                var raceConflict = await _conflictChecker.CheckAsync(
+                    OperationType.GameDetection,
+                    ConflictScope.Bulk(),
+                    cancellationToken);
+                if (raceConflict != null)
+                {
+                    return Conflict(raceConflict);
+                }
+
+                // Extremely unlikely: service returned null but tracker shows no active op.
+                return Conflict(new OperationConflictResponse
+                {
+                    Code = "OPERATION_CONFLICT",
+                    StageKey = "errors.conflict.duplicate",
+                    Error = "Game detection is already running"
+                });
             }
 
             _logger.LogInformation("Started game detection operation: {OperationId} (forceRefresh={ForceRefresh}, incremental={Incremental})", operationId, forceRefresh, incremental);
@@ -341,9 +540,22 @@ public class GamesController : ControllerBase
         }
         catch (InvalidOperationException ex)
         {
-            // Specific handling for "already running" case - return 409 Conflict
+            // Race-window fallback: service threw after our checker allowed.
             _logger.LogWarning(ex, "Cannot start game detection - already running");
-            return Conflict(new ConflictResponse { Error = ex.Message });
+            var raceConflict = await _conflictChecker.CheckAsync(
+                OperationType.GameDetection,
+                ConflictScope.Bulk(),
+                cancellationToken);
+            if (raceConflict != null)
+            {
+                return Conflict(raceConflict);
+            }
+            return Conflict(new OperationConflictResponse
+            {
+                Code = "OPERATION_CONFLICT",
+                StageKey = "errors.conflict.duplicate",
+                Error = ex.Message
+            });
         }
     }
 

@@ -75,7 +75,7 @@ async fn reset_database(
     write_progress(progress_path, &progress)?;
 
     // Create PostgreSQL connection pool
-    let pool = db::create_pool().await;
+    let pool = db::create_pool().await?;
 
     let tables = vec![
         "LogEntries",

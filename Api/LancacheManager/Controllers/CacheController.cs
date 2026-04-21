@@ -36,6 +36,7 @@ public class CacheController : ControllerBase
     private readonly DatasourceService _datasourceService;
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly CacheReconciliationService _reconciliationService;
+    private readonly IOperationConflictChecker _conflictChecker;
 
     public CacheController(
         CacheManagementService cacheService,
@@ -52,7 +53,8 @@ public class CacheController : ControllerBase
         IUnifiedOperationTracker operationTracker,
         DatasourceService datasourceService,
         IDbContextFactory<AppDbContext> dbContextFactory,
-        CacheReconciliationService reconciliationService)
+        CacheReconciliationService reconciliationService,
+        IOperationConflictChecker conflictChecker)
     {
         _cacheService = cacheService;
         _cacheClearingService = cacheClearingService;
@@ -69,6 +71,7 @@ public class CacheController : ControllerBase
         _datasourceService = datasourceService;
         _dbContextFactory = dbContextFactory;
         _reconciliationService = reconciliationService;
+        _conflictChecker = conflictChecker;
     }
 
     /// <summary>
@@ -121,7 +124,7 @@ public class CacheController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpDelete]
-    public async Task<IActionResult> ClearAllCacheAsync()
+    public async Task<IActionResult> ClearAllCacheAsync(CancellationToken cancellationToken)
     {
         // CRITICAL: Check write permissions BEFORE starting the operation
         // This prevents operations from failing partway through due to permission issues
@@ -137,13 +140,37 @@ public class CacheController : ControllerBase
             return BadRequest(new ErrorResponse { Error = errorMessage });
         }
 
+        // Central concurrency check — CacheClearing is global, blocks everything.
+        var conflict = await _conflictChecker.CheckAsync(
+            OperationType.CacheClearing,
+            ConflictScope.Bulk(),
+            cancellationToken);
+        if (conflict != null)
+        {
+            return Conflict(conflict);
+        }
+
         _cacheService.InvalidateCachedScan();
 
         var operationId = await _cacheClearingService.StartCacheClearAsync();
 
         if (operationId == null)
         {
-            return Conflict(new ConflictResponse { Error = "Cache clearing is already running" });
+            // Race: clearing began between our check and StartCacheClearAsync.
+            var raceConflict = await _conflictChecker.CheckAsync(
+                OperationType.CacheClearing,
+                ConflictScope.Bulk(),
+                cancellationToken);
+            if (raceConflict != null)
+            {
+                return Conflict(raceConflict);
+            }
+            return Conflict(new OperationConflictResponse
+            {
+                Code = "OPERATION_CONFLICT",
+                StageKey = "errors.conflict.duplicate",
+                Error = "Cache clearing is already running"
+            });
         }
 
         _logger.LogInformation("Started cache clear operation for all datasources: {OperationId}", operationId);
@@ -162,7 +189,7 @@ public class CacheController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpDelete("datasources/{name}")]
-    public async Task<IActionResult> ClearDatasourceCacheAsync(string name)
+    public async Task<IActionResult> ClearDatasourceCacheAsync(string name, CancellationToken cancellationToken)
     {
         // Get the datasource to check its specific permissions
         var datasourceService = HttpContext.RequestServices.GetRequiredService<DatasourceService>();
@@ -188,13 +215,37 @@ public class CacheController : ControllerBase
             return BadRequest(new ErrorResponse { Error = errorMessage });
         }
 
+        // Central concurrency check — CacheClearing is global, blocks everything.
+        var conflict = await _conflictChecker.CheckAsync(
+            OperationType.CacheClearing,
+            ConflictScope.Bulk(),
+            cancellationToken);
+        if (conflict != null)
+        {
+            return Conflict(conflict);
+        }
+
         _cacheService.InvalidateCachedScan();
 
         var operationId = await _cacheClearingService.StartCacheClearAsync(name);
 
         if (operationId == null)
         {
-            return Conflict(new ConflictResponse { Error = "Cache clearing is already running" });
+            // Race: clearing began between our check and StartCacheClearAsync.
+            var raceConflict = await _conflictChecker.CheckAsync(
+                OperationType.CacheClearing,
+                ConflictScope.Bulk(),
+                cancellationToken);
+            if (raceConflict != null)
+            {
+                return Conflict(raceConflict);
+            }
+            return Conflict(new OperationConflictResponse
+            {
+                Code = "OPERATION_CONFLICT",
+                StageKey = "errors.conflict.duplicate",
+                Error = "Cache clearing is already running"
+            });
         }
 
         _logger.LogInformation("Started cache clear operation for datasource {Datasource}: {OperationId}", name, operationId);
@@ -356,19 +407,17 @@ public class CacheController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpDelete("services/{service}/corruption")]
-    public async Task<IActionResult> RemoveCorruptedChunksAsync(string service, [FromQuery] int threshold = 3, [FromQuery] bool compareToCacheLogs = true, [FromQuery] string detectionMode = "miss_count")
+    public async Task<IActionResult> RemoveCorruptedChunksAsync(string service, CancellationToken cancellationToken, [FromQuery] int threshold = 3, [FromQuery] bool compareToCacheLogs = true, [FromQuery] string detectionMode = "miss_count")
     {
-        // Check if ANY removal operation is already in progress (they share a lock)
-        var activeGameOps = _operationTracker.GetActiveOperations(OperationType.GameRemoval);
-        var activeServiceOps = _operationTracker.GetActiveOperations(OperationType.ServiceRemoval);
-        var activeCorruptionOps = _operationTracker.GetActiveOperations(OperationType.CorruptionRemoval);
-        if (activeGameOps.Any() || activeServiceOps.Any() || activeCorruptionOps.Any())
+        // Central concurrency check — service-scoped corruption removal.
+        // Replaces the over-broad lock that blocked unrelated services.
+        var conflict = await _conflictChecker.CheckAsync(
+            OperationType.CorruptionRemoval,
+            ConflictScope.Service(service),
+            cancellationToken);
+        if (conflict != null)
         {
-            var activeType = activeGameOps.Any() ? "game" :
-                             activeServiceOps.Any() ? "service" :
-                             activeCorruptionOps.Any() ? "corruption" : "unknown";
-            _logger.LogWarning("[CorruptionRemoval] Blocked - another {Type} removal is already in progress", activeType);
-            return Conflict(new ErrorResponse { Error = $"Another removal operation ({activeType}) is already in progress. Please wait for it to complete." });
+            return Conflict(conflict);
         }
 
         _cacheService.InvalidateCachedScan();
@@ -410,7 +459,12 @@ public class CacheController : ControllerBase
 
         // Send start notification via SignalR
         _notifications.NotifyAllFireAndForget(SignalREvents.CorruptionRemovalStarted,
-            new CorruptionRemovalStarted(service, operationId, $"Starting corruption removal for {service}...", DateTime.UtcNow));
+            new CorruptionRemovalStarted(
+                service,
+                operationId,
+                "signalr.corruptionRemove.starting",
+                DateTime.UtcNow,
+                new Dictionary<string, object?> { ["service"] = service }));
 
         // Optimistically delete the cached detection row immediately so app restarts don't resurface stale data
         await _corruptionDetectionService.RemoveCachedServiceAsync(service);
@@ -424,7 +478,7 @@ public class CacheController : ControllerBase
                 _logger.LogInformation("Paused LiveLogMonitorService for corruption removal");
 
                 // Update tracking
-                _operationTracker.UpdateProgress(operationId, 0, $"Removing corrupted chunks for {service}...");
+                _operationTracker.UpdateProgress(operationId, 0, "signalr.corruptionRemove.starting");
 
                 _logger.LogInformation("[CorruptionRemoval] Processing {Count} datasource(s) for service {Service}",
                     datasources.Count, service);
@@ -606,21 +660,8 @@ public class CacheController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpDelete("corruption")]
-    public async Task<IActionResult> RemoveAllCorruptedChunksAsync([FromQuery] int threshold = 3, [FromQuery] bool compareToCacheLogs = true, [FromQuery] string detectionMode = "miss_count")
+    public async Task<IActionResult> RemoveAllCorruptedChunksAsync(CancellationToken cancellationToken, [FromQuery] int threshold = 3, [FromQuery] bool compareToCacheLogs = true, [FromQuery] string detectionMode = "miss_count")
     {
-        // Check if ANY removal operation is already in progress (they share a lock)
-        var activeGameOps = _operationTracker.GetActiveOperations(OperationType.GameRemoval);
-        var activeServiceOps = _operationTracker.GetActiveOperations(OperationType.ServiceRemoval);
-        var activeCorruptionOps = _operationTracker.GetActiveOperations(OperationType.CorruptionRemoval);
-        if (activeGameOps.Any() || activeServiceOps.Any() || activeCorruptionOps.Any())
-        {
-            var activeType = activeGameOps.Any() ? "game" :
-                             activeServiceOps.Any() ? "service" :
-                             activeCorruptionOps.Any() ? "corruption" : "unknown";
-            _logger.LogWarning("[CorruptionRemoval] Blocked all-services removal - another {Type} removal is already in progress", activeType);
-            return Conflict(new ErrorResponse { Error = $"Another removal operation ({activeType}) is already in progress. Please wait for it to complete." });
-        }
-
         // Query which services currently have corruption data
         var cachedDetection = await _corruptionDetectionService.GetCachedDetectionAsync();
         if (cachedDetection == null || cachedDetection.CorruptionCounts == null || cachedDetection.CorruptionCounts.Count == 0)
@@ -629,6 +670,21 @@ public class CacheController : ControllerBase
         }
 
         var servicesWithCorruption = cachedDetection.CorruptionCounts.Keys.ToList();
+
+        // Per-service conflict check: if any service is blocked, return 409 with the blocking op.
+        foreach (var svc in servicesWithCorruption)
+        {
+            var conflict = await _conflictChecker.CheckAsync(
+                OperationType.CorruptionRemoval,
+                ConflictScope.Service(svc),
+                cancellationToken);
+            if (conflict != null)
+            {
+                _logger.LogWarning("[CorruptionRemoval] All-services removal blocked: service '{Service}' conflicts with active {ActiveType}",
+                    svc, conflict.ActiveOperationType);
+                return Conflict(conflict);
+            }
+        }
 
         _logger.LogInformation("[CorruptionRemoval] Starting all-services corruption removal for {Count} service(s): {Services}",
             servicesWithCorruption.Count, string.Join(", ", servicesWithCorruption));
@@ -689,9 +745,14 @@ public class CacheController : ControllerBase
 
                         // Send start notification via SignalR
                         _notifications.NotifyAllFireAndForget(SignalREvents.CorruptionRemovalStarted,
-                            new CorruptionRemovalStarted(service, operationId, $"Starting corruption removal for {service}...", DateTime.UtcNow));
+                            new CorruptionRemovalStarted(
+                                service,
+                                operationId,
+                                "signalr.corruptionRemove.starting",
+                                DateTime.UtcNow,
+                                new Dictionary<string, object?> { ["service"] = service }));
 
-                        _operationTracker.UpdateProgress(operationId, 0, $"Removing corrupted chunks for {service}...");
+                        _operationTracker.UpdateProgress(operationId, 0, "signalr.corruptionRemove.starting");
 
                         _logger.LogInformation("[CorruptionRemoval] Processing {Count} datasource(s) for service {Service}",
                             datasources.Count, service);
@@ -919,7 +980,7 @@ public class CacheController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpDelete("services/{name}")]
-    public async Task<IActionResult> ClearServiceCacheAsync(string name)
+    public async Task<IActionResult> ClearServiceCacheAsync(string name, CancellationToken requestCt)
     {
         // CRITICAL: Check write permissions BEFORE starting the operation
         // This prevents operations from failing partway through due to permission issues
@@ -940,110 +1001,130 @@ public class CacheController : ControllerBase
             return BadRequest(new ErrorResponse { Error = errorMessage });
         }
 
+        // Central concurrency check.
+        var conflict = await _conflictChecker.CheckAsync(
+            OperationType.ServiceRemoval,
+            ConflictScope.Service(name),
+            requestCt);
+        if (conflict != null)
+        {
+            return Conflict(conflict);
+        }
+
         _cacheService.InvalidateCachedScan();
 
         _logger.LogInformation("Starting background service removal for: {Service}", name);
 
-        // Create CancellationTokenSource and register with unified operation tracker for cancel support
-        var cts = new CancellationTokenSource();
         var metadata = new RemovalMetrics { EntityKey = name.ToLowerInvariant(), EntityName = name };
-        var operationId = _operationTracker.RegisterOperation(
-            OperationType.ServiceRemoval,
-            $"Service removal: {name}",
-            cts,
-            metadata);
-
-        // Send start notification via SignalR
-        _notifications.NotifyAllFireAndForget(SignalREvents.ServiceRemovalStarted,
-            new ServiceRemovalStarted(name, operationId,
-                "signalr.serviceRemove.starting.byName", DateTime.UtcNow,
-                new Dictionary<string, object?> { ["name"] = name }));
-
-        // Fire-and-forget background removal with SignalR notification
-        var cancellationToken = cts.Token;
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                // Send starting notification
-                await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalProgress,
-                    new ServiceRemovalProgress(name, operationId,
-                        "signalr.serviceRemove.starting.byName", 0,
-                        Context: new Dictionary<string, object?> { ["name"] = name }));
-                _operationTracker.UpdateProgress(operationId, 0, "signalr.serviceRemove.starting.byName");
-
-                cancellationToken.ThrowIfCancellationRequested();
-
-                // Call with progress callback that sends live SignalR updates.
-                // stageKey + context flow through from Rust progress JSON → frontend i18n.
-                var report = await _cacheService.RemoveServiceFromCacheAsync(name, cancellationToken,
-                    async (double percentComplete, string stageKey, Dictionary<string, object?>? context, int filesDeleted, long bytesFreed) =>
-                    {
-                        await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalProgress,
-                            new ServiceRemovalProgress(name, operationId, stageKey, percentComplete,
-                                filesDeleted > 0 ? filesDeleted : null, bytesFreed > 0 ? bytesFreed : null, context));
-                        _operationTracker.UpdateProgress(operationId, percentComplete, "signalr.serviceRemove.starting.byName");
-                        _operationTracker.UpdateMetadata(operationId, (object meta) =>
-                        {
-                            var m = (RemovalMetrics)meta;
-                            if (filesDeleted > 0) m.FilesDeleted = filesDeleted;
-                            if (bytesFreed > 0) m.BytesFreed = bytesFreed;
-                        });
-                    });
-
-                cancellationToken.ThrowIfCancellationRequested();
-
-                // Send finalizing progress update
-                await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalProgress,
-                    new ServiceRemovalProgress(name, operationId, "signalr.serviceRemove.finalizing", 100.0, report.CacheFilesDeleted, (long)report.TotalBytesFreed));
-                _operationTracker.UpdateProgress(operationId, 100.0, "signalr.serviceRemove.finalizing");
-                _operationTracker.UpdateMetadata(operationId, (object meta) =>
+        var operationId = await TrackedRemovalOperationRunner.StartAsync(
+            _operationTracker,
+            _notifications,
+            new TrackedRemovalOperationRunner.RemovalOperationConfig<CacheManagementService.ServiceCacheRemovalReport>(
+                OperationType: OperationType.ServiceRemoval,
+                OperationLabel: $"Service removal: {name}",
+                Metadata: metadata,
+                StartedEventName: SignalREvents.ServiceRemovalStarted,
+                BuildStartedPayload: id => new ServiceRemovalStarted(
+                    name,
+                    id,
+                    "signalr.serviceRemove.starting.byName",
+                    DateTime.UtcNow,
+                    new Dictionary<string, object?> { ["name"] = name }),
+                ProgressEventName: SignalREvents.ServiceRemovalProgress,
+                InitialStageKey: "signalr.serviceRemove.starting.byName",
+                BuildInitialProgressPayload: id => new ServiceRemovalProgress(
+                    name,
+                    id,
+                    "signalr.serviceRemove.starting.byName",
+                    0,
+                    Context: new Dictionary<string, object?> { ["name"] = name }),
+                BuildProgressPayload: (id, update) => new ServiceRemovalProgress(
+                    name,
+                    id,
+                    update.StageKey,
+                    update.PercentComplete,
+                    update.FilesDeleted > 0 ? update.FilesDeleted : null,
+                    update.BytesFreed > 0 ? update.BytesFreed : null,
+                    update.Context),
+                CompleteEventName: SignalREvents.ServiceRemovalComplete,
+                FinalizingStageKey: "signalr.serviceRemove.finalizing",
+                BuildFinalizingProgressPayload: (id, report) => new ServiceRemovalProgress(
+                    name,
+                    id,
+                    "signalr.serviceRemove.finalizing",
+                    100.0,
+                    report.CacheFilesDeleted,
+                    (long)report.TotalBytesFreed),
+                BuildSuccessPayload: (id, report) => new ServiceRemovalComplete(
+                    true,
+                    name,
+                    id,
+                    "signalr.serviceRemove.success",
+                    report.CacheFilesDeleted,
+                    (long)report.TotalBytesFreed,
+                    report.LogEntriesRemoved,
+                    new Dictionary<string, object?> { ["name"] = name }),
+                BuildCancelledPayload: id => new ServiceRemovalComplete(
+                    false,
+                    name,
+                    id,
+                    "signalr.serviceRemove.cancelled",
+                    Context: new Dictionary<string, object?> { ["name"] = name }),
+                BuildErrorProgressPayload: (id, ex) => new ServiceRemovalProgress(
+                    name,
+                    id,
+                    "signalr.serviceRemove.error.default",
+                    0,
+                    Context: new Dictionary<string, object?> { ["name"] = name, ["errorDetail"] = ex.Message }),
+                BuildErrorCompletePayload: (id, _) => new ServiceRemovalComplete(
+                    false,
+                    name,
+                    id,
+                    "signalr.serviceRemove.failed.generic",
+                    Context: new Dictionary<string, object?> { ["name"] = name }),
+                ExecuteAsync: (ct, onProgress) => _cacheService.RemoveServiceFromCacheAsync(
+                    name,
+                    ct,
+                    (percentComplete, stageKey, context, filesDeleted, bytesFreed) =>
+                        onProgress(new TrackedRemovalOperationRunner.RemovalProgressUpdate(
+                            percentComplete,
+                            stageKey,
+                            context,
+                            filesDeleted,
+                            bytesFreed))),
+                ApplyProgressMetrics: (removalMetrics, update) =>
                 {
-                    var m = (RemovalMetrics)meta;
-                    m.FilesDeleted = report.CacheFilesDeleted;
-                    m.BytesFreed = (long)report.TotalBytesFreed;
-                });
+                    if (update.FilesDeleted > 0)
+                    {
+                        removalMetrics.FilesDeleted = update.FilesDeleted;
+                    }
 
-                _logger.LogInformation("Service removal completed for {Service} - Deleted {Files} files, freed {Bytes} bytes",
-                    name, report.CacheFilesDeleted, report.TotalBytesFreed);
-
-                // Mark operation as complete in unified tracker
-                _operationTracker.CompleteOperation(operationId, success: true);
-
-                // Send SignalR notification on success
-                await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalComplete,
-                    new ServiceRemovalComplete(true, name, operationId,
-                        "signalr.serviceRemove.success", report.CacheFilesDeleted, (long)report.TotalBytesFreed, report.LogEntriesRemoved,
-                        new Dictionary<string, object?> { ["name"] = name }));
-            }
-            catch (OperationCanceledException)
-            {
-                _logger.LogInformation("Service removal cancelled for: {Service}", name);
-                _operationTracker.CompleteOperation(operationId, success: false, error: "Cancelled by user");
-
-                await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalComplete,
-                    new ServiceRemovalComplete(false, name, operationId,
-                        "signalr.serviceRemove.cancelled", Context: new Dictionary<string, object?> { ["name"] = name }));
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error during service removal for: {Service}", name);
-
-                await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalProgress,
-                    new ServiceRemovalProgress(name, operationId,
-                        "signalr.serviceRemove.error.default", 0,
-                        Context: new Dictionary<string, object?> { ["name"] = name, ["errorDetail"] = ex.Message }));
-
-                _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
-
-                await _notifications.NotifyAllAsync(SignalREvents.ServiceRemovalComplete,
-                    new ServiceRemovalComplete(false, name, operationId,
-                        "signalr.serviceRemove.failed.generic",
-                        Context: new Dictionary<string, object?> { ["name"] = name }));
-            }
-        }, cancellationToken);
+                    if (update.BytesFreed > 0)
+                    {
+                        removalMetrics.BytesFreed = update.BytesFreed;
+                    }
+                },
+                ApplyFinalMetrics: (removalMetrics, report) =>
+                {
+                    removalMetrics.FilesDeleted = report.CacheFilesDeleted;
+                    removalMetrics.BytesFreed = (long)report.TotalBytesFreed;
+                },
+                LogSuccess: (_, report) =>
+                {
+                    _logger.LogInformation(
+                        "Service removal completed for {Service} - Deleted {Files} files, freed {Bytes} bytes",
+                        name,
+                        report.CacheFilesDeleted,
+                        report.TotalBytesFreed);
+                },
+                LogCancelled: _ =>
+                {
+                    _logger.LogInformation("Service removal cancelled for: {Service}", name);
+                },
+                LogFailure: (_, ex) =>
+                {
+                    _logger.LogError(ex, "Error during service removal for: {Service}", name);
+                }));
 
         return Accepted(new CacheOperationResponse
         {
@@ -1099,6 +1180,7 @@ public class CacheController : ControllerBase
                 return new ServiceRemovalInfo
                 {
                     ServiceName = metrics?.EntityName ?? op.Name,
+                    OperationId = op.Id,
                     Status = op.Status,
                     Message = op.Message,
                     FilesDeleted = metrics?.FilesDeleted ?? 0,
@@ -1128,10 +1210,38 @@ public class CacheController : ControllerBase
             GameRemovals = gameOps.Select(op =>
             {
                 var metrics = op.Metadata as RemovalMetrics;
+
+                // Scope-aware identity: steam populates GameAppId, epic populates EpicAppId.
+                // Legacy rows without EntityKind fall back to numeric parse for Steam compat.
+                long? gameAppId = null;
+                string? epicAppId = null;
+
+                switch (metrics?.EntityKind)
+                {
+                    case "steam":
+                        if (long.TryParse(metrics.EntityKey, out var parsedSteamId))
+                        {
+                            gameAppId = parsedSteamId;
+                        }
+                        break;
+                    case "epic":
+                        epicAppId = metrics.EpicAppId ?? metrics.EntityKey;
+                        break;
+                    default:
+                        if (long.TryParse(metrics?.EntityKey, out var legacySteamId))
+                        {
+                            gameAppId = legacySteamId;
+                        }
+                        break;
+                }
+
                 return new GameRemovalInfo
                 {
-                    GameAppId = uint.TryParse(metrics?.EntityKey, out var appId) ? appId : 0,
+                    GameAppId = gameAppId,
+                    EpicAppId = epicAppId,
+                    EntityKind = metrics?.EntityKind ?? (epicAppId != null ? "epic" : gameAppId.HasValue ? "steam" : null),
                     GameName = metrics?.EntityName ?? op.Name,
+                    OperationId = op.Id,
                     Status = op.Status,
                     Message = op.Message,
                     FilesDeleted = metrics?.FilesDeleted ?? 0,
@@ -1145,6 +1255,7 @@ public class CacheController : ControllerBase
                 return new ServiceRemovalInfo
                 {
                     ServiceName = metrics?.EntityName ?? op.Name,
+                    OperationId = op.Id,
                     Status = op.Status,
                     Message = op.Message,
                     FilesDeleted = metrics?.FilesDeleted ?? 0,
@@ -1195,7 +1306,7 @@ public class CacheController : ControllerBase
     /// </summary>
     [Authorize(Policy = "AdminOnly")]
     [HttpDelete("evicted/{scope}")]
-    public async Task<IActionResult> RemoveEvictedForEntityAsync(string scope, [FromQuery] string? key)
+    public async Task<IActionResult> RemoveEvictedForEntityAsync(string scope, [FromQuery] string? key, CancellationToken cancellationToken)
     {
         // Validate key parameter.
         if (string.IsNullOrWhiteSpace(key))
@@ -1244,15 +1355,22 @@ public class CacheController : ControllerBase
             return BadRequest(new ErrorResponse { Error = errorMessage });
         }
 
-        // Conflict check — reject if a global eviction removal is already running.
-        var activeOps = _operationTracker.GetActiveOperations(OperationType.EvictionRemoval);
-        if (activeOps.Any())
+        // Central concurrency check — scope-aware (replaces the global eviction lock bug).
+        // Different entities can now run concurrently; bulk/service-wide still blocks entity-level.
+        var conflictScope = scopeLower switch
         {
-            return Conflict(new
-            {
-                error = "Eviction removal already in progress",
-                operationId = activeOps.First().Id
-            });
+            "steam" => ConflictScope.SteamGame(steamAppId),
+            "epic" => ConflictScope.EpicGame(key, key),
+            "service" => ConflictScope.Service(key),
+            _ => ConflictScope.Bulk()
+        };
+        var conflict = await _conflictChecker.CheckAsync(
+            OperationType.EvictionRemoval,
+            conflictScope,
+            cancellationToken);
+        if (conflict != null)
+        {
+            return Conflict(conflict);
         }
 
         var evictionScope = scopeLower switch
@@ -1263,9 +1381,8 @@ public class CacheController : ControllerBase
             _ => throw new InvalidOperationException($"Unreachable scope: {scopeLower}")
         };
 
-        var cts = new CancellationTokenSource();
-
         // For Epic or Steam scope, look up the game name so the frontend can display it in the notification bar.
+        // Direct lookup is deliberate: this endpoint only needs notification metadata, not the load/upsert flow GameCacheDetectionDataService owns.
         string? resolvedGameName = null;
         string? resolvedGameAppId = null;
         if (evictionScope == EvictionScope.Epic)
@@ -1295,44 +1412,13 @@ public class CacheController : ControllerBase
             }
         }
 
-        var evictionMetadata = new EvictionRemovalMetadata
-        {
-            Scope = scopeLower,
-            Key = key,
-            GameName = resolvedGameName
-        };
-        var operationId = _operationTracker.RegisterOperation(
-            OperationType.EvictionRemoval,
-            $"Eviction Removal ({evictionScope}: {key})",
-            cts,
-            evictionMetadata);
-
-        await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalStarted,
-            new EvictionRemovalStarted("signalr.evictionRemove.starting.entity", operationId,
-                new Dictionary<string, object?> { ["scope"] = evictionScope.ToString(), ["key"] = key },
-                resolvedGameName, resolvedGameAppId));
-
-        var capturedKey = key;
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cts.Token);
-                await _reconciliationService.RemoveEvictedRecordsForEntityAsync(
-                    dbContext, evictionScope, capturedKey, cts.Token, operationId);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "[EvictedRemoval] Unhandled error before entity removal started ({Scope} '{Key}')", evictionScope, capturedKey);
-                _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
-                await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalComplete,
-                    new EvictionRemovalComplete(false, operationId, "signalr.evictionRemove.failedToStart", 0, 0, ex.Message));
-            }
-            finally
-            {
-                cts.Dispose();
-            }
-        }, cts.Token);
+        var operationId = await _reconciliationService.StartScopedEvictionRemovalAsync(
+            evictionScope,
+            key,
+            resolvedGameName,
+            resolvedGameAppId,
+            cancellationToken,
+            resolvedEpicAppId: evictionScope == EvictionScope.Epic ? key : null);
 
         return Accepted(new { operationId, scope = scopeLower, key });
     }

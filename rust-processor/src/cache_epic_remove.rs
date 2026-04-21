@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Parser;
 use sqlx::PgPool;
 use sqlx::Row;
@@ -6,24 +6,20 @@ use serde::Serialize;
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::io::{BufWriter, Write as IoWrite};
 use std::path::{Path, PathBuf};
-use tempfile::NamedTempFile;
-use flate2::write::GzEncoder;
-use flate2::Compression;
 
 mod cache_utils;
 mod db;
 mod log_discovery;
 mod log_reader;
+mod log_purge;
 mod models;
 mod parser;
 mod progress_events;
 mod progress_utils;
 mod service_utils;
 
-use log_reader::LogFileReader;
-use parser::LogParser;
+use log_purge::remove_log_entries_for_urls;
 use progress_events::ProgressReporter;
 
 /// Epic game cache removal utility - removes all cache files, log entries,
@@ -210,40 +206,13 @@ fn remove_cache_files_for_epic_game(
     let bytes_freed = AtomicU64::new(0);
     let permission_errors = AtomicUsize::new(0);
     let parent_dirs = Mutex::new(HashSet::new());
-    let slice_size: i64 = 1_048_576; // 1MB
-
     eprintln!("Collecting cache file paths for deletion...");
 
     // Collect all paths to delete
     let paths_to_check: Vec<_> = url_data
         .par_iter()
         .flat_map(|(url, (service, total_bytes))| {
-            let service_lower = service.to_lowercase();
-            let mut paths = Vec::new();
-
-            // Add no-range format path
-            paths.push(
-                cache_utils::calculate_cache_path_no_range(cache_dir, &service_lower, url),
-            );
-
-            // If we have size info, add chunked format paths
-            if *total_bytes > 0 {
-                let mut start: i64 = 0;
-                while start < *total_bytes {
-                    let end = start + slice_size - 1;
-                    paths.push(
-                        cache_utils::calculate_cache_path(cache_dir, &service_lower, url, start as u64, end as u64),
-                    );
-                    start += slice_size;
-                }
-            } else {
-                // Add first chunk as fallback
-                paths.push(
-                    cache_utils::calculate_cache_path(cache_dir, &service_lower, url, 0, 1_048_575),
-                );
-            }
-
-            paths
+            cache_utils::cache_path_candidates_for_bytes(cache_dir, service, url, *total_bytes)
         })
         .collect();
 
@@ -273,8 +242,14 @@ fn remove_cache_files_for_epic_game(
                     let count = deleted_files.fetch_add(1, Ordering::Relaxed) + 1;
 
                     if let Some(parent) = path.parent() {
-                        let mut dirs = parent_dirs.lock().unwrap();
-                        dirs.insert(parent.to_path_buf());
+                        match parent_dirs.lock() {
+                            Ok(mut dirs) => {
+                                dirs.insert(parent.to_path_buf());
+                            }
+                            Err(err) => {
+                                eprintln!("  Warning: failed to track parent directory after delete: {}", err);
+                            }
+                        }
                     }
 
                     if count % 100 == 0 {
@@ -315,7 +290,15 @@ fn remove_cache_files_for_epic_game(
 
     let final_deleted = deleted_files.load(Ordering::Relaxed);
     let final_bytes = bytes_freed.load(Ordering::Relaxed);
-    let final_dirs = parent_dirs.into_inner().unwrap();
+    let final_dirs = match parent_dirs.into_inner() {
+        Ok(dirs) => dirs,
+        Err(err) => {
+            eprintln!(
+                "  Warning: parent directory tracker was poisoned; continuing with recovered set"
+            );
+            err.into_inner()
+        }
+    };
     let final_permission_errors = permission_errors.load(Ordering::Relaxed);
 
     if final_permission_errors > 5 {
@@ -371,136 +354,6 @@ fn cleanup_empty_directories(cache_dir: &Path, dirs_to_check: HashSet<PathBuf>) 
     removed_count
 }
 
-/// Remove log entries for the Epic game from access log text files.
-/// Matches by URL only (Epic games have no depot IDs).
-fn remove_log_entries_for_epic_game(
-    log_dir: &Path,
-    urls_to_remove: &HashSet<String>,
-) -> Result<(u64, usize)> {
-    use rayon::prelude::*;
-    use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-
-    eprintln!("Filtering log files to remove Epic game entries...");
-
-    let parser = LogParser::new(chrono_tz::UTC);
-    let log_files = log_discovery::discover_log_files(log_dir, "access.log")?;
-
-    let total_lines_removed = AtomicU64::new(0);
-    let permission_errors = AtomicUsize::new(0);
-
-    log_files.par_iter().enumerate().for_each(|(file_index, log_file)| {
-        eprintln!("  Processing file {}/{}: {}", file_index + 1, log_files.len(), log_file.path.display());
-
-        let file_result = (|| -> Result<u64> {
-            let file_dir = log_file.path.parent().context("Failed to get file directory")?;
-            let temp_file = NamedTempFile::new_in(file_dir)?;
-
-            let mut lines_removed: u64 = 0;
-            let mut lines_processed: u64 = 0;
-
-            {
-                let mut log_reader = LogFileReader::open(&log_file.path)?;
-
-                // Create writer matching original compression
-                let mut writer: Box<dyn std::io::Write> = if log_file.is_compressed {
-                    let path_str = log_file.path.to_string_lossy();
-                    if path_str.ends_with(".gz") {
-                        Box::new(BufWriter::with_capacity(
-                            1024 * 1024,
-                            GzEncoder::new(temp_file.as_file().try_clone()?, Compression::default())
-                        ))
-                    } else if path_str.ends_with(".zst") {
-                        Box::new(BufWriter::with_capacity(
-                            1024 * 1024,
-                            zstd::Encoder::new(temp_file.as_file().try_clone()?, 3)?
-                        ))
-                    } else {
-                        Box::new(BufWriter::with_capacity(1024 * 1024, temp_file.as_file().try_clone()?))
-                    }
-                } else {
-                    Box::new(BufWriter::with_capacity(1024 * 1024, temp_file.as_file().try_clone()?))
-                };
-
-                let mut line = String::new();
-
-                loop {
-                    line.clear();
-                    let bytes_read = log_reader.read_line(&mut line)?;
-                    if bytes_read == 0 {
-                        break;
-                    }
-
-                    lines_processed += 1;
-                    let mut should_remove = false;
-
-                    if let Some(entry) = parser.parse_line(line.trim()) {
-                        if !service_utils::should_skip_url(&entry.url) {
-                            // Match by URL only (no depot IDs for Epic)
-                            if urls_to_remove.contains(&entry.url) {
-                                should_remove = true;
-                            }
-                        }
-                    }
-
-                    if !should_remove {
-                        write!(writer, "{}", line)?;
-                    } else {
-                        lines_removed += 1;
-                    }
-                }
-
-                writer.flush()?;
-                drop(writer);
-            }
-
-            // If all lines removed, delete the entire file
-            if lines_processed > 0 && lines_removed == lines_processed {
-                eprintln!("  INFO: All {} lines from this file are for this game, deleting file entirely", lines_processed);
-                match cache_utils::safe_path_under_root(log_dir, &log_file.path) {
-                    Ok(_) => { std::fs::remove_file(&log_file.path).ok(); }
-                    Err(e) => eprintln!("skipping unsafe path {}: {}", log_file.path.display(), e),
-                }
-                return Ok(lines_removed);
-            }
-
-            // Atomically replace original with filtered version
-            let temp_path = temp_file.into_temp_path();
-
-            if let Err(persist_err) = temp_path.persist(&log_file.path) {
-                eprintln!("    persist() failed ({}), using copy fallback...", persist_err);
-                std::fs::copy(&persist_err.path, &log_file.path)?;
-                match cache_utils::safe_path_under_root(log_dir, &persist_err.path) {
-                    Ok(_) => { std::fs::remove_file(&persist_err.path).ok(); }
-                    Err(e) => eprintln!("skipping unsafe path {}: {}", persist_err.path.display(), e),
-                }
-            }
-
-            Ok(lines_removed)
-        })();
-
-        match file_result {
-            Ok(lines_removed) => {
-                eprintln!("    Removed {} log lines from this file", lines_removed);
-                total_lines_removed.fetch_add(lines_removed, Ordering::Relaxed);
-            }
-            Err(e) => {
-                let error_str = e.to_string();
-                if error_str.contains("Permission denied") || error_str.contains("os error 13") {
-                    permission_errors.fetch_add(1, Ordering::Relaxed);
-                    eprintln!("  ERROR: Permission denied for file {}: {}", log_file.path.display(), e);
-                } else {
-                    eprintln!("  WARNING: Skipping file {}: {}", log_file.path.display(), e);
-                }
-            }
-        }
-    });
-
-    let final_removed = total_lines_removed.load(Ordering::Relaxed);
-    let final_permission_errors = permission_errors.load(Ordering::Relaxed);
-    eprintln!("Total log entries removed: {}, permission errors: {}", final_removed, final_permission_errors);
-    Ok((final_removed, final_permission_errors))
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
@@ -531,7 +384,7 @@ async fn main() -> Result<()> {
         anyhow::bail!("{}", msg);
     }
 
-    let pool = db::create_pool().await;
+    let pool = db::create_pool().await?;
 
     write_progress(&progress_path, "starting", "signalr.epicRemove.starting", json!({ "gameName": game_name }), 0.0, 0, 0)?;
     reporter.emit_progress(0.0, "signalr.epicRemove.starting", json!({ "gameName": game_name }));
@@ -581,7 +434,7 @@ async fn main() -> Result<()> {
     reporter.emit_progress(80.0, "signalr.epicRemove.logs.removing", json!({}));
     eprintln!("\nRemoving log entries...");
     let urls_to_remove: HashSet<String> = url_data.keys().cloned().collect();
-    let (log_entries_removed, log_permission_errors) = remove_log_entries_for_epic_game(&log_dir, &urls_to_remove)?;
+    let (log_entries_removed, log_permission_errors) = remove_log_entries_for_urls(&log_dir, &urls_to_remove)?;
 
     // Step 4: Check for permission errors before touching database
     let total_permission_errors = cache_permission_errors + log_permission_errors;

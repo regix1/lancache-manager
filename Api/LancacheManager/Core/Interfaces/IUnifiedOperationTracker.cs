@@ -10,6 +10,13 @@ public interface IUnifiedOperationTracker
     Guid RegisterOperation(OperationType type, string name, CancellationTokenSource cts, object? metadata = null);
 
     /// <summary>
+    /// Re-registers a previously-persisted operation by its original ID (recovery after restart).
+    /// Returns true if the operation was registered; false if the ID is already in use
+    /// (caller should treat as benign — the operation is already tracked).
+    /// </summary>
+    bool TryRestoreOperation(Guid operationId, OperationType type, string name, CancellationTokenSource cts, object? metadata = null);
+
+    /// <summary>
     /// Cancels an operation by requesting cancellation on its CancellationTokenSource.
     /// Returns true if cancellation was requested or is already in progress (idempotent).
     /// Returns false if the operation was not found.
@@ -46,8 +53,19 @@ public interface IUnifiedOperationTracker
     /// <summary>
     /// Look up an operation by its entity key (e.g., appId for games, serviceName for services).
     /// Uses the secondary index maintained internally.
+    /// Backward-compat wrapper over the kind-prefixed index — probes
+    /// <c>steam:</c>/<c>epic:</c>/<c>service:</c> variants in priority order based on <paramref name="type"/>.
+    /// New call sites should prefer <see cref="GetOperationByScope"/>.
     /// </summary>
     OperationInfo? GetOperationByEntityKey(OperationType type, string entityKey);
+
+    /// <summary>
+    /// Look up an operation by its canonical <see cref="ConflictScope"/>. Preferred over
+    /// <see cref="GetOperationByEntityKey"/> — uses an unambiguous <c>kind:key</c> lookup
+    /// so a <c>ServiceRemoval</c> on service "steam" cannot collide with a hypothetical
+    /// steam appId.
+    /// </summary>
+    OperationInfo? GetOperationByScope(OperationType type, ConflictScope scope);
 
     /// <summary>
     /// Update the metadata object on an existing operation.

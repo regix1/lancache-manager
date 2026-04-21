@@ -286,18 +286,18 @@ export interface LogRemovalCompleteEvent {
 
 export interface GameRemovalStartedEvent {
   operationId: string;
-  stageKey?: string;
+  gameAppId: number | null;
+  epicAppId: string | null;
+  gameName: string;
+  stageKey: string;
   context?: Record<string, string | number | boolean>;
-  /** @deprecated use stageKey instead */
-  message: string;
-  gameAppId?: number;
-  gameName?: string;
-  timestamp?: string;
+  timestamp: string;
 }
 export interface GameRemovalProgressEvent {
   operationId: string;
   percentComplete: number;
-  gameAppId: number;
+  gameAppId: number | null;
+  epicAppId: string | null;
   gameName: string;
   stageKey?: string;
   context?: Record<string, string | number | boolean>;
@@ -307,16 +307,16 @@ export interface GameRemovalProgressEvent {
   bytesFreed?: number;
 }
 
-// C# sends GameRemovalComplete record: Success, OperationId, GameAppId (uint), GameName, Message, FilesDeleted, BytesFreed, LogEntriesRemoved
 export interface GameRemovalCompleteEvent {
   operationId: string;
   success: boolean;
   stageKey?: string;
   context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
-  message: string;
+  message?: string;
   cancelled?: boolean;
-  gameAppId: number;
+  gameAppId: number | null;
+  epicAppId: string | null;
   gameName?: string;
   filesDeleted?: number;
   bytesFreed?: number;
@@ -843,6 +843,7 @@ export interface EvictionRemovalStartedEvent {
   message?: string;
   gameName?: string;
   gameAppId?: string;
+  epicAppId?: string;
 }
 
 export interface EvictionRemovalProgressEvent {
@@ -864,6 +865,7 @@ export interface EvictionRemovalCompleteEvent {
   context?: Record<string, string | number | boolean>;
   /** @deprecated use stageKey instead */
   message?: string;
+  cancelled?: boolean;
   downloadsRemoved?: number;
   logEntriesRemoved?: number;
   error?: string;

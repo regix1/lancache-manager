@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Parser;
 use sqlx::PgPool;
 use sqlx::Row;
@@ -6,24 +6,20 @@ use serde::Serialize;
 use serde_json::json;
 use std::collections::HashSet;
 use std::fs;
-use std::io::{BufWriter, Write as IoWrite};
 use std::path::{Path, PathBuf};
-use tempfile::NamedTempFile;
-use flate2::write::GzEncoder;
-use flate2::Compression;
 
 mod cache_utils;
 mod db;
 mod log_discovery;
 mod log_reader;
+mod log_purge;
 mod models;
 mod parser;
 mod progress_events;
 mod progress_utils;
 mod service_utils;
 
-use log_reader::LogFileReader;
-use parser::LogParser;
+use log_purge::remove_log_entries_for_service;
 use progress_events::ProgressReporter;
 
 /// Service cache removal utility - removes all cache files for a specific service
@@ -123,11 +119,9 @@ fn remove_cache_files_for_service(
 ) -> Result<(usize, u64, usize)> {  // Returns (deleted_count, bytes_freed, permission_errors)
     eprintln!("Removing cache files for service '{}'...", service);
 
-    let service_lower = service.to_lowercase();
     let mut deleted_count = 0;
     let mut bytes_freed: u64 = 0;
     let mut permission_errors = 0;
-    let slice_size: i64 = 1_048_576; // 1MB
     let total_urls = urls.len();
     let mut urls_processed: usize = 0;
     let mut last_reported_percent: usize = 0;
@@ -135,18 +129,23 @@ fn remove_cache_files_for_service(
     for url in urls {
         urls_processed += 1;
 
-        // Try no-range format first (standard lancache format)
-        let cache_path_no_range = cache_utils::calculate_cache_path_no_range(cache_dir, &service_lower, url);
+        for cache_path in cache_utils::cache_path_candidates_for_probe(
+            cache_dir,
+            service,
+            url,
+            cache_utils::DEFAULT_MAX_CHUNKS,
+        ) {
+            if !cache_path.exists() {
+                continue;
+            }
 
-        if cache_path_no_range.exists() {
-            match cache_utils::safe_path_under_root(cache_dir, &cache_path_no_range) {
+            match cache_utils::safe_path_under_root(cache_dir, &cache_path) {
                 Ok(_) => {
-                    // Get size before deleting
-                    if let Ok(metadata) = fs::metadata(&cache_path_no_range) {
+                    if let Ok(metadata) = fs::metadata(&cache_path) {
                         bytes_freed += metadata.len();
                     }
 
-                    match fs::remove_file(&cache_path_no_range) {
+                    match fs::remove_file(&cache_path) {
                         Ok(_) => {
                             deleted_count += 1;
                             if deleted_count % 100 == 0 {
@@ -158,59 +157,16 @@ fn remove_cache_files_for_service(
                             if e.kind() == std::io::ErrorKind::PermissionDenied {
                                 permission_errors += 1;
                                 if permission_errors <= 5 {
-                                    eprintln!("  ERROR: Permission denied deleting {}: {}", cache_path_no_range.display(), e);
+                                    eprintln!("  ERROR: Permission denied deleting {}: {}", cache_path.display(), e);
                                 }
                             } else {
-                                eprintln!("  Warning: Failed to delete {}: {}", cache_path_no_range.display(), e);
+                                eprintln!("  Warning: Failed to delete {}: {}", cache_path.display(), e);
                             }
                         }
                     }
                 }
                 Err(e) => {
-                    eprintln!("  skipping unsafe path {}: {}", cache_path_no_range.display(), e);
-                }
-            }
-        } else {
-            // Try chunked format (check first 100 chunks)
-            for chunk in 0..100 {
-                let start = chunk * slice_size;
-                let end = start + slice_size - 1;
-                let cache_path = cache_utils::calculate_cache_path(cache_dir, &service_lower, url, start as u64, end as u64);
-
-                if !cache_path.exists() {
-                    break; // No more chunks for this URL
-                }
-
-                match cache_utils::safe_path_under_root(cache_dir, &cache_path) {
-                    Ok(_) => {
-                        if let Ok(metadata) = fs::metadata(&cache_path) {
-                            bytes_freed += metadata.len();
-                        }
-
-                        match fs::remove_file(&cache_path) {
-                            Ok(_) => {
-                                deleted_count += 1;
-                                if deleted_count % 100 == 0 {
-                                    eprintln!("  Deleted {} cache files ({:.2} MB freed)...",
-                                        deleted_count, bytes_freed as f64 / 1_048_576.0);
-                                }
-                            }
-                            Err(e) => {
-                                if e.kind() == std::io::ErrorKind::PermissionDenied {
-                                    permission_errors += 1;
-                                    if permission_errors <= 5 {
-                                        eprintln!("  ERROR: Permission denied deleting {}: {}", cache_path.display(), e);
-                                    }
-                                } else {
-                                    eprintln!("  Warning: Failed to delete {}: {}", cache_path.display(), e);
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("  skipping unsafe path {}: {}", cache_path.display(), e);
-                        break;
-                    }
+                    eprintln!("  skipping unsafe path {}: {}", cache_path.display(), e);
                 }
             }
         }
@@ -234,130 +190,6 @@ fn remove_cache_files_for_service(
         deleted_count, bytes_freed as f64 / 1_073_741_824.0, permission_errors);
 
     Ok((deleted_count, bytes_freed, permission_errors))
-}
-
-fn remove_log_entries_for_service(
-    log_dir: &Path,
-    service: &str,
-    urls: &HashSet<String>,
-) -> Result<(u64, usize)> {  // Returns (lines_removed, permission_errors)
-    eprintln!("Filtering log files to remove service entries...");
-
-    let parser = LogParser::new(chrono_tz::UTC);
-    let log_files = log_discovery::discover_log_files(log_dir, "access.log")?;
-    let service_lower = service.to_lowercase();
-
-    let mut total_lines_removed: u64 = 0;
-    let mut permission_errors: usize = 0;
-
-    for (file_index, log_file) in log_files.iter().enumerate() {
-        eprintln!("  Processing file {}/{}: {}", file_index + 1, log_files.len(), log_file.path.display());
-
-        let file_result = (|| -> Result<u64> {
-            let file_dir = log_file.path.parent().context("Failed to get file directory")?;
-            let temp_file = NamedTempFile::new_in(file_dir)?;
-
-            let mut lines_removed: u64 = 0;
-            let mut lines_processed: u64 = 0;
-
-            {
-                let mut log_reader = LogFileReader::open(&log_file.path)?;
-
-                // Create writer that matches the compression of the original file
-                let mut writer: Box<dyn std::io::Write> = if log_file.is_compressed {
-                    let path_str = log_file.path.to_string_lossy();
-                    if path_str.ends_with(".gz") {
-                        Box::new(BufWriter::with_capacity(
-                            1024 * 1024,
-                            GzEncoder::new(temp_file.as_file().try_clone()?, Compression::default())
-                        ))
-                    } else if path_str.ends_with(".zst") {
-                        Box::new(BufWriter::with_capacity(
-                            1024 * 1024,
-                            zstd::Encoder::new(temp_file.as_file().try_clone()?, 3)?
-                        ))
-                    } else {
-                        Box::new(BufWriter::with_capacity(1024 * 1024, temp_file.as_file().try_clone()?))
-                    }
-                } else {
-                    Box::new(BufWriter::with_capacity(1024 * 1024, temp_file.as_file().try_clone()?))
-                };
-
-                let mut line = String::new();
-
-                loop {
-                    line.clear();
-                    let bytes_read = log_reader.read_line(&mut line)?;
-                    if bytes_read == 0 {
-                        break;
-                    }
-
-                    lines_processed += 1;
-                    let mut should_remove = false;
-
-                    if let Some(entry) = parser.parse_line(line.trim()) {
-                        if entry.service == service_lower && urls.contains(&entry.url) {
-                            should_remove = true;
-                        }
-                    }
-
-                    if !should_remove {
-                        write!(writer, "{}", line)?;
-                    } else {
-                        lines_removed += 1;
-                    }
-                }
-
-                writer.flush()?;
-                drop(writer);
-            }
-
-            // If all lines were removed, delete the file
-            if lines_processed > 0 && lines_removed == lines_processed {
-                eprintln!("  INFO: All {} lines from this file are for this service, deleting file entirely", lines_processed);
-                match cache_utils::safe_path_under_root(log_dir, &log_file.path) {
-                    Ok(_) => { fs::remove_file(&log_file.path).ok(); }
-                    Err(e) => eprintln!("skipping unsafe path {}: {}", log_file.path.display(), e),
-                }
-                return Ok(lines_removed);
-            }
-
-            // Replace original with filtered version
-            let temp_path = temp_file.into_temp_path();
-
-            if let Err(persist_err) = temp_path.persist(&log_file.path) {
-                // Fallback: copy + delete
-                eprintln!("    persist() failed ({}), using copy fallback...", persist_err);
-                fs::copy(&persist_err.path, &log_file.path)?;
-                match cache_utils::safe_path_under_root(log_dir, &persist_err.path) {
-                    Ok(_) => { fs::remove_file(&persist_err.path).ok(); }
-                    Err(e) => eprintln!("skipping unsafe path {}: {}", persist_err.path.display(), e),
-                }
-            }
-
-            Ok(lines_removed)
-        })();
-
-        match file_result {
-            Ok(lines_removed) => {
-                eprintln!("    Removed {} log lines from this file", lines_removed);
-                total_lines_removed += lines_removed;
-            }
-            Err(e) => {
-                // Check if this is a permission error
-                let error_str = e.to_string();
-                if error_str.contains("Permission denied") || error_str.contains("os error 13") {
-                    permission_errors += 1;
-                    eprintln!("  ERROR: Permission denied for file {}: {}", log_file.path.display(), e);
-                } else {
-                    eprintln!("  WARNING: Skipping file {}: {}", log_file.path.display(), e);
-                }
-            }
-        }
-    }
-
-    eprintln!("Total log entries removed: {}, permission errors: {}", total_lines_removed, permission_errors);
-    Ok((total_lines_removed, permission_errors))
 }
 
 async fn delete_service_from_database(pool: &PgPool, service: &str) -> Result<u64> {
@@ -402,7 +234,7 @@ async fn main() -> Result<()> {
     // Emit started event
     reporter.emit_started("signalr.serviceRemove.starting.default", json!({ "service": service }));
 
-    let pool = db::create_pool().await;
+    let pool = db::create_pool().await?;
 
     write_progress(&progress_path, "starting", "signalr.serviceRemove.starting.default", json!({ "service": service }), 0.0, 0, 0)?;
     reporter.emit_progress(0.0, "signalr.serviceRemove.starting.default", json!({ "service": service }));

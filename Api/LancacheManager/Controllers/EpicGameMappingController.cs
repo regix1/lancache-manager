@@ -1,4 +1,5 @@
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.EpicMapping;
 using LancacheManager.Models;
 using Microsoft.AspNetCore.Authorization;
@@ -15,18 +16,23 @@ namespace LancacheManager.Controllers;
 [Authorize(Policy = "AdminOnly")]
 public class EpicGameMappingController : ControllerBase
 {
+    private static readonly SemaphoreSlim _resolveStartLock = new(1, 1);
+
     private readonly EpicMappingService _epicMappingService;
     private readonly ILogger<EpicGameMappingController> _logger;
     private readonly IUnifiedOperationTracker _operationTracker;
+    private readonly IOperationConflictChecker _conflictChecker;
 
     public EpicGameMappingController(
         EpicMappingService epicMappingService,
         ILogger<EpicGameMappingController> logger,
-        IUnifiedOperationTracker operationTracker)
+        IUnifiedOperationTracker operationTracker,
+        IOperationConflictChecker conflictChecker)
     {
         _epicMappingService = epicMappingService;
         _logger = logger;
         _operationTracker = operationTracker;
+        _conflictChecker = conflictChecker;
     }
 
     /// <summary>
@@ -145,14 +151,46 @@ public class EpicGameMappingController : ControllerBase
     /// Mirrors Steam's POST /api/depots/rebuild — runs scan then resolves downloads.
     /// </summary>
     [HttpPost("refresh")]
-    public ActionResult StartRefresh(CancellationToken ct = default)
+    public async Task<ActionResult> StartRefreshAsync(CancellationToken ct = default)
     {
+        var conflict = await _conflictChecker.CheckAsync(
+            OperationType.EpicMapping,
+            ConflictScope.Bulk(),
+            ct);
+        if (conflict != null)
+        {
+            return Conflict(conflict);
+        }
+
         var started = _epicMappingService.TryStartRefresh(ct);
+        if (!started)
+        {
+            var raceConflict = await _conflictChecker.CheckAsync(
+                OperationType.EpicMapping,
+                ConflictScope.Bulk(),
+                ct);
+            if (raceConflict != null)
+            {
+                return Conflict(raceConflict);
+            }
+
+            if (!_epicMappingService.GetAuthStatus().IsAuthenticated)
+            {
+                return BadRequest(ApiResponse.Error("Epic mapping login is required before refreshing the catalog"));
+            }
+
+            return StatusCode(500, ApiResponse.Error("Failed to start Epic catalog refresh"));
+        }
+
+        var operationId = _epicMappingService.GetScheduleStatus().OperationId
+            ?? _operationTracker.GetActiveOperations(OperationType.EpicMapping).FirstOrDefault()?.Id;
+
         return Accepted(new
         {
-            started,
-            refreshInProgress = _epicMappingService.GetScheduleStatus().IsProcessing,
-            message = started ? "Epic catalog refresh started" : "A refresh is already in progress"
+            started = true,
+            operationId,
+            refreshInProgress = true,
+            message = "Epic catalog refresh started"
         });
     }
 
@@ -162,13 +200,36 @@ public class EpicGameMappingController : ControllerBase
     [HttpPost("resolve")]
     public async Task<ActionResult> ResolveDownloadsAsync(CancellationToken ct = default)
     {
+        var start = await BeginResolveOperationAsync(ct);
+        if (start.Conflict != null)
+        {
+            return Conflict(start.Conflict);
+        }
+
+        var operationId = start.OperationId!.Value;
+        var operationCts = start.CancellationTokenSource!;
+
         try
         {
-            var resolved = await _epicMappingService.ResolveEpicDownloadsAsync(ct);
-            return Ok(new { resolved, message = $"Resolved {resolved} Epic download(s) to game names" });
+            _operationTracker.UpdateProgress(operationId, 0, "Resolving Epic downloads...");
+            var resolved = await _epicMappingService.ResolveEpicDownloadsAsync(operationCts.Token);
+            _operationTracker.UpdateProgress(operationId, 100, $"Resolved {resolved} Epic download(s)");
+            _operationTracker.CompleteOperation(operationId, true);
+            return Ok(new
+            {
+                operationId,
+                resolved,
+                message = $"Resolved {resolved} Epic download(s) to game names"
+            });
+        }
+        catch (OperationCanceledException)
+        {
+            _operationTracker.CompleteOperation(operationId, false, "Epic download resolution was cancelled");
+            return StatusCode(499, ApiResponse.Error("Epic download resolution was cancelled"));
         }
         catch (Exception ex)
         {
+            _operationTracker.CompleteOperation(operationId, false, ex.Message);
             _logger.LogError(ex, "Failed to resolve Epic downloads");
             return StatusCode(500, ApiResponse.Error("Failed to resolve Epic downloads: " + ex.Message));
         }
@@ -238,6 +299,30 @@ public class EpicGameMappingController : ControllerBase
         }).ToList();
 
         return Ok(dtos);
+    }
+
+    private async Task<(Guid? OperationId, CancellationTokenSource? CancellationTokenSource, OperationConflictResponse? Conflict)> BeginResolveOperationAsync(CancellationToken cancellationToken)
+    {
+        await _resolveStartLock.WaitAsync(cancellationToken);
+        try
+        {
+            var conflict = await _conflictChecker.CheckAsync(
+                OperationType.EpicMapping,
+                ConflictScope.Bulk(),
+                cancellationToken);
+            if (conflict != null)
+            {
+                return (null, null, conflict);
+            }
+
+            var cts = new CancellationTokenSource();
+            var operationId = _operationTracker.RegisterOperation(OperationType.EpicMapping, "Epic Download Resolution", cts);
+            return (operationId, cts, null);
+        }
+        finally
+        {
+            _resolveStartLock.Release();
+        }
     }
 }
 

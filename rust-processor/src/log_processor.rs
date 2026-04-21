@@ -979,7 +979,7 @@ async fn main() -> Result<()> {
     reporter.emit_started("signalr.logProcessor.starting", serde_json::json!({}));
     reporter.emit_progress(0.0, "signalr.logProcessor.starting", serde_json::json!({}));
 
-    let pool = db::create_pool().await;
+    let pool = db::create_pool().await?;
 
     // Pre-load all SteamDepotMappings into a HashMap so no per-session DB lookups are needed.
     // Only owner apps (IsOwner = true) — matches prior C# behavior.

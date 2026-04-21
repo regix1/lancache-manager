@@ -5416,6 +5416,7 @@
       "starting": "Starting removal for Epic game '{{gameName}}'",
       "noUrls": "No URLs found for this game",
       "complete": "Removed {{files}} cache files ({{gb}} GB), {{logEntries}} log entries for Epic game '{{gameName}}'",
+      "cancelled": "Epic game removal for '{{gameName}}' was cancelled.",
       "error": {
         "fatal": "Epic game removal failed: {{errorDetail}}"
       },
@@ -5487,8 +5488,7 @@
       },
       "services": {
         "detecting": "Detecting non-game services",
-        "progress": "Processing service {{processed}}/{{total}}",
-        "skippedIncremental": "Skipping service detection (incremental mode)"
+        "progress": "Processing service {{processed}}/{{total}}"
       },
       "writing": "Writing detection report",
       "loaded": {
@@ -5498,8 +5498,10 @@
     },
     "gameRemove": {
       "starting": "Starting removal for game '{{gameName}}' (AppID {{gameAppId}})",
+      "finalizing": "Finalizing removal...",
       "noUrls": "No URLs found for this game",
       "complete": "Removed {{files}} cache files ({{gb}} GB), {{logEntries}} log entries for game '{{gameName}}' (AppID {{gameAppId}})",
+      "cancelled": "Game removal for '{{gameName}}' was cancelled.",
       "error": {
         "fatal": "Game removal failed: {{errorDetail}}"
       },
@@ -5599,6 +5601,15 @@
       "reconnectFailed": "Failed to maintain Steam connection after {{maxAttempts}} reconnection attempts. Steam servers may be experiencing issues.",
       "loginFailed": "Unable to log into Steam: {{result}}. Please try again or re-authenticate.",
       "disconnected": "Disconnected from Steam: {{result}}"
+    }
+  },
+  "errors": {
+    "conflict": {
+      "duplicate": "Operation already in progress for this item.",
+      "overlappingEntity": "Another operation is touching the same cache files. Wait for it to finish.",
+      "serviceWideActive": "A service-wide operation is running. Per-entity operations are blocked until it completes.",
+      "bulkActive": "A bulk operation is in flight. Wait for it to complete.",
+      "globalOperationActive": "A global operation (cache clear or database reset) is in progress. All other operations are blocked."
     }
   }
 }

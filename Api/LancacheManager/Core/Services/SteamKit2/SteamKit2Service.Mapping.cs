@@ -120,6 +120,7 @@ public partial class SteamKit2Service
     {
         try
         {
+            // Deliberately separate from UnknownGameResolutionService: this is PICS-time depot ownership recovery, not runtime cache-detection resolution.
             if (_steamApps == null || !_isLoggedOn)
             {
                 _logger.LogDebug("Skipping orphan depot resolution - not connected to Steam");

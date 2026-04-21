@@ -45,6 +45,19 @@ import type {
 import type { DashboardBatchResponse } from '../contexts/DashboardDataContext/types';
 import type { ServiceScheduleInfo } from '../components/features/management/schedules/types';
 
+// Structured body returned by the backend for HTTP 409 Conflict responses.
+// Matches C# OperationConflictResponse (camelCase via SignalR naming policy).
+// NOT exported — no consumer exists yet; export only when needed to avoid knip CI failure.
+interface OperationConflictBody {
+  code: string;
+  stageKey: string;
+  error: string;
+  activeOperationId?: string | null;
+  activeOperationType?: string | null;
+  activeOperationScope?: string | null;
+  context?: Record<string, unknown> | null;
+}
+
 // Response types for API operations
 interface ApiErrorData {
   code?: string;
@@ -177,6 +190,27 @@ class ApiService {
       const error = new Error('Request cancelled');
       error.name = 'AbortError';
       throw error;
+    }
+
+    // Handle 409 Conflict — may carry a structured OperationConflictBody
+    if (response.status === 409) {
+      const conflictText = await response.text().catch(() => '');
+      let conflictData: OperationConflictBody | null = null;
+      try {
+        conflictData = conflictText ? (JSON.parse(conflictText) as OperationConflictBody) : null;
+      } catch {
+        // Not JSON
+      }
+      if (conflictData && (conflictData.code === 'OPERATION_CONFLICT' || conflictData.stageKey)) {
+        // Structured conflict response — attach full body as .cause for i18n lookup
+        const conflictError = new Error(conflictData.error);
+        (conflictError as Error & { cause?: OperationConflictBody }).cause = conflictData;
+        throw conflictError;
+      }
+      // Legacy 409 shape: { error: "..." } or plain text
+      const legacyMessage =
+        ((conflictData as { error?: string } | null)?.error ?? conflictText) || 'Conflict';
+      throw new Error(legacyMessage);
     }
 
     if (!response.ok) {
@@ -448,25 +482,6 @@ class ApiService {
       {
         console.error('updateEvictionSettings error:', error);
       }
-      throw error;
-    }
-  }
-
-  static async runReconciliation(): Promise<{
-    processed: number;
-    evicted: number;
-    unEvicted: number;
-  }> {
-    try {
-      const res = await fetch(
-        `${API_BASE}/stats/eviction/reconcile`,
-        this.getFetchOptions({ method: 'POST' })
-      );
-      return await this.handleResponse<{ processed: number; evicted: number; unEvicted: number }>(
-        res
-      );
-    } catch (error: unknown) {
-      console.error('runReconciliation error:', error);
       throw error;
     }
   }
@@ -1377,9 +1392,13 @@ class ApiService {
   }
 
   // Remove all cache files for a specific game (fire-and-forget, requires auth)
-  static async removeGameFromCache(
-    gameAppId: number
-  ): Promise<{ message: string; gameAppId: number; status: string }> {
+  static async removeGameFromCache(gameAppId: number): Promise<{
+    message: string;
+    operationId: string;
+    appId: string;
+    gameName: string;
+    status: string;
+  }> {
     try {
       const res = await fetch(
         `${API_BASE}/games/${gameAppId}`,
@@ -1388,7 +1407,13 @@ class ApiService {
           // Returns immediately with 202 Accepted - removal happens in background
         })
       );
-      return await this.handleResponse<{ message: string; gameAppId: number; status: string }>(res);
+      return await this.handleResponse<{
+        message: string;
+        operationId: string;
+        appId: string;
+        gameName: string;
+        status: string;
+      }>(res);
     } catch (error) {
       console.error('removeGameFromCache error:', error);
       throw error;
@@ -1396,9 +1421,13 @@ class ApiService {
   }
 
   // Remove all cache files for a specific Epic game by name (fire-and-forget, requires auth)
-  static async removeEpicGameFromCache(
-    gameName: string
-  ): Promise<{ message: string; gameName: string; status: string }> {
+  static async removeEpicGameFromCache(gameName: string): Promise<{
+    message: string;
+    operationId: string;
+    appId: string;
+    gameName: string;
+    status: string;
+  }> {
     try {
       const res = await fetch(
         `${API_BASE}/games/epic/${encodeURIComponent(gameName)}`,
@@ -1407,7 +1436,13 @@ class ApiService {
           // Returns immediately with 202 Accepted - removal happens in background
         })
       );
-      return await this.handleResponse<{ message: string; gameName: string; status: string }>(res);
+      return await this.handleResponse<{
+        message: string;
+        operationId: string;
+        appId: string;
+        gameName: string;
+        status: string;
+      }>(res);
     } catch (error) {
       console.error('removeEpicGameFromCache error:', error);
       throw error;

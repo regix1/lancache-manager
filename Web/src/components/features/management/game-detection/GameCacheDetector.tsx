@@ -9,22 +9,38 @@ import { Modal } from '@components/ui/Modal';
 import { Tooltip } from '@components/ui/Tooltip';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { EnhancedDropdown, type DropdownOption } from '@components/ui/EnhancedDropdown';
-import { useNotifications, NOTIFICATION_IDS } from '@contexts/notifications';
+import { useNotifications } from '@contexts/notifications';
 import { waitForSignalRCompletion } from '@contexts/notifications/waitForSignalRCompletion';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
 import { useCancellableQueue } from '@/hooks/useCancellableQueue';
+import { useTimeoutCallback } from '@/hooks/useTimeoutCallback';
 import { useConfig } from '@contexts/useConfig';
 import { useDockerSocket } from '@contexts/useDockerSocket';
 import { useSetupStatus } from '@contexts/useSetupStatus';
 import { useDirectoryPermissions } from '@/hooks/useDirectoryPermissions';
 import { useInvalidateImages } from '@components/common/ImageCacheContext';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
+import { MANAGEMENT_STORAGE_KEYS } from '../sections/managementStorageKeys';
 import { LoadingState, EmptyState, ReadOnlyBadge } from '@components/ui/ManagerCard';
 import Badge from '@components/ui/Badge';
 import GamesList from './GamesList';
 import ServicesList from './ServicesList';
 import CacheRemovalModal from '@components/modals/cache/CacheRemovalModal';
 import LoadingSpinner from '@components/common/LoadingSpinner';
+import { getActiveGames, getActiveServices } from './cacheEntityFilters';
+import {
+  buildLoadedResultsSummary,
+  CACHED_DETECTION_RELOAD_DELAY_MS,
+  LOADED_RESULTS_SESSION_KEY,
+  loadCachedDetectionSnapshot
+} from './cacheDetectionData';
+import {
+  finalizeBulkRemovalNotification,
+  runTrackedGameRemoval,
+  runTrackedServiceRemoval,
+  useCompletedRemovalPruning,
+  useScheduledRemovalRefresh
+} from './cacheRemovalHelpers';
 import type { GameCacheInfo, ServiceCacheInfo } from '../../../../types';
 
 interface GameCacheDetectorProps {
@@ -92,7 +108,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
   // Accordion state for Services, Games, and Evicted Games sections
   const [sectionExpanded, setSectionExpanded] = useState(() => {
-    const saved = localStorage.getItem('management-game-cache-expanded');
+    const saved = localStorage.getItem(MANAGEMENT_STORAGE_KEYS.GAME_CACHE_EXPANDED);
     return saved !== null ? saved === 'true' : false;
   });
   const [servicesExpanded, setServicesExpanded] = useState(true);
@@ -111,7 +127,7 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   } | null>(null);
 
   useEffect(() => {
-    localStorage.setItem('management-game-cache-expanded', String(sectionExpanded));
+    localStorage.setItem(MANAGEMENT_STORAGE_KEYS.GAME_CACHE_EXPANDED, String(sectionExpanded));
   }, [sectionExpanded]);
 
   // Format last detection time with timezone awareness
@@ -126,15 +142,13 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   // evicted downloads so the user can clean them up without losing the cached
   // portion.
   // Note: Items with empty/missing datasources (legacy data) are shown regardless of filter.
-  const activeGames = games.filter((g) => !g.is_evicted && (g.cache_files_found ?? 0) > 0);
+  const activeGames = getActiveGames(games);
   const filteredGames = selectedDatasource
     ? activeGames.filter(
         (g) => !g.datasources?.length || g.datasources.includes(selectedDatasource)
       )
     : activeGames;
-  const activeServices = services.filter(
-    (s: ServiceCacheInfo) => !s.is_evicted && (s.cache_files_found ?? 0) > 0
-  );
+  const activeServices = getActiveServices(services);
   const filteredServices = selectedDatasource
     ? activeServices.filter(
         (s) => !s.datasources?.length || s.datasources.includes(selectedDatasource)
@@ -157,113 +171,99 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     prevGamesLenRef.current = filteredGames.length;
   }, [filteredServices.length, filteredGames.length]);
 
+  const applyCachedDetectionSnapshot = useCallback(
+    (snapshot: {
+      games: GameCacheInfo[];
+      services: ServiceCacheInfo[];
+      lastDetectionTime: string | null;
+    }) => {
+      setGames(snapshot.games);
+      setServices(snapshot.services);
+      setLastDetectionTime(snapshot.lastDetectionTime);
+    },
+    []
+  );
+
+  const clearCachedDetectionSnapshot = useCallback(() => {
+    setGames([]);
+    setServices([]);
+    setLastDetectionTime(null);
+  }, []);
+
+  const syncCachedDetection = useCallback(
+    async (errorContext: string, options?: { invalidateImages?: boolean }) => {
+      try {
+        const snapshot = await loadCachedDetectionSnapshot();
+
+        if (snapshot.hasCachedResults) {
+          applyCachedDetectionSnapshot(snapshot);
+        } else {
+          clearCachedDetectionSnapshot();
+        }
+
+        if (options?.invalidateImages) {
+          invalidateImageCache?.();
+        }
+
+        return snapshot;
+      } catch (err) {
+        console.error(`[GameCacheDetector] ${errorContext}:`, err);
+        return null;
+      }
+    },
+    [applyCachedDetectionSnapshot, clearCachedDetectionSnapshot, invalidateImageCache]
+  );
+  const scheduleCachedDetectionReload = useTimeoutCallback(CACHED_DETECTION_RELOAD_DELAY_MS);
+  const scheduleRemovalRefresh = useScheduledRemovalRefresh();
+
+  const scheduleCachedDetectionSync = useCallback(
+    (errorContext: string, invalidateImages = false) => {
+      scheduleCachedDetectionReload(() => {
+        void syncCachedDetection(errorContext, { invalidateImages });
+      });
+    },
+    [scheduleCachedDetectionReload, syncCachedDetection]
+  );
+
   // Load cached games and services from backend on mount and when refreshKey changes
   useEffect(() => {
     const loadCachedGames = async () => {
       if (mockMode) return;
 
-      try {
-        const result = await ApiService.getCachedGameDetection();
-        if (result.hasCachedResults) {
-          // Load games if array exists and has items
-          if (result.games && result.games.length > 0) {
-            setGames(result.games);
-          } else {
-            setGames([]);
-          }
+      const snapshot = await syncCachedDetection('Failed to load cached games and services');
+      if (!snapshot?.hasCachedResults) {
+        return;
+      }
 
-          // Load services if array exists and has items
-          if (result.services && result.services.length > 0) {
-            setServices(result.services);
-          } else {
-            setServices([]);
-          }
+      const alreadyShownThisSession = sessionStorage.getItem(LOADED_RESULTS_SESSION_KEY) === 'true';
+      const isActivelyScanning = loading || scanType === 'full' || scanType === 'incremental';
+      const resultsSummary = buildLoadedResultsSummary(snapshot);
 
-          // Store the last detection time
-          if (result.lastDetectionTime) {
-            setLastDetectionTime(result.lastDetectionTime);
-          }
-
-          // Only show "Loaded previous results" notification once per session
-          // This avoids the annoying repeated notification every time user visits the tab
-          const sessionKey = 'gameCacheDetector_loadedNotificationShown';
-          const alreadyShownThisSession = sessionStorage.getItem(sessionKey) === 'true';
-          const isActivelyScanning = loading || scanType === 'full' || scanType === 'incremental';
-
-          if (!isActivelyScanning && !alreadyShownThisSession) {
-            const parts = [];
-            if (result.totalGamesDetected && result.totalGamesDetected > 0) {
-              parts.push(
-                `${result.totalGamesDetected} game${result.totalGamesDetected !== 1 ? 's' : ''}`
-              );
-            }
-            if (result.totalServicesDetected && result.totalServicesDetected > 0) {
-              parts.push(
-                `${result.totalServicesDetected} service${result.totalServicesDetected !== 1 ? 's' : ''}`
-              );
-            }
-
-            if (parts.length > 0) {
-              addNotification({
-                type: 'generic',
-                status: 'completed',
-                message: t('management.gameDetection.loadedPreviousResults', {
-                  results: parts.join(' and ')
-                }),
-                details: { notificationType: 'info' }
-              });
-              sessionStorage.setItem(sessionKey, 'true');
-            }
-          }
-        } else {
-          // No cached results - clear the display
-          setGames([]);
-          setServices([]);
-          setLastDetectionTime(null);
-        }
-      } catch (err) {
-        console.error('[GameCacheDetector] Failed to load cached games and services:', err);
+      if (!isActivelyScanning && !alreadyShownThisSession && resultsSummary) {
+        addNotification({
+          type: 'generic',
+          status: 'completed',
+          message: t('management.gameDetection.loadedPreviousResults', {
+            results: resultsSummary
+          }),
+          details: { notificationType: 'info' }
+        });
+        sessionStorage.setItem(LOADED_RESULTS_SESSION_KEY, 'true');
       }
     };
 
     loadCachedGames();
-    if (refreshKey === 0) {
-      // Note: datasources are now derived from ConfigContext (no need to load separately)
-      // Note: hasProcessedLogs is now provided by useSetupStatus context (anonymous endpoint)
-      // Note: Recovery is now handled by NotificationsContext's recoverGameDetection
-      // which queries the backend and creates the notification on page load
-    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mockMode, refreshKey]); // Re-run when mockMode or refreshKey changes
 
   // Listen for notification events from SignalR (consolidated)
+  useCompletedRemovalPruning({
+    notifications,
+    setGames,
+    setServices
+  });
+
   useEffect(() => {
-    // Handle completed game removals — remove from local state when backend confirms done
-    const gameRemovalNotifs = notifications.filter(
-      (n) => n.type === 'game_removal' && n.status === 'completed'
-    );
-    gameRemovalNotifs.forEach((notif) => {
-      const gameAppId = notif.details?.gameAppId;
-      const gameName = notif.details?.gameName;
-
-      if (gameAppId) {
-        setGames((prev) => prev.filter((g) => g.game_app_id !== gameAppId));
-      } else if (gameName) {
-        setGames((prev) => prev.filter((g) => g.game_name !== gameName));
-      }
-    });
-
-    // Handle completed service removals
-    const serviceRemovalNotifs = notifications.filter(
-      (n) => n.type === 'service_removal' && n.status === 'completed'
-    );
-    serviceRemovalNotifs.forEach((notif) => {
-      const serviceName = notif.details?.service;
-      if (!serviceName) return;
-
-      setServices((prev) => prev.filter((s) => s.service_name !== serviceName));
-    });
-
     // Handle database reset completion
     const databaseResetNotifs = notifications.filter(
       (n) => n.type === 'database_reset' && n.status === 'completed'
@@ -292,24 +292,9 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         // directly from "loading" to "results" without an empty-games flash.
         const loadResults = async () => {
           try {
-            const result = await ApiService.getCachedGameDetection();
-            if (result.hasCachedResults) {
-              // Set games if array exists and has items (don't rely on totalGamesDetected being truthy)
-              if (result.games && result.games.length > 0) {
-                setGames(result.games);
-              }
-              // Set services if array exists and has items
-              if (result.services && result.services.length > 0) {
-                setServices(result.services);
-              }
-              if (result.lastDetectionTime) {
-                setLastDetectionTime(result.lastDetectionTime);
-              }
-            }
-            // Bust the image cache so newly-discovered game banners load fresh
-            invalidateImageCache?.();
-          } catch (err) {
-            console.error('[GameCacheDetector] Failed to load detection results:', err);
+            await syncCachedDetection('Failed to load detection results', {
+              invalidateImages: true
+            });
           } finally {
             // Clear loading state AFTER results are applied so there is no
             // intermediate render with games=[] and loading=false.
@@ -335,61 +320,26 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         // Note: Operation state now handled by NotificationsContext
       }
     }
-  }, [notifications, isStartingDetection, invalidateImageCache, refreshSetupStatus]);
+  }, [notifications, isStartingDetection, refreshSetupStatus, syncCachedDetection]);
 
   // Direct SignalR listener for GameDetectionComplete — reloads results regardless of who started the scan.
   // This handles the case where an external process (e.g., a scheduled scan or another browser tab)
   // triggers a scan while isStartingDetection is false, so the notification-based flow above would not reload.
   useEffect(() => {
     const handleDetectionComplete = () => {
-      // Small delay to allow backend to finish writing cached results before we fetch
-      setTimeout(() => {
-        ApiService.getCachedGameDetection()
-          .then((result) => {
-            if (result.hasCachedResults) {
-              if (result.games && result.games.length > 0) {
-                setGames(result.games);
-              }
-              if (result.services && result.services.length > 0) {
-                setServices(result.services);
-              }
-              if (result.lastDetectionTime) {
-                setLastDetectionTime(result.lastDetectionTime);
-              }
-              invalidateImageCache?.();
-            }
-          })
-          .catch((err) => {
-            console.error('[GameCacheDetector] Failed to reload results after external scan:', err);
-          });
-      }, 500);
+      scheduleCachedDetectionSync('Failed to reload results after external scan', true);
     };
 
     on('GameDetectionComplete', handleDetectionComplete);
     return () => {
       off('GameDetectionComplete', handleDetectionComplete);
     };
-  }, [on, off, invalidateImageCache]);
+  }, [on, off, scheduleCachedDetectionSync]);
 
   // Listen for GameRemovalComplete to immediately remove the game from the list
   useEffect(() => {
     const handleGameRemovalComplete = () => {
-      setTimeout(() => {
-        ApiService.getCachedGameDetection()
-          .then((result) => {
-            if (result.hasCachedResults) {
-              if (result.games) {
-                setGames(result.games);
-              }
-              if (result.services) {
-                setServices(result.services);
-              }
-            }
-          })
-          .catch((err) => {
-            console.error('[GameCacheDetector] Failed to reload after game removal:', err);
-          });
-      }, 500);
+      scheduleCachedDetectionSync('Failed to reload after game removal');
     };
 
     on('GameRemovalComplete', handleGameRemovalComplete);
@@ -398,36 +348,20 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       off('GameRemovalComplete', handleGameRemovalComplete);
       off('EvictionRemovalComplete', handleGameRemovalComplete);
     };
-  }, [on, off]);
+  }, [on, off, scheduleCachedDetectionSync]);
 
   // Listen for EvictionScanComplete — reloads detection results so evicted games surface immediately
   // without requiring a full Game Cache Detection scan or service restart.
   useEffect(() => {
     const handleEvictionScanComplete = () => {
-      // Small delay to allow backend to finish writing cached results before we fetch
-      setTimeout(() => {
-        ApiService.getCachedGameDetection()
-          .then((result) => {
-            if (result.hasCachedResults) {
-              if (result.games) {
-                setGames(result.games);
-              }
-              if (result.services) {
-                setServices(result.services);
-              }
-            }
-          })
-          .catch((err) => {
-            console.error('[GameCacheDetector] Failed to reload after eviction scan:', err);
-          });
-      }, 500);
+      scheduleCachedDetectionSync('Failed to reload after eviction scan');
     };
 
     on('EvictionScanComplete', handleEvictionScanComplete);
     return () => {
       off('EvictionScanComplete', handleEvictionScanComplete);
     };
-  }, [on, off]);
+  }, [on, off, scheduleCachedDetectionSync]);
 
   const startDetection = useCallback(
     async (forceRefresh: boolean, scanTypeLabel: 'full' | 'incremental') => {
@@ -495,68 +429,29 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
     setIsLoadingData(true);
 
     try {
-      const result = await ApiService.getCachedGameDetection();
-      if (result.hasCachedResults) {
-        // Load games if array exists and has items
-        if (result.games && result.games.length > 0) {
-          setGames(result.games);
-        } else {
-          setGames([]);
-        }
-
-        // Load services if array exists and has items
-        if (result.services && result.services.length > 0) {
-          setServices(result.services);
-        } else {
-          setServices([]);
-        }
-
-        // Store the last detection time
-        if (result.lastDetectionTime) {
-          setLastDetectionTime(result.lastDetectionTime);
-        }
-
-        // Show notification
-        const parts = [];
-        if (result.totalGamesDetected && result.totalGamesDetected > 0) {
-          parts.push(
-            `${result.totalGamesDetected} game${result.totalGamesDetected !== 1 ? 's' : ''}`
-          );
-        }
-        if (result.totalServicesDetected && result.totalServicesDetected > 0) {
-          parts.push(
-            `${result.totalServicesDetected} service${result.totalServicesDetected !== 1 ? 's' : ''}`
-          );
-        }
-
-        if (parts.length > 0) {
-          addNotification({
-            type: 'generic',
-            status: 'completed',
-            message: t('management.gameDetection.loadedFromPreviousScan', {
-              results: parts.join(' and ')
-            }),
-            details: { notificationType: 'success' }
-          });
-        } else {
-          addNotification({
-            type: 'generic',
-            status: 'completed',
-            message: t('management.gameDetection.noPreviousResults'),
-            details: { notificationType: 'info' }
-          });
-        }
-      } else {
-        setGames([]);
-        setServices([]);
-        setLastDetectionTime(null);
+      const snapshot = await syncCachedDetection('Failed to load previous results');
+      if (!snapshot) {
         addNotification({
           type: 'generic',
-          status: 'completed',
-          message: t('management.gameDetection.noPreviousResults'),
-          details: { notificationType: 'info' }
+          status: 'failed',
+          message: t('management.gameDetection.failedToLoadPreviousResults'),
+          details: { notificationType: 'error' }
         });
+        return;
       }
+
+      const resultsSummary = snapshot ? buildLoadedResultsSummary(snapshot) : null;
+
+      addNotification({
+        type: 'generic',
+        status: 'completed',
+        message: resultsSummary
+          ? t('management.gameDetection.loadedFromPreviousScan', {
+              results: resultsSummary
+            })
+          : t('management.gameDetection.noPreviousResults'),
+        details: { notificationType: resultsSummary ? 'success' : 'info' }
+      });
     } catch (err) {
       console.error('[GameCacheDetector] Failed to load data:', err);
       addNotification({
@@ -587,50 +482,17 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const confirmRemoval = async () => {
     if (!gameToRemove) return;
 
-    const gameAppId = gameToRemove.game_app_id;
-    const gameName = gameToRemove.game_name;
-    const isEpic = gameToRemove.service === 'epicgames';
-
-    // Add notification for tracking (shows in notification bar and on Remove button)
-    addNotification({
-      type: 'game_removal',
-      status: 'running',
-      message: t('management.gameDetection.removingGame', { name: gameName }),
-      details: {
-        gameAppId: gameAppId,
-        gameName: gameName
-      }
-    });
-
     // Close modal immediately - progress shown via notifications
+    const game = gameToRemove;
     setGameToRemove(null);
-
-    try {
-      if (isEpic) {
-        await ApiService.removeEpicGameFromCache(gameName);
-      } else {
-        await ApiService.removeGameFromCache(gameAppId);
-      }
-
-      // Fire-and-forget: API returned 202 Accepted, removal is happening in background
-      // Game disappears when notification becomes 'completed' (via useEffect above)
-
-      // Trigger a refetch after removal likely completes to refresh downloads
-      setTimeout(() => {
-        onDataRefresh?.();
-      }, 30000);
-    } catch (err: unknown) {
-      const errorMsg =
-        (err instanceof Error ? err.message : String(err)) ||
-        t('management.gameDetection.failedToRemoveGame');
-
-      updateNotification(NOTIFICATION_IDS.GAME_REMOVAL, {
-        status: 'failed',
-        error: errorMsg
-      });
-
-      console.error('Game removal error:', err);
-    }
+    await runTrackedGameRemoval({
+      game,
+      t,
+      addNotification,
+      updateNotification,
+      scheduleRemovalRefresh,
+      onDataRefresh
+    });
   };
 
   const handleServiceRemoveClick = (service: ServiceCacheInfo) => {
@@ -649,45 +511,17 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
   const confirmServiceRemoval = async () => {
     if (!serviceToRemove) return;
 
-    const serviceName = serviceToRemove.service_name;
-
-    // Add notification for tracking (shows in notification bar and on Remove button)
-    // Note: ID will be "service_removal-{serviceName}" for SignalR handler to find it
-    addNotification({
-      type: 'service_removal',
-      status: 'running',
-      message: t('management.gameDetection.removingService', { name: serviceName }),
-      details: {
-        service: serviceName
-      }
-    });
-
     // Close modal immediately - progress shown via notifications
+    const service = serviceToRemove;
     setServiceToRemove(null);
-
-    try {
-      await ApiService.removeServiceFromCache(serviceName);
-
-      // Fire-and-forget: API returned 202 Accepted, removal is happening in background
-      // Service disappears when notification becomes 'completed' (via useEffect above)
-
-      // Trigger a refetch after removal likely completes to refresh downloads
-      setTimeout(() => {
-        onDataRefresh?.();
-      }, 30000);
-    } catch (err: unknown) {
-      const errorMsg =
-        (err instanceof Error ? err.message : String(err)) ||
-        t('management.gameDetection.failedToRemoveService');
-
-      const notifId = `service_removal-${serviceName}`;
-      updateNotification(notifId, {
-        status: 'failed',
-        error: errorMsg
-      });
-
-      console.error('Service removal error:', err);
-    }
+    await runTrackedServiceRemoval({
+      service,
+      t,
+      addNotification,
+      updateNotification,
+      scheduleRemovalRefresh,
+      onDataRefresh
+    });
   };
 
   // Expand/Collapse all handler
@@ -781,52 +615,99 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
         } else {
           const game = entry.game;
           const gameAppId = game.game_app_id;
+          const gameName = game.game_name;
+          const isEpic = game.service === 'epicgames' && !!gameName;
+          const epicAppId = game.epic_app_id ?? undefined;
+          let currentOperationId: string | null = null;
+          const matchesGame = (payload?: {
+            gameAppId?: number | null;
+            epicAppId?: string | null;
+            gameName?: string;
+            operationId?: string;
+          }): boolean => {
+            if (!payload) {
+              return false;
+            }
+
+            if (currentOperationId) {
+              return payload.operationId === currentOperationId;
+            }
+
+            if (isEpic) {
+              if (epicAppId && payload.epicAppId === epicAppId) {
+                return true;
+              }
+
+              return payload.gameName === gameName;
+            }
+
+            return payload.gameAppId === gameAppId;
+          };
           const waitPromise = waitForSignalRCompletion<
-            { gameAppId?: number; operationId?: string },
-            { gameAppId?: number }
+            {
+              gameAppId?: number | null;
+              epicAppId?: string | null;
+              gameName?: string;
+              operationId?: string;
+            },
+            {
+              gameAppId?: number | null;
+              epicAppId?: string | null;
+              gameName?: string;
+              operationId?: string;
+            }
           >({
             signalR: { on, off },
             completeEvent: 'GameRemovalComplete',
             startedEvent: 'GameRemovalStarted',
-            match: (payload) => payload?.gameAppId === gameAppId,
+            match: matchesGame,
             onStartedCapture: (payload) =>
-              payload?.gameAppId === gameAppId && typeof payload.operationId === 'string'
+              matchesGame(payload) && typeof payload.operationId === 'string'
                 ? { opId: payload.operationId }
                 : null,
-            onOperationIdCaptured: (opId) => ctx.setOperationId(opId),
+            onOperationIdCaptured: (opId) => {
+              currentOperationId = opId;
+              ctx.setOperationId(opId);
+            },
             signal: ctx.signal
           });
-          const isEpic = game.service === 'epicgames' && !!game.game_name;
+
           if (isEpic) {
-            await ApiService.removeEpicGameFromCache(game.game_name);
+            const response = await ApiService.removeEpicGameFromCache(gameName);
+            currentOperationId = response.operationId;
+            ctx.setOperationId(response.operationId);
           } else {
-            await ApiService.removeGameFromCache(gameAppId);
+            const response = await ApiService.removeGameFromCache(gameAppId);
+            currentOperationId = response.operationId;
+            ctx.setOperationId(response.operationId);
           }
           await waitPromise;
         }
       },
-      finalize: ({ id, succeeded, cancelled }) => {
+      finalize: ({ id, succeeded, failed, cancelled, total }) => {
         setRemoveAllRunning(false);
         setRemoveAllProgress(null);
-        if (cancelled) {
-          updateNotification(id, {
-            status: 'completed',
-            message: t('management.sections.data.gameCacheRemoveAllCancelled', {
-              count: succeeded,
-              defaultValue: 'Bulk removal cancelled after {{count}} items'
-            }),
-            details: { cancelled: true, cancelling: false }
-          });
-        } else {
-          updateNotification(id, {
-            status: 'completed',
-            progress: 100,
-            message: t('management.sections.data.gameCacheRemoveAllComplete', {
-              count: succeeded,
-              defaultValue: 'Removed {{count}} cached items'
-            })
-          });
-        }
+        finalizeBulkRemovalNotification({
+          id,
+          succeeded,
+          failed,
+          total,
+          cancelled,
+          t,
+          updateNotification,
+          text: {
+            completeKey: 'management.sections.data.gameCacheRemoveAllComplete',
+            completeDefaultValue: 'Removed {{count}} cached items',
+            partialFailureKey: 'management.sections.data.gameCacheRemoveAllCompleteWithFailures',
+            partialFailureDefaultValue: 'Removed {{count}} cached items, but {{failed}} failed',
+            cancelledKey: 'management.sections.data.gameCacheRemoveAllCancelled',
+            cancelledDefaultValue: 'Bulk removal cancelled after {{count}} items',
+            cancelledWithFailuresKey:
+              'management.sections.data.gameCacheRemoveAllCancelledWithFailures',
+            cancelledWithFailuresDefaultValue:
+              'Bulk removal cancelled after {{count}} items, with {{failed}} failures'
+          }
+        });
       }
     });
   }, [
@@ -1053,7 +934,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                     >
                       <ServicesList
                         services={filteredServices}
-                        totalServices={filteredServices.length}
                         isAnyRemovalRunning={isAnyRemovalRunning}
                         isAdmin={isAdmin}
                         cacheReadOnly={cacheReadOnly}
@@ -1076,7 +956,6 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
                     >
                       <GamesList
                         games={filteredGames}
-                        totalGames={filteredGames.length}
                         isAnyRemovalRunning={isAnyRemovalRunning}
                         isAdmin={isAdmin}
                         cacheReadOnly={cacheReadOnly}

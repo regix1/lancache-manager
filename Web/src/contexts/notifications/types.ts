@@ -255,8 +255,15 @@ export interface RegistryCompleteConfig {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   getSuccessMessage?: (event: any, existing?: UnifiedNotification) => string;
   /** Optional function to get success details */
-
   getSuccessDetails?: (
+    event: any, // eslint-disable-line @typescript-eslint/no-explicit-any
+    existing?: UnifiedNotification
+  ) => UnifiedNotification['details'];
+  /** Optional function to get the cancelled message */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  getCancelledMessage?: (event: any, existing?: UnifiedNotification) => string;
+  /** Optional function to get cancelled details */
+  getCancelledDetails?: (
     event: any, // eslint-disable-line @typescript-eslint/no-explicit-any
     existing?: UnifiedNotification
   ) => UnifiedNotification['details'];

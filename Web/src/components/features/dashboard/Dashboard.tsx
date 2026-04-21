@@ -36,6 +36,10 @@ import { STORAGE_KEYS } from '@utils/constants';
 import { type StatCardData, type ServiceStat } from '../../../types';
 import { storage } from '@utils/storage';
 import ApiService from '@services/api.service';
+import {
+  EVICTION_SETTINGS_CHANGED_EVENT,
+  type EvictionSettingsChangedDetail
+} from '@/components/features/management/sections/managementStorageKeys';
 import StatCard from '@components/common/StatCard';
 import { Tooltip } from '@components/ui/Tooltip';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
@@ -147,6 +151,19 @@ const Dashboard: React.FC = () => {
         /* ignore abort / network errors */
       });
     return () => controller.abort();
+  }, []);
+
+  // Listen for in-session eviction-settings saves so the dashboard reflects
+  // the new mode without waiting for a remount.
+  useEffect(() => {
+    const handler = (event: Event): void => {
+      const detail = (event as CustomEvent<EvictionSettingsChangedDetail>).detail;
+      setEvictedDataMode(detail.evictedDataMode);
+    };
+    window.addEventListener(EVICTION_SETTINGS_CHANGED_EVENT, handler);
+    return () => {
+      window.removeEventListener(EVICTION_SETTINGS_CHANGED_EVENT, handler);
+    };
   }, []);
 
   // Derive evicted count directly from gameDetectionData (is_evicted === true OR partial eviction via evicted_downloads_count > 0)

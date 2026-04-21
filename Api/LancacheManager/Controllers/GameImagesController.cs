@@ -29,11 +29,11 @@ public class GameImagesController : ControllerBase
     private static long _cacheGeneration = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
     /// <summary>Gets the current image cache generation number.</summary>
-    public static long CacheGeneration => _cacheGeneration;
+    public static long CacheGeneration => Interlocked.Read(ref _cacheGeneration);
 
     /// <summary>Increments the cache generation to a new timestamp, invalidating cached image URLs.</summary>
     public static void IncrementCacheGeneration() =>
-        _cacheGeneration = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        Interlocked.Exchange(ref _cacheGeneration, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
 
     public GameImagesController(
         ILogger<GameImagesController> logger,
@@ -96,7 +96,7 @@ public class GameImagesController : ControllerBase
     /// </summary>
     [HttpGet("cache-version")]
     [AllowAnonymous]
-    public IActionResult GetCacheVersion() => Ok(new { version = _cacheGeneration });
+    public IActionResult GetCacheVersion() => Ok(new { version = CacheGeneration });
 
     /// <summary>
     /// Returns the list of app IDs that have cached game images.
@@ -147,7 +147,8 @@ public class GameImagesController : ControllerBase
             }
         }
 
-        _cacheGeneration = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        IncrementCacheGeneration();
+        var cacheGeneration = CacheGeneration;
 
         _logger.LogInformation("Triggering immediate image re-fetch after cache clear");
         try
@@ -166,7 +167,7 @@ public class GameImagesController : ControllerBase
         {
             message = "Image cache cleared and re-fetch triggered",
             epicImageUrlsRefreshed = epicUrlsRefreshed,
-            cacheGeneration = _cacheGeneration
+            cacheGeneration
         });
     }
 

@@ -279,7 +279,6 @@ fn remove_cache_files_for_game(
     let bytes_freed = AtomicU64::new(0);
     let permission_errors = AtomicUsize::new(0);
     let parent_dirs = Mutex::new(HashSet::new());
-    let slice_size: i64 = 1_048_576; // 1MB
 
     eprintln!("Collecting cache file paths for deletion...");
 
@@ -287,35 +286,10 @@ fn remove_cache_files_for_game(
     let paths_to_check: Vec<_> = url_data
         .par_iter()
         .flat_map(|(url, (service, total_bytes, _depot_ids))| {
-            let service_lower = service.to_lowercase();
-            let mut paths = Vec::new();
-
-            // Add no-range format path
-            paths.push((
-                cache_utils::calculate_cache_path_no_range(cache_dir, &service_lower, url),
-                false, // not chunked
-            ));
-
-            // If we have size info, also add chunked format paths
-            if *total_bytes > 0 {
-                let mut start: i64 = 0;
-                while start < *total_bytes {
-                    let end = start + slice_size - 1;
-                    paths.push((
-                        cache_utils::calculate_cache_path(cache_dir, &service_lower, url, start as u64, end as u64),
-                        true, // chunked
-                    ));
-                    start += slice_size;
-                }
-            } else {
-                // Add first chunk as fallback
-                paths.push((
-                    cache_utils::calculate_cache_path(cache_dir, &service_lower, url, 0, 1_048_575),
-                    true,
-                ));
-            }
-
-            paths
+            cache_utils::cache_path_candidates_for_bytes(cache_dir, service, url, *total_bytes)
+                .into_iter()
+                .map(|path| (path, false))
+                .collect::<Vec<_>>()
         })
         .collect();
 
@@ -350,8 +324,14 @@ fn remove_cache_files_for_game(
 
                     // Track parent directory for cleanup
                     if let Some(parent) = path.parent() {
-                        let mut dirs = parent_dirs.lock().unwrap();
-                        dirs.insert(parent.to_path_buf());
+                        match parent_dirs.lock() {
+                            Ok(mut dirs) => {
+                                dirs.insert(parent.to_path_buf());
+                            }
+                            Err(err) => {
+                                eprintln!("  Warning: failed to track parent directory after delete: {}", err);
+                            }
+                        }
                     }
 
                     // Progress reporting every 100 files
@@ -405,7 +385,15 @@ fn remove_cache_files_for_game(
 
     let final_deleted = deleted_files.load(Ordering::Relaxed);
     let final_bytes = bytes_freed.load(Ordering::Relaxed);
-    let final_dirs = parent_dirs.into_inner().unwrap();
+    let final_dirs = match parent_dirs.into_inner() {
+        Ok(dirs) => dirs,
+        Err(err) => {
+            eprintln!(
+                "  Warning: parent directory tracker was poisoned; continuing with recovered set"
+            );
+            err.into_inner()
+        }
+    };
     let final_permission_errors = permission_errors.load(Ordering::Relaxed);
 
     if final_permission_errors > 5 {
@@ -495,7 +483,7 @@ async fn main() -> Result<()> {
         anyhow::bail!("{}", msg);
     }
 
-    let pool = db::create_pool().await;
+    let pool = db::create_pool().await?;
 
     // Get game name from database
     let game_name = get_game_name_from_db(&pool, game_app_id).await?;

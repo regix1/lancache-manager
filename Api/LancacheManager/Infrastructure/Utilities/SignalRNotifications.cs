@@ -22,7 +22,8 @@ public static class SignalRNotifications
     /// </summary>
     public record GameRemovalStarted(
         Guid OperationId,
-        long GameAppId,
+        long? GameAppId,
+        string? EpicAppId,
         string GameName,
         string StageKey,
         DateTime Timestamp,
@@ -34,7 +35,8 @@ public static class SignalRNotifications
     /// </summary>
     public record GameRemovalProgress(
         Guid OperationId,
-        long GameAppId,
+    long? GameAppId,
+    string? EpicAppId,
         string GameName,
         string StageKey,
         double PercentComplete = 0,
@@ -49,7 +51,8 @@ public static class SignalRNotifications
     public record GameRemovalComplete(
         bool Success,
         Guid OperationId,
-        long GameAppId,
+    long? GameAppId,
+    string? EpicAppId,
         string StageKey,
         string? GameName = null,
         int FilesDeleted = 0,

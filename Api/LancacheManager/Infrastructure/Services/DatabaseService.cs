@@ -459,7 +459,7 @@ public class DatabaseService : IDatabaseService
                             break;
 
                         case "CachedGameDetections":
-                            // Use ExecuteDeleteAsync for direct deletion (more efficient for this table)
+                            // Direct ExecuteDeleteAsync is deliberate: database reset clears the whole table, not the load/upsert flow GameCacheDetectionDataService owns.
                             var gameDetectionCount = await context.CachedGameDetections.ExecuteDeleteAsync(cancellationToken);
                             _logger.LogInformation($"Cleared {gameDetectionCount:N0} cached game detections");
                             deletedRows += gameDetectionCount;
@@ -685,7 +685,7 @@ public class DatabaseService : IDatabaseService
                             break;
 
                         case "CachedServiceDetections":
-                            // Use ExecuteDeleteAsync for direct deletion
+                            // Direct ExecuteDeleteAsync is deliberate: database reset clears the whole table, not the load/upsert flow GameCacheDetectionDataService owns.
                             var serviceDetectionsCount = await context.CachedServiceDetections.ExecuteDeleteAsync(cancellationToken);
                             _logger.LogInformation($"Cleared {serviceDetectionsCount:N0} cached service detections");
                             deletedRows += serviceDetectionsCount;

@@ -36,7 +36,7 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
     private Task? _currentRefreshTask;
     private CancellationTokenSource? _currentRefreshCts;
     private readonly CancellationTokenSource _cancellationTokenSource = new();
-    private bool _isRunning;
+    private int _isRunning;
     private bool _disposed;
 
     // Progress tracking
@@ -81,7 +81,7 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
     protected override Task InitializeAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("EpicMappingService starting...");
-        _isRunning = true;
+        Interlocked.Exchange(ref _isRunning, 1);
 
         // Load last refresh time from saved auth data (mirrors Steam loading from state.json)
         var savedAuth = _authStorage.GetEpicAuthData();
@@ -120,7 +120,7 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
     protected override Task CleanupAsync(CancellationToken cancellationToken)
     {
         _logger.LogInformation("EpicMappingService stopping...");
-        _isRunning = false;
+        Volatile.Write(ref _isRunning, 0);
 
         // Unsubscribe from Epic daemon events before cleanup
         UnsubscribeFromDaemonEvents();
@@ -214,7 +214,7 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
     {
         if (_disposed) return;
         _disposed = true;
-        _isRunning = false;
+        Volatile.Write(ref _isRunning, 0);
 
         // Unsubscribe from Epic daemon events
         UnsubscribeFromDaemonEvents();

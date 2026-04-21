@@ -496,7 +496,9 @@ const RECOVERY_CONFIGS = {
 // ============================================================================
 
 interface CacheRemovalOperation {
-  gameAppId?: number;
+  gameAppId?: number | null;
+  epicAppId?: string | null;
+  entityKind?: 'steam' | 'epic' | null;
   gameName?: string;
   serviceName?: string;
   service?: string;
@@ -542,24 +544,48 @@ function createCacheRemovalsRecoveryFunction(
 
       if (!data.isProcessing) return;
 
-      // Recover game removals
+      // Recover game removals.
+      // Post-Phase-2 contract: game_removal rehydrates scope-aware identity. Steam entries
+      // emit details.gameAppId (number); Epic entries emit details.epicAppId (string). The
+      // `?? 0` fallback is gone per acceptance criterion 3.7 — ops missing both identity
+      // fields are logged and skipped (legacy/pre-Phase-2 data only).
+      const recoverableGameRemovals = (data.gameRemovals ?? []).filter((op) => {
+        if ((op.entityKind === 'epic' || op.epicAppId) && op.epicAppId) return true;
+        if (typeof op.gameAppId === 'number') return true;
+        console.warn('[recovery] Skipping game_removal op with no scope identity:', op.operationId);
+        return false;
+      });
       recoverOperations(
-        data.gameRemovals,
+        recoverableGameRemovals,
         NOTIFICATION_STORAGE_KEYS.GAME_REMOVAL,
         'game_removal',
         () => NOTIFICATION_IDS.GAME_REMOVAL,
-        (op) => ({
-          message: i18n.t('signalr.gameRemove.starting', {
+        (op) => {
+          const isEpic = op.entityKind === 'epic' || !!op.epicAppId;
+          const stageKey = isEpic ? 'signalr.epicRemove.starting' : 'signalr.gameRemove.starting';
+          const context = {
             gameName: op.gameName ?? '',
-            gameAppId: op.gameAppId ?? 0
-          }),
-          details: {
-            gameAppId: op.gameAppId,
-            gameName: op.gameName,
+            ...(typeof op.gameAppId === 'number' && { gameAppId: op.gameAppId }),
+            ...(op.epicAppId && { epicAppId: op.epicAppId })
+          };
+          const baseDetails = {
+            operationId: op.operationId,
+            gameName: op.gameName ?? '',
+            stageKey,
             filesDeleted: op.filesDeleted,
             bytesFreed: op.bytesFreed
-          }
-        }),
+          };
+          const details =
+            isEpic && op.epicAppId
+              ? { ...baseDetails, epicAppId: op.epicAppId }
+              : typeof op.gameAppId === 'number'
+                ? { ...baseDetails, gameAppId: op.gameAppId }
+                : baseDetails;
+          return {
+            message: i18n.t(stageKey, context),
+            details
+          };
+        },
         () => NOTIFICATION_IDS.GAME_REMOVAL,
         'Game removal completed',
         setNotifications,
@@ -577,6 +603,7 @@ function createCacheRemovalsRecoveryFunction(
             service: op.serviceName ?? ''
           }),
           details: {
+            operationId: op.operationId,
             service: op.serviceName,
             filesDeleted: op.filesDeleted,
             bytesFreed: op.bytesFreed
@@ -660,8 +687,8 @@ function recoverEvictionRemovals(
       const message =
         op.gameName !== undefined
           ? i18n.t('management.gameDetection.removingGame', { name: op.gameName })
-          : scope === 'service' && key !== undefined
-            ? i18n.t('signalr.evictionRemove.starting.bulk', {})
+          : scope !== undefined && key !== undefined
+            ? i18n.t('signalr.evictionRemove.starting.entity', { scope, key })
             : i18n.t('signalr.evictionRemove.starting.bulk', {});
 
       const notificationId = NOTIFICATION_IDS.EVICTION_REMOVAL;
@@ -907,13 +934,6 @@ export function createRecoveryRunner(
 
   return async (): Promise<void> => {
     try {
-      // Clear all stale notifications before recovery.
-      // Recovery functions will re-create only those that are actually active.
-      for (const key of Object.values(NOTIFICATION_STORAGE_KEYS)) {
-        localStorage.removeItem(key);
-      }
-      setNotifications([]);
-
       await Promise.allSettled([
         recoverLogProcessing(),
         recoverLogRemoval(),

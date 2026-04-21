@@ -66,6 +66,12 @@ builder.Services.AddControllers(options =>
     // Omit null fields from REST JSON payloads to reduce response size on the dashboard hot path.
     // Does NOT affect SignalR serialization — that is configured separately via AddJsonProtocol below.
     options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+
+    // Emit camelCase property names for MVC REST payloads to match frontend expectations.
+    // Without this, response DTOs without explicit [JsonPropertyName] attributes would serialize
+    // as PascalCase and diverge from SignalR (which sets camelCase via PayloadSerializerOptions above).
+    options.JsonSerializerOptions.PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
+    options.JsonSerializerOptions.DictionaryKeyPolicy = System.Text.Json.JsonNamingPolicy.CamelCase;
 });
 builder.Services.AddEndpointsApiExplorer();
 
@@ -418,7 +424,11 @@ builder.Services.AddSingleton<DatasourceService>();
 
 // Register services (repositories already registered above)
 builder.Services.AddSingleton<CacheManagementService>();
+builder.Services.AddSingleton<GameCacheDetectionDataService>();
+builder.Services.AddSingleton<UnknownGameResolutionService>();
+builder.Services.AddSingleton<EvictedDetectionPreservationService>();
 builder.Services.AddSingleton<IUnifiedOperationTracker, UnifiedOperationTracker>();
+builder.Services.AddSingleton<IOperationConflictChecker, OperationConflictChecker>();
 builder.Services.AddSingleton<PicsDataService>();
 
 // Register cache snapshot service for historical cache size tracking
@@ -807,7 +817,7 @@ app.MapGet("/health", () => Results.Ok(new
     timestamp = DateTime.UtcNow,
     service = "LancacheManager",
     version = Environment.GetEnvironmentVariable("LANCACHE_MANAGER_VERSION") ?? "dev"
-}));
+})).AllowAnonymous();
 
 // Version endpoint
 app.MapGet("/api/version", () =>

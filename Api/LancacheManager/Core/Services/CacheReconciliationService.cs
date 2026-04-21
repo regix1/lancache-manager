@@ -26,8 +26,10 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly IPathResolver _pathResolver;
+    private readonly GameCacheDetectionDataService _gameCacheDetectionDataService;
     private readonly GameCacheDetectionService _gameCacheDetectionService;
-    private bool _isRunning;
+    private readonly EvictedDetectionPreservationService _evictedDetectionPreservationService;
+    private int _isRunning;
     private bool _currentScanIsSilent = true;
     private readonly TaskCompletionSource<bool> _firstStartupScanComplete = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -37,8 +39,12 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
     public override string ServiceKey => "cacheReconciliation";
 
-    public bool IsRunning => _isRunning;
+    public bool IsRunning => Volatile.Read(ref _isRunning) == 1;
     public bool CurrentScanIsSilent => _currentScanIsSilent;
+
+    private bool TryBeginRun() => Interlocked.CompareExchange(ref _isRunning, 1, 0) == 0;
+
+    private void EndRun() => Volatile.Write(ref _isRunning, 0);
 
     /// <summary>
     /// Completes when the first startup eviction scan (and any RemoveEvictedRecordsAsync cleanup) has finished.
@@ -54,30 +60,37 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     /// </summary>
     public Guid? RunManualAsync()
     {
-        if (_isRunning) return null;
+        if (!TryBeginRun()) return null;
 
-        var cts = new CancellationTokenSource();
-        var operationId = _operationTracker.RegisterOperation(
-            OperationType.EvictionScan,
-            "Eviction Scan",
-            cts);
-
-        _ = Task.Run(async () =>
+        try
         {
-            _isRunning = true;
-            try
-            {
-                using var scope = _serviceProvider.CreateScope();
-                var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-                await ReconcileCacheFilesAsync(context, operationId, cts.Token, silent: false);
-            }
-            finally
-            {
-                _isRunning = false;
-            }
-        }, cts.Token);
+            var cts = new CancellationTokenSource();
+            var operationId = _operationTracker.RegisterOperation(
+                OperationType.EvictionScan,
+                "Eviction Scan",
+                cts);
 
-        return operationId;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    using var scope = _serviceProvider.CreateScope();
+                    var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                    await ReconcileCacheFilesAsync(context, operationId, cts.Token, silent: false);
+                }
+                finally
+                {
+                    EndRun();
+                }
+            }, cts.Token);
+
+            return operationId;
+        }
+        catch
+        {
+            EndRun();
+            throw;
+        }
     }
 
     public CacheReconciliationService(
@@ -90,7 +103,9 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         IUnifiedOperationTracker operationTracker,
         RustProcessHelper rustProcessHelper,
         IPathResolver pathResolver,
-        GameCacheDetectionService gameCacheDetectionService)
+        GameCacheDetectionDataService gameCacheDetectionDataService,
+        GameCacheDetectionService gameCacheDetectionService,
+        EvictedDetectionPreservationService evictedDetectionPreservationService)
         : base(serviceProvider, logger, configuration)
     {
         _datasourceService = datasourceService;
@@ -99,7 +114,9 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         _operationTracker = operationTracker;
         _rustProcessHelper = rustProcessHelper;
         _pathResolver = pathResolver;
+        _gameCacheDetectionDataService = gameCacheDetectionDataService;
         _gameCacheDetectionService = gameCacheDetectionService;
+        _evictedDetectionPreservationService = evictedDetectionPreservationService;
 
         LoadStateOverrides(stateService);
     }
@@ -123,7 +140,13 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
         var silent = !_stateService.GetEvictionScanNotifications();
 
-        _isRunning = true;
+        if (!TryBeginRun())
+        {
+            _logger.LogWarning("[EvictionScan] Startup scan skipped because another scan is already running");
+            _firstStartupScanComplete.TrySetResult(true);
+            return;
+        }
+
         try
         {
             using var scope = _serviceProvider.CreateScope();
@@ -147,7 +170,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         }
         finally
         {
-            _isRunning = false;
+            EndRun();
             // Signal GameDetectionService that the first startup scan (and any removal cleanup) is done.
             // TrySetResult is safe to call multiple times — only the first call has effect.
             _firstStartupScanComplete.TrySetResult(true);
@@ -161,21 +184,34 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         var silent = !_stateService.GetEvictionScanNotifications();
         var context = scopedServices.GetRequiredService<AppDbContext>();
 
-        // Skip scan if there are no downloads in the database
-        if (!await context.Downloads.AnyAsync(stoppingToken))
+        if (!TryBeginRun())
         {
-            _logger.LogDebug("[EvictionScan] No downloads in database, skipping scheduled scan");
+            _logger.LogDebug("[EvictionScan] Scheduled scan skipped because another scan is already running");
             return;
         }
 
-        var cts = new CancellationTokenSource();
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, cts.Token);
-        var operationId = _operationTracker.RegisterOperation(
-            OperationType.EvictionScan,
-            "Eviction Scan",
-            cts);
+        // Skip scan if there are no downloads in the database
+        try
+        {
+            if (!await context.Downloads.AnyAsync(stoppingToken))
+            {
+                _logger.LogDebug("[EvictionScan] No downloads in database, skipping scheduled scan");
+                return;
+            }
 
-        await ReconcileCacheFilesAsync(context, operationId, linked.Token, silent);
+            var cts = new CancellationTokenSource();
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, cts.Token);
+            var operationId = _operationTracker.RegisterOperation(
+                OperationType.EvictionScan,
+                "Eviction Scan",
+                cts);
+
+            await ReconcileCacheFilesAsync(context, operationId, linked.Token, silent);
+        }
+        finally
+        {
+            EndRun();
+        }
     }
 
     private async Task ReconcileCacheFilesAsync(AppDbContext context, Guid operationId, CancellationToken stoppingToken, bool silent = false)
@@ -266,7 +302,12 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 {
                     try
                     {
-                        var unevictedCount = await UnevictCachedGameDetectionsAsync(context, _logger, stoppingToken);
+                        var unevictedCount = await UnevictCachedGameDetectionsAsync(
+                            context,
+                            _logger,
+                            _gameCacheDetectionDataService,
+                            _evictedDetectionPreservationService,
+                            stoppingToken);
                         if (unevictedCount > 0)
                         {
                             _logger.LogInformation(
@@ -435,6 +476,361 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         };
     }
 
+    private sealed record EvictedLogPurgeTargets(
+        IReadOnlyList<string> Urls,
+        IReadOnlyList<long> DepotIds,
+        int MatchingDownloadCount);
+
+    private sealed record EvictedLogPurgeRunOptions(
+        string InputFilePrefix,
+        string OutputFilePrefix,
+        double ProgressStartPercent,
+        double ProgressSpanPercent,
+        string RunDescription,
+        string SuccessDescription,
+        string SummaryDescription);
+
+    private sealed record EvictedLogPurgeSummary(
+        long TotalLinesRemoved,
+        int DatasourcesProcessed,
+        int DatasourcesFailed);
+
+    public async Task<Guid> StartBulkEvictionRemovalAsync(CancellationToken cancellationToken)
+    {
+        var cts = new CancellationTokenSource();
+        var operationId = _operationTracker.RegisterOperation(
+            OperationType.EvictionRemoval,
+            "Eviction Removal",
+            cts,
+            new EvictionRemovalMetadata());
+
+        await _notifications.NotifyAllAsync(
+            SignalREvents.EvictionRemovalStarted,
+            new EvictionRemovalStarted("signalr.evictionRemove.starting.bulk", operationId));
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var scope = _serviceProvider.CreateScope();
+                var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                await RemoveEvictedRecordsAsync(context, cts.Token, operationId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[EvictionRemoval] Unhandled error before removal started");
+                await CompleteEvictionRemovalAsync(
+                    operationId,
+                    success: false,
+                    stageKey: "signalr.evictionRemove.failedToStart",
+                    error: ex.Message);
+            }
+            finally
+            {
+                cts.Dispose();
+            }
+        }, cts.Token);
+
+        return operationId;
+    }
+
+    public async Task<Guid> StartScopedEvictionRemovalAsync(
+        EvictionScope scope,
+        string key,
+        string? resolvedGameName,
+        string? resolvedGameAppId,
+        CancellationToken cancellationToken,
+        string? resolvedEpicAppId = null)
+    {
+        var cts = new CancellationTokenSource();
+        var metadata = new EvictionRemovalMetadata
+        {
+            Scope = scope.ToString().ToLowerInvariant(),
+            Key = key,
+            GameName = resolvedGameName
+        };
+        var operationId = _operationTracker.RegisterOperation(
+            OperationType.EvictionRemoval,
+            $"Eviction Removal ({scope}: {key})",
+            cts,
+            metadata);
+
+        await _notifications.NotifyAllAsync(
+            SignalREvents.EvictionRemovalStarted,
+            new EvictionRemovalStarted(
+                "signalr.evictionRemove.starting.entity",
+                operationId,
+                new Dictionary<string, object?> { ["scope"] = scope.ToString(), ["key"] = key },
+                resolvedGameName,
+                resolvedGameAppId,
+                resolvedEpicAppId));
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var scopeLifetime = _serviceProvider.CreateScope();
+                var context = scopeLifetime.ServiceProvider.GetRequiredService<AppDbContext>();
+                await RemoveEvictedRecordsForEntityAsync(context, scope, key, cts.Token, operationId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[EvictedRemoval] Unhandled error before entity removal started ({Scope} '{Key}')", scope, key);
+                await CompleteEvictionRemovalAsync(
+                    operationId,
+                    success: false,
+                    stageKey: "signalr.evictionRemove.failedToStart",
+                    error: ex.Message);
+            }
+            finally
+            {
+                cts.Dispose();
+            }
+        }, cts.Token);
+
+        return operationId;
+    }
+
+    private async Task ReportEvictionRemovalProgressAsync(
+        Guid operationId,
+        double percentComplete,
+        string status,
+        string stageKey,
+        int downloadsRemoved = 0,
+        int logEntriesRemoved = 0,
+        Dictionary<string, object?>? context = null)
+    {
+        _operationTracker.UpdateProgress(operationId, percentComplete, stageKey);
+        await _notifications.NotifyAllAsync(
+            SignalREvents.EvictionRemovalProgress,
+            new EvictionRemovalProgress(
+                operationId,
+                status,
+                stageKey,
+                percentComplete,
+                downloadsRemoved,
+                logEntriesRemoved,
+                context));
+    }
+
+    private async Task CompleteEvictionRemovalAsync(
+        Guid operationId,
+        bool success,
+        string stageKey,
+        int downloadsRemoved = 0,
+        int logEntriesRemoved = 0,
+        string? error = null,
+        bool cancelled = false)
+    {
+        if (success)
+        {
+            _operationTracker.UpdateProgress(operationId, 100, stageKey);
+        }
+
+        _operationTracker.CompleteOperation(operationId, success, success ? null : error);
+        await _notifications.NotifyAllAsync(
+            SignalREvents.EvictionRemovalComplete,
+            new EvictionRemovalComplete(
+                success,
+                operationId,
+                stageKey,
+                downloadsRemoved,
+                logEntriesRemoved,
+                error,
+                cancelled));
+    }
+
+    private async Task<EvictedLogPurgeSummary> RunEvictedLogPurgeAsync(
+        Guid operationId,
+        EvictedLogPurgeTargets targets,
+        CancellationToken stoppingToken,
+        EvictedLogPurgeRunOptions options)
+    {
+        await ReportEvictionRemovalProgressAsync(
+            operationId,
+            options.ProgressStartPercent,
+            "purging_log_entries",
+            "signalr.evictionRemove.purgingLogs",
+            context: new Dictionary<string, object?> { ["count"] = targets.Urls.Count + targets.DepotIds.Count });
+
+        var rustBinaryPath = _pathResolver.GetRustCachePurgeLogEntriesPath();
+        if (!File.Exists(rustBinaryPath))
+        {
+            _logger.LogWarning(
+                "[EvictedLogPurge] cache_purge_log_entries binary not found at {Path} — skipping log rewrite. DB deletes will still proceed.",
+                rustBinaryPath);
+            return new EvictedLogPurgeSummary(0, 0, 0);
+        }
+
+        var operationsDir = _pathResolver.GetOperationsDirectory();
+        Directory.CreateDirectory(operationsDir);
+        var timestamp = DateTime.UtcNow.ToString("yyyyMMddHHmmssfff");
+        var inputJsonPath = Path.Combine(operationsDir, $"{options.InputFilePrefix}_{timestamp}.json");
+
+        try
+        {
+            var jsonPayload = JsonSerializer.Serialize(
+                new { urls = targets.Urls, depot_ids = targets.DepotIds },
+                new JsonSerializerOptions { WriteIndented = false });
+            await File.WriteAllTextAsync(inputJsonPath, jsonPayload, stoppingToken);
+
+            long totalLinesRemoved = 0;
+            int datasourcesProcessed = 0;
+            int datasourcesFailed = 0;
+
+            var allDatasources = _datasourceService.GetDatasources().ToList();
+            var totalDatasources = Math.Max(1, allDatasources.Count);
+            var dsIndex = 0;
+
+            foreach (var datasource in allDatasources)
+            {
+                if (stoppingToken.IsCancellationRequested)
+                {
+                    break;
+                }
+
+                var dsLogPath = datasource.LogPath;
+                if (string.IsNullOrWhiteSpace(dsLogPath) || !Directory.Exists(dsLogPath))
+                {
+                    _logger.LogDebug(
+                        "[EvictedLogPurge] Skipping datasource '{Datasource}': log dir '{LogPath}' does not exist",
+                        datasource.Name,
+                        dsLogPath);
+                    dsIndex++;
+                    continue;
+                }
+
+                var outputJsonPath = Path.Combine(operationsDir, $"{options.OutputFilePrefix}_{datasource.Name}_{timestamp}.json");
+                var args = $"\"{dsLogPath}\" \"{inputJsonPath}\" \"{outputJsonPath}\" --progress";
+                var startInfo = _rustProcessHelper.CreateProcessStartInfo(rustBinaryPath, args);
+
+                _logger.LogInformation(
+                    "[EvictedLogPurge] Running {RunDescription} for datasource '{Datasource}': {Binary} {Args}",
+                    options.RunDescription,
+                    datasource.Name,
+                    rustBinaryPath,
+                    args);
+
+                try
+                {
+                    using var process = Process.Start(startInfo);
+                    if (process == null)
+                    {
+                        throw new InvalidOperationException(
+                            $"Failed to start cache_purge_log_entries for datasource '{datasource.Name}'");
+                    }
+
+                    var stderrTask = process.StandardError.ReadToEndAsync(stoppingToken);
+                    var progressOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+
+                    string? line;
+                    while ((line = await process.StandardOutput.ReadLineAsync(stoppingToken)) != null)
+                    {
+                        stoppingToken.ThrowIfCancellationRequested();
+                        if (string.IsNullOrWhiteSpace(line))
+                        {
+                            continue;
+                        }
+
+                        try
+                        {
+                            var progressEvent = JsonSerializer.Deserialize<PurgeLogProgressEvent>(line, progressOptions);
+                            if (progressEvent?.Event == RustProgressEventKind.Progress && progressEvent.PercentComplete.HasValue)
+                            {
+                                var dsSliceStart = options.ProgressStartPercent +
+                                    (options.ProgressSpanPercent * dsIndex / totalDatasources);
+                                var dsSliceSize = options.ProgressSpanPercent / totalDatasources;
+                                var mappedPercent = dsSliceStart +
+                                    (progressEvent.PercentComplete.Value / 100.0) * dsSliceSize;
+
+                                await ReportEvictionRemovalProgressAsync(
+                                    operationId,
+                                    mappedPercent,
+                                    "purging_log_entries",
+                                    "signalr.evictionRemove.purgingLogs",
+                                    context: new Dictionary<string, object?>
+                                    {
+                                        ["count"] = targets.Urls.Count + targets.DepotIds.Count,
+                                        ["datasource"] = datasource.Name
+                                    });
+                            }
+                        }
+                        catch (JsonException)
+                        {
+                            // Ignore non-JSON stdout lines.
+                        }
+                    }
+
+                    await process.WaitForExitAsync(stoppingToken);
+                    var stderr = await stderrTask;
+
+                    if (process.ExitCode != 0)
+                    {
+                        datasourcesFailed++;
+                        _logger.LogWarning(
+                            "[EvictedLogPurge] cache_purge_log_entries exited {Code} for datasource '{Datasource}'. stderr: {Err}",
+                            process.ExitCode,
+                            datasource.Name,
+                            stderr);
+                        dsIndex++;
+                        continue;
+                    }
+
+                    try
+                    {
+                        var report = await _rustProcessHelper.ReadAndCleanupOutputJsonAsync<PurgeLogEntriesReport>(
+                            outputJsonPath,
+                            $"cache_purge_log_entries/{datasource.Name}");
+                        totalLinesRemoved += report.LinesRemoved;
+                        datasourcesProcessed++;
+                        _logger.LogInformation(
+                            "[EvictedRemoval] {SuccessDescription} removed {Lines} lines from access.log* in datasource '{Datasource}' ({Perms} permission errors)",
+                            options.SuccessDescription,
+                            report.LinesRemoved,
+                            datasource.Name,
+                            report.PermissionErrors);
+                    }
+                    catch (Exception reportEx)
+                    {
+                        datasourcesProcessed++;
+                        _logger.LogWarning(
+                            reportEx,
+                            "[EvictedRemoval] {SuccessDescription} succeeded (exit 0) for datasource '{Datasource}' but output JSON was unreadable",
+                            options.SuccessDescription,
+                            datasource.Name);
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception innerEx)
+                {
+                    datasourcesFailed++;
+                    _logger.LogWarning(
+                        innerEx,
+                        "[EvictedLogPurge] Failed to run cache_purge_log_entries for datasource '{Datasource}' — DB deletes will still proceed",
+                        datasource.Name);
+                }
+
+                dsIndex++;
+            }
+
+            _logger.LogInformation(
+                "[EvictedRemoval] {SummaryDescription}: {Total} lines removed across {Ok} datasources ({Failed} failed)",
+                options.SummaryDescription,
+                totalLinesRemoved,
+                datasourcesProcessed,
+                datasourcesFailed);
+
+            return new EvictedLogPurgeSummary(totalLinesRemoved, datasourcesProcessed, datasourcesFailed);
+        }
+        finally
+        {
+            try { File.Delete(inputJsonPath); } catch { /* best effort */ }
+        }
+    }
+
     /// <summary>
     /// Deletes all evicted Download records and their associated LogEntries from the database.
     /// Called when evicted data mode is set to "remove", either from the scan flow (no operationId)
@@ -446,6 +842,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     {
         CancellationTokenSource? cts = null;
 
+        // Deliberately not using TrackedRemovalOperationRunner: this service can start from the background scan path without a controller HTTP lifecycle.
         if (operationId == null)
         {
             cts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
@@ -485,29 +882,15 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             // a user explicitly clicks Remove on a single entity the detection row is
             // deleted outright. The two paths together give: natural eviction preserves
             // visibility; explicit Remove makes it disappear.
-            _operationTracker.UpdateProgress(opId, 30, "signalr.evictionRemove.preserving");
-            await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
-                new EvictionRemovalProgress(opId, "preserving_evicted_entities", "signalr.evictionRemove.preserving", 30, 0, 0));
+            await ReportEvictionRemovalProgressAsync(
+                opId,
+                30,
+                "preserving_evicted_entities",
+                "signalr.evictionRemove.preserving");
 
             var evictedDownloads = await context.Downloads
                 .Where(d => d.IsEvicted)
                 .ToListAsync(stoppingToken);
-
-            // Evicted games keyed by (GameAppId, EpicAppId) — one representative per entity.
-            var evictedGameGroups = evictedDownloads
-                .Where(d => d.GameAppId != null || d.EpicAppId != null)
-                .GroupBy(d => new { d.GameAppId, d.EpicAppId })
-                .Select(g => g.First())
-                .ToList();
-
-            // Evicted non-game services (wsus, xboxlive, blizzard tracks, etc.) keyed by lower-cased service name.
-            var evictedServiceGroups = evictedDownloads
-                .Where(d => d.GameAppId == null
-                         && d.EpicAppId == null
-                         && !string.IsNullOrWhiteSpace(d.Service))
-                .GroupBy(d => d.Service.ToLowerInvariant())
-                .Select(g => g.First())
-                .ToList();
 
             int gamesUpserted = 0;
             int servicesUpserted = 0;
@@ -525,102 +908,31 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 await using var transaction = await context.Database.BeginTransactionAsync(stoppingToken);
                 try
                 {
-                    var now = DateTime.UtcNow;
-
-                    // Step 0a: preserve evicted games as CachedGameDetections with IsEvicted=true.
-                    foreach (var representative in evictedGameGroups)
-                    {
-                        CachedGameDetection? existing = null;
-                        if (representative.EpicAppId != null)
-                        {
-                            existing = await context.CachedGameDetections
-                                .FirstOrDefaultAsync(c => c.EpicAppId == representative.EpicAppId, stoppingToken);
-                        }
-                        else if (representative.GameAppId != null)
-                        {
-                            existing = await context.CachedGameDetections
-                                .FirstOrDefaultAsync(c => c.GameAppId == representative.GameAppId.Value, stoppingToken);
-                        }
-
-                        if (existing != null)
-                        {
-                            existing.IsEvicted = true;
-                            existing.CacheFilesFound = 0;
-                            existing.TotalSizeBytes = 0;
-                            if (!string.IsNullOrEmpty(representative.GameName))
-                                existing.GameName = representative.GameName;
-                            if (representative.Service != null)
-                                existing.Service = representative.Service;
-                            existing.LastDetectedUtc = now;
-                        }
-                        else
-                        {
-                            context.CachedGameDetections.Add(new CachedGameDetection
-                            {
-                                GameAppId = representative.GameAppId ?? 0,
-                                GameName = representative.GameName ?? string.Empty,
-                                EpicAppId = representative.EpicAppId,
-                                Service = representative.Service,
-                                CacheFilesFound = 0,
-                                TotalSizeBytes = 0,
-                                IsEvicted = true,
-                                DatasourcesJson = $"[\"{representative.Datasource}\"]",
-                                LastDetectedUtc = now,
-                                CreatedAtUtc = now
-                            });
-                        }
-                        gamesUpserted++;
-                    }
-
-                    // Step 0b: preserve evicted services (wsus etc.) as CachedServiceDetections
-                    // with IsEvicted=true. Prevents the "cache clear wiped detections, now we
-                    // can't see evicted services" gap.
-                    foreach (var representative in evictedServiceGroups)
-                    {
-                        var normalizedKey = representative.Service.ToLowerInvariant();
-                        var existing = await context.CachedServiceDetections
-                            .FirstOrDefaultAsync(s => s.ServiceName.ToLower() == normalizedKey, stoppingToken);
-
-                        if (existing != null)
-                        {
-                            existing.IsEvicted = true;
-                            existing.CacheFilesFound = 0;
-                            existing.TotalSizeBytes = 0;
-                            existing.LastDetectedUtc = now;
-                        }
-                        else
-                        {
-                            context.CachedServiceDetections.Add(new CachedServiceDetection
-                            {
-                                ServiceName = representative.Service,
-                                CacheFilesFound = 0,
-                                TotalSizeBytes = 0,
-                                SampleUrlsJson = "[]",
-                                CacheFilePathsJson = "[]",
-                                DatasourcesJson = $"[\"{representative.Datasource}\"]",
-                                IsEvicted = true,
-                                LastDetectedUtc = now,
-                                CreatedAtUtc = now
-                            });
-                        }
-                        servicesUpserted++;
-                    }
-
-                    await context.SaveChangesAsync(stoppingToken);
+                    var preservationResult = await _evictedDetectionPreservationService.PreserveAsync(
+                        context,
+                        evictedDownloads,
+                        stoppingToken);
+                    gamesUpserted = preservationResult.GamesUpserted;
+                    servicesUpserted = preservationResult.ServicesUpserted;
 
                     // Step 1: delete LogEntries for evicted downloads (FK constraint).
-                    _operationTracker.UpdateProgress(opId, 60, "signalr.evictionRemove.removingLogs");
-                    await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
-                        new EvictionRemovalProgress(opId, "removing_log_entries", "signalr.evictionRemove.removingLogs", 60, 0, 0));
+                    await ReportEvictionRemovalProgressAsync(
+                        opId,
+                        60,
+                        "removing_log_entries",
+                        "signalr.evictionRemove.removingLogs");
 
                     logEntriesDeleted = await context.LogEntries
                         .Where(le => le.DownloadId != null && le.Download != null && le.Download.IsEvicted)
                         .ExecuteDeleteAsync(stoppingToken);
 
                     // Step 2: delete evicted Downloads.
-                    _operationTracker.UpdateProgress(opId, 80, "signalr.evictionRemove.removingDownloads");
-                    await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
-                        new EvictionRemovalProgress(opId, "removing_downloads", "signalr.evictionRemove.removingDownloads", 80, 0, logEntriesDeleted));
+                    await ReportEvictionRemovalProgressAsync(
+                        opId,
+                        80,
+                        "removing_downloads",
+                        "signalr.evictionRemove.removingDownloads",
+                        logEntriesRemoved: logEntriesDeleted);
 
                     downloadsDeleted = await context.Downloads
                         .Where(d => d.IsEvicted)
@@ -646,25 +958,32 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             _gameCacheDetectionService.InvalidateDetectionCache();
             _logger.LogDebug("[EvictedRemoval] Detection cache invalidated");
 
-            _operationTracker.UpdateProgress(opId, 100, "signalr.evictionRemove.complete");
-            _operationTracker.CompleteOperation(opId, success: true);
-            await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalComplete,
-                new EvictionRemovalComplete(true, opId, "signalr.evictionRemove.complete", downloadsDeleted, logEntriesDeleted));
+            await CompleteEvictionRemovalAsync(
+                opId,
+                success: true,
+                stageKey: "signalr.evictionRemove.complete",
+                downloadsRemoved: downloadsDeleted,
+                logEntriesRemoved: logEntriesDeleted);
         }
         catch (OperationCanceledException)
         {
             // User-initiated cancel is an expected outcome, not an error.
             _logger.LogInformation("[EvictionScan] Bulk eviction removal cancelled by user (operation {OpId})", opId);
-            _operationTracker.CompleteOperation(opId, success: false, error: "Cancelled by user");
-            await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalComplete,
-                new EvictionRemovalComplete(false, opId, "signalr.evictionRemove.cancelled", 0, 0, "Cancelled by user"));
+            await CompleteEvictionRemovalAsync(
+                opId,
+                success: false,
+                stageKey: "signalr.evictionRemove.cancelled",
+                error: "Cancelled by user",
+                cancelled: true);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[EvictionScan] Error removing evicted records from database");
-            _operationTracker.CompleteOperation(opId, success: false, error: ex.Message);
-            await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalComplete,
-                new EvictionRemovalComplete(false, opId, "signalr.evictionRemove.failed", 0, 0, ex.Message));
+            await CompleteEvictionRemovalAsync(
+                opId,
+                success: false,
+                stageKey: "signalr.evictionRemove.failed",
+                error: ex.Message);
         }
         finally
         {
@@ -722,157 +1041,18 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     evictedDownloadIds.Count);
                 return;
             }
-
-            _operationTracker.UpdateProgress(operationId, 0, "signalr.evictionRemove.purgingLogs");
-            await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
-                new EvictionRemovalProgress(operationId, "purging_log_entries",
-                    "signalr.evictionRemove.purgingLogs", 0, 0, 0,
-                    new Dictionary<string, object?> { ["count"] = urls.Count + depotIds.Count }));
-
-            var rustBinaryPath = _pathResolver.GetRustCachePurgeLogEntriesPath();
-            if (!File.Exists(rustBinaryPath))
-            {
-                _logger.LogWarning(
-                    "[EvictedLogPurge] cache_purge_log_entries binary not found at {Path} — skipping log rewrite. DB deletes will still proceed.",
-                    rustBinaryPath);
-                return;
-            }
-
-            var operationsDir = _pathResolver.GetOperationsDirectory();
-            Directory.CreateDirectory(operationsDir);
-            var timestamp = DateTime.UtcNow.ToString("yyyyMMddHHmmssfff");
-            var inputJsonPath = Path.Combine(operationsDir, $"evicted_log_purge_input_{timestamp}.json");
-
-            var jsonPayload = JsonSerializer.Serialize(
-                new { urls, depot_ids = depotIds },
-                new JsonSerializerOptions { WriteIndented = false });
-            await File.WriteAllTextAsync(inputJsonPath, jsonPayload, stoppingToken);
-
-            long totalLinesRemoved = 0;
-            int datasourcesProcessed = 0;
-            int datasourcesFailed = 0;
-
-            var allDatasources = _datasourceService.GetDatasources().ToList();
-            var totalDatasources = Math.Max(1, allDatasources.Count);
-            var dsIndex = 0;
-
-            foreach (var datasource in allDatasources)
-            {
-                if (stoppingToken.IsCancellationRequested) break;
-
-                var dsLogPath = datasource.LogPath;
-                if (string.IsNullOrWhiteSpace(dsLogPath) || !Directory.Exists(dsLogPath))
-                {
-                    _logger.LogDebug(
-                        "[EvictedLogPurge] Skipping datasource '{Datasource}': log dir '{LogPath}' does not exist",
-                        datasource.Name, dsLogPath);
-                    dsIndex++;
-                    continue;
-                }
-
-                var outputJsonPath = Path.Combine(operationsDir,
-                    $"evicted_log_purge_output_{datasource.Name}_{timestamp}.json");
-
-                var args = $"\"{dsLogPath}\" \"{inputJsonPath}\" \"{outputJsonPath}\" --progress";
-                var startInfo = _rustProcessHelper.CreateProcessStartInfo(rustBinaryPath, args);
-
-                _logger.LogInformation(
-                    "[EvictedLogPurge] Running bulk log purge for datasource '{Datasource}': {Binary} {Args}",
-                    datasource.Name, rustBinaryPath, args);
-
-                try
-                {
-                    // Launch process and read stdout line-by-line for real-time progress
-                    using var process = Process.Start(startInfo);
-                    if (process == null)
-                        throw new InvalidOperationException($"Failed to start cache_purge_log_entries for datasource '{datasource.Name}'");
-
-                    // Read stdout line-by-line to capture progress events in real-time
-                    var stderrTask = process.StandardError.ReadToEndAsync(stoppingToken);
-                    var progressOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-
-                    string? line;
-                    while ((line = await process.StandardOutput.ReadLineAsync(stoppingToken)) != null)
-                    {
-                        stoppingToken.ThrowIfCancellationRequested();
-                        if (string.IsNullOrWhiteSpace(line)) continue;
-
-                        try
-                        {
-                            var progressEvent = JsonSerializer.Deserialize<PurgeLogProgressEvent>(line, progressOptions);
-                            if (progressEvent?.Event == RustProgressEventKind.Progress && progressEvent.PercentComplete.HasValue)
-                            {
-                                // Map Rust binary's 0-100% into the per-datasource sub-range of the overall purge step.
-                                // The purge step covers 0-30% of the overall operation. Within that, each datasource
-                                // gets an equal slice. E.g. with 2 datasources: ds0 = 0-15%, ds1 = 15-30%.
-                                var dsSliceStart = 30.0 * dsIndex / totalDatasources;
-                                var dsSliceSize = 30.0 / totalDatasources;
-                                var mappedPercent = dsSliceStart + (progressEvent.PercentComplete.Value / 100.0) * dsSliceSize;
-
-                                _operationTracker.UpdateProgress(operationId, mappedPercent, "signalr.evictionRemove.purgingLogs");
-                                await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
-                                    new EvictionRemovalProgress(operationId, "purging_log_entries",
-                                        "signalr.evictionRemove.purgingLogs", mappedPercent, 0, 0,
-                                        new Dictionary<string, object?> { ["count"] = urls.Count + depotIds.Count, ["datasource"] = datasource.Name }));
-                            }
-                        }
-                        catch (JsonException)
-                        {
-                            // Non-JSON stdout line — ignore (e.g. plain text log output)
-                        }
-                    }
-
-                    await process.WaitForExitAsync(stoppingToken);
-                    var stderr = await stderrTask;
-
-                    if (process.ExitCode != 0)
-                    {
-                        datasourcesFailed++;
-                        _logger.LogWarning(
-                            "[EvictedLogPurge] cache_purge_log_entries exited {Code} for datasource '{Datasource}'. stderr: {Err}",
-                            process.ExitCode, datasource.Name, stderr);
-                        continue;
-                    }
-
-                    try
-                    {
-                        var report = await _rustProcessHelper.ReadAndCleanupOutputJsonAsync<PurgeLogEntriesReport>(
-                            outputJsonPath, $"cache_purge_log_entries/{datasource.Name}");
-                        totalLinesRemoved += report.LinesRemoved;
-                        datasourcesProcessed++;
-                        _logger.LogInformation(
-                            "[EvictedRemoval] Log purge removed {Lines} lines from access.log* in datasource '{Datasource}' ({Perms} permission errors)",
-                            report.LinesRemoved, datasource.Name, report.PermissionErrors);
-                    }
-                    catch (Exception reportEx)
-                    {
-                        datasourcesProcessed++;
-                        _logger.LogWarning(reportEx,
-                            "[EvictedRemoval] Log purge succeeded (exit 0) for datasource '{Datasource}' but output JSON was unreadable",
-                            datasource.Name);
-                    }
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception innerEx)
-                {
-                    datasourcesFailed++;
-                    _logger.LogWarning(innerEx,
-                        "[EvictedLogPurge] Failed to run cache_purge_log_entries for datasource '{Datasource}' — DB deletes will still proceed",
-                        datasource.Name);
-                }
-
-                dsIndex++;
-            }
-
-            _logger.LogInformation(
-                "[EvictedRemoval] Log purge summary: {Total} lines removed across {Ok} datasources ({Failed} failed)",
-                totalLinesRemoved, datasourcesProcessed, datasourcesFailed);
-
-            // Cleanup input JSON (output JSONs already cleaned up via ReadAndCleanupOutputJsonAsync)
-            try { File.Delete(inputJsonPath); } catch { /* best effort */ }
+            await RunEvictedLogPurgeAsync(
+                operationId,
+                new EvictedLogPurgeTargets(urls, depotIds, evictedDownloadIds.Count),
+                stoppingToken,
+                new EvictedLogPurgeRunOptions(
+                    "evicted_log_purge_input",
+                    "evicted_log_purge_output",
+                    0,
+                    30,
+                    "bulk log purge",
+                    "Log purge",
+                    "Log purge summary"));
         }
         catch (OperationCanceledException)
         {
@@ -902,69 +1082,37 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     public static async Task<int> UnevictCachedGameDetectionsAsync(
         AppDbContext context,
         ILogger logger,
+        GameCacheDetectionDataService detectionDataService,
+        EvictedDetectionPreservationService evictedDetectionPreservationService,
         CancellationToken ct)
     {
-        int totalUnevicted = 0;
-
-        // Steam: rows matched by GameAppId (EpicAppId is null)
-        var evictedSteamGameIds = await context.CachedGameDetections
-            .Where(g => g.IsEvicted && g.EpicAppId == null)
-            .Select(g => g.GameAppId)
-            .ToListAsync(ct);
-
-        if (evictedSteamGameIds.Count > 0)
+        var gamesToUnevict = await detectionDataService.GetGamesToUnevictAsync(context, ct);
+        if (gamesToUnevict.SteamGameAppIds.Count == 0 && gamesToUnevict.EpicAppIds.Count == 0)
         {
-            var steamGamesToUnevict = await context.Downloads
-                .Where(d => d.GameAppId != null
-                         && evictedSteamGameIds.Contains(d.GameAppId.Value)
-                         && !d.IsEvicted)
-                .Select(d => d.GameAppId!.Value)
-                .Distinct()
-                .ToListAsync(ct);
-
-            if (steamGamesToUnevict.Count > 0)
-            {
-                var steamUpdated = await context.CachedGameDetections
-                    .Where(g => g.EpicAppId == null && steamGamesToUnevict.Contains(g.GameAppId))
-                    .ExecuteUpdateAsync(s => s.SetProperty(g => g.IsEvicted, false), ct);
-
-                totalUnevicted += steamUpdated;
-                logger.LogInformation(
-                    "[GameDetection] Self-healed {Count} Steam games — Downloads no longer all evicted",
-                    steamUpdated);
-            }
+            return 0;
         }
 
-        // Epic: rows matched by EpicAppId
-        var evictedEpicAppIds = await context.CachedGameDetections
-            .Where(g => g.IsEvicted && g.EpicAppId != null)
-            .Select(g => g.EpicAppId!)
-            .ToListAsync(ct);
+        var unpreserveResult = await evictedDetectionPreservationService.UnpreserveAsync(
+            context,
+            gamesToUnevict.SteamGameAppIds,
+            gamesToUnevict.EpicAppIds,
+            ct);
 
-        if (evictedEpicAppIds.Count > 0)
+        if (unpreserveResult.SteamGamesUpdated > 0)
         {
-            var epicGamesToUnevict = await context.Downloads
-                .Where(d => d.EpicAppId != null
-                         && evictedEpicAppIds.Contains(d.EpicAppId)
-                         && !d.IsEvicted)
-                .Select(d => d.EpicAppId!)
-                .Distinct()
-                .ToListAsync(ct);
-
-            if (epicGamesToUnevict.Count > 0)
-            {
-                var epicUpdated = await context.CachedGameDetections
-                    .Where(g => g.EpicAppId != null && epicGamesToUnevict.Contains(g.EpicAppId!))
-                    .ExecuteUpdateAsync(s => s.SetProperty(g => g.IsEvicted, false), ct);
-
-                totalUnevicted += epicUpdated;
-                logger.LogInformation(
-                    "[GameDetection] Self-healed {Count} Epic games — Downloads no longer all evicted",
-                    epicUpdated);
-            }
+            logger.LogInformation(
+                "[GameDetection] Self-healed {Count} Steam games — Downloads no longer all evicted",
+                unpreserveResult.SteamGamesUpdated);
         }
 
-        return totalUnevicted;
+        if (unpreserveResult.EpicGamesUpdated > 0)
+        {
+            logger.LogInformation(
+                "[GameDetection] Self-healed {Count} Epic games — Downloads no longer all evicted",
+                unpreserveResult.EpicGamesUpdated);
+        }
+
+        return unpreserveResult.TotalUpdated;
     }
 
     public static async Task<int> EvictCachedGameDetectionsAsync(
@@ -1078,6 +1226,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     {
         CancellationTokenSource? cts = null;
 
+        // Deliberately not using TrackedRemovalOperationRunner: this service can start from the background scan path without a controller HTTP lifecycle.
         if (operationId == null)
         {
             cts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
@@ -1088,7 +1237,8 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
             await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalStarted,
                 new EvictionRemovalStarted("signalr.evictionRemove.starting.entity", operationId.Value,
-                    new Dictionary<string, object?> { ["scope"] = scope.ToString(), ["key"] = key }));
+                    new Dictionary<string, object?> { ["scope"] = scope.ToString(), ["key"] = key },
+                    EpicAppId: scope == EvictionScope.Epic ? key : null));
         }
 
         var opId = operationId.Value;
@@ -1098,18 +1248,16 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             // Step -1: Rewrite nginx access.log files to drop entries for this entity's evicted
             // downloads BEFORE deleting LogEntries/Downloads from the database. Best-effort —
             // failures are logged as warnings and do not block the DB delete.
-            _operationTracker.UpdateProgress(opId, 10, "signalr.evictionRemove.purgingLogs");
-            await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
-                new EvictionRemovalProgress(opId, "purging_logs", "signalr.evictionRemove.purgingLogs", 10, 0, 0));
-
             await PurgeEvictedLogEntriesForEntityAsync(context, scope, key, opId, stoppingToken);
 
             int logEntriesDeleted = 0;
             int downloadsDeleted = 0;
 
-            _operationTracker.UpdateProgress(opId, 25, "signalr.evictionRemove.removingLogs");
-            await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
-                new EvictionRemovalProgress(opId, "removing_log_entries", "signalr.evictionRemove.removingLogs", 25, 0, 0));
+            await ReportEvictionRemovalProgressAsync(
+                opId,
+                25,
+                "removing_log_entries",
+                "signalr.evictionRemove.removingLogs");
 
             // EF Core's NpgsqlRetryingExecutionStrategy forbids user-initiated transactions unless
             // they are wrapped in a strategy-controlled retry block. Without this wrapper any call
@@ -1152,9 +1300,12 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     };
 
                     // Step 2: Delete this entity's evicted Downloads.
-                    _operationTracker.UpdateProgress(opId, 50, "signalr.evictionRemove.removingDownloads");
-                    await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
-                        new EvictionRemovalProgress(opId, "removing_downloads", "signalr.evictionRemove.removingDownloads", 50, 0, logEntriesDeleted));
+                    await ReportEvictionRemovalProgressAsync(
+                        opId,
+                        50,
+                        "removing_downloads",
+                        "signalr.evictionRemove.removingDownloads",
+                        logEntriesRemoved: logEntriesDeleted);
 
                     downloadsDeleted = scope switch
                     {
@@ -1196,9 +1347,13 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
 
             // Step 3: Defensive self-heal — if all evicted rows for this entity are now gone, clear
             // the aggregate IsEvicted flag so Dashboard stats update on the next GetCachedDetectionAsync.
-            _operationTracker.UpdateProgress(opId, 75, "signalr.evictionRemove.updatingStatus");
-            await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
-                new EvictionRemovalProgress(opId, "updating_status", "signalr.evictionRemove.updatingStatus", 75, downloadsDeleted, logEntriesDeleted));
+            await ReportEvictionRemovalProgressAsync(
+                opId,
+                75,
+                "updating_status",
+                "signalr.evictionRemove.updatingStatus",
+                downloadsRemoved: downloadsDeleted,
+                logEntriesRemoved: logEntriesDeleted);
 
             // Step 3a: Targeted un-evict — clear IsEvicted on the specific entity we just removed
             // downloads for. This is the equivalent of Game Cache Removal's row-delete for the
@@ -1287,37 +1442,53 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             }
             else
             {
-                await UnevictCachedGameDetectionsAsync(context, _logger, stoppingToken);
+                await UnevictCachedGameDetectionsAsync(
+                    context,
+                    _logger,
+                    _gameCacheDetectionDataService,
+                    _evictedDetectionPreservationService,
+                    stoppingToken);
             }
 
             // Invalidate the detection cache so the frontend refetch gets fresh data
-            _operationTracker.UpdateProgress(opId, 90, "signalr.evictionRemove.finalizingRemoval");
-            await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
-                new EvictionRemovalProgress(opId, "finalizing_removal", "signalr.evictionRemove.finalizingRemoval", 90, downloadsDeleted, logEntriesDeleted));
+            await ReportEvictionRemovalProgressAsync(
+                opId,
+                90,
+                "finalizing_removal",
+                "signalr.evictionRemove.finalizingRemoval",
+                downloadsRemoved: downloadsDeleted,
+                logEntriesRemoved: logEntriesDeleted);
 
             var detectionService = _serviceProvider.GetService<GameCacheDetectionService>();
             detectionService?.InvalidateDetectionCache();
 
-            _operationTracker.UpdateProgress(opId, 100, "signalr.evictionRemove.complete");
-            _operationTracker.CompleteOperation(opId, success: true);
-            await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalComplete,
-                new EvictionRemovalComplete(true, opId, "signalr.evictionRemove.complete", downloadsDeleted, logEntriesDeleted));
+            await CompleteEvictionRemovalAsync(
+                opId,
+                success: true,
+                stageKey: "signalr.evictionRemove.complete",
+                downloadsRemoved: downloadsDeleted,
+                logEntriesRemoved: logEntriesDeleted);
         }
         catch (OperationCanceledException)
         {
             // User-initiated cancel is an expected outcome, not an error.
             _logger.LogInformation("[EvictionScan] Eviction removal for {Scope} '{Key}' cancelled by user (operation {OpId})",
                 scope, key, opId);
-            _operationTracker.CompleteOperation(opId, success: false, error: "Cancelled by user");
-            await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalComplete,
-                new EvictionRemovalComplete(false, opId, "signalr.evictionRemove.cancelled", 0, 0, "Cancelled by user"));
+            await CompleteEvictionRemovalAsync(
+                opId,
+                success: false,
+                stageKey: "signalr.evictionRemove.cancelled",
+                error: "Cancelled by user",
+                cancelled: true);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "[EvictionScan] Error removing evicted records for {Scope} '{Key}'", scope, key);
-            _operationTracker.CompleteOperation(opId, success: false, error: ex.Message);
-            await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalComplete,
-                new EvictionRemovalComplete(false, opId, "signalr.evictionRemove.failed", 0, 0, ex.Message));
+            await CompleteEvictionRemovalAsync(
+                opId,
+                success: false,
+                stageKey: "signalr.evictionRemove.failed",
+                error: ex.Message);
         }
         finally
         {
@@ -1480,158 +1651,18 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     evictedDownloadIds.Count, scope, key);
                 return;
             }
-
-            _operationTracker.UpdateProgress(operationId, 0, "signalr.evictionRemove.purgingLogs");
-            await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
-                new EvictionRemovalProgress(operationId, "purging_log_entries",
-                    "signalr.evictionRemove.purgingLogs", 0, 0, 0,
-                    new Dictionary<string, object?> { ["count"] = urls.Count + depotIds.Count }));
-
-            var rustBinaryPath = _pathResolver.GetRustCachePurgeLogEntriesPath();
-            if (!File.Exists(rustBinaryPath))
-            {
-                _logger.LogWarning(
-                    "[EvictedLogPurge] cache_purge_log_entries binary not found at {Path} — skipping log rewrite. DB deletes will still proceed.",
-                    rustBinaryPath);
-                return;
-            }
-
-            var operationsDir = _pathResolver.GetOperationsDirectory();
-            Directory.CreateDirectory(operationsDir);
-            var timestamp = DateTime.UtcNow.ToString("yyyyMMddHHmmssfff");
-            var inputJsonPath = Path.Combine(operationsDir, $"evicted_entity_log_purge_input_{timestamp}.json");
-
-            var jsonPayload = JsonSerializer.Serialize(
-                new { urls, depot_ids = depotIds },
-                new JsonSerializerOptions { WriteIndented = false });
-            await File.WriteAllTextAsync(inputJsonPath, jsonPayload, stoppingToken);
-
-            long totalLinesRemoved = 0;
-            int datasourcesProcessed = 0;
-            int datasourcesFailed = 0;
-
-            var allDatasources = _datasourceService.GetDatasources().ToList();
-            var totalDatasources = Math.Max(1, allDatasources.Count);
-            var dsIndex = 0;
-
-            foreach (var datasource in allDatasources)
-            {
-                if (stoppingToken.IsCancellationRequested) break;
-
-                var dsLogPath = datasource.LogPath;
-                if (string.IsNullOrWhiteSpace(dsLogPath) || !Directory.Exists(dsLogPath))
-                {
-                    _logger.LogDebug(
-                        "[EvictedLogPurge] Skipping datasource '{Datasource}': log dir '{LogPath}' does not exist",
-                        datasource.Name, dsLogPath);
-                    dsIndex++;
-                    continue;
-                }
-
-                var outputJsonPath = Path.Combine(operationsDir,
-                    $"evicted_entity_log_purge_output_{datasource.Name}_{timestamp}.json");
-
-                var args = $"\"{dsLogPath}\" \"{inputJsonPath}\" \"{outputJsonPath}\" --progress";
-                var startInfo = _rustProcessHelper.CreateProcessStartInfo(rustBinaryPath, args);
-
-                _logger.LogInformation(
-                    "[EvictedLogPurge] Running entity log purge for {Scope} '{Key}', datasource '{Datasource}': {Binary} {Args}",
-                    scope, key, datasource.Name, rustBinaryPath, args);
-
-                try
-                {
-                    // Launch process and read stdout line-by-line for real-time progress
-                    using var process = Process.Start(startInfo);
-                    if (process == null)
-                        throw new InvalidOperationException($"Failed to start cache_purge_log_entries for datasource '{datasource.Name}'");
-
-                    // Read stdout line-by-line to capture progress events in real-time
-                    var stderrTask = process.StandardError.ReadToEndAsync(stoppingToken);
-                    var progressOptions = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-
-                    string? line;
-                    while ((line = await process.StandardOutput.ReadLineAsync(stoppingToken)) != null)
-                    {
-                        stoppingToken.ThrowIfCancellationRequested();
-                        if (string.IsNullOrWhiteSpace(line)) continue;
-
-                        try
-                        {
-                            var progressEvent = JsonSerializer.Deserialize<PurgeLogProgressEvent>(line, progressOptions);
-                            if (progressEvent?.Event == RustProgressEventKind.Progress && progressEvent.PercentComplete.HasValue)
-                            {
-                                // Map Rust binary's 0-100% into the per-datasource sub-range of the entity purge step.
-                                // The caller sets 10% before calling us and 25% after, so purge maps into 10-25%.
-                                // Within that 15% range, each datasource gets an equal slice.
-                                var dsSliceStart = 10.0 + (15.0 * dsIndex / totalDatasources);
-                                var dsSliceSize = 15.0 / totalDatasources;
-                                var mappedPercent = dsSliceStart + (progressEvent.PercentComplete.Value / 100.0) * dsSliceSize;
-
-                                _operationTracker.UpdateProgress(operationId, mappedPercent, "signalr.evictionRemove.purgingLogs");
-                                await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalProgress,
-                                    new EvictionRemovalProgress(operationId, "purging_log_entries",
-                                        "signalr.evictionRemove.purgingLogs", mappedPercent, 0, 0,
-                                        new Dictionary<string, object?> { ["count"] = urls.Count + depotIds.Count, ["datasource"] = datasource.Name }));
-                            }
-                        }
-                        catch (JsonException)
-                        {
-                            // Non-JSON stdout line — ignore (e.g. plain text log output)
-                        }
-                    }
-
-                    await process.WaitForExitAsync(stoppingToken);
-                    var stderr = await stderrTask;
-
-                    if (process.ExitCode != 0)
-                    {
-                        datasourcesFailed++;
-                        _logger.LogWarning(
-                            "[EvictedLogPurge] cache_purge_log_entries exited {Code} for datasource '{Datasource}'. stderr: {Err}",
-                            process.ExitCode, datasource.Name, stderr);
-                        dsIndex++;
-                        continue;
-                    }
-
-                    try
-                    {
-                        var report = await _rustProcessHelper.ReadAndCleanupOutputJsonAsync<PurgeLogEntriesReport>(
-                            outputJsonPath, $"cache_purge_log_entries/{datasource.Name}");
-                        totalLinesRemoved += report.LinesRemoved;
-                        datasourcesProcessed++;
-                        _logger.LogInformation(
-                            "[EvictedRemoval] Entity log purge removed {Lines} lines from access.log* in datasource '{Datasource}' ({Perms} permission errors)",
-                            report.LinesRemoved, datasource.Name, report.PermissionErrors);
-                    }
-                    catch (Exception reportEx)
-                    {
-                        datasourcesProcessed++;
-                        _logger.LogWarning(reportEx,
-                            "[EvictedRemoval] Entity log purge succeeded (exit 0) for datasource '{Datasource}' but output JSON was unreadable",
-                            datasource.Name);
-                    }
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception innerEx)
-                {
-                    datasourcesFailed++;
-                    _logger.LogWarning(innerEx,
-                        "[EvictedLogPurge] Failed to run cache_purge_log_entries for datasource '{Datasource}' — DB deletes will still proceed",
-                        datasource.Name);
-                }
-
-                dsIndex++;
-            }
-
-            _logger.LogInformation(
-                "[EvictedRemoval] Entity log purge summary ({Scope} '{Key}'): {Total} lines removed across {Ok} datasources ({Failed} failed)",
-                scope, key, totalLinesRemoved, datasourcesProcessed, datasourcesFailed);
-
-            // Cleanup input JSON (output JSONs already cleaned up via ReadAndCleanupOutputJsonAsync)
-            try { File.Delete(inputJsonPath); } catch { /* best effort */ }
+            await RunEvictedLogPurgeAsync(
+                operationId,
+                new EvictedLogPurgeTargets(urls, depotIds, evictedDownloadIds.Count),
+                stoppingToken,
+                new EvictedLogPurgeRunOptions(
+                    "evicted_entity_log_purge_input",
+                    "evicted_entity_log_purge_output",
+                    10,
+                    15,
+                    $"entity log purge for {scope} '{key}'",
+                    "Entity log purge",
+                    $"Entity log purge summary ({scope} '{key}')"));
         }
         catch (OperationCanceledException)
         {

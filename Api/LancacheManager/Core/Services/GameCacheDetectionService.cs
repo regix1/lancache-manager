@@ -4,9 +4,7 @@ using LancacheManager.Hubs;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Models;
-using Npgsql;
 using Microsoft.EntityFrameworkCore;
-using LancacheManager.Core.Services.SteamKit2;
 
 namespace LancacheManager.Core.Services;
 
@@ -19,7 +17,9 @@ public class GameCacheDetectionService : IDisposable
     private readonly IPathResolver _pathResolver;
     private readonly OperationStateService _operationStateService;
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
-    private readonly SteamKit2Service _steamKit2Service;
+    private readonly GameCacheDetectionDataService _detectionDataService;
+    private readonly EvictedDetectionPreservationService _evictedDetectionPreservationService;
+    private readonly UnknownGameResolutionService _unknownGameResolutionService;
     private readonly ProcessManager _processManager;
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly ISignalRNotificationService _notifications;
@@ -34,12 +34,7 @@ public class GameCacheDetectionService : IDisposable
     private DetectionOperationResponse? _cachedDetectionResponse;
     private readonly SemaphoreSlim _detectionCacheLock = new(1, 1);
 
-    // Track failed depot resolution attempts: after 3 failures, blacklist for 48 hours
-    private static readonly Dictionary<long, (int FailureCount, DateTime? BlacklistedUntil)> _unresolvedDepotTracker = new();
-    private const int MaxResolutionAttempts = 3;
-    private static readonly TimeSpan _blacklistDuration = TimeSpan.FromHours(48);
     private bool _disposed;
-    private const string FailedDepotsStateKey = "failedDepotResolutions";
 
     /// <summary>
     /// Response DTO that preserves the JSON shape expected by the frontend.
@@ -66,7 +61,9 @@ public class GameCacheDetectionService : IDisposable
         IPathResolver pathResolver,
         OperationStateService operationStateService,
         IDbContextFactory<AppDbContext> dbContextFactory,
-        SteamKit2Service steamKit2Service,
+        GameCacheDetectionDataService detectionDataService,
+        EvictedDetectionPreservationService evictedDetectionPreservationService,
+        UnknownGameResolutionService unknownGameResolutionService,
         ProcessManager processManager,
         RustProcessHelper rustProcessHelper,
         ISignalRNotificationService notifications,
@@ -77,7 +74,9 @@ public class GameCacheDetectionService : IDisposable
         _pathResolver = pathResolver;
         _operationStateService = operationStateService;
         _dbContextFactory = dbContextFactory;
-        _steamKit2Service = steamKit2Service;
+        _detectionDataService = detectionDataService;
+        _evictedDetectionPreservationService = evictedDetectionPreservationService;
+        _unknownGameResolutionService = unknownGameResolutionService;
         _processManager = processManager;
         _rustProcessHelper = rustProcessHelper;
         _notifications = notifications;
@@ -307,7 +306,9 @@ public class GameCacheDetectionService : IDisposable
                 // Load existing games and services from database
                 await using (var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken))
                 {
-                    var cachedGames = await dbContext.CachedGameDetections.ToListAsync(cancellationToken);
+                    var cachedGames = await dbContext.CachedGameDetections
+                        .AsNoTracking()
+                        .ToListAsync(cancellationToken);
                     if (cachedGames.Count > 0)
                     {
                         // Convert database records to GameCacheInfo
@@ -326,7 +327,9 @@ public class GameCacheDetectionService : IDisposable
                     }
 
                     // Load existing services for incremental mode (we skip service scanning in incremental mode)
-                    var cachedServices = await dbContext.CachedServiceDetections.ToListAsync(cancellationToken);
+                    var cachedServices = await dbContext.CachedServiceDetections
+                        .AsNoTracking()
+                        .ToListAsync(cancellationToken);
                     if (cachedServices.Count > 0)
                     {
                         existingServices = cachedServices.Select(ConvertToServiceCacheInfo).ToList();
@@ -618,13 +621,13 @@ public class GameCacheDetectionService : IDisposable
 
             // Save all games (Steam + Epic) to database - Epic games now use actual cache file sizes
             // from the Rust processor, so they can be persisted alongside Steam games.
-            await SaveGamesToDatabaseAsync(finalGames, incremental);
+            await SaveGamesToDatabaseAsync(finalGames, incremental, cancellationToken);
             _logger.LogInformation("[GameDetection] Results saved to database - {Count} games persisted", finalGames.Count);
 
             // Recover evicted games: find games in Downloads that have no cache files on disk
             // and add them to CachedGameDetections so they appear in the evicted games list.
             // Run on both full and incremental scans so evicted games are always recovered.
-            var evictedCount = await RecoverEvictedGamesAsync();
+            var evictedCount = await RecoverEvictedGamesAsync(cancellationToken);
             if (evictedCount > 0)
             {
                 _logger.LogInformation("[GameDetection] Recovered {Count} evicted games from Downloads history", evictedCount);
@@ -662,7 +665,7 @@ public class GameCacheDetectionService : IDisposable
             // Always run on full scan even with zero services — zero incoming means everything should be evicted
             if (!incremental)
             {
-                await SaveServicesToDatabaseAsync(aggregatedServices);
+                await SaveServicesToDatabaseAsync(aggregatedServices, cancellationToken);
                 _logger.LogInformation("[GameDetection] Services saved to database - {Count} services total", aggregatedServices.Count);
             }
 
@@ -690,7 +693,10 @@ public class GameCacheDetectionService : IDisposable
                     {
                         // Use incremental=true so existing DB rows are preserved/updated rather than deleted.
                         // CancellationToken.None is critical — the original token is already cancelled.
-                        await SaveGamesToDatabaseAsync(aggregatedGames, incremental: true);
+                        await SaveGamesToDatabaseAsync(
+                            aggregatedGames,
+                            incremental: true,
+                            CancellationToken.None);
                         _logger.LogInformation("[GameDetection] Saved {Count} partial game detection results before cancellation", aggregatedGames.Count);
                     }
                     catch (Exception saveEx)
@@ -872,7 +878,12 @@ public class GameCacheDetectionService : IDisposable
 
         try
         {
-            var selfHealedCount = await CacheReconciliationService.UnevictCachedGameDetectionsAsync(dbContext, _logger, default);
+            var selfHealedCount = await CacheReconciliationService.UnevictCachedGameDetectionsAsync(
+                dbContext,
+                _logger,
+                _detectionDataService,
+                _evictedDetectionPreservationService,
+                default);
             if (selfHealedCount > 0)
             {
                 _logger.LogInformation(
@@ -922,22 +933,23 @@ public class GameCacheDetectionService : IDisposable
     /// </summary>
     public void InvalidateDetectionCache()
     {
-        _cachedDetectionResponse = null;
-        _logger.LogDebug("[GameDetection] In-memory detection cache invalidated");
+        _detectionCacheLock.Wait();
+        try
+        {
+            _cachedDetectionResponse = null;
+            _logger.LogDebug("[GameDetection] In-memory detection cache invalidated");
+        }
+        finally
+        {
+            _detectionCacheLock.Release();
+        }
     }
 
     public async Task<DetectionOperationResponse?> GetCachedDetectionAsync()
     {
-        // Return in-memory cached response if available
-        if (_cachedDetectionResponse != null)
-        {
-            return _cachedDetectionResponse;
-        }
-
         await _detectionCacheLock.WaitAsync();
         try
         {
-            // Double-check after acquiring lock
             if (_cachedDetectionResponse != null)
             {
                 return _cachedDetectionResponse;
@@ -953,340 +965,26 @@ public class GameCacheDetectionService : IDisposable
         }
     }
 
-    private async Task<DetectionOperationResponse?> LoadDetectionFromDatabaseAsync()
-    {
-        await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
-
-        var cachedGames = await dbContext.CachedGameDetections.AsNoTracking().ToListAsync();
-        var cachedServices = await dbContext.CachedServiceDetections.AsNoTracking().ToListAsync();
-
-        // Compute eviction status in three passes (primary → secondary → tertiary).
-        // Primary: IsEvicted is now a persisted DB column — rows inserted by RecoverEvictedGamesAsync
-        //   already have IsEvicted = true set in the DB, so no further work is needed for them.
-        // Secondary: Downloads-join fallback for rows that are not yet marked evicted in the DB.
-        //   A game is evicted when ALL its downloads are evicted.
-        // Tertiary: CacheFilesFound == 0 catch-all (belt-and-suspenders).
-        if (cachedGames.Count > 0)
-        {
-            // Secondary: check Downloads for any non-evicted Steam games to catch races.
-            var nonEvictedSteamGames = cachedGames.Where(g => !g.IsEvicted && g.EpicAppId == null).ToList();
-            if (nonEvictedSteamGames.Count > 0)
-            {
-                var gameAppIds = nonEvictedSteamGames.Select(g => (long?)g.GameAppId).ToHashSet();
-
-                var evictionStatus = await dbContext.Downloads
-                    .Where(d => d.GameAppId != null && gameAppIds.Contains(d.GameAppId))
-                    .GroupBy(d => d.GameAppId)
-                    .Select(g => new
-                    {
-                        GameAppId = g.Key!.Value,
-                        AllEvicted = g.All(d => d.IsEvicted)
-                    })
-                    .ToDictionaryAsync(x => x.GameAppId, x => x.AllEvicted);
-
-                foreach (var game in nonEvictedSteamGames)
-                {
-                    if (evictionStatus.TryGetValue(game.GameAppId, out var allEvicted) && allEvicted)
-                    {
-                        game.IsEvicted = true;
-                    }
-                }
-            }
-
-            // Secondary: Epic eviction fallback — Epic downloads have GameAppId=NULL, join on EpicAppId.
-            var nonEvictedEpicGames = cachedGames.Where(g => !g.IsEvicted && g.EpicAppId != null).ToList();
-            if (nonEvictedEpicGames.Count > 0)
-            {
-                var epicAppIds = nonEvictedEpicGames.Select(g => g.EpicAppId!).Distinct().ToList();
-                var epicEvictionStatus = await dbContext.Downloads
-                    .Where(d => d.EpicAppId != null && epicAppIds.Contains(d.EpicAppId))
-                    .GroupBy(d => d.EpicAppId)
-                    .Select(g => new
-                    {
-                        EpicAppId = g.Key!,
-                        AllEvicted = g.All(d => d.IsEvicted)
-                    })
-                    .ToDictionaryAsync(x => x.EpicAppId, x => x.AllEvicted);
-
-                foreach (var game in nonEvictedEpicGames)
-                {
-                    if (epicEvictionStatus.TryGetValue(game.EpicAppId!, out var epicAllEvicted) && epicAllEvicted)
-                    {
-                        game.IsEvicted = true;
-                    }
-                }
-            }
-
-            // Tertiary: Games with 0 cache files are evicted by definition.
-            foreach (var game in cachedGames)
-            {
-                if (!game.IsEvicted && game.CacheFilesFound == 0)
-                {
-                    game.IsEvicted = true;
-                }
-            }
-        }
-
-        var games = cachedGames.Select(ConvertToGameCacheInfo).ToList();
-        var services = cachedServices.Select(ConvertToServiceCacheInfo).ToList();
-
-        // Populate evicted-download counts for the partial-eviction UI.
-        // Three GROUP BY queries — one per entity type — against Downloads.IsEvicted = true.
-        // Results are merged into the DTO lists via dictionary lookup (not inside the converter
-        // methods, to keep converters static and pure).
-
-        // 1. Steam games: grouped on GameAppId (EpicAppId must be null to exclude Epic games
-        //    that happen to have a Steam depot mapping).
-        var steamEvictedMap = await dbContext.Downloads
-            .Where(d => d.IsEvicted && d.GameAppId != null && d.EpicAppId == null)
-            .GroupBy(d => d.GameAppId!.Value)
-            .Select(g => new
-            {
-                Key = g.Key,
-                Count = g.Count(),
-                Bytes = (ulong)g.Sum(x => x.CacheHitBytes + x.CacheMissBytes)
-            })
-            .ToDictionaryAsync(x => x.Key, x => (x.Count, x.Bytes));
-
-        // 2. Epic games: grouped on EpicAppId.
-        var epicEvictedMap = await dbContext.Downloads
-            .Where(d => d.IsEvicted && d.EpicAppId != null)
-            .GroupBy(d => d.EpicAppId!)
-            .Select(g => new
-            {
-                Key = g.Key,
-                Count = g.Count(),
-                Bytes = (ulong)g.Sum(x => x.CacheHitBytes + x.CacheMissBytes)
-            })
-            .ToDictionaryAsync(x => x.Key, x => (x.Count, x.Bytes));
-
-        // 3. Non-game services: grouped on Service (lowercased), where both game ID columns are null.
-        //    Downloads.Service may be mixed-case (e.g. "WSUS") while CachedServiceDetection.ServiceName
-        //    is stored lowercased — hence ToLower() before keying.
-        var serviceEvictedMap = await dbContext.Downloads
-            .Where(d => d.IsEvicted && d.GameAppId == null && d.EpicAppId == null && d.Service != null)
-            .GroupBy(d => d.Service!.ToLower())
-            .Select(g => new
-            {
-                Key = g.Key,
-                Count = g.Count(),
-                Bytes = (ulong)g.Sum(x => x.CacheHitBytes + x.CacheMissBytes)
-            })
-            .ToDictionaryAsync(x => x.Key, x => (x.Count, x.Bytes));
-
-        // Merge evicted counts into game DTOs.
-        foreach (var game in games)
-        {
-            if (game.EpicAppId != null)
-            {
-                if (epicEvictedMap.TryGetValue(game.EpicAppId, out var epicEntry))
-                {
-                    game.EvictedDownloadsCount = epicEntry.Count;
-                    game.EvictedBytes = epicEntry.Bytes;
-                }
-            }
-            else if (steamEvictedMap.TryGetValue(game.GameAppId, out var steamEntry))
-            {
-                game.EvictedDownloadsCount = steamEntry.Count;
-                game.EvictedBytes = steamEntry.Bytes;
-            }
-        }
-
-        // Merge evicted counts into service DTOs.
-        foreach (var service in services)
-        {
-            var key = service.ServiceName.ToLower();
-            if (serviceEvictedMap.TryGetValue(key, out var svcEntry))
-            {
-                service.EvictedDownloadsCount = svcEntry.Count;
-                service.EvictedBytes = svcEntry.Bytes;
-            }
-        }
-
-        // Populate evicted sample URLs from LogEntries for games and services.
-        // These are URLs from log entries associated with evicted downloads, shown in the
-        // expanded card for items in the Evicted section.
-        //
-        // EF Core cannot translate collection subqueries (Distinct().Take().ToList() inside
-        // a Select projection on a grouping) to SQL. The fix is to flatten to a simple
-        // SELECT DISTINCT of scalar key+value pairs, materialise with ToListAsync, then
-        // group in C# memory — no nested collection projection reaches the SQL layer.
-
-        // 4. Steam game evicted URLs: flat SELECT DISTINCT (GameAppId, Url) → materialise → group in memory.
-        var steamEvictedUrlFlat = await dbContext.LogEntries
-            .AsNoTracking()
-            .Where(le => le.DownloadId != null
-                && le.Download != null
-                && le.Download.IsEvicted
-                && le.Download.GameAppId != null
-                && le.Download.EpicAppId == null)
-            .Select(le => new { GameAppId = le.Download!.GameAppId!.Value, le.Url })
-            .Distinct()
-            .ToListAsync();
-
-        var steamEvictedUrlMap = steamEvictedUrlFlat
-            .GroupBy(x => x.GameAppId)
-            .ToDictionary(g => g.Key, g => g.Select(x => x.Url).Take(20).ToList());
-
-        // 5. Epic game evicted URLs: flat SELECT DISTINCT (EpicAppId, Url) → materialise → group in memory.
-        var epicEvictedUrlFlat = await dbContext.LogEntries
-            .AsNoTracking()
-            .Where(le => le.DownloadId != null
-                && le.Download != null
-                && le.Download.IsEvicted
-                && le.Download.EpicAppId != null)
-            .Select(le => new { EpicAppId = le.Download!.EpicAppId!, le.Url })
-            .Distinct()
-            .ToListAsync();
-
-        var epicEvictedUrlMap = epicEvictedUrlFlat
-            .GroupBy(x => x.EpicAppId)
-            .ToDictionary(g => g.Key, g => g.Select(x => x.Url).Take(20).ToList());
-
-        // 6. Service evicted URLs: flat SELECT DISTINCT (Service, Url) → materialise → group in memory.
-        //    ToLowerInvariant() is not SQL-translatable; lowercase the key in the in-memory GroupBy instead.
-        var serviceEvictedUrlFlat = await dbContext.LogEntries
-            .AsNoTracking()
-            .Where(le => le.DownloadId != null
-                && le.Download != null
-                && le.Download.IsEvicted
-                && le.Download.GameAppId == null
-                && le.Download.EpicAppId == null
-                && le.Download.Service != null)
-            .Select(le => new { le.Download!.Service, le.Url })
-            .Distinct()
-            .ToListAsync();
-
-        var serviceEvictedUrlMap = serviceEvictedUrlFlat
-            .GroupBy(x => x.Service!.ToLowerInvariant())
-            .ToDictionary(g => g.Key, g => g.Select(x => x.Url).Take(20).ToList());
-
-        // 7. Steam game evicted depot IDs: flat SELECT DISTINCT (GameAppId, DepotId) → materialise → group in memory.
-        var steamEvictedDepotFlat = await dbContext.Downloads
-            .AsNoTracking()
-            .Where(d => d.IsEvicted && d.GameAppId != null && d.EpicAppId == null && d.DepotId != null)
-            .Select(d => new { GameAppId = d.GameAppId!.Value, DepotId = (uint)d.DepotId!.Value })
-            .Distinct()
-            .ToListAsync();
-
-        var steamEvictedDepotMap = steamEvictedDepotFlat
-            .GroupBy(x => x.GameAppId)
-            .ToDictionary(g => g.Key, g => g.Select(x => x.DepotId).ToList());
-
-        // Merge evicted URLs and depot IDs into game DTOs.
-        foreach (var game in games)
-        {
-            if (game.EpicAppId != null)
-            {
-                if (epicEvictedUrlMap.TryGetValue(game.EpicAppId, out var epicUrls))
-                    game.EvictedSampleUrls = epicUrls;
-            }
-            else
-            {
-                if (steamEvictedUrlMap.TryGetValue(game.GameAppId, out var steamUrls))
-                    game.EvictedSampleUrls = steamUrls;
-                if (steamEvictedDepotMap.TryGetValue(game.GameAppId, out var depotIds))
-                    game.EvictedDepotIds = depotIds;
-            }
-        }
-
-        // Merge evicted URLs into service DTOs.
-        foreach (var service in services)
-        {
-            var key = service.ServiceName.ToLower();
-            if (serviceEvictedUrlMap.TryGetValue(key, out var svcUrls))
-                service.EvictedSampleUrls = svcUrls;
-        }
-
-        // Epic games are now persisted to CachedGameDetections (detected by Rust processor
-        // using actual cache file sizes), so they load from DB alongside Steam games.
-
-        await EnrichGameImageUrlsFromDatabaseAsync(dbContext, games);
-
-        if (games.Count == 0 && services.Count == 0)
-        {
-            return null;
-        }
-
-        var lastDetectedTime = DateTime.MinValue;
-        if (cachedGames.Count > 0)
-        {
-            lastDetectedTime = cachedGames.Max(g => g.LastDetectedUtc);
-        }
-        if (cachedServices.Count > 0)
-        {
-            var servicesMaxTime = cachedServices.Max(s => s.LastDetectedUtc);
-            if (servicesMaxTime > lastDetectedTime)
-            {
-                lastDetectedTime = servicesMaxTime;
-            }
-        }
-
-        var loadedStageKey = games.Count > 0 && services.Count > 0
-            ? "signalr.gameDetect.loaded.gamesAndServices"
-            : "signalr.gameDetect.loaded.gamesOnly";
-        var loadedContext = games.Count > 0 && services.Count > 0
-            ? new Dictionary<string, object?> { ["gamesCount"] = games.Count, ["servicesCount"] = services.Count }
-            : new Dictionary<string, object?> { ["gamesCount"] = games.Count };
-
-        var steamCount = games.Count(g => string.IsNullOrEmpty(g.EpicAppId) && !g.IsEvicted);
-        var epicCount = games.Count(g => !string.IsNullOrEmpty(g.EpicAppId) && !g.IsEvicted);
-        var evictedCount = games.Count(g => g.IsEvicted);
-        _logger.LogDebug(
-            "[GameDetection] === Detection Summary (cache load) === Steam: {Steam} | Epic: {Epic} | Total: {Total} | Evicted: {Evicted}",
-            steamCount, epicCount, steamCount + epicCount, evictedCount);
-
-        return new DetectionOperationResponse
-        {
-            OperationId = Guid.Empty,
-            StartTime = lastDetectedTime,
-            Status = OperationStatus.Completed,
-            Message = loadedStageKey,
-            Games = games,
-            Services = services,
-            TotalGamesDetected = games.Count,
-            TotalServicesDetected = services.Count
-        };
-    }
+    private Task<DetectionOperationResponse?> LoadDetectionFromDatabaseAsync(
+        CancellationToken cancellationToken = default) =>
+        _detectionDataService.LoadDetectionFromDatabaseAsync(cancellationToken);
 
     public async Task InvalidateCacheAsync()
     {
-        await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
-        await dbContext.CachedGameDetections.ExecuteDeleteAsync();
-        await dbContext.CachedServiceDetections.ExecuteDeleteAsync();
-        await dbContext.SaveChangesAsync();
+        await _detectionDataService.InvalidateCacheAsync();
         InvalidateDetectionCache();
-        _logger.LogInformation("[GameDetection] Cache invalidated - all cached games and services deleted from database");
     }
 
     public async Task RemoveGameFromCacheAsync(long gameAppId)
     {
-        await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
-        var game = await dbContext.CachedGameDetections.FirstOrDefaultAsync(g => g.GameAppId == gameAppId);
-
-        if (game != null)
-        {
-            dbContext.CachedGameDetections.Remove(game);
-            await dbContext.SaveChangesAsync();
-            InvalidateDetectionCache();
-            _logger.LogInformation("[GameDetection] Removed game {AppId} ({GameName}) from cache",
-                gameAppId, game.GameName);
-        }
+        await _detectionDataService.RemoveGameFromCacheAsync(gameAppId);
+        InvalidateDetectionCache();
     }
 
     public async Task RemoveServiceFromCacheAsync(string serviceName)
     {
-        await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
-        var service = await dbContext.CachedServiceDetections
-            .FirstOrDefaultAsync(s => s.ServiceName.ToLower() == serviceName.ToLower());
-
-        if (service != null)
-        {
-            dbContext.CachedServiceDetections.Remove(service);
-            await dbContext.SaveChangesAsync();
-            InvalidateDetectionCache();
-            _logger.LogInformation("[GameDetection] Removed service '{ServiceName}' from cache", serviceName);
-        }
+        await _detectionDataService.RemoveServiceFromCacheAsync(serviceName);
+        InvalidateDetectionCache();
     }
 
     /// <summary>
@@ -1294,265 +992,8 @@ public class GameCacheDetectionService : IDisposable
     /// This updates cached "Unknown Game (Depot X)" entries when mappings become available.
     /// Returns the number of games that were resolved.
     /// </summary>
-    public async Task<int> ResolveUnknownGamesInCacheAsync(CancellationToken cancellationToken = default)
-    {
-        try
-        {
-            await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cancellationToken);
-
-            // Get unknown games from cache
-            var unknownGames = await GetUnknownGamesCachedAsync(dbContext);
-
-            if (unknownGames.Count == 0)
-            {
-                return 0;
-            }
-
-            // Filter out blacklisted depots (failed 3+ times, waiting for cooldown)
-            var now = DateTime.UtcNow;
-            var blacklistedCount = 0;
-            unknownGames = unknownGames.Where(g =>
-            {
-                if (_unresolvedDepotTracker.TryGetValue(g.GameAppId, out var tracker))
-                {
-                    if (tracker.BlacklistedUntil.HasValue && tracker.BlacklistedUntil.Value > now)
-                    {
-                        blacklistedCount++;
-                        return false; // Still blacklisted, skip
-                    }
-                    // Blacklist expired — reset tracker and retry
-                    if (tracker.BlacklistedUntil.HasValue)
-                    {
-                        _unresolvedDepotTracker.Remove(g.GameAppId);
-                    }
-                }
-                return true;
-            }).ToList();
-
-            if (unknownGames.Count == 0)
-            {
-                if (blacklistedCount > 0)
-                {
-                    _logger.LogDebug("[GameDetection] {Count} unknown depot(s) are blacklisted, skipping resolution", blacklistedCount);
-                }
-                return 0;
-            }
-
-            _logger.LogInformation("[GameDetection] Found {Count} unknown games in cache, attempting to resolve{Blacklisted}",
-                unknownGames.Count,
-                blacklistedCount > 0 ? $" ({blacklistedCount} blacklisted, skipped)" : "");
-
-            // Collect all depot IDs we need to resolve
-            var unknownDepotIds = unknownGames.Select(g => g.GameAppId).ToList();
-            var unknownDepotIdSet = unknownDepotIds.ToHashSet();
-
-            // First tier: Build a lookup from Downloads table (already has correct names from Rust processor)
-            var downloadsLookup = await dbContext.Downloads
-                .Where(d => d.GameName != null && d.GameAppId != null && d.GameAppId > 0 && d.DepotId != null)
-                .Select(d => new { d.GameAppId, d.GameName, d.DepotId })
-                .Distinct()
-                .ToListAsync(cancellationToken);
-
-            var depotToGameFromDownloads = downloadsLookup
-                .Where(d => d.DepotId.HasValue && unknownDepotIdSet.Contains(d.DepotId.Value))
-                .GroupBy(d => d.DepotId!.Value)
-                .ToDictionary(g => g.Key, g => g.First());
-
-            if (depotToGameFromDownloads.Count > 0)
-            {
-                _logger.LogInformation("[GameDetection] Downloads table pre-lookup found {Count} depot(s) with resolved names", depotToGameFromDownloads.Count);
-            }
-
-            // Second tier: Pre-load SteamDepotMappings for all unknown depots to avoid N+1 queries
-            var depotMappingsDict = await dbContext.SteamDepotMappings
-                .Where(m => unknownDepotIds.Contains(m.DepotId) && m.IsOwner && m.AppName != null)
-                .AsNoTracking()
-                .ToDictionaryAsync(m => m.DepotId, cancellationToken);
-
-            // Pre-load all CachedGameDetections that might be targeted by resolved AppIds
-            // to avoid N+1 queries when checking for existing records
-            var resolvedAppIds = depotToGameFromDownloads.Values
-                .Select(d => d.GameAppId!.Value)
-                .Concat(depotMappingsDict.Values.Select(m => m.AppId))
-                .Distinct()
-                .ToList();
-
-            var existingGamesByAppId = await dbContext.CachedGameDetections
-                .Where(g => resolvedAppIds.Contains(g.GameAppId))
-                .ToDictionaryAsync(g => g.GameAppId, cancellationToken);
-
-            int resolvedCount = 0;
-            var newlyFailedDepots = new List<long>();
-            var entriesToRemove = new List<CachedGameDetection>();
-
-            // Track AppIds we've already resolved to in this batch to prevent UNIQUE constraint violations
-            // Key: AppId, Value: the CachedGameDetection entity that will have this AppId after save
-            var pendingAppIdAssignments = new Dictionary<long, CachedGameDetection>();
-
-            foreach (var unknownGame in unknownGames)
-            {
-                // For unknown games, the depot ID is stored as GameAppId
-                var depotId = unknownGame.GameAppId;
-
-                // First tier: Try to resolve from Downloads table (has correct names from Rust processor)
-                if (depotToGameFromDownloads.TryGetValue(depotId, out var downloadsMatch))
-                {
-                    var resolvedAppId = downloadsMatch.GameAppId!.Value;
-                    var resolvedName = downloadsMatch.GameName!;
-
-                    _logger.LogInformation("[GameDetection] Resolved depot {DepotId} -> {AppId} ({Name}) via Downloads table",
-                        depotId, resolvedAppId, resolvedName);
-
-                    // Check if we've already assigned this AppId in this batch
-                    if (pendingAppIdAssignments.TryGetValue(resolvedAppId, out var pendingGame))
-                    {
-                        MergeUnknownGameIntoTarget(pendingGame, unknownGame);
-                        entriesToRemove.Add(unknownGame);
-                        _logger.LogInformation("[GameDetection] Merged depot {DepotId} into pending game {AppId} ({Name}) via Downloads table",
-                            depotId, resolvedAppId, resolvedName);
-                        resolvedCount++;
-                        continue;
-                    }
-
-                    // Check if a record with this AppId already exists in database (pre-loaded)
-                    existingGamesByAppId.TryGetValue(resolvedAppId, out var existingGame);
-
-                    if (existingGame != null && existingGame.Id != unknownGame.Id)
-                    {
-                        MergeUnknownGameIntoTarget(existingGame, unknownGame);
-                        entriesToRemove.Add(unknownGame);
-                        pendingAppIdAssignments[resolvedAppId] = existingGame;
-                        _logger.LogInformation("[GameDetection] Merged depot {DepotId} into existing game {AppId} ({Name}) via Downloads table",
-                            depotId, resolvedAppId, resolvedName);
-                    }
-                    else
-                    {
-                        unknownGame.GameName = resolvedName;
-                        unknownGame.GameAppId = resolvedAppId;
-                        pendingAppIdAssignments[resolvedAppId] = unknownGame;
-                    }
-
-                    resolvedCount++;
-                    continue;
-                }
-
-                // Second tier: Try SteamDepotMappings table (has PICS data for all known depots)
-                depotMappingsDict.TryGetValue(depotId, out var depotMapping);
-
-                if (depotMapping != null)
-                {
-                    var resolvedAppId = depotMapping.AppId;
-                    var resolvedName = depotMapping.AppName!;
-
-                    _logger.LogInformation("[GameDetection] Resolved depot {DepotId} -> {AppId} ({Name}) via SteamDepotMappings",
-                        depotId, resolvedAppId, resolvedName);
-
-                    if (pendingAppIdAssignments.TryGetValue(resolvedAppId, out var pendingGame))
-                    {
-                        MergeUnknownGameIntoTarget(pendingGame, unknownGame);
-                        entriesToRemove.Add(unknownGame);
-                        resolvedCount++;
-                        continue;
-                    }
-
-                    // Check if a record with this AppId already exists in database (pre-loaded)
-                    existingGamesByAppId.TryGetValue(resolvedAppId, out var existingGame);
-
-                    if (existingGame != null && existingGame.Id != unknownGame.Id)
-                    {
-                        MergeUnknownGameIntoTarget(existingGame, unknownGame);
-                        entriesToRemove.Add(unknownGame);
-                        pendingAppIdAssignments[resolvedAppId] = existingGame;
-                    }
-                    else
-                    {
-                        unknownGame.GameName = resolvedName;
-                        unknownGame.GameAppId = resolvedAppId;
-                        pendingAppIdAssignments[resolvedAppId] = unknownGame;
-                    }
-
-                    resolvedCount++;
-                    continue;
-                }
-
-                // Not found in Downloads or SteamDepotMappings — track failure for blacklisting
-                newlyFailedDepots.Add(depotId);
-                continue;
-            }
-
-            // Remove merged entries
-            if (entriesToRemove.Count > 0)
-            {
-                dbContext.CachedGameDetections.RemoveRange(entriesToRemove);
-                _logger.LogInformation("[GameDetection] Removed {Count} duplicate entries after merging", entriesToRemove.Count);
-            }
-
-            if (resolvedCount > 0)
-            {
-                await dbContext.SaveChangesAsync(cancellationToken);
-                _logger.LogInformation("[GameDetection] Resolved {Count} unknown games in cache", resolvedCount);
-
-                // Clear tracker entries for successfully resolved depots
-                foreach (var depotId in unknownGames.Select(g => g.GameAppId).Except(newlyFailedDepots))
-                {
-                    _unresolvedDepotTracker.Remove(depotId);
-                }
-            }
-
-            // Track failed depots: increment attempt count, blacklist after MaxResolutionAttempts
-            if (newlyFailedDepots.Count > 0)
-            {
-                var blacklisted = new List<long>();
-                var retrying = new List<long>();
-
-                foreach (var depotId in newlyFailedDepots)
-                {
-                    var current = _unresolvedDepotTracker.GetValueOrDefault(depotId);
-                    var newCount = current.FailureCount + 1;
-
-                    if (newCount >= MaxResolutionAttempts)
-                    {
-                        _unresolvedDepotTracker[depotId] = (newCount, DateTime.UtcNow + _blacklistDuration);
-                        blacklisted.Add(depotId);
-                    }
-                    else
-                    {
-                        _unresolvedDepotTracker[depotId] = (newCount, null);
-                        retrying.Add(depotId);
-                    }
-                }
-
-                if (retrying.Count > 0)
-                {
-                    _logger.LogInformation("[GameDetection] Could not resolve {Count} depot(s), will retry (attempt {Attempts}/{Max}): {DepotIds}",
-                        retrying.Count,
-                        _unresolvedDepotTracker[retrying[0]].FailureCount,
-                        MaxResolutionAttempts,
-                        string.Join(", ", retrying));
-                }
-
-                if (blacklisted.Count > 0)
-                {
-                    _logger.LogInformation("[GameDetection] Blacklisted {Count} depot(s) for {Hours}h after {Max} failed attempts: {DepotIds}",
-                        blacklisted.Count, _blacklistDuration.TotalHours, MaxResolutionAttempts, string.Join(", ", blacklisted));
-                }
-            }
-
-            return resolvedCount;
-        }
-        catch (OperationCanceledException)
-        {
-            // Re-throw so that a timeout or user cancellation bubbles up to RunDetectionAsync,
-            // which will call FinalizeDetectionAsync with success:false and broadcast
-            // GameDetectionComplete to the frontend.
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "[GameDetection] Failed to resolve unknown games in cache");
-            return 0;
-        }
-    }
+    public Task<int> ResolveUnknownGamesInCacheAsync(CancellationToken cancellationToken = default) =>
+        _unknownGameResolutionService.ResolveUnknownGamesInCacheAsync(cancellationToken);
 
     private void RestoreInterruptedOperations()
     {
@@ -1569,30 +1010,45 @@ public class GameCacheDetectionService : IDisposable
 
             foreach (var state in gameDetectionStates)
             {
-                if (state.Data.HasValue && state.Data.Value.TryGetProperty("operationId", out var opIdElement))
+                if (!state.Data.HasValue || !state.Data.Value.TryGetProperty("operationId", out var opIdElement))
                 {
-                    var operationId = opIdElement.GetString();
-                    if (!string.IsNullOrEmpty(operationId))
-                    {
-                        // Register with UnifiedOperationTracker for recovery
-                        _cancellationTokenSource = new CancellationTokenSource();
-                        var metadata = new GameDetectionMetrics { ScanType = DetectionScanType.Incremental };
-                        var trackerOpId = _operationTracker.RegisterOperation(
-                            OperationType.GameDetection,
-                            "Game Detection",
-                            _cancellationTokenSource,
-                            metadata
-                        );
-                        _currentTrackerOperationId = trackerOpId;
-                        _operationTracker.UpdateProgress(trackerOpId, 0, state.Message ?? "Resuming game cache detection...");
-
-                        _logger.LogInformation("[GameDetection] Restored interrupted operation {OperationId} as {TrackerOpId}", operationId, trackerOpId);
-
-                        // Restart the detection task with incremental scanning (default)
-                        var cancellationToken = _cancellationTokenSource.Token;
-                        _ = Task.Run(async () => await RunDetectionAsync(trackerOpId, incremental: true, cancellationToken));
-                    }
+                    continue;
                 }
+
+                var operationIdString = opIdElement.GetString();
+                if (string.IsNullOrEmpty(operationIdString))
+                {
+                    continue;
+                }
+
+                if (!Guid.TryParse(operationIdString, out var persistedGuid))
+                {
+                    _logger.LogWarning("[GameDetection] Persisted operationId '{OperationId}' is not a valid Guid — skipping", operationIdString);
+                    continue;
+                }
+
+                _cancellationTokenSource = new CancellationTokenSource();
+                var metadata = new GameDetectionMetrics { ScanType = DetectionScanType.Incremental };
+
+                if (!_operationTracker.TryRestoreOperation(
+                        persistedGuid,
+                        OperationType.GameDetection,
+                        "Game Detection",
+                        _cancellationTokenSource,
+                        metadata))
+                {
+                    _logger.LogWarning("[GameDetection] Persisted operation {Id} already registered — skipping", persistedGuid);
+                    continue;
+                }
+
+                _currentTrackerOperationId = persistedGuid;
+                _operationTracker.UpdateProgress(persistedGuid, 0, state.Message ?? "Resuming game cache detection...");
+
+                _logger.LogInformation("[GameDetection] Restored interrupted operation {OperationId}", persistedGuid);
+
+                // Restart the detection task with incremental scanning (default)
+                var cancellationToken = _cancellationTokenSource.Token;
+                _ = Task.Run(async () => await RunDetectionAsync(persistedGuid, incremental: true, cancellationToken));
             }
         }
         catch (Exception ex)
@@ -1624,141 +1080,11 @@ public class GameCacheDetectionService : IDisposable
         };
     }
 
-    private async Task SaveGamesToDatabaseAsync(List<GameCacheInfo> games, bool incremental)
-    {
-        await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
-
-        if (!incremental)
-        {
-            // Full scan - selectively remove stale non-evicted rows.
-            // Evicted rows (IsEvicted = true) are preserved — they represent games that were
-            // once cached but whose files have since been purged; we must not lose that history.
-            // Only delete non-evicted rows for games that are no longer in the incoming scan results.
-            var incomingSteamIds = games.Where(g => g.EpicAppId == null).Select(g => g.GameAppId).ToList();
-            var incomingEpicIds = games.Where(g => g.EpicAppId != null).Select(g => g.EpicAppId!).ToList();
-
-            await dbContext.CachedGameDetections
-                .Where(g => !g.IsEvicted
-                    && (g.EpicAppId == null ? !incomingSteamIds.Contains(g.GameAppId)
-                                            : !incomingEpicIds.Contains(g.EpicAppId)))
-                .ExecuteDeleteAsync();
-        }
-
-        // Separate Steam games (GameAppId > 0) from Epic games (EpicAppId != null, GameAppId = 0).
-        // Epic games must be deduplicated by EpicAppId — they all share GameAppId=0 which would
-        // violate the unique constraint and cause all but one to be dropped.
-        var steamGames = games.Where(g => g.EpicAppId == null).ToList();
-        var epicGames = games.Where(g => g.EpicAppId != null).ToList();
-
-        // Deduplicate Steam games by GameAppId (keep last occurrence in case of duplicates)
-        var uniqueSteamGames = steamGames
-            .GroupBy(g => g.GameAppId)
-            .Select(group => group.Last())
-            .ToList();
-
-        // Deduplicate Epic games by EpicAppId (keep last occurrence in case of duplicates)
-        var uniqueEpicGames = epicGames
-            .GroupBy(g => g.EpicAppId!)
-            .Select(group => group.Last())
-            .ToList();
-
-        var uniqueGames = uniqueSteamGames.Concat(uniqueEpicGames).ToList();
-
-        if (uniqueGames.Count < games.Count)
-        {
-            _logger.LogWarning(
-                "[GameDetection] Removed {DuplicateCount} duplicate entries from detection results ({Steam} Steam, {Epic} Epic unique)",
-                games.Count - uniqueGames.Count,
-                uniqueSteamGames.Count,
-                uniqueEpicGames.Count
-            );
-        }
-
-        var now = DateTime.UtcNow;
-
-        // Pre-load existing Steam games by GameAppId
-        var incomingSteamAppIds = uniqueSteamGames.Select(g => g.GameAppId).ToList();
-        var existingSteamDict = await dbContext.CachedGameDetections
-            .Where(g => g.EpicAppId == null && incomingSteamAppIds.Contains(g.GameAppId))
-            .ToDictionaryAsync(g => g.GameAppId);
-
-        // Pre-load existing Epic games by EpicAppId
-        var incomingEpicAppIds = uniqueEpicGames.Select(g => g.EpicAppId!).ToList();
-        var existingEpicDict = await dbContext.CachedGameDetections
-            .Where(g => g.EpicAppId != null && incomingEpicAppIds.Contains(g.EpicAppId))
-            .ToDictionaryAsync(g => g.EpicAppId!);
-
-        foreach (var game in uniqueGames)
-        {
-            var cachedGame = new CachedGameDetection
-            {
-                GameAppId = game.GameAppId,
-                GameName = game.GameName,
-                CacheFilesFound = game.CacheFilesFound,
-                TotalSizeBytes = game.TotalSizeBytes,
-                DepotIdsJson = JsonSerializer.Serialize(game.DepotIds),
-                SampleUrlsJson = JsonSerializer.Serialize(game.SampleUrls),
-                CacheFilePathsJson = JsonSerializer.Serialize(game.CacheFilePaths),
-                DatasourcesJson = JsonSerializer.Serialize(game.Datasources),
-                Service = game.Service,
-                EpicAppId = game.EpicAppId,
-                LastDetectedUtc = now,
-                CreatedAtUtc = now
-            };
-
-            // Upsert: Epic games matched by EpicAppId, Steam games matched by GameAppId
-            CachedGameDetection? existing = null;
-            if (cachedGame.EpicAppId != null)
-                existingEpicDict.TryGetValue(cachedGame.EpicAppId, out existing);
-            else
-                existingSteamDict.TryGetValue(cachedGame.GameAppId, out existing);
-
-            if (existing != null)
-            {
-                existing.GameName = cachedGame.GameName;
-                existing.CacheFilesFound = cachedGame.CacheFilesFound;
-                existing.TotalSizeBytes = cachedGame.TotalSizeBytes;
-                existing.DepotIdsJson = cachedGame.DepotIdsJson;
-                existing.SampleUrlsJson = cachedGame.SampleUrlsJson;
-                existing.CacheFilePathsJson = cachedGame.CacheFilePathsJson;
-                existing.DatasourcesJson = cachedGame.DatasourcesJson;
-                existing.Service = cachedGame.Service;
-                existing.EpicAppId = cachedGame.EpicAppId;
-                existing.LastDetectedUtc = now;
-
-                // Fix 3 Trigger #3: if the Rust processor detected cache files for a game that
-                // was previously flagged evicted, the files have reappeared — un-evict inline
-                // during upsert. Covers the Steam path where Rust finds cache files via the
-                // LogEntries × SteamDepotMappings join even for IsEvicted=true Downloads.
-                if (cachedGame.CacheFilesFound > 0 && existing.IsEvicted)
-                {
-                    existing.IsEvicted = false;
-                    _logger.LogInformation(
-                        "[GameDetection] Self-healed: game {GameAppId} ({GameName}) un-evicted — Rust found {Files} cache files",
-                        existing.GameAppId, existing.GameName, cachedGame.CacheFilesFound);
-                }
-            }
-            else
-            {
-                dbContext.CachedGameDetections.Add(cachedGame);
-            }
-        }
-
-        try
-        {
-            await dbContext.SaveChangesAsync();
-            dbContext.ChangeTracker.Clear();
-        }
-        catch (DbUpdateException ex) when (ex.InnerException is NpgsqlException pgEx && pgEx.SqlState == "23505")
-        {
-            // UNIQUE constraint violation - log warning and continue
-            // This can happen in rare race conditions
-            _logger.LogWarning(
-                ex,
-                "[GameDetection] UNIQUE constraint error when saving games - some records may already exist. Continuing..."
-            );
-        }
-    }
+    private Task SaveGamesToDatabaseAsync(
+        List<GameCacheInfo> games,
+        bool incremental,
+        CancellationToken cancellationToken = default) =>
+        _detectionDataService.SaveGamesToDatabaseAsync(games, incremental, cancellationToken);
 
     /// <summary>
     /// After a full scan, finds games that exist in Downloads but were not detected on disk,
@@ -1774,114 +1100,8 @@ public class GameCacheDetectionService : IDisposable
     /// prior Cache Clear wiped the table, or the game was never fully scanned) will not
     /// appear in the Evicted Items UI until the next app restart.
     /// </summary>
-    public async Task<int> RecoverEvictedGamesAsync()
-    {
-        await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
-
-        // Get GameAppIds already in CachedGameDetections (games found on disk)
-        var detectedAppIds = await dbContext.CachedGameDetections
-            .Select(g => g.GameAppId)
-            .ToListAsync();
-
-        // Find games in Downloads that have no matching CachedGameDetection (evicted from cache)
-        var evictedGames = await dbContext.Downloads
-            .Where(d => d.GameAppId != null
-                      && d.GameAppId > 0
-                      && !d.IsActive
-                      && !detectedAppIds.Contains(d.GameAppId.Value))
-            .GroupBy(d => d.GameAppId!.Value)
-            .Select(g => new
-            {
-                GameAppId = g.Key,
-                GameName = g.Max(d => d.GameName),
-                Service = g.Min(d => d.Service),
-                EpicAppId = g.Max(d => d.EpicAppId)
-            })
-            .ToListAsync();
-
-        var now = DateTime.UtcNow;
-        var totalRecovered = 0;
-
-        if (evictedGames.Count > 0)
-        {
-            foreach (var game in evictedGames)
-            {
-                dbContext.CachedGameDetections.Add(new CachedGameDetection
-                {
-                    GameAppId = game.GameAppId,
-                    GameName = game.GameName ?? "Unknown",
-                    CacheFilesFound = 0,
-                    TotalSizeBytes = 0,
-                    Service = game.Service ?? "steam",
-                    EpicAppId = game.EpicAppId,
-                    IsEvicted = true,
-                    LastDetectedUtc = now,
-                    CreatedAtUtc = now
-                });
-            }
-
-            await dbContext.SaveChangesAsync();
-
-            // Mark downloads for evicted Steam games as IsEvicted = true
-            var evictedAppIds = evictedGames.Select(g => (long?)g.GameAppId).ToList();
-            await dbContext.Downloads
-                .Where(d => d.GameAppId != null && evictedAppIds.Contains(d.GameAppId) && !d.IsEvicted)
-                .ExecuteUpdateAsync(s => s.SetProperty(d => d.IsEvicted, true));
-
-            totalRecovered += evictedGames.Count;
-        }
-
-        // Recover evicted Epic games: Downloads with EpicAppId set but no matching CachedGameDetection
-        var detectedEpicAppIds = await dbContext.CachedGameDetections
-            .Where(g => g.EpicAppId != null)
-            .Select(g => g.EpicAppId)
-            .ToListAsync();
-
-        var evictedEpicGames = await dbContext.Downloads
-            .Where(d => d.EpicAppId != null
-                      && !d.IsActive
-                      && !detectedEpicAppIds.Contains(d.EpicAppId))
-            .GroupBy(d => d.EpicAppId!)
-            .Select(g => new
-            {
-                EpicAppId = g.Key,
-                GameName = g.Max(d => d.GameName),
-                Service = g.Min(d => d.Service)
-            })
-            .ToListAsync();
-
-        if (evictedEpicGames.Count > 0)
-        {
-            foreach (var game in evictedEpicGames)
-            {
-                dbContext.CachedGameDetections.Add(new CachedGameDetection
-                {
-                    GameAppId = 0,
-                    GameName = game.GameName ?? "Unknown",
-                    CacheFilesFound = 0,
-                    TotalSizeBytes = 0,
-                    Service = game.Service ?? "epicgames",
-                    EpicAppId = game.EpicAppId,
-                    IsEvicted = true,
-                    LastDetectedUtc = now,
-                    CreatedAtUtc = now
-                });
-            }
-
-            await dbContext.SaveChangesAsync();
-
-            // Mark downloads for evicted Epic games as IsEvicted = true
-            var evictedEpicIds = evictedEpicGames.Select(g => g.EpicAppId).ToList();
-            await dbContext.Downloads
-                .Where(d => d.EpicAppId != null && evictedEpicIds.Contains(d.EpicAppId) && !d.IsEvicted)
-                .ExecuteUpdateAsync(s => s.SetProperty(d => d.IsEvicted, true));
-
-            _logger.LogInformation("[GameDetection] Recovered {Count} evicted Epic games from Downloads history", evictedEpicGames.Count);
-            totalRecovered += evictedEpicGames.Count;
-        }
-
-        return totalRecovered;
-    }
+    public Task<int> RecoverEvictedGamesAsync(CancellationToken cancellationToken = default) =>
+        _detectionDataService.RecoverEvictedGamesAsync(cancellationToken);
 
     /// <summary>
     /// Service-scope analogue of <see cref="RecoverEvictedGamesAsync"/>. Finds non-game
@@ -1890,133 +1110,13 @@ public class GameCacheDetectionService : IDisposable
     /// row so the Evicted Items UI can display them without waiting for a full cache scan.
     /// A "service Downloads row" is one with both GameAppId and EpicAppId set to null.
     /// </summary>
-    public async Task<int> RecoverEvictedServicesAsync()
-    {
-        await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
+    public Task<int> RecoverEvictedServicesAsync(CancellationToken cancellationToken = default) =>
+        _detectionDataService.RecoverEvictedServicesAsync(cancellationToken);
 
-        var detectedServiceNames = await dbContext.CachedServiceDetections
-            .Select(s => s.ServiceName.ToLower())
-            .ToListAsync();
-
-        var evictedServices = await dbContext.Downloads
-            .Where(d => d.IsEvicted
-                     && d.GameAppId == null
-                     && d.EpicAppId == null
-                     && d.Service != null
-                     && !detectedServiceNames.Contains(d.Service.ToLower()))
-            .GroupBy(d => d.Service!)
-            .Select(g => new
-            {
-                ServiceName = g.Key,
-                Datasource = g.Min(d => d.Datasource)
-            })
-            .ToListAsync();
-
-        if (evictedServices.Count == 0)
-        {
-            return 0;
-        }
-
-        var now = DateTime.UtcNow;
-        foreach (var svc in evictedServices)
-        {
-            dbContext.CachedServiceDetections.Add(new CachedServiceDetection
-            {
-                ServiceName = svc.ServiceName,
-                CacheFilesFound = 0,
-                TotalSizeBytes = 0,
-                SampleUrlsJson = "[]",
-                CacheFilePathsJson = "[]",
-                DatasourcesJson = $"[\"{svc.Datasource}\"]",
-                IsEvicted = true,
-                LastDetectedUtc = now,
-                CreatedAtUtc = now
-            });
-        }
-
-        await dbContext.SaveChangesAsync();
-
-        _logger.LogInformation(
-            "[ServiceDetection] Recovered {Count} evicted services from Downloads history",
-            evictedServices.Count);
-
-        return evictedServices.Count;
-    }
-
-    private async Task SaveServicesToDatabaseAsync(List<ServiceCacheInfo> services)
-    {
-        await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
-
-        var now = DateTime.UtcNow;
-
-        // Build a lookup of incoming services keyed by lower-invariant name for O(1) matching
-        var incomingByName = services
-            .GroupBy(s => s.ServiceName.ToLowerInvariant())
-            .ToDictionary(g => g.Key, g => g.Last());
-
-        // Load all existing rows into a dictionary keyed by lower-invariant ServiceName
-        var existingDict = await dbContext.CachedServiceDetections
-            .ToDictionaryAsync(s => s.ServiceName.ToLowerInvariant());
-
-        // Upsert each incoming service
-        foreach (var kvp in incomingByName)
-        {
-            var service = kvp.Value;
-            if (existingDict.TryGetValue(kvp.Key, out var existing))
-            {
-                existing.CacheFilesFound = service.CacheFilesFound;
-                existing.TotalSizeBytes = service.TotalSizeBytes;
-                existing.SampleUrlsJson = JsonSerializer.Serialize(service.SampleUrls);
-                existing.CacheFilePathsJson = JsonSerializer.Serialize(service.CacheFilePaths);
-                existing.DatasourcesJson = JsonSerializer.Serialize(service.Datasources);
-                existing.LastDetectedUtc = now;
-
-                // Self-heal: if Rust found cache files for a service that was previously evicted,
-                // the files have reappeared — un-evict inline during upsert.
-                if (service.CacheFilesFound > 0 && existing.IsEvicted)
-                {
-                    existing.IsEvicted = false;
-                    _logger.LogInformation(
-                        "[ServiceDetection] Self-healed: service {Name} un-evicted — Rust found {Files} cache files",
-                        existing.ServiceName, service.CacheFilesFound);
-                }
-            }
-            else
-            {
-                dbContext.CachedServiceDetections.Add(new CachedServiceDetection
-                {
-                    ServiceName = service.ServiceName,
-                    CacheFilesFound = service.CacheFilesFound,
-                    TotalSizeBytes = service.TotalSizeBytes,
-                    SampleUrlsJson = JsonSerializer.Serialize(service.SampleUrls),
-                    CacheFilePathsJson = JsonSerializer.Serialize(service.CacheFilePaths),
-                    DatasourcesJson = JsonSerializer.Serialize(service.Datasources),
-                    LastDetectedUtc = now,
-                    CreatedAtUtc = now
-                });
-            }
-        }
-
-        // For every existing row NOT present in the incoming scan results, flip to evicted.
-        // This is the forward-eviction trigger: a full scan that doesn't report a service
-        // means its cache files are gone.
-        foreach (var kvp in existingDict)
-        {
-            if (!incomingByName.ContainsKey(kvp.Key))
-            {
-                var existing = kvp.Value;
-                existing.IsEvicted = true;
-                existing.CacheFilesFound = 0;
-                existing.TotalSizeBytes = 0;
-                existing.LastDetectedUtc = now;
-                _logger.LogInformation(
-                    "[ServiceDetection] Marked {Name} as evicted — no cache files found on latest scan",
-                    existing.ServiceName);
-            }
-        }
-
-        await dbContext.SaveChangesAsync();
-    }
+    private Task SaveServicesToDatabaseAsync(
+        List<ServiceCacheInfo> services,
+        CancellationToken cancellationToken = default) =>
+        _detectionDataService.SaveServicesToDatabaseAsync(services, cancellationToken);
 
     private static async Task<List<CachedGameDetection>> GetUnknownGamesCachedAsync(AppDbContext dbContext)
     {
@@ -2144,31 +1244,6 @@ public class GameCacheDetectionService : IDisposable
         };
     }
 
-    /// <summary>
-    /// Query the database for resolved Epic downloads and create GameCacheInfo entries.
-    /// Merges cache file counts, size, depot IDs, and cache file paths from source into target.
-    /// Used when multiple unknown games resolve to the same AppId during game detection.
-    /// </summary>
-    private static void MergeUnknownGameIntoTarget(CachedGameDetection target, CachedGameDetection source)
-    {
-        target.CacheFilesFound += source.CacheFilesFound;
-        target.TotalSizeBytes += source.TotalSizeBytes;
-        target.LastDetectedUtc = target.LastDetectedUtc > source.LastDetectedUtc
-            ? target.LastDetectedUtc : source.LastDetectedUtc;
-
-        // Merge depot IDs
-        var targetDepots = JsonSerializer.Deserialize<List<uint>>(target.DepotIdsJson) ?? new List<uint>();
-        var sourceDepots = JsonSerializer.Deserialize<List<uint>>(source.DepotIdsJson) ?? new List<uint>();
-        targetDepots.AddRange(sourceDepots);
-        target.DepotIdsJson = JsonSerializer.Serialize(targetDepots.Distinct().ToList());
-
-        // Merge cache file paths
-        var targetPaths = DeserializeStringList(target.CacheFilePathsJson);
-        var sourcePaths = DeserializeStringList(source.CacheFilePathsJson);
-        targetPaths.AddRange(sourcePaths);
-        target.CacheFilePathsJson = JsonSerializer.Serialize(targetPaths.Distinct().ToList());
-    }
-
     private class GameDetectionResult
     {
         [System.Text.Json.Serialization.JsonPropertyName("total_games_detected")]
@@ -2221,6 +1296,7 @@ public class GameCacheDetectionService : IDisposable
         try { _cancellationTokenSource?.Cancel(); } catch (ObjectDisposedException) { }
         try { _cancellationTokenSource?.Dispose(); } catch (ObjectDisposedException) { }
         _startLock.Dispose();
+        _detectionCacheLock.Dispose();
 
         _disposed = true;
     }

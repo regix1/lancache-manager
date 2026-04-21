@@ -191,12 +191,18 @@ export const formatLogRemovalCompleteMessage = (event: LogRemovalCompleteEvent):
  * @returns Formatted message string
  */
 export const formatGameRemovalProgressMessage = (event: GameRemovalProgressEvent): string => {
+  const fallbackContext: Record<string, string | number | boolean> = {
+    gameName: event.gameName,
+    ...(event.gameAppId !== null && { gameAppId: event.gameAppId }),
+    ...(event.epicAppId !== null && { epicAppId: event.epicAppId })
+  };
+  const fallbackStageKey = event.epicAppId
+    ? 'signalr.epicRemove.starting'
+    : 'signalr.gameRemove.starting';
+
   return event.stageKey
-    ? i18n.t(event.stageKey, event.context ?? {})
-    : i18n.t('signalr.gameRemove.starting', {
-        gameName: event.gameName,
-        gameAppId: event.gameAppId
-      });
+    ? i18n.t(event.stageKey, event.context ?? fallbackContext)
+    : i18n.t(fallbackStageKey, fallbackContext);
 };
 
 // ============================================================================

@@ -1,32 +1,34 @@
+use anyhow::{anyhow, Result};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use std::env;
 use std::fs;
 
-pub async fn create_pool() -> PgPool {
+pub async fn create_pool() -> Result<PgPool> {
     let database_url = build_database_url();
+    let safe_url = redact_database_url(&database_url);
 
     PgPoolOptions::new()
         .max_connections(10)
         .connect(&database_url)
         .await
-        .unwrap_or_else(|e| {
-            // Redact password from URL for safe logging
-            let safe_url = if let Some(at_pos) = database_url.find('@') {
-                if let Some(colon_pos) = database_url[..at_pos].rfind(':') {
-                    format!("{}:***{}", &database_url[..colon_pos], &database_url[at_pos..])
-                } else {
-                    database_url.clone()
-                }
-            } else {
-                database_url.clone()
-            };
-            panic!(
+        .map_err(|e| {
+            anyhow!(
                 "Failed to connect to PostgreSQL: {e}\n  URL: {safe_url}\n  \
                  Hint: Ensure DATABASE_URL is set, or POSTGRES_USER/POSTGRES_PASSWORD are configured, \
                  or /var/run/postgresql socket exists"
             )
         })
+}
+
+fn redact_database_url(database_url: &str) -> String {
+    if let Some(at_pos) = database_url.find('@') {
+        if let Some(colon_pos) = database_url[..at_pos].rfind(':') {
+            return format!("{}:***{}", &database_url[..colon_pos], &database_url[at_pos..]);
+        }
+    }
+
+    database_url.to_string()
 }
 
 fn build_database_url() -> String {

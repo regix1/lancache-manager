@@ -555,6 +555,7 @@ public class CacheClearingService : ScheduledBackgroundService
 
             // Clear all cached detection results since all cache files were deleted
             await using var dbContext = await _dbContextFactory.CreateDbContextAsync();
+            // Direct DbContext deletes are deliberate: cache clear wipes whole detection tables, not the load/upsert flow GameCacheDetectionDataService owns.
             var gamesDeleted = await dbContext.CachedGameDetections.ExecuteDeleteAsync();
             var servicesDeleted = await dbContext.CachedServiceDetections.ExecuteDeleteAsync();
             var corruptionDeleted = await dbContext.CachedCorruptionDetections.ExecuteDeleteAsync();

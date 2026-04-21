@@ -4,6 +4,7 @@ import { Database } from 'lucide-react';
 import { LoadingState, EmptyState } from '@components/ui/ManagerCard';
 import GamesList from './GamesList';
 import ServicesList from './ServicesList';
+import { getEvictedGames, getEvictedServices } from './cacheEntityFilters';
 import type { GameCacheInfo, ServiceCacheInfo } from '../../../../types';
 
 interface EvictedItemsListProps {
@@ -33,15 +34,9 @@ const EvictedItemsList: React.FC<EvictedItemsListProps> = ({
 }) => {
   const { t } = useTranslation();
 
-  const evictedGames = useMemo(
-    () => games.filter((g) => (g.evicted_downloads_count ?? 0) > 0 || g.is_evicted === true),
-    [games]
-  );
+  const evictedGames = useMemo(() => getEvictedGames(games), [games]);
 
-  const evictedServices = useMemo(
-    () => services.filter((s) => (s.evicted_downloads_count ?? 0) > 0 || s.is_evicted === true),
-    [services]
-  );
+  const evictedServices = useMemo(() => getEvictedServices(services), [services]);
 
   if (loading) {
     return <LoadingState message={t('management.gameDetection.loadingEvictedGames')} />;
@@ -56,7 +51,6 @@ const EvictedItemsList: React.FC<EvictedItemsListProps> = ({
       {evictedServices.length > 0 && (
         <ServicesList
           services={evictedServices}
-          totalServices={evictedServices.length}
           isAnyRemovalRunning={isAnyRemovalRunning}
           isAdmin={isAdmin}
           cacheReadOnly={cacheReadOnly}
@@ -69,7 +63,6 @@ const EvictedItemsList: React.FC<EvictedItemsListProps> = ({
       {evictedGames.length > 0 && (
         <GamesList
           games={evictedGames}
-          totalGames={evictedGames.length}
           isAnyRemovalRunning={isAnyRemovalRunning}
           isAdmin={isAdmin}
           cacheReadOnly={cacheReadOnly}

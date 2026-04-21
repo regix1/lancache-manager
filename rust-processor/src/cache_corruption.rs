@@ -724,7 +724,7 @@ async fn main() -> Result<()> {
                 write_progress(&progress_path, "removing_database", "signalr.corruptionRemove.deletingDb", json!({}), 85.0, 0, 0)?;
                 reporter.emit_progress(85.0, "signalr.corruptionRemove.deletingDb", json!({}));
 
-                let pool = db::create_pool().await;
+                let pool = db::create_pool().await?;
                 let (downloads_deleted, log_entries_deleted) = delete_corrupted_from_database(&pool, &service, &corrupted_urls).await?;
 
                 write_progress(&progress_path, "completed", "signalr.corruptionRemove.redownload.complete", json!({ "count": service_urls_with_sizes.len(), "service": service, "files": deleted_count, "logLines": total_lines_removed, "downloads": downloads_deleted, "logEntries": log_entries_deleted }), 100.0, 0, 0)?;
@@ -1143,7 +1143,7 @@ async fn main() -> Result<()> {
             write_progress(&progress_path, "removing_database", "signalr.corruptionRemove.deletingDb", json!({}), 90.0, 0, 0)?;
             reporter.emit_progress(90.0, "signalr.corruptionRemove.deletingDb", json!({}));
 
-            let pool = db::create_pool().await;
+            let pool = db::create_pool().await?;
             let (downloads_deleted, log_entries_deleted) = delete_corrupted_from_database(&pool, &service, &corrupted_urls).await?;
 
             write_progress(&progress_path, "completed", "signalr.corruptionRemove.complete", json!({ "count": corrupted_urls_with_sizes.len(), "service": service, "files": deleted_count, "logLines": total_lines_removed, "downloads": downloads_deleted, "logEntries": log_entries_deleted }), 100.0, 0, 0)?;

@@ -621,7 +621,7 @@ async fn main() -> Result<()> {
         .map(|dir| PathBuf::from(dir).join("access.log"))
         .collect();
 
-    let pool = db::create_pool().await;
+    let pool = db::create_pool().await?;
     let mut tracker = SpeedTracker::new(pool, log_paths);
     tracker.run().await
 }

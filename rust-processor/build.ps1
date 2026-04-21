@@ -13,6 +13,7 @@ Write-Host "[BUILD] Building Rust executables for multiple platforms..." -Foregr
 # All binary names (from Cargo.toml [[bin]] sections)
 $Binaries = @(
     "log_processor",           # Primary log processor (was lancache_processor)
+    "speed_tracker",           # Real-time speed tracker
     "log_service_manager",     # Service counting/removal from logs (was log_manager)
     "cache_size",              # Calculate cache size and estimate deletion time
     "cache_clear",             # Clear entire cache (was cache_cleaner)
@@ -21,9 +22,9 @@ $Binaries = @(
     "cache_game_remove",       # Remove game from cache (was game_cache_remover)
     "cache_epic_remove",       # Remove Epic game from cache by name
     "cache_service_remove",    # Remove service from cache (was service_remover)
+    "cache_eviction_scan",     # Scan cache and mark evicted downloads
     "cache_purge_log_entries", # Bulk-purge access.log entries for evicted games
-    "db_reset",                # Reset database (was database_reset)
-    "db_migrate"               # Import from DeveLanCacheUI (was data_migrator)
+    "db_reset"                 # Reset database (was database_reset)
 )
 
 function Build-ForTarget {

@@ -18,6 +18,8 @@ namespace LancacheManager.Controllers;
 [Authorize(Policy = "AdminOnly")]
 public class LogsController : ControllerBase
 {
+    private static readonly SemaphoreSlim _logProcessingStartLock = new(1, 1);
+
     private readonly RustLogProcessorService _rustLogProcessorService;
     private readonly RustLogRemovalService _rustLogRemovalService;
     private readonly ILogger<LogsController> _logger;
@@ -26,6 +28,7 @@ public class LogsController : ControllerBase
     private readonly DatasourceService _datasourceService;
     private readonly StateService _stateRepository;
     private readonly NginxLogRotationService _nginxLogRotationService;
+    private readonly IOperationConflictChecker _conflictChecker;
 
     public LogsController(
         RustLogProcessorService rustLogProcessorService,
@@ -35,7 +38,8 @@ public class LogsController : ControllerBase
         RustProcessHelper rustProcessHelper,
         DatasourceService datasourceService,
         StateService stateRepository,
-        NginxLogRotationService nginxLogRotationService)
+        NginxLogRotationService nginxLogRotationService,
+        IOperationConflictChecker conflictChecker)
     {
         _rustLogProcessorService = rustLogProcessorService;
         _rustLogRemovalService = rustLogRemovalService;
@@ -45,6 +49,7 @@ public class LogsController : ControllerBase
         _datasourceService = datasourceService;
         _stateRepository = stateRepository;
         _nginxLogRotationService = nginxLogRotationService;
+        _conflictChecker = conflictChecker;
     }
 
     /// <summary>
@@ -312,29 +317,48 @@ public class LogsController : ControllerBase
     /// Uses the position set by PUT /api/logs/position endpoint (top or bottom)
     /// </summary>
     [HttpPost("process")]
-    public IActionResult ProcessAllLogs()
+    public async Task<IActionResult> ProcessAllLogsAsync(CancellationToken cancellationToken = default)
     {
-        if (_rustLogProcessorService.IsProcessing)
-        {
-            return Conflict(new ConflictResponse { Error = "Log processing is already running" });
-        }
-
+        await _logProcessingStartLock.WaitAsync(cancellationToken);
         try
         {
-            _ = _rustLogProcessorService.StartProcessingAsync();
-            _logger.LogInformation("Started log processing for all datasources");
+            var conflict = await _conflictChecker.CheckAsync(
+                OperationType.LogProcessing,
+                ConflictScope.Bulk(),
+                cancellationToken);
+            if (conflict != null)
+            {
+                return Conflict(conflict);
+            }
+
+            var operationId = await _rustLogProcessorService.StartProcessingAllInBackgroundAsync();
+            if (!operationId.HasValue)
+            {
+                var raceConflict = await _conflictChecker.CheckAsync(
+                    OperationType.LogProcessing,
+                    ConflictScope.Bulk(),
+                    cancellationToken);
+                if (raceConflict != null)
+                {
+                    return Conflict(raceConflict);
+                }
+
+                _logger.LogWarning("Failed to start log processing for all datasources");
+                return StatusCode(500, new ErrorResponse { Error = "Failed to start log processing" });
+            }
+
+            _logger.LogInformation("Started log processing for all datasources (Operation: {OperationId})", operationId.Value);
 
             return Accepted(new OperationResponse
             {
+                OperationId = operationId.Value,
                 Message = "Log processing started for all datasources",
                 Status = OperationStatus.Running
             });
         }
-        catch (InvalidOperationException ex)
+        finally
         {
-            // Specific handling for "already running" case - return 409 Conflict
-            _logger.LogWarning(ex, "Cannot start log processing - already running");
-            return Conflict(new ConflictResponse { Error = ex.Message });
+            _logProcessingStartLock.Release();
         }
     }
 
@@ -342,7 +366,7 @@ public class LogsController : ControllerBase
     /// POST /api/logs/process/{datasourceName} - Start processing logs for a specific datasource
     /// </summary>
     [HttpPost("process/{datasourceName}")]
-    public async Task<IActionResult> ProcessDatasourceLogsAsync(string datasourceName)
+    public async Task<IActionResult> ProcessDatasourceLogsAsync(string datasourceName, CancellationToken cancellationToken = default)
     {
         var datasource = _datasourceService.GetDatasource(datasourceName);
         if (datasource == null)
@@ -350,38 +374,50 @@ public class LogsController : ControllerBase
             return NotFound(new NotFoundResponse { Error = $"Datasource '{datasourceName}' not found" });
         }
 
-        if (_rustLogProcessorService.IsProcessing)
-        {
-            return Conflict(new ConflictResponse { Error = "Log processing is already running" });
-        }
-
+        await _logProcessingStartLock.WaitAsync(cancellationToken);
         try
         {
+            var conflict = await _conflictChecker.CheckAsync(
+                OperationType.LogProcessing,
+                ConflictScope.Bulk(),
+                cancellationToken);
+            if (conflict != null)
+            {
+                return Conflict(conflict);
+            }
+
             var position = _stateRepository.GetLogPosition(datasourceName);
-            var success = await _rustLogProcessorService.StartProcessingAsync(
+            var operationId = await _rustLogProcessorService.StartProcessingInBackgroundAsync(
                 datasource.LogPath,
                 position,
                 silentMode: false,
                 datasourceName: datasourceName);
-
-            if (success)
+            if (!operationId.HasValue)
             {
-                _logger.LogInformation("Started log processing for datasource '{Name}'", datasourceName);
-                return Accepted(new OperationResponse
+                var raceConflict = await _conflictChecker.CheckAsync(
+                    OperationType.LogProcessing,
+                    ConflictScope.Bulk(),
+                    cancellationToken);
+                if (raceConflict != null)
                 {
-                    Message = $"Log processing started for '{datasourceName}'",
-                    Status = OperationStatus.Running
-                });
+                    return Conflict(raceConflict);
+                }
+
+                _logger.LogWarning("Failed to start log processing for datasource '{Name}'", datasourceName);
+                return StatusCode(500, new ErrorResponse { Error = $"Failed to start log processing for '{datasourceName}'" });
             }
-            else
+
+            _logger.LogInformation("Started log processing for datasource '{Name}' (Operation: {OperationId})", datasourceName, operationId.Value);
+            return Accepted(new OperationResponse
             {
-                return Conflict(new ConflictResponse { Error = "Failed to start log processing" });
-            }
+                OperationId = operationId.Value,
+                Message = $"Log processing started for '{datasourceName}'",
+                Status = OperationStatus.Running
+            });
         }
-        catch (InvalidOperationException ex)
+        finally
         {
-            _logger.LogWarning(ex, "Cannot start log processing for datasource '{Name}'", datasourceName);
-            return Conflict(new ConflictResponse { Error = ex.Message });
+            _logProcessingStartLock.Release();
         }
     }
 
@@ -512,7 +548,7 @@ public class LogsController : ControllerBase
     /// RESTful: DELETE is proper method for removing resources, service name in path
     /// </summary>
     [HttpDelete("services/{service}")]
-    public async Task<IActionResult> RemoveServiceLogsAsync(string service)
+    public async Task<IActionResult> RemoveServiceLogsAsync(string service, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(service))
         {
@@ -525,12 +561,29 @@ public class LogsController : ControllerBase
         if (permissionError != null)
             return permissionError;
 
-        // StartServiceRemovalAsync returns bool but runs async - operation started if true
+        var conflict = await _conflictChecker.CheckAsync(
+            OperationType.LogRemoval,
+            ConflictScope.Bulk(),
+            cancellationToken);
+        if (conflict != null)
+        {
+            return Conflict(conflict);
+        }
+
         var started = await _rustLogRemovalService.StartServiceRemovalAsync(service);
 
         if (!started)
         {
-            return Conflict(new ConflictResponse { Error = "Service removal already in progress" });
+            var raceConflict = await _conflictChecker.CheckAsync(
+                OperationType.LogRemoval,
+                ConflictScope.Bulk(),
+                cancellationToken);
+            if (raceConflict != null)
+            {
+                return Conflict(raceConflict);
+            }
+
+            return StatusCode(500, new ErrorResponse { Error = $"Failed to remove logs for service '{service}'" });
         }
 
         _logger.LogInformation("Started log removal for service: {Service}", service);
@@ -547,7 +600,7 @@ public class LogsController : ControllerBase
     /// DELETE /api/logs/datasources/{datasourceName}/services/{service} - Remove logs for specific service from a specific datasource
     /// </summary>
     [HttpDelete("datasources/{datasourceName}/services/{service}")]
-    public async Task<IActionResult> RemoveServiceLogsFromDatasourceAsync(string datasourceName, string service)
+    public async Task<IActionResult> RemoveServiceLogsFromDatasourceAsync(string datasourceName, string service, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(service))
         {
@@ -565,11 +618,29 @@ public class LogsController : ControllerBase
             return BadRequest(new ConflictResponse { Error = $"Logs directory is read-only for datasource '{datasourceName}'" });
         }
 
+        var conflict = await _conflictChecker.CheckAsync(
+            OperationType.LogRemoval,
+            ConflictScope.Bulk(),
+            cancellationToken);
+        if (conflict != null)
+        {
+            return Conflict(conflict);
+        }
+
         var started = await _rustLogRemovalService.StartServiceRemovalForDatasourceAsync(service, datasourceName);
 
         if (!started)
         {
-            return Conflict(new ConflictResponse { Error = "Service removal already in progress" });
+            var raceConflict = await _conflictChecker.CheckAsync(
+                OperationType.LogRemoval,
+                ConflictScope.Bulk(),
+                cancellationToken);
+            if (raceConflict != null)
+            {
+                return Conflict(raceConflict);
+            }
+
+            return StatusCode(500, new ErrorResponse { Error = $"Failed to remove logs for service '{service}' from datasource '{datasourceName}'" });
         }
 
         _logger.LogInformation("Started log removal for service: {Service} in datasource: {Datasource}", service, datasourceName);

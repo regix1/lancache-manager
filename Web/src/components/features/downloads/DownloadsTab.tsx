@@ -21,6 +21,10 @@ import { useTimeFilter } from '@contexts/useTimeFilter';
 import { useClientGroups } from '@contexts/useClientGroups';
 import { storage } from '@utils/storage';
 import ApiService from '@services/api.service';
+import {
+  EVICTION_SETTINGS_CHANGED_EVENT,
+  type EvictionSettingsChangedDetail
+} from '@/components/features/management/sections/managementStorageKeys';
 import { useConfig } from '@contexts/useConfig';
 import { useAuth } from '@contexts/useAuth';
 import { useSessionPreferences } from '@contexts/useSessionPreferences';
@@ -356,6 +360,22 @@ const DownloadsTab: React.FC = () => {
         }
       });
     return () => controller.abort();
+  }, []);
+
+  // Listen for in-session eviction-settings saves from StorageSection so the
+  // downloads view reflects the new mode without waiting for a remount.
+  useEffect(() => {
+    const handler = (event: Event): void => {
+      const detail = (event as CustomEvent<EvictionSettingsChangedDetail>).detail;
+      if (isEvictedDataMode(detail.evictedDataMode)) {
+        setEvictedDataMode(detail.evictedDataMode);
+        storage.setItem(STORAGE_KEYS.EVICTED_DATA_MODE, detail.evictedDataMode);
+      }
+    };
+    window.addEventListener(EVICTION_SETTINGS_CHANGED_EVENT, handler);
+    return () => {
+      window.removeEventListener(EVICTION_SETTINGS_CHANGED_EVENT, handler);
+    };
   }, []);
 
   // Load the backend cache generation so image URLs are cache-busted correctly

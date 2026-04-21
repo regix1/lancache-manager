@@ -34,6 +34,7 @@ public class StatsController : ControllerBase
     private readonly CacheReconciliationService _reconciliationService;
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
+    private readonly IOperationConflictChecker _conflictChecker;
 
     public StatsController(
         AppDbContext context,
@@ -46,7 +47,8 @@ public class StatsController : ControllerBase
         ISignalRNotificationService notifications,
         CacheReconciliationService reconciliationService,
         IUnifiedOperationTracker operationTracker,
-        IDbContextFactory<AppDbContext> dbContextFactory)
+        IDbContextFactory<AppDbContext> dbContextFactory,
+        IOperationConflictChecker conflictChecker)
     {
         _context = context;
         _statsService = statsService;
@@ -59,6 +61,7 @@ public class StatsController : ControllerBase
         _reconciliationService = reconciliationService;
         _operationTracker = operationTracker;
         _dbContextFactory = dbContextFactory;
+        _conflictChecker = conflictChecker;
     }
 
     /// <summary>
@@ -387,47 +390,17 @@ public class StatsController : ControllerBase
 
         if (request.EvictedDataMode == EvictedDataMode.Remove.ToWireString())
         {
-            // Check for an already-running removal operation
-            var activeOps = _operationTracker.GetActiveOperations(OperationType.EvictionRemoval);
-            if (activeOps.Any())
+            // Central concurrency check — bulk eviction removal.
+            var conflict = await _conflictChecker.CheckAsync(
+                OperationType.EvictionRemoval,
+                ConflictScope.Bulk(),
+                HttpContext.RequestAborted);
+            if (conflict != null)
             {
-                return Conflict(new
-                {
-                    error = "Eviction removal already in progress",
-                    operationId = activeOps.First().Id
-                });
+                return Conflict(conflict);
             }
 
-            var cts = new CancellationTokenSource();
-            var operationId = _operationTracker.RegisterOperation(
-                OperationType.EvictionRemoval,
-                "Eviction Removal",
-                cts);
-
-            await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalStarted,
-                new EvictionRemovalStarted("signalr.evictionRemove.starting.bulk", operationId));
-
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    await using var dbContext = await _dbContextFactory.CreateDbContextAsync(cts.Token);
-                    await _reconciliationService.RemoveEvictedRecordsAsync(dbContext, cts.Token, operationId);
-                }
-                catch (Exception ex)
-                {
-                    // RemoveEvictedRecordsAsync handles its own error signalling; this catches only
-                    // unexpected failures before the method is entered (e.g. DbContext creation failure).
-                    _logger.LogError(ex, "[EvictionRemoval] Unhandled error before removal started");
-                    _operationTracker.CompleteOperation(operationId, success: false, error: ex.Message);
-                    await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalComplete,
-                        new EvictionRemovalComplete(false, operationId, "signalr.evictionRemove.failedToStart", 0, 0, ex.Message));
-                }
-                finally
-                {
-                    cts.Dispose();
-                }
-            }, cts.Token);
+            var operationId = await _reconciliationService.StartBulkEvictionRemovalAsync(HttpContext.RequestAborted);
 
             return Accepted(new { evictedDataMode = request.EvictedDataMode, evictionScanNotifications = _stateRepository.GetEvictionScanNotifications(), operationId });
         }
@@ -437,12 +410,36 @@ public class StatsController : ControllerBase
 
     [HttpPost("eviction/reconcile")]
     [Authorize(Policy = "AdminOnly")]
-    public IActionResult RunReconciliationAsync()
+    public async Task<IActionResult> RunReconciliationAsync(CancellationToken cancellationToken)
     {
+        // Central concurrency check — EvictionScan is global.
+        var conflict = await _conflictChecker.CheckAsync(
+            OperationType.EvictionScan,
+            ConflictScope.Bulk(),
+            cancellationToken);
+        if (conflict != null)
+        {
+            return Conflict(conflict);
+        }
+
         var operationId = _reconciliationService.RunManualAsync();
         if (operationId == null)
         {
-            return Conflict(new { error = "Eviction scan is already running. Please wait a moment and try again." });
+            // Race: scan started between our check and RunManualAsync.
+            var raceConflict = await _conflictChecker.CheckAsync(
+                OperationType.EvictionScan,
+                ConflictScope.Bulk(),
+                cancellationToken);
+            if (raceConflict != null)
+            {
+                return Conflict(raceConflict);
+            }
+            return Conflict(new OperationConflictResponse
+            {
+                Code = "OPERATION_CONFLICT",
+                StageKey = "errors.conflict.duplicate",
+                Error = "Eviction scan is already running. Please wait a moment and try again."
+            });
         }
 
         return Ok(new { operationId });

@@ -1,5 +1,6 @@
 using LancacheManager.Models;
 using LancacheManager.Core.Interfaces;
+using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
 using LancacheManager.Infrastructure.Utilities;
 using Microsoft.AspNetCore.Authorization;
@@ -18,11 +19,14 @@ namespace LancacheManager.Controllers;
 [Authorize(Policy = "AdminOnly")]
 public class DataMigrationController : ControllerBase
 {
+    private static readonly SemaphoreSlim _importStartLock = new(1, 1);
+
     private readonly ILogger<DataMigrationController> _logger;
     private readonly IPathResolver _pathResolver;
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly ISignalRNotificationService _notifications;
     private readonly IUnifiedOperationTracker _operationTracker;
+    private readonly IOperationConflictChecker _conflictChecker;
     private readonly ProcessManager _processManager;
     private readonly IConfiguration _configuration;
 
@@ -32,6 +36,7 @@ public class DataMigrationController : ControllerBase
         RustProcessHelper rustProcessHelper,
         ISignalRNotificationService notifications,
         IUnifiedOperationTracker operationTracker,
+        IOperationConflictChecker conflictChecker,
         ProcessManager processManager,
         IConfiguration configuration)
     {
@@ -40,6 +45,7 @@ public class DataMigrationController : ControllerBase
         _rustProcessHelper = rustProcessHelper;
         _notifications = notifications;
         _operationTracker = operationTracker;
+        _conflictChecker = conflictChecker;
         _processManager = processManager;
         _configuration = configuration;
     }
@@ -49,24 +55,23 @@ public class DataMigrationController : ControllerBase
     /// Request body: { "connectionString": "Data Source=path/to/develancache.db", "batchSize": 1000, "overwriteExisting": false }
     /// </summary>
     [HttpPost("import-develancache")]
-    public async Task<IActionResult> ImportFromDeveLanCacheAsync([FromBody] DataMigrationImportRequest request)
+    public async Task<IActionResult> ImportFromDeveLanCacheAsync([FromBody] DataMigrationImportRequest request, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(request.ConnectionString))
         {
             return BadRequest(new ErrorResponse { Error = "Connection string is required" });
         }
 
-        // Check if an import is already running
-        var activeImports = _operationTracker.GetActiveOperations(OperationType.DataImport);
-        if (activeImports.Any())
+        var start = await BeginDataImportAsync("DeveLanCacheUI Import", cancellationToken);
+        if (start.Conflict != null)
         {
-            return Conflict(new ErrorResponse { Error = "A data import operation is already running" });
+            return Conflict(start.Conflict);
         }
 
         _logger.LogInformation("Starting import from DeveLanCacheUI_Backend database");
 
-        var cts = new CancellationTokenSource();
-        var operationId = _operationTracker.RegisterOperation(OperationType.DataImport, "DeveLanCacheUI Import", cts);
+        var cts = start.CancellationTokenSource!;
+        var operationId = start.OperationId!.Value;
 
         // Extract the database path - supports both raw paths and connection strings
         var sourceDatabasePath = ExtractDatabasePath(request.ConnectionString);
@@ -233,24 +238,23 @@ public class DataMigrationController : ControllerBase
     /// Request body: { "connectionString": "Host=localhost;Database=lancachemanager;Username=postgres;Password=...", "batchSize": 1000, "overwriteExisting": false }
     /// </summary>
     [HttpPost("import-lancache-manager")]
-    public async Task<IActionResult> ImportFromLancacheManagerAsync([FromBody] DataMigrationImportRequest request)
+    public async Task<IActionResult> ImportFromLancacheManagerAsync([FromBody] DataMigrationImportRequest request, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(request.ConnectionString))
         {
             return BadRequest(new ErrorResponse { Error = "Connection string is required" });
         }
 
-        // Check if an import is already running
-        var activeImports = _operationTracker.GetActiveOperations(OperationType.DataImport);
-        if (activeImports.Any())
+        var start = await BeginDataImportAsync("LancacheManager Import", cancellationToken);
+        if (start.Conflict != null)
         {
-            return Conflict(new ErrorResponse { Error = "A data import operation is already running" });
+            return Conflict(start.Conflict);
         }
 
         _logger.LogInformation("Starting import from LancacheManager database");
 
-        var cts = new CancellationTokenSource();
-        var operationId = _operationTracker.RegisterOperation(OperationType.DataImport, "LancacheManager Import", cts);
+        var cts = start.CancellationTokenSource!;
+        var operationId = start.OperationId!.Value;
 
         NpgsqlConnectionStringBuilder sourceConnBuilder;
         try
@@ -697,6 +701,32 @@ public class DataMigrationController : ControllerBase
 
         // Treat as raw file path
         return trimmed;
+    }
+
+    private async Task<(Guid? OperationId, CancellationTokenSource? CancellationTokenSource, OperationConflictResponse? Conflict)> BeginDataImportAsync(
+        string operationName,
+        CancellationToken cancellationToken)
+    {
+        await _importStartLock.WaitAsync(cancellationToken);
+        try
+        {
+            var conflict = await _conflictChecker.CheckAsync(
+                OperationType.DataImport,
+                ConflictScope.Bulk(),
+                cancellationToken);
+            if (conflict != null)
+            {
+                return (null, null, conflict);
+            }
+
+            var cts = new CancellationTokenSource();
+            var operationId = _operationTracker.RegisterOperation(OperationType.DataImport, operationName, cts);
+            return (operationId, cts, null);
+        }
+        finally
+        {
+            _importStartLock.Release();
+        }
     }
 
 }

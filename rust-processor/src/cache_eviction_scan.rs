@@ -2,11 +2,12 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use sqlx::Row;
-use std::collections::{HashMap, HashSet};
+use sqlx::{PgPool, Row};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 mod cache_utils;
+mod cache_eviction_paths;
 mod db;
 mod progress_utils;
 
@@ -64,8 +65,6 @@ struct DownloadEntry {
     datasource: Option<String>,
 }
 
-const SLICE_SIZE: u64 = 1_048_576; // 1 MiB - standard nginx slice size
-
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
@@ -119,40 +118,12 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>) ->
         });
     }
 
-    // Build datasource name -> cache path lookup, and find default
-    let mut datasource_map: HashMap<String, PathBuf> = HashMap::new();
-    let mut default_cache_path: Option<PathBuf> = None;
-    for ds in &datasources {
-        let path = PathBuf::from(&ds.cache_path);
-        datasource_map.insert(ds.name.clone(), path.clone());
-        if ds.is_default {
-            default_cache_path = Some(path);
-        }
-    }
-    // If no explicit default, use the first datasource
-    let default_cache_path = default_cache_path
-        .unwrap_or_else(|| PathBuf::from(&datasources[0].cache_path));
+    let datasource_roots = cache_eviction_paths::DatasourceRoots::from_configs(&datasources);
 
     write_progress(progress_path, "running", "signalr.evictionScan.scanning", json!({}), 0.0, 0, 0, 0, 0)?;
 
     // Step 2: Build HashSet of all files on disk across all cache directories
-    let mut files_on_disk: HashSet<PathBuf> = HashSet::new();
-    for ds in &datasources {
-        let cache_dir = Path::new(&ds.cache_path);
-        if !cache_dir.exists() {
-            eprintln!("[EvictionScan] Cache directory does not exist for datasource '{}': {}", ds.name, ds.cache_path);
-            continue;
-        }
-        for entry in jwalk::WalkDir::new(cache_dir)
-            .min_depth(1)
-            .into_iter()
-            .filter_map(|e| e.ok())
-        {
-            if entry.file_type().is_file() {
-                files_on_disk.insert(entry.path());
-            }
-        }
-    }
+    let files_on_disk = cache_eviction_paths::collect_files_on_disk(&datasources);
 
     if files_on_disk.is_empty() {
         eprintln!("[EvictionScan] No cache files found on disk - skipping to prevent false eviction flags");
@@ -170,7 +141,7 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>) ->
     eprintln!("[EvictionScan] Found {} cache files on disk across {} datasource(s)", total_files, datasources.len());
 
     // Step 3: Connect to database
-    let pool = db::create_pool().await;
+    let pool = db::create_pool().await?;
 
     // Count total inactive downloads for progress estimation
     let total_estimate: i64 = sqlx::query_scalar(
@@ -218,7 +189,10 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>) ->
             .map(|r| (r.get("download_id"), r.get("is_evicted")))
             .collect();
 
-        last_processed_id = *download_ids.last().unwrap();
+        let Some(last_download_id) = download_ids.last().copied() else {
+            break;
+        };
+        last_processed_id = last_download_id;
         let batch_count = download_ids.len();
 
         // Step B: Fetch log entries for these downloads
@@ -275,26 +249,11 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>) ->
 
         for (download_id, entries) in &download_entries {
             let is_evicted = download_evicted.get(download_id).copied().unwrap_or(false);
-            let has_cache_file = entries.iter().any(|entry| {
-                // Resolve cache directory for this entry's datasource
-                let cache_dir = entry.datasource.as_ref()
-                    .and_then(|ds_name| datasource_map.get(ds_name))
-                    .unwrap_or(&default_cache_path);
-
-                // Check without byte range (slice disabled)
-                let path_no_range = cache_utils::calculate_cache_path_no_range(
-                    cache_dir, &entry.service, &entry.url
-                );
-                if files_on_disk.contains(&path_no_range) {
-                    return true;
-                }
-
-                // Check with first 1MB slice (slice enabled)
-                let path_first_slice = cache_utils::calculate_cache_path(
-                    cache_dir, &entry.service, &entry.url, 0, SLICE_SIZE - 1
-                );
-                files_on_disk.contains(&path_first_slice)
-            });
+            let has_cache_file = cache_eviction_paths::download_has_cache_file(
+                entries,
+                &datasource_roots,
+                &files_on_disk,
+            );
 
             if !has_cache_file && !is_evicted {
                 ids_to_evict.push(*download_id);
@@ -305,43 +264,13 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>) ->
 
         // Batch UPDATE evicted downloads
         if !ids_to_evict.is_empty() {
-            for chunk in ids_to_evict.chunks(400) {
-                let placeholders: Vec<String> = chunk.iter()
-                    .enumerate()
-                    .map(|(i, _)| format!("${}", i + 1))
-                    .collect();
-                let query_str = format!(
-                    r#"UPDATE "Downloads" SET "IsEvicted" = true WHERE "Id" IN ({})"#,
-                    placeholders.join(", ")
-                );
-                let mut query = sqlx::query(&query_str);
-                for id in chunk {
-                    query = query.bind(id);
-                }
-                query.execute(&pool).await
-                    .with_context(|| "Failed to update evicted downloads")?;
-            }
+            update_download_eviction_state(&pool, &ids_to_evict, true).await?;
             total_evicted += ids_to_evict.len();
         }
 
         // Batch UPDATE un-evicted downloads
         if !ids_to_unevict.is_empty() {
-            for chunk in ids_to_unevict.chunks(400) {
-                let placeholders: Vec<String> = chunk.iter()
-                    .enumerate()
-                    .map(|(i, _)| format!("${}", i + 1))
-                    .collect();
-                let query_str = format!(
-                    r#"UPDATE "Downloads" SET "IsEvicted" = false WHERE "Id" IN ({})"#,
-                    placeholders.join(", ")
-                );
-                let mut query = sqlx::query(&query_str);
-                for id in chunk {
-                    query = query.bind(id);
-                }
-                query.execute(&pool).await
-                    .with_context(|| "Failed to update un-evicted downloads")?;
-            }
+            update_download_eviction_state(&pool, &ids_to_unevict, false).await?;
             total_un_evicted += ids_to_unevict.len();
         }
 
@@ -397,6 +326,42 @@ async fn run_scan(datasource_config_path: &str, progress_path: Option<&Path>) ->
         files_on_disk: total_files,
         error: None,
     })
+}
+
+async fn update_download_eviction_state(
+    pool: &PgPool,
+    ids: &[i64],
+    is_evicted: bool,
+) -> Result<()> {
+    let target_state = if is_evicted { "true" } else { "false" };
+    let error_context = if is_evicted {
+        "Failed to update evicted downloads"
+    } else {
+        "Failed to update un-evicted downloads"
+    };
+
+    for chunk in ids.chunks(400) {
+        let placeholders: Vec<String> = chunk
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("${}", i + 1))
+            .collect();
+        let query_str = format!(
+            r#"UPDATE "Downloads" SET "IsEvicted" = {} WHERE "Id" IN ({})"#,
+            target_state,
+            placeholders.join(", ")
+        );
+        let mut query = sqlx::query(&query_str);
+        for id in chunk {
+            query = query.bind(id);
+        }
+        query
+            .execute(pool)
+            .await
+            .with_context(|| error_context)?;
+    }
+
+    Ok(())
 }
 
 fn write_progress(

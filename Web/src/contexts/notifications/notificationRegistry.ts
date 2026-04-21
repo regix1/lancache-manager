@@ -179,13 +179,27 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     },
     started: {
       defaultMessage: 'Starting game removal...',
+      // Post-Phase-2 contract: GameRemovalStartedEvent carries a required i18n stageKey
+      // (replaced free-text `message`) and scope-aware identity (`gameAppId` for Steam,
+      // `epicAppId` for Epic — exactly one is non-null). Mirrors the eviction_removal
+      // scope-aware pattern below.
       getMessage: (event: GameRemovalStartedEvent) =>
-        i18n.t(event.stageKey ?? 'signalr.gameRemove.starting', event.context ?? {}),
-      getDetails: (event: GameRemovalStartedEvent) => ({
-        operationId: event.operationId,
-        gameAppId: event.gameAppId,
-        gameName: event.gameName
-      })
+        i18n.t(event.stageKey, event.context ?? { gameName: event.gameName }),
+      getDetails: (event: GameRemovalStartedEvent) => {
+        const base = {
+          operationId: event.operationId,
+          gameName: event.gameName,
+          stageKey: event.stageKey,
+          cancelling: false
+        };
+        if (event.gameAppId !== null) {
+          return { ...base, gameAppId: event.gameAppId };
+        }
+        if (event.epicAppId !== null) {
+          return { ...base, epicAppId: event.epicAppId };
+        }
+        return base;
+      }
     },
     progress: {
       getMessage: (event: GameRemovalProgressEvent) => formatGameRemovalProgressMessage(event),
@@ -200,14 +214,16 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         i18n.t(event.stageKey ?? 'signalr.gameRemove.error.fatal', event.context ?? {}),
       getDetails: (event: GameRemovalProgressEvent) => ({
         operationId: event.operationId,
-        gameAppId: event.gameAppId,
-        gameName: event.gameName
+        gameName: event.gameName,
+        ...(event.gameAppId !== null && { gameAppId: event.gameAppId }),
+        ...(event.epicAppId !== null && { epicAppId: event.epicAppId })
       })
     },
     complete: {
       getSuccessDetails: (event: GameRemovalCompleteEvent, existing) => ({
         ...existing?.details,
-        gameAppId: event.gameAppId,
+        ...(event.gameAppId !== null && { gameAppId: event.gameAppId }),
+        ...(event.epicAppId !== null && { epicAppId: event.epicAppId }),
         gameName: event.gameName,
         filesDeleted: event.filesDeleted,
         bytesFreed: event.bytesFreed,
@@ -539,14 +555,14 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
       //   steam   → details.gameAppId: number (Number(event.gameAppId)), details.steamAppId: string (raw)
       //             IMPORTANT: SignalR event's gameAppId arrives as STRING — must Number() before storing
       //             as details.gameAppId (typed as number). Also set steamAppId for parity with game_removal.
-      //   epic    → details.epicAppId: string (= event.gameAppId raw), details.gameName: string (display label)
-      //             NOTE: for epic scope, event.gameAppId is the epicAppId — NOT a numeric Steam appId.
+      //   epic    → details.epicAppId: string (= event.epicAppId, with event.gameAppId as legacy fallback)
+      //             event.epicAppId is the dedicated field; event.gameAppId fallback handles pre-fix payloads.
       //   service → details.service: string (= context.key)
       //   bulk    → no entity identifier (scope/key are undefined); only operationId is set.
       //
       // Naming boundaries:
       //   SignalR (camelCase, global JsonNamingPolicy.CamelCase in Program.cs):
-      //     event.operationId, event.gameAppId, event.gameName, event.context.scope, event.context.key
+      //     event.operationId, event.gameAppId, event.epicAppId, event.gameName, event.context.scope, event.context.key
       //   REST /api/cache/removals/active (camelCase via same global policy on EvictionRemovalInfo):
       //     op.operationId, op.scope, op.key, op.gameName
       //   Both ingress points must map to the SAME details shape so recovery hydration
@@ -559,9 +575,15 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
         return {
           operationId: event.operationId,
           ...(event.gameName !== undefined && { gameName: event.gameName }),
-          ...(gameAppIdNum !== undefined && { gameAppId: gameAppIdNum }),
-          ...(gameAppIdNum !== undefined && scope === 'epic' && { epicAppId: event.gameAppId }),
-          ...(gameAppIdNum !== undefined && scope === 'steam' && { steamAppId: event.gameAppId }),
+          ...(scope === 'steam' &&
+            gameAppIdNum !== undefined &&
+            !Number.isNaN(gameAppIdNum) && { gameAppId: gameAppIdNum }),
+          ...(scope === 'epic' &&
+            (event.epicAppId !== undefined || event.gameAppId !== undefined) && {
+              epicAppId: event.epicAppId ?? event.gameAppId
+            }),
+          ...(scope === 'steam' &&
+            event.gameAppId !== undefined && { steamAppId: event.gameAppId }),
           ...(scope === 'service' && key !== undefined && { service: key })
         };
       }
@@ -580,6 +602,11 @@ export const NOTIFICATION_REGISTRY: NotificationRegistryEntry[] = [
     complete: {
       getSuccessMessage: (event: EvictionRemovalCompleteEvent) =>
         i18n.t(event.stageKey ?? 'signalr.evictionRemove.complete', event.context ?? {}),
+      getCancelledMessage: (event: EvictionRemovalCompleteEvent) =>
+        i18n.t(event.stageKey ?? 'signalr.evictionRemove.cancelled', event.context ?? {}),
+      getCancelledDetails: (event: EvictionRemovalCompleteEvent) => ({
+        operationId: event.operationId
+      }),
       getFailureMessage: (event: EvictionRemovalCompleteEvent) =>
         event.error ??
         (event.stageKey ? i18n.t(event.stageKey, event.context ?? {}) : undefined) ??

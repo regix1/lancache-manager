@@ -20,6 +20,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 
+mod cache_utils;
 mod log_discovery;
 mod log_purge;
 mod log_reader;

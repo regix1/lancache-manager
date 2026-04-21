@@ -37,6 +37,56 @@ public class RustLogProcessorService
     public bool IsProcessing { get; private set; }
     public bool IsSilentMode { get; private set; }
     public bool IsCancelling { get; private set; }
+    public Guid? CurrentOperationId => _currentOperationId;
+
+    public Task<Guid?> StartProcessingAllInBackgroundAsync()
+    {
+        var datasources = _datasourceService.GetDatasources();
+        if (datasources.Count == 0)
+        {
+            _logger.LogWarning("No datasources configured for log processing");
+            return Task.FromResult<Guid?>(null);
+        }
+
+        return StartBackgroundProcessingAsync(async () =>
+        {
+            var allSuccess = true;
+            foreach (var datasource in datasources)
+            {
+                var logPosition = _stateService.GetLogPosition(datasource.Name);
+                _logger.LogInformation("Processing datasource '{DatasourceName}' from position {Position}",
+                    datasource.Name, logPosition);
+
+                var success = await StartProcessingAsync(
+                    datasource.LogPath,
+                    logPosition,
+                    silentMode: false,
+                    datasourceName: datasource.Name);
+                if (!success)
+                {
+                    // Another processing run can beat this batch between the controller check and
+                    // our first datasource start attempt; stop instead of continuing the loop.
+                    if (IsProcessing)
+                    {
+                        _logger.LogWarning("Aborting background all-datasource log processing start because another operation is already running");
+                        return false;
+                    }
+
+                    allSuccess = false;
+                    _logger.LogWarning("Processing failed for datasource '{DatasourceName}'", datasource.Name);
+                }
+            }
+
+            return allSuccess;
+        }, "processing all datasources");
+    }
+
+    public Task<Guid?> StartProcessingInBackgroundAsync(string logFilePath, long startPosition = 0, bool silentMode = false, string? datasourceName = null)
+    {
+        return StartBackgroundProcessingAsync(
+            () => StartProcessingAsync(logFilePath, startPosition, silentMode, datasourceName),
+            $"processing datasource '{datasourceName ?? "default"}'");
+    }
 
     /// <summary>
     /// Cancels any ongoing log processing operation
@@ -79,6 +129,52 @@ public class RustLogProcessorService
             _logger.LogError(ex, "Error during log processing cancellation");
             return false;
         }
+    }
+
+    private async Task<Guid?> StartBackgroundProcessingAsync(Func<Task<bool>> processor, string description)
+    {
+        var initialOperationId = _currentOperationId;
+        var backgroundTask = Task.Run(async () =>
+        {
+            try
+            {
+                return await processor();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unhandled error while {Description}", description);
+                return false;
+            }
+        });
+
+        var timeoutAt = DateTime.UtcNow + TimeSpan.FromSeconds(2);
+        while (DateTime.UtcNow < timeoutAt)
+        {
+            if (_currentOperationId.HasValue && _currentOperationId != initialOperationId)
+            {
+                return _currentOperationId.Value;
+            }
+
+            if (backgroundTask.IsCompleted)
+            {
+                var started = await backgroundTask;
+                if (started && _currentOperationId.HasValue && _currentOperationId != initialOperationId)
+                {
+                    return _currentOperationId.Value;
+                }
+
+                return null;
+            }
+
+            await Task.Delay(25);
+        }
+
+        if (_currentOperationId.HasValue && _currentOperationId != initialOperationId)
+        {
+            return _currentOperationId.Value;
+        }
+
+        return null;
     }
 
     /// <summary>

@@ -153,6 +153,7 @@ public class ActiveServiceRemovalsResponse : ActiveOperationsResponse<ServiceRem
 public class ServiceRemovalInfo
 {
     public string ServiceName { get; set; } = string.Empty;
+    public Guid OperationId { get; set; }
     public OperationStatus Status { get; set; }
     public string? Message { get; set; }
     public int FilesDeleted { get; set; }
@@ -169,8 +170,11 @@ public class ActiveGameRemovalsResponse : ActiveOperationsResponse<GameRemovalIn
 
 public class GameRemovalInfo
 {
-    public long GameAppId { get; set; }
+    public long? GameAppId { get; set; }
+    public string? EpicAppId { get; set; }
+    public string? EntityKind { get; set; }
     public string GameName { get; set; } = string.Empty;
+    public Guid OperationId { get; set; }
     public OperationStatus Status { get; set; }
     public string? Message { get; set; }
     public int FilesDeleted { get; set; }
