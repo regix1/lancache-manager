@@ -34,6 +34,11 @@ public class RustLogProcessorService
     private Task? _progressMonitorTask;
     private readonly SemaphoreSlim _startLock = new(1, 1);
 
+    // Signaled at the RegisterOperation call inside the processor so StartBackgroundProcessingAsync
+    // can return the assigned operationId without polling. Class-field is safe because _startLock
+    // gates IsProcessing = true, so there is at most one in-flight start at a time.
+    private TaskCompletionSource<Guid>? _operationRegisteredTcs;
+
     public bool IsProcessing { get; private set; }
     public bool IsSilentMode { get; private set; }
     public bool IsCancelling { get; private set; }
@@ -133,7 +138,9 @@ public class RustLogProcessorService
 
     private async Task<Guid?> StartBackgroundProcessingAsync(Func<Task<bool>> processor, string description)
     {
-        var initialOperationId = _currentOperationId;
+        var registered = new TaskCompletionSource<Guid>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _operationRegisteredTcs = registered;
+
         var backgroundTask = Task.Run(async () =>
         {
             try
@@ -145,36 +152,16 @@ public class RustLogProcessorService
                 _logger.LogError(ex, "Unhandled error while {Description}", description);
                 return false;
             }
+            finally
+            {
+                // Unblocks the outer wait if the processor exited without reaching RegisterOperation
+                // (e.g. IsProcessing guard returned false, or an early exception). Harmless if already set.
+                registered.TrySetCanceled();
+            }
         });
 
-        var timeoutAt = DateTime.UtcNow + TimeSpan.FromSeconds(2);
-        while (DateTime.UtcNow < timeoutAt)
-        {
-            if (_currentOperationId.HasValue && _currentOperationId != initialOperationId)
-            {
-                return _currentOperationId.Value;
-            }
-
-            if (backgroundTask.IsCompleted)
-            {
-                var started = await backgroundTask;
-                if (started && _currentOperationId.HasValue && _currentOperationId != initialOperationId)
-                {
-                    return _currentOperationId.Value;
-                }
-
-                return null;
-            }
-
-            await Task.Delay(25);
-        }
-
-        if (_currentOperationId.HasValue && _currentOperationId != initialOperationId)
-        {
-            return _currentOperationId.Value;
-        }
-
-        return null;
+        await Task.WhenAny(registered.Task, backgroundTask);
+        return registered.Task.IsCompletedSuccessfully ? registered.Task.Result : (Guid?)null;
     }
 
     /// <summary>
@@ -435,6 +422,9 @@ public class RustLogProcessorService
                 "Log Processing",
                 _cancellationTokenSource
             );
+
+            // Unblock any StartBackgroundProcessingAsync waiter now that the id is assigned.
+            _operationRegisteredTcs?.TrySetResult(_currentOperationId.Value);
 
             var operationsDir = _pathResolver.GetOperationsDirectory();
             var progressPath = Path.Combine(operationsDir, $"rust_progress_{datasourceName}.json");

@@ -17,9 +17,18 @@ public class SteamService : ScopedScheduledBackgroundService
 {
     private readonly HttpClient _httpClient;
     private readonly IServiceScopeFactory _scopeFactory;
-    private readonly IUnifiedOperationTracker _operationTracker;
     private readonly IStateService _stateService;
     private readonly SemaphoreSlim _apiSemaphore = new(5);
+
+    // Fires once SteamKit2Service finishes its startup PICS/GitHub import. Subscribed in the
+    // ctor so it is live before any hosted service's ExecuteAsync runs — the DI container
+    // constructs SteamService while resolving SteamKit2Service, so we're always subscribed
+    // before SteamKit2Service can fire the event.
+    private readonly TaskCompletionSource<bool> _steamKit2StartupCompleted =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    // ConfigurableScheduledService fires ServiceWorkCompleted with the subclass's ServiceName.
+    private const string SteamKit2ServiceName = "SteamKit2Service";
 
     // Caches for performance
     private readonly ConcurrentDictionary<long, GameInfo> _gameCache = new();
@@ -65,17 +74,25 @@ public class SteamService : ScopedScheduledBackgroundService
         IConfiguration configuration,
         HttpClient httpClient,
         IServiceScopeFactory scopeFactory,
-        IUnifiedOperationTracker operationTracker,
         IStateService stateService)
         : base(serviceProvider, logger, configuration)
     {
         _httpClient = httpClient;
         _httpClient.Timeout = TimeSpan.FromSeconds(30);
         _scopeFactory = scopeFactory;
-        _operationTracker = operationTracker;
         _stateService = stateService;
 
         LoadStateOverrides(stateService);
+
+        ConfigurableScheduledService.ServiceWorkCompleted += OnConfigurableServiceWorkCompleted;
+    }
+
+    private void OnConfigurableServiceWorkCompleted(string serviceName)
+    {
+        if (string.Equals(serviceName, SteamKit2ServiceName, StringComparison.Ordinal))
+        {
+            _steamKit2StartupCompleted.TrySetResult(true);
+        }
     }
 
     protected override async Task OnStartupAsync(CancellationToken stoppingToken)
@@ -102,80 +119,28 @@ public class SteamService : ScopedScheduledBackgroundService
 
     private async Task WaitForStartupDepotMappingsAsync(CancellationToken stoppingToken)
     {
-        var startupDepotMappingEnabled =
+        var steamKit2StartupEnabled =
             _stateService.GetCrawlIntervalHours() > 0 &&
             (_stateService.GetServiceRunOnStartup("depotMapping") ?? true);
 
-        if (!startupDepotMappingEnabled)
+        if (!steamKit2StartupEnabled || _steamKit2StartupCompleted.Task.IsCompleted)
         {
             return;
         }
 
-        var timeout = TimeSpan.FromSeconds(30);
-        var pollInterval = TimeSpan.FromSeconds(1);
-        var deadline = DateTime.UtcNow + timeout;
-        var sawActiveDepotMapping = false;
+        _logger.LogInformation(
+            "Waiting for SteamKit2 startup depot mapping to finish before refreshing Steam metadata");
 
-        while (DateTime.UtcNow < deadline && !stoppingToken.IsCancellationRequested)
-        {
-            var depotMappingActive = _operationTracker.GetActiveOperations(OperationType.DepotMapping).Any();
-            var hasMappings = await HasDepotMappingsAsync(stoppingToken);
-
-            if (depotMappingActive)
-            {
-                if (!sawActiveDepotMapping)
-                {
-                    _logger.LogInformation(
-                        "Waiting for startup depot mapping to finish before refreshing Steam metadata");
-                }
-
-                sawActiveDepotMapping = true;
-            }
-
-            if (sawActiveDepotMapping)
-            {
-                if (!depotMappingActive)
-                {
-                    _logger.LogInformation(
-                        "Startup depot mapping finished; refreshing Steam metadata from the database");
-                    return;
-                }
-            }
-            else if (hasMappings)
-            {
-                return;
-            }
-
-            await SafeDelayAsync(pollInterval, stoppingToken);
-        }
-
-        if (sawActiveDepotMapping)
-        {
-            _logger.LogWarning(
-                "Timed out waiting for startup depot mapping to finish; proceeding with current Steam metadata state");
-        }
-        else
-        {
-            _logger.LogInformation(
-                "Startup depot mappings were not available yet; proceeding with current database state");
-        }
-    }
-
-    private async Task<bool> HasDepotMappingsAsync(CancellationToken stoppingToken)
-    {
         try
         {
-            using var scopedDb = _scopeFactory.CreateScopedDbContext();
-            return await scopedDb.DbContext.SteamDepotMappings.AsNoTracking().AnyAsync(stoppingToken);
+            await _steamKit2StartupCompleted.Task.WaitAsync(TimeSpan.FromSeconds(30), stoppingToken);
+            _logger.LogInformation(
+                "SteamKit2 startup depot mapping finished; refreshing Steam metadata from the database");
         }
-        catch (OperationCanceledException)
+        catch (TimeoutException)
         {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Failed to check Steam depot mapping availability during startup");
-            return false;
+            _logger.LogWarning(
+                "Timed out waiting for SteamKit2 startup depot mapping to finish; proceeding with current Steam metadata state");
         }
     }
 
@@ -556,6 +521,7 @@ public class SteamService : ScopedScheduledBackgroundService
 
     public override void Dispose()
     {
+        ConfigurableScheduledService.ServiceWorkCompleted -= OnConfigurableServiceWorkCompleted;
         _apiSemaphore.Dispose();
         base.Dispose();
     }
