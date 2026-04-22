@@ -20,6 +20,7 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IStateService _stateService;
+    private readonly TaskCompletionSource<bool> _startupAutoReconnectCompleted = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private EpicPrefillDaemonService? _epicDaemonService;
     private Guid? _currentOperationId;
 
@@ -106,9 +107,20 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
         {
             _ = Task.Run(async () =>
             {
-                await Task.Delay(TimeSpan.FromSeconds(3), CancellationToken.None);
-                await TryAutoReconnectAsync();
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(3), CancellationToken.None);
+                    await TryAutoReconnectAsync();
+                }
+                finally
+                {
+                    _startupAutoReconnectCompleted.TrySetResult(true);
+                }
             }, CancellationToken.None);
+        }
+        else
+        {
+            _startupAutoReconnectCompleted.TrySetResult(true);
         }
 
         // Subscribe to Epic prefill daemon auth state change events
@@ -133,6 +145,8 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
             }
         }
         catch (ObjectDisposedException) { }
+
+        _startupAutoReconnectCompleted.TrySetResult(true);
 
         return Task.CompletedTask;
     }

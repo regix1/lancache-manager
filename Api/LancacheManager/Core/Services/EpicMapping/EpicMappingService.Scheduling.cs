@@ -19,6 +19,11 @@ public partial class EpicMappingService
         if (_cancellationTokenSource.Token.IsCancellationRequested || Volatile.Read(ref _isRunning) == 0)
             return;
 
+        await WaitForStartupAutoReconnectAsync(stoppingToken);
+
+        if (_cancellationTokenSource.Token.IsCancellationRequested || Volatile.Read(ref _isRunning) == 0)
+            return;
+
         // Skip if not authenticated (need valid tokens to refresh)
         if (!_isAuthenticated || _currentTokens == null)
             return;
@@ -164,6 +169,17 @@ public partial class EpicMappingService
         });
 
         return true;
+    }
+
+    private async Task WaitForStartupAutoReconnectAsync(CancellationToken stoppingToken)
+    {
+        if (_startupAutoReconnectCompleted.Task.IsCompleted)
+        {
+            return;
+        }
+
+        _logger.LogInformation("Waiting for Epic startup auto-reconnect to finish before scheduled refresh");
+        await _startupAutoReconnectCompleted.Task.WaitAsync(stoppingToken);
     }
 
     /// <summary>

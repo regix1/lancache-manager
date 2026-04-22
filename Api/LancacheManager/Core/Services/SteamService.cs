@@ -17,6 +17,7 @@ public class SteamService : ScopedScheduledBackgroundService
 {
     private readonly HttpClient _httpClient;
     private readonly IServiceScopeFactory _scopeFactory;
+    private readonly IUnifiedOperationTracker _operationTracker;
     private readonly IStateService _stateService;
     private readonly SemaphoreSlim _apiSemaphore = new(5);
 
@@ -64,12 +65,14 @@ public class SteamService : ScopedScheduledBackgroundService
         IConfiguration configuration,
         HttpClient httpClient,
         IServiceScopeFactory scopeFactory,
+        IUnifiedOperationTracker operationTracker,
         IStateService stateService)
         : base(serviceProvider, logger, configuration)
     {
         _httpClient = httpClient;
         _httpClient.Timeout = TimeSpan.FromSeconds(30);
         _scopeFactory = scopeFactory;
+        _operationTracker = operationTracker;
         _stateService = stateService;
 
         LoadStateOverrides(stateService);
@@ -80,6 +83,12 @@ public class SteamService : ScopedScheduledBackgroundService
         // Wait for setup to complete so the database is configured before making API calls
         await _stateService.WaitForSetupCompletedAsync(stoppingToken);
 
+        // SteamKit2Service may be doing a startup PICS/GitHub import in parallel. If we
+        // warm this service against an empty or mid-replace depot table, the in-memory
+        // cache stays stale until the next interval. Wait briefly for that startup work
+        // to settle before loading the mappings we cache in memory.
+        await WaitForStartupDepotMappingsAsync(stoppingToken);
+
         // Run initial refresh during startup
         await RefreshMappingsAsync();
     }
@@ -89,6 +98,85 @@ public class SteamService : ScopedScheduledBackgroundService
         CancellationToken stoppingToken)
     {
         await RefreshMappingsAsync();
+    }
+
+    private async Task WaitForStartupDepotMappingsAsync(CancellationToken stoppingToken)
+    {
+        var startupDepotMappingEnabled =
+            _stateService.GetCrawlIntervalHours() > 0 &&
+            (_stateService.GetServiceRunOnStartup("depotMapping") ?? true);
+
+        if (!startupDepotMappingEnabled)
+        {
+            return;
+        }
+
+        var timeout = TimeSpan.FromSeconds(30);
+        var pollInterval = TimeSpan.FromSeconds(1);
+        var deadline = DateTime.UtcNow + timeout;
+        var sawActiveDepotMapping = false;
+
+        while (DateTime.UtcNow < deadline && !stoppingToken.IsCancellationRequested)
+        {
+            var depotMappingActive = _operationTracker.GetActiveOperations(OperationType.DepotMapping).Any();
+            var hasMappings = await HasDepotMappingsAsync(stoppingToken);
+
+            if (depotMappingActive)
+            {
+                if (!sawActiveDepotMapping)
+                {
+                    _logger.LogInformation(
+                        "Waiting for startup depot mapping to finish before refreshing Steam metadata");
+                }
+
+                sawActiveDepotMapping = true;
+            }
+
+            if (sawActiveDepotMapping)
+            {
+                if (!depotMappingActive)
+                {
+                    _logger.LogInformation(
+                        "Startup depot mapping finished; refreshing Steam metadata from the database");
+                    return;
+                }
+            }
+            else if (hasMappings)
+            {
+                return;
+            }
+
+            await SafeDelayAsync(pollInterval, stoppingToken);
+        }
+
+        if (sawActiveDepotMapping)
+        {
+            _logger.LogWarning(
+                "Timed out waiting for startup depot mapping to finish; proceeding with current Steam metadata state");
+        }
+        else
+        {
+            _logger.LogInformation(
+                "Startup depot mappings were not available yet; proceeding with current database state");
+        }
+    }
+
+    private async Task<bool> HasDepotMappingsAsync(CancellationToken stoppingToken)
+    {
+        try
+        {
+            using var scopedDb = _scopeFactory.CreateScopedDbContext();
+            return await scopedDb.DbContext.SteamDepotMappings.AsNoTracking().AnyAsync(stoppingToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to check Steam depot mapping availability during startup");
+            return false;
+        }
     }
 
     #region Steam API Data Management
