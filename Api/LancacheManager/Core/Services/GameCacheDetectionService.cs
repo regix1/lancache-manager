@@ -345,6 +345,11 @@ public class GameCacheDetectionService : IDisposable
             // Check for cancellation before scanning
             cancellationToken.ThrowIfCancellationRequested();
 
+            // Incremental refreshes (for example after Steam/Epic mapping updates) preserve the
+            // existing service rows. Skip Rust's service scan when we already loaded those rows
+            // to avoid reprocessing large non-game service buckets that the caller will ignore.
+            var skipServiceScan = incremental && existingServices is { Count: > 0 };
+
             // Aggregate results from all datasources
             var gameAppIdSet = new HashSet<long>(); // Track unique game app IDs across datasources
             var serviceNameSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase); // Track unique services
@@ -370,9 +375,10 @@ public class GameCacheDetectionService : IDisposable
                 // Build arguments
                 // Add --incremental flag for quick scans to skip the expensive cache directory scan
                 var incrementalFlag = incremental ? " --incremental" : "";
+                var skipServiceScanFlag = skipServiceScan ? " --skip-service-scan" : "";
                 string arguments = !string.IsNullOrEmpty(excludedIdsPath)
-                    ? $"\"{cachePath}\" \"{outputJson}\" \"{excludedIdsPath}\"{incrementalFlag} --progress-file \"{progressFilePath}\""
-                    : $"\"{cachePath}\" \"{outputJson}\"{incrementalFlag} --progress-file \"{progressFilePath}\"";
+                    ? $"\"{cachePath}\" \"{outputJson}\" \"{excludedIdsPath}\"{incrementalFlag}{skipServiceScanFlag} --progress-file \"{progressFilePath}\""
+                    : $"\"{cachePath}\" \"{outputJson}\"{incrementalFlag}{skipServiceScanFlag} --progress-file \"{progressFilePath}\"";
 
                 var startInfo = _rustProcessHelper.CreateProcessStartInfo(rustBinaryPath, arguments);
 

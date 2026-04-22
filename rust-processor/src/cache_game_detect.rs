@@ -51,6 +51,10 @@ struct Args {
     #[arg(long)]
     incremental: bool,
 
+    /// Skip non-game service detection and preserve existing service rows from the caller
+    #[arg(long = "skip-service-scan")]
+    skip_service_scan: bool,
+
     /// Path to write progress JSON updates
     #[arg(long = "progress-file")]
     progress_file: Option<String>,
@@ -417,76 +421,81 @@ async fn main() -> Result<()> {
     let mut service_files_found = 0;
     let mut service_bytes_found: u64 = 0;
 
-    eprintln!(
-        "\n=== Phase 4: Detecting Non-Game Services{} ===",
-        if incremental_mode {
-            " (Incremental Mode)"
-        } else {
-            ""
-        }
-    );
-    write_progress(progress_path.as_deref(), "services", "signalr.gameDetect.services.detecting", json!({}), 80.0, 0, 0)?;
-    reporter.emit_progress(80.0, "signalr.gameDetect.services.detecting", json!({}));
+    if args.skip_service_scan {
+        eprintln!("\n=== Phase 4: Skipping Non-Game Service Detection ===");
+        eprintln!("Preserving existing service detections from the caller");
+    } else {
+        eprintln!(
+            "\n=== Phase 4: Detecting Non-Game Services{} ===",
+            if incremental_mode {
+                " (Incremental Mode)"
+            } else {
+                ""
+            }
+        );
+        write_progress(progress_path.as_deref(), "services", "signalr.gameDetect.services.detecting", json!({}), 80.0, 0, 0)?;
+        reporter.emit_progress(80.0, "signalr.gameDetect.services.detecting", json!({}));
 
-    let services_map = query_service_downloads(&pool).await?;
-    let total_services = services_map.len();
-    let mut services_processed = 0;
+        let services_map = query_service_downloads(&pool).await?;
+        let total_services = services_map.len();
+        let mut services_processed = 0;
 
-    for (service_name, service_urls) in services_map {
-        services_processed += 1;
-        eprint!("  Matching service '{}' - {} URLs... ", service_name, service_urls.len());
+        for (service_name, service_urls) in services_map {
+            services_processed += 1;
+            eprint!("  Matching service '{}' - {} URLs... ", service_name, service_urls.len());
 
-        // Update progress for services (80-90%)
-        let service_percent = 80.0 + (services_processed as f64 / total_services.max(1) as f64) * 10.0;
-        write_progress(
-            progress_path.as_deref(),
-            "services",
-            "signalr.gameDetect.services.progress",
-            json!({ "processed": services_processed, "total": total_services }),
-            service_percent,
-            services_processed,
-            total_services,
-        )?;
-        reporter.emit_progress(service_percent, "signalr.gameDetect.services.progress", json!({ "processed": services_processed, "total": total_services }));
+            // Update progress for services (80-90%)
+            let service_percent = 80.0 + (services_processed as f64 / total_services.max(1) as f64) * 10.0;
+            write_progress(
+                progress_path.as_deref(),
+                "services",
+                "signalr.gameDetect.services.progress",
+                json!({ "processed": services_processed, "total": total_services }),
+                service_percent,
+                services_processed,
+                total_services,
+            )?;
+            reporter.emit_progress(service_percent, "signalr.gameDetect.services.progress", json!({ "processed": services_processed, "total": total_services }));
 
-        let result = if incremental_mode {
-            detect_service_cache_info_incremental(&service_name, &service_urls, &cache_dir)
-        } else {
-            let cache_index = cache_files_index
-                .as_ref()
-                .context("Cache file index missing during service scan")?;
+            let result = if incremental_mode {
+                detect_service_cache_info_incremental(&service_name, &service_urls, &cache_dir)
+            } else {
+                let cache_index = cache_files_index
+                    .as_ref()
+                    .context("Cache file index missing during service scan")?;
 
-            detect_service_cache_info(&service_name, &service_urls, cache_index)
-        };
+                detect_service_cache_info(&service_name, &service_urls, cache_index)
+            };
 
-        match result {
-            Ok(info) => {
-                if info.cache_files_found > 0 {
-                    let size_gb = info.total_size_bytes as f64 / 1_073_741_824.0;
-                    let size_mb = info.total_size_bytes as f64 / 1_048_576.0;
+            match result {
+                Ok(info) => {
+                    if info.cache_files_found > 0 {
+                        let size_gb = info.total_size_bytes as f64 / 1_073_741_824.0;
+                        let size_mb = info.total_size_bytes as f64 / 1_048_576.0;
 
-                    if size_gb >= 1.0 {
-                        eprintln!("FOUND {} files ({:.2} GB)", info.cache_files_found, size_gb);
+                        if size_gb >= 1.0 {
+                            eprintln!("FOUND {} files ({:.2} GB)", info.cache_files_found, size_gb);
+                        } else {
+                            eprintln!("FOUND {} files ({:.2} MB)", info.cache_files_found, size_mb);
+                        }
+
+                        service_files_found += info.cache_files_found;
+                        service_bytes_found += info.total_size_bytes;
+                        detected_services.push(info);
                     } else {
-                        eprintln!("FOUND {} files ({:.2} MB)", info.cache_files_found, size_mb);
+                        eprintln!("no cache files found");
                     }
-
-                    service_files_found += info.cache_files_found;
-                    service_bytes_found += info.total_size_bytes;
-                    detected_services.push(info);
-                } else {
-                    eprintln!("no cache files found");
+                }
+                Err(e) => {
+                    eprintln!("ERROR: {}", e);
                 }
             }
-            Err(e) => {
-                eprintln!("ERROR: {}", e);
-            }
         }
-    }
 
-    eprintln!("\n=== Service Scan Complete ===");
-    eprintln!("Total service cache files found: {}", service_files_found);
-    eprintln!("Total service cache size: {:.2} GB", service_bytes_found as f64 / 1_073_741_824.0);
+        eprintln!("\n=== Service Scan Complete ===");
+        eprintln!("Total service cache files found: {}", service_files_found);
+        eprintln!("Total service cache size: {:.2} GB", service_bytes_found as f64 / 1_073_741_824.0);
+    }
 
     let report = DetectionReport {
         total_games_detected: detected_games.len(),
