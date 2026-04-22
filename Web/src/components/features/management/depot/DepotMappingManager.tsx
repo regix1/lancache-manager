@@ -129,7 +129,7 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only on mount
 
-  // Auto-select GitHub when Web API is not available (for Apply Now Source)
+  // Auto-select GitHub when Web API is not available (for Apply Now scan mode)
   // This runs whenever Web API status changes to ensure we don't have an invalid selection
   useEffect(() => {
     // Wait for Web API status to finish loading
@@ -287,8 +287,8 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
     }
   }, [depotConfig, depotConfig?.isProcessing, githubDownloadComplete]);
 
-  // NOTE: "Apply Now Source" is intentionally NOT synced with the automatic schedule mode.
-  // These are independent controls - users may want to run a different source manually
+  // NOTE: "Apply Now Scan Mode" is intentionally NOT synced with the automatic schedule mode.
+  // These are independent controls - users may want to run a different mode manually
   // than what runs automatically on schedule (e.g., schedule=GitHub but manual=Incremental).
 
   // NOTE: GitHub mode is now available for all users regardless of Steam auth mode.
@@ -733,11 +733,14 @@ const DepotMappingManager: React.FC<DepotMappingManagerProps> = ({
           {t('management.schedules.configuredInSchedules')}
         </p>
 
-        {/* Depot Source Selection */}
+        {/* Apply Now scan mode */}
         <div className="mb-4">
-          <label className="block text-sm font-medium text-themed-secondary mb-2">
+          <label className="block text-sm font-medium text-themed-secondary mb-1">
             {t('management.depotMapping.applyNowSource')}
           </label>
+          <p className="text-xs text-themed-muted mb-2">
+            {t('management.depotMapping.applyNowSourceHelp')}
+          </p>
           <EnhancedDropdown
             variant="button"
             options={[

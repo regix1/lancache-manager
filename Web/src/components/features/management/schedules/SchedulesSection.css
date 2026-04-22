@@ -221,6 +221,37 @@
   white-space: nowrap;
 }
 
+.schedule-extra-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.schedule-extra-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.schedule-extra-label {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--theme-text-muted);
+}
+
+.schedule-extra-help {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--theme-text-muted);
+  line-height: 1.4;
+}
+
+.schedule-extra-control {
+  min-width: 0;
+}
+
 /* Run-on-startup row sits between the controls row and the expandable section */
 .schedule-startup-row {
   display: flex;

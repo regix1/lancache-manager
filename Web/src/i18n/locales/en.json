@@ -2474,7 +2474,8 @@
       "downloadingDescription": "Fetching pre-created depot mappings (290k+ depots). This may take a few moments.",
       "githubDownloadComplete": "GitHub Data Downloaded - Applying Mappings",
       "applyingMappingsDescription": "Pre-created depot mappings have been imported from GitHub. The system is now applying these mappings to your download history.",
-      "applyNowSource": "Apply Now Source",
+      "applyNowSource": "Apply Now Scan Mode",
+      "applyNowSourceHelp": "Only affects the Apply Now button. Scheduled runs and the schedule card's Run Now button use Scheduled Scan Mode in Schedules.",
       "intervalFixedNote": "Interval is fixed at 30 minutes for GitHub mode",
       "scanSkipped": {
         "title": "Automatic Scan Skipped - Data Update Required",
@@ -2875,7 +2876,10 @@
           "displayName": "Steam Depot Mapping",
           "description": "Downloads Steam depot-to-game mappings from PICS or GitHub, then immediately applies them to match all cached files on disk with their correct Steam game names and IDs in the UI.",
           "gain": "New game downloads are identified faster, reducing the time items appear as 'Unknown Game'",
-          "loss": "Delisted or newly released games may show as 'Unknown Game' until the next mapping refresh detects them"
+          "loss": "Delisted or newly released games may show as 'Unknown Game' until the next mapping refresh detects them",
+          "scanModeLabel": "Scheduled Scan Mode",
+          "scanModeHelp": "Controls automatic runs and this card's Run Now button.",
+          "scanModeFailed": "Failed to update scheduled scan mode for {{service}}"
         },
         "epicMapping": {
           "displayName": "Epic Game Mapping",

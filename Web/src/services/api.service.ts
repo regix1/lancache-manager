@@ -1142,6 +1142,29 @@ class ApiService {
     }
   }
 
+  static async setDepotScheduledScanMode(
+    mode: 'incremental' | 'full' | 'github',
+    signal?: AbortSignal
+  ): Promise<void> {
+    const payload: boolean | 'github' = mode === 'github' ? 'github' : mode === 'incremental';
+
+    try {
+      const res = await fetch(
+        `${API_BASE}/depots/rebuild/config/mode`,
+        this.getFetchOptions({
+          method: 'PUT',
+          signal,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        })
+      );
+      await this.handleResponse<{ incrementalMode?: boolean | string; message?: string }>(res);
+    } catch (error: unknown) {
+      console.error('setDepotScheduledScanMode error:', error);
+      throw error;
+    }
+  }
+
   static async downloadPrecreatedDepotData(signal?: AbortSignal): Promise<OperationResponse> {
     try {
       const res = await fetch(

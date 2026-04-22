@@ -9,12 +9,14 @@ import { Checkbox } from '@components/ui/Checkbox';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
 import { useNotifications } from '@contexts/notifications';
+import { usePicsProgress } from '@contexts/usePicsProgress';
 import { getScheduleIntervalOptions } from './constants';
 import { useCountdownTimer } from '@hooks/useCountdownTimer';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { useManagerLoading } from '@hooks/useManagerLoading';
 import type { ServiceScheduleInfo } from './types';
 import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import { useSteamWebApiStatus } from '@contexts/useSteamWebApiStatus';
 
 interface SchedulesSectionProps {
   isAdmin: boolean;
@@ -119,11 +121,86 @@ const ScheduleIntervalDropdown = memo(function ScheduleIntervalDropdown({
   );
 });
 
+type DepotScheduledScanMode = 'incremental' | 'full' | 'github';
+
+const getDepotScheduledScanMode = (mode: boolean | string | undefined): DepotScheduledScanMode => {
+  if (mode === 'github') {
+    return 'github';
+  }
+  if (mode === false) {
+    return 'full';
+  }
+  return 'incremental';
+};
+
+const toDepotScheduledScanModePayload = (mode: DepotScheduledScanMode): boolean | 'github' => {
+  if (mode === 'github') {
+    return 'github';
+  }
+  return mode === 'incremental';
+};
+
+interface DepotScheduleModeDropdownProps {
+  mode: DepotScheduledScanMode;
+  isDisabled: boolean;
+  isSteamWebApiAvailable: boolean;
+  onChange: (mode: DepotScheduledScanMode) => void;
+}
+
+const DepotScheduleModeDropdown = memo(function DepotScheduleModeDropdown({
+  mode,
+  isDisabled,
+  isSteamWebApiAvailable,
+  onChange
+}: DepotScheduleModeDropdownProps) {
+  const { t } = useTranslation();
+  const options = [
+    {
+      value: 'incremental',
+      label: isSteamWebApiAvailable
+        ? t('management.depotMapping.modes.incremental')
+        : t('management.depotMapping.modes.incrementalWebApiRequired'),
+      disabled: !isSteamWebApiAvailable
+    },
+    {
+      value: 'full',
+      label: isSteamWebApiAvailable
+        ? t('management.depotMapping.modes.full')
+        : t('management.depotMapping.modes.fullWebApiRequired'),
+      disabled: !isSteamWebApiAvailable
+    },
+    {
+      value: 'github',
+      label: t('management.depotMapping.modes.github')
+    }
+  ];
+
+  const handleChange = useCallback(
+    (value: string) => {
+      onChange(value as DepotScheduledScanMode);
+    },
+    [onChange]
+  );
+
+  return (
+    <EnhancedDropdown
+      options={options}
+      value={mode}
+      onChange={handleChange}
+      disabled={isDisabled}
+      variant="button"
+    />
+  );
+});
+
 interface ScheduleCardProps {
   service: ServiceScheduleInfo;
   isAdmin: boolean;
   onIntervalChange: (key: string, intervalHours: number) => Promise<void>;
   onRunOnStartupChange: (key: string, runOnStartup: boolean) => Promise<void>;
+  depotScheduledMode: DepotScheduledScanMode;
+  isSteamWebApiAvailable: boolean;
+  onDepotScanModeChange: (mode: DepotScheduledScanMode) => Promise<void>;
   onRunNow: (key: string) => Promise<void>;
   runningKey: string | null;
   justCompleted: boolean;
@@ -135,6 +212,9 @@ const ScheduleCard = memo(function ScheduleCard({
   isAdmin,
   onIntervalChange,
   onRunOnStartupChange,
+  depotScheduledMode,
+  isSteamWebApiAvailable,
+  onDepotScanModeChange,
   onRunNow,
   runningKey,
   justCompleted,
@@ -144,6 +224,7 @@ const ScheduleCard = memo(function ScheduleCard({
   const [expanded, setExpanded] = useState(false);
   const formattedNextRun = useFormattedDateTime(service.nextRunUtc);
 
+  const isDepotMapping = service.key === 'depotMapping';
   const isRunningThis = runningKey === service.key;
 
   const formatLastRun = (lastRunUtc: string | null): string => {
@@ -185,6 +266,13 @@ const ScheduleCard = memo(function ScheduleCard({
       onRunOnStartupChange(service.key, e.target.checked);
     },
     [service.key, onRunOnStartupChange]
+  );
+
+  const handleDepotScanModeChange = useCallback(
+    (value: DepotScheduledScanMode) => {
+      onDepotScanModeChange(value);
+    },
+    [onDepotScanModeChange]
   );
 
   const handleToggleExpand = useCallback(() => {
@@ -265,6 +353,27 @@ const ScheduleCard = memo(function ScheduleCard({
           </Button>
         </div>
 
+        {isDepotMapping && (
+          <div className="schedule-extra-row">
+            <div className="schedule-extra-copy">
+              <span className="schedule-extra-label">
+                {t('management.schedules.services.depotMapping.scanModeLabel')}
+              </span>
+              <p className="schedule-extra-help">
+                {t('management.schedules.services.depotMapping.scanModeHelp')}
+              </p>
+            </div>
+            <div className="schedule-extra-control">
+              <DepotScheduleModeDropdown
+                mode={depotScheduledMode}
+                isDisabled={isDisabled}
+                isSteamWebApiAvailable={isSteamWebApiAvailable}
+                onChange={handleDepotScanModeChange}
+              />
+            </div>
+          </div>
+        )}
+
         {/* Run-on-startup toggle — hidden when interval is "Startup only" (-1) since the
           entire point of that schedule IS to run at startup, making the toggle redundant. */}
         {service.intervalHours !== -1 && (
@@ -334,6 +443,13 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({ isAdmin, highlightS
   const [completedKeys, setCompletedKeys] = useState<Record<string, 'navigate' | 'subtle'>>({});
   const { on, off, connectionState } = useSignalR();
   const { addNotification } = useNotifications();
+  const { progress: picsProgress, refreshProgress, updateProgress } = usePicsProgress();
+  const { status: webApiStatus } = useSteamWebApiStatus();
+  const depotScheduledMode = getDepotScheduledScanMode(picsProgress?.crawlIncrementalMode);
+  const isSteamWebApiAvailable =
+    picsProgress?.isWebApiAvailable === true ||
+    webApiStatus?.isFullyOperational === true ||
+    webApiStatus?.hasApiKey === true;
 
   // Keep a ref in sync with schedules so callbacks can read the latest value without
   // needing `schedules` in their useCallback deps — that would cause every callback to
@@ -343,6 +459,11 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({ isAdmin, highlightS
   useEffect(() => {
     schedulesRef.current = schedules;
   }, [schedules]);
+
+  const crawlIncrementalModeRef = useRef(picsProgress?.crawlIncrementalMode);
+  useEffect(() => {
+    crawlIncrementalModeRef.current = picsProgress?.crawlIncrementalMode;
+  }, [picsProgress?.crawlIncrementalMode]);
 
   const fetchSchedules = useCallback(async () => {
     try {
@@ -467,6 +588,45 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({ isAdmin, highlightS
     [fetchSchedules, addNotification, t]
   );
 
+  const handleDepotScanModeChange = useCallback(
+    async (mode: DepotScheduledScanMode) => {
+      const previousMode = crawlIncrementalModeRef.current ?? true;
+
+      updateProgress((prev) =>
+        prev
+          ? {
+              ...prev,
+              crawlIncrementalMode: toDepotScheduledScanModePayload(mode)
+            }
+          : prev
+      );
+
+      try {
+        await ApiService.setDepotScheduledScanMode(mode);
+        await refreshProgress();
+      } catch {
+        updateProgress((prev) =>
+          prev
+            ? {
+                ...prev,
+                crawlIncrementalMode: previousMode
+              }
+            : prev
+        );
+        await refreshProgress();
+        addNotification({
+          type: 'generic',
+          status: 'failed',
+          message: t('management.schedules.services.depotMapping.scanModeFailed', {
+            service: t('management.schedules.services.depotMapping.displayName')
+          }),
+          details: { notificationType: 'error' }
+        });
+      }
+    },
+    [updateProgress, refreshProgress, addNotification, t]
+  );
+
   const handleResetDefaults = useCallback(async () => {
     setResetting(true);
     try {
@@ -575,6 +735,11 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({ isAdmin, highlightS
               isAdmin={isAdmin}
               onIntervalChange={handleIntervalChange}
               onRunOnStartupChange={handleRunOnStartupChange}
+              depotScheduledMode={
+                service.key === 'depotMapping' ? depotScheduledMode : 'incremental'
+              }
+              isSteamWebApiAvailable={service.key === 'depotMapping' && isSteamWebApiAvailable}
+              onDepotScanModeChange={handleDepotScanModeChange}
               onRunNow={handleRunNow}
               runningKey={runningKey}
               justCompleted={!!completedKeys[service.key]}
