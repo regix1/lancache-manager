@@ -442,7 +442,7 @@ export const formatCacheClearFailureMessage = (event: CacheClearCompleteEvent): 
 export const formatDepotMappingStartedMessage = (event: DepotMappingStartedEvent): string => {
   return event.stageKey
     ? i18n.t(event.stageKey, event.context ?? {})
-    : i18n.t('signalr.depotMapping.github.downloading');
+    : (event.message ?? i18n.t('signalr.depotMapping.github.downloading'));
 };
 
 /**
@@ -456,10 +456,25 @@ export const formatDepotMappingProgressMessage = (
   event: DepotMappingProgressEvent,
   existingMessage?: string
 ): string => {
-  return event.stageKey
-    ? i18n.t(event.stageKey, event.context ?? {})
-    : (existingMessage ??
-        i18n.t('signalr.depotMapping.applyingToDownloads', { processed: 0, totalDownloads: 0 }));
+  if (event.stageKey) {
+    return i18n.t(event.stageKey, event.context ?? {});
+  }
+
+  if (event.processedMappings !== undefined || event.totalMappings !== undefined) {
+    return i18n.t('signalr.depotMapping.applyingToDownloads', {
+      processed: (event.processedMappings ?? 0).toLocaleString(),
+      totalDownloads: (event.totalMappings ?? 0).toLocaleString()
+    });
+  }
+
+  return (
+    event.message ??
+    existingMessage ??
+    i18n.t('signalr.depotMapping.applyingToDownloads', {
+      processed: 0,
+      totalDownloads: 0
+    })
+  );
 };
 
 // ============================================================================
