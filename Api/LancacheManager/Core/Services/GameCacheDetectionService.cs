@@ -1093,18 +1093,13 @@ public class GameCacheDetectionService : IDisposable
         _detectionDataService.SaveGamesToDatabaseAsync(games, incremental, cancellationToken);
 
     /// <summary>
-    /// After a full scan, finds games that exist in Downloads but were not detected on disk,
-    /// and adds them to CachedGameDetections with 0 files so they appear as evicted.
-    /// Also marks those downloads as IsEvicted = true for consistent display.
-    /// </summary>
-    /// <summary>
-    /// After a full scan or eviction scan, finds games that exist in Downloads but were not
-    /// detected on disk, and adds them to CachedGameDetections with 0 files so they appear
-    /// as evicted. Public so <see cref="CacheReconciliationService.ReconcileCacheFilesAsync"/>
-    /// can call it after every eviction scan — without this, a game whose downloads all
-    /// flip to IsEvicted=true but which was never in CachedGameDetections (e.g. because a
-    /// prior Cache Clear wiped the table, or the game was never fully scanned) will not
-    /// appear in the Evicted Items UI until the next app restart.
+    /// Surfaces entities whose underlying Downloads are already marked <c>IsEvicted = true</c>
+    /// but which do not yet have a matching cached detection row. Public so
+    /// <see cref="CacheReconciliationService.ReconcileCacheFilesAsync"/> can call it after
+    /// every eviction scan — without this, a game whose downloads were evicted but which was
+    /// never in <see cref="CachedGameDetection"/> (for example after a cache clear or before
+    /// the first full detection) will not appear in the Evicted Items UI until the next app
+    /// restart or full detection pass.
     /// </summary>
     public Task<int> RecoverEvictedGamesAsync(CancellationToken cancellationToken = default) =>
         _detectionDataService.RecoverEvictedGamesAsync(cancellationToken);

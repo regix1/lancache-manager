@@ -67,65 +67,6 @@ public sealed class GameCacheDetectionDataService
         var cachedGames = await dbContext.CachedGameDetections.AsNoTracking().ToListAsync(cancellationToken);
         var cachedServices = await dbContext.CachedServiceDetections.AsNoTracking().ToListAsync(cancellationToken);
 
-        if (cachedGames.Count > 0)
-        {
-            var nonEvictedSteamGames = cachedGames.Where(g => !g.IsEvicted && g.EpicAppId == null).ToList();
-            if (nonEvictedSteamGames.Count > 0)
-            {
-                var gameAppIds = nonEvictedSteamGames.Select(g => (long?)g.GameAppId).ToHashSet();
-
-                var evictionStatus = await dbContext.Downloads
-                    .Where(d => d.GameAppId != null && gameAppIds.Contains(d.GameAppId))
-                    .GroupBy(d => d.GameAppId)
-                    .Select(g => new
-                    {
-                        GameAppId = g.Key!.Value,
-                        AllEvicted = g.All(d => d.IsEvicted)
-                    })
-                    .ToDictionaryAsync(x => x.GameAppId, x => x.AllEvicted, cancellationToken);
-
-                foreach (var game in nonEvictedSteamGames)
-                {
-                    if (evictionStatus.TryGetValue(game.GameAppId, out var allEvicted) && allEvicted)
-                    {
-                        game.IsEvicted = true;
-                    }
-                }
-            }
-
-            var nonEvictedEpicGames = cachedGames.Where(g => !g.IsEvicted && g.EpicAppId != null).ToList();
-            if (nonEvictedEpicGames.Count > 0)
-            {
-                var epicAppIds = nonEvictedEpicGames.Select(g => g.EpicAppId!).Distinct().ToList();
-                var epicEvictionStatus = await dbContext.Downloads
-                    .Where(d => d.EpicAppId != null && epicAppIds.Contains(d.EpicAppId))
-                    .GroupBy(d => d.EpicAppId)
-                    .Select(g => new
-                    {
-                        EpicAppId = g.Key!,
-                        AllEvicted = g.All(d => d.IsEvicted)
-                    })
-                    .ToDictionaryAsync(x => x.EpicAppId, x => x.AllEvicted, cancellationToken);
-
-                foreach (var game in nonEvictedEpicGames)
-                {
-                    if (epicEvictionStatus.TryGetValue(game.EpicAppId!, out var epicAllEvicted) &&
-                        epicAllEvicted)
-                    {
-                        game.IsEvicted = true;
-                    }
-                }
-            }
-
-            foreach (var game in cachedGames)
-            {
-                if (!game.IsEvicted && game.CacheFilesFound == 0)
-                {
-                    game.IsEvicted = true;
-                }
-            }
-        }
-
         var games = cachedGames.Select(ConvertToGameCacheInfo).ToList();
         var services = cachedServices.Select(ConvertToServiceCacheInfo).ToList();
 
@@ -509,7 +450,8 @@ public sealed class GameCacheDetectionDataService
         var evictedGames = await dbContext.Downloads
             .Where(d => d.GameAppId != null
                      && d.GameAppId > 0
-                     && !d.IsActive
+                     && d.EpicAppId == null
+                     && d.IsEvicted
                      && !dbContext.CachedGameDetections.Any(g => g.GameAppId == d.GameAppId!.Value))
             .GroupBy(d => d.GameAppId!.Value)
             .Select(g => new
@@ -544,17 +486,12 @@ public sealed class GameCacheDetectionDataService
 
             await dbContext.SaveChangesAsync(cancellationToken);
 
-            var evictedAppIds = evictedGames.Select(g => (long?)g.GameAppId).ToList();
-            await dbContext.Downloads
-                .Where(d => d.GameAppId != null && evictedAppIds.Contains(d.GameAppId) && !d.IsEvicted)
-                .ExecuteUpdateAsync(s => s.SetProperty(d => d.IsEvicted, true), cancellationToken);
-
             totalRecovered += evictedGames.Count;
         }
 
         var evictedEpicGames = await dbContext.Downloads
             .Where(d => d.EpicAppId != null
-                     && !d.IsActive
+                     && d.IsEvicted
                      && !dbContext.CachedGameDetections.Any(g => g.EpicAppId == d.EpicAppId))
             .GroupBy(d => d.EpicAppId!)
             .Select(g => new
@@ -585,13 +522,8 @@ public sealed class GameCacheDetectionDataService
 
             await dbContext.SaveChangesAsync(cancellationToken);
 
-            var evictedEpicIds = evictedEpicGames.Select(g => g.EpicAppId).ToList();
-            await dbContext.Downloads
-                .Where(d => d.EpicAppId != null && evictedEpicIds.Contains(d.EpicAppId) && !d.IsEvicted)
-                .ExecuteUpdateAsync(s => s.SetProperty(d => d.IsEvicted, true), cancellationToken);
-
             _logger.LogInformation(
-                "[GameDetection] Recovered {Count} evicted Epic games from Downloads history",
+                "[GameDetection] Recovered {Count} evicted Epic games from already-evicted Downloads",
                 evictedEpicGames.Count);
             totalRecovered += evictedEpicGames.Count;
         }
@@ -643,7 +575,7 @@ public sealed class GameCacheDetectionDataService
         await dbContext.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation(
-            "[ServiceDetection] Recovered {Count} evicted services from Downloads history",
+            "[ServiceDetection] Recovered {Count} evicted services from already-evicted Downloads",
             evictedServices.Count);
 
         return evictedServices.Count;
