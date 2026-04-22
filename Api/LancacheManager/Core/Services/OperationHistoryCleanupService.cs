@@ -1,4 +1,4 @@
-using LancacheManager.Infrastructure.Services;
+using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Services.Base;
 
 namespace LancacheManager.Core.Services;
@@ -10,7 +10,7 @@ namespace LancacheManager.Core.Services;
 /// </summary>
 public class OperationHistoryCleanupService : ScheduledBackgroundService
 {
-    private readonly StateService _stateService;
+    private readonly IStateService _stateService;
 
     protected override string ServiceName => "OperationHistoryCleanupService";
     protected override TimeSpan Interval => TimeSpan.FromMinutes(5);
@@ -20,11 +20,15 @@ public class OperationHistoryCleanupService : ScheduledBackgroundService
     public OperationHistoryCleanupService(
         ILogger<OperationHistoryCleanupService> logger,
         IConfiguration configuration,
-        StateService stateService)
+        IStateService stateService)
         : base(logger, configuration)
     {
         _stateService = stateService;
+        LoadStateOverrides(stateService);
     }
+
+    protected override Task OnStartupAsync(CancellationToken stoppingToken)
+        => ExecuteWorkAsync(stoppingToken);
 
     protected override Task ExecuteWorkAsync(CancellationToken stoppingToken)
     {

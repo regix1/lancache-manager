@@ -52,6 +52,10 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
         // Wait for setup to complete before running scheduled image fetches.
         // Image fetching must only run AFTER all game detection, mapping, and DB saves complete.
         await _stateService.WaitForSetupCompletedAsync(stoppingToken);
+
+        // Run the normal scheduled fetch path once at startup so "run on startup"
+        // performs real work instead of only waiting for setup to finish.
+        await base.ExecuteWorkAsync(stoppingToken);
     }
 
     /// <summary>

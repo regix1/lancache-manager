@@ -8,7 +8,7 @@ namespace LancacheManager.Tests;
 public class OperationConflictCheckerTests
 {
     [Fact]
-    public async Task Blocks_ServiceRemoval_When_ServiceScopedEvictionRemoval_IsActive_ForSameService()
+    public async Task Blocks_ServiceRemoval_When_ServiceScopedEvictionRemoval_IsActive_ForSameServiceAsync()
     {
         using var tracker = new TrackerHarness();
         RegisterEvictionRemoval(tracker.Tracker, scope: "service", key: "steam");
@@ -25,7 +25,7 @@ public class OperationConflictCheckerTests
     }
 
     [Fact]
-    public async Task Blocks_CorruptionRemoval_When_ServiceRemoval_IsActive_ForSameService()
+    public async Task Blocks_CorruptionRemoval_When_ServiceRemoval_IsActive_ForSameServiceAsync()
     {
         using var tracker = new TrackerHarness();
         RegisterServiceRemoval(tracker.Tracker, serviceName: "steam");
@@ -42,7 +42,7 @@ public class OperationConflictCheckerTests
     }
 
     [Fact]
-    public async Task Allows_ServiceScopedCrossTypeRemoval_When_ServiceDiffers()
+    public async Task Allows_ServiceScopedCrossTypeRemoval_When_ServiceDiffersAsync()
     {
         using var tracker = new TrackerHarness();
         RegisterServiceRemoval(tracker.Tracker, serviceName: "steam");
