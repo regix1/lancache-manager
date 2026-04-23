@@ -475,7 +475,7 @@
       "client": "client",
       "client_plural": "clients",
       "onDisk": "{{size}} on disk",
-      "transferred": "transferred",
+      "transferred": "downloaded",
       "hitLabel": "hit",
       "hitTooltip": "{{percent}} hit rate",
       "hitTooltipSaved": "{{percent}} hit rate · {{saved}} served from cache",
