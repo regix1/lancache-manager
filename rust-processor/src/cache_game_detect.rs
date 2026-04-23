@@ -7,7 +7,10 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::thread;
+use std::time::Duration;
 
 mod cache_utils;
 mod cache_detect_matching;
@@ -192,7 +195,7 @@ fn scan_cache_directory(cache_dir: &Path) -> Result<HashMap<String, CacheFileInf
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
-    let reporter = ProgressReporter::new(args.progress);
+    let reporter = Arc::new(ProgressReporter::new(args.progress));
 
     let cache_dir = PathBuf::from(&args.cache_dir);
     let output_json = PathBuf::from(&args.output_json);
@@ -442,30 +445,141 @@ async fn main() -> Result<()> {
 
         for (service_name, service_urls) in services_map {
             services_processed += 1;
-            eprint!("  Matching service '{}' - {} URLs... ", service_name, service_urls.len());
+            let total_urls = service_urls.len();
+            eprint!("  Matching service '{}' - {} URLs... ", service_name, total_urls);
 
-            // Update progress for services (80-90%)
-            let service_percent = 80.0 + (services_processed as f64 / total_services.max(1) as f64) * 10.0;
+            // Allocate the 80-90% band evenly across services so per-URL
+            // progress can slide smoothly from base → base+span while this
+            // service runs. Without this sub-progress, the final service
+            // bucket (often "steam" with millions of URLs) would look frozen
+            // for hours — see services_map iteration below.
+            let service_span = 10.0 / total_services.max(1) as f64;
+            let service_base_percent =
+                80.0 + (services_processed as f64 - 1.0) * service_span;
+            let service_end_percent = service_base_percent + service_span;
+
             write_progress(
                 progress_path.as_deref(),
                 "services",
                 "signalr.gameDetect.services.progress",
-                json!({ "processed": services_processed, "total": total_services }),
-                service_percent,
+                json!({
+                    "processed": services_processed,
+                    "total": total_services,
+                    "service": service_name,
+                    "urlsProcessed": 0usize,
+                    "urlsTotal": total_urls,
+                }),
+                service_base_percent,
                 services_processed,
                 total_services,
             )?;
-            reporter.emit_progress(service_percent, "signalr.gameDetect.services.progress", json!({ "processed": services_processed, "total": total_services }));
+            reporter.emit_progress(
+                service_base_percent,
+                "signalr.gameDetect.services.progress",
+                json!({
+                    "processed": services_processed,
+                    "total": total_services,
+                    "service": service_name,
+                    "urlsProcessed": 0usize,
+                    "urlsTotal": total_urls,
+                }),
+            );
+
+            // Shared counter incremented by rayon workers in match_files_*_tracked.
+            // The monitor thread below reads it every 500ms and publishes progress
+            // so the UI stays live even on million-URL buckets.
+            let url_counter = Arc::new(AtomicUsize::new(0));
+            let stop_monitor = Arc::new(AtomicBool::new(false));
+            let monitor_handle = {
+                let url_counter = Arc::clone(&url_counter);
+                let stop_monitor = Arc::clone(&stop_monitor);
+                let reporter = Arc::clone(&reporter);
+                let progress_path_for_monitor = progress_path.clone();
+                let service_name_for_monitor = service_name.clone();
+                thread::spawn(move || {
+                    while !stop_monitor.load(Ordering::Relaxed) {
+                        thread::sleep(Duration::from_millis(500));
+                        if stop_monitor.load(Ordering::Relaxed) {
+                            break;
+                        }
+                        let done = url_counter.load(Ordering::Relaxed);
+                        let fraction = if total_urls == 0 {
+                            1.0
+                        } else {
+                            (done as f64 / total_urls as f64).min(1.0)
+                        };
+                        let percent = service_base_percent + service_span * fraction;
+                        let context = json!({
+                            "processed": services_processed,
+                            "total": total_services,
+                            "service": service_name_for_monitor,
+                            "urlsProcessed": done,
+                            "urlsTotal": total_urls,
+                        });
+                        let _ = write_progress(
+                            progress_path_for_monitor.as_deref(),
+                            "services",
+                            "signalr.gameDetect.services.progress",
+                            context.clone(),
+                            percent,
+                            services_processed,
+                            total_services,
+                        );
+                        reporter.emit_progress(
+                            percent,
+                            "signalr.gameDetect.services.progress",
+                            context,
+                        );
+                    }
+                })
+            };
 
             let result = if incremental_mode {
-                detect_service_cache_info_incremental(&service_name, &service_urls, &cache_dir)
+                detect_service_cache_info_incremental(
+                    &service_name,
+                    &service_urls,
+                    &cache_dir,
+                    &url_counter,
+                )
             } else {
                 let cache_index = cache_files_index
                     .as_ref()
                     .context("Cache file index missing during service scan")?;
 
-                detect_service_cache_info(&service_name, &service_urls, cache_index)
+                detect_service_cache_info(
+                    &service_name,
+                    &service_urls,
+                    cache_index,
+                    &url_counter,
+                )
             };
+
+            stop_monitor.store(true, Ordering::Relaxed);
+            let _ = monitor_handle.join();
+
+            // Emit a final completion tick for this service so the UI hits the
+            // band's top edge before the next service starts.
+            let final_context = json!({
+                "processed": services_processed,
+                "total": total_services,
+                "service": service_name,
+                "urlsProcessed": total_urls,
+                "urlsTotal": total_urls,
+            });
+            write_progress(
+                progress_path.as_deref(),
+                "services",
+                "signalr.gameDetect.services.progress",
+                final_context.clone(),
+                service_end_percent,
+                services_processed,
+                total_services,
+            )?;
+            reporter.emit_progress(
+                service_end_percent,
+                "signalr.gameDetect.services.progress",
+                final_context,
+            );
 
             match result {
                 Ok(info) => {

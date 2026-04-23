@@ -212,13 +212,23 @@ pub(crate) async fn query_service_downloads(
 ) -> Result<HashMap<String, Vec<(String, String)>>> {
     eprintln!("Querying LogEntries for non-game services...");
 
+    // Anti-join against both mapping paths so URLs already handled per-game in
+    // Phase 3 (mapped Steam depots) or Phase 3b (Epic downloads) are not
+    // re-probed here. Without this, the "steam" bucket re-scans every URL
+    // already matched per-game — typically millions of redundant probes.
     let query = "
         SELECT DISTINCT le.\"Service\", le.\"Url\"
         FROM \"LogEntries\" le
+        LEFT JOIN \"SteamDepotMappings\" sdm
+            ON le.\"DepotId\" = sdm.\"DepotId\" AND sdm.\"IsOwner\" = true
+        LEFT JOIN \"Downloads\" d
+            ON le.\"DownloadId\" = d.\"Id\" AND d.\"EpicAppId\" IS NOT NULL
         WHERE le.\"Service\" IS NOT NULL
-        AND le.\"Url\" IS NOT NULL
-        AND LOWER(le.\"Service\") NOT IN ('unknown', 'localhost')
-        AND le.\"Service\" != ''
+          AND le.\"Url\" IS NOT NULL
+          AND LOWER(le.\"Service\") NOT IN ('unknown', 'localhost')
+          AND le.\"Service\" != ''
+          AND sdm.\"DepotId\" IS NULL
+          AND d.\"Id\" IS NULL
         ORDER BY le.\"Service\"
     ";
 

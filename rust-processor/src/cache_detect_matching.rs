@@ -4,6 +4,7 @@ use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::cache_detect_queries::{DownloadRecord, EpicDownloadRecord};
 use crate::cache_utils;
@@ -83,32 +84,54 @@ fn match_files_with_index(
     service_urls: &[ServiceUrl],
     cache_files_index: &HashMap<String, CacheFileInfo>,
 ) -> HashSet<PathBuf> {
+    let counter = AtomicUsize::new(0);
+    match_files_with_index_tracked(service_urls, cache_files_index, &counter)
+}
+
+fn match_files_with_index_tracked(
+    service_urls: &[ServiceUrl],
+    cache_files_index: &HashMap<String, CacheFileInfo>,
+    counter: &AtomicUsize,
+) -> HashSet<PathBuf> {
     service_urls
         .par_iter()
         .filter_map(|(service, url)| {
-            cache_utils::cache_hash_candidates_for_probe(
+            let result = cache_utils::cache_hash_candidates_for_probe(
                 service,
                 url,
                 cache_utils::DEFAULT_MAX_CHUNKS,
             )
             .into_iter()
-            .find_map(|hash| cache_files_index.get(&hash).map(|info| info.path.clone()))
+            .find_map(|hash| cache_files_index.get(&hash).map(|info| info.path.clone()));
+            counter.fetch_add(1, Ordering::Relaxed);
+            result
         })
         .collect()
 }
 
 fn match_files_in_cache(service_urls: &[ServiceUrl], cache_dir: &Path) -> HashSet<PathBuf> {
+    let counter = AtomicUsize::new(0);
+    match_files_in_cache_tracked(service_urls, cache_dir, &counter)
+}
+
+fn match_files_in_cache_tracked(
+    service_urls: &[ServiceUrl],
+    cache_dir: &Path,
+    counter: &AtomicUsize,
+) -> HashSet<PathBuf> {
     service_urls
         .par_iter()
         .filter_map(|(service, url)| {
-            cache_utils::cache_path_candidates_for_probe(
+            let result = cache_utils::cache_path_candidates_for_probe(
                 cache_dir,
                 service,
                 url,
                 cache_utils::DEFAULT_MAX_CHUNKS,
             )
             .into_iter()
-            .find(|path| path.exists())
+            .find(|path| path.exists());
+            counter.fetch_add(1, Ordering::Relaxed);
+            result
         })
         .collect()
 }
@@ -146,8 +169,9 @@ pub(crate) fn detect_service_cache_info(
     service_name: &str,
     service_urls: &[ServiceUrl],
     cache_files_index: &HashMap<String, CacheFileInfo>,
+    counter: &AtomicUsize,
 ) -> Result<ServiceCacheInfo> {
-    let found_files = match_files_with_index(service_urls, cache_files_index);
+    let found_files = match_files_with_index_tracked(service_urls, cache_files_index, counter);
     let total_size = total_size_from_index(&found_files, cache_files_index);
     let sample_urls =
         cache_utils::sorted_sample_urls(service_urls.iter().map(|(_, url)| url.as_str()), 5);
@@ -165,8 +189,9 @@ pub(crate) fn detect_service_cache_info_incremental(
     service_name: &str,
     service_urls: &[ServiceUrl],
     cache_dir: &Path,
+    counter: &AtomicUsize,
 ) -> Result<ServiceCacheInfo> {
-    let found_files = match_files_in_cache(service_urls, cache_dir);
+    let found_files = match_files_in_cache_tracked(service_urls, cache_dir, counter);
     let total_size = total_size_from_filesystem(&found_files);
     let sample_urls =
         cache_utils::sorted_sample_urls(service_urls.iter().map(|(_, url)| url.as_str()), 5);
