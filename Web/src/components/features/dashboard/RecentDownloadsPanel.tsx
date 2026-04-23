@@ -16,13 +16,26 @@ import { useTimeFilter } from '@contexts/useTimeFilter';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import EventBadge from '../downloads/EventBadge';
 import { storage } from '@utils/storage';
-import type { Download, DownloadGroup, EventSummary, GameSpeedInfo } from '@/types';
+import type {
+  Download,
+  DownloadGroup,
+  EventSummary,
+  GameSpeedInfo,
+  GameDetectionSummary
+} from '@/types';
+import { resolveGameDetection } from '@utils/gameDetection';
 
 interface RecentDownloadsPanelProps {
   downloads: Download[];
   loading?: boolean;
   timeRange?: string;
   glassmorphism?: boolean;
+  detectionLookup?: Map<number, GameDetectionSummary> | null;
+  detectionByName?: Map<string, GameDetectionSummary> | null;
+  detectionByService?: Map<
+    string,
+    { service_name: string; cache_files_found: number; total_size_bytes: number }
+  > | null;
 }
 
 // Active download item component using real-time speed data
@@ -77,9 +90,23 @@ interface RecentDownloadItemProps {
   item: DownloadGroup | Download;
   events?: EventSummary[];
   index: number;
+  detectionLookup?: Map<number, GameDetectionSummary> | null;
+  detectionByName?: Map<string, GameDetectionSummary> | null;
+  detectionByService?: Map<
+    string,
+    { service_name: string; cache_files_found: number; total_size_bytes: number }
+  > | null;
 }
 
-const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({ item, events = [], index }) => {
+const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({
+  item,
+  events = [],
+  index,
+  detectionLookup = null,
+  detectionByName = null,
+  detectionByService = null
+}) => {
+  const { t } = useTranslation();
   const isGroup = 'downloads' in item;
   const display = isGroup
     ? {
@@ -88,6 +115,7 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({ item, events = 
         totalBytes: item.totalBytes,
         cacheHitPercent:
           item.totalDownloaded > 0 ? (item.cacheHitBytes / item.totalDownloaded) * 100 : 0,
+        cacheHitBytes: item.cacheHitBytes,
         startTime: item.lastSeen,
         clientInfo: `${item.clientsSet.size} client${item.clientsSet.size !== 1 ? 's' : ''}`,
         clientIp: null as string | null, // Multiple clients, no single IP
@@ -110,6 +138,7 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({ item, events = 
             : item.gameName || (item.depotId ? `Depot ${item.depotId}` : item.service),
         totalBytes: item.totalBytes,
         cacheHitPercent: item.cacheHitPercent,
+        cacheHitBytes: item.cacheHitBytes,
         startTime: item.startTimeUtc,
         clientInfo: item.clientIp, // Fallback for display
         clientIp: item.clientIp, // Single client IP for nickname lookup
@@ -122,6 +151,43 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({ item, events = 
         isPartiallyEvicted: false,
         gameAppId: item.gameAppId ?? null
       };
+
+  const primaryDownload = isGroup ? (item as DownloadGroup).downloads[0] : (item as Download);
+  const isServiceBucket = isGroup && item.type !== 'game';
+  const detection = isServiceBucket
+    ? resolveGameDetection(
+        null,
+        null,
+        detectionLookup,
+        detectionByName,
+        display.service,
+        detectionByService
+      )
+    : resolveGameDetection(
+        primaryDownload?.gameAppId,
+        primaryDownload?.gameName ?? display.name,
+        detectionLookup,
+        detectionByName,
+        display.service,
+        detectionByService
+      );
+  const diskSizeBytes = detection?.total_size_bytes;
+
+  const hitTooltip =
+    display.cacheHitBytes > 0
+      ? diskSizeBytes
+        ? t('dashboard.downloadsPanel.hitTooltipDetailed', {
+            percent: formatPercent(display.cacheHitPercent),
+            saved: formatBytes(display.cacheHitBytes),
+            disk: formatBytes(diskSizeBytes)
+          })
+        : t('dashboard.downloadsPanel.hitTooltipSaved', {
+            percent: formatPercent(display.cacheHitPercent),
+            saved: formatBytes(display.cacheHitBytes)
+          })
+      : t('dashboard.downloadsPanel.hitTooltip', {
+          percent: formatPercent(display.cacheHitPercent)
+        });
 
   const formattedTime = useFormattedDateTime(display.startTime);
 
@@ -175,13 +241,29 @@ const RecentDownloadItem: React.FC<RecentDownloadItemProps> = ({ item, events = 
       </div>
       <div className="item-right">
         <div className="size-time">
-          <span className="size-value">{formatBytes(display.totalBytes)}</span>
+          <span className="size-value">
+            {formatBytes(display.totalBytes)} {t('dashboard.downloadsPanel.transferred')}
+          </span>
+          {diskSizeBytes ? (
+            <span className="disk-value">
+              {t('dashboard.downloadsPanel.onDisk', { size: formatBytes(diskSizeBytes) })}
+            </span>
+          ) : null}
           <span className="time-value">{formattedTime}</span>
         </div>
         <div
-          className={`hit-badge ${display.cacheHitPercent >= 75 ? 'high' : display.cacheHitPercent >= 50 ? 'medium' : display.cacheHitPercent >= 25 ? 'low' : 'critical'}`}
+          className={`hit-badge ${
+            display.cacheHitPercent >= 75
+              ? 'high'
+              : display.cacheHitPercent >= 50
+                ? 'medium'
+                : display.cacheHitPercent >= 25
+                  ? 'low'
+                  : 'critical'
+          }`}
+          title={hitTooltip}
         >
-          {formatPercent(display.cacheHitPercent)}
+          {formatPercent(display.cacheHitPercent)} {t('dashboard.downloadsPanel.hitLabel')}
         </div>
       </div>
     </div>
@@ -192,7 +274,10 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
   downloads = [],
   loading = false,
   timeRange = 'live',
-  glassmorphism = false
+  glassmorphism = false,
+  detectionLookup = null,
+  detectionByName = null,
+  detectionByService = null
 }) => {
   const { t } = useTranslation();
   const [selectedService, setSelectedService] = useState<string>('all');
@@ -839,6 +924,12 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
           color: var(--theme-text-muted);
         }
 
+        .disk-value {
+          font-size: 0.65rem;
+          color: var(--theme-text-muted);
+          font-variant-numeric: tabular-nums;
+        }
+
         .hit-badge {
           padding: 0.25rem 0.5rem;
           border-radius: var(--theme-border-radius);
@@ -1161,6 +1252,9 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
                 item={item}
                 events={events}
                 index={idx}
+                detectionLookup={detectionLookup}
+                detectionByName={detectionByName}
+                detectionByService={detectionByService}
               />
             );
           })

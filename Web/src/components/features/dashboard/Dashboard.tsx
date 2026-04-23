@@ -132,7 +132,8 @@ const Dashboard: React.FC = () => {
   const { t } = useTranslation();
   const { cacheInfo, clientStats, serviceStats, dashboardStats, loading } = useStats();
   const { latestDownloads } = useDownloads();
-  const { gameDetectionData, detectionLookup: _detectionLookup } = useGameDetection();
+  const { gameDetectionData, detectionLookup, detectionByName, detectionByService } =
+    useGameDetection();
   const { timeRange, getTimeRangeParams, customStartDate, customEndDate, selectedEventIds } =
     useTimeFilter();
   const { selectedEvent: _selectedEvent } = useEvents();
@@ -952,6 +953,9 @@ const Dashboard: React.FC = () => {
           loading={loading}
           timeRange={timeRange}
           glassmorphism={true}
+          detectionLookup={detectionLookup}
+          detectionByName={detectionByName}
+          detectionByService={detectionByService}
         />
       </div>
 
