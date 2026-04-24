@@ -127,8 +127,6 @@ export const SIGNALR_EVENTS = [
   'PrefillDefaultsChanged',
 
   // Prefill Daemon
-  'SteamUserBanned',
-  'SteamUserUnbanned',
   'DaemonSessionCreated',
   'DaemonSessionUpdated',
   'DaemonSessionTerminated',

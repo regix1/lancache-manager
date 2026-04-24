@@ -1,7 +1,6 @@
 using System.Text.Json;
 using LancacheManager.Models;
 using LancacheManager.Core.Services;
-using LancacheManager.Infrastructure.Data;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using LancacheManager.Core.Services.SteamKit2;
@@ -20,24 +19,18 @@ namespace LancacheManager.Controllers;
 [Authorize]
 public class DepotsController : ControllerBase
 {
-    private readonly AppDbContext _context;
     private readonly SteamKit2Service _steamKit2Service;
     private readonly PicsDataService _picsDataService;
     private readonly ILogger<DepotsController> _logger;
-    private readonly IHttpClientFactory _httpClientFactory;
 
     public DepotsController(
-        AppDbContext context,
         SteamKit2Service steamKit2Service,
         PicsDataService picsDataService,
-        ILogger<DepotsController> logger,
-        IHttpClientFactory httpClientFactory)
+        ILogger<DepotsController> logger)
     {
-        _context = context;
         _steamKit2Service = steamKit2Service;
         _picsDataService = picsDataService;
         _logger = logger;
-        _httpClientFactory = httpClientFactory;
     }
 
     /// <summary>

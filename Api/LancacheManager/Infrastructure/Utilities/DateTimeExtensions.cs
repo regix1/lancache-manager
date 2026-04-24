@@ -25,24 +25,6 @@ public static class DateTimeExtensions
         => DateTimeOffset.FromUnixTimeSeconds(unixSeconds).UtcDateTime;
 
     /// <summary>
-    /// Converts Unix timestamp (milliseconds since epoch) to UTC DateTime.
-    /// </summary>
-    public static DateTime FromUnixMilliseconds(this long unixMilliseconds)
-        => DateTimeOffset.FromUnixTimeMilliseconds(unixMilliseconds).UtcDateTime;
-
-    /// <summary>
-    /// Converts DateTime to Unix timestamp (seconds since epoch).
-    /// </summary>
-    public static long ToUnixSeconds(this DateTime dateTime)
-        => new DateTimeOffset(dateTime.ToUniversalTime()).ToUnixTimeSeconds();
-
-    /// <summary>
-    /// Converts DateTime to Unix timestamp (milliseconds since epoch).
-    /// </summary>
-    public static long ToUnixMilliseconds(this DateTime dateTime)
-        => new DateTimeOffset(dateTime.ToUniversalTime()).ToUnixTimeMilliseconds();
-
-    /// <summary>
     /// Marks a nullable DateTime as UTC. Returns null if input is null.
     /// </summary>
     public static DateTime? AsUtc(this DateTime? dt)

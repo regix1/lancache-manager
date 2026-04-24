@@ -15,7 +15,6 @@ public class SessionService
     private readonly ILogger<SessionService> _logger;
     private readonly StateService _stateService;
     private readonly ISignalRNotificationService _signalR;
-    private readonly IWebHostEnvironment _env;
 
     private const string CookieName = "LancacheManager.Session";
     // Admin sessions effectively never expire — a far-future ExpiresAtUtc keeps the
@@ -28,15 +27,13 @@ public class SessionService
         ApiKeyService apiKeyService,
         ILogger<SessionService> logger,
         StateService stateService,
-        ISignalRNotificationService signalR,
-        IWebHostEnvironment env)
+        ISignalRNotificationService signalR)
     {
         _dbContextFactory = dbContextFactory;
         _apiKeyService = apiKeyService;
         _logger = logger;
         _stateService = stateService;
         _signalR = signalR;
-        _env = env;
     }
 
     public async Task<(string RawToken, UserSession Session)?> CreateAdminSessionAsync(string apiKey, HttpContext httpContext)

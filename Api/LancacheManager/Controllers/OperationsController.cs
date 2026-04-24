@@ -1,5 +1,4 @@
 using LancacheManager.Core.Interfaces;
-using LancacheManager.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -15,40 +14,11 @@ namespace LancacheManager.Controllers;
 public class OperationsController : ControllerBase
 {
     private readonly IUnifiedOperationTracker _operationTracker;
-    private readonly ILogger<OperationsController> _logger;
 
     public OperationsController(
-        IUnifiedOperationTracker operationTracker,
-        ILogger<OperationsController> logger)
+        IUnifiedOperationTracker operationTracker)
     {
         _operationTracker = operationTracker;
-        _logger = logger;
-    }
-
-    /// <summary>
-    /// Gets all active operations, optionally filtered by type.
-    /// </summary>
-    /// <param name="type">Optional operation type filter</param>
-    /// <returns>List of active operations</returns>
-    [HttpGet]
-    public ActionResult<IEnumerable<OperationInfo>> GetActiveOperations([FromQuery] OperationType? type = null)
-    {
-        var operations = _operationTracker.GetActiveOperations(type);
-        return Ok(operations);
-    }
-
-    /// <summary>
-    /// Gets a specific operation by ID.
-    /// </summary>
-    /// <param name="id">Operation ID</param>
-    /// <returns>Operation information or 404 if not found</returns>
-    [HttpGet("{id}")]
-    public ActionResult<OperationInfo> GetOperation(Guid id)
-    {
-        var (operation, notFound) = GetOperationOrNotFound(id);
-        if (notFound != null) return notFound;
-
-        return Ok(operation);
     }
 
     /// <summary>
@@ -60,8 +30,9 @@ public class OperationsController : ControllerBase
     [HttpPost("{id}/cancel")]
     public IActionResult CancelOperation(Guid id)
     {
-        var (operation, notFound) = GetOperationOrNotFound(id);
-        if (notFound != null) return notFound;
+        var operation = _operationTracker.GetOperation(id);
+        if (operation == null)
+            return NotFound(new { error = "Operation not found", operationId = id });
 
         var cancelled = _operationTracker.CancelOperation(id);
         if (cancelled)
@@ -70,43 +41,11 @@ public class OperationsController : ControllerBase
             {
                 message = "Cancellation requested",
                 operationId = id,
-                status = operation!.Status
+                status = operation.Status
             });
         }
 
         return BadRequest(new { error = "Operation cannot be cancelled", operationId = id });
     }
 
-    /// <summary>
-    /// Force kills the process associated with an operation.
-    /// Use this when normal cancellation doesn't work.
-    /// </summary>
-    /// <param name="id">Operation ID</param>
-    /// <returns>200 OK if process killed, 404 if operation not found, 400 if no process to kill</returns>
-    [HttpPost("{id}/kill")]
-    public IActionResult ForceKillOperation(Guid id)
-    {
-        var (_, notFound) = GetOperationOrNotFound(id);
-        if (notFound != null) return notFound;
-
-        var killed = _operationTracker.ForceKillOperation(id);
-        if (killed)
-        {
-            return Ok(new
-            {
-                message = "Process killed",
-                operationId = id
-            });
-        }
-
-        return BadRequest(new { error = "No process to kill or operation cannot be force killed", operationId = id });
-    }
-
-    private (OperationInfo? operation, ActionResult? notFound) GetOperationOrNotFound(Guid id)
-    {
-        var operation = _operationTracker.GetOperation(id);
-        if (operation == null)
-            return (null, NotFound(new { error = "Operation not found", operationId = id }));
-        return (operation, null);
-    }
 }

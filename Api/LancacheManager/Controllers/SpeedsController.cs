@@ -17,18 +17,15 @@ public class SpeedsController : ControllerBase
     private readonly RustSpeedTrackerService _speedTrackerService;
     private readonly IDbContextFactory<AppDbContext> _contextFactory;
     private readonly IStateService _stateRepository;
-    private readonly ILogger<SpeedsController> _logger;
 
     public SpeedsController(
         RustSpeedTrackerService speedTrackerService,
         IDbContextFactory<AppDbContext> contextFactory,
-        IStateService stateRepository,
-        ILogger<SpeedsController> logger)
+        IStateService stateRepository)
     {
         _speedTrackerService = speedTrackerService;
         _contextFactory = contextFactory;
         _stateRepository = stateRepository;
-        _logger = logger;
     }
 
     /// <summary>

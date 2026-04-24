@@ -18,18 +18,15 @@ namespace LancacheManager.Controllers;
 public class SteamAuthController : ControllerBase
 {
     private readonly SteamKit2Service _steamKit2Service;
-    private readonly SteamAuthStorageService _steamAuthStorage;
     private readonly StateService _stateService;
     private readonly ILogger<SteamAuthController> _logger;
 
     public SteamAuthController(
         SteamKit2Service steamKit2Service,
-        SteamAuthStorageService steamAuthStorage,
         StateService stateService,
         ILogger<SteamAuthController> logger)
     {
         _steamKit2Service = steamKit2Service;
-        _steamAuthStorage = steamAuthStorage;
         _stateService = stateService;
         _logger = logger;
     }

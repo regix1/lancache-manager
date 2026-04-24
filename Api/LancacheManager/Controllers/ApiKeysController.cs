@@ -1,5 +1,4 @@
 using LancacheManager.Models;
-using LancacheManager.Core.Interfaces;
 using LancacheManager.Security;
 using LancacheManager.Infrastructure.Services;
 using Microsoft.AspNetCore.Mvc;
@@ -25,7 +24,6 @@ public class ApiKeysController : ControllerBase
     private readonly StateService _stateService;
     private readonly IConfiguration _configuration;
     private readonly ILogger<ApiKeysController> _logger;
-    private readonly ISignalRNotificationService _notifications;
 
     public ApiKeysController(
         ApiKeyService apiKeyService,
@@ -33,8 +31,7 @@ public class ApiKeysController : ControllerBase
         SteamAuthStorageService steamAuthStorage,
         StateService stateService,
         IConfiguration configuration,
-        ILogger<ApiKeysController> logger,
-        ISignalRNotificationService notifications)
+        ILogger<ApiKeysController> logger)
     {
         _apiKeyService = apiKeyService;
         _steamKit2Service = steamKit2Service;
@@ -42,7 +39,6 @@ public class ApiKeysController : ControllerBase
         _stateService = stateService;
         _configuration = configuration;
         _logger = logger;
-        _notifications = notifications;
     }
 
     /// <summary>

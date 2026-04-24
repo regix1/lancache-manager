@@ -172,6 +172,21 @@ dotnet_diagnostic.IDE0040.severity = suggestion # Accessibility modifiers requir
 dotnet_diagnostic.IDE0130.severity = none       # Namespace doesn't match folder — intentional flat namespaces
 dotnet_diagnostic.IDE0161.severity = none       # File-scoped namespace — migrations are auto-generated
 
+# Dead-code detection (built-in Roslyn analyzers)
+dotnet_diagnostic.IDE0051.severity = warning    # Remove unused private member
+dotnet_diagnostic.IDE0052.severity = warning    # Remove unread private member
+dotnet_diagnostic.IDE0060.severity = suggestion # Remove unused parameter — noisy in controllers, keep as suggestion
+
+# Dead-code detection (Roslynator analyzers — PackageReference in LancacheManager.csproj)
+dotnet_diagnostic.RCS1213.severity = warning    # Remove unused member declaration
+dotnet_diagnostic.RCS1163.severity = suggestion # Unused parameter — noisy, keep as suggestion
+dotnet_diagnostic.RCS1169.severity = suggestion # Make field read-only — not a dead-code rule, demote noise
+dotnet_diagnostic.RCS1170.severity = suggestion # Use read-only auto-property — not dead code
+dotnet_diagnostic.RCS1036.severity = suggestion # Remove redundant empty line — style noise
+dotnet_diagnostic.RCS1037.severity = suggestion # Remove trailing whitespace — style noise
+dotnet_diagnostic.RCS1090.severity = suggestion # Call ConfigureAwait — ASP.NET doesn't need it
+dotnet_diagnostic.RCS1194.severity = suggestion # Implement exception constructors — noisy
+
 # Performance — perf rules promoted to error via WarningsAsErrors in Directory.Build.props
 dotnet_diagnostic.CA1870.severity = warning     # Use cached SearchValues<T> for IndexOfAny / ContainsAny
 

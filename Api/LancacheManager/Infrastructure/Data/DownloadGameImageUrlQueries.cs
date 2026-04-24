@@ -35,12 +35,6 @@ namespace LancacheManager.Infrastructure.Data;
 ///     <see cref="Services.GameImageFetchService"/> — calls <see cref="GetLatestUrlsForSteamAppsAsync"/>
 ///     to discover which CDN URLs to fetch image bytes from for apps that are missing cached images.
 ///   </item>
-///   <item>
-///     <c>GameCacheDetectionService.EnrichGameImageUrlsFromDatabaseAsync</c> — calls
-///     <see cref="GetLatestUrlsForSteamAppsAsync"/> to populate <c>GameCacheInfo.ImageUrl</c>
-///     on the detection API response (legacy field; frontend now uses the <c>GameImage</c> component
-///     which loads images via <c>/api/game-images/{appId}/header</c> proxy instead).
-///   </item>
 /// </list>
 /// </summary>
 public static class DownloadGameImageUrlQueries

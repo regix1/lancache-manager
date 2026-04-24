@@ -14,12 +14,10 @@ namespace LancacheManager.Infrastructure.Services;
 public class StatsDataService : IStatsDataService
 {
     private readonly AppDbContext _context;
-    private readonly ILogger<StatsDataService> _logger;
 
-    public StatsDataService(AppDbContext context, ILogger<StatsDataService> logger)
+    public StatsDataService(AppDbContext context)
     {
         _context = context;
-        _logger = logger;
     }
 
     /// <summary>

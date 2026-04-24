@@ -17,20 +17,17 @@ namespace LancacheManager.Controllers;
 public class SessionsController : ControllerBase
 {
     private readonly SessionService _sessionService;
-    private readonly ILogger<SessionsController> _logger;
     private readonly ISignalRNotificationService _signalR;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly StateService _stateService;
 
     public SessionsController(
         SessionService sessionService,
-        ILogger<SessionsController> logger,
         ISignalRNotificationService signalR,
         IServiceScopeFactory scopeFactory,
         StateService stateService)
     {
         _sessionService = sessionService;
-        _logger = logger;
         _signalR = signalR;
         _scopeFactory = scopeFactory;
         _stateService = stateService;

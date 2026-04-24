@@ -688,23 +688,6 @@ public class PicsDataService
     }
 
     /// <summary>
-    /// Combine source information for depot mappings
-    /// </summary>
-    private string GetCombinedSource(string existingSource, string newSource)
-    {
-        if (existingSource == newSource)
-            return existingSource;
-
-        if (newSource == "SteamKit2-PICS")
-            return "SteamKit2-PICS";
-
-        if (existingSource == "PatternMatching" && newSource == "JSON-Import")
-            return "PatternMatching+JSON";
-
-        return existingSource;
-    }
-
-    /// <summary>
     /// Clear the cached PICS data - call this after updating the JSON file
     /// </summary>
     public void ClearCache()

@@ -1,7 +1,6 @@
 using LancacheManager.Models;
 using LancacheManager.Configuration;
 using LancacheManager.Infrastructure.Data;
-using LancacheManager.Infrastructure.Services;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
@@ -24,43 +23,34 @@ namespace LancacheManager.Controllers;
 public class StatsController : ControllerBase
 {
     private readonly AppDbContext _context;
-    private readonly StatsDataService _statsService;
     private readonly IClientGroupsService _clientGroupsRepository;
     private readonly CacheSnapshotService _cacheSnapshotService;
     private readonly IStateService _stateRepository;
-    private readonly ILogger<StatsController> _logger;
     private readonly IOptions<ApiOptions> _apiOptions;
     private readonly ISignalRNotificationService _notifications;
     private readonly CacheReconciliationService _reconciliationService;
     private readonly IUnifiedOperationTracker _operationTracker;
-    private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly IOperationConflictChecker _conflictChecker;
 
     public StatsController(
         AppDbContext context,
-        StatsDataService statsService,
         IClientGroupsService clientGroupsRepository,
         CacheSnapshotService cacheSnapshotService,
         IStateService stateRepository,
-        ILogger<StatsController> logger,
         IOptions<ApiOptions> apiOptions,
         ISignalRNotificationService notifications,
         CacheReconciliationService reconciliationService,
         IUnifiedOperationTracker operationTracker,
-        IDbContextFactory<AppDbContext> dbContextFactory,
         IOperationConflictChecker conflictChecker)
     {
         _context = context;
-        _statsService = statsService;
         _clientGroupsRepository = clientGroupsRepository;
         _cacheSnapshotService = cacheSnapshotService;
         _stateRepository = stateRepository;
-        _logger = logger;
         _apiOptions = apiOptions;
         _notifications = notifications;
         _reconciliationService = reconciliationService;
         _operationTracker = operationTracker;
-        _dbContextFactory = dbContextFactory;
         _conflictChecker = conflictChecker;
     }
 
@@ -91,18 +81,6 @@ public class StatsController : ControllerBase
             .Distinct()
             .ToListAsync();
         return downloadIds.ToHashSet();
-    }
-
-    private static IQueryable<Download> ApplyExcludedClientFilter(IQueryable<Download> query, List<string> excludedClientIps)
-    {
-        query = query.ApplyPrefillFilter();
-
-        if (excludedClientIps.Count == 0)
-        {
-            return query;
-        }
-
-        return query.Where(d => !excludedClientIps.Contains(d.ClientIp));
     }
 
     /// <summary>

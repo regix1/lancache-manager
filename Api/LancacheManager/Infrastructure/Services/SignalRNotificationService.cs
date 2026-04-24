@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.SignalR;
 using LancacheManager.Core.Interfaces;
-using LancacheManager.Core.Services;
 using LancacheManager.Hubs;
 
 namespace LancacheManager.Infrastructure.Services;
@@ -16,20 +15,17 @@ public class SignalRNotificationService : ISignalRNotificationService
     private readonly IHubContext<DownloadHub> _downloadHubContext;
     private readonly IHubContext<SteamDaemonHub> _steamHubContext;
     private readonly IHubContext<EpicPrefillDaemonHub> _epicHubContext;
-    private readonly ConnectionTrackingService _connectionTrackingService;
     private readonly ILogger<SignalRNotificationService> _logger;
 
     public SignalRNotificationService(
         IHubContext<DownloadHub> downloadHubContext,
         IHubContext<SteamDaemonHub> steamHubContext,
         IHubContext<EpicPrefillDaemonHub> epicHubContext,
-        ConnectionTrackingService connectionTrackingService,
         ILogger<SignalRNotificationService> logger)
     {
         _downloadHubContext = downloadHubContext;
         _steamHubContext = steamHubContext;
         _epicHubContext = epicHubContext;
-        _connectionTrackingService = connectionTrackingService;
         _logger = logger;
     }
 

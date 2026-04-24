@@ -20,7 +20,6 @@ public class CacheManagementService
     private readonly ProcessManager _processManager;
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly NginxLogRotationService _nginxLogRotationService;
-    private readonly ISignalRNotificationService _notifications;
     private readonly DatasourceService _datasourceService;
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly GameCacheDetectionService _gameCacheDetectionService;
@@ -28,7 +27,6 @@ public class CacheManagementService
 
     // Legacy single-path fields (for backward compatibility)
     private readonly string _cachePath;
-    private readonly string _logPath;
 
     // Lock for thread safety during Rust binary execution
     private readonly SemaphoreSlim _cacheLock = new SemaphoreSlim(1, 1);
@@ -54,7 +52,6 @@ public class CacheManagementService
         ProcessManager processManager,
         RustProcessHelper rustProcessHelper,
         NginxLogRotationService nginxLogRotationService,
-        ISignalRNotificationService notifications,
         DatasourceService datasourceService,
         IDbContextFactory<AppDbContext> dbContextFactory,
         GameCacheDetectionService gameCacheDetectionService)
@@ -65,7 +62,6 @@ public class CacheManagementService
         _processManager = processManager;
         _rustProcessHelper = rustProcessHelper;
         _nginxLogRotationService = nginxLogRotationService;
-        _notifications = notifications;
         _datasourceService = datasourceService;
         _dbContextFactory = dbContextFactory;
         _gameCacheDetectionService = gameCacheDetectionService;
@@ -75,7 +71,6 @@ public class CacheManagementService
         if (defaultDatasource != null)
         {
             _cachePath = defaultDatasource.CachePath;
-            _logPath = defaultDatasource.LogFilePath;
         }
         else
         {
@@ -84,11 +79,6 @@ public class CacheManagementService
             _cachePath = !string.IsNullOrEmpty(configCachePath)
                 ? _pathResolver.ResolvePath(configCachePath)
                 : _pathResolver.GetCacheDirectory();
-
-            var configLogPath = configuration["LanCache:LogPath"];
-            _logPath = !string.IsNullOrEmpty(configLogPath)
-                ? _pathResolver.ResolvePath(configLogPath)
-                : Path.Combine(_pathResolver.GetLogsDirectory(), "access.log");
         }
 
         // Check if cache directories exist for all datasources

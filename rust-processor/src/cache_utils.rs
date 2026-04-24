@@ -135,67 +135,6 @@ pub fn detect_filesystem_type(_path: &Path) -> FilesystemType {
     FilesystemType::Local
 }
 
-/// Get cache size using the system's `du` command
-/// This is more reliable on NFS/SMB than walking the tree with stat() calls
-/// because the NFS server may cache directory information more efficiently
-#[cfg(unix)]
-#[allow(dead_code)]
-pub fn get_size_via_du(path: &Path) -> Option<u64> {
-    use std::process::Command;
-
-    let output = Command::new("du")
-        .arg("-sb") // summarize, bytes
-        .arg(path)
-        .output()
-        .ok()?;
-
-    if !output.status.success() {
-        return None;
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    // Output format: "12345678\t/path/to/dir"
-    stdout
-        .split_whitespace()
-        .next()
-        .and_then(|s| s.parse::<u64>().ok())
-}
-
-#[cfg(not(unix))]
-#[allow(dead_code)]
-pub fn get_size_via_du(_path: &Path) -> Option<u64> {
-    None
-}
-
-/// Get file count using the system's `find` command
-/// More reliable on NFS than walking with readdir
-#[cfg(unix)]
-#[allow(dead_code)]
-pub fn get_file_count_via_find(path: &Path) -> Option<u64> {
-    use std::process::Command;
-
-    let output = Command::new("find")
-        .arg(path)
-        .arg("-type")
-        .arg("f")
-        .arg("-printf")
-        .arg(".")
-        .output()
-        .ok()?;
-
-    if !output.status.success() {
-        return None;
-    }
-
-    Some(output.stdout.len() as u64)
-}
-
-#[cfg(not(unix))]
-#[allow(dead_code)]
-pub fn get_file_count_via_find(_path: &Path) -> Option<u64> {
-    None
-}
-
 /// Calculate MD5 hash for a cache key
 /// Used for deriving cache file paths from service + URL combinations
 pub fn calculate_md5(cache_key: &str) -> String {

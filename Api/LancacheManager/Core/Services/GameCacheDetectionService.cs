@@ -20,7 +20,6 @@ public class GameCacheDetectionService : IDisposable
     private readonly GameCacheDetectionDataService _detectionDataService;
     private readonly EvictedDetectionPreservationService _evictedDetectionPreservationService;
     private readonly UnknownGameResolutionService _unknownGameResolutionService;
-    private readonly ProcessManager _processManager;
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly ISignalRNotificationService _notifications;
     private readonly DatasourceService _datasourceService;
@@ -64,7 +63,6 @@ public class GameCacheDetectionService : IDisposable
         GameCacheDetectionDataService detectionDataService,
         EvictedDetectionPreservationService evictedDetectionPreservationService,
         UnknownGameResolutionService unknownGameResolutionService,
-        ProcessManager processManager,
         RustProcessHelper rustProcessHelper,
         ISignalRNotificationService notifications,
         DatasourceService datasourceService,
@@ -77,7 +75,6 @@ public class GameCacheDetectionService : IDisposable
         _detectionDataService = detectionDataService;
         _evictedDetectionPreservationService = evictedDetectionPreservationService;
         _unknownGameResolutionService = unknownGameResolutionService;
-        _processManager = processManager;
         _rustProcessHelper = rustProcessHelper;
         _notifications = notifications;
         _datasourceService = datasourceService;
@@ -1150,84 +1147,6 @@ public class GameCacheDetectionService : IDisposable
             EpicAppId = cached.EpicAppId,
             IsEvicted = cached.IsEvicted
         };
-    }
-
-    /// <summary>
-    /// Fills ImageUrl from Downloads (Steam/Epic hits) and EpicGameMappings so the UI can use stored CDN URLs
-    /// instead of proxying every banner through /api/game-images.
-    /// </summary>
-    private static async Task EnrichGameImageUrlsFromDatabaseAsync(AppDbContext db, List<GameCacheInfo> games)
-    {
-        if (games.Count == 0)
-        {
-            return;
-        }
-
-        var steamAppIds = games
-            .Where(g => !string.Equals(g.Service, "epicgames", StringComparison.OrdinalIgnoreCase)
-                        && g.GameAppId > 0)
-            .Select(g => g.GameAppId)
-            .Distinct()
-            .ToList();
-
-        if (steamAppIds.Count > 0)
-        {
-            var bestUrlBySteamApp =
-                await DownloadGameImageUrlQueries.GetLatestUrlsForSteamAppsAsync(db, steamAppIds);
-
-            foreach (var game in games.Where(g =>
-                         !string.Equals(g.Service, "epicgames", StringComparison.OrdinalIgnoreCase)
-                         && g.GameAppId > 0))
-            {
-                if (!string.IsNullOrEmpty(game.ImageUrl))
-                {
-                    continue;
-                }
-
-                if (bestUrlBySteamApp.TryGetValue(game.GameAppId, out var url))
-                {
-                    game.ImageUrl = url;
-                }
-            }
-        }
-
-        var epicIdsMissingUrl = games
-            .Where(g => string.Equals(g.Service, "epicgames", StringComparison.OrdinalIgnoreCase)
-                        && !string.IsNullOrEmpty(g.EpicAppId)
-                        && string.IsNullOrEmpty(g.ImageUrl))
-            .Select(g => g.EpicAppId!)
-            .Distinct()
-            .ToList();
-
-        if (epicIdsMissingUrl.Count == 0)
-        {
-            return;
-        }
-
-        var mappings = await db.EpicGameMappings
-            .AsNoTracking()
-            .Where(m => epicIdsMissingUrl.Contains(m.AppId))
-            .Select(m => new { m.AppId, m.ImageUrl })
-            .ToListAsync();
-
-        var epicUrlByCatalogId = mappings
-            .Where(m => !string.IsNullOrEmpty(m.ImageUrl))
-            .GroupBy(m => m.AppId)
-            .ToDictionary(g => g.Key, g => g.First().ImageUrl!);
-
-        foreach (var game in games.Where(g =>
-                     string.Equals(g.Service, "epicgames", StringComparison.OrdinalIgnoreCase)))
-        {
-            if (!string.IsNullOrEmpty(game.ImageUrl) || string.IsNullOrEmpty(game.EpicAppId))
-            {
-                continue;
-            }
-
-            if (epicUrlByCatalogId.TryGetValue(game.EpicAppId, out var u))
-            {
-                game.ImageUrl = EpicApiDirectClient.EnsureResizeParams(u);
-            }
-        }
     }
 
     private static ServiceCacheInfo ConvertToServiceCacheInfo(CachedServiceDetection cached)

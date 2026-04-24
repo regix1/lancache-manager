@@ -1352,11 +1352,6 @@ public class StateService : IStateService
         return normalized;
     }
 
-    private static bool IsHiddenMode(string? mode)
-    {
-        return NormalizeMode(mode) == ClientExclusionModes.Hide;
-    }
-
     private static bool IsStatsExcludedMode(string? mode)
     {
         var normalized = NormalizeMode(mode);

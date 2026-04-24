@@ -19,7 +19,6 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
     private readonly IDbContextFactory<AppDbContext> _dbContextFactory;
     private readonly IUnifiedOperationTracker _operationTracker;
     private readonly IServiceScopeFactory _scopeFactory;
-    private readonly IStateService _stateService;
     private readonly TaskCompletionSource<bool> _startupAutoReconnectCompleted = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private EpicPrefillDaemonService? _epicDaemonService;
     private Guid? _currentOperationId;
@@ -73,7 +72,6 @@ public partial class EpicMappingService : ConfigurableScheduledService, IDisposa
         _dbContextFactory = dbContextFactory;
         _operationTracker = operationTracker;
         _scopeFactory = scopeFactory;
-        _stateService = stateService;
 
         // Apply user-saved interval and run-on-startup overrides before the loop starts.
         LoadStateOverrides(stateService, ScheduleServiceKey);

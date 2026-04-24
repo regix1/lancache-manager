@@ -3,8 +3,6 @@ using System.Text.Json;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Extensions;
 using LancacheManager.Infrastructure.Services.Base;
-using LancacheManager.Models;
-using Npgsql;
 using Microsoft.EntityFrameworkCore;
 
 namespace LancacheManager.Core.Services;
@@ -250,63 +248,6 @@ public class SteamService : ScopedScheduledBackgroundService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error loading depot mappings from database");
-        }
-    }
-
-    private async Task SaveToDatabaseAsync()
-    {
-        try
-        {
-            using var scopedDb = _scopeFactory.CreateScopedDbContext();
-
-            // Save depot mappings (if new entries were discovered)
-            var existingMappings = await scopedDb.DbContext.SteamDepotMappings
-                .AsNoTracking()
-                .ToDictionaryAsync(m => (m.DepotId, m.AppId));
-
-            var added = 0;
-
-            foreach (var (depotId, appIds) in _depotMappings)
-            {
-                foreach (var appId in appIds)
-                {
-                    if (existingMappings.ContainsKey((depotId, appId)))
-                    {
-                        continue;
-                    }
-
-                    var newMapping = new SteamDepotMapping
-                    {
-                        DepotId = depotId,
-                        AppId = appId,
-                        Source = "steam-api",
-                        DiscoveredAt = DateTime.UtcNow
-                    };
-
-                    scopedDb.DbContext.SteamDepotMappings.Add(newMapping);
-                    existingMappings[(depotId, appId)] = newMapping;
-                    added++;
-                }
-            }
-
-            if (added > 0)
-            {
-                try
-                {
-                    await scopedDb.DbContext.SaveChangesAsync();
-                    _logger.LogInformation("Saved {Count} depot mappings to database", added);
-                }
-                catch (DbUpdateException ex) when (ex.InnerException is NpgsqlException pgEx && pgEx.SqlState == "23505")
-                {
-                    // UNIQUE constraint violation - duplicates already exist (race condition)
-                    // This can happen if another process added the same mappings concurrently
-                    _logger.LogDebug("Skipped saving depot mappings - duplicates already exist in database");
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error saving depot mappings to database");
         }
     }
 

@@ -14,19 +14,15 @@ public partial class SteamDaemonService : PrefillDaemonServiceBase
 {
     private const string SteamDockerImage = "ghcr.io/regix1/steam-prefill-daemon:latest";
 
-    private readonly ISteamAuthStorageService _steamAuthStorage;
-
     public SteamDaemonService(
         ILogger<SteamDaemonService> logger,
         ISignalRNotificationService notifications,
         IConfiguration configuration,
         IPathResolver pathResolver,
         PrefillSessionService sessionService,
-        PrefillCacheService cacheService,
-        ISteamAuthStorageService steamAuthStorage)
+        PrefillCacheService cacheService)
         : base(logger, notifications, configuration, pathResolver, sessionService, cacheService)
     {
-        _steamAuthStorage = steamAuthStorage;
     }
 
     // === Abstract property implementations ===

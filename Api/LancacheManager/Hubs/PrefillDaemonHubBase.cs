@@ -211,56 +211,6 @@ public abstract class PrefillDaemonHubBase<TDaemon> : Hub where TDaemon : Prefil
     }
 
     /// <summary>
-    /// Gets owned games for a logged-in session.
-    /// </summary>
-    public async Task<List<OwnedGame>> GetOwnedGamesAsync(string sessionId)
-    {
-        ValidateSessionAccess(sessionId, out _);
-
-        return await _daemonService.GetOwnedGamesAsync(sessionId);
-    }
-
-    /// <summary>
-    /// Sets selected apps for prefill.
-    /// </summary>
-    public async Task SetSelectedAppsAsync(string sessionId, List<string> appIds)
-    {
-        ValidateSessionAccess(sessionId, out _);
-
-        _logger.LogInformation("SetSelectedApps called for {Hub} session {SessionId} with {Count} app IDs",
-            HubDisplayName, sessionId, appIds?.Count ?? 0);
-
-        await _daemonService.SetSelectedAppsAsync(sessionId, appIds ?? new List<string>());
-    }
-
-    /// <summary>
-    /// Starts a prefill operation.
-    /// </summary>
-    public async Task<PrefillResult> StartPrefillAsync(string sessionId, bool all = false, bool recent = false, bool force = false, string? operatingSystems = null)
-    {
-        try
-        {
-            ValidateSessionAccess(sessionId, out _);
-
-            List<string>? osList = null;
-            if (!string.IsNullOrEmpty(operatingSystems))
-            {
-                osList = operatingSystems.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
-            }
-
-            _logger.LogInformation("Starting prefill for {Hub} session {SessionId} (all={All}, recent={Recent}, force={Force}, os={OS})",
-                HubDisplayName, sessionId, all, recent, force, operatingSystems ?? "default");
-
-            return await _daemonService.PrefillAsync(sessionId, all: all, recent: recent, force: force, operatingSystems: osList);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "StartPrefill failed for {Hub} session {SessionId}", HubDisplayName, sessionId);
-            throw;
-        }
-    }
-
-    /// <summary>
     /// Clears the temporary cache.
     /// </summary>
     public async Task<ClearCacheResult> ClearCacheAsync(string sessionId)

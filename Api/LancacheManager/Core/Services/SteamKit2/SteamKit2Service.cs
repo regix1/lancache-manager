@@ -20,7 +20,6 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly SteamService _steamService;
-    private readonly IPathResolver _pathResolver;
     private readonly StateService _stateService;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ISignalRNotificationService _notifications;
@@ -109,7 +108,6 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
         IServiceScopeFactory scopeFactory,
         SteamService steamService,
         PicsDataService picsDataService,
-        IPathResolver pathResolver,
         StateService stateService,
         IHttpClientFactory httpClientFactory,
         ISignalRNotificationService notifications,
@@ -121,7 +119,6 @@ public partial class SteamKit2Service : ConfigurableScheduledService, IDisposabl
         _scopeFactory = scopeFactory;
         _steamService = steamService;
         _picsDataService = picsDataService;
-        _pathResolver = pathResolver;
         _stateService = stateService;
         _httpClientFactory = httpClientFactory;
         _notifications = notifications;

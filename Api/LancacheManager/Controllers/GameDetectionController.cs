@@ -15,14 +15,11 @@ namespace LancacheManager.Controllers;
 public class GameDetectionController : ControllerBase
 {
     private readonly GameCacheDetectionService _gameCacheDetectionService;
-    private readonly ILogger<GameDetectionController> _logger;
 
     public GameDetectionController(
-        GameCacheDetectionService gameCacheDetectionService,
-        ILogger<GameDetectionController> logger)
+        GameCacheDetectionService gameCacheDetectionService)
     {
         _gameCacheDetectionService = gameCacheDetectionService;
-        _logger = logger;
     }
 
     /// <summary>

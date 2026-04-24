@@ -1,9 +1,7 @@
 using LancacheManager.Models;
 using LancacheManager.Core.Services;
 using LancacheManager.Core.Services.SteamPrefill;
-using LancacheManager.Core.Interfaces;
 using LancacheManager.Middleware;
-using LancacheManager.Hubs;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -23,22 +21,19 @@ public class PrefillAdminController : ControllerBase
     private readonly EpicPrefillDaemonService _epicDaemonService;
     private readonly PrefillCacheService _cacheService;
     private readonly ILogger<PrefillAdminController> _logger;
-    private readonly ISignalRNotificationService _notifications;
 
     public PrefillAdminController(
         PrefillSessionService sessionService,
         SteamDaemonService steamDaemonService,
         EpicPrefillDaemonService epicDaemonService,
         PrefillCacheService cacheService,
-        ILogger<PrefillAdminController> logger,
-        ISignalRNotificationService notifications)
+        ILogger<PrefillAdminController> logger)
     {
         _sessionService = sessionService;
         _steamDaemonService = steamDaemonService;
         _epicDaemonService = epicDaemonService;
         _cacheService = cacheService;
         _logger = logger;
-        _notifications = notifications;
     }
 
     /// <summary>
@@ -63,23 +58,6 @@ public class PrefillAdminController : ControllerBase
     /// </summary>
     private static Guid? ParseGuidOrNull(string? value)
         => Guid.TryParse(value, out var guid) ? guid : null;
-
-    /// <summary>
-    /// Notifies the banned user's session via SignalR so their UI updates immediately.
-    /// </summary>
-    private async Task NotifyBannedAsync(BannedSteamUser ban)
-    {
-        if (!string.IsNullOrEmpty(ban.BannedBySessionId))
-        {
-            await _notifications.NotifyAllAsync(SignalREvents.SteamUserBanned, new
-            {
-                sessionId = ban.BannedBySessionId,
-                username = ban.Username,
-                reason = ban.BanReason,
-                expiresAt = ban.ExpiresAtUtc?.ToString("o")
-            });
-        }
-    }
 
     #region Session Management
 
@@ -293,8 +271,6 @@ public class PrefillAdminController : ControllerBase
         await _steamDaemonService.TerminateSessionAsync(sessionId, "Banned by admin", true, adminSessionIdString);
         await _epicDaemonService.TerminateSessionAsync(sessionId, "Banned by admin", true, adminSessionIdString);
 
-        await NotifyBannedAsync(ban);
-
         _logger.LogWarning("Admin session {AdminId} banned Steam user {Username} from session {SessionId}. Reason: {Reason}",
             adminSessionId, ban.Username, sessionId, request.Reason);
 
@@ -323,8 +299,6 @@ public class PrefillAdminController : ControllerBase
             adminSessionIdString,
             request.ExpiresAt);
 
-        await NotifyBannedAsync(ban);
-
         _logger.LogWarning("Admin session {AdminId} banned Steam user {Username}. Reason: {Reason}",
             adminSessionId, ban.Username, request.Reason);
 
@@ -346,16 +320,6 @@ public class PrefillAdminController : ControllerBase
         if (ban == null)
         {
             return NotFound(ApiResponse.Error("Ban not found or already lifted"));
-        }
-
-        // Notify the unbanned session via SignalR so their UI updates immediately
-        if (!string.IsNullOrEmpty(ban.BannedBySessionId))
-        {
-            await _notifications.NotifyAllAsync(SignalREvents.SteamUserUnbanned, new
-            {
-                sessionId = ban.BannedBySessionId,
-                username = ban.Username
-            });
         }
 
         _logger.LogInformation("Admin session {AdminId} lifted ban {BanId}", adminSessionId, banId);

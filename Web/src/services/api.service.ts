@@ -2633,20 +2633,6 @@ class ApiService {
     await ApiService.handleResponse(response);
   }
 
-  // ── Setup ─────────────────────────────────────────────────────────────────
-
-  static async submitSetupCredentials<T>(username: string, password: string): Promise<T> {
-    const response = await fetch(
-      `${API_BASE}/setup/credentials`,
-      this.getFetchOptions({
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
-      })
-    );
-    return ApiService.handleResponse<T>(response);
-  }
-
   // ── Version ───────────────────────────────────────────────────────────────
 
   static async getVersion(): Promise<string> {

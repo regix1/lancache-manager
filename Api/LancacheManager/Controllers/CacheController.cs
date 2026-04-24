@@ -23,11 +23,8 @@ public class CacheController : ControllerBase
 {
     private readonly CacheManagementService _cacheService;
     private readonly CacheClearingService _cacheClearingService;
-    private readonly GameCacheDetectionService _gameCacheDetectionService;
-    private readonly IConfiguration _configuration;
     private readonly ILogger<CacheController> _logger;
     private readonly IPathResolver _pathResolver;
-    private readonly StateService _stateService;
     private readonly ISignalRNotificationService _notifications;
     private readonly RustProcessHelper _rustProcessHelper;
     private readonly NginxLogRotationService _nginxLogRotationService;
@@ -41,12 +38,9 @@ public class CacheController : ControllerBase
     public CacheController(
         CacheManagementService cacheService,
         CacheClearingService cacheClearingService,
-        GameCacheDetectionService gameCacheDetectionService,
         CorruptionDetectionService corruptionDetectionService,
-        IConfiguration configuration,
         ILogger<CacheController> logger,
         IPathResolver pathResolver,
-        StateService stateService,
         ISignalRNotificationService notifications,
         RustProcessHelper rustProcessHelper,
         NginxLogRotationService nginxLogRotationService,
@@ -58,12 +52,9 @@ public class CacheController : ControllerBase
     {
         _cacheService = cacheService;
         _cacheClearingService = cacheClearingService;
-        _gameCacheDetectionService = gameCacheDetectionService;
         _corruptionDetectionService = corruptionDetectionService;
-        _configuration = configuration;
         _logger = logger;
         _pathResolver = pathResolver;
-        _stateService = stateService;
         _notifications = notifications;
         _rustProcessHelper = rustProcessHelper;
         _nginxLogRotationService = nginxLogRotationService;
