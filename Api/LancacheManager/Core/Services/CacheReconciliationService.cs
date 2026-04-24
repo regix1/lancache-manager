@@ -1224,6 +1224,11 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         CancellationToken stoppingToken,
         Guid? operationId = null)
     {
+        // Npgsql cannot translate string.Equals(..., StringComparison.OrdinalIgnoreCase);
+        // service names are already stored lowercase, so lowercasing `key` once here lets
+        // the EvictionScope.Service branches use plain `==` in the LINQ (SQL-translatable).
+        var keyLower = key.ToLowerInvariant();
+
         CancellationTokenSource? cts = null;
 
         // Deliberately not using TrackedRemovalOperationRunner: this service can start from the background scan path without a controller HTTP lifecycle.
@@ -1293,7 +1298,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                                       && le.Download.IsEvicted
                                       && le.Download.GameAppId == null
                                       && le.Download.EpicAppId == null
-                                      && string.Equals(le.Download.Service, key, StringComparison.OrdinalIgnoreCase))
+                                      && le.Download.Service == keyLower)
                             .ExecuteDeleteAsync(stoppingToken),
 
                         _ => throw new ArgumentOutOfRangeException(nameof(scope))
@@ -1323,7 +1328,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                             .Where(d => d.IsEvicted
                                      && d.GameAppId == null
                                      && d.EpicAppId == null
-                                     && string.Equals(d.Service, key, StringComparison.OrdinalIgnoreCase))
+                                     && d.Service == keyLower)
                             .ExecuteDeleteAsync(stoppingToken),
 
                         _ => throw new ArgumentOutOfRangeException(nameof(scope))
@@ -1379,7 +1384,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 EvictionScope.Service => await context.Downloads
                     .AnyAsync(d => d.GameAppId == null
                                 && d.EpicAppId == null
-                                && string.Equals(d.Service, key, StringComparison.OrdinalIgnoreCase), stoppingToken),
+                                && d.Service == keyLower, stoppingToken),
                 _ => false
             };
 
@@ -1397,7 +1402,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         .ExecuteDeleteAsync(stoppingToken),
 
                     EvictionScope.Service => await context.CachedServiceDetections
-                        .Where(s => string.Equals(s.ServiceName, key, StringComparison.OrdinalIgnoreCase))
+                        .Where(s => s.ServiceName == keyLower)
                         .ExecuteDeleteAsync(stoppingToken),
 
                     _ => 0
@@ -1418,7 +1423,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         .ExecuteUpdateAsync(g => g.SetProperty(x => x.IsEvicted, false), stoppingToken),
 
                     EvictionScope.Service => await context.CachedServiceDetections
-                        .Where(s => s.IsEvicted && string.Equals(s.ServiceName, key, StringComparison.OrdinalIgnoreCase))
+                        .Where(s => s.IsEvicted && s.ServiceName == keyLower)
                         .ExecuteUpdateAsync(s => s.SetProperty(x => x.IsEvicted, false), stoppingToken),
 
                     _ => 0
@@ -1508,6 +1513,11 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         Guid operationId,
         CancellationToken stoppingToken)
     {
+        // Npgsql cannot translate string.Equals(..., StringComparison.OrdinalIgnoreCase);
+        // service names are stored lowercase, so lowercasing `key` here lets the
+        // EvictionScope.Service branch use plain `==` in the LINQ.
+        var keyLower = key.ToLowerInvariant();
+
         try
         {
             // Collect IDs of evicted Downloads scoped to this entity.
@@ -1529,7 +1539,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     .Where(d => d.IsEvicted
                              && d.GameAppId == null
                              && d.EpicAppId == null
-                             && string.Equals(d.Service, key, StringComparison.OrdinalIgnoreCase))
+                             && d.Service == keyLower)
                     .Select(d => d.Id)
                     .ToListAsync(stoppingToken),
 
@@ -1575,7 +1585,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     .Where(d => d.IsEvicted
                              && d.GameAppId == null
                              && d.EpicAppId == null
-                             && string.Equals(d.Service, key, StringComparison.OrdinalIgnoreCase)
+                             && d.Service == keyLower
                              && d.DepotId != null)
                     .Select(d => d.DepotId!.Value)
                     .Distinct()
@@ -1621,7 +1631,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         .Where(d => !d.IsEvicted
                                  && d.GameAppId == null
                                  && d.EpicAppId == null
-                                 && string.Equals(d.Service, key, StringComparison.OrdinalIgnoreCase)
+                                 && d.Service == keyLower
                                  && d.DepotId != null)
                         .Select(d => d.DepotId!.Value)
                         .Distinct()
