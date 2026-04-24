@@ -166,7 +166,7 @@ public class NginxLogRotationService
             static bool LooksLikeMonolithic(string value)
             {
                 if (string.IsNullOrWhiteSpace(value)) return false;
-                return value.ToLowerInvariant().Contains("monolithic");
+                return value.Contains("monolithic", StringComparison.OrdinalIgnoreCase);
             }
 
             static bool LooksLikeNonCache(string value)

@@ -1293,7 +1293,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                                       && le.Download.IsEvicted
                                       && le.Download.GameAppId == null
                                       && le.Download.EpicAppId == null
-                                      && le.Download.Service.ToLower() == key.ToLower())
+                                      && string.Equals(le.Download.Service, key, StringComparison.OrdinalIgnoreCase))
                             .ExecuteDeleteAsync(stoppingToken),
 
                         _ => throw new ArgumentOutOfRangeException(nameof(scope))
@@ -1323,7 +1323,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                             .Where(d => d.IsEvicted
                                      && d.GameAppId == null
                                      && d.EpicAppId == null
-                                     && d.Service.ToLower() == key.ToLower())
+                                     && string.Equals(d.Service, key, StringComparison.OrdinalIgnoreCase))
                             .ExecuteDeleteAsync(stoppingToken),
 
                         _ => throw new ArgumentOutOfRangeException(nameof(scope))
@@ -1379,7 +1379,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 EvictionScope.Service => await context.Downloads
                     .AnyAsync(d => d.GameAppId == null
                                 && d.EpicAppId == null
-                                && d.Service.ToLower() == key.ToLower(), stoppingToken),
+                                && string.Equals(d.Service, key, StringComparison.OrdinalIgnoreCase), stoppingToken),
                 _ => false
             };
 
@@ -1397,7 +1397,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         .ExecuteDeleteAsync(stoppingToken),
 
                     EvictionScope.Service => await context.CachedServiceDetections
-                        .Where(s => s.ServiceName.ToLower() == key.ToLower())
+                        .Where(s => string.Equals(s.ServiceName, key, StringComparison.OrdinalIgnoreCase))
                         .ExecuteDeleteAsync(stoppingToken),
 
                     _ => 0
@@ -1418,7 +1418,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         .ExecuteUpdateAsync(g => g.SetProperty(x => x.IsEvicted, false), stoppingToken),
 
                     EvictionScope.Service => await context.CachedServiceDetections
-                        .Where(s => s.IsEvicted && s.ServiceName.ToLower() == key.ToLower())
+                        .Where(s => s.IsEvicted && string.Equals(s.ServiceName, key, StringComparison.OrdinalIgnoreCase))
                         .ExecuteUpdateAsync(s => s.SetProperty(x => x.IsEvicted, false), stoppingToken),
 
                     _ => 0
@@ -1529,7 +1529,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     .Where(d => d.IsEvicted
                              && d.GameAppId == null
                              && d.EpicAppId == null
-                             && d.Service.ToLower() == key.ToLower())
+                             && string.Equals(d.Service, key, StringComparison.OrdinalIgnoreCase))
                     .Select(d => d.Id)
                     .ToListAsync(stoppingToken),
 
@@ -1575,7 +1575,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     .Where(d => d.IsEvicted
                              && d.GameAppId == null
                              && d.EpicAppId == null
-                             && d.Service.ToLower() == key.ToLower()
+                             && string.Equals(d.Service, key, StringComparison.OrdinalIgnoreCase)
                              && d.DepotId != null)
                     .Select(d => d.DepotId!.Value)
                     .Distinct()
@@ -1621,7 +1621,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         .Where(d => !d.IsEvicted
                                  && d.GameAppId == null
                                  && d.EpicAppId == null
-                                 && d.Service.ToLower() == key.ToLower()
+                                 && string.Equals(d.Service, key, StringComparison.OrdinalIgnoreCase)
                                  && d.DepotId != null)
                         .Select(d => d.DepotId!.Value)
                         .Distinct()

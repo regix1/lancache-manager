@@ -51,6 +51,9 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
         entity.Description = request.Description?.Trim();
     }
 
+    /// <summary>
+    /// Validates a client-group create request against the database.
+    /// </summary>
     /// <remarks>
     /// Basic validation (required fields, format) is handled by FluentValidation.
     /// This method handles business logic validation that requires database access.
@@ -66,6 +69,9 @@ public class ClientGroupsController : CrudControllerBase<ClientGroup, ClientGrou
         }
     }
 
+    /// <summary>
+    /// Validates a client-group update request against the database.
+    /// </summary>
     /// <remarks>
     /// Basic validation (required fields, format) is handled by FluentValidation.
     /// This method handles business logic validation that requires database access.

@@ -842,7 +842,7 @@ public class StateService : IStateService
             if (File.Exists(setupCompletedFile))
             {
                 var content = File.ReadAllText(setupCompletedFile).Trim();
-                state.SetupCompleted = content == "1" || content.ToLower() == "true";
+                state.SetupCompleted = content == "1" || string.Equals(content, "true", StringComparison.OrdinalIgnoreCase);
                 _logger.LogInformation("Migrated setup completed status: {SetupCompleted}", state.SetupCompleted);
             }
 
