@@ -14,17 +14,19 @@ public partial class EpicMappingService
     public async Task<int> ResolveEpicDownloadsAsync(CancellationToken ct = default)
     {
         using var db = _dbContextFactory.CreateDbContext();
+        const string epicServicePattern = "%epic%";
 
-        // Push unresolved filter into the DB query to avoid loading all Epic downloads into memory
+        // Service names are normalized to lowercase during log processing, so a lowercase LIKE
+        // pattern preserves the intended matching while staying SQL-translatable.
         var unresolvedDownloads = await db.Downloads
-            .Where(d => d.Service.ToLower().Contains("epic") && d.EpicAppId == null && d.LastUrl != null)
+            .Where(d => EF.Functions.Like(d.Service, epicServicePattern) && d.EpicAppId == null && d.LastUrl != null)
             .ToListAsync(ct);
 
         if (unresolvedDownloads.Count == 0)
         {
             // Check if there are any Epic downloads at all for diagnostics
             var totalEpicCount = await db.Downloads
-                .CountAsync(d => d.Service.ToLower().Contains("epic"), ct);
+                .CountAsync(d => EF.Functions.Like(d.Service, epicServicePattern), ct);
 
             if (totalEpicCount == 0)
             {
@@ -41,9 +43,9 @@ public partial class EpicMappingService
         }
 
         var alreadyMapped = await db.Downloads
-            .CountAsync(d => d.Service.ToLower().Contains("epic") && d.EpicAppId != null, ct);
+            .CountAsync(d => EF.Functions.Like(d.Service, epicServicePattern) && d.EpicAppId != null, ct);
         var nullUrls = await db.Downloads
-            .CountAsync(d => d.Service.ToLower().Contains("epic") && d.LastUrl == null, ct);
+            .CountAsync(d => EF.Functions.Like(d.Service, epicServicePattern) && d.LastUrl == null, ct);
 
         _logger.LogInformation(
             "Epic downloads diagnostic: AlreadyMapped={Mapped}, NullUrl={NullUrl}, Unresolved={Unresolved}",

@@ -541,7 +541,7 @@ public sealed class GameCacheDetectionDataService
                      && d.EpicAppId == null
                      && d.Service != null
                      && !dbContext.CachedServiceDetections.Any(
-                         s => s.ServiceName.ToLower() == d.Service!.ToLower()))
+                         s => s.ServiceName == d.Service!))
             .GroupBy(d => d.Service!)
             .Select(g => new
             {
