@@ -560,13 +560,22 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
 
     setRemoveAllRunning(true);
 
+    let bulkNotifId: string | null = null;
+    let currentIndex = 0;
+    const updateBulkProgress = (inner: number) => {
+      if (!bulkNotifId) return;
+      const clamped = Math.min(100, Math.max(0, inner));
+      const overall = Math.min(100, ((currentIndex - 1 + clamped / 100) / total) * 100);
+      updateNotification(bulkNotifId, { progress: Math.floor(overall) });
+    };
+
     await runCacheRemoval({
       items: [
         ...services.map((service) => ({ kind: 'service' as const, service })),
         ...games.map((game) => ({ kind: 'game' as const, game }))
       ],
-      openNotification: () =>
-        addNotification({
+      openNotification: () => {
+        const id = addNotification({
           type: 'bulk_removal',
           status: 'running',
           message: t('management.sections.data.gameCacheRemoveAllStarting', {
@@ -576,8 +585,12 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
           progress: 0,
           // No operationId → handleCancel special-cases bulk_removal
           details: {}
-        }),
+        });
+        bulkNotifId = id;
+        return id;
+      },
       onItemStart: (entry, index, _total, notifId) => {
+        currentIndex = index;
         const label =
           entry.kind === 'service'
             ? entry.service.service_name
@@ -595,9 +608,11 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
       processItem: async (entry, ctx) => {
         if (entry.kind === 'service') {
           const serviceName = entry.service.service_name;
+          let operationId: string | null = null;
           const waitPromise = waitForSignalRCompletion<
             { serviceName?: string; operationId?: string },
-            { serviceName?: string }
+            { serviceName?: string },
+            { operationId?: string; percentComplete?: number }
           >({
             signalR: { on, off },
             completeEvent: 'ServiceRemovalComplete',
@@ -607,7 +622,15 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
               payload?.serviceName === serviceName && typeof payload.operationId === 'string'
                 ? { opId: payload.operationId }
                 : null,
-            onOperationIdCaptured: (opId) => ctx.setOperationId(opId),
+            onOperationIdCaptured: (opId) => {
+              operationId = opId;
+              ctx.setOperationId(opId);
+            },
+            progressEvent: 'ServiceRemovalProgress',
+            onProgress: (payload) => {
+              if (!operationId || payload?.operationId !== operationId) return;
+              updateBulkProgress(payload.percentComplete ?? 0);
+            },
             signal: ctx.signal
           });
           await ApiService.removeServiceFromCache(serviceName);
@@ -655,7 +678,8 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
               epicAppId?: string | null;
               gameName?: string;
               operationId?: string;
-            }
+            },
+            { operationId?: string; percentComplete?: number }
           >({
             signalR: { on, off },
             completeEvent: 'GameRemovalComplete',
@@ -668,6 +692,11 @@ const GameCacheDetector: React.FC<GameCacheDetectorProps> = ({
             onOperationIdCaptured: (opId) => {
               currentOperationId = opId;
               ctx.setOperationId(opId);
+            },
+            progressEvent: 'GameRemovalProgress',
+            onProgress: (payload) => {
+              if (!currentOperationId || payload?.operationId !== currentOperationId) return;
+              updateBulkProgress(payload.percentComplete ?? 0);
             },
             signal: ctx.signal
           });

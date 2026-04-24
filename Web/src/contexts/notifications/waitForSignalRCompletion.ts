@@ -18,7 +18,7 @@
  */
 import type { EventHandler } from '../SignalRContext/types';
 
-interface WaitForSignalRCompletionOptions<TStarted, TCompleted> {
+interface WaitForSignalRCompletionOptions<TStarted, TCompleted, TProgress = unknown> {
   /** SignalR facade. Typically `{ on, off }` from `useSignalR()`. */
   signalR: {
     on: (eventName: string, handler: EventHandler) => void;
@@ -51,6 +51,19 @@ interface WaitForSignalRCompletionOptions<TStarted, TCompleted> {
    */
   onOperationIdCaptured?: (opId: string) => void;
   /**
+   * Optional progress event name (e.g. "EvictionRemovalProgress"). When present
+   * the helper subscribes to it for the lifetime of the wait and forwards
+   * payloads to `onProgress`. Listener cleanup runs through the same `detach`
+   * path as the complete/started subscriptions.
+   */
+  progressEvent?: string;
+  /**
+   * Called for every progress event that arrives while the helper is waiting.
+   * The caller is responsible for filtering by operationId if multiple
+   * operations can share the same progress event name.
+   */
+  onProgress?: (payload: TProgress) => void;
+  /**
    * Abort signal. When aborted the helper resolves with `{ cancelled: true }`
    * within a single event-loop tick and detaches all listeners.
    */
@@ -74,8 +87,8 @@ interface WaitForSignalRCompletionResult<TCompleted> {
   timedOut?: boolean;
 }
 
-export function waitForSignalRCompletion<TStarted, TCompleted>(
-  opts: WaitForSignalRCompletionOptions<TStarted, TCompleted>
+export function waitForSignalRCompletion<TStarted, TCompleted, TProgress = unknown>(
+  opts: WaitForSignalRCompletionOptions<TStarted, TCompleted, TProgress>
 ): Promise<WaitForSignalRCompletionResult<TCompleted>> {
   const {
     signalR,
@@ -84,6 +97,8 @@ export function waitForSignalRCompletion<TStarted, TCompleted>(
     startedEvent,
     onStartedCapture,
     onOperationIdCaptured,
+    progressEvent,
+    onProgress,
     signal,
     timeoutMs = 120_000
   } = opts;
@@ -98,6 +113,11 @@ export function waitForSignalRCompletion<TStarted, TCompleted>(
       if (captured && typeof captured.opId === 'string') {
         onOperationIdCaptured?.(captured.opId);
       }
+    };
+
+    const progressHandler: EventHandler = (payload: TProgress) => {
+      if (settled || !onProgress) return;
+      onProgress(payload);
     };
 
     const completeHandler: EventHandler = (payload: TCompleted) => {
@@ -115,6 +135,9 @@ export function waitForSignalRCompletion<TStarted, TCompleted>(
       signalR.off(completeEvent, completeHandler);
       if (startedEvent) {
         signalR.off(startedEvent, startedHandler);
+      }
+      if (progressEvent) {
+        signalR.off(progressEvent, progressHandler);
       }
       if (signal) {
         signal.removeEventListener('abort', abortListener);
@@ -138,6 +161,9 @@ export function waitForSignalRCompletion<TStarted, TCompleted>(
     signalR.on(completeEvent, completeHandler);
     if (startedEvent) {
       signalR.on(startedEvent, startedHandler);
+    }
+    if (progressEvent) {
+      signalR.on(progressEvent, progressHandler);
     }
 
     if (signal) {

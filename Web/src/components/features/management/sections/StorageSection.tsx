@@ -237,13 +237,22 @@ const StorageSection: React.FC<StorageSectionProps> = ({
 
     setRemoveAllRunning(true);
 
+    let bulkNotifId: string | null = null;
+    let currentIndex = 0;
+    const updateBulkProgress = (inner: number) => {
+      if (!bulkNotifId) return;
+      const clamped = Math.min(100, Math.max(0, inner));
+      const overall = Math.min(100, ((currentIndex - 1 + clamped / 100) / total) * 100);
+      updateNotification(bulkNotifId, { progress: Math.floor(overall) });
+    };
+
     await runEvictedRemoval({
       items: [
         ...services.map((service) => ({ kind: 'service' as const, service })),
         ...games.map((game) => ({ kind: 'game' as const, game }))
       ],
-      openNotification: () =>
-        addNotification({
+      openNotification: () => {
+        const id = addNotification({
           type: 'bulk_removal',
           status: 'running',
           message: t('management.sections.data.evictionRemoveAllStarting', {
@@ -253,8 +262,12 @@ const StorageSection: React.FC<StorageSectionProps> = ({
           progress: 0,
           // No operationId → handleCancel special-cases bulk_removal (sets cancelling=true)
           details: {}
-        }),
+        });
+        bulkNotifId = id;
+        return id;
+      },
       onItemStart: (entry, index, _total, notifId) => {
+        currentIndex = index;
         const label =
           entry.kind === 'service'
             ? entry.service.service_name
@@ -272,10 +285,19 @@ const StorageSection: React.FC<StorageSectionProps> = ({
       processItem: async (entry, ctx) => {
         if (entry.kind === 'service') {
           let operationId: string | null = null;
-          const waitPromise = waitForSignalRCompletion<never, { operationId?: string }>({
+          const waitPromise = waitForSignalRCompletion<
+            never,
+            { operationId?: string },
+            { operationId?: string; percentComplete?: number }
+          >({
             signalR: { on, off },
             completeEvent: 'EvictionRemovalComplete',
             match: (payload) => payload?.operationId === operationId,
+            progressEvent: 'EvictionRemovalProgress',
+            onProgress: (payload) => {
+              if (!operationId || payload?.operationId !== operationId) return;
+              updateBulkProgress(payload.percentComplete ?? 0);
+            },
             signal: ctx.signal
           });
           ({ operationId } = await ApiService.removeEvictedForService(entry.service.service_name));
@@ -285,10 +307,19 @@ const StorageSection: React.FC<StorageSectionProps> = ({
           const game = entry.game;
           const isEpic = game.service === 'epicgames' && !!game.epic_app_id;
           let operationId: string | null = null;
-          const waitPromise = waitForSignalRCompletion<never, { operationId?: string }>({
+          const waitPromise = waitForSignalRCompletion<
+            never,
+            { operationId?: string },
+            { operationId?: string; percentComplete?: number }
+          >({
             signalR: { on, off },
             completeEvent: 'EvictionRemovalComplete',
             match: (payload) => payload?.operationId === operationId,
+            progressEvent: 'EvictionRemovalProgress',
+            onProgress: (payload) => {
+              if (!operationId || payload?.operationId !== operationId) return;
+              updateBulkProgress(payload.percentComplete ?? 0);
+            },
             signal: ctx.signal
           });
           ({ operationId } = isEpic
