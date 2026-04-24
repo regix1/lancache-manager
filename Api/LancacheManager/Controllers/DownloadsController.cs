@@ -432,6 +432,12 @@ public class DownloadsController : ControllerBase
                             .Sum(r => (double)r.TotalBytes);
                         var avgSpeed = speedBytesSum > 0 ? weightedSpeedSum / speedBytesSum : 0;
 
+                        var depotIdsForRow = new List<uint>();
+                        if (first.DepotId.HasValue && first.DepotId.Value != 0)
+                        {
+                            depotIdsForRow.Add((uint)first.DepotId.Value);
+                        }
+
                         return new RetroDownloadDto
                         {
                             Id = g.Key,
@@ -450,29 +456,117 @@ public class DownloadsController : ControllerBase
                             TotalBytes = totalBytes,
                             AverageBytesPerSecond = avgSpeed,
                             RequestCount = g.Count(),
-                            DownloadIds = g.Select(r => r.Id).ToList()
+                            DownloadIds = g.Select(r => r.Id).ToList(),
+                            ClientIps = new List<string> { first.ClientIp },
+                            DepotIds = depotIdsForRow
                         };
                     })
                     .ToList();
 
-                // Sort
-                grouped = query.Sort switch
+                // Merge by game when GroupByGame=true (in-memory over the depot-group list)
+                List<RetroDownloadDto> effectiveList;
+                if (query.GroupByGame)
                 {
-                    "oldest" => grouped.OrderBy(g => g.StartTimeUtc).ToList(),
-                    "largest" => grouped.OrderByDescending(g => g.TotalBytes).ToList(),
-                    "smallest" => grouped.OrderBy(g => g.TotalBytes).ToList(),
-                    "efficiency" => grouped.OrderByDescending(g => g.CacheHitPercent).ToList(),
-                    "efficiency-low" => grouped.OrderBy(g => g.CacheHitPercent).ToList(),
-                    "sessions" => grouped.OrderByDescending(g => g.RequestCount).ToList(),
-                    "alphabetical" => grouped.OrderBy(g => g.AppName, StringComparer.OrdinalIgnoreCase).ToList(),
-                    "service" => grouped.OrderBy(g => g.Service).ThenByDescending(g => g.EndTimeUtc).ToList(),
-                    _ => grouped.OrderByDescending(g => g.EndTimeUtc).ToList(), // "latest" default
+                    var mergedBuckets = new Dictionary<string, List<RetroDownloadDto>>(StringComparer.Ordinal);
+                    var bucketOrder = new List<string>();
+
+                    foreach (var row in grouped)
+                    {
+                        string mergeKey;
+                        if (row.SteamAppId.HasValue && row.SteamAppId.Value != 0)
+                        {
+                            mergeKey = $"{row.Service}-app-{row.SteamAppId.Value}";
+                        }
+                        else if (!string.IsNullOrEmpty(row.EpicAppId))
+                        {
+                            mergeKey = $"{row.Service}-epic-{row.EpicAppId}";
+                        }
+                        else if (!string.IsNullOrEmpty(row.AppName) && row.AppName != row.Service)
+                        {
+                            mergeKey = $"{row.Service}-name-{row.AppName.ToLowerInvariant()}";
+                        }
+                        else
+                        {
+                            // Stable per-row key — never merges with other rows
+                            var depotPart = row.DepotId.HasValue ? row.DepotId.Value.ToString() : "0";
+                            mergeKey = $"{row.Service}-unknown-{depotPart}-{row.ClientIp}";
+                        }
+
+                        if (!mergedBuckets.TryGetValue(mergeKey, out var bucket))
+                        {
+                            bucket = new List<RetroDownloadDto>();
+                            mergedBuckets[mergeKey] = bucket;
+                            bucketOrder.Add(mergeKey);
+                        }
+                        bucket.Add(row);
+                    }
+
+                    effectiveList = bucketOrder.Select(key =>
+                    {
+                        var bucket = mergedBuckets[key];
+                        var first = bucket[0];
+                        var mergedHitBytes = bucket.Sum(r => r.CacheHitBytes);
+                        var mergedMissBytes = bucket.Sum(r => r.CacheMissBytes);
+                        var mergedTotalBytes = bucket.Sum(r => r.TotalBytes);
+                        var mergedCacheHitPercent = mergedTotalBytes > 0 ? (mergedHitBytes * 100.0) / mergedTotalBytes : 0;
+
+                        var clientIpsSet = new HashSet<string>(StringComparer.Ordinal);
+                        var depotIdsSet = new HashSet<uint>();
+                        var allDownloadIds = new List<long>();
+                        foreach (var row in bucket)
+                        {
+                            foreach (var ip in row.ClientIps) clientIpsSet.Add(ip);
+                            foreach (var did in row.DepotIds) depotIdsSet.Add(did);
+                            allDownloadIds.AddRange(row.DownloadIds);
+                        }
+
+                        return new RetroDownloadDto
+                        {
+                            Id = key,
+                            DepotId = first.DepotId,
+                            EpicAppId = first.EpicAppId,
+                            ClientIp = first.ClientIp,
+                            Service = first.Service,
+                            Datasource = first.Datasource,
+                            AppName = first.AppName,
+                            SteamAppId = first.SteamAppId,
+                            StartTimeUtc = bucket.Min(r => r.StartTimeUtc),
+                            EndTimeUtc = bucket.Max(r => r.EndTimeUtc),
+                            CacheHitBytes = mergedHitBytes,
+                            CacheMissBytes = mergedMissBytes,
+                            CacheHitPercent = Math.Round(mergedCacheHitPercent, 1),
+                            TotalBytes = mergedTotalBytes,
+                            AverageBytesPerSecond = first.AverageBytesPerSecond,
+                            RequestCount = bucket.Sum(r => r.RequestCount),
+                            DownloadIds = allDownloadIds,
+                            ClientIps = clientIpsSet.ToList(),
+                            DepotIds = depotIdsSet.ToList()
+                        };
+                    }).ToList();
+                }
+                else
+                {
+                    effectiveList = grouped;
+                }
+
+                // Sort (applied to whichever list is effective)
+                effectiveList = query.Sort switch
+                {
+                    "oldest" => effectiveList.OrderBy(g => g.StartTimeUtc).ToList(),
+                    "largest" => effectiveList.OrderByDescending(g => g.TotalBytes).ToList(),
+                    "smallest" => effectiveList.OrderBy(g => g.TotalBytes).ToList(),
+                    "efficiency" => effectiveList.OrderByDescending(g => g.CacheHitPercent).ToList(),
+                    "efficiency-low" => effectiveList.OrderBy(g => g.CacheHitPercent).ToList(),
+                    "sessions" => effectiveList.OrderByDescending(g => g.RequestCount).ToList(),
+                    "alphabetical" => effectiveList.OrderBy(g => g.AppName, StringComparer.OrdinalIgnoreCase).ToList(),
+                    "service" => effectiveList.OrderBy(g => g.Service).ThenByDescending(g => g.EndTimeUtc).ToList(),
+                    _ => effectiveList.OrderByDescending(g => g.EndTimeUtc).ToList(), // "latest" default
                 };
 
-                // Paginate
-                var totalItems = grouped.Count;
-                var totalPages = (int)Math.Ceiling((double)totalItems / query.PageSize);
-                var items = grouped
+                // Paginate from the post-merge list
+                var totalItems = effectiveList.Count;
+                var totalPages = Math.Max(1, (int)Math.Ceiling(totalItems / (double)query.PageSize));
+                var items = effectiveList
                     .Skip((query.Page - 1) * query.PageSize)
                     .Take(query.PageSize)
                     .ToList();

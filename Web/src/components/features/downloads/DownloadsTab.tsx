@@ -1146,7 +1146,8 @@ const DownloadsTab: React.FC = () => {
     settings.hideLocalhost,
     settings.hideUnknownGames,
     settings.viewMode,
-    settings.itemsPerPage
+    settings.itemsPerPage,
+    settings.groupByGameRetro
   ]);
 
   // Click outside handler to close settings dropdown

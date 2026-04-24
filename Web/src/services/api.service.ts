@@ -134,6 +134,10 @@ export interface RetroDownloadDto {
   requestCount: number;
   /** List of original download IDs for event association lookups */
   downloadIds: number[];
+  /** All distinct client IPs that contributed to this row (single-element for non-merged, multi for merged) */
+  clientIps: string[];
+  /** All distinct depot IDs that contributed to this row (single-element for non-merged, multi for merged) */
+  depotIds: number[];
 }
 
 export interface RetroDownloadResponse {
@@ -154,6 +158,7 @@ export interface RetroDownloadQueryParams {
   hideLocalhost?: boolean;
   showZeroBytes?: boolean;
   hideUnknown?: boolean;
+  groupByGame?: boolean;
 }
 
 class ApiService {
@@ -368,6 +373,7 @@ class ApiService {
       if (params.showZeroBytes !== undefined)
         qs.append('showZeroBytes', String(params.showZeroBytes));
       if (params.hideUnknown !== undefined) qs.append('hideUnknown', String(params.hideUnknown));
+      if (params.groupByGame !== undefined) qs.append('groupByGame', String(params.groupByGame));
 
       const url = `${API_BASE}/downloads/retro?${qs.toString()}`;
       const res = await fetch(url, this.getFetchOptions({ signal }));

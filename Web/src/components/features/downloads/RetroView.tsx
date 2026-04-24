@@ -459,12 +459,12 @@ const groupByDepot = (
  * required when `serverMode` is active.
  */
 const mapDtoToDepotGroupedData = (dto: RetroDownloadDto): DepotGroupedData => {
-  const clientsSet = new Set<string>();
-  clientsSet.add(dto.clientIp);
-  const depotsSet = new Set<number>();
-  if (dto.depotId != null) {
-    depotsSet.add(dto.depotId);
-  }
+  // Prefer server-provided arrays (populated for both merged and non-merged rows).
+  // Defensive fallback to singular fields for staged-deploy safety (remove once backend ships).
+  const clientsSet = new Set<string>(dto.clientIps ?? [dto.clientIp]);
+  const depotsSet = new Set<number>(
+    (dto.depotIds ?? (dto.depotId != null ? [dto.depotId] : [])).filter((d) => d != null)
+  );
   return {
     id: dto.id,
     service: dto.service,
@@ -487,56 +487,6 @@ const mapDtoToDepotGroupedData = (dto: RetroDownloadDto): DepotGroupedData => {
     isEvicted: false,
     isPartiallyEvicted: false
   };
-};
-
-const mergeByGame = (rows: DepotGroupedData[]): DepotGroupedData[] => {
-  const groups = new Map<string, DepotGroupedData>();
-  for (const row of rows) {
-    const gameId =
-      row.gameAppId != null
-        ? `app-${row.gameAppId}`
-        : row.epicAppId
-          ? `epic-${row.epicAppId}`
-          : row.gameName
-            ? `name-${row.gameName.toLowerCase()}`
-            : `unknown-${row.id}`;
-    const key = `${row.service}-${gameId}`;
-    const existing = groups.get(key);
-    if (!existing) {
-      groups.set(key, {
-        ...row,
-        id: key,
-        clientsSet: new Set(row.clientsSet),
-        depotsSet: new Set(row.depotsSet),
-        downloadIds: [...row.downloadIds]
-      });
-    } else {
-      existing.cacheHitBytes += row.cacheHitBytes;
-      existing.cacheMissBytes += row.cacheMissBytes;
-      existing.totalBytes += row.totalBytes;
-      existing.requestCount += row.requestCount;
-      for (const c of row.clientsSet) existing.clientsSet.add(c);
-      for (const d of row.depotsSet) existing.depotsSet.add(d);
-      existing.downloadIds.push(...row.downloadIds);
-      if (row.startTimeUtc < existing.startTimeUtc) existing.startTimeUtc = row.startTimeUtc;
-      if (row.endTimeUtc > existing.endTimeUtc) existing.endTimeUtc = row.endTimeUtc;
-      const totalBytes = existing.totalBytes;
-      if (totalBytes > 0 && existing.averageBytesPerSecond > 0 && row.averageBytesPerSecond > 0) {
-        const existingWeight = existing.totalBytes - row.totalBytes;
-        existing.averageBytesPerSecond =
-          (existing.averageBytesPerSecond * existingWeight +
-            row.averageBytesPerSecond * row.totalBytes) /
-          totalBytes;
-      }
-      if (row.isEvicted) existing.isPartiallyEvicted = true;
-      if (!row.gameName || row.gameName === row.service) {
-        // keep existing gameName
-      } else if (!existing.gameName || existing.gameName === existing.service) {
-        existing.gameName = row.gameName;
-      }
-    }
-  }
-  return Array.from(groups.values());
 };
 
 // Circular Efficiency Gauge Component
@@ -763,7 +713,8 @@ const RetroView = memo(
         search: filterSearch,
         hideLocalhost: filterHideLocalhost,
         showZeroBytes: filterShowZeroBytes,
-        hideUnknown: filterHideUnknown
+        hideUnknown: filterHideUnknown,
+        groupByGame
       });
 
       // Client-side grouping path: only runs in non-server mode.
@@ -772,13 +723,13 @@ const RetroView = memo(
         return groupByDepot(items, sortOrder as SortOrder, groupByGame);
       }, [serverMode, items, sortOrder, groupByGame]);
 
-      // Server-mode page rows: one DepotGroupedData per server DTO,
-      // optionally merged by game when groupByGame is active.
+      // Server-mode page rows: one DepotGroupedData per server DTO.
+      // The server already merges by game when groupByGame is true, so we
+      // return the mapped rows directly — no client-side mergeByGame needed.
       const serverGroupedItems = useMemo(() => {
         if (!serverMode) return [] as DepotGroupedData[];
-        const mapped = serverRetro.items.map(mapDtoToDepotGroupedData);
-        return groupByGame ? mergeByGame(mapped) : mapped;
-      }, [serverMode, serverRetro.items, groupByGame]);
+        return serverRetro.items.map(mapDtoToDepotGroupedData);
+      }, [serverMode, serverRetro.items]);
 
       // For widths/caches, we expose a single "all grouped items" array. In
       // server mode, totals come from the server response so this is the

@@ -276,6 +276,7 @@
 
 .stat-box-value-truncate {
   max-width: 120px;
+  margin-inline: auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

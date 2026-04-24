@@ -69,6 +69,12 @@ public class RetroDownloadDto
 
     /// <summary>List of original download IDs for event association lookups</summary>
     public List<long> DownloadIds { get; set; } = new();
+
+    /// <summary>All distinct client IPs in this group (single-element for non-merged rows)</summary>
+    public List<string> ClientIps { get; set; } = new();
+
+    /// <summary>All distinct depot IDs in this group (single-element, zero excluded, for non-merged rows)</summary>
+    public List<uint> DepotIds { get; set; } = new();
 }
 
 /// <summary>
@@ -85,4 +91,5 @@ public class RetroDownloadQuery
     public bool HideLocalhost { get; set; } = false;
     public bool ShowZeroBytes { get; set; } = false;
     public bool HideUnknown { get; set; } = false;
+    public bool GroupByGame { get; set; } = false;
 }

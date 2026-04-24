@@ -27,6 +27,8 @@ interface RetroDownloadsHookOptions {
   showZeroBytes: boolean;
   /** Whether to hide rows whose game name is unknown / equals the service. */
   hideUnknown: boolean;
+  /** When true, server merges depot rows by game before paginating. */
+  groupByGame?: boolean;
 }
 
 interface RetroDownloadsHookResult {
@@ -66,7 +68,8 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
     search,
     hideLocalhost,
     showZeroBytes,
-    hideUnknown
+    hideUnknown,
+    groupByGame
   } = options;
 
   const [data, setData] = useState<RetroDownloadResponse>(EMPTY_RESPONSE);
@@ -92,7 +95,8 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
       search,
       hideLocalhost,
       showZeroBytes,
-      hideUnknown
+      hideUnknown,
+      groupByGame
     };
 
     setIsFetching(true);
@@ -137,7 +141,8 @@ export function useRetroDownloads(options: RetroDownloadsHookOptions): RetroDown
     search,
     hideLocalhost,
     showZeroBytes,
-    hideUnknown
+    hideUnknown,
+    groupByGame
   ]);
 
   return {
