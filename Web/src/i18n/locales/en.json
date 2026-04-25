@@ -549,18 +549,18 @@
       "tabs": {
         "service": "Services",
         "serviceDistribution": "Service Distribution",
-        "hitRatio": "Cache",
-        "hitRatioFull": "Cache Hit Ratio",
-        "bandwidth": "Saved",
-        "bandwidthFull": "Bandwidth Saved",
-        "misses": "Internet",
-        "missesFull": "Origin Bandwidth by Service",
+        "hitRatio": "Compare",
+        "hitRatioFull": "Cache Hits vs Misses",
+        "bandwidth": "Cache Hits",
+        "bandwidthFull": "Cache Hits by Service",
+        "misses": "Cache Misses",
+        "missesFull": "Cache Misses by Service",
         "games": "Games",
         "gamesFull": "Games on Disk"
       },
       "centerLabels": {
-        "saved": "Saved",
-        "internet": "From Origin",
+        "saved": "Cache Hits",
+        "internet": "Cache Misses",
         "total": "Total",
         "onDisk": "On Disk"
       },
@@ -570,9 +570,9 @@
       "itemCount_other": "{{count}} items",
       "descriptions": {
         "service": "Compare total cache traffic across every tracked service.",
-        "hitRatio": "See how much traffic was served locally instead of downloaded again.",
-        "bandwidth": "Rank services by bandwidth saved from cache hits.",
-        "misses": "Bytes the cache server fetched from origin (not served from cache). Lower is better.",
+        "hitRatio": "Compare cache hits against origin traffic by service.",
+        "bandwidth": "Bandwidth your cache saved per service. Larger slices = services most often served from cache instead of the internet.",
+        "misses": "Data each service downloaded fresh from the internet. Larger slices = services with more new content. First-time downloads are normal.",
         "games": "Review detected game installs and their on-disk footprint."
       },
       "footer": {
@@ -585,10 +585,12 @@
         "gamesDetected": "Games",
         "largestGame": "Largest",
         "cacheHits": "Cache Hits",
+        "bandwidthSaved": "Bandwidth Saved",
         "topService": "Top Service",
+        "topSource": "Top Source",
         "avgSavedPerService": "Avg Saved / Service",
-        "originPulls": "Origin Pulls",
-        "missRate": "Miss %",
+        "originPulls": "From Internet",
+        "missRate": "Miss Rate",
         "largestGameValue": "Largest"
       },
       "empty": {

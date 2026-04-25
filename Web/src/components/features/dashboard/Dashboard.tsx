@@ -204,6 +204,10 @@ const Dashboard: React.FC = () => {
       return 'stat-cards-4col';
     }
 
+    if (visibleCount === 2) {
+      return 'stat-cards-2col';
+    }
+
     if (visibleCount > 0 && visibleCount % 5 === 0) {
       return 'stat-cards-5col';
     }
@@ -955,10 +959,13 @@ const Dashboard: React.FC = () => {
               <Tooltip
                 content={t('tooltips.hideThisCard')}
                 strategy="overlay"
-                className="absolute top-2 right-2 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
+                className="absolute top-2 right-2 z-20 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
               >
                 <button
-                  onClick={() => toggleCardVisibility(card.key)}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    toggleCardVisibility(card.key);
+                  }}
                   className="p-1.5 themed-border-radius transition-colors hover:bg-themed-hover"
                 >
                   <EyeOff className="w-3.5 h-3.5 text-themed-muted" />
@@ -968,7 +975,7 @@ const Dashboard: React.FC = () => {
               {/* Disabled overlay with tooltip for active cards in historical view */}
               {isCardDisabled && (
                 <Tooltip content={t('tooltips.liveDataOnly')} strategy="overlay">
-                  <div className="card-disabled-overlay absolute inset-0 z-10 cursor-not-allowed themed-border-radius" />
+                  <div className="card-disabled-overlay pointer-events-none absolute inset-0 z-10 cursor-not-allowed themed-border-radius" />
                 </Tooltip>
               )}
             </div>

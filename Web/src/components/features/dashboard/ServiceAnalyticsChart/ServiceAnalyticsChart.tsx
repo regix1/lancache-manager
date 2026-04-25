@@ -10,6 +10,7 @@ import { Tooltip } from '@components/ui/Tooltip';
 import LoadingSpinner from '@components/common/LoadingSpinner';
 import DoughnutChart from './DoughnutChart';
 import ChartLegend from './ChartLegend';
+import CompareLineChart from './CompareLineChart';
 import { useChartData } from './useChartData';
 import { getInsightCards, getLegendColorClass, type FooterStats } from './serviceLegendClasses';
 import { formatBytes } from '@utils/formatters';
@@ -27,11 +28,13 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
     const [activeTab, setActiveTab] = useState<TabId>('service');
     const [showList, setShowList] = useState<boolean>(true);
     const { gameDetectionData } = useGameDetection();
+    const isCompareTab = activeTab === 'hit-ratio';
+    const hasBreakdownList = !isCompareTab;
 
     // Call onExpandedChange initially and when showList changes
     React.useEffect(() => {
-      onExpandedChange?.(showList);
-    }, [showList, onExpandedChange]);
+      onExpandedChange?.(hasBreakdownList ? showList : true);
+    }, [hasBreakdownList, showList, onExpandedChange]);
 
     const handleToggleList = useCallback(() => {
       setShowList((prev) => !prev);
@@ -80,7 +83,7 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
         case 'hit-ratio':
           return t(
             'dashboard.serviceAnalytics.descriptions.hitRatio',
-            'See how much traffic was served locally instead of downloaded again.'
+            'Compare cache hits against origin traffic by service.'
           );
         case 'bandwidth':
           return t(
@@ -128,9 +131,9 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
     const centerLabel = useMemo(() => {
       switch (activeTab) {
         case 'bandwidth':
-          return t('dashboard.serviceAnalytics.centerLabels.saved');
+          return t('dashboard.serviceAnalytics.centerLabels.saved', 'Cache Hits');
         case 'misses':
-          return t('dashboard.serviceAnalytics.centerLabels.internet');
+          return t('dashboard.serviceAnalytics.centerLabels.internet', 'Cache Misses');
         case 'games':
           return t('dashboard.serviceAnalytics.centerLabels.onDisk', 'On Disk');
         case 'hit-ratio':
@@ -202,6 +205,22 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
           </div>
 
           <div className="service-analytics-controls">
+            {hasBreakdownList && (
+              <Tooltip content={toggleAriaLabel}>
+                <Button
+                  variant="subtle"
+                  color="default"
+                  size="xs"
+                  onClick={handleToggleList}
+                  aria-pressed={!showList}
+                  aria-label={toggleAriaLabel}
+                  title={toggleAriaLabel}
+                  className="service-analytics-toggle"
+                >
+                  {showList ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                </Button>
+              </Tooltip>
+            )}
             <SegmentedControl
               options={tabs}
               value={activeTab}
@@ -209,20 +228,6 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
               size="sm"
               showLabels
             />
-            <Tooltip content={toggleAriaLabel}>
-              <Button
-                variant="subtle"
-                color="default"
-                size="xs"
-                onClick={handleToggleList}
-                aria-pressed={!showList}
-                aria-label={toggleAriaLabel}
-                title={toggleAriaLabel}
-                className="service-analytics-toggle"
-              >
-                {showList ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-              </Button>
-            </Tooltip>
           </div>
         </div>
 
@@ -233,32 +238,44 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
         ) : !chartData.isEmpty ? (
           <>
             {/* Main content - side by side */}
-            <div className="service-analytics-body" data-show-list={showList}>
-              {/* Chart */}
-              <div className="analytics-chart-container">
-                <DoughnutChart
-                  labels={chartData.labels}
-                  datasets={chartData.datasets}
-                  total={chartData.total}
-                  centerLabel={centerLabel}
-                  gameSliceExtras={chartData.gameSliceExtras}
-                />
-              </div>
-
-              {/* Legend with progress bars */}
-              {showList && (
-                <div className="analytics-list-container">
-                  <div className="analytics-list-header">
-                    <span>{activeTabConfig.tooltip ?? activeTabConfig.label}</span>
-                    <span>
-                      {t('dashboard.serviceAnalytics.itemCount', {
-                        count: legendItems.length,
-                        defaultValue: '{{count}} items'
-                      })}
-                    </span>
-                  </div>
-                  <ChartLegend items={legendItems} />
+            <div
+              className="service-analytics-body"
+              data-chart-mode={activeTab}
+              data-show-list={hasBreakdownList && showList}
+            >
+              {isCompareTab ? (
+                <div className="analytics-compare-container">
+                  <CompareLineChart serviceStats={serviceStats} />
                 </div>
+              ) : (
+                <>
+                  {/* Chart */}
+                  <div className="analytics-chart-container">
+                    <DoughnutChart
+                      labels={chartData.labels}
+                      datasets={chartData.datasets}
+                      total={chartData.total}
+                      centerLabel={centerLabel}
+                      gameSliceExtras={chartData.gameSliceExtras}
+                    />
+                  </div>
+
+                  {/* Legend with progress bars */}
+                  {showList && (
+                    <div className="analytics-list-container">
+                      <div className="analytics-list-header">
+                        <span>{activeTabConfig.tooltip ?? activeTabConfig.label}</span>
+                        <span>
+                          {t('dashboard.serviceAnalytics.itemCount', {
+                            count: legendItems.length,
+                            defaultValue: '{{count}} items'
+                          })}
+                        </span>
+                      </div>
+                      <ChartLegend items={legendItems} />
+                    </div>
+                  )}
+                </>
               )}
             </div>
 

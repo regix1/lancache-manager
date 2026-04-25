@@ -45,7 +45,7 @@ export function getLegendColorClass(label: string, index: number, activeTab: Tab
   }
 
   const normalizedLabel = label.toLowerCase().replace(/[^a-z0-9.]/g, '');
-  return SERVICE_LEGEND_CLASSES[normalizedLabel] ?? 'legend-color-fallback';
+  return SERVICE_LEGEND_CLASSES[normalizedLabel] ?? 'legend-color-default';
 }
 
 /**
@@ -132,39 +132,44 @@ export function getInsightCards(
   }
 
   if (activeTab === 'bandwidth') {
-    const avgSaved = footerStats.serviceCount > 0 ? chartData.total / footerStats.serviceCount : 0;
+    const topName = chartData.labels[0];
+    const topBytes = chartData.datasets[0]?.originalData?.[0] ?? 0;
+    const topServiceValue = topName ? `${topName} - ${formatBytes(topBytes)}` : '-';
     return [
       {
-        label: t('dashboard.serviceAnalytics.tabs.bandwidthFull', 'Bandwidth Saved'),
+        label: t('dashboard.serviceAnalytics.footer.bandwidthSaved', 'Bandwidth Saved'),
         value: formatBytes(chartData.total),
         tone: 'primary'
       },
       {
-        label: t('dashboard.serviceAnalytics.footer.services', 'Services'),
-        value: String(footerStats.serviceCount)
+        label: t('dashboard.serviceAnalytics.footer.hitRate', 'Hit Rate'),
+        value: formatPercent(footerStats.hitRatio)
       },
       {
-        label: t('dashboard.serviceAnalytics.footer.avgSavedPerService', 'Avg Saved / Service'),
-        value: formatBytes(avgSaved)
+        label: t('dashboard.serviceAnalytics.footer.topService', 'Top Service'),
+        value: topServiceValue
       }
     ];
   }
 
   if (activeTab === 'misses') {
     const missRate = footerStats.totalBytes > 0 ? 100 - footerStats.hitRatio : 0;
+    const topName = chartData.labels[0];
+    const topBytes = chartData.datasets[0]?.originalData?.[0] ?? 0;
+    const topSourceValue = topName ? `${topName} - ${formatBytes(topBytes)}` : '-';
     return [
       {
-        label: t('dashboard.serviceAnalytics.footer.originPulls', 'Origin Pulls'),
+        label: t('dashboard.serviceAnalytics.footer.originPulls', 'From Internet'),
         value: formatBytes(footerStats.missBytes),
         tone: 'primary'
       },
       {
-        label: t('dashboard.serviceAnalytics.footer.fromCache', 'From Cache'),
-        value: formatBytes(footerStats.totalHitBytes)
+        label: t('dashboard.serviceAnalytics.footer.missRate', 'Miss Rate'),
+        value: formatPercent(missRate)
       },
       {
-        label: t('dashboard.serviceAnalytics.footer.missRate', 'Miss %'),
-        value: formatPercent(missRate)
+        label: t('dashboard.serviceAnalytics.footer.topSource', 'Top Source'),
+        value: topSourceValue
       }
     ];
   }

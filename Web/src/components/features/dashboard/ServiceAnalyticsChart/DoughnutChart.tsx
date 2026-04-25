@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Doughnut } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -15,22 +15,31 @@ import type { DoughnutChartProps, GameSliceExtra } from './types';
 // Register only what we need (tree shaking)
 ChartJS.register(ArcElement, Tooltip, Legend);
 
-/**
- * Reads a CSS custom property from the document root element.
- * Returns the trimmed value, or the provided fallback if the property is empty.
- */
-function getCssVar(name: string, fallback: string): string {
-  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  return value || fallback;
+function getThemeColor(name: string): string {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+function useThemeRevision(): number {
+  const [revision, setRevision] = useState(0);
+
+  useEffect(() => {
+    const updateRevision = () => setRevision((current) => current + 1);
+    window.addEventListener('themechange', updateRevision);
+    return () => window.removeEventListener('themechange', updateRevision);
+  }, []);
+
+  return revision;
 }
 
 const DoughnutChart: React.FC<DoughnutChartProps> = React.memo(
   ({ labels, datasets, total, centerLabel, gameSliceExtras }) => {
+    const themeRevision = useThemeRevision();
     // Prepare chart data with stable reference. The slice border color is read
     // from the new flat `.chart-wrapper` background (var(--theme-bg-secondary))
     // so the donut visually sits in its disc with no halo gradient bleed.
     const chartData: ChartData<'doughnut'> = useMemo(() => {
-      const wrapperBg = getCssVar('--theme-bg-secondary', '#1e2938');
+      void themeRevision;
+      const wrapperBg = getThemeColor('--theme-bg-secondary');
       return {
         labels,
         datasets: datasets.map((ds) => ({
@@ -43,15 +52,16 @@ const DoughnutChart: React.FC<DoughnutChartProps> = React.memo(
           hoverOffset: ds.hoverOffset ?? 8
         }))
       };
-    }, [labels, datasets]);
+    }, [labels, datasets, themeRevision]);
 
     // Chart options with total baked in for tooltip callback
     const options: ChartOptions<'doughnut'> = useMemo(() => {
+      void themeRevision;
       // Resolve tooltip colors from CSS custom properties (re-resolves on theme change)
-      const tooltipBg = getCssVar('--theme-card-bg', '#1e2938');
-      const tooltipTitle = getCssVar('--theme-text-primary', '#ffffff');
-      const tooltipBody = getCssVar('--theme-text-muted', '#9ca3af');
-      const tooltipBorder = getCssVar('--theme-border-secondary', '#374151');
+      const tooltipBg = getThemeColor('--theme-card-bg');
+      const tooltipTitle = getThemeColor('--theme-text-primary');
+      const tooltipBody = getThemeColor('--theme-text-muted');
+      const tooltipBorder = getThemeColor('--theme-border-secondary');
 
       return {
         responsive: true,
@@ -111,7 +121,7 @@ const DoughnutChart: React.FC<DoughnutChartProps> = React.memo(
           }
         }
       };
-    }, [total, gameSliceExtras]);
+    }, [total, gameSliceExtras, themeRevision]);
 
     return (
       <div className="chart-wrapper">

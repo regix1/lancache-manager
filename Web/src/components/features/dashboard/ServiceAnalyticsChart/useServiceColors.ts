@@ -49,22 +49,15 @@ export function useServiceColors(): ServiceColors {
       const newServiceColors = new Map<string, string>();
 
       // Resolve service colors from CSS custom properties
-      const textSecondary = computed.getPropertyValue('--theme-text-secondary').trim();
       Object.entries(SERVICE_COLOR_MAP).forEach(([service, cssVar]) => {
         const color = computed.getPropertyValue(cssVar).trim();
-        newServiceColors.set(service, color || textSecondary);
+        newServiceColors.set(service, color);
       });
 
       // Resolve chart-specific colors from CSS custom properties
-      const cacheHit =
-        computed.getPropertyValue('--theme-chart-cache-hit').trim() ||
-        computed.getPropertyValue('--theme-success').trim();
-      const cacheMiss =
-        computed.getPropertyValue('--theme-chart-cache-miss').trim() ||
-        computed.getPropertyValue('--theme-error').trim();
-      const border =
-        computed.getPropertyValue('--theme-chart-border').trim() ||
-        computed.getPropertyValue('--theme-border-secondary').trim();
+      const cacheHit = computed.getPropertyValue('--theme-chart-cache-hit').trim();
+      const cacheMiss = computed.getPropertyValue('--theme-chart-cache-miss').trim();
+      const border = computed.getPropertyValue('--theme-chart-border').trim();
 
       setColors({
         serviceColors: newServiceColors,
