@@ -2,12 +2,70 @@
  * SERVICE ANALYTICS CHART
  * ============================================== */
 
+.dashboard-analytics-row {
+  --dashboard-analytics-panel-max-height: 38rem;
+  --service-analytics-body-max-height: 26rem;
+  --service-analytics-legend-max-height: 22.75rem;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 1rem;
+  width: 100%;
+}
+
+.dashboard-analytics-pane {
+  display: flex;
+  min-width: 0;
+}
+
+.dashboard-analytics-pane > div {
+  min-width: 0;
+}
+
+@media (min-width: 1024px) {
+  .dashboard-analytics-row {
+    flex-direction: row;
+    max-height: var(--dashboard-analytics-panel-max-height);
+  }
+
+  .dashboard-analytics-pane-chart-expanded {
+    width: 50%;
+  }
+
+  .dashboard-analytics-pane-chart-collapsed {
+    width: 50%;
+  }
+
+  .dashboard-analytics-pane-downloads-expanded {
+    width: 50%;
+  }
+
+  .dashboard-analytics-pane-downloads-collapsed {
+    width: 50%;
+  }
+}
+
+.dashboard-analytics-row .downloads-panel-redesign {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-height: var(--dashboard-analytics-panel-max-height);
+  overflow: hidden;
+}
+
+.dashboard-analytics-row .downloads-panel-redesign .downloads-list {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+}
+
 .service-chart-panel {
   container-type: inline-size;
   display: flex;
   flex-direction: column;
   height: 100%;
-  overflow: visible;
+  max-height: var(--dashboard-analytics-panel-max-height);
+  overflow: hidden;
 }
 
 .service-analytics-header {
@@ -115,42 +173,39 @@
 
 .service-analytics-body {
   flex: 1;
-  display: grid;
-  grid-template-columns: minmax(190px, 0.9fr) minmax(0, 1.1fr);
-  gap: 0.85rem;
+  display: flex;
+  gap: 1.5rem;
+  margin-bottom: 1rem;
+  align-items: stretch;
   min-height: 0;
-  max-height: 22rem;
-  padding-bottom: 0.85rem;
-}
-
-.service-analytics-body[data-show-list='false'] {
-  grid-template-columns: 1fr;
-}
-
-.service-analytics-body[data-show-list='false'] .chart-side {
-  width: min(100%, 360px);
-  margin-inline: auto;
-}
-
-.analytics-chart-card,
-.analytics-list-card {
-  min-width: 0;
-  min-height: 0;
-  border: 1px solid var(--theme-border-secondary);
-  border-radius: var(--theme-border-radius-lg) !important;
-  background: var(--theme-bg-secondary);
-}
-
-.analytics-chart-card {
-  display: grid;
-  padding: 0.85rem;
+  height: var(--service-analytics-body-max-height);
+  max-height: var(--service-analytics-body-max-height);
   overflow: hidden;
 }
 
-.analytics-list-card {
+.service-analytics-body[data-show-list='false'] {
+  flex-direction: column;
+}
+
+.analytics-chart-container {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 0;
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.analytics-list-container {
+  flex: 1;
   display: flex;
   flex-direction: column;
-  padding: 0.6rem;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
 }
 
 .analytics-list-header {
@@ -164,25 +219,17 @@
   color: var(--theme-text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-}
-
-.chart-side {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-  min-height: 0;
+  border-bottom: 1px solid var(--theme-border-secondary);
+  margin-bottom: 0.5rem;
 }
 
 .chart-wrapper {
   position: relative;
+  width: min(100%, 400px);
   aspect-ratio: 1;
-  height: 100%;
   max-width: 100%;
   max-height: 100%;
-  border-radius: 999px;
+  margin: 0 auto;
 }
 
 .chart-wrapper canvas {
@@ -231,12 +278,16 @@
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  height: 100%;
   align-self: stretch;
+  overflow: hidden;
 }
 
 .legend-scroll {
   flex: 1;
   min-height: 0;
+  height: 100%;
+  max-height: 100%;
   border-radius: var(--theme-border-radius) !important;
 }
 
@@ -244,6 +295,7 @@
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
+  padding-bottom: 0.25rem;
   padding-right: 0.2rem;
 }
 
@@ -335,7 +387,7 @@
 
 @container (max-width: 480px) {
   .service-analytics-body {
-    grid-template-columns: 1fr;
+    flex-direction: column;
   }
 
   .analytics-insight-grid {

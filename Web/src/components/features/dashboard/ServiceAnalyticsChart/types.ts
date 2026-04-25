@@ -36,6 +36,7 @@ export interface ServiceAnalyticsChartProps {
   timeRange?: string;
   glassmorphism?: boolean;
   loading?: boolean;
+  onExpandedChange?: (expanded: boolean) => void;
 }
 
 export interface GameSliceExtra {

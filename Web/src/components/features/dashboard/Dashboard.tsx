@@ -190,7 +190,6 @@ const Dashboard: React.FC = () => {
       ? savedLayout
       : 'balanced';
   });
-
   const handleCardLayoutChange = (value: string) => {
     setCardLayout(value as CardLayout);
     localStorage.setItem('dashboard-card-layout', value);
@@ -306,6 +305,7 @@ const Dashboard: React.FC = () => {
   }, [clientStats, timeRange, getTimeRangeParams]);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [isChartExpanded, setIsChartExpanded] = useState<boolean>(true);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const isInitialVisibilityMount = useRef(true);
 
@@ -977,22 +977,35 @@ const Dashboard: React.FC = () => {
       </div>
 
       {/* Charts Row - Pass the actual data arrays */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <ServiceAnalyticsChart
-          serviceStats={filteredServiceStats}
-          timeRange={timeRange}
-          glassmorphism={true}
-          loading={loading}
-        />
-        <RecentDownloadsPanel
-          downloads={filteredLatestDownloads}
-          loading={loading}
-          timeRange={timeRange}
-          glassmorphism={true}
-          detectionLookup={detectionLookup}
-          detectionByName={detectionByName}
-          detectionByService={detectionByService}
-        />
+      <div className="dashboard-analytics-row">
+        <div
+          className={`dashboard-analytics-pane transition-all duration-300 ${isChartExpanded ? 'dashboard-analytics-pane-chart-expanded' : 'dashboard-analytics-pane-chart-collapsed'}`}
+        >
+          <div className="w-full h-full">
+            <ServiceAnalyticsChart
+              serviceStats={filteredServiceStats}
+              timeRange={timeRange}
+              glassmorphism={true}
+              loading={loading}
+              onExpandedChange={setIsChartExpanded}
+            />
+          </div>
+        </div>
+        <div
+          className={`dashboard-analytics-pane transition-all duration-300 ${isChartExpanded ? 'dashboard-analytics-pane-downloads-expanded' : 'dashboard-analytics-pane-downloads-collapsed'}`}
+        >
+          <div className="w-full h-full">
+            <RecentDownloadsPanel
+              downloads={filteredLatestDownloads}
+              loading={loading}
+              timeRange={timeRange}
+              glassmorphism={true}
+              detectionLookup={detectionLookup}
+              detectionByName={detectionByName}
+              detectionByService={detectionByService}
+            />
+          </div>
+        </div>
       </div>
 
       {/* Analytics Widgets Row */}

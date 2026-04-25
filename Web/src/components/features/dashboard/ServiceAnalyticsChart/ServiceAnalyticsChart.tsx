@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { PieChart, Maximize2, Minimize2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { isActiveGame } from '@utils/gameDetection';
@@ -22,11 +22,20 @@ interface TabOption {
 }
 
 const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
-  ({ serviceStats, glassmorphism = false, loading = false }) => {
+  ({ serviceStats, glassmorphism = false, loading = false, onExpandedChange }) => {
     const { t } = useTranslation();
     const [activeTab, setActiveTab] = useState<TabId>('service');
     const [showList, setShowList] = useState<boolean>(true);
     const { gameDetectionData } = useGameDetection();
+
+    // Call onExpandedChange initially and when showList changes
+    React.useEffect(() => {
+      onExpandedChange?.(showList);
+    }, [showList, onExpandedChange]);
+
+    const handleToggleList = useCallback(() => {
+      setShowList((prev) => !prev);
+    }, []);
 
     const games = useMemo(() => gameDetectionData?.games ?? [], [gameDetectionData?.games]);
 
@@ -205,7 +214,7 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
                 variant="subtle"
                 color="default"
                 size="xs"
-                onClick={() => setShowList((prev) => !prev)}
+                onClick={handleToggleList}
                 aria-pressed={!showList}
                 aria-label={toggleAriaLabel}
                 title={toggleAriaLabel}
@@ -226,21 +235,19 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
             {/* Main content - side by side */}
             <div className="service-analytics-body" data-show-list={showList}>
               {/* Chart */}
-              <div className="analytics-chart-card">
-                <div className="chart-side">
-                  <DoughnutChart
-                    labels={chartData.labels}
-                    datasets={chartData.datasets}
-                    total={chartData.total}
-                    centerLabel={centerLabel}
-                    gameSliceExtras={chartData.gameSliceExtras}
-                  />
-                </div>
+              <div className="analytics-chart-container">
+                <DoughnutChart
+                  labels={chartData.labels}
+                  datasets={chartData.datasets}
+                  total={chartData.total}
+                  centerLabel={centerLabel}
+                  gameSliceExtras={chartData.gameSliceExtras}
+                />
               </div>
 
               {/* Legend with progress bars */}
               {showList && (
-                <div className="analytics-list-card">
+                <div className="analytics-list-container">
                   <div className="analytics-list-header">
                     <span>{activeTabConfig.tooltip ?? activeTabConfig.label}</span>
                     <span>
