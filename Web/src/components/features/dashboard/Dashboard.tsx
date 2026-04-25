@@ -66,7 +66,7 @@ const DEFAULT_CARD_VISIBILITY: CardVisibility = {
   activeDownloads: true,
   activeClients: true,
   cacheHitRatio: true,
-  cacheFiles: true,
+  cacheFiles: false,
   gamesOnDisk: false
 };
 
