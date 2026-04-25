@@ -2,12 +2,6 @@ import type { ServiceStat } from '@/types';
 
 export type TabId = 'service' | 'hit-ratio' | 'bandwidth' | 'misses' | 'games';
 
-export interface TabConfig {
-  id: TabId;
-  name: string;
-  shortName: string;
-}
-
 export interface ChartDataset {
   id: string;
   data: number[];

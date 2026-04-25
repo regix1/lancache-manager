@@ -554,24 +554,25 @@
         "bandwidth": "Saved",
         "bandwidthFull": "Bandwidth Saved",
         "misses": "Internet",
-        "missesFull": "Internet Downloaded",
+        "missesFull": "Origin Bandwidth by Service",
         "games": "Games",
         "gamesFull": "Games on Disk"
       },
       "centerLabels": {
         "saved": "Saved",
-        "internet": "Internet",
+        "internet": "From Origin",
         "total": "Total",
         "onDisk": "On Disk"
       },
       "tabsLabel": "Service analytics views",
+      "hideList": "Hide breakdown",
       "itemCount_one": "{{count}} item",
       "itemCount_other": "{{count}} items",
       "descriptions": {
         "service": "Compare total cache traffic across every tracked service.",
         "hitRatio": "See how much traffic was served locally instead of downloaded again.",
         "bandwidth": "Rank services by bandwidth saved from cache hits.",
-        "misses": "Find the services still pulling fresh data from the internet.",
+        "misses": "Bytes the cache server fetched from origin (not served from cache). Lower is better.",
         "games": "Review detected game installs and their on-disk footprint."
       },
       "footer": {
@@ -582,7 +583,13 @@
         "services": "Services",
         "hitRate": "Hit Rate",
         "gamesDetected": "Games",
-        "largestGame": "Largest"
+        "largestGame": "Largest",
+        "cacheHits": "Cache Hits",
+        "topService": "Top Service",
+        "avgSavedPerService": "Avg Saved / Service",
+        "originPulls": "Origin Pulls",
+        "missRate": "Miss %",
+        "largestGameValue": "Largest"
       },
       "empty": {
         "title": "No Data Available",

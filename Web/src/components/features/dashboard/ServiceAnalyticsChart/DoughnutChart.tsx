@@ -26,22 +26,24 @@ function getCssVar(name: string, fallback: string): string {
 
 const DoughnutChart: React.FC<DoughnutChartProps> = React.memo(
   ({ labels, datasets, total, centerLabel, gameSliceExtras }) => {
-    // Prepare chart data with stable reference
-    const chartData: ChartData<'doughnut'> = useMemo(
-      () => ({
+    // Prepare chart data with stable reference. The slice border color is read
+    // from the new flat `.chart-wrapper` background (var(--theme-bg-secondary))
+    // so the donut visually sits in its disc with no halo gradient bleed.
+    const chartData: ChartData<'doughnut'> = useMemo(() => {
+      const wrapperBg = getCssVar('--theme-bg-secondary', '#1e2938');
+      return {
         labels,
         datasets: datasets.map((ds) => ({
           data: ds.data,
           backgroundColor: ds.backgroundColor,
-          borderColor: ds.borderColor,
-          borderWidth: ds.borderWidth,
+          borderColor: wrapperBg,
+          borderWidth: 2,
           borderRadius: ds.borderRadius ?? 4,
           spacing: ds.spacing ?? 2,
           hoverOffset: ds.hoverOffset ?? 8
         }))
-      }),
-      [labels, datasets]
-    );
+      };
+    }, [labels, datasets]);
 
     // Chart options with total baked in for tooltip callback
     const options: ChartOptions<'doughnut'> = useMemo(() => {
@@ -54,7 +56,7 @@ const DoughnutChart: React.FC<DoughnutChartProps> = React.memo(
       return {
         responsive: true,
         maintainAspectRatio: false,
-        cutout: '66%',
+        cutout: '72%',
         radius: '92%',
         layout: {
           padding: 12
