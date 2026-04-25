@@ -10,27 +10,24 @@ const ChartLegend: React.FC<ChartLegendProps> = React.memo(({ items }) => {
 
   return (
     <div className="data-side">
-      <CustomScrollbar maxHeight="320px" paddingMode="default" className="legend-scroll">
+      <CustomScrollbar maxHeight="286px" paddingMode="default" className="legend-scroll">
         <div className="legend-list">
           {items.map((item) => (
-            <div key={item.label} className="legend-item">
+            <div key={item.label} className={`legend-item ${item.colorClassName ?? ''}`}>
               <div className="legend-row">
                 <div className="legend-label">
-                  <span className="legend-dot" style={{ backgroundColor: item.color }} />
+                  <span className="legend-dot" />
                   <span className="legend-name">{item.label}</span>
                 </div>
                 <span className="legend-value">{formatPercent(item.percentage)}</span>
               </div>
               <div className="legend-detail">{item.valueLabel ?? formatBytes(item.value)}</div>
-              <div className="legend-bar-track">
-                <div
-                  className="legend-bar-fill"
-                  style={{
-                    width: `${Math.max(item.percentage, 0.5)}%`,
-                    backgroundColor: item.color
-                  }}
-                />
-              </div>
+              <progress
+                className="legend-meter"
+                value={Math.max(item.percentage, 0.5)}
+                max={100}
+                aria-label={`${item.label} ${formatPercent(item.percentage)}`}
+              />
             </div>
           ))}
         </div>

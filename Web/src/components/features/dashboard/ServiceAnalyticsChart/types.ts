@@ -6,7 +6,6 @@ export interface TabConfig {
   id: TabId;
   name: string;
   shortName: string;
-  icon: React.ElementType;
 }
 
 export interface ChartDataset {
@@ -35,6 +34,7 @@ export interface LegendItem {
   color: string;
   percentage: number;
   valueLabel?: string;
+  colorClassName?: string;
 }
 
 export interface ServiceAnalyticsChartProps {

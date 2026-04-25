@@ -407,9 +407,10 @@
   animation: stat-card-shimmer 1.5s ease-in-out infinite;
 }
 
-/* 3-column stat cards grid — 9 cards = perfect 3x3 on desktop */
-/* Mobile-first: single column, matches 4-column layout behavior on small screens */
-.stat-cards-3col {
+/* Dashboard stat card grids */
+.stat-cards-3col,
+.stat-cards-4col,
+.stat-cards-5col {
   display: grid;
   grid-template-columns: repeat(1, minmax(0, 1fr));
   gap: 1rem;
@@ -418,12 +419,16 @@
 }
 
 /* Ensure grid children can shrink below their intrinsic content width */
-.stat-cards-3col > * {
+.stat-cards-3col > *,
+.stat-cards-4col > *,
+.stat-cards-5col > * {
   min-width: 0;
 }
 
 @media (min-width: 768px) {
-  .stat-cards-3col {
+  .stat-cards-3col,
+  .stat-cards-4col,
+  .stat-cards-5col {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -431,5 +436,16 @@
 @media (min-width: 1024px) {
   .stat-cards-3col {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .stat-cards-4col,
+  .stat-cards-5col {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1536px) {
+  .stat-cards-5col {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 }

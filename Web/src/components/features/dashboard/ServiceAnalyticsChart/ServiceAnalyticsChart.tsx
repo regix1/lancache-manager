@@ -1,14 +1,51 @@
 import React, { useState, useMemo } from 'react';
-import { PieChart, Zap, Database, Gamepad2, CloudDownload } from 'lucide-react';
+import { PieChart } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { formatBytes, formatPercent } from '@utils/formatters';
 import { isActiveGame } from '@utils/gameDetection';
 import { useGameDetection } from '@contexts/DashboardDataContext/hooks';
 import { Card } from '@components/ui/Card';
+import LoadingSpinner from '@components/common/LoadingSpinner';
 import DoughnutChart from './DoughnutChart';
 import ChartLegend from './ChartLegend';
 import { useChartData } from './useChartData';
 import type { ServiceAnalyticsChartProps, TabConfig, TabId, LegendItem } from './types';
+
+const SERVICE_LEGEND_CLASSES: Record<string, string> = {
+  steam: 'legend-color-steam',
+  epic: 'legend-color-epic',
+  epicgames: 'legend-color-epic',
+  origin: 'legend-color-origin',
+  ea: 'legend-color-origin',
+  blizzard: 'legend-color-blizzard',
+  battlenet: 'legend-color-blizzard',
+  'battle.net': 'legend-color-blizzard',
+  wsus: 'legend-color-wsus',
+  windows: 'legend-color-wsus',
+  riot: 'legend-color-riot',
+  riotgames: 'legend-color-riot',
+  xbox: 'legend-color-xbox',
+  xboxlive: 'legend-color-xbox',
+  ubisoft: 'legend-color-ubisoft',
+  uplay: 'legend-color-ubisoft',
+  gog: 'legend-color-gog',
+  rockstar: 'legend-color-rockstar'
+};
+
+function getLegendColorClass(label: string, index: number, activeTab: TabId): string {
+  if (activeTab === 'games') {
+    return `legend-color-game-${(index % 20) + 1}`;
+  }
+
+  if (activeTab === 'hit-ratio') {
+    return label.toLowerCase().includes('miss')
+      ? 'legend-color-cache-miss'
+      : 'legend-color-cache-hit';
+  }
+
+  const normalizedLabel = label.toLowerCase().replace(/[^a-z0-9.]/g, '');
+  return SERVICE_LEGEND_CLASSES[normalizedLabel] ?? 'legend-color-fallback';
+}
 
 const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
   ({ serviceStats, glassmorphism = false, loading = false }) => {
@@ -23,36 +60,66 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
         {
           id: 'service',
           name: t('dashboard.serviceAnalytics.tabs.serviceDistribution'),
-          shortName: t('dashboard.serviceAnalytics.tabs.service'),
-          icon: PieChart
+          shortName: t('dashboard.serviceAnalytics.tabs.service')
         },
         {
           id: 'hit-ratio',
           name: t('dashboard.serviceAnalytics.tabs.hitRatioFull'),
-          shortName: t('dashboard.serviceAnalytics.tabs.hitRatio'),
-          icon: Database
+          shortName: t('dashboard.serviceAnalytics.tabs.hitRatio')
         },
         {
           id: 'bandwidth',
           name: t('dashboard.serviceAnalytics.tabs.bandwidthFull'),
-          shortName: t('dashboard.serviceAnalytics.tabs.bandwidth'),
-          icon: Zap
+          shortName: t('dashboard.serviceAnalytics.tabs.bandwidth')
         },
         {
           id: 'misses',
           name: t('dashboard.serviceAnalytics.tabs.missesFull'),
-          shortName: t('dashboard.serviceAnalytics.tabs.misses'),
-          icon: CloudDownload
+          shortName: t('dashboard.serviceAnalytics.tabs.misses')
         },
         {
           id: 'games',
           name: t('dashboard.serviceAnalytics.tabs.gamesFull', 'Games on Disk'),
-          shortName: t('dashboard.serviceAnalytics.tabs.games', 'Games'),
-          icon: Gamepad2
+          shortName: t('dashboard.serviceAnalytics.tabs.games', 'Games')
         }
       ],
       [t]
     );
+
+    const activeTabConfig = useMemo(
+      () => TABS.find((tab) => tab.id === activeTab) ?? TABS[0],
+      [TABS, activeTab]
+    );
+
+    const activeDescription = useMemo(() => {
+      switch (activeTab) {
+        case 'hit-ratio':
+          return t(
+            'dashboard.serviceAnalytics.descriptions.hitRatio',
+            'See how much traffic was served locally instead of downloaded again.'
+          );
+        case 'bandwidth':
+          return t(
+            'dashboard.serviceAnalytics.descriptions.bandwidth',
+            'Rank services by bandwidth saved from cache hits.'
+          );
+        case 'misses':
+          return t(
+            'dashboard.serviceAnalytics.descriptions.misses',
+            'Find the services still pulling fresh data from the internet.'
+          );
+        case 'games':
+          return t(
+            'dashboard.serviceAnalytics.descriptions.games',
+            'Review detected game installs and their on-disk footprint.'
+          );
+        default:
+          return t(
+            'dashboard.serviceAnalytics.descriptions.service',
+            'Compare total cache traffic across every tracked service.'
+          );
+      }
+    }, [activeTab, t]);
 
     // Get chart data from hook
     const chartData = useChartData(serviceStats, activeTab, games);
@@ -68,9 +135,10 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
         value: originalData[index],
         color: dataset.backgroundColor[index],
         percentage: chartData.total > 0 ? (originalData[index] / chartData.total) * 100 : 0,
-        valueLabel: formatBytes(originalData[index])
+        valueLabel: formatBytes(originalData[index]),
+        colorClassName: getLegendColorClass(label, index, activeTab)
       }));
-    }, [chartData]);
+    }, [activeTab, chartData]);
 
     // Center label based on active tab
     const centerLabel = useMemo(() => {
@@ -118,114 +186,130 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
       };
     }, [serviceStats, activeTab, games]);
 
+    const insightCards = useMemo(() => {
+      if (activeTab === 'games') {
+        return [
+          {
+            label: t('dashboard.serviceAnalytics.footer.totalDisk', 'Total on Disk'),
+            value: formatBytes(footerStats.totalBytes),
+            primary: true
+          },
+          {
+            label: t('dashboard.serviceAnalytics.footer.gamesDetected', 'Games'),
+            value: footerStats.gameCount
+          },
+          {
+            label: t('dashboard.serviceAnalytics.footer.largestGame', 'Largest'),
+            value: footerStats.largestGame
+          }
+        ];
+      }
+
+      return [
+        {
+          label:
+            activeTab === 'misses'
+              ? t('dashboard.serviceAnalytics.footer.internetDownloaded')
+              : t('dashboard.serviceAnalytics.footer.totalData'),
+          value: formatBytes(
+            activeTab === 'misses' ? footerStats.missBytes : footerStats.totalBytes
+          ),
+          primary: true
+        },
+        {
+          label:
+            activeTab === 'misses'
+              ? t('dashboard.serviceAnalytics.footer.fromCache')
+              : t('dashboard.serviceAnalytics.footer.services'),
+          value:
+            activeTab === 'misses'
+              ? formatBytes(Math.max(footerStats.totalBytes - footerStats.missBytes, 0))
+              : footerStats.serviceCount
+        },
+        {
+          label: t('dashboard.serviceAnalytics.footer.hitRate'),
+          value: formatPercent(footerStats.hitRatio)
+        }
+      ];
+    }, [activeTab, footerStats, t]);
+
     return (
       <Card glassmorphism={glassmorphism} className="service-chart-panel">
         {/* Header */}
-        <div className="chart-header">
-          <div className="header-title">
+        <div className="service-analytics-header">
+          <div className="service-analytics-heading">
+            <div className="service-analytics-kicker">{activeTabConfig.name}</div>
             <h3>{t('dashboard.serviceAnalytics.title')}</h3>
+            <p>{activeDescription}</p>
           </div>
 
-          <div className="tab-toggle">
-            {TABS.map((tab) => {
-              const Icon = tab.icon;
-              return (
-                <button
-                  key={tab.id}
-                  className={`tab-btn ${activeTab === tab.id ? 'active' : ''}`}
-                  onClick={() => setActiveTab(tab.id)}
-                >
-                  <Icon />
-                  <span>{tab.shortName}</span>
-                </button>
-              );
-            })}
+          <div
+            className="service-analytics-tabs"
+            role="tablist"
+            aria-label={t('dashboard.serviceAnalytics.tabsLabel', 'Service analytics views')}
+          >
+            {TABS.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === tab.id}
+                className={`service-analytics-tab ${activeTab === tab.id ? 'active' : ''}`}
+                onClick={() => setActiveTab(tab.id)}
+              >
+                {tab.shortName}
+              </button>
+            ))}
           </div>
         </div>
 
         {loading ? (
-          <div className="service-analytics-skeleton">
-            <div className="service-analytics-skeleton-chart" />
-            <div className="service-analytics-skeleton-legend">
-              <div className="service-analytics-skeleton-item" />
-              <div className="service-analytics-skeleton-item" />
-              <div className="service-analytics-skeleton-item" />
-            </div>
+          <div className="service-analytics-loading">
+            <LoadingSpinner size="lg" />
           </div>
         ) : !chartData.isEmpty ? (
           <>
             {/* Main content - side by side */}
-            <div className="chart-body">
+            <div className="service-analytics-body">
               {/* Chart */}
-              <div className="chart-side">
-                <DoughnutChart
-                  labels={chartData.labels}
-                  datasets={chartData.datasets}
-                  total={chartData.total}
-                  centerLabel={centerLabel}
-                  gameSliceExtras={chartData.gameSliceExtras}
-                />
+              <div className="analytics-chart-card">
+                <div className="chart-side">
+                  <DoughnutChart
+                    labels={chartData.labels}
+                    datasets={chartData.datasets}
+                    total={chartData.total}
+                    centerLabel={centerLabel}
+                    gameSliceExtras={chartData.gameSliceExtras}
+                  />
+                </div>
               </div>
 
               {/* Legend with progress bars */}
-              <ChartLegend items={legendItems} />
+              <div className="analytics-list-card">
+                <div className="analytics-list-header">
+                  <span>{activeTabConfig.name}</span>
+                  <span>
+                    {t('dashboard.serviceAnalytics.itemCount', {
+                      count: legendItems.length,
+                      defaultValue: '{{count}} items'
+                    })}
+                  </span>
+                </div>
+                <ChartLegend items={legendItems} />
+              </div>
             </div>
 
             {/* Stats footer */}
-            <div className="stats-footer">
-              <div className="stat-box primary">
-                <div className="stat-box-value">
-                  {formatBytes(
-                    activeTab === 'misses' ? footerStats.missBytes : footerStats.totalBytes
-                  )}
+            <div className="analytics-insight-grid">
+              {insightCards.map((stat) => (
+                <div
+                  key={stat.label}
+                  className={`analytics-insight ${stat.primary ? 'primary' : ''}`}
+                >
+                  <div className="analytics-insight-value">{stat.value}</div>
+                  <div className="analytics-insight-label">{stat.label}</div>
                 </div>
-                <div className="stat-box-label">
-                  {activeTab === 'games'
-                    ? t('dashboard.serviceAnalytics.footer.totalDisk', 'Total on Disk')
-                    : activeTab === 'misses'
-                      ? t('dashboard.serviceAnalytics.footer.internetDownloaded')
-                      : t('dashboard.serviceAnalytics.footer.totalData')}
-                </div>
-              </div>
-              {activeTab === 'games' ? (
-                <>
-                  <div className="stat-box">
-                    <div className="stat-box-value">{footerStats.gameCount}</div>
-                    <div className="stat-box-label">
-                      {t('dashboard.serviceAnalytics.footer.gamesDetected', 'Games')}
-                    </div>
-                  </div>
-                  <div className="stat-box">
-                    <div className="stat-box-value stat-box-value-truncate">
-                      {footerStats.largestGame}
-                    </div>
-                    <div className="stat-box-label">
-                      {t('dashboard.serviceAnalytics.footer.largestGame', 'Largest')}
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="stat-box">
-                    <div className="stat-box-value">
-                      {activeTab === 'misses'
-                        ? formatBytes(footerStats.totalBytes - footerStats.missBytes)
-                        : footerStats.serviceCount}
-                    </div>
-                    <div className="stat-box-label">
-                      {activeTab === 'misses'
-                        ? t('dashboard.serviceAnalytics.footer.fromCache')
-                        : t('dashboard.serviceAnalytics.footer.services')}
-                    </div>
-                  </div>
-                  <div className="stat-box">
-                    <div className="stat-box-value">{formatPercent(footerStats.hitRatio)}</div>
-                    <div className="stat-box-label">
-                      {t('dashboard.serviceAnalytics.footer.hitRate')}
-                    </div>
-                  </div>
-                </>
-              )}
+              ))}
             </div>
           </>
         ) : (

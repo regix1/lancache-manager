@@ -53,7 +53,7 @@ import PeakUsageHours from './widgets/PeakUsageHours';
 import CacheGrowthTrend from './widgets/CacheGrowthTrend';
 import Badge from '@components/ui/Badge';
 
-type CardLayout = '4-column' | '3-column';
+type CardLayout = 'balanced' | '4-column' | '3-column';
 type CardVisibility = Record<string, boolean>;
 type AllStatCards = Record<string, StatCardData>;
 
@@ -184,14 +184,37 @@ const Dashboard: React.FC = () => {
     [gameDetectionData]
   );
 
-  const [cardLayout, setCardLayout] = useState<CardLayout>(
-    () => (localStorage.getItem('dashboard-card-layout') as CardLayout) ?? '4-column'
-  );
+  const [cardLayout, setCardLayout] = useState<CardLayout>(() => {
+    const savedLayout = localStorage.getItem('dashboard-card-layout') as CardLayout | null;
+    return savedLayout === 'balanced' || savedLayout === '3-column' || savedLayout === '4-column'
+      ? savedLayout
+      : 'balanced';
+  });
 
   const handleCardLayoutChange = (value: string) => {
     setCardLayout(value as CardLayout);
     localStorage.setItem('dashboard-card-layout', value);
   };
+
+  const getStatCardsGridClass = useCallback((layout: CardLayout, visibleCount: number) => {
+    if (layout === '3-column') {
+      return 'stat-cards-3col';
+    }
+
+    if (layout === '4-column') {
+      return 'stat-cards-4col';
+    }
+
+    if (visibleCount > 0 && visibleCount % 5 === 0) {
+      return 'stat-cards-5col';
+    }
+
+    if (visibleCount > 0 && visibleCount % 3 === 0) {
+      return 'stat-cards-3col';
+    }
+
+    return 'stat-cards-4col';
+  }, []);
 
   // Track previous stats to prevent values from flashing to 0 during fetches
   const previousStatsRef = useRef({
@@ -671,6 +694,7 @@ const Dashboard: React.FC = () => {
           <div className="hidden md:block">
             <SegmentedControl
               options={[
+                { value: 'balanced', label: 'Balanced' },
                 { value: '4-column', label: '4 Column' },
                 { value: '3-column', label: '3 Column' }
               ]}
@@ -837,13 +861,7 @@ const Dashboard: React.FC = () => {
       )}
 
       {/* Stats Grid */}
-      <div
-        className={
-          cardLayout === '3-column'
-            ? 'stat-cards-3col'
-            : 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 isolate'
-        }
-      >
+      <div className={getStatCardsGridClass(cardLayout, visibleCards.length)}>
         {visibleCards.map((card: StatCardData) => {
           // Check if this is a live-only card that should be disabled in historical view
           // Note: usedSpace now supports historical data via snapshots, so it's never disabled

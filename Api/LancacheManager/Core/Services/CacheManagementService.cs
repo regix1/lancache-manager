@@ -171,6 +171,8 @@ public class CacheManagementService
             {
                 _logger.LogWarning($"Mount point does not exist: {mountPoint}");
             }
+
+            await ApplyCachedScanStatsAsync(info);
         }
         catch (Exception ex)
         {
@@ -178,6 +180,19 @@ public class CacheManagementService
         }
 
         return info;
+    }
+
+    private async Task ApplyCachedScanStatsAsync(CacheInfo info)
+    {
+        await LoadCachedScanAsync();
+
+        var cachedScan = _cachedCacheScan?.ScanResult;
+        if (cachedScan == null)
+        {
+            return;
+        }
+
+        info.TotalFiles = cachedScan.TotalFiles;
     }
     
     /// <summary>
