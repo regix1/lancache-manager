@@ -280,7 +280,7 @@ export interface StatCardData {
   subtitle?: string;
   badge?: ReactNode;
   icon: LucideIcon;
-  color: 'blue' | 'green' | 'emerald' | 'purple' | 'indigo' | 'orange' | 'yellow' | 'cyan';
+  color: 'blue' | 'green' | 'emerald' | 'purple' | 'indigo' | 'orange' | 'yellow' | 'cyan' | 'teal';
   visible: boolean;
   tooltip?: ReactNode;
 }

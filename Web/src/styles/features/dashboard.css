@@ -104,6 +104,10 @@
   background-color: var(--theme-icon-cyan);
 }
 
+.stat-card-icon[data-color='teal'] {
+  background-color: var(--theme-icon-teal);
+}
+
 .stat-card-icon[data-color='red'] {
   background-color: var(--theme-icon-red);
 }

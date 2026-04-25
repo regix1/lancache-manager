@@ -118,7 +118,7 @@ actionProcessHover = "#1e40af"  # Darker cobalt hover
 actionDeleteBg = "#e11d48"      # Rose delete
 actionDeleteHover = "#be123c"   # Darker rose hover
 
-# Icon backgrounds - 9 distinct hues, all deuteranopia-safe
+# Icon backgrounds - 10 distinct hues, all deuteranopia-safe
 iconBgBlue = "#1d4ed8"          # Cobalt blue
 iconBgGreen = "#0ea5e9"         # Sky blue (replaces green for deuteranopia)
 iconBgEmerald = "#0891b2"       # Teal-cyan
@@ -127,6 +127,7 @@ iconBgIndigo = "#6366f1"        # Indigo
 iconBgOrange = "#ea580c"        # Vivid orange
 iconBgYellow = "#fbbf24"        # Golden yellow
 iconBgCyan = "#06b6d4"          # Cyan
+iconBgTeal = "#14b8a6"          # Teal
 iconBgRed = "#e11d48"           # Rose-red
 
 # Chart colors - 8 distinct hues for clear data visualization

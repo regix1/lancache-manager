@@ -128,6 +128,7 @@ iconBgIndigo = "#a93226"
 iconBgOrange = "#e67e22"
 iconBgYellow = "#f1c40f"
 iconBgCyan = "#f5b041"
+iconBgTeal = "#d68910"
 iconBgRed = "#dc3545"
 
 # Chart colors - Warm lava palette

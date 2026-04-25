@@ -15,6 +15,7 @@ type StatCardColor =
   | 'orange'
   | 'yellow'
   | 'cyan'
+  | 'teal'
   | 'red';
 
 interface StatCardProps {
@@ -47,6 +48,7 @@ const statCardColorMap: Record<StatCardColor, string> = {
   orange: 'var(--theme-icon-orange)',
   yellow: 'var(--theme-icon-yellow)',
   cyan: 'var(--theme-icon-cyan)',
+  teal: 'var(--theme-icon-teal)',
   red: 'var(--theme-icon-red)'
 };
 

@@ -122,7 +122,7 @@ actionProcessHover = "#1d4ed8" # Darker sapphire
 actionDeleteBg = "#CC79A7"     # Mauve delete (visible to protanopes)
 actionDeleteHover = "#b5608f"  # Darker mauve
 
-# Icon backgrounds - 9 ALL distinct colors
+# Icon backgrounds - 10 ALL distinct colors
 iconBgBlue = "#2563eb"         # Sapphire blue
 iconBgGreen = "#0891b2"        # Teal (replaces green)
 iconBgEmerald = "#0072B2"      # Ocean blue (replaces emerald)
@@ -131,6 +131,7 @@ iconBgIndigo = "#CC79A7"       # Mauve pink
 iconBgOrange = "#e69f00"       # Warm amber
 iconBgYellow = "#F0E442"       # Bright yellow (Okabe-Ito)
 iconBgCyan = "#56B4E9"         # Sky blue
+iconBgTeal = "#009E73"         # Bluish green (Okabe-Ito)
 iconBgRed = "#D55E00"          # Burnt orange (replaces red)
 
 # Chart colors - 8 ALL distinct, Okabe-Ito inspired palette

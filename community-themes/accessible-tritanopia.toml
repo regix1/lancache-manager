@@ -123,7 +123,7 @@ actionProcessHover = "#15803d"
 actionDeleteBg = "#dc2626"
 actionDeleteHover = "#b91c1c"
 
-# Icon backgrounds - 9 distinct colors, NO blue/yellow/purple
+# Icon backgrounds - 10 distinct colors, NO blue/yellow/purple
 iconBgBlue = "#dc2626"        # Crimson (replaces blue)
 iconBgGreen = "#16a34a"       # Forest green
 iconBgEmerald = "#22c55e"     # Bright green
@@ -132,6 +132,7 @@ iconBgIndigo = "#be123c"      # Dark rose (replaces indigo)
 iconBgOrange = "#ea580c"      # Coral-orange
 iconBgYellow = "#d97706"      # Dark amber-orange (replaces yellow)
 iconBgCyan = "#15803d"        # Dark green (replaces cyan)
+iconBgTeal = "#0f766e"        # Deep teal
 iconBgRed = "#b91c1c"         # Dark red
 
 # Chart colors - 8 distinct colors, NO blue/yellow

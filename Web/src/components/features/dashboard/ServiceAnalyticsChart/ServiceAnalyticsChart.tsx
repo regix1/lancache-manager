@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { PieChart, Zap, Database, Gamepad2 } from 'lucide-react';
+import { PieChart, Zap, Database, Gamepad2, CloudDownload } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { formatBytes, formatPercent } from '@utils/formatters';
 import { isActiveGame } from '@utils/gameDetection';
@@ -39,6 +39,12 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
           icon: Zap
         },
         {
+          id: 'misses',
+          name: t('dashboard.serviceAnalytics.tabs.missesFull'),
+          shortName: t('dashboard.serviceAnalytics.tabs.misses'),
+          icon: CloudDownload
+        },
+        {
           id: 'games',
           name: t('dashboard.serviceAnalytics.tabs.gamesFull', 'Games on Disk'),
           shortName: t('dashboard.serviceAnalytics.tabs.games', 'Games'),
@@ -61,7 +67,8 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
         label,
         value: originalData[index],
         color: dataset.backgroundColor[index],
-        percentage: chartData.total > 0 ? (originalData[index] / chartData.total) * 100 : 0
+        percentage: chartData.total > 0 ? (originalData[index] / chartData.total) * 100 : 0,
+        valueLabel: formatBytes(originalData[index])
       }));
     }, [chartData]);
 
@@ -70,6 +77,8 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
       switch (activeTab) {
         case 'bandwidth':
           return t('dashboard.serviceAnalytics.centerLabels.saved');
+        case 'misses':
+          return t('dashboard.serviceAnalytics.centerLabels.internet');
         case 'games':
           return t('dashboard.serviceAnalytics.centerLabels.onDisk', 'On Disk');
         case 'hit-ratio':
@@ -89,6 +98,7 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
         return {
           totalBytes: totalDisk,
           hitRatio: 0,
+          missBytes: 0,
           serviceCount: 0,
           gameCount: activeGames.length,
           largestGame
@@ -96,10 +106,12 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
       }
       const totalBytes = serviceStats.reduce((sum, s) => sum + s.totalBytes, 0);
       const totalHits = serviceStats.reduce((sum, s) => sum + s.totalCacheHitBytes, 0);
+      const totalMisses = serviceStats.reduce((sum, s) => sum + s.totalCacheMissBytes, 0);
       const hitRatio = totalBytes > 0 ? (totalHits / totalBytes) * 100 : 0;
       return {
         totalBytes,
         hitRatio,
+        missBytes: totalMisses,
         serviceCount: serviceStats.length,
         gameCount: 0,
         largestGame: ''
@@ -162,11 +174,17 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
             {/* Stats footer */}
             <div className="stats-footer">
               <div className="stat-box primary">
-                <div className="stat-box-value">{formatBytes(footerStats.totalBytes)}</div>
+                <div className="stat-box-value">
+                  {formatBytes(
+                    activeTab === 'misses' ? footerStats.missBytes : footerStats.totalBytes
+                  )}
+                </div>
                 <div className="stat-box-label">
                   {activeTab === 'games'
                     ? t('dashboard.serviceAnalytics.footer.totalDisk', 'Total on Disk')
-                    : t('dashboard.serviceAnalytics.footer.totalData')}
+                    : activeTab === 'misses'
+                      ? t('dashboard.serviceAnalytics.footer.internetDownloaded')
+                      : t('dashboard.serviceAnalytics.footer.totalData')}
                 </div>
               </div>
               {activeTab === 'games' ? (
@@ -189,9 +207,15 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
               ) : (
                 <>
                   <div className="stat-box">
-                    <div className="stat-box-value">{footerStats.serviceCount}</div>
+                    <div className="stat-box-value">
+                      {activeTab === 'misses'
+                        ? formatBytes(footerStats.totalBytes - footerStats.missBytes)
+                        : footerStats.serviceCount}
+                    </div>
                     <div className="stat-box-label">
-                      {t('dashboard.serviceAnalytics.footer.services')}
+                      {activeTab === 'misses'
+                        ? t('dashboard.serviceAnalytics.footer.fromCache')
+                        : t('dashboard.serviceAnalytics.footer.services')}
                     </div>
                   </div>
                   <div className="stat-box">

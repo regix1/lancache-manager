@@ -246,6 +246,40 @@ export function useChartData(
         };
       }
 
+      case 'misses': {
+        const sorted = serviceStats
+          .map((s) => ({ name: s.service, value: s.totalCacheMissBytes }))
+          .filter((s) => s.value > 0)
+          .sort((a, b) => b.value - a.value);
+
+        if (sorted.length === 0) {
+          return { labels: [], datasets: [], total: 0, isEmpty: true };
+        }
+
+        const total = sorted.reduce((sum, s) => sum + s.value, 0);
+        const originalData = sorted.map((s) => s.value);
+        const data = applyMinimumSlice(originalData, MIN_SLICE_DEGREES / 360);
+
+        return {
+          labels: sorted.map((s) => s.name),
+          datasets: [
+            {
+              id: 'cache-misses',
+              data,
+              originalData,
+              backgroundColor: sorted.map((s) => getColor(s.name)),
+              borderColor,
+              borderWidth: 2,
+              borderRadius: 4,
+              spacing: 2,
+              hoverOffset: 8
+            }
+          ],
+          total,
+          isEmpty: false
+        };
+      }
+
       default:
         return { labels: [], datasets: [], total: 0, isEmpty: true };
     }

@@ -8,6 +8,7 @@ import {
   Zap,
   Server,
   Activity,
+  Files,
   Eye,
   EyeOff,
   ChevronDown,
@@ -30,7 +31,7 @@ import { useTimeFilter } from '@contexts/useTimeFilter';
 import { useEvents } from '@contexts/useEvents';
 import { useSpeed } from '@contexts/SpeedContext/useSpeed';
 import { useDraggableCards } from '@hooks/useDraggableCards';
-import { formatBytes, formatPercent } from '@utils/formatters';
+import { formatBytes, formatCount, formatPercent } from '@utils/formatters';
 import { isNonEvictedGame } from '@utils/gameDetection';
 import { STORAGE_KEYS } from '@utils/constants';
 import { type StatCardData, type ServiceStat } from '../../../types';
@@ -65,6 +66,7 @@ const DEFAULT_CARD_VISIBILITY: CardVisibility = {
   activeDownloads: true,
   activeClients: true,
   cacheHitRatio: true,
+  cacheFiles: true,
   gamesOnDisk: false
 };
 
@@ -77,6 +79,7 @@ const DEFAULT_CARD_ORDER: string[] = [
   'activeDownloads',
   'activeClients',
   'cacheHitRatio',
+  'cacheFiles',
   'gamesOnDisk'
 ];
 
@@ -119,6 +122,11 @@ const getStatTooltips = (t: (key: string) => string): Record<string, React.React
   cacheHitRatio: (
     <HelpSection title={t('dashboard.statCards.cacheHitRatio.term')}>
       {t('dashboard.statCards.cacheHitRatio.description')}
+    </HelpSection>
+  ),
+  cacheFiles: (
+    <HelpSection title={t('dashboard.statCards.cacheFiles.term')}>
+      {t('dashboard.statCards.cacheFiles.description')}
     </HelpSection>
   ),
   gamesOnDisk: (
@@ -568,6 +576,16 @@ const Dashboard: React.FC = () => {
         color: 'cyan' as const,
         visible: cardVisibility.cacheHitRatio,
         tooltip: statTooltips.cacheHitRatio
+      },
+      cacheFiles: {
+        key: 'cacheFiles',
+        title: t('dashboard.cards.cacheFiles'),
+        value: cacheInfo ? formatCount(cacheInfo.totalFiles) : '0',
+        subtitle: t('dashboard.cards.filesOnDisk'),
+        icon: Files,
+        color: 'teal' as const,
+        visible: cardVisibility.cacheFiles,
+        tooltip: statTooltips.cacheFiles
       },
       gamesOnDisk: {
         key: 'gamesOnDisk',

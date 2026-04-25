@@ -410,6 +410,7 @@ class ThemeService {
           iconBgOrange: '#ea580c',
           iconBgYellow: '#ca8a04',
           iconBgCyan: '#0891b2',
+          iconBgTeal: '#0d9488',
           iconBgRed: '#dc2626',
 
           // Chart colors
@@ -559,6 +560,7 @@ class ThemeService {
     const iconOrange = colors.iconBgOrange!;
     const iconYellow = colors.iconBgYellow!;
     const iconCyan = colors.iconBgCyan!;
+    const iconTeal = colors.iconBgTeal!;
     const iconRed = colors.iconBgRed!;
     const iconGray = colors.textMuted!;
     const chartColor1 = colors.chartColor1!;
@@ -651,6 +653,7 @@ class ThemeService {
       --theme-icon-orange-subtle: ${v('iconOrangeSubtle', rgba(iconOrange, 0.15))};
       --theme-icon-yellow-subtle: ${v('iconYellowSubtle', rgba(iconYellow, 0.15))};
       --theme-icon-cyan-subtle: ${v('iconCyanSubtle', rgba(iconCyan, 0.15))};
+      --theme-icon-teal-subtle: ${v('iconTealSubtle', rgba(iconTeal, 0.15))};
       --theme-icon-red-subtle: ${v('iconRedSubtle', rgba(iconRed, 0.15))};
       --theme-icon-gray-subtle: ${v('iconGraySubtle', rgba(iconGray, 0.15))};
       --theme-icon-red-muted: ${v('iconRedMuted', rgba(iconRed, 0.2))};
@@ -923,6 +926,7 @@ class ThemeService {
       --theme-icon-orange: ${colors.iconBgOrange};
       --theme-icon-yellow: ${colors.iconBgYellow};
       --theme-icon-cyan: ${colors.iconBgCyan};
+      --theme-icon-teal: ${colors.iconBgTeal};
       --theme-icon-red: ${colors.iconBgRed};
       --theme-icon-gray: ${colors.textMuted};
       

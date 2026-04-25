@@ -404,6 +404,7 @@
       "activeDownloads": "Active Downloads",
       "activeClients": "Active Clients",
       "cacheHitRatio": "Cache Hit Ratio",
+      "cacheFiles": "Cache Files",
       "driveCapacity": "Drive capacity",
       "configuredSize": "Configured size",
       "driveCapacityValue": "Drive: {{size}}",
@@ -415,6 +416,7 @@
       "snapshots": "{{count}} snapshot",
       "snapshots_plural": "{{count}} snapshots",
       "noSnapshotsYet": "No snapshots yet",
+      "filesOnDisk": "files on disk",
       "gamesOnDisk": "Games on Disk",
       "gamesDetected": "{{count}} games detected",
       "noScanData": "No scan data yet",
@@ -453,6 +455,10 @@
       "cacheHitRatio": {
         "term": "Cache Hit Ratio",
         "description": "How much of the data came from cache vs. the internet. 100% means everything was already cached."
+      },
+      "cacheFiles": {
+        "term": "Cache Files",
+        "description": "Total number of files currently found in the cache directory. A very high file count can make cache scans, removals, and filesystem operations take longer even when total size looks reasonable."
       },
       "gamesOnDisk": {
         "term": "Games on Disk",
@@ -547,16 +553,21 @@
         "hitRatioFull": "Cache Hit Ratio",
         "bandwidth": "Saved",
         "bandwidthFull": "Bandwidth Saved",
+        "misses": "Internet",
+        "missesFull": "Internet Downloaded",
         "games": "Games",
         "gamesFull": "Games on Disk"
       },
       "centerLabels": {
         "saved": "Saved",
+        "internet": "Internet",
         "total": "Total",
         "onDisk": "On Disk"
       },
       "footer": {
         "totalData": "Total Data",
+        "internetDownloaded": "Internet",
+        "fromCache": "From Cache",
         "totalDisk": "Total on Disk",
         "services": "Services",
         "hitRate": "Hit Rate",

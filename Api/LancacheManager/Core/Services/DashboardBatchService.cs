@@ -78,9 +78,10 @@ public class DashboardBatchService : IDashboardBatchService
         // Cache must complete first (cacheGrowth depends on its result)
         var cacheResult = await SafeExecuteAsync("cache", () => GetCacheInfoAsync());
         long actualCacheSize = cacheResult?.UsedCacheSize ?? 0;
+        long totalCacheCapacity = cacheResult?.TotalCacheSize ?? 0;
 
         // Launch remaining 9 queries fully in parallel. AddPooledDbContextFactory bounds concurrency.
-        var clientsTask = SafeExecuteAsync("clients", () => GetClientStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
+        var clientsTask = SafeExecuteAsync("clients", () => GetClientStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode));
         var servicesTask = SafeExecuteAsync("services", () => GetServiceStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
         var dashboardTask = SafeExecuteAsync("dashboard", () => GetDashboardStatsAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
         var downloadsTask = SafeExecuteAsync("downloads", () => GetLatestDownloadsAsync(startTime, endTime, eventIdList, eventDownloadIds, excludedClientIps, evictedMode));
@@ -88,7 +89,9 @@ public class DashboardBatchService : IDashboardBatchService
         var sparklinesTask = SafeExecuteAsync("sparklines", () => GetSparklineDataAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
         var hourlyTask = SafeExecuteAsync("hourlyActivity", () => GetHourlyActivityAsync(startTime, endTime, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
         var cacheSnapshotTask = SafeExecuteAsync("cacheSnapshot", () => GetCacheSnapshotAsync(startTime, endTime));
-        var cacheGrowthTask = SafeExecuteAsync("cacheGrowth", () => GetCacheGrowthAsync(startTime, endTime, actualCacheSize, eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
+        var cacheGrowthTask = SafeExecuteAsync("cacheGrowth", () => GetCacheGrowthAsync(
+            startTime, endTime, actualCacheSize, totalCacheCapacity,
+            eventIdList, eventDownloadIds, hiddenClientIps, evictedMode, statsExcludedOnlyIps));
 
         await Task.WhenAll(clientsTask, servicesTask, dashboardTask, downloadsTask, detectionTask, sparklinesTask, hourlyTask, cacheSnapshotTask, cacheGrowthTask);
 
@@ -127,8 +130,7 @@ public class DashboardBatchService : IDashboardBatchService
     private async Task<object> GetClientStatsAsync(
         long? startTime, long? endTime,
         List<long> eventIdList, HashSet<long>? eventDownloadIds,
-        List<string> hiddenClientIps, string evictedMode,
-        List<string> statsExcludedOnlyIps)
+        List<string> hiddenClientIps, string evictedMode)
     {
         await using var context = await _dbContextFactory.CreateDbContextAsync();
         var maxLimit = _apiOptions.Value.MaxClientsPerRequest;
@@ -691,7 +693,8 @@ public class DashboardBatchService : IDashboardBatchService
     }
 
     private async Task<object> GetCacheGrowthAsync(
-        long? startTime, long? endTime, long actualCacheSize,
+        long? startTime, long? endTime,
+        long actualCacheSize, long totalCacheCapacity,
         List<long> eventIdList, HashSet<long>? eventDownloadIds,
         List<string> hiddenClientIps, string evictedMode,
         List<string> statsExcludedOnlyIps)
@@ -707,7 +710,7 @@ public class DashboardBatchService : IDashboardBatchService
         var intervalMinutes = TimeUtils.ParseInterval(interval);
 
         long currentCacheSize = 0;
-        long totalCapacity = 0;
+        long totalCapacity = totalCacheCapacity;
 
         var allTimeQuery = BuildBaseDownloadsQuery(context, hiddenClientIps, evictedMode);
         var totalCacheMiss = await AggregateExcludingAsync(allTimeQuery, statsExcludedOnlyIps,
@@ -806,9 +809,7 @@ public class DashboardBatchService : IDashboardBatchService
 
         if (actualCacheSize > 0)
         {
-            var allTimeQueryForCumulative = BuildBaseDownloadsQuery(context, hiddenClientIps, evictedMode);
-            var cumulativeDownloads = await AggregateExcludingAsync(allTimeQueryForCumulative, statsExcludedOnlyIps,
-                q => q.SumAsync(d => (long?)d.CacheMissBytes).ContinueWith(t => t.Result ?? 0L));
+            var cumulativeDownloads = totalCacheMiss;
 
             if (actualCacheSize < cumulativeDownloads)
             {

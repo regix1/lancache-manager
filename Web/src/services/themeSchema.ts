@@ -123,6 +123,7 @@ const themeColorDefaults: Record<string, string> = {
   iconBgOrange: '#f97316',
   iconBgYellow: '#eab308',
   iconBgCyan: '#06b6d4',
+  iconBgTeal: '#14b8a6',
   iconBgRed: '#ef4444',
 
   // ── Chart colors ─────────────────────────────────────────────────────

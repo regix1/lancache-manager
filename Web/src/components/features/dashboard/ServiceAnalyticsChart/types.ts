@@ -1,6 +1,6 @@
 import type { ServiceStat } from '@/types';
 
-export type TabId = 'service' | 'hit-ratio' | 'bandwidth' | 'games';
+export type TabId = 'service' | 'hit-ratio' | 'bandwidth' | 'misses' | 'games';
 
 export interface TabConfig {
   id: TabId;
@@ -34,6 +34,7 @@ export interface LegendItem {
   value: number;
   color: string;
   percentage: number;
+  valueLabel?: string;
 }
 
 export interface ServiceAnalyticsChartProps {

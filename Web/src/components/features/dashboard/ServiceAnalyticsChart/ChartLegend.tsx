@@ -1,6 +1,6 @@
 import React from 'react';
 import { CustomScrollbar } from '@components/ui/CustomScrollbar';
-import { formatPercent } from '@utils/formatters';
+import { formatBytes, formatPercent } from '@utils/formatters';
 import type { ChartLegendProps } from './types';
 
 const ChartLegend: React.FC<ChartLegendProps> = React.memo(({ items }) => {
@@ -10,27 +10,30 @@ const ChartLegend: React.FC<ChartLegendProps> = React.memo(({ items }) => {
 
   return (
     <div className="data-side">
-      <CustomScrollbar maxHeight="280px" paddingMode="compact">
-        {items.map((item) => (
-          <div key={item.label} className="legend-item">
-            <div className="legend-row">
-              <div className="legend-label">
-                <span className="legend-dot" style={{ backgroundColor: item.color }} />
-                <span className="legend-name">{item.label}</span>
+      <CustomScrollbar maxHeight="320px" paddingMode="default" className="legend-scroll">
+        <div className="legend-list">
+          {items.map((item) => (
+            <div key={item.label} className="legend-item">
+              <div className="legend-row">
+                <div className="legend-label">
+                  <span className="legend-dot" style={{ backgroundColor: item.color }} />
+                  <span className="legend-name">{item.label}</span>
+                </div>
+                <span className="legend-value">{formatPercent(item.percentage)}</span>
               </div>
-              <span className="legend-value">{formatPercent(item.percentage)}</span>
+              <div className="legend-detail">{item.valueLabel ?? formatBytes(item.value)}</div>
+              <div className="legend-bar-track">
+                <div
+                  className="legend-bar-fill"
+                  style={{
+                    width: `${Math.max(item.percentage, 0.5)}%`,
+                    backgroundColor: item.color
+                  }}
+                />
+              </div>
             </div>
-            <div className="legend-bar-track">
-              <div
-                className="legend-bar-fill"
-                style={{
-                  width: `${Math.max(item.percentage, 0.5)}%`,
-                  backgroundColor: item.color
-                }}
-              />
-            </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </CustomScrollbar>
     </div>
   );
