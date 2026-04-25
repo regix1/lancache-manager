@@ -57,9 +57,9 @@ const DoughnutChart: React.FC<DoughnutChartProps> = React.memo(
         responsive: true,
         maintainAspectRatio: false,
         cutout: '72%',
-        radius: '92%',
+        radius: '98%',
         layout: {
-          padding: 12
+          padding: 4
         },
         elements: {
           arc: {

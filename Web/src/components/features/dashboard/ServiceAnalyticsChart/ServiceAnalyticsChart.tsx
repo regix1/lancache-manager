@@ -198,7 +198,7 @@ const ServiceAnalyticsChart: React.FC<ServiceAnalyticsChartProps> = React.memo(
               value={activeTab}
               onChange={(next) => setActiveTab(next as TabId)}
               size="sm"
-              showLabels="responsive"
+              showLabels
             />
             <Tooltip content={toggleAriaLabel}>
               <Button

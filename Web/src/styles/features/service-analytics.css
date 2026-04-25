@@ -48,6 +48,19 @@
   color: var(--theme-text-muted);
 }
 
+.service-analytics-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.service-analytics-toggle {
+  flex-shrink: 0;
+}
+
 .service-analytics-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -169,9 +182,7 @@
   height: 100%;
   max-width: 100%;
   max-height: 100%;
-  padding: 0.35rem;
   border-radius: 999px;
-  background: var(--theme-bg-secondary);
 }
 
 .chart-wrapper canvas {
