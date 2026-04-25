@@ -71,7 +71,10 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
                   size: sizes.icon
                 })
               : option.icon}
-            {(showLabels === true || (!option.icon && option.label)) && option.label && (
+            {showLabels === true && option.label && (
+              <span className={sizes.text}>{option.label}</span>
+            )}
+            {showLabels === false && !option.icon && option.label && (
               <span className={sizes.text}>{option.label}</span>
             )}
             {showLabels === 'responsive' && option.label && (
