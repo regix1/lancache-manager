@@ -14,7 +14,7 @@ public class OperationHistoryCleanupService : ScheduledBackgroundService
 
     protected override string ServiceName => "OperationHistoryCleanupService";
     protected override TimeSpan Interval => TimeSpan.FromMinutes(5);
-    public override bool DefaultRunOnStartup => true;
+    public override bool DefaultRunOnStartup => false;
     public override string ServiceKey => "operationHistoryCleanup";
 
     public OperationHistoryCleanupService(

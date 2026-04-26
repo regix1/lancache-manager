@@ -26,7 +26,7 @@ public class GameImageFetchService : ScopedScheduledBackgroundService
 
     protected override string ServiceName => "GameImageFetch";
     protected override TimeSpan Interval => TimeSpan.FromMinutes(30);
-    public override bool DefaultRunOnStartup => true;
+    public override bool DefaultRunOnStartup => false;
     protected override TimeSpan StartupDelay => TimeSpan.Zero;
 
     public override string ServiceKey => "gameImageFetch";

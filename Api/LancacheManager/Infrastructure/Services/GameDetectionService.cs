@@ -41,7 +41,7 @@ public class GameDetectionService : ScheduledBackgroundService
 
     protected override string ServiceName => "GameDetection";
 
-    public override bool DefaultRunOnStartup => true;
+    public override bool DefaultRunOnStartup => false;
 
     protected override TimeSpan StartupDelay => TimeSpan.Zero;
 

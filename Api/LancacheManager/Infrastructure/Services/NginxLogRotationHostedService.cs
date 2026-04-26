@@ -21,7 +21,7 @@ public class NginxLogRotationHostedService : ScheduledBackgroundService
     protected override TimeSpan StartupDelay => TimeSpan.Zero;
     protected override TimeSpan Interval => _defaultInterval;
 
-    public override bool DefaultRunOnStartup => true;
+    public override bool DefaultRunOnStartup => false;
     public override string ServiceKey => "logRotation";
 
     public NginxLogRotationHostedService(

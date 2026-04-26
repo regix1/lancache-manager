@@ -28,7 +28,7 @@ public class CacheSnapshotService : ScopedScheduledBackgroundService
     protected override string ServiceName => "CacheSnapshotService";
     protected override TimeSpan StartupDelay => TimeSpan.Zero; // Run immediately
     protected override TimeSpan Interval => _snapshotInterval;
-    public override bool DefaultRunOnStartup => true;
+    public override bool DefaultRunOnStartup => false;
     protected override TimeSpan ErrorRetryDelay => TimeSpan.FromMinutes(5);
 
     public override string ServiceKey => "cacheSnapshot";
