@@ -307,7 +307,25 @@ services:
 | `Security__RequireAuthForMetrics` | `false` | Require API key for `/metrics` endpoint. |
 | `Security__ProtectSwagger` | `true` | Require auth for Swagger API docs in production. |
 | `Security__AllowedOrigins` | (empty) | Comma-separated CORS allow list. Empty allows all. |
-| `Security__AllowedBrowsePaths` | (empty) | Comma-separated list of allowed file browser roots. |
+| `Security__AllowedBrowsePaths` | (empty) | Comma-separated allow-list of file-browser roots. Empty disables the file browser (all requests return `403`). Example: `/data,/mnt`. |
+
+#### File Browser (DeveLanCacheUI Import)
+
+The DeveLanCacheUI import flow uses an admin-only file browser endpoint (`/api/filebrowser/list`) to locate a `.db` file on the server. For safety the browser is **disabled by default** — without an explicit allow-list every request returns `403` and the log shows:
+
+```
+warn: LancacheManager.Controllers.FileBrowserController[0]
+      FileBrowser: Security:AllowedBrowsePaths is not configured. All file-browse requests will be rejected (403) until paths are configured.
+```
+
+To enable it, set `Security__AllowedBrowsePaths` to a comma-separated list of root directories the browser may navigate. Subdirectories of each root are allowed; everything outside the list returns `403`.
+
+```yaml
+environment:
+  - Security__AllowedBrowsePaths=/data,/mnt
+```
+
+If you don't use the DeveLanCacheUI import feature you can leave this empty — the warning is informational only and nothing else in the app depends on it.
 
 #### Access Levels
 
