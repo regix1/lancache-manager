@@ -151,18 +151,7 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
                             description: t('widgets.cacheGrowthTrend.netGrowth.description')
                           }
                         ]
-                      : []),
-                    {
-                      term: t('widgets.cacheGrowthTrend.dataPoints.term'),
-                      description:
-                        t('widgets.cacheGrowthTrend.dataPoints.description') +
-                        (sparklineData.length > 0
-                          ? ' ' +
-                            t('widgets.cacheGrowthTrend.dataPoints.current', {
-                              count: sparklineData.length
-                            })
-                          : '')
-                    }
+                      : [])
                   ]}
                 />
               </HelpSection>
@@ -289,26 +278,22 @@ const CacheGrowthTrend: React.FC<CacheGrowthTrendProps> = memo(
           </div>
           <div>
             <div className="text-themed-muted">
-              {isHistoricalView
-                ? t('widgets.cacheGrowthTrend.dataPoints.term')
-                : daysUntilFull !== null && daysUntilFull > 0
-                  ? t('widgets.cacheGrowthTrend.estFull')
-                  : t('widgets.cacheGrowthTrend.status')}
+              {daysUntilFull !== null && daysUntilFull > 0
+                ? t('widgets.cacheGrowthTrend.estFull')
+                : t('widgets.cacheGrowthTrend.status')}
             </div>
             <div className="font-medium text-themed-primary">
-              {isHistoricalView
-                ? t('widgets.cacheGrowthTrend.dataPointsCount', { count: sparklineData.length })
-                : daysUntilFull !== null && daysUntilFull > 0
-                  ? t('widgets.cacheGrowthTrend.days', { count: daysUntilFull })
-                  : daysUntilFull === 0
-                    ? t('widgets.cacheGrowthTrend.full')
-                    : isOverLimit
-                      ? t('widgets.cacheGrowthTrend.overLimit', {
-                          percent: usagePercent.toFixed(1)
-                        })
-                      : usagePercent > 0
-                        ? t('widgets.cacheGrowthTrend.used', { percent: usagePercent.toFixed(1) })
-                        : t('widgets.cacheGrowthTrend.empty')}
+              {daysUntilFull !== null && daysUntilFull > 0
+                ? t('widgets.cacheGrowthTrend.days', { count: daysUntilFull })
+                : daysUntilFull === 0
+                  ? t('widgets.cacheGrowthTrend.full')
+                  : isOverLimit
+                    ? t('widgets.cacheGrowthTrend.overLimit', {
+                        percent: usagePercent.toFixed(1)
+                      })
+                    : usagePercent > 0
+                      ? t('widgets.cacheGrowthTrend.used', { percent: usagePercent.toFixed(1) })
+                      : t('widgets.cacheGrowthTrend.empty')}
             </div>
           </div>
         </div>

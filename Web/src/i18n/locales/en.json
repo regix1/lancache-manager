@@ -665,11 +665,6 @@
         "term": "Net Growth",
         "description": "Accounts for any cache that was cleared or deleted during this period"
       },
-      "dataPoints": {
-        "term": "Data Points",
-        "description": "Each point is a time window with download activity. More points = finer detail.",
-        "current": "Currently showing {{count}} samples."
-      },
       "cacheCleared": "Some cache was cleared during this period. The chart adjusts for that.",
       "dataAddedNote": "Shows new data added during this period, not total cache size.",
       "addedDuringPeriod": "added during period",
@@ -678,7 +673,6 @@
       "avgGrowth": "Avg. Growth",
       "estFull": "Est. Full",
       "status": "Status",
-      "dataPointsCount": "{{count}} samples",
       "days": "~{{count}} days",
       "full": "Full",
       "empty": "Empty",
