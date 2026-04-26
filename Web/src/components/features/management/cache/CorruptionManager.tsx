@@ -6,6 +6,8 @@ import ApiService from '@services/api.service';
 import { type AuthMode } from '@services/auth.service';
 import { useDockerSocket } from '@contexts/useDockerSocket';
 import { useNotifications } from '@contexts/notifications';
+import { useSignalR } from '@contexts/SignalRContext/useSignalR';
+import type { CorruptionRemovalCompleteEvent } from '@contexts/SignalRContext/types';
 import { Card } from '@components/ui/Card';
 import { AccordionSection } from '@components/ui/AccordionSection';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
@@ -31,6 +33,7 @@ interface CorruptionManagerProps {
 const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMode, onError }) => {
   const { t } = useTranslation();
   const { notifications, addNotification, isAnyRemovalRunning } = useNotifications();
+  const { on, off } = useSignalR();
   const { isDockerAvailable } = useDockerSocket();
 
   // Derive corruption detection scan state from notifications (standardized pattern like GameCacheDetector)
@@ -278,36 +281,40 @@ const CorruptionManager: React.FC<CorruptionManagerProps> = ({ authMode, mockMod
     }
   }, [notifications, isStartingScan, setLoading, markLoaded]);
 
-  // Listen for corruption removal completion - remove service from local state immediately
-  // This follows the same pattern as GameCacheDetector which removes items from state on completion
+  // Listen for corruption removal completion via SignalR directly. Subscribing to the
+  // raw event (instead of deriving from notifications.filter(status === 'completed'))
+  // is required for the "Remove All" path: services share a single notification slot,
+  // so a fast Started-for-next-service replaces the previous Completed snapshot before
+  // React renders, and the notifications-based useEffect would miss it. SignalR
+  // handlers fire synchronously per event and can't be coalesced.
   useEffect(() => {
-    // Find all completed corruption removal notifications
-    const completedCorruptionRemovals = notifications.filter(
-      (n) => n.type === 'corruption_removal' && n.status === 'completed'
-    );
-
-    completedCorruptionRemovals.forEach((notif) => {
-      const serviceName = notif.details?.service;
+    const handleCorruptionRemovalComplete = (event: CorruptionRemovalCompleteEvent) => {
+      if (!event.success) return;
+      const serviceName = event.service;
       if (!serviceName) return;
 
-      // Remove the service from local state immediately (backend already handled the removal)
       setCorruptionSummary((prev) => {
+        if (!(serviceName in prev)) return prev;
         const updated = { ...prev };
         delete updated[serviceName];
         return updated;
       });
 
-      // Also clear expanded state and details for this service
-      if (expandedCorruptionService === serviceName) {
-        setExpandedCorruptionService(null);
-      }
+      setExpandedCorruptionService((prev) => (prev === serviceName ? null : prev));
+
       setCorruptionDetails((prev) => {
+        if (!(serviceName in prev)) return prev;
         const updated = { ...prev };
         delete updated[serviceName];
         return updated;
       });
-    });
-  }, [notifications, expandedCorruptionService]);
+    };
+
+    on('CorruptionRemovalComplete', handleCorruptionRemovalComplete);
+    return () => {
+      off('CorruptionRemovalComplete', handleCorruptionRemovalComplete);
+    };
+  }, [on, off]);
 
   // Clear optimistic pending state when matching running SignalR notifications arrive
   useEffect(() => {
