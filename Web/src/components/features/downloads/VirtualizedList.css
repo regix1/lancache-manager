@@ -14,6 +14,19 @@
   overflow-x: hidden;
   contain: strict;
   width: 100%;
+  /* Touch-scroll behaviour:
+   *  - touch-action: pan-y       — explicitly opt the inner scroller into
+   *    vertical pan. Without it some mobile browsers route the gesture to
+   *    window scroll because `contain: strict` confuses gesture hit-testing.
+   *  - overscroll-behavior: contain — stops scroll chaining bouncing the
+   *    whole page when the user keeps swiping past the list edges.
+   *  - -webkit-overflow-scrolling: touch — legacy iOS momentum scroll;
+   *    no-op on modern WebKit but harmless and keeps parity with other
+   *    touch-scroll containers in the app (RecentDownloads, ChartLegend).
+   */
+  touch-action: pan-y;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
 }
 
 .virtual-list-parent-normal {

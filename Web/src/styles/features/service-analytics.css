@@ -743,3 +743,108 @@
   min-height: 18rem;
   color: var(--theme-primary);
 }
+
+/* ===== Mobile + Tablet (≤1023px) — phone overrides only, desktop unchanged ===== */
+@media (max-width: 1023px) {
+  .service-chart-panel {
+    max-height: none;
+    overflow: visible;
+  }
+
+  .service-analytics-body {
+    flex-direction: column;
+    height: auto;
+    max-height: none;
+    overflow: visible;
+    gap: 1rem;
+  }
+
+  .analytics-chart-container,
+  .analytics-list-container {
+    flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .analytics-list-container {
+    height: 22rem;
+    max-height: 22rem;
+  }
+
+  /* Ensure the percentage-height chain inside CustomScrollbar resolves to definite pixels on mobile,
+     otherwise the inner overflow-y:auto element has no bounded height and cannot scroll. */
+  .data-side {
+    height: 100%;
+    min-height: 0;
+  }
+
+  .legend-scroll,
+  .legend-scroll > div:first-child {
+    height: 100%;
+    min-height: 0;
+  }
+
+  .legend-scroll > div:first-child {
+    touch-action: pan-y;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* The custom scrollbar track sits over the right edge of the content. On touch devices
+     the user swipes the content directly, so the track must not intercept touch. */
+  .legend-scroll > div:nth-child(2) {
+    pointer-events: none;
+  }
+
+  .compare-line-chart {
+    min-height: 18rem;
+    max-height: 26rem;
+  }
+
+  .analytics-insight-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 639px) {
+  .service-chart-panel {
+    padding: 1rem;
+  }
+
+  .service-analytics-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .service-analytics-controls {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+  }
+
+  .service-analytics-controls > * {
+    flex-shrink: 0;
+  }
+
+  .chart-wrapper {
+    width: min(100%, 320px);
+  }
+
+  .analytics-insight-grid {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+
+  .analytics-insight-value {
+    font-size: 0.85rem;
+  }
+
+  .compare-line-chart {
+    min-height: 16rem;
+    max-height: 24rem;
+  }
+}

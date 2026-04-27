@@ -9,6 +9,7 @@ import { Card } from '@components/ui/Card';
 import { EnhancedDropdown } from '@components/ui/EnhancedDropdown';
 import { SegmentedControl } from '@components/ui/SegmentedControl';
 import { ClientIpDisplay } from '@components/ui/ClientIpDisplay';
+import { CustomScrollbar } from '@components/ui/CustomScrollbar';
 import { useDownloadAssociations } from '@contexts/useDownloadAssociations';
 import { useClientGroups } from '@contexts/useClientGroups';
 import { useSpeed } from '@contexts/SpeedContext/useSpeed';
@@ -705,22 +706,6 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
           display: flex;
           flex-direction: column;
           gap: 0.5rem;
-          max-height: 380px;
-          overflow-y: auto;
-          padding-right: 4px;
-        }
-
-        .downloads-list::-webkit-scrollbar {
-          width: 4px;
-        }
-
-        .downloads-list::-webkit-scrollbar-track {
-          background: transparent;
-        }
-
-        .downloads-list::-webkit-scrollbar-thumb {
-          background: var(--theme-border-secondary);
-          border-radius: 2px;
         }
 
         .download-item {
@@ -1193,88 +1178,90 @@ const RecentDownloadsPanel: React.FC<RecentDownloadsPanelProps> = ({
       </div>
 
       {/* Downloads List */}
-      <div className="downloads-list">
-        {viewMode === 'active' ? (
-          hasActiveDownloads && activeGames.length > 0 ? (
-            activeGames.map((game, idx) => (
-              <ActiveDownloadItem
-                key={`${game.service}-${game.depotId}-${game.clientIp ?? 'unknown'}`}
-                game={game}
-                index={idx}
-                t={t}
-              />
-            ))
+      <CustomScrollbar maxHeight="380px" paddingMode="default">
+        <div className="downloads-list">
+          {viewMode === 'active' ? (
+            hasActiveDownloads && activeGames.length > 0 ? (
+              activeGames.map((game, idx) => (
+                <ActiveDownloadItem
+                  key={`${game.service}-${game.depotId}-${game.clientIp ?? 'unknown'}`}
+                  game={game}
+                  index={idx}
+                  t={t}
+                />
+              ))
+            ) : (
+              <div className="empty-state">
+                <div className="empty-icon">
+                  <div className="empty-icon-bg" />
+                  <Activity size={24} />
+                </div>
+                <div className="empty-title">
+                  {t('dashboard.downloadsPanel.emptyStates.noActive')}
+                </div>
+                <div className="empty-desc">
+                  {t('dashboard.downloadsPanel.emptyStates.noActiveDesc')}
+                </div>
+              </div>
+            )
+          ) : loading ? (
+            <div className="recent-downloads-skeleton">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="recent-downloads-skeleton-row">
+                  <div className="recent-downloads-skeleton-icon" />
+                  <div className="recent-downloads-skeleton-content">
+                    <div className="recent-downloads-skeleton-title" />
+                    <div className="recent-downloads-skeleton-meta" />
+                  </div>
+                  <div className="recent-downloads-skeleton-stats">
+                    <div className="recent-downloads-skeleton-size" />
+                    <div className="recent-downloads-skeleton-date" />
+                    <div className="recent-downloads-skeleton-hit-rate" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : groupedItems.displayedItems.length > 0 ? (
+            groupedItems.displayedItems.map((item, idx) => {
+              const isGroup = 'downloads' in item;
+              const events = isGroup
+                ? Array.from(
+                    item.downloads.reduce((acc, d) => {
+                      getAssociations(d.id).events.forEach((e) => acc.set(e.id, e));
+                      return acc;
+                    }, new Map<number, EventSummary>())
+                  ).map(([, e]) => e)
+                : getAssociations(item.id).events;
+              return (
+                <RecentDownloadItem
+                  key={isGroup ? item.id : item.id || idx}
+                  item={item}
+                  events={events}
+                  index={idx}
+                  detectionLookup={detectionLookup}
+                  detectionByName={detectionByName}
+                  detectionByService={detectionByService}
+                />
+              );
+            })
           ) : (
             <div className="empty-state">
               <div className="empty-icon">
                 <div className="empty-icon-bg" />
-                <Activity size={24} />
+                <Clock size={24} />
               </div>
               <div className="empty-title">
-                {t('dashboard.downloadsPanel.emptyStates.noActive')}
+                {t('dashboard.downloadsPanel.emptyStates.noDownloads')}
               </div>
               <div className="empty-desc">
-                {t('dashboard.downloadsPanel.emptyStates.noActiveDesc')}
+                {t('dashboard.downloadsPanel.emptyStates.noDownloadsInPeriod', {
+                  period: getTimeRangeLabel.toLowerCase()
+                })}
               </div>
             </div>
-          )
-        ) : loading ? (
-          <div className="recent-downloads-skeleton">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="recent-downloads-skeleton-row">
-                <div className="recent-downloads-skeleton-icon" />
-                <div className="recent-downloads-skeleton-content">
-                  <div className="recent-downloads-skeleton-title" />
-                  <div className="recent-downloads-skeleton-meta" />
-                </div>
-                <div className="recent-downloads-skeleton-stats">
-                  <div className="recent-downloads-skeleton-size" />
-                  <div className="recent-downloads-skeleton-date" />
-                  <div className="recent-downloads-skeleton-hit-rate" />
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : groupedItems.displayedItems.length > 0 ? (
-          groupedItems.displayedItems.map((item, idx) => {
-            const isGroup = 'downloads' in item;
-            const events = isGroup
-              ? Array.from(
-                  item.downloads.reduce((acc, d) => {
-                    getAssociations(d.id).events.forEach((e) => acc.set(e.id, e));
-                    return acc;
-                  }, new Map<number, EventSummary>())
-                ).map(([, e]) => e)
-              : getAssociations(item.id).events;
-            return (
-              <RecentDownloadItem
-                key={isGroup ? item.id : item.id || idx}
-                item={item}
-                events={events}
-                index={idx}
-                detectionLookup={detectionLookup}
-                detectionByName={detectionByName}
-                detectionByService={detectionByService}
-              />
-            );
-          })
-        ) : (
-          <div className="empty-state">
-            <div className="empty-icon">
-              <div className="empty-icon-bg" />
-              <Clock size={24} />
-            </div>
-            <div className="empty-title">
-              {t('dashboard.downloadsPanel.emptyStates.noDownloads')}
-            </div>
-            <div className="empty-desc">
-              {t('dashboard.downloadsPanel.emptyStates.noDownloadsInPeriod', {
-                period: getTimeRangeLabel.toLowerCase()
-              })}
-            </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      </CustomScrollbar>
 
       {/* Footer */}
       {viewMode === 'active' && hasActiveDownloads && (
