@@ -463,7 +463,16 @@ If your DNS isn't a stock `lancache-dns` (you use AdGuard Home, Pi-hole, public 
 | `Prefill__LancacheDnsIp` | IP of your **DNS server** (lancache-dns, AdGuard, Pi-hole — port 53). Written into the container's `/etc/resolv.conf` so the daemon queries it for hostname → IP lookups. Used in **bridge mode only** — Docker silently drops DNS overrides on host-network containers. |
 
 > [!IMPORTANT]
-> **`LancacheIp` and `LancacheDnsIp` are different services**, often on different machines. `LancacheIp` is the cache server (HTTP). `LancacheDnsIp` is a DNS server (UDP 53) that translates names to IPs. In a stock single-host install they may share the same IP (different ports), which is why they look similar — but they're not interchangeable.
+> **`LancacheIp` and `LancacheDnsIp` are different services, even on the same machine.** Quick mental model:
+>
+> | | What it is | Port | Job |
+> |---|---|---|---|
+> | `LancacheIp` | The **cache server** (`lancachenet/monolithic`, or any HTTP cache) | HTTP / 80 | Holds the actual cached game files |
+> | `LancacheDnsIp` | The **DNS server** (`lancachenet/lancache-dns`, AdGuard Home, Pi-hole, etc.) | DNS / 53 | Translates `lancache.steamcontent.com` into the cache's IP |
+>
+> Think of a small town. The **cache** is the library (where the books live). The **DNS server** is the information booth (where you ask "which way to the library?"). Both can sit in the same building — same IP, different ports — but they do completely different jobs. You can't borrow a book from the information booth, and the librarian doesn't give directions.
+>
+> When you set `LancacheIp`, the daemon skips the information booth entirely and walks straight to the library. That's why it's the universal escape hatch: DNS becomes irrelevant for cache traffic.
 
 > [!IMPORTANT]
 > Steam (`api.steampowered.com`) and Epic (`*.epicgames.com`) auth and manifest endpoints still use normal DNS. `LANCACHE_IP` only redirects CDN chunk traffic — the only domains lancache caches. Your login and metadata traffic is unaffected.
