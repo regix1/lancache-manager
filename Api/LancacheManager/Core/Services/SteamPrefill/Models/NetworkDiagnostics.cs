@@ -32,4 +32,11 @@ public class NetworkDiagnostics
     /// but traffic still routes through lancache via router-level interception.
     /// </summary>
     public bool UseHostNetworking { get; set; }
+
+    /// <summary>
+    /// The lancache server IP that was injected into the daemon container via the
+    /// <c>LANCACHE_IP</c> environment variable (sourced from <c>Prefill__LancacheIp</c>).
+    /// Null when <c>Prefill__LancacheIp</c> is unset or could not be resolved.
+    /// </summary>
+    public string? LancacheIpInjected { get; set; }
 }

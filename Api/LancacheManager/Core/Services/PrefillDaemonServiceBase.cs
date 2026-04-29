@@ -8,6 +8,7 @@ using LancacheManager.Models;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Utilities;
+using Microsoft.Extensions.Options;
 
 
 namespace LancacheManager.Core.Services;
@@ -31,6 +32,15 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     private Timer? _cleanupTimer;
     private bool _disposed;
     protected readonly bool _isRunningInContainer;
+    private readonly IOptionsMonitor<PrefillNetworkOptions> _networkOptions;
+
+    /// <summary>
+    /// The lancache server IP most recently injected into a daemon container via the
+    /// <c>LANCACHE_IP</c> env var. Set during container creation after
+    /// <see cref="ResolveLancacheServerIpAsync"/> and read by the diagnostics builder
+    /// to surface on the frontend. Null when <c>Prefill__LancacheIp</c> is unset.
+    /// </summary>
+    private string? _lastInjectedLancacheIp;
 
     // Configuration defaults
     private const int DefaultSessionTimeoutMinutes = 120;
@@ -196,7 +206,8 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         IConfiguration configuration,
         IPathResolver pathResolver,
         PrefillSessionService sessionService,
-        PrefillCacheService cacheService)
+        PrefillCacheService cacheService,
+        IOptionsMonitor<PrefillNetworkOptions> networkOptions)
     {
         _logger = logger;
         _notifications = notifications;
@@ -204,6 +215,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         _pathResolver = pathResolver;
         _sessionService = sessionService;
         _cacheService = cacheService;
+        _networkOptions = networkOptions;
         _isRunningInContainer = bool.TryParse(Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER"), out var inContainer) && inContainer;
     }
 
@@ -509,6 +521,27 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
         var socketSecret = GenerateSocketSecret();
         env.Add($"PREFILL_SOCKET_SECRET={socketSecret}");
         _logger.LogInformation("Passing generated socket secret to prefill daemon container");
+
+        // Inject LANCACHE_IP unconditionally for both host and bridge mode.
+        // The daemon honors this env var to bypass container DNS for CDN traffic
+        // (URL-rewrite + Host-header spoof). It is NOT a fallback for HostConfig.DNS —
+        // they serve different purposes and may be used together or independently.
+        var lancacheIp = await ResolveLancacheServerIpAsync(cancellationToken);
+        _lastInjectedLancacheIp = string.IsNullOrWhiteSpace(lancacheIp) ? null : lancacheIp;
+        if (!string.IsNullOrWhiteSpace(lancacheIp))
+        {
+            env.Add($"LANCACHE_IP={lancacheIp}");
+            _logger.LogInformation(
+                "Injecting LANCACHE_IP={Ip} into prefill daemon — DNS-independent CDN routing",
+                lancacheIp);
+        }
+        else
+        {
+            _logger.LogWarning(
+                "Prefill__LancacheIp is not set. The daemon will rely on container DNS to resolve CDN hostnames, " +
+                "which may fail in host networking mode or with non-lancache DNS chains. " +
+                "Set Prefill__LancacheIp=<your-lancache-server-ip> for reliable operation.");
+        }
 
         if (useTcpMode && tcpContainerPort.HasValue)
         {
@@ -1535,7 +1568,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
 
     private bool ShouldUseTcpMode()
     {
-        var useTcp = _configuration.GetValue<bool?>("Prefill:UseTcp");
+        var useTcp = _networkOptions.CurrentValue.UseTcp;
         if (useTcp.HasValue)
         {
             return useTcp.Value;
@@ -1687,13 +1720,52 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     }
 
     /// <summary>
+    /// Resolves the lancache cache server IP from <c>Prefill__LancacheIp</c>.
+    /// Cache-server-agnostic: works with the standard nginx-based lancache image or any
+    /// HTTP cache that routes by <c>Host:</c> header.
+    /// Strict explicit-config-only: empty → null; IP literal → as-is; hostname → one-shot
+    /// IPv4 DNS resolution. Hostname resolution failure throws <see cref="InvalidOperationException"/>.
+    /// No auto-detect, no Docker-inspect, no CDN-name fallback.
+    /// </summary>
+    private async Task<string?> ResolveLancacheServerIpAsync(CancellationToken cancellationToken)
+    {
+        var configured = _networkOptions.CurrentValue.LancacheIp;
+        if (string.IsNullOrWhiteSpace(configured))
+        {
+            return null;
+        }
+
+        if (IPAddress.TryParse(configured, out _))
+        {
+            return configured;
+        }
+
+        try
+        {
+            var addresses = await Dns.GetHostAddressesAsync(configured, cancellationToken);
+            var ipv4 = addresses.FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork);
+            if (ipv4 != null)
+            {
+                return ipv4.ToString();
+            }
+            throw new InvalidOperationException(
+                $"Prefill__LancacheIp='{configured}' resolved but no IPv4 address was returned.");
+        }
+        catch (Exception ex) when (ex is not InvalidOperationException)
+        {
+            throw new InvalidOperationException(
+                $"Prefill__LancacheIp='{configured}' could not be resolved to an IP address.", ex);
+        }
+    }
+
+    /// <summary>
     /// Gets the lancache DNS IP for prefill containers.
     /// Auto-detects from lancache-dns container if not explicitly configured.
     /// </summary>
     private async Task<string?> GetLancacheDnsIpAsync(CancellationToken cancellationToken = default)
     {
         // Check explicit configuration first
-        var configuredIp = _configuration["Prefill:LancacheDnsIp"];
+        var configuredIp = _networkOptions.CurrentValue.LancacheDnsIp;
         if (!string.IsNullOrEmpty(configuredIp) &&
             !string.Equals(configuredIp, "auto", StringComparison.OrdinalIgnoreCase))
         {
@@ -1761,7 +1833,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     private async Task<bool> ShouldUseHostNetworkingAsync(CancellationToken cancellationToken = default)
     {
         // Check explicit configuration first
-        var networkMode = _configuration["Prefill:NetworkMode"];
+        var networkMode = _networkOptions.CurrentValue.NetworkMode;
         if (!string.IsNullOrEmpty(networkMode) &&
             !string.Equals(networkMode, "auto", StringComparison.OrdinalIgnoreCase))
         {
@@ -1818,7 +1890,7 @@ public abstract partial class PrefillDaemonServiceBase : IHostedService, IDispos
     /// </summary>
     private string? GetNetworkMode()
     {
-        var networkMode = _configuration["Prefill:NetworkMode"];
+        var networkMode = _networkOptions.CurrentValue.NetworkMode;
         if (string.Equals(networkMode, "auto", StringComparison.OrdinalIgnoreCase))
         {
             return null;

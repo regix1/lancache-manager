@@ -4,6 +4,8 @@ using LancacheManager.Core.Services.EpicMapping;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Core.Utilities;
 using LancacheManager.Hubs;
+using LancacheManager.Models;
+using Microsoft.Extensions.Options;
 
 namespace LancacheManager.Core.Services;
 
@@ -23,8 +25,9 @@ public class EpicPrefillDaemonService : PrefillDaemonServiceBase
         IPathResolver pathResolver,
         PrefillSessionService sessionService,
         PrefillCacheService cacheService,
-        EpicMappingService mappingService)
-        : base(logger, notifications, configuration, pathResolver, sessionService, cacheService)
+        EpicMappingService mappingService,
+        IOptionsMonitor<PrefillNetworkOptions> networkOptions)
+        : base(logger, notifications, configuration, pathResolver, sessionService, cacheService, networkOptions)
     {
         _mappingService = mappingService;
     }

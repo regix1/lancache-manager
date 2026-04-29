@@ -11,7 +11,8 @@ public abstract partial class PrefillDaemonServiceBase
     {
         var diagnostics = new NetworkDiagnostics
         {
-            UseHostNetworking = isHostMode
+            UseHostNetworking = isHostMode,
+            LancacheIpInjected = _lastInjectedLancacheIp
         };
 
         if (_dockerClient == null) return diagnostics;

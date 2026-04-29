@@ -1,6 +1,8 @@
 using LancacheManager.Core.Interfaces;
 using LancacheManager.Core.Services.SteamPrefill;
 using LancacheManager.Hubs;
+using LancacheManager.Models;
+using Microsoft.Extensions.Options;
 
 
 namespace LancacheManager.Core.Services;
@@ -20,8 +22,9 @@ public partial class SteamDaemonService : PrefillDaemonServiceBase
         IConfiguration configuration,
         IPathResolver pathResolver,
         PrefillSessionService sessionService,
-        PrefillCacheService cacheService)
-        : base(logger, notifications, configuration, pathResolver, sessionService, cacheService)
+        PrefillCacheService cacheService,
+        IOptionsMonitor<PrefillNetworkOptions> networkOptions)
+        : base(logger, notifications, configuration, pathResolver, sessionService, cacheService, networkOptions)
     {
     }
 

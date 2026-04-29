@@ -113,6 +113,25 @@ export function NetworkStatusSection({ diagnostics }: NetworkStatusSectionProps)
                 {t('prefill.network.hostNetworkingHint')}
               </div>
             )}
+            {/* Lancache IP injected (Prefill__LancacheIp) */}
+            {diagnostics.lancacheIpInjected ? (
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-[var(--theme-success)]" />
+                  <span className="text-sm text-themed-primary">
+                    {t('prefill.network.lancacheIpInjected', {
+                      ip: diagnostics.lancacheIpInjected
+                    })}
+                  </span>
+                </div>
+              </div>
+            ) : (
+              diagnostics.useHostNetworking && (
+                <div className="text-xs p-2.5 rounded bg-[var(--theme-warning-bg)] text-[var(--theme-warning-text)] leading-relaxed">
+                  {t('prefill.network.lancacheIpResolutionFailed')}
+                </div>
+              )
+            )}
             {/* Internet Connectivity */}
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <div className="flex items-center gap-2">

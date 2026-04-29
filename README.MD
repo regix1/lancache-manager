@@ -482,7 +482,7 @@ When a prefill session starts, the app tests the container network and logs the 
   PREFILL CONTAINER NETWORK DIAGNOSTICS - prefill-daemon-abc123
 ═══════════════════════════════════════════════════════════════════════
   ✓ Internet connectivity: OK (reached api.steampowered.com)
-  lancache.steamcontent.com resolved to 192.168.1.5
+  lancache.steamcontent.com resolved to 192.168.1.10
   ✓ DNS looks correct (private IP - likely your lancache server)
 ═══════════════════════════════════════════════════════════════════════
 ```
@@ -498,11 +498,97 @@ environment:
   - Prefill__NetworkMode=host
 
   # Option 3: Explicit DNS IP (when lancache-dns IP is not auto-detected)
-  - Prefill__LancacheDnsIp=192.168.1.10
+  - Prefill__LancacheDnsIp=192.168.1.20
 ```
 
 > [!TIP]
 > If prefill containers have no internet access, try `Prefill__NetworkMode=bridge`. This is a common fix when Docker's default network isolation blocks outbound connections.
+
+#### Lancache IP injection (`Prefill__LancacheIp`)
+
+If your host's DNS chain does **not** point CDN domains at your lancache server (common with AdGuard Home, public DNS like `1.1.1.1`, or `systemd-resolved` without a lancache-dns forwarder), you can set `Prefill__LancacheIp` to the IP or hostname of your **lancache cache server**. The manager injects this value as `LANCACHE_IP` into the prefill daemon container, which causes the daemon to bypass DNS entirely for CDN fetches and connect directly to your cache via URL-rewrite and Host-header spoofing.
+
+This works in **both** `host` and `bridge` network modes, and is **HTTP-cache-agnostic** — the daemon talks plain HTTP/1.1 with a spoofed `Host:` header, so any cache that routes by Host header works (the standard `lancachenet/monolithic` nginx image, or any compatible alternative).
+
+**Example:**
+
+```yaml
+environment:
+  - Prefill__NetworkMode=host
+  - Prefill__LancacheIp=192.168.1.10        # your lancache cache server IP — injected as LANCACHE_IP
+  - Prefill__LancacheDnsIp=192.168.1.20     # optional — only used in bridge mode for container DNS
+```
+
+> [!NOTE]
+> `Prefill__LancacheDnsIp` sets the DNS server used by the prefill container (bridge mode only — Docker ignores DNS overrides for host-network containers). It is independent of `Prefill__LancacheIp`; both can be set together.
+
+> [!IMPORTANT]
+> Steam (`api.steampowered.com`) and Epic (`*.epicgames.com`) authentication and manifest discovery still resolve via the container's normal DNS — `LANCACHE_IP` injection only redirects CDN chunk fetches, which are the only domains lancache caches. Your auth and metadata traffic is unaffected.
+
+> [!NOTE]
+> **No fallback / auto-detect for this setting.** If `Prefill__LancacheIp` is not set, the daemon uses its own DNS-driven detection chain, which may or may not route traffic through your cache depending on your network setup. For predictable behavior, set the env var explicitly.
+
+#### Network configuration cheat sheet
+
+If the combination of `NetworkMode`, `LancacheIp`, and `LancacheDnsIp` feels confusing, this section maps every combination to an outcome.
+
+**How a CDN chunk request is routed:**
+
+```mermaid
+flowchart TD
+    Start([Prefill daemon needs<br/>lancache.steamcontent.com/...])
+    LIP{LANCACHE_IP env set?<br/>= Prefill__LancacheIp}
+
+    Start --> LIP
+
+    LIP -->|YES| Direct[Connect to that IP<br/>with Host: real-CDN<br/>DNS never queried]
+    Direct --> OK([✓ Cache hit/miss<br/>at YOUR cache server])
+
+    LIP -->|NO| DNS[Container DNS resolves<br/>lancache.steamcontent.com]
+    DNS --> Mode{NetworkMode?}
+
+    Mode -->|host| HostDNS[Use host's<br/>/etc/resolv.conf<br/>LancacheDnsIp IGNORED]
+    Mode -->|bridge| BridgeDNS{LancacheDnsIp set?}
+
+    BridgeDNS -->|YES| ForcedDNS[Use that DNS server]
+    BridgeDNS -->|NO| AutoDetect[Daemon's auto-detect<br/>cdnUrl / localhost / gateway]
+
+    HostDNS --> Outcome{Resolves to<br/>your cache?}
+    ForcedDNS --> Outcome
+    AutoDetect --> Outcome
+
+    Outcome -->|YES| OK
+    Outcome -->|NO| Public([✗ Bypasses cache<br/>traffic goes to real CDN])
+
+    style OK fill:#1f883d,color:#fff
+    style Public fill:#cf222e,color:#fff
+    style Direct fill:#0969da,color:#fff
+```
+
+**Setting combinations — what each does:**
+
+| `NetworkMode` | `LancacheIp` | `LancacheDnsIp` | What happens | Verdict |
+|:---:|:---:|:---:|---|:---:|
+| `host` | **set** | (any) | LANCACHE_IP injected. CDN bypasses DNS entirely. DnsIp ignored regardless. | ✅ Always works |
+| `host` | unset | (any) | DnsIp is **silently dropped** (Docker host-mode limitation). Daemon uses host's resolv.conf. | ⚠️ Works only if host's DNS resolves CDN to your cache |
+| `bridge` | **set** | unset | LANCACHE_IP injected. CDN bypasses DNS. Container uses default Docker DNS for everything else. | ✅ Always works |
+| `bridge` | **set** | **set** | Belt + braces: LANCACHE_IP for CDN, DnsIp for everything else (auth, manifest). | ✅ Always works |
+| `bridge` | unset | **set** | No injection. Container DNS forced to DnsIp. Works iff DnsIp resolves CDN to your cache. | ✅ Works (legacy DNS-driven path) |
+| `bridge` | unset | unset | No injection, no DNS pin. Daemon's own probe chain (cdnUrl / localhost / gateway) runs. | 🎲 Lottery — works for some setups |
+
+**Pick by your situation:**
+
+| You have… | Set this |
+|---|---|
+| Standard `lancache` + `lancache-dns` containers, normal install | nothing — auto-detect handles it |
+| AdGuard Home / non-`lancache-dns` DNS replacement | `Prefill__LancacheIp=<your-cache-ip>` |
+| Public DNS on the host (1.1.1.1, 8.8.8.8) and host networking | `Prefill__LancacheIp=<your-cache-ip>` |
+| Custom Caddy/Squid/non-nginx HTTP cache that respects `Host:` header | `Prefill__LancacheIp=<your-cache-ip>` |
+| Single-box install where lancache runs on `localhost` | nothing — daemon's `localhost` probe finds it |
+| **Predictable behavior in any environment** | **always set `Prefill__LancacheIp`** — it's the universal escape hatch |
+
+> [!TIP]
+> **Rule of thumb**: if you set `Prefill__LancacheIp`, network mode and DNS settings stop mattering for CDN traffic. That is the whole point of the env var — DNS becomes irrelevant.
 
 -----
 
@@ -812,6 +898,7 @@ These steps apply to both Steam and Epic prefill.
    - Set `Prefill__NetworkMode=host` if your lancache-dns uses host networking
    - Set `Prefill__LancacheDnsIp` to your lancache-dns IP address
    - The app auto-detects this if your lancache-dns container is running
+   - **If your DNS does not point CDN domains at lancache** (AdGuard Home, public DNS, `systemd-resolved` without a lancache forwarder): set `Prefill__LancacheIp` to your lancache cache server's IP. This bypasses DNS entirely for CDN traffic and is HTTP-cache-agnostic — works with the standard nginx image or any compatible alternative. See [Lancache IP injection](#lancache-ip-injection-prefill__lancacheip) above.
 6. **DNS bypassing lancache via IPv6:** If your network uses IPv6, DNS queries might bypass lancache-dns. The app automatically disables IPv6 in prefill containers to prevent this.
 7. **Epic OAuth not connecting:** Make sure you complete the OAuth flow in the browser window that opens. The authentication token is stored securely and persists across sessions.
 
@@ -843,7 +930,15 @@ environment:
 Explicit DNS IP (when auto-detection fails):
 ```yaml
 environment:
-  - Prefill__LancacheDnsIp=192.168.1.10
+  - Prefill__LancacheDnsIp=192.168.1.20
+```
+
+Lancache IP injection (when DNS does not point CDN domains at lancache — works in host and bridge mode):
+```yaml
+environment:
+  - Prefill__NetworkMode=host
+  - Prefill__LancacheIp=192.168.1.10        # your lancache cache server IP — bypasses DNS for CDN traffic
+  - Prefill__LancacheDnsIp=192.168.1.20     # optional — only used in bridge mode
 ```
 
 ### Debug Logging

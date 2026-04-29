@@ -2761,6 +2761,8 @@ export interface NetworkDiagnostics {
   testedAt: string;
   /** True if container uses host networking - steam-prefill will detect lancache via localhost/gateway fallback */
   useHostNetworking?: boolean;
+  /** Lancache server IP injected via the LANCACHE_IP env var (Prefill__LancacheIp). Null when unset. */
+  lancacheIpInjected: string | null;
 }
 
 export interface DaemonSessionDto {

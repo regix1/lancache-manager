@@ -14,6 +14,7 @@ using LancacheManager.Core.Interfaces;
 using LancacheManager.Infrastructure.Platform;
 using LancacheManager.Infrastructure.Utilities;
 using LancacheManager.Middleware;
+using LancacheManager.Models;
 using LancacheManager.Security;
 using LancacheManager.Validators;
 using Microsoft.AspNetCore.Authentication;
@@ -175,6 +176,11 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 // Configure API options
 builder.Services.Configure<ApiOptions>(
     builder.Configuration.GetSection("ApiOptions"));
+
+// Configure Prefill network options (NetworkMode, LancacheIp, LancacheDnsIp, UseTcp)
+// Bound from environment variables of the form Prefill__<Property>
+builder.Services.Configure<PrefillNetworkOptions>(
+    builder.Configuration.GetSection("Prefill"));
 
 // IMPORTANT: Register path resolver FIRST before anything that depends on it
 if (OperatingSystemDetector.IsWindows)
