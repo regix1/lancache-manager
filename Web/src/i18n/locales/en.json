@@ -3352,7 +3352,7 @@
       "steamTriggerDomainNotConfigured": "This is Steam's official trigger domain. Configure lancache-dns to point this to your cache server IP for optimal performance (32 connections vs 4).",
       "primaryDomainNotConfigured": "This is the primary CDN domain for this service. Configure lancache-dns to point this to your cache server IP for downloads to be cached.",
       "optionalDomainNotConfigured": "This domain is optional. As long as the primary domain is configured, prefill will work correctly.",
-      "hostNetworkingHint": "If Steam login hangs or times out, try setting Prefill__NetworkMode=bridge in your docker-compose.yml.",
+      "hostNetworkingHint": "If Steam login hangs or times out, set Prefill__LancacheIp to your lancache server's IP — this fixes most DNS-related issues without changing network mode. As a fallback, try Prefill__NetworkMode=bridge in your docker-compose.yml.",
       "lancacheIpInjected": "Lancache server: {{ip}} (direct, DNS-independent)",
       "lancacheIpResolutionFailed": "Prefill__LancacheIp is not set. The daemon will fall back to container DNS, which may not resolve CDN domains correctly. Set Prefill__LancacheIp=<your-lancache-server-ip> in your docker-compose.",
       "ipv6UnsupportedHint": "IPv6 failures are expected: lancache-dns only supports IPv4. If clients prefer IPv6, disable IPv6 or force IPv4 to avoid bypassing your cache.",
