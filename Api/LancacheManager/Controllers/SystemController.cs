@@ -288,7 +288,32 @@ public class SystemController : ControllerBase
             });
         }
 
-        return BadRequest(new ErrorResponse { Error = "No update provided" });
+        // No fields produced an update — the request is well-formed but every nullable
+        // field is null/absent. Treat this as a valid clear-all-wizard-state no-op,
+        // matching the frontend's clearServerWizardState() semantic. This branch fires
+        // on wizard completion and on mount when setup is already complete (e.g. after
+        // a data restore). Returning 400 here was rejecting a valid intent and triggering
+        // the SetupStatusContext retry loop visible in the browser console.
+        _stateService.UpdateState(state =>
+        {
+            state.CurrentSetupStep = null;
+            state.DataSourceChoice = null;
+            state.CompletedPlatforms = null;
+        });
+
+        if (!_stateService.IsPersistenceAvailable)
+        {
+            return StatusCode(503, new ErrorResponse
+            {
+                Error = "Setup state could not be persisted. Please check server logs and try again."
+            });
+        }
+
+        return Ok(new SetupUpdateResponse
+        {
+            Message = "Wizard state cleared",
+            SetupCompleted = _stateService.GetSetupCompleted()
+        });
     }
 
     /// <summary>
