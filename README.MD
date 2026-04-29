@@ -24,7 +24,6 @@ LANCache Manager is a simple web UI for monitoring and managing your [LANCache](
 - [Docker Compose Reference](#docker-compose-reference)
 - [Configuration Options](#configuration-options)
   - [PostgreSQL Database](#postgresql-database)
-- [Tabs Overview](#tabs-overview)
 - [Prefill (Steam & Epic)](#prefill-steam--epic)
 - [Custom Themes](#custom-themes)
 - [Grafana & Prometheus](#grafana--prometheus)
@@ -390,93 +389,116 @@ See [Multiple Datasources](#multiple-datasources) for details on multi-instance 
 
 -----
 
-<a id="tabs-overview"></a>
-## Tabs Overview
-
-### Dashboard
-Your home base for cache statistics. See overall performance, recent activity, and service breakdowns. Stat cards are draggable so you can arrange them your way.
-
-### Downloads
-Browse everything that has been cached. Choose Normal view (cards with game art), Compact view (dense list for scanning), or Retro view (terminal look). Use the filter bar to narrow by platform, session, cache status, and more.
-
-### Clients
-Track every device that has downloaded through your cache. Group clients with friendly names so it is easy to identify machines at a LAN party.
-
-### Users
-Manage active sessions, create guest access links, configure session duration, and revoke sessions when needed. Guest sessions provide read-only access to dashboards, downloads, and events without sharing your API key. Admins can control guest prefill access separately for Steam and Epic.
-
-### Events
-A calendar view of download activity over time. Create custom events for LAN parties and review what was downloaded during each one.
-
-### Prefill
-Pre-download games to your cache before people arrive. The prefill tab opens to a home page where you pick between Steam and Epic. Log in, pick games from your library, and let them run overnight. Each service runs independently with its own connection, so you can have both active at the same time.
-
-### Management
-The admin panel (requires authentication). Process logs, clear cache, download depot mappings, run Epic game mapping, configure Steam and Epic API access, manage themes, ban accounts, and handle database operations.
-
------
-
 <a id="prefill-steam--epic"></a>
 ## Prefill (Steam & Epic)
 
-The Prefill tab helps you download games to your cache before your LAN party starts. It supports both Steam and Epic Games. The tab opens to a home page where you pick which service to use, and each one runs independently so you can have both active at the same time. Guest users who only have access to one service skip the home page and go straight to their session.
+Prefill downloads games into your cache *before* people connect. When guests show up, every install reads from your cache instead of the public internet — full LAN speed, no bandwidth bottleneck.
 
-### Steam Prefill
+Steam and Epic each run in their own container, so you can prefill both at the same time without them interfering. Progress streams live to the UI.
 
-Steam prefill is powered by [steam-prefill-daemon](https://github.com/regix1/steam-prefill-daemon), a fork of [steam-lancache-prefill](https://github.com/tpill90/steam-lancache-prefill) by [@tpill90](https://github.com/tpill90).
+### Running a prefill
 
-1. Go to the Prefill tab and select **Steam**
-2. Log in with your Steam account (Steam Guard supported)
-3. Select games from your library
-4. Start the prefill
+The flow is the same for both services:
 
-Downloads run in a separate container with real-time progress updates. When your guests arrive, the games are already cached and ready to serve at full speed.
+1. Open the **Prefill** tab and pick **Steam** or **Epic Games**
+2. Sign in (Steam Guard for Steam, OAuth for Epic)
+3. Pick games from your library
+4. Hit **Start**
 
-#### Importing App IDs
+That's it. Leave it running — when guests arrive, everything's cached.
 
-If you are migrating from [steam-lancache-prefill](https://github.com/tpill90/steam-lancache-prefill) or you already have a list of Steam App IDs, you can import them directly:
+> [!NOTE]
+> Steam prefill is built on [steam-prefill-daemon](https://github.com/regix1/steam-prefill-daemon), a fork of [steam-lancache-prefill](https://github.com/tpill90/steam-lancache-prefill) by [@tpill90](https://github.com/tpill90). Epic prefill uses [epic-prefill-daemon](https://github.com/regix1/epic-prefill-daemon).
 
-1. Click **Select Apps** to open the game selection modal
-2. Click **Import App IDs** to expand the import section
-3. Paste your App IDs in any of these formats:
+### Importing Steam App IDs
+
+Have a list of App IDs from `steam-lancache-prefill` or somewhere else? Skip the library browser:
+
+1. Click **Select Apps**
+2. Click **Import App IDs**
+3. Paste your IDs in any of these formats:
    - Comma-separated: `730, 570, 440`
    - JSON array: `[730, 570, 440]`
    - One per line
 4. Click **Import**
 
-The import tells you how many games were added, how many were already selected, and how many IDs are not in your Steam library (these are skipped during prefill).
+The dialog tells you how many games were added, how many were already selected, and how many IDs aren't in your Steam library (those are skipped at prefill time).
 
-**Migrating from steam-lancache-prefill:** Copy the contents of your `selectedAppsToPrefill.json` file and paste it directly into the import field.
-
-### Epic Games Prefill
-
-Epic prefill uses OAuth to authenticate with your Epic Games account. Once connected, you can browse your owned games, check what is already cached, and schedule downloads with configurable thread counts.
-
-1. Go to the Prefill tab and select **Epic Games**
-2. Authenticate through Epic's OAuth login
-3. Browse your owned games and select which ones to prefill
-4. Start the prefill
-
-Epic prefill runs in its own daemon container, separate from Steam. Both can run at the same time without interfering with each other.
+> [!TIP]
+> **Coming from `steam-lancache-prefill`?** Open `selectedAppsToPrefill.json` and paste the contents straight into the import field — the JSON array is parsed as-is.
 
 ### Requirements
 
-- Docker socket mounted
-- Authenticated as admin
-- Lancache-dns container running, or manual DNS configuration
+- Docker socket mounted (`/var/run/docker.sock`)
+- Logged in as admin in lancache-manager
+- Your cache server is reachable from the prefill container (see [Network setup](#prefill-network) below)
 
-### Network Configuration
+<a id="prefill-network"></a>
+### Network setup
 
-For prefill to work, the prefill containers need:
-1. **Internet access** - to authenticate with Steam/Epic and download game data
-2. **DNS resolution** - CDN domains should resolve to your cache server
+**Most installs need zero config.** If you run the standard `lancache` + `lancache-dns` containers, lancache-manager auto-detects them and prefill works out of the box.
 
-The app **auto-detects** network settings in most cases:
-- If your lancache-dns uses `network_mode: host`, prefill containers also use host networking
-- Otherwise, it uses the lancache-dns container IP address for DNS resolution
+If your DNS isn't a stock `lancache-dns` (you use AdGuard Home, Pi-hole, public DNS, etc.) or your routing is unusual, set one env var and you're done.
 
-**Network Diagnostics:**
-When a prefill session starts, the app tests the container network and logs the results. Check your container logs for output like:
+#### Quick recommendation
+
+| Your setup | What to set |
+|---|---|
+| Stock `lancache` + `lancache-dns` containers | nothing |
+| Single-box install (lancache on the same host as lancache-manager) | nothing |
+| AdGuard Home, Pi-hole, or any DNS replacement | `Prefill__LancacheIp=<your-cache-ip>` |
+| Host networking, host's DNS doesn't route CDN to your cache | `Prefill__LancacheIp=<your-cache-ip>` |
+| Caddy/Squid/non-nginx cache that routes by `Host:` header | `Prefill__LancacheIp=<your-cache-ip>` |
+| You want predictable behavior regardless of environment | always set `Prefill__LancacheIp` |
+
+> [!TIP]
+> **`Prefill__LancacheIp` is the universal escape hatch.** When set, prefill talks to your cache by IP and never asks DNS where the cache lives. Network mode and DNS server settings stop mattering for CDN traffic.
+
+#### Settings
+
+| Variable | What it does |
+|---|---|
+| `Prefill__NetworkMode` | `host` or `bridge`. Defaults to auto-detect from your `lancache-dns` container. |
+| `Prefill__LancacheIp` | The IP (or hostname) of your lancache server. Forwarded to the daemon as `LANCACHE_IP`. Bypasses DNS for CDN traffic. Works in both `host` and `bridge` mode. |
+| `Prefill__LancacheDnsIp` | The IP of your DNS server (lancache-dns, AdGuard, etc.). Used in **bridge mode only** — Docker silently drops DNS overrides on host-network containers. |
+
+> [!IMPORTANT]
+> Steam (`api.steampowered.com`) and Epic (`*.epicgames.com`) auth and manifest endpoints still use normal DNS. `LANCACHE_IP` only redirects CDN chunk traffic — the only domains lancache caches. Your login and metadata traffic is unaffected.
+
+#### Examples
+
+**Most reliable** — `LancacheIp` makes CDN routing DNS-independent:
+
+```yaml
+environment:
+  - Prefill__NetworkMode=host
+  - Prefill__LancacheIp=192.168.1.10
+```
+
+**Bridge mode with a non-standard DNS** (e.g., AdGuard Home replacing lancache-dns):
+
+```yaml
+environment:
+  - Prefill__NetworkMode=bridge
+  - Prefill__LancacheIp=192.168.1.10        # cache server
+  - Prefill__LancacheDnsIp=192.168.1.20     # DNS server
+```
+
+**Bridge mode, stock lancache-dns, no IP override** (legacy DNS-driven path):
+
+```yaml
+environment:
+  - Prefill__NetworkMode=bridge
+  - Prefill__LancacheDnsIp=192.168.1.20
+```
+
+> [!TIP]
+> **Prefill container has no internet?** Try `Prefill__NetworkMode=bridge`. Some Docker setups block outbound traffic in host mode.
+
+#### Network diagnostics
+
+Each prefill session runs a connectivity test on startup and writes the result to logs:
+
 ```
 ═══════════════════════════════════════════════════════════════════════
   PREFILL CONTAINER NETWORK DIAGNOSTICS - prefill-daemon-abc123
@@ -487,62 +509,22 @@ When a prefill session starts, the app tests the container network and logs the 
 ═══════════════════════════════════════════════════════════════════════
 ```
 
-**Manual configuration** (if auto-detection fails):
+If the resolved IP is a public address (Steam's real CDN IPs look like `162.254.x.x`), traffic is bypassing your cache. Set `Prefill__LancacheIp` and restart the session.
 
-```yaml
-environment:
-  # Option 1: Use bridge networking (recommended for most setups)
-  - Prefill__NetworkMode=bridge
+<a id="prefill-routing"></a>
+#### How routing works (advanced)
 
-  # Option 2: Use host networking (for host-networked lancache-dns)
-  - Prefill__NetworkMode=host
-
-  # Option 3: Explicit DNS IP (when lancache-dns IP is not auto-detected)
-  - Prefill__LancacheDnsIp=192.168.1.20
-```
-
-> [!TIP]
-> If prefill containers have no internet access, try `Prefill__NetworkMode=bridge`. This is a common fix when Docker's default network isolation blocks outbound connections.
-
-#### Lancache IP injection (`Prefill__LancacheIp`)
-
-If your host's DNS chain does **not** point CDN domains at your lancache server (common with AdGuard Home, public DNS like `1.1.1.1`, or `systemd-resolved` without a lancache-dns forwarder), you can set `Prefill__LancacheIp` to the IP or hostname of your **lancache cache server**. The manager injects this value as `LANCACHE_IP` into the prefill daemon container, which causes the daemon to bypass DNS entirely for CDN fetches and connect directly to your cache via URL-rewrite and Host-header spoofing.
-
-This works in **both** `host` and `bridge` network modes, and is **HTTP-cache-agnostic** — the daemon talks plain HTTP/1.1 with a spoofed `Host:` header, so any cache that routes by Host header works (the standard `lancachenet/monolithic` nginx image, or any compatible alternative).
-
-**Example:**
-
-```yaml
-environment:
-  - Prefill__NetworkMode=host
-  - Prefill__LancacheIp=192.168.1.10        # your lancache cache server IP — injected as LANCACHE_IP
-  - Prefill__LancacheDnsIp=192.168.1.20     # optional — only used in bridge mode for container DNS
-```
-
-> [!NOTE]
-> `Prefill__LancacheDnsIp` sets the DNS server used by the prefill container (bridge mode only — Docker ignores DNS overrides for host-network containers). It is independent of `Prefill__LancacheIp`; both can be set together.
-
-> [!IMPORTANT]
-> Steam (`api.steampowered.com`) and Epic (`*.epicgames.com`) authentication and manifest discovery still resolve via the container's normal DNS — `LANCACHE_IP` injection only redirects CDN chunk fetches, which are the only domains lancache caches. Your auth and metadata traffic is unaffected.
-
-> [!NOTE]
-> **No fallback / auto-detect for this setting.** If `Prefill__LancacheIp` is not set, the daemon uses its own DNS-driven detection chain, which may or may not route traffic through your cache depending on your network setup. For predictable behavior, set the env var explicitly.
-
-#### Network configuration cheat sheet
-
-If the combination of `NetworkMode`, `LancacheIp`, and `LancacheDnsIp` feels confusing, this section maps every combination to an outcome.
-
-**How a CDN chunk request is routed:**
+For when you want to know exactly which path a request takes:
 
 ```mermaid
 flowchart TD
     Start([Prefill daemon needs<br/>lancache.steamcontent.com/...])
-    LIP{LANCACHE_IP env set?<br/>= Prefill__LancacheIp}
+    LIP{LANCACHE_IP set?<br/>= Prefill__LancacheIp}
 
     Start --> LIP
 
     LIP -->|YES| Direct[Connect to that IP<br/>with Host: real-CDN<br/>DNS never queried]
-    Direct --> OK([✓ Cache hit/miss<br/>at YOUR cache server])
+    Direct --> OK([✓ Hit your cache])
 
     LIP -->|NO| DNS[Container DNS resolves<br/>lancache.steamcontent.com]
     DNS --> Mode{NetworkMode?}
@@ -551,44 +533,32 @@ flowchart TD
     Mode -->|bridge| BridgeDNS{LancacheDnsIp set?}
 
     BridgeDNS -->|YES| ForcedDNS[Use that DNS server]
-    BridgeDNS -->|NO| AutoDetect[Daemon's auto-detect<br/>cdnUrl / localhost / gateway]
+    BridgeDNS -->|NO| AutoDetect[Auto-detect probes<br/>cdnUrl / localhost / gateway]
 
     HostDNS --> Outcome{Resolves to<br/>your cache?}
     ForcedDNS --> Outcome
     AutoDetect --> Outcome
 
     Outcome -->|YES| OK
-    Outcome -->|NO| Public([✗ Bypasses cache<br/>traffic goes to real CDN])
+    Outcome -->|NO| Public([✗ Bypasses cache<br/>goes to public CDN])
 
     style OK fill:#1f883d,color:#fff
     style Public fill:#cf222e,color:#fff
     style Direct fill:#0969da,color:#fff
 ```
 
-**Setting combinations — what each does:**
+Every combination, in one table:
 
-| `NetworkMode` | `LancacheIp` | `LancacheDnsIp` | What happens | Verdict |
-|:---:|:---:|:---:|---|:---:|
-| `host` | **set** | (any) | LANCACHE_IP injected. CDN bypasses DNS entirely. DnsIp ignored regardless. | ✅ Always works |
-| `host` | unset | (any) | DnsIp is **silently dropped** (Docker host-mode limitation). Daemon uses host's resolv.conf. | ⚠️ Works only if host's DNS resolves CDN to your cache |
-| `bridge` | **set** | unset | LANCACHE_IP injected. CDN bypasses DNS. Container uses default Docker DNS for everything else. | ✅ Always works |
-| `bridge` | **set** | **set** | Belt + braces: LANCACHE_IP for CDN, DnsIp for everything else (auth, manifest). | ✅ Always works |
-| `bridge` | unset | **set** | No injection. Container DNS forced to DnsIp. Works iff DnsIp resolves CDN to your cache. | ✅ Works (legacy DNS-driven path) |
-| `bridge` | unset | unset | No injection, no DNS pin. Daemon's own probe chain (cdnUrl / localhost / gateway) runs. | 🎲 Lottery — works for some setups |
+| `NetworkMode` | `LancacheIp` | `LancacheDnsIp` | Outcome |
+|:---:|:---:|:---:|---|
+| `host` | set | (any) | ✅ `LANCACHE_IP` injected. DNS irrelevant. |
+| `host` | unset | (any) | ⚠️ DnsIp is silently dropped (Docker limitation). Works only if the host's DNS already resolves CDN to your cache. |
+| `bridge` | set | unset | ✅ `LANCACHE_IP` injected. DNS irrelevant. |
+| `bridge` | set | set | ✅ `LANCACHE_IP` for CDN, DnsIp for auth/manifest. |
+| `bridge` | unset | set | ✅ Container DNS forced to DnsIp. Works if DnsIp resolves CDN to your cache. |
+| `bridge` | unset | unset | 🎲 Auto-detect probes localhost/gateway. Works for some setups. |
 
-**Pick by your situation:**
-
-| You have… | Set this |
-|---|---|
-| Standard `lancache` + `lancache-dns` containers, normal install | nothing — auto-detect handles it |
-| AdGuard Home / non-`lancache-dns` DNS replacement | `Prefill__LancacheIp=<your-cache-ip>` |
-| Public DNS on the host (1.1.1.1, 8.8.8.8) and host networking | `Prefill__LancacheIp=<your-cache-ip>` |
-| Custom Caddy/Squid/non-nginx HTTP cache that respects `Host:` header | `Prefill__LancacheIp=<your-cache-ip>` |
-| Single-box install where lancache runs on `localhost` | nothing — daemon's `localhost` probe finds it |
-| **Predictable behavior in any environment** | **always set `Prefill__LancacheIp`** — it's the universal escape hatch |
-
-> [!TIP]
-> **Rule of thumb**: if you set `Prefill__LancacheIp`, network mode and DNS settings stop mattering for CDN traffic. That is the whole point of the env var — DNS becomes irrelevant.
+**Why `LancacheIp` always works**: with the env var set, the daemon builds requests like `GET http://192.168.1.10/depot/123/chunk/abc` with `Host: lancache.steamcontent.com`. Your cache (nginx, Caddy, or any HTTP server that routes by `Host:`) sees the right hostname and serves from cache. DNS is never consulted for the CDN domain.
 
 -----
 
