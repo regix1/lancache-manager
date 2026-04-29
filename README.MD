@@ -459,8 +459,11 @@ If your DNS isn't a stock `lancache-dns` (you use AdGuard Home, Pi-hole, public 
 | Variable | What it does |
 |---|---|
 | `Prefill__NetworkMode` | `host` or `bridge`. Defaults to auto-detect from your `lancache-dns` container. |
-| `Prefill__LancacheIp` | The IP (or hostname) of your lancache server. Forwarded to the daemon as `LANCACHE_IP`. Bypasses DNS for CDN traffic. Works in both `host` and `bridge` mode. |
-| `Prefill__LancacheDnsIp` | The IP of your DNS server (lancache-dns, AdGuard, etc.). Used in **bridge mode only** — Docker silently drops DNS overrides on host-network containers. |
+| `Prefill__LancacheIp` | IP (or hostname) of your lancache **cache server** (the HTTP server holding cached files, port 80). Forwarded to the daemon as `LANCACHE_IP`. The daemon connects to this IP directly with a spoofed `Host:` header — no DNS lookup. Works in both `host` and `bridge` mode. |
+| `Prefill__LancacheDnsIp` | IP of your **DNS server** (lancache-dns, AdGuard, Pi-hole — port 53). Written into the container's `/etc/resolv.conf` so the daemon queries it for hostname → IP lookups. Used in **bridge mode only** — Docker silently drops DNS overrides on host-network containers. |
+
+> [!IMPORTANT]
+> **`LancacheIp` and `LancacheDnsIp` are different services**, often on different machines. `LancacheIp` is the cache server (HTTP). `LancacheDnsIp` is a DNS server (UDP 53) that translates names to IPs. In a stock single-host install they may share the same IP (different ports), which is why they look similar — but they're not interchangeable.
 
 > [!IMPORTANT]
 > Steam (`api.steampowered.com`) and Epic (`*.epicgames.com`) auth and manifest endpoints still use normal DNS. `LANCACHE_IP` only redirects CDN chunk traffic — the only domains lancache caches. Your login and metadata traffic is unaffected.
@@ -503,9 +506,9 @@ Each prefill session runs a connectivity test on startup and writes the result t
 ═══════════════════════════════════════════════════════════════════════
   PREFILL CONTAINER NETWORK DIAGNOSTICS - prefill-daemon-abc123
 ═══════════════════════════════════════════════════════════════════════
-  ✓ Internet connectivity: OK (reached api.steampowered.com)
+  Internet connectivity: OK (reached api.steampowered.com)
   lancache.steamcontent.com resolved to 192.168.1.10
-  ✓ DNS looks correct (private IP - likely your lancache server)
+  DNS looks correct (private IP - likely your lancache server)
 ═══════════════════════════════════════════════════════════════════════
 ```
 
@@ -518,29 +521,29 @@ For when you want to know exactly which path a request takes:
 
 ```mermaid
 flowchart TD
-    Start([Prefill daemon needs<br/>lancache.steamcontent.com/...])
-    LIP{LANCACHE_IP set?<br/>= Prefill__LancacheIp}
+    Start([Prefill needs a game chunk from<br/>lancache.steamcontent.com])
+    LIP{Did you set<br/>Prefill__LancacheIp?}
 
     Start --> LIP
 
-    LIP -->|YES| Direct[Connect to that IP<br/>with Host: real-CDN<br/>DNS never queried]
-    Direct --> OK([✓ Hit your cache])
+    LIP -->|YES| Direct[Talk to that IP directly,<br/>no DNS lookup needed.<br/>Host header tells the cache<br/>which CDN to serve.]
+    Direct --> OK([Hits your cache every time])
 
-    LIP -->|NO| DNS[Container DNS resolves<br/>lancache.steamcontent.com]
-    DNS --> Mode{NetworkMode?}
+    LIP -->|NO| DNS[Daemon asks DNS:<br/>where does lancache.steamcontent.com<br/>actually live?]
+    DNS --> Mode{Which NetworkMode<br/>is the container in?}
 
-    Mode -->|host| HostDNS[Use host's<br/>/etc/resolv.conf<br/>LancacheDnsIp IGNORED]
-    Mode -->|bridge| BridgeDNS{LancacheDnsIp set?}
+    Mode -->|host| HostDNS[Container uses whatever DNS<br/>the host machine uses.<br/>Prefill__LancacheDnsIp can't help —<br/>Docker silently drops it in host mode.]
+    Mode -->|bridge| BridgeDNS{Did you set<br/>Prefill__LancacheDnsIp?}
 
-    BridgeDNS -->|YES| ForcedDNS[Use that DNS server]
-    BridgeDNS -->|NO| AutoDetect[Auto-detect probes<br/>cdnUrl / localhost / gateway]
+    BridgeDNS -->|YES| ForcedDNS[Container queries<br/>that DNS server]
+    BridgeDNS -->|NO| AutoDetect[Daemon falls back to its<br/>own auto-detect chain:<br/>CDN name, localhost,<br/>then the default gateway]
 
-    HostDNS --> Outcome{Resolves to<br/>your cache?}
+    HostDNS --> Outcome{Did DNS return<br/>your cache server's IP?}
     ForcedDNS --> Outcome
     AutoDetect --> Outcome
 
     Outcome -->|YES| OK
-    Outcome -->|NO| Public([✗ Bypasses cache<br/>goes to public CDN])
+    Outcome -->|NO| Public([Got the real CDN's public IP —<br/>traffic skips your cache])
 
     style OK fill:#1f883d,color:#fff
     style Public fill:#cf222e,color:#fff
@@ -551,12 +554,12 @@ Every combination, in one table:
 
 | `NetworkMode` | `LancacheIp` | `LancacheDnsIp` | Outcome |
 |:---:|:---:|:---:|---|
-| `host` | set | (any) | ✅ `LANCACHE_IP` injected. DNS irrelevant. |
-| `host` | unset | (any) | ⚠️ DnsIp is silently dropped (Docker limitation). Works only if the host's DNS already resolves CDN to your cache. |
-| `bridge` | set | unset | ✅ `LANCACHE_IP` injected. DNS irrelevant. |
-| `bridge` | set | set | ✅ `LANCACHE_IP` for CDN, DnsIp for auth/manifest. |
-| `bridge` | unset | set | ✅ Container DNS forced to DnsIp. Works if DnsIp resolves CDN to your cache. |
-| `bridge` | unset | unset | 🎲 Auto-detect probes localhost/gateway. Works for some setups. |
+| `host` | set | (any) | Reliable. `LANCACHE_IP` injected; DNS irrelevant. |
+| `host` | unset | (any) | Risky. DnsIp is silently dropped (Docker limitation). Works only if the host's DNS already resolves CDN to your cache. |
+| `bridge` | set | unset | Reliable. `LANCACHE_IP` injected; DNS irrelevant. |
+| `bridge` | set | set | Reliable. `LANCACHE_IP` for CDN, DnsIp for auth/manifest. |
+| `bridge` | unset | set | Works if DnsIp resolves CDN to your cache. Container DNS forced to DnsIp. |
+| `bridge` | unset | unset | Inconsistent. Auto-detect probes localhost/gateway. Works for some setups. |
 
 **Why `LancacheIp` always works**: with the env var set, the daemon builds requests like `GET http://192.168.1.10/depot/123/chunk/abc` with `Host: lancache.steamcontent.com`. Your cache (nginx, Caddy, or any HTTP server that routes by `Host:`) sees the right hostname and serves from cache. DNS is never consulted for the CDN domain.
 
