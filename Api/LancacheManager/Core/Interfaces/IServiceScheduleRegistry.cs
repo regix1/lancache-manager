@@ -9,6 +9,14 @@ public interface IServiceScheduleRegistry
     void SetInterval(string serviceKey, double intervalHours);
     void SetRunOnStartup(string serviceKey, bool runOnStartup);
     Task TriggerRunAsync(string serviceKey);
+
+    /// <summary>
+    /// Triggers an immediate run of every registered service (both scheduled and configurable),
+    /// regardless of their interval or current running state. Fire-and-forget per service —
+    /// individual services own their concurrency. Returns the count of services triggered.
+    /// </summary>
+    Task<int> TriggerAllAsync();
+
     void ResetToDefaults();
 
     /// <summary>

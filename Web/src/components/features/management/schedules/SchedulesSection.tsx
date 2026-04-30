@@ -436,6 +436,7 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({ isAdmin, highlightS
   const [error, setError] = useState<string | null>(null);
   const [runningKey, setRunningKey] = useState<string | null>(null);
   const [resetting, setResetting] = useState(false);
+  const [runningAll, setRunningAll] = useState(false);
   // Map of schedule key -> glow variant. `navigate` is the default (2-pulse attention
   // grab) used by Run Now and external View Schedule navigation. `subtle` is used by
   // Reset to Defaults where every card flashes at once and needs to feel like an
@@ -658,6 +659,36 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({ isAdmin, highlightS
     }
   }, [fetchSchedules, schedules, addNotification, t]);
 
+  const handleRunAll = useCallback(async () => {
+    setRunningAll(true);
+    try {
+      const { triggeredCount } = await ApiService.runAllSchedules();
+      await fetchSchedules();
+
+      addNotification({
+        type: 'generic',
+        status: 'completed',
+        message: t('management.schedules.runAllTriggered', { count: triggeredCount }),
+        details: { notificationType: 'success' }
+      });
+
+      // Flash all cards to acknowledge — same subtle variant as reset since the
+      // entire grid lights up at once.
+      const flashed = Object.fromEntries(schedules.map((s) => [s.key, 'subtle' as const]));
+      setCompletedKeys(flashed);
+      setTimeout(() => setCompletedKeys({}), 1400);
+    } catch {
+      addNotification({
+        type: 'generic',
+        status: 'failed',
+        message: t('management.schedules.runAllFailed'),
+        details: { notificationType: 'error' }
+      });
+    } finally {
+      setRunningAll(false);
+    }
+  }, [fetchSchedules, schedules, addNotification, t]);
+
   const handleRunNow = useCallback(
     async (key: string) => {
       const displayName = t(`management.schedules.services.${key}.displayName`);
@@ -716,15 +747,26 @@ const SchedulesSection: React.FC<SchedulesSectionProps> = ({ isAdmin, highlightS
           <h2 className="schedules-section-title">{t('management.schedules.title')}</h2>
           <p className="schedules-section-subtitle">{t('management.schedules.subtitle')}</p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleResetDefaults}
-          disabled={!isAdmin || resetting}
-          loading={resetting}
-        >
-          {t('management.schedules.resetToDefaults')}
-        </Button>
+        <div className="schedules-section-actions">
+          <Button
+            variant="filled"
+            size="sm"
+            onClick={handleRunAll}
+            disabled={!isAdmin || runningAll || resetting}
+            loading={runningAll}
+          >
+            {t('management.schedules.runAll')}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleResetDefaults}
+            disabled={!isAdmin || resetting || runningAll}
+            loading={resetting}
+          >
+            {t('management.schedules.resetToDefaults')}
+          </Button>
+        </div>
       </div>
 
       <div className="schedules-grid">

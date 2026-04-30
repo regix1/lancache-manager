@@ -2720,6 +2720,19 @@ class ApiService {
       throw error;
     }
   }
+
+  static async runAllSchedules(): Promise<{ triggeredCount: number }> {
+    try {
+      const res = await fetch(
+        `${API_BASE}/system/schedules/run-all`,
+        this.getFetchOptions({ method: 'POST' })
+      );
+      return await this.handleResponse<{ triggeredCount: number }>(res);
+    } catch (error: unknown) {
+      console.error('runAllSchedules error:', error);
+      throw error;
+    }
+  }
 }
 
 // Prefill admin types

@@ -203,6 +203,25 @@ public class ServiceScheduleRegistry : IServiceScheduleRegistry
         return Task.CompletedTask;
     }
 
+    public Task<int> TriggerAllAsync()
+    {
+        var count = 0;
+
+        foreach (var (_, service) in _scheduledServices)
+        {
+            service.TriggerImmediateRun();
+            count++;
+        }
+
+        foreach (var (_, service) in _configurableServices)
+        {
+            service.TriggerImmediateRun();
+            count++;
+        }
+
+        return Task.FromResult(count);
+    }
+
     private static ServiceScheduleInfo MapScheduledService(ScheduledBackgroundService service)
     {
         return new ServiceScheduleInfo

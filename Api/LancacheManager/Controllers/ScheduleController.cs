@@ -105,6 +105,22 @@ public class ScheduleController : ControllerBase
         await _hubContext.Clients.All.SendAsync("SchedulesUpdated", _registry.GetAll());
         return Ok();
     }
+
+    /// <summary>
+    /// Triggers an immediate run of every registered service.
+    /// </summary>
+    [HttpPost("run-all")]
+    public async Task<ActionResult<TriggerAllResponse>> TriggerAllAsync()
+    {
+        var triggered = await _registry.TriggerAllAsync();
+        await _hubContext.Clients.All.SendAsync("SchedulesUpdated", _registry.GetAll());
+        return Accepted(new TriggerAllResponse { TriggeredCount = triggered });
+    }
+}
+
+public class TriggerAllResponse
+{
+    public int TriggeredCount { get; set; }
 }
 
 public class UpdateScheduleIntervalRequest
