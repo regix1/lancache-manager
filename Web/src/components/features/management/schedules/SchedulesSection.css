@@ -9,6 +9,7 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
+  flex-wrap: wrap;
 }
 
 .schedules-section-header > div {
@@ -17,12 +18,32 @@
   gap: 0.25rem;
 }
 
-.schedules-section-actions {
-  display: flex;
+/* Higher-specificity override so the actions wrapper sits in a row instead of
+   inheriting flex-direction: column from the .schedules-section-header > div rule. */
+.schedules-section-header > .schedules-section-actions {
   flex-direction: row;
   align-items: center;
   gap: 0.5rem;
   flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+/* On phones, stack the header sections vertically and let the action buttons fill
+   the row evenly so they remain easy to tap. */
+@media (max-width: 639px) {
+  .schedules-section-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .schedules-section-header > .schedules-section-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .schedules-section-header > .schedules-section-actions > * {
+    flex: 1;
+  }
 }
 
 .schedules-section-title {
@@ -227,6 +248,27 @@
 .schedule-run-button {
   flex-shrink: 0;
   white-space: nowrap;
+}
+
+/* On very narrow phones, stack the interval dropdown above the Run Now button so
+   neither gets cramped to an unreadable width. */
+@media (max-width: 380px) {
+  .schedule-controls-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+
+  .schedule-run-button {
+    width: 100%;
+  }
+
+  /* Same here for the timing row — last/next run side-by-side runs out of room
+     once the date strings ("Apr 30, 02:08:11 AM") have to wrap. */
+  .schedule-timing-row {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
 }
 
 .schedule-extra-row {
