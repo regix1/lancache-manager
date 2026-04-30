@@ -253,7 +253,7 @@ services:
 |----------|---------|-------------|
 | `PUID` | `33` | User ID the app runs as. Match the owner of your cache and log files. |
 | `PGID` | `33` | Group ID the app runs as. |
-| `TZ` | `UTC` | Timezone for log timestamps (e.g., `America/Chicago`). |
+| `TZ` | `UTC` | Timezone for log timestamps (e.g., `America/Chicago`). `TimeZone` is also accepted as a fallback. |
 | `LanCache__LogPath` | — | Path inside the container to the LANCache access log. |
 | `LanCache__CachePath` | — | Path inside the container to the LANCache cache directory. |
 
@@ -309,6 +309,9 @@ services:
 | `Security__ProtectSwagger` | `true` | Require auth on Swagger docs in production. |
 | `Security__AllowedOrigins` | (empty) | Comma-separated CORS allow list. Empty allows all. |
 | `Security__AllowedBrowsePaths` | (empty) | Comma-separated allow-list of file-browser roots. Empty disables the file browser entirely (every request returns `403`). Example: `/data,/mnt`. |
+| `Security__ApiKeyPath` | `/data/security/api_key.txt` | Override the file path the admin API key is read from and written to. Useful if you bind-mount secrets from outside `/data`. |
+| `Security__KnownProxyNetworks` | (empty) | Comma-separated CIDR list of trusted proxy networks for `X-Forwarded-For` (e.g. `172.16.0.0/12,10.0.0.0/8`). Set this when nginx, Traefik, or another reverse proxy fronts the manager so client IPs are reported correctly. Loopback is always trusted. |
+| `Security__TrustAllProxies` | `false` | Trust every upstream proxy unconditionally. Convenient for local dev. **Never enable on an internet-exposed host** — anyone can spoof a client IP. |
 
 #### Access Levels
 
