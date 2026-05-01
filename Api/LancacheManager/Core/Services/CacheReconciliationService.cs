@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
 using LancacheManager.Core.Interfaces;
@@ -31,6 +32,12 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     private readonly EvictedDetectionPreservationService _evictedDetectionPreservationService;
     private int _isRunning;
     private bool _currentScanIsSilent = true;
+    /// <summary>
+    /// Set of EvictionRemoval operationIds that should NOT emit SignalR notifications
+    /// (Remove-mode auto-cleanup). Helpers consult this before calling NotifyAllAsync so
+    /// the user never sees a removal notification for an automatic Remove-mode purge.
+    /// </summary>
+    private readonly ConcurrentDictionary<Guid, byte> _silentRemovalOperationIds = new();
     private readonly TaskCompletionSource<bool> _firstStartupScanComplete = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     protected override string ServiceName => "CacheReconciliationService";
@@ -133,12 +140,29 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         return base.IsEnabled();
     }
 
+    /// <summary>
+    /// Automatic scans (startup + scheduled) are silent when:
+    ///   - The evicted-data mode is "Remove" (the user has opted into invisible automatic cleanup), OR
+    ///   - The "Show scheduled scan notifications" toggle is off.
+    /// Manual scans always notify and ignore this helper (per the UI's documented behavior).
+    /// </summary>
+    private bool ShouldRunAutomaticScanSilently()
+    {
+        var mode = _stateService.GetEvictedDataMode();
+        if (mode == EvictedDataMode.Remove.ToWireString())
+        {
+            return true;
+        }
+
+        return !_stateService.GetEvictionScanNotifications();
+    }
+
     protected override async Task OnStartupAsync(CancellationToken stoppingToken)
     {
         // Wait for setup to complete so datasources and database are configured
         await _stateService.WaitForSetupCompletedAsync(stoppingToken);
 
-        var silent = !_stateService.GetEvictionScanNotifications();
+        var silent = ShouldRunAutomaticScanSilently();
 
         if (!TryBeginRun())
         {
@@ -181,7 +205,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         IServiceProvider scopedServices,
         CancellationToken stoppingToken)
     {
-        var silent = !_stateService.GetEvictionScanNotifications();
+        var silent = ShouldRunAutomaticScanSilently();
         var context = scopedServices.GetRequiredService<AppDbContext>();
 
         if (!TryBeginRun())
@@ -359,12 +383,14 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                     _gameCacheDetectionService.InvalidateDetectionCache();
                 }
 
-                // Handle evicted data "remove" mode — only run if there are evicted records
+                // Handle evicted data "remove" mode — only run if there are evicted records.
+                // The removal inherits the scan's silent flag: in Remove mode the scan is
+                // already silent, so the removal must also stay silent (no notification).
                 var evictedDataMode = _stateService.GetEvictedDataMode();
                 if (evictedDataMode == EvictedDataMode.Remove.ToWireString()
                     && await context.Downloads.AnyAsync(d => d.IsEvicted, stoppingToken))
                 {
-                    await RemoveEvictedRecordsAsync(context, stoppingToken);
+                    await RemoveEvictedRecordsAsync(context, stoppingToken, silent: silent);
                 }
 
                 _operationTracker.CompleteOperation(operationId, success: true);
@@ -601,6 +627,13 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         Dictionary<string, object?>? context = null)
     {
         _operationTracker.UpdateProgress(operationId, percentComplete, stageKey);
+
+        // Silent ops (Remove-mode auto-cleanup) skip the SignalR notification.
+        if (_silentRemovalOperationIds.ContainsKey(operationId))
+        {
+            return;
+        }
+
         await _notifications.NotifyAllAsync(
             SignalREvents.EvictionRemovalProgress,
             new EvictionRemovalProgress(
@@ -628,6 +661,14 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
         }
 
         _operationTracker.CompleteOperation(operationId, success, success ? null : error);
+
+        // Silent ops (Remove-mode auto-cleanup) skip the SignalR notification AND clear
+        // their entry from the silent set so the operationId can be reused later.
+        if (_silentRemovalOperationIds.TryRemove(operationId, out _))
+        {
+            return;
+        }
+
         await _notifications.NotifyAllAsync(
             SignalREvents.EvictionRemovalComplete,
             new EvictionRemovalComplete(
@@ -832,13 +873,16 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
     }
 
     /// <summary>
-    /// Deletes all evicted Download records and their associated LogEntries from the database.
-    /// Called when evicted data mode is set to "remove", either from the scan flow (no operationId)
-    /// or from the controller with a pre-registered operationId.
-    /// When operationId is null, a new operation is registered and Started is emitted internally.
-    /// In both cases Progress and Complete events are always emitted.
+    /// Deletes all evicted Download records, their associated LogEntries, and their matching
+    /// CachedGameDetections / CachedServiceDetections rows from the database. Called either
+    /// from the scan flow (no operationId, mode == Remove) or from the controller's
+    /// "Remove All Evicted" button (pre-registered operationId).
+    /// When <paramref name="silent"/> is true, no EvictionRemoval SignalR notifications are
+    /// emitted — the operationId is added to _silentRemovalOperationIds so downstream
+    /// Progress/Complete helpers also skip their sends. Silent is only used by the
+    /// scan-driven Remove-mode auto-cleanup; the controller-driven bulk button always notifies.
     /// </summary>
-    public async Task RemoveEvictedRecordsAsync(AppDbContext context, CancellationToken stoppingToken, Guid? operationId = null)
+    public async Task RemoveEvictedRecordsAsync(AppDbContext context, CancellationToken stoppingToken, Guid? operationId = null, bool silent = false)
     {
         CancellationTokenSource? cts = null;
 
@@ -852,8 +896,25 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 cts,
                 new EvictionRemovalMetadata()); // bulk removal — no specific scope/key
 
-            await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalStarted,
-                new EvictionRemovalStarted("signalr.evictionRemove.starting.bulk", operationId.Value));
+            // Silent mode (Remove-mode auto-cleanup): skip the EvictionRemovalStarted SignalR
+            // event so the frontend never creates a removal notification. The operationId is
+            // recorded in _silentRemovalOperationIds so all downstream Progress/Complete events
+            // also skip their SignalR sends.
+            if (silent)
+            {
+                _silentRemovalOperationIds.TryAdd(operationId.Value, 0);
+            }
+            else
+            {
+                await _notifications.NotifyAllAsync(SignalREvents.EvictionRemovalStarted,
+                    new EvictionRemovalStarted("signalr.evictionRemove.starting.bulk", operationId.Value));
+            }
+        }
+        else if (silent)
+        {
+            // Caller already registered the operation and emitted Started; honor silent for the
+            // remaining Progress/Complete events.
+            _silentRemovalOperationIds.TryAdd(operationId.Value, 0);
         }
 
         // At this point operationId is guaranteed non-null; capture as non-nullable for the rest of the method.
@@ -869,53 +930,45 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
             // is preserved either way.
             await PurgeEvictedLogEntriesAsync(context, opId, stoppingToken);
 
-            // Preservation-first bulk removal. The user workflow is:
-            //   1. Cache Clear wipes all CachedGameDetections + CachedServiceDetections rows
-            //      (but leaves Downloads intact).
-            //   2. An eviction scan then flips Downloads.IsEvicted = true for every game/
-            //      service that no longer has cache files (which is everything, post-clear).
-            //   3. In Remove mode, this method runs. Users expect to SEE those now-evicted
-            //      entities in the Evicted Items list with IsEvicted = true + CacheFilesFound = 0
-            //      BEFORE we delete the Downloads rows, so the UI reflects what was purged.
-            // We therefore upsert detection rows first, THEN delete Downloads. The per-item
-            // Remove path (RemoveEvictedRecordsForEntityAsync) stays removal-driven — when
-            // a user explicitly clicks Remove on a single entity the detection row is
-            // deleted outright. The two paths together give: natural eviction preserves
-            // visibility; explicit Remove makes it disappear.
-            await ReportEvictionRemovalProgressAsync(
-                opId,
-                30,
-                "preserving_evicted_entities",
-                "signalr.evictionRemove.preserving");
-
-            var evictedDownloads = await context.Downloads
-                .Where(d => d.IsEvicted)
-                .ToListAsync(stoppingToken);
-
-            int gamesUpserted = 0;
-            int servicesUpserted = 0;
+            // Removal-driven cleanup: the bulk path (Remove mode auto-scan and the controller-
+            // driven "Remove All Evicted" button) is an explicit user request to delete evicted
+            // entities. Like the per-item path (RemoveEvictedRecordsForEntityAsync), we DELETE
+            // the matching CachedGameDetections / CachedServiceDetections rows so the Evicted
+            // Items list clears on the frontend's next refetch — no ghost rows with 0 files /
+            // 0 B left behind. Order: detection rows → log entries → downloads, all in one
+            // transaction.
+            int detectionGamesDeleted = 0;
+            int detectionServicesDeleted = 0;
             int logEntriesDeleted = 0;
             int downloadsDeleted = 0;
 
             var strategy = context.Database.CreateExecutionStrategy();
             await strategy.ExecuteAsync(async () =>
             {
-                gamesUpserted = 0;
-                servicesUpserted = 0;
+                detectionGamesDeleted = 0;
+                detectionServicesDeleted = 0;
                 logEntriesDeleted = 0;
                 downloadsDeleted = 0;
 
                 await using var transaction = await context.Database.BeginTransactionAsync(stoppingToken);
                 try
                 {
-                    var preservationResult = await _evictedDetectionPreservationService.PreserveAsync(
-                        context,
-                        evictedDownloads,
-                        stoppingToken);
-                    gamesUpserted = preservationResult.GamesUpserted;
-                    servicesUpserted = preservationResult.ServicesUpserted;
+                    // Step 1: delete evicted detection rows so the frontend list clears.
+                    await ReportEvictionRemovalProgressAsync(
+                        opId,
+                        40,
+                        "removing_detection_rows",
+                        "signalr.evictionRemove.removingDetectionRows");
 
-                    // Step 1: delete LogEntries for evicted downloads (FK constraint).
+                    detectionGamesDeleted = await context.CachedGameDetections
+                        .Where(g => g.IsEvicted)
+                        .ExecuteDeleteAsync(stoppingToken);
+
+                    detectionServicesDeleted = await context.CachedServiceDetections
+                        .Where(s => s.IsEvicted)
+                        .ExecuteDeleteAsync(stoppingToken);
+
+                    // Step 2: delete LogEntries for evicted downloads (FK constraint).
                     await ReportEvictionRemovalProgressAsync(
                         opId,
                         60,
@@ -926,7 +979,7 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                         .Where(le => le.DownloadId != null && le.Download != null && le.Download.IsEvicted)
                         .ExecuteDeleteAsync(stoppingToken);
 
-                    // Step 2: delete evicted Downloads.
+                    // Step 3: delete evicted Downloads.
                     await ReportEvictionRemovalProgressAsync(
                         opId,
                         80,
@@ -947,11 +1000,11 @@ public class CacheReconciliationService : ScopedScheduledBackgroundService
                 }
             });
 
-            if (downloadsDeleted > 0 || logEntriesDeleted > 0 || gamesUpserted > 0 || servicesUpserted > 0)
+            if (downloadsDeleted > 0 || logEntriesDeleted > 0 || detectionGamesDeleted > 0 || detectionServicesDeleted > 0)
             {
                 _logger.LogInformation(
-                    "[EvictionScan] Remove mode: preserved {Games} games + {Services} services as evicted, deleted {Downloads} downloads, {LogEntries} log entries",
-                    gamesUpserted, servicesUpserted, downloadsDeleted, logEntriesDeleted);
+                    "[EvictionScan] Remove mode: deleted {Games} game detection rows + {Services} service detection rows, {Downloads} downloads, {LogEntries} log entries",
+                    detectionGamesDeleted, detectionServicesDeleted, downloadsDeleted, logEntriesDeleted);
             }
 
             // Invalidate the detection cache so the frontend refetch gets fresh data
