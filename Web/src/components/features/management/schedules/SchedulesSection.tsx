@@ -10,7 +10,7 @@ import LoadingSpinner from '@components/common/LoadingSpinner';
 import ApiService from '@services/api.service';
 import { useNotifications } from '@contexts/notifications';
 import { usePicsProgress } from '@contexts/usePicsProgress';
-import { getScheduleIntervalOptions } from './constants';
+import ScheduleIntervalPicker from './ScheduleIntervalPicker';
 import { useCountdownTimer } from '@hooks/useCountdownTimer';
 import { useFormattedDateTime } from '@hooks/useFormattedDateTime';
 import { useManagerLoading } from '@hooks/useManagerLoading';
@@ -67,58 +67,6 @@ const CountdownDisplay = memo(function CountdownDisplay({
   }
 
   return <span className="schedule-countdown">{display}</span>;
-});
-
-// Isolated, memoized dropdown — only takes primitive props so it short-circuits re-renders
-// when unrelated fields on the parent `service` object change (e.g. a run-on-startup toggle
-// causing an optimistic state update). Without this, the dropdown's EnhancedDropdown would
-// receive a new options array + onChange callback on every parent re-render and flicker.
-interface ScheduleIntervalDropdownProps {
-  intervalHours: number;
-  isDisabled: boolean;
-  onChange: (hours: number) => void;
-}
-
-const ScheduleIntervalDropdown = memo(function ScheduleIntervalDropdown({
-  intervalHours,
-  isDisabled,
-  onChange
-}: ScheduleIntervalDropdownProps) {
-  const { t } = useTranslation();
-
-  const formatIntervalLabel = (hours: number): string => {
-    if (hours <= 0) return '';
-    if (hours < 1) {
-      const minutes = Math.round(hours * 60);
-      return t('management.schedules.everyNMinutes', { count: minutes });
-    }
-    return t('management.schedules.everyNHours', { count: hours });
-  };
-
-  const standardOptions = getScheduleIntervalOptions(t);
-  const currentVal =
-    intervalHours === 0 ? '0' : intervalHours === -1 ? '-1' : String(intervalHours);
-  const hasCurrentOption = standardOptions.some((opt) => opt.value === currentVal);
-  const allOptions = hasCurrentOption
-    ? standardOptions
-    : [{ value: currentVal, label: formatIntervalLabel(intervalHours) }, ...standardOptions];
-
-  const handleChange = useCallback(
-    (value: string) => {
-      onChange(parseFloat(value));
-    },
-    [onChange]
-  );
-
-  return (
-    <EnhancedDropdown
-      options={allOptions}
-      value={currentVal}
-      onChange={handleChange}
-      disabled={isDisabled}
-      variant="button"
-    />
-  );
 });
 
 type DepotScheduledScanMode = 'incremental' | 'full' | 'github';
@@ -335,7 +283,7 @@ const ScheduleCard = memo(function ScheduleCard({
         {/* Controls */}
         <div className="schedule-controls-row">
           <div className="schedule-dropdown-wrapper">
-            <ScheduleIntervalDropdown
+            <ScheduleIntervalPicker
               intervalHours={service.intervalHours}
               isDisabled={isDisabled}
               onChange={handleIntervalChange}

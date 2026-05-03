@@ -4,7 +4,6 @@ import type { TFunction } from 'i18next';
 export const getScheduleIntervalOptions = (t: TFunction): DropdownOption[] => [
   { value: '0', label: t('management.schedules.intervals.disabled') },
   { value: '-1', label: t('management.schedules.intervals.startupOnly') },
-  { value: '0.5', label: t('management.schedules.intervals.every30Minutes') },
   { value: '1', label: t('management.schedules.intervals.everyHour') },
   { value: '3', label: t('management.schedules.intervals.every3Hours') },
   { value: '6', label: t('management.schedules.intervals.every6Hours') },
@@ -13,5 +12,6 @@ export const getScheduleIntervalOptions = (t: TFunction): DropdownOption[] => [
   { value: '48', label: t('management.schedules.intervals.every2Days') },
   { value: '168', label: t('management.schedules.intervals.weekly') },
   { value: '336', label: t('management.schedules.intervals.every2Weeks') },
-  { value: '720', label: t('management.schedules.intervals.monthly') }
+  { value: '720', label: t('management.schedules.intervals.monthly') },
+  { value: 'custom', label: t('management.schedules.intervals.custom') }
 ];

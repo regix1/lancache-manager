@@ -1,0 +1,76 @@
+.schedule-interval-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.schedule-interval-picker-dropdown {
+  width: 100%;
+}
+
+.schedule-interval-picker-custom-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.schedule-interval-picker-input {
+  width: 5rem;
+  padding: 0.375rem 0.5rem;
+  background-color: var(--theme-bg-tertiary);
+  color: var(--theme-text-primary);
+  border: 1px solid var(--theme-border-primary);
+  border-radius: var(--theme-border-radius);
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  outline: none;
+  transition: border-color 0.15s ease;
+
+  /* Hide native number spin buttons */
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.schedule-interval-picker-input::-webkit-outer-spin-button,
+.schedule-interval-picker-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.schedule-interval-picker-input:focus {
+  border-color: var(--theme-border-focus);
+}
+
+.schedule-interval-picker-input.has-error {
+  border-color: var(--theme-error);
+}
+
+.schedule-interval-picker-input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.schedule-interval-picker-suffix {
+  font-size: 0.875rem;
+  color: var(--theme-text-secondary);
+  white-space: nowrap;
+}
+
+.schedule-interval-picker-error {
+  font-size: 0.75rem;
+  color: var(--theme-error);
+}
+
+@media (max-width: 639px) {
+  .schedule-interval-picker-custom-row {
+    width: 100%;
+  }
+
+  .schedule-interval-picker-input {
+    flex: 1;
+    min-width: 0;
+  }
+}

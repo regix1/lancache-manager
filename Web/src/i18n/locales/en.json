@@ -2892,7 +2892,7 @@
       "intervals": {
         "disabled": "Disabled",
         "startupOnly": "Startup only",
-        "every30Minutes": "Every 30 minutes",
+        "custom": "Custom…",
         "everyHour": "Every hour",
         "every3Hours": "Every 3 hours",
         "every6Hours": "Every 6 hours",
@@ -2902,6 +2902,12 @@
         "weekly": "Weekly",
         "every2Weeks": "Every 2 weeks",
         "monthly": "Monthly"
+      },
+      "customMinutes": {
+        "placeholder": "1–59",
+        "suffix": "min",
+        "apply": "Apply",
+        "aria": "Custom interval in minutes (1 to 59)"
       },
       "services": {
         "depotMapping": {
