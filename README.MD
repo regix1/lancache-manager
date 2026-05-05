@@ -203,7 +203,7 @@ services:
       # - Prefill__LancacheIp=192.168.1.10        # Cache server IP. The single most reliable override.
       # - Prefill__LancacheDnsIp=192.168.1.20     # DNS server IP. Bridge mode only.
       # - Prefill__NetworkMode=bridge             # `host`, `bridge`, or a Docker network name.
-      # - Prefill__DockerImage=ghcr.io/regix1/steam-prefill-daemon:latest
+      # - Prefill__SteamDockerImage=ghcr.io/regix1/steam-prefill-daemon:latest
       # - Prefill__EpicDockerImage=ghcr.io/regix1/epic-prefill-daemon:latest
 
       # Nginx Log Rotation
@@ -347,7 +347,7 @@ For setup decisions (when do I need which override?), see [Prefill (Steam & Epic
 | `Prefill__LancacheIp` | (unset) | IP or hostname of your **cache server** (the HTTP server holding cached files, port 80). Forwarded to the daemon as `LANCACHE_IP`; the daemon then connects directly with a spoofed `Host:` header and skips DNS for CDN traffic. The single most reliable override — set this whenever your DNS isn't a stock `lancache-dns`. |
 | `Prefill__LancacheDnsIp` | `auto` | IP of your **DNS server** (lancache-dns, AdGuard, Pi-hole — port 53). Written into the prefill container's `/etc/resolv.conf` so the daemon resolves CDN hostnames against it. Used in `bridge` mode only — Docker silently drops DNS overrides on `host`-network containers. `auto` reuses the IP of your detected `lancache-dns` container. |
 | `Prefill__NetworkMode` | `auto` | Docker network mode for prefill containers. Accepts `host`, `bridge`, or a Docker network name. `auto` infers the mode from your `lancache-dns` container. |
-| `Prefill__DockerImage` | `ghcr.io/regix1/steam-prefill-daemon:latest` | Docker image used for Steam prefill containers. |
+| `Prefill__SteamDockerImage` | `ghcr.io/regix1/steam-prefill-daemon:latest` | Docker image used for Steam prefill containers. |
 | `Prefill__EpicDockerImage` | `ghcr.io/regix1/epic-prefill-daemon:latest` | Docker image used for Epic prefill containers. |
 | `Prefill__SessionTimeoutMinutes` | `120` | Minutes of inactivity before an idle prefill session is cleaned up. |
 | `Prefill__DaemonBasePath` | `/data/prefill` | Container path where prefill session state is stored. |

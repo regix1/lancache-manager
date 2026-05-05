@@ -144,8 +144,8 @@ services:
       # (Fork of https://github.com/tpill90/steam-lancache-prefill)
       #---------------------------------------------------------------------------
 
-      # Docker image for per-user prefill containers
-      # - Prefill__DockerImage=ghcr.io/regix1/steam-prefill-daemon:latest
+      # Docker image for Steam prefill containers
+      # - Prefill__SteamDockerImage=ghcr.io/regix1/steam-prefill-daemon:latest
 
       # Session timeout in minutes (inactive sessions get cleaned up)
       # - Prefill__SessionTimeoutMinutes=120

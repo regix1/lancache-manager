@@ -34,7 +34,7 @@ public partial class SteamDaemonService : PrefillDaemonServiceBase
     protected override string ContainerPrefix => "steam-daemon-";
     protected override string DefaultDockerImage => SteamDockerImage;
     protected override string GetImageName()
-        => _configuration["Prefill:DockerImage"] ?? SteamDockerImage;
+        => _configuration["Prefill:SteamDockerImage"] ?? SteamDockerImage;
 
     // === Diagnostics ===
 
