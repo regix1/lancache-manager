@@ -165,7 +165,7 @@ services:
 
 Drop `:ro` from the `/cache` mount if you want to clear cache or remove individual games from the UI. The Docker socket is optional — you only need it for nginx log rotation and prefill (Steam or Epic).
 
-The full compose file with every available knob, all commented out:
+A complete compose file showing every available environment variable, all commented out:
 
 ```yaml
 services:
@@ -198,18 +198,13 @@ services:
       # - Security__AllowedOrigins=
       # - Security__AllowedBrowsePaths=
 
-      # Prefill (Steam & Epic)
+      # Prefill (Steam & Epic) — see Configuration > Prefill for the full reference
+      # Most installs need none of these; auto-detection covers the common cases.
+      # - Prefill__LancacheIp=192.168.1.10        # Cache server IP. The single most reliable override.
+      # - Prefill__LancacheDnsIp=192.168.1.20     # DNS server IP. Bridge mode only.
+      # - Prefill__NetworkMode=bridge             # `host`, `bridge`, or a Docker network name.
       # - Prefill__DockerImage=ghcr.io/regix1/steam-prefill-daemon:latest
       # - Prefill__EpicDockerImage=ghcr.io/regix1/epic-prefill-daemon:latest
-      # - Prefill__SessionTimeoutMinutes=120
-      # - Prefill__DaemonBasePath=/data/prefill
-      # - Prefill__HostDataPath=auto
-      # - Prefill__NetworkMode=auto
-      # - Prefill__LancacheDnsIp=auto
-      # - Prefill__UseTcp=auto
-      # - Prefill__TcpPort=4379
-      # - Prefill__HostTcpPort=4379
-      # - Prefill__TcpHost=127.0.0.1
 
       # Nginx Log Rotation
       # - NginxLogRotation__Enabled=true
@@ -272,7 +267,7 @@ LANCache Manager stores everything in PostgreSQL. There are two ways to set the 
 
 If you're upgrading from an older SQLite build, the migration runs automatically on first start — your downloads, settings, and cached data carry over without any manual steps.
 
-Compose example with the password baked in:
+Compose example with the password set inline:
 
 ```yaml
 services:
@@ -343,21 +338,27 @@ If you don't use the DeveLanCacheUI importer, leave it empty. The warning is inf
 <a id="prefill-config"></a>
 ### Prefill
 
-Most of these are auto-detected. The only one you typically need to set by hand is `Prefill__NetworkMode`, and only if the auto-detection guesses wrong for your Docker setup. See [Prefill (Steam & Epic)](#prefill-steam--epic) for the full network setup guide.
+Prefill auto-detects the right values for almost everything in this table. The one variable worth knowing about is **`Prefill__LancacheIp`** — set it to your cache server's IP and prefill stops depending on DNS at all. Reach for the others only when auto-detection gets it wrong.
+
+For setup decisions (when do I need which override?), see [Prefill (Steam & Epic) → Network setup](#prefill-network).
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `Prefill__LancacheIp` | (unset) | IP or hostname of your **cache server** (the HTTP server holding cached files, port 80). Forwarded to the daemon as `LANCACHE_IP`; the daemon then connects directly with a spoofed `Host:` header and skips DNS for CDN traffic. The single most reliable override — set this whenever your DNS isn't a stock `lancache-dns`. |
+| `Prefill__LancacheDnsIp` | `auto` | IP of your **DNS server** (lancache-dns, AdGuard, Pi-hole — port 53). Written into the prefill container's `/etc/resolv.conf` so the daemon resolves CDN hostnames against it. Used in `bridge` mode only — Docker silently drops DNS overrides on `host`-network containers. `auto` reuses the IP of your detected `lancache-dns` container. |
+| `Prefill__NetworkMode` | `auto` | Docker network mode for prefill containers. Accepts `host`, `bridge`, or a Docker network name. `auto` infers the mode from your `lancache-dns` container. |
 | `Prefill__DockerImage` | `ghcr.io/regix1/steam-prefill-daemon:latest` | Docker image used for Steam prefill containers. |
 | `Prefill__EpicDockerImage` | `ghcr.io/regix1/epic-prefill-daemon:latest` | Docker image used for Epic prefill containers. |
-| `Prefill__SessionTimeoutMinutes` | `120` | Inactive session cleanup timeout. |
-| `Prefill__DaemonBasePath` | `/data/prefill` | Where session data is stored. |
-| `Prefill__HostDataPath` | `auto` | Host path mapping to `/data`. Auto-detected from container mounts. |
-| `Prefill__NetworkMode` | `auto` | Network mode for prefill containers: `host`, `bridge`, a network name, or `auto`. |
-| `Prefill__LancacheDnsIp` | `auto` | IP of your lancache-dns container. Auto-detected from Docker. |
-| `Prefill__UseTcp` | `auto` | Use TCP for daemon communication. `auto` resolves to `true` on Windows, `false` on Linux. |
-| `Prefill__TcpPort` | `4379` | TCP port inside the prefill container. |
-| `Prefill__HostTcpPort` | `4379` | TCP port exposed on the host for prefill containers. |
-| `Prefill__TcpHost` | `127.0.0.1` | TCP host used by the prefill daemon. |
+| `Prefill__SessionTimeoutMinutes` | `120` | Minutes of inactivity before an idle prefill session is cleaned up. |
+| `Prefill__DaemonBasePath` | `/data/prefill` | Container path where prefill session state is stored. |
+| `Prefill__HostDataPath` | `auto` | Host path that maps to the manager's `/data` volume. Detected from the manager's mount config; set explicitly only when detection fails (unusual platforms, custom volume drivers). |
+| `Prefill__UseTcp` | `auto` | Communicate with the daemon over TCP instead of a Unix domain socket. `auto` resolves to `true` on Windows, `false` on Linux. *Linux users only need to set this if they want to force TCP mode.* |
+| `Prefill__TcpPort` | `45555` | TCP port the daemon listens on inside its container. *Used in TCP mode only — Windows by default, Linux only when `Prefill__UseTcp=true`.* |
+| `Prefill__HostTcpPort` | (random free port) | TCP port the daemon's container publishes on the host. *TCP mode only.* |
+| `Prefill__TcpHost` | `127.0.0.1` | Host the daemon binds to and the manager connects to over TCP. *TCP mode only.* |
+
+> [!NOTE]
+> **TCP mode is the platform divide.** On Windows, prefill containers communicate over TCP because Windows doesn't expose Unix domain sockets to Docker. On Linux, prefill uses a Unix domain socket by default — the four TCP variables above are ignored unless you set `Prefill__UseTcp=true`. Stock Linux installs can skip the TCP rows entirely.
 
 <a id="paths-and-datasources"></a>
 ### Paths and Datasources
@@ -437,7 +438,7 @@ The dialog tells you how many games were added, how many were already selected, 
 <a id="prefill-network"></a>
 ### Network setup
 
-**Most installs need zero config.** If you run the standard `lancache` + `lancache-dns` containers, lancache-manager auto-detects them and prefill works out of the box.
+**Most installs need zero config.** If you run the standard `lancache` + `lancache-dns` containers, lancache-manager auto-detects them and prefill works without further setup.
 
 If your DNS isn't a stock `lancache-dns` (you use AdGuard Home, Pi-hole, public DNS, etc.) or your routing is unusual, set one env var and you're done.
 
@@ -453,15 +454,9 @@ If your DNS isn't a stock `lancache-dns` (you use AdGuard Home, Pi-hole, public 
 | You want predictable behavior regardless of environment | always set `Prefill__LancacheIp` |
 
 > [!TIP]
-> **`Prefill__LancacheIp` is the universal escape hatch.** When set, prefill talks to your cache by IP and never asks DNS where the cache lives. Network mode and DNS server settings stop mattering for CDN traffic.
+> **`Prefill__LancacheIp` is the universal override.** When set, prefill talks to your cache by IP and never asks DNS where the cache lives. Network mode and DNS server settings stop mattering for CDN traffic.
 
-#### Settings
-
-| Variable | What it does |
-|---|---|
-| `Prefill__NetworkMode` | `host` or `bridge`. Defaults to auto-detect from your `lancache-dns` container. |
-| `Prefill__LancacheIp` | IP (or hostname) of your lancache **cache server** (the HTTP server holding cached files, port 80). Forwarded to the daemon as `LANCACHE_IP`. The daemon connects to this IP directly with a spoofed `Host:` header — no DNS lookup. Works in both `host` and `bridge` mode. |
-| `Prefill__LancacheDnsIp` | IP of your **DNS server** (lancache-dns, AdGuard, Pi-hole — port 53). Written into the container's `/etc/resolv.conf` so the daemon queries it for hostname lookups. Used in **bridge mode only** — Docker silently drops DNS overrides on host-network containers. |
+Full descriptions and defaults for `Prefill__LancacheIp`, `Prefill__LancacheDnsIp`, and `Prefill__NetworkMode` live in the [Configuration → Prefill](#prefill-config) reference table.
 
 > [!IMPORTANT]
 > **`LancacheIp` and `LancacheDnsIp` are different services, even on the same machine.** Quick mental model:
@@ -473,7 +468,7 @@ If your DNS isn't a stock `lancache-dns` (you use AdGuard Home, Pi-hole, public 
 >
 > Think of a small town. The **cache** is the library (where the books live). The **DNS server** is the information booth (where you ask "which way to the library?"). Both can sit in the same building — same IP, different ports — but they do completely different jobs. You can't borrow a book from the information booth, and the librarian doesn't give directions.
 >
-> When you set `LancacheIp`, the daemon skips the information booth entirely and walks straight to the library. That's why it's the universal escape hatch: DNS becomes irrelevant for cache traffic.
+> When you set `LancacheIp`, the daemon skips the information booth entirely and walks straight to the library. That's why it's the universal override: DNS becomes irrelevant for cache traffic.
 
 > [!IMPORTANT]
 > Steam (`api.steampowered.com`) and Epic (`*.epicgames.com`) auth and manifest endpoints still use normal DNS. `LANCACHE_IP` only redirects CDN chunk traffic — the only domains lancache caches. Your login and metadata traffic is unaffected.
@@ -868,8 +863,8 @@ This applies to both Steam and Epic.
 5. **HTTP 400 errors during download.** The container can't resolve CDN domains to your cache. Try one of these:
    - `Prefill__NetworkMode=host` if your `lancache-dns` runs on host networking.
    - `Prefill__LancacheDnsIp` set to your DNS server IP.
-   - Or, the bulletproof option: set `Prefill__LancacheIp` to your cache server's IP. This bypasses DNS entirely for CDN traffic and works with any HTTP cache that routes by `Host:` header. See the [Network setup](#prefill-network) section for details.
-6. **IPv6 sneaking around DNS.** If your network has IPv6, queries can bypass `lancache-dns`. The app already disables IPv6 in prefill containers to prevent this.
+   - Or, the most reliable option: set `Prefill__LancacheIp` to your cache server's IP. This bypasses DNS entirely for CDN traffic and works with any HTTP cache that routes by `Host:` header. See the [Network setup](#prefill-network) section for details.
+6. **IPv6 traffic bypassing DNS.** If your network has IPv6, queries can bypass `lancache-dns`. The app already disables IPv6 in prefill containers to prevent this.
 7. **Epic OAuth never connects.** Complete the OAuth flow in the browser window that pops open. The token is stored securely and persists across sessions.
 
 To find the IP of your `lancache-dns`:
