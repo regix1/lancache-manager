@@ -71,10 +71,21 @@ public class AuthenticationHelper
 
     /// <summary>
     /// Gets the API key from request headers.
+    /// Accepts X-Api-Key header (primary) or Authorization: Bearer &lt;key&gt; (Prometheus convention).
     /// </summary>
     public static string? GetApiKeyFromHeader(HttpContext context)
     {
-        return context.Request.Headers["X-Api-Key"].FirstOrDefault();
+        var apiKey = context.Request.Headers["X-Api-Key"].FirstOrDefault();
+        if (apiKey != null)
+            return apiKey;
+
+        // Support Authorization: Bearer <key> so Prometheus scrape_config can use the
+        // standard `authorization: { type: Bearer, credentials: <key> }` block.
+        var authHeader = context.Request.Headers.Authorization.FirstOrDefault();
+        if (authHeader?.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) == true)
+            return authHeader["Bearer ".Length..].Trim();
+
+        return null;
     }
 
     /// <summary>
