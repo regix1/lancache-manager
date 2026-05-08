@@ -31,6 +31,7 @@ A web UI for [LANCache](https://lancache.net/). Watch downloads as they happen, 
 - [Reverse Proxy (Nginx)](#nginx-reverse-proxy)
 - [Monitoring (Grafana & Prometheus)](#grafana--prometheus)
 - [Troubleshooting](#troubleshooting)
+  - [/metrics returns 401 despite env var](#metrics-401)
 - [Building from Source](#building-from-source)
 - [Contributing Translations](#contributing-translations)
 - [Support and License](#support-and-license)
@@ -300,7 +301,7 @@ services:
 | `Security__EnableAuthentication` | `true` | Require an API key for admin actions. Only turn off for local dev. |
 | `Security__MaxAdminDevices` | `3` | How many devices can share the same API key. |
 | `Security__GuestSessionDurationHours` | `6` | Default guest session length (also configurable in the UI). |
-| `Security__RequireAuthForMetrics` | `false` | Require an API key on `/metrics`. |
+| `Security__RequireAuthForMetrics` | `false` | Require an API key on `/metrics`. **This env var is the default only** — if the toggle has ever been saved via the UI (Management → Security), the persisted value takes priority. See [Metrics returns 401 despite env var](#metrics-401) if the env var appears to have no effect. |
 | `Security__ProtectSwagger` | `true` | Require auth on Swagger docs in production. |
 | `Security__AllowedOrigins` | (empty) | Comma-separated CORS allow list. Empty allows all. |
 | `Security__AllowedBrowsePaths` | (empty) | Comma-separated allow-list of file-browser roots. Empty disables the file browser entirely (every request returns `403`). Example: `/data,/mnt`. |
@@ -830,6 +831,45 @@ lancache_cache_size_bytes / 1024 / 1024 / 1024
 1. Open **Management > Integrations** and run Epic game mapping.
 2. The mapping service queries the Epic API to identify what's in your cache.
 3. Game names and cover art come down automatically.
+
+<a id="metrics-401"></a>
+### `/metrics` returns 401 despite `Security__RequireAuthForMetrics=false`
+
+**Symptom:** Prometheus (or a manual `curl`) gets a `401 Unauthorized` from `/metrics` even though `Security__RequireAuthForMetrics=false` is set in the environment and is visible in `docker inspect`.
+
+**Why it happens — config priority:**
+
+```
+UI toggle (persisted in state.json)  >  env var / appsettings.json default
+```
+
+`Security__RequireAuthForMetrics` is the *default fallback*. Once the toggle is saved via the UI (Management → Security → "Require authentication for metrics"), that value is written to `data/state/state.json` and permanently wins — the env var is no longer consulted.
+
+**Fix option 1 — via the UI:**
+
+Go to **Management → Security** and toggle "Require authentication for metrics" off, then save.
+
+**Fix option 2 — edit `state.json` directly** (when the UI is inaccessible or you prefer config-as-code):
+
+```bash
+# Stop the container first to avoid a concurrent write race
+docker stop lancache-manager
+
+# Null out the field so the env var becomes the effective value again
+python3 -c "
+import json
+with open('./data/state/state.json') as f:
+    s = json.load(f)
+s['requireAuthForMetrics'] = None
+with open('./data/state/state.json', 'w') as f:
+    json.dump(s, f, indent=2)
+print('done')
+"
+
+docker start lancache-manager
+```
+
+After the restart, `Security__RequireAuthForMetrics=false` takes effect.
 
 ### Lost API key
 
