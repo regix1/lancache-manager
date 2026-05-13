@@ -123,9 +123,10 @@ project.yml
 tmpclaude-*
 **/tmpclaude-*
 
-# Documentation and reference files (local only)
+# Documentation and reference files (local only by default; .md files get tracked)
 docs/*
 !docs/images/
+!docs/*.md
 notification_code.md
 
 # Development tools and temporary files

@@ -255,23 +255,31 @@ services:
 <a id="postgresql"></a>
 ### PostgreSQL
 
-LANCache Manager stores everything in PostgreSQL. You can run it two ways:
+LANCache Manager stores everything in PostgreSQL. Pick one of two modes:
 
-- **Embedded (default):** PostgreSQL 17 runs inside the lancache-manager container over a Unix socket. Best for single-container deployments and newcomers - nothing extra to configure.
-- **External:** Run PostgreSQL yourself as a sidecar container (or on another host / managed service). Set `POSTGRES_MODE=external` plus the connection env vars.
+| Mode | When to use it |
+|------|----------------|
+| **Embedded** (default) | Single-container deployment, simplest setup. PostgreSQL 17 runs inside the lancache-manager container over a Unix socket. Nothing extra to configure. |
+| **External** | Standard Docker pattern, easier upgrades, lets you point at a managed Postgres (RDS, Azure DB, Cloud SQL). Requires a separate Postgres service or a remote host. |
+
+Switching from embedded to external on an existing install? See [docs/external-postgres-migration.md](docs/external-postgres-migration.md) for the `pg_dump`/`pg_restore` commands.
+
+#### Environment variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `POSTGRES_MODE` | `embedded` | `embedded` (in-container Unix-socket Postgres) or `external` (connect to a Postgres you run yourself). |
-| `POSTGRES_USER` | `lancache` | PostgreSQL username. |
-| `POSTGRES_PASSWORD` | - | PostgreSQL password. In embedded mode the app shows a UI setup page if this is unset; in external mode it must be set (or entered via the UI fallback before the container can connect). |
-| `POSTGRES_HOST` | - | External mode only. Hostname or IP of the PostgreSQL server. |
-| `POSTGRES_PORT` | `5432` | External mode only. |
-| `POSTGRES_DB` | `lancache` | Database name. |
+| `POSTGRES_MODE` | `embedded` | `embedded` or `external`. |
+| `POSTGRES_USER` | `lancache` | PostgreSQL username. Both modes. |
+| `POSTGRES_PASSWORD` | - | PostgreSQL password. In embedded mode the UI shows a setup page if this is unset. In external mode it must be set (or entered via the UI fallback before the app can connect). |
+| `POSTGRES_HOST` | - | **External mode only.** Hostname or IP of the Postgres server. |
+| `POSTGRES_PORT` | `5432` | **External mode only.** |
+| `POSTGRES_DB` | `lancache` | Database name. Both modes. |
 
-If you're upgrading from an older SQLite build, the migration runs automatically on first start in either mode - your downloads, settings, and cached data carry over without any manual steps. On managed Postgres services (RDS, Azure Database, Cloud SQL) some `ALTER SYSTEM` tuning is forbidden; the migration treats it as best-effort and continues without it.
+If you're upgrading from an older SQLite build, the migration runs automatically on first start in either mode — your downloads, settings, and cached data carry over with no manual steps. On managed Postgres services some `ALTER SYSTEM` tuning is forbidden; the migration treats it as best-effort and continues without it.
 
-**Embedded mode — compose example:**
+#### Example 1: Embedded (default)
+
+Single container, no sidecar. The simplest possible setup.
 
 ```yaml
 services:
@@ -293,10 +301,19 @@ services:
       - LanCache__LogPath=/logs/access.log
       - LanCache__CachePath=/cache
       - POSTGRES_PASSWORD=your-secure-password
-      # - POSTGRES_USER=lancache  # Optional, defaults to "lancache"
 ```
 
-**External mode — compose example with sidecar Postgres:**
+Bring it up:
+
+```bash
+docker compose up -d
+```
+
+That's it. Leave `POSTGRES_PASSWORD` unset and the first-run UI will prompt for it.
+
+#### Example 2: External (sidecar Postgres)
+
+Two services: `lancache-manager` connects over TCP to `lancache-db`. Same image, different env vars.
 
 ```yaml
 services:
@@ -319,9 +336,10 @@ services:
       - LanCache__CachePath=/cache
       - POSTGRES_MODE=external
       - POSTGRES_HOST=lancache-db
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=lancache
       - POSTGRES_USER=lancache
       - POSTGRES_PASSWORD=change-this-password
-      - POSTGRES_DB=lancache
     depends_on:
       - lancache-db
 
@@ -340,7 +358,15 @@ volumes:
   postgres_data:
 ```
 
-In external mode, if you start the container with `POSTGRES_MODE=external` but no connection env vars, the app boots into a setup-only state and shows a wizard form for entering the host/port/user/pass/database. The credentials are saved to `/data/config/postgres-credentials.json`, and you'll be asked to restart the container so the app picks up the new connection on cold start.
+`POSTGRES_PASSWORD` must match between the two services. Bring both up at once:
+
+```bash
+docker compose up -d
+```
+
+Pointing at a remote/managed Postgres? Set `POSTGRES_HOST` to its hostname, drop the `lancache-db` service, drop `depends_on`, and skip the named volume.
+
+If you set `POSTGRES_MODE=external` but leave the other connection env vars unset, the app boots in setup-only mode and shows a UI form. Credentials submitted there are saved to `/data/config/postgres-credentials.json`; you'll be asked to restart the container so the new connection takes effect.
 
 <a id="security"></a>
 ### Security
